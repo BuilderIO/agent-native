@@ -642,6 +642,10 @@ const messages: AgentChatTranslation = {
     "La connexion à l’agent a expiré avant la fin. Vous pouvez poursuivre à partir du travail partiel ou réessayer.",
   "errorMessages.invalidToolSchema":
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
+  "errorMessages.malformedRequest":
+    "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.malformedRequestAttachment":
+    "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
   "errorMessages.noProviderConnected":
     "Aucun fournisseur de LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs d’IA, puis connectez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":

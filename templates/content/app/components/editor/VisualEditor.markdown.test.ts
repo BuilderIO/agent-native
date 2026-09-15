@@ -123,6 +123,7 @@ import {
   getRecentEditPresenceMarkerRect,
   hasAncestorType,
   parseNfmForCollabReconcile,
+  parseMarkdownClipboardSlice,
   ensurePendingImageUpload,
   restorePendingImagePicker,
   runIfMediaCreationAllowed,
@@ -499,6 +500,525 @@ function createFullEditor(content = "") {
       : { type: "doc", content: [{ type: "paragraph" }] },
   });
 }
+
+describe("markdown clipboard parsing", () => {
+  it("parses a large multi-block Markdown document as block content", () => {
+    const section = [
+      "## A section heading",
+      "",
+      "A paragraph with **bold text** and [a link](https://example.test).",
+      "",
+      "- First item",
+      "- Second item",
+      "",
+      "```ts",
+      'const message = "still responsive";',
+      "```",
+    ].join("\n");
+    const markdown = ["# Large pasted draft", ...Array(120).fill(section)].join(
+      "\n\n",
+    );
+    const editor = createFullEditor();
+
+    try {
+      expect(markdown.length).toBeGreaterThan(15_000);
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      expect(slice?.openStart).toBeGreaterThan(0);
+      expect(slice?.openEnd).toBeGreaterThan(0);
+
+      editor.view.dispatch(
+        editor.state.tr.replaceSelection(slice!).scrollIntoView(),
+      );
+      const saved = docToNfm(editor.state.doc.toJSON());
+      expect(saved).toContain("# Large pasted draft");
+      expect(saved.match(/^## A section heading$/gm)).toHaveLength(120);
+      expect(saved).toContain('const message = "still responsive";');
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("leaves non-Markdown clipboard text to the default paste behavior", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        parseMarkdownClipboardSlice(
+          editor,
+          "An ordinary plain text paragraph.",
+        ),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves top-level Markdown block types", () => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(
+        editor,
+        "# Heading\n\n- list item\n\n> quoted",
+      );
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "bulletList",
+        ),
+      ).toBe(true);
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "blockquote",
+        ),
+      ).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fits Markdown to a nested list-item selection", () => {
+    const editor = createFullEditor();
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "Existing item" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      let cursor = 1;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "paragraph")
+          cursor = pos + node.content.size + 1;
+      });
+      editor.commands.setTextSelection(cursor);
+      const slice = parseMarkdownClipboardSlice(
+        editor,
+        "Nested paragraph with **bold** text.\n\n- nested item",
+      );
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("bulletList");
+      expect(editor.state.doc.textContent).toContain("Existing item");
+      expect(editor.state.doc.textContent).toContain("Nested paragraph");
+      expect(editor.state.doc.textContent).toContain("nested item");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["**bold**", "bold"],
+    ["*italic*", "italic"],
+    ["[link](https://example.test)", "link"],
+  ])("preserves standalone inline Markdown %s", (markdown, markName) => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+      expect(editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+        markName,
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["**bold**after", "bold"],
+    ["*italic*after", "italic"],
+  ])(
+    "recognizes inline Markdown followed by text: %s",
+    (markdown, markName) => {
+      const editor = createFullEditor();
+      try {
+        const slice = parseMarkdownClipboardSlice(editor, markdown);
+        expect(slice).not.toBeNull();
+        editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+        expect(
+          editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name,
+        ).toBe(markName);
+        expect(editor.state.doc.textContent).toBe(markdown.replace(/\*/g, ""));
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    ["- first\n- second", "bulletList"],
+    ["1. first\n2. second", "orderedList"],
+    ["> first\n> second", "blockquote"],
+    ["```ts\nconst value = 1;\n```", "codeBlock"],
+  ])("parses standalone block Markdown: %s", (markdown, nodeName) => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === nodeName,
+        ),
+      ).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each(["Formula: 2*3*4", "Use * asterisk * literally"])(
+    "keeps ordinary asterisk text literal: %s",
+    (text) => {
+      const editor = createFullEditor();
+      try {
+        expect(parseMarkdownClipboardSlice(editor, text)).toBeNull();
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps ordinary asterisks literal through the paste event", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/plain",
+      "Formula: 2*3*4\n\nUse * asterisk * literally",
+    );
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged && transaction.getMeta("paste")) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.textContent).toBe(
+        "Formula: 2*3*4Use * asterisk * literally",
+      );
+      expect(
+        editor.state.doc.firstChild?.firstChild?.marks.map(
+          (mark) => mark.type.name,
+        ),
+      ).toEqual([]);
+      expect(editor.state.doc.lastChild?.firstChild?.marks).toHaveLength(0);
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("rejects large unmatched link delimiters without reparsing", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        parseMarkdownClipboardSlice(editor, "[".repeat(100_000)),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps paste-as-plain-text Markdown literal", () => {
+    const editor = createFullEditor();
+    const markdown = "# Plain paste heading\n\n- first\n- second";
+    try {
+      const slice = editor.view.someProp("clipboardTextParser", (parse) =>
+        parse(markdown, editor.state.selection.$from, true, editor.view),
+      );
+      expect(slice).toBeDefined();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.textContent).toContain("# Plain paste heading");
+      expect(editor.state.doc.textContent).toContain("- first");
+      expect(editor.state.doc.childCount).toBe(3);
+      expect(
+        Array.from(
+          { length: editor.state.doc.childCount },
+          (_, index) => editor.state.doc.child(index).type.name,
+        ),
+      ).toEqual(["paragraph", "paragraph", "paragraph"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps dual-format paste-as-plain-text Markdown literal", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<pre><code># Plain paste heading\n\n- first</code></pre>",
+    );
+    clipboardData.setData("text/plain", "# Plain paste heading\n\n- first");
+
+    try {
+      const input = (
+        editor.view as unknown as {
+          input: { shiftKey: boolean; lastKeyCode: number | null };
+        }
+      ).input;
+      input.shiftKey = true;
+      input.lastKeyCode = 86;
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.textContent).toContain("# Plain paste heading");
+      expect(editor.state.doc.textContent).toContain("- first");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) =>
+            node.type.name === "heading" || node.type.name === "bulletList",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps Markdown literal when pasting into a code block", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<pre><code># Literal heading\n**literal bold**</code></pre>",
+    );
+    clipboardData.setData("text/plain", "# Literal heading\n**literal bold**");
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "codeBlock" }],
+      });
+      editor.commands.setTextSelection(1);
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("codeBlock");
+      expect(editor.state.doc.textContent).toContain("# Literal heading");
+      expect(editor.state.doc.textContent).toContain("**literal bold**");
+      expect(editor.state.doc.firstChild?.firstChild?.marks).toHaveLength(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves inline code HTML instead of reparsing its text", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code>**literal**</code></p>");
+    clipboardData.setData("text/plain", "**literal**");
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged && transaction.getMeta("paste")) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      const text = editor.state.doc.firstChild?.firstChild;
+      expect(text?.text).toBe("**literal**");
+      expect(text?.marks.map((mark) => mark.type.name)).toEqual(["code"]);
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("accepts empty inline code HTML without creating an empty text node", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code></code></p>");
+    clipboardData.setData("text/plain", "**literal**");
+
+    try {
+      expect(() =>
+        editor.view.dom.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      ).not.toThrow();
+      expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves line breaks inside rich inline code HTML", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code>first<br>second</code></p>");
+    clipboardData.setData("text/plain", "first\nsecond");
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.childCount).toBe(3);
+      expect(editor.state.doc.firstChild?.child(1).type.name).toBe("hardBreak");
+      expect(editor.state.doc.firstChild?.child(0).marks[0]?.type.name).toBe(
+        "code",
+      );
+      expect(editor.state.doc.firstChild?.child(2).marks[0]?.type.name).toBe(
+        "code",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("marks intercepted code-wrapper Markdown as a paste transaction", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<pre><code># Heading</code></pre>");
+    clipboardData.setData("text/plain", "# Heading");
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves paragraph-only rich HTML instead of reparsing its text", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<p><strong># Rich heading</strong></p><p><em>- first</em><br>- second</p>",
+    );
+    clipboardData.setData("text/plain", "# Rich heading\n\n- first\n- second");
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+      expect(editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+        "bold",
+      );
+      expect(editor.state.doc.textContent).toContain("# Rich heading");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "heading",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves media-bearing rich HTML instead of dropping the media", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      '<p># Caption</p><img src="https://example.test/image.png">',
+    );
+    clipboardData.setData("text/plain", "# Caption\n\n**alt text**");
+
+    try {
+      const event = new ClipboardEvent("paste", {
+        clipboardData,
+        bubbles: true,
+        cancelable: true,
+      });
+      editor.view.dom.dispatchEvent(event);
+
+      expect(editor.state.doc.textContent).toContain("# Caption");
+      expect(JSON.stringify(editor.state.doc.toJSON())).toContain(
+        '"type":"image"',
+      );
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "heading",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 describe("live suggestion presentation", () => {
   function createSuggestionEditor(content: string) {

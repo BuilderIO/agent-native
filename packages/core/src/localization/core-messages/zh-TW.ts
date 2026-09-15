@@ -379,6 +379,10 @@ const messages: AgentChatTranslation = {
     "代理連線在完成前逾時。您可以從已完成的部分繼續，也可以重試。",
   "errorMessages.invalidToolSchema":
     "工具結構描述無效，因此模型在要求開始前便拒絕了要求。您可以略過無效工具並重試要求。",
+  "errorMessages.malformedRequest":
+    "模型供應商認為此要求格式有誤而予以拒絕，因此未重試。請重試，若問題持續發生，請開始新的對話。",
+  "errorMessages.malformedRequestAttachment":
+    "模型拒絕了一個附加檔案，因此這則訊息並未送出。請移除附件後重試：PDF、純文字檔案以及 JPEG、PNG、GIF、WebP 圖片可直接讀取；其他格式需要先上傳再以連結引用。",
   "errorMessages.noProviderConnected":
     "尚未連接任何 LLM 提供商。開啟設定 > 代理程式 > AI 提供商，然後連接 Builder.io（提供免費方案）或新增提供商金鑰。",
   "errorMessages.openBuilderSpaceSettings": "開啟 Builder 空間設定",

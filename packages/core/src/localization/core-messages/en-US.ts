@@ -398,6 +398,10 @@ const messages = {
     "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
   "errorMessages.invalidToolSchema":
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
+  "errorMessages.malformedRequest":
+    "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.malformedRequestAttachment":
+    "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
   "errorMessages.noProviderConnected":
     "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",

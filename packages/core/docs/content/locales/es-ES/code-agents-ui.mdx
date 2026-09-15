@@ -159,9 +159,9 @@ codex login status
 El escritorio y el CLI leen `codex login status` y ejecutan `codex exec`, por lo que
 reutilice cualquier suscripción ChatGPT o autenticación de clave API de su Codex CLI instalado
 informes. Esto es independiente del paquete `@ai-sdk/harness-codex` utilizado por
-[Harness Agents](/docs/harness-agents); el adaptador de arnés puede copiar local
-Codex CLI se autentica en un entorno limitado de confianza solo cuando `codexCliAuth: true` está
-explícitamente habilitado.
+[Harness Agents](/docs/harness-agents); ese adaptador ahora resuelve en el host las
+credenciales de suscripción nativas compatibles sin copiar el archivo de autenticación
+local al entorno sandbox.
 
 ## Host del navegador
 
