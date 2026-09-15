@@ -22,6 +22,18 @@ interaction is safe and repeatable. Report `n`, p50, and empirical p95 only at
 `n >= 30`; below that, report `n`, median, and range, and mark p95 unsupported.
 Do not treat live provider-send time as a client-latency benchmark.
 
+Captured evidence for the post-fix head `7d080b8` is available in the
+[dark visual recap image](https://plan.agent-native.com/_agent-native/recap-image/e56aa10a91f59d04e12cb7e2e816fc8f0700614d7ef240fe1fba40a2f6162edb.png?v=34988715504-1)
+and [light visual recap image](https://plan.agent-native.com/_agent-native/recap-image/af44730d61a368149a97eb899203d847433e574878dd979ff1610cc2b2b1205f.png?v=34988715504-1).
+Captions: the inbox/list panel shows localized row-action labels and the
+account-filter popover; the compact compose panel shows localized recipient and
+compose controls; the thread panel shows the localized conversation controls.
+The before/after layout comparison is recorded in COMPOSE-001: the previous
+Mail card was 540px by 520px at bottom-right, while the post-fix desktop card
+is 490px by 300px near the top of the workspace. Inline CUA captures in the
+task also show the post-fix no-results Search and Command palette states, but
+no stable local screenshot artifact was returned for those captures.
+
 Unverified local performance lead (reported 2026-09-14 by the coordinating
 task, not a controlled profile): the normal Mail server logged about 408
 requests over 23 minutes. Repeated `GET /api/emails` and
