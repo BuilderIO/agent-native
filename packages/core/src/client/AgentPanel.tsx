@@ -1722,11 +1722,12 @@ function AgentPanelInner({
                         event,
                         closeHeaderMenuForOverlay,
                         () => setShareFromMenuOpen(true),
+                        "timeout",
                       )
                     }
                   >
                     <IconShare3 size={14} className="shrink-0" />
-                    Share
+                    {t("agentChat.share.share", { defaultValue: "Share" })}
                   </DropdownMenuItem>
                 );
               })()}

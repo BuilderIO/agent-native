@@ -3,6 +3,38 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-12
+
+### Improved
+
+- Sign-in panel moves clear of product content
+
+### Fixed
+
+- Dashboard pages no longer refresh after unrelated agent actions
+
+## 2026-09-11
+
+### Fixed
+
+- Analytics keeps event receipts until BigQuery confirms delivery
+- Ask sidebar controls stay on one row for a cleaner chat list.
+- Coverage-sensitive searches now return a clearly labeled partial answer when a full provider scan cannot finish
+- Retention metrics stay visibly unknown when analytics event coverage has gaps
+- The 7d Rolling Signed-In Return Rate chart no longer drops to 0% for the newest days; a point appears only once its 7-day or 14-day return window has fully elapsed, and the 7d/30d ranges now render.
+
+## 2026-09-10
+
+### Improved
+
+- Dashboards render charts immediately instead of animating every panel on load, so large dashboards no longer freeze the page.
+
+### Fixed
+
+- Agent context links for dashboards, analyses, and session replays now work for external agents instead of returning Unauthorized
+- BigQuery active-user charts now show the full selected history.
+- Chart editor dialogs stay centered when editing dashboards
+
 ## 2026-09-09
 
 ### Improved

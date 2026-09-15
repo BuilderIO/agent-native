@@ -34,14 +34,32 @@ const NOISE_SEGMENTS = new Set([
   "build",
   ".next",
   "public",
+  ".vite",
 ]);
 
 // V8 stack frame: "at Name (url:line:col)" or the anonymous "at url:line:col".
 const STACK_FRAME_RE =
   /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
 
+// React 19 captures _debugStack inside the JSX runtime itself, so its
+// module is always the top frame; recognised by a runtime module name
+// INSIDE a Vite optimizer deps directory (`deps`/`deps_ssr`/`deps_temp_*` —
+// the optimizer always writes pre-bundles there, even under a custom
+// cacheDir with no node_modules segment) — never by basename alone, since an
+// authored file that happens to be named react.js or jsx-runtime.js outside
+// a deps directory is a real local file.
+const REACT_RUNTIME_MODULE_RE =
+  /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\.development|\.production(?:\.min)?)?\.(?:m?js|cjs)$/;
+const VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
+
 function isNoisePath(path: string): boolean {
   const segments = path.split("/");
+  const runtimeInsideDepsDir = segments.some(
+    (segment, index) =>
+      VITE_DEPS_SEGMENT_RE.test(segment) &&
+      REACT_RUNTIME_MODULE_RE.test(segments[index + 1] ?? ""),
+  );
+  if (runtimeInsideDepsDir) return true;
   if (segments.some((segment) => NOISE_SEGMENTS.has(segment))) return true;
   const nextIndex = segments.indexOf("_next");
   return nextIndex >= 0 && segments[nextIndex + 1] === "static";

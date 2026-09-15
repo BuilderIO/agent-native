@@ -19,7 +19,6 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
-import { renameFactoryActionMentions } from "../lib/factory-action-names.js";
 import {
   applyAutomationConfigFrontmatter,
   buildGuardrailsText,
@@ -32,7 +31,6 @@ import {
   seedNameForTemplate,
   slugifyAutomationLeaf,
   sourceForTemplate,
-  stripInjectedAutomationBlocks,
   templateIdForSeedName,
   wrapGuardrails,
   type FactoryAutomationConfig,
@@ -58,12 +56,9 @@ import {
   BABYSIT_FIXED_PATH,
   BABYSIT_SCOPE_INSTRUCTION,
   BABYSIT_WORK_RETRIGGER,
-  repairPrBabysitPrompt,
 } from "../lib/pr-babysit-prompt.js";
-import {
-  repairSlackFeedbackPrompt,
-  SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS,
-} from "../lib/slack-feedback-prompt.js";
+import { SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS } from "../lib/slack-feedback-prompt.js";
+import { recordFactoryGovernanceAudit } from "../triage/audit.js";
 import {
   syncManagedReviewSkillAlignment,
   type FactoryAutomationName,
@@ -425,25 +420,6 @@ function frontmatterField(content: string, key: string): string | undefined {
   return value.replace(/^("|')|(("|')$)/g, "");
 }
 
-function automationFactoryScopeInstruction(factoryId: string): string {
-  return `This automation runs for factory \`${factoryId}\`. Pass \`factoryId: "${factoryId}"\` on every Factory triage, poll, and config action in this run.`;
-}
-
-function repairAutomationFactoryScopeInstruction(
-  content: string,
-  factoryId: string,
-): string {
-  if (content.includes(`Pass \`factoryId: "${factoryId}"\``)) {
-    return content;
-  }
-  const end = content.indexOf("\n---", 4);
-  if (end === -1) {
-    return `${automationFactoryScopeInstruction(factoryId)}\n\n${content.trim()}\n`;
-  }
-  const insertAt = end + 4;
-  return `${content.slice(0, insertAt)}\n\n${automationFactoryScopeInstruction(factoryId)}\n${content.slice(insertAt)}`;
-}
-
 function automationContent(
   ownerEmail: string,
   orgId: string,
@@ -531,9 +507,9 @@ export async function ensureFactoryAutomations(
       }
 
       // Earlier Factory versions created these rows without identity and run
-      // budget metadata. Preserve explicit prompt/model/budget edits, while
-      // repairing only missing defaults and the old built-in poll cadence.
-      let repaired = renameFactoryActionMentions(existing.content);
+      // budget metadata. Repair YAML only — editors own prompt body, injected
+      // blocks, and destination fields; never rewrite them during metadata repair.
+      let repaired = existing.content;
       repaired = setFrontmatterField(repaired, "triggerType", "schedule");
       repaired = setFrontmatterField(repaired, "domain", "factory");
       repaired = setFrontmatterField(repaired, "appId", "factory");
@@ -565,20 +541,6 @@ export async function ensureFactoryAutomations(
       ) {
         repaired = setFrontmatterField(repaired, "schedule", seed.schedule);
       }
-      // Keyed by the seed, not the leaf: a copy like `factory-pr-babysit-2`
-      // runs the same review contract, and an unrecognized name would silently
-      // skip the alignment block instead of syncing it.
-      repaired = syncManagedReviewSkillAlignment(
-        repaired,
-        seed.name as FactoryAutomationName,
-      );
-      if (seed.name === "factory-slack-feedback") {
-        repaired = repairSlackFeedbackPrompt(repaired);
-      }
-      if (seed.name === "factory-pr-babysit") {
-        repaired = repairPrBabysitPrompt(repaired);
-      }
-      repaired = repairAutomationFactoryScopeInstruction(repaired, factoryId);
       // Every row here matched a seed, so the leaf resolves a definite source.
       // Nothing in this loop may fall back to a guess.
       const existingConfig = readFactoryAutomationConfig(repaired, leafName);
@@ -589,10 +551,6 @@ export async function ensureFactoryAutomations(
             ? templateIdForSeedName(leafName)
             : existingConfig.template,
       });
-      repaired = replaceUserPrompt(
-        repaired,
-        stripInjectedAutomationBlocks(repaired),
-      );
       repaired = restoreFactoryAutomationIdentityFields(
         existing.content,
         repaired,
@@ -613,7 +571,19 @@ export async function ensureFactoryAutomations(
         console.warn(
           `[factory-scheduler-job] skipped metadata repair for ${path}: the resource changed concurrently`,
         );
+        return;
       }
+      await recordFactoryGovernanceAudit(
+        { userEmail: ownerEmail, orgId },
+        {
+          action: "repair-factory-automation-metadata",
+          kind: "governance",
+          status: "success",
+          factoryId,
+          summary: `Repaired metadata for ${leafName}.`,
+          details: { path, resourceId: existing.id },
+        },
+      );
     }),
   );
 }

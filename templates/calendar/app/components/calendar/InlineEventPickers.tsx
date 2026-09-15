@@ -29,13 +29,8 @@ import {
   type RecurrencePreset,
   type CustomRecurrenceDraft,
 } from "@/lib/event-form-utils";
+import { buildTimeOptions } from "@/lib/event-time-range";
 import { cn } from "@/lib/utils";
-
-const TIME_OPTIONS = Array.from({ length: 24 * 4 }, (_, index) => {
-  const hour = Math.floor(index / 4);
-  const minute = (index % 4) * 15;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-});
 
 function formatTimeValue(value: string) {
   const [hourValue, minuteValue] = value.split(":").map(Number);
@@ -60,19 +55,20 @@ export function TimePickerPopover({
   label,
   getOptionMeta,
   className,
+  after,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
   getOptionMeta?: (value: string) => string | undefined;
   className?: string;
+  after?: string;
 }) {
   const [open, setOpen] = useState(false);
   const selectedRef = useRef<HTMLButtonElement>(null);
   const options = useMemo(
-    () =>
-      TIME_OPTIONS.includes(value) ? TIME_OPTIONS : [value, ...TIME_OPTIONS],
-    [value],
+    () => buildTimeOptions({ value, after }),
+    [value, after],
   );
 
   useEffect(() => {

@@ -12,6 +12,7 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("list_apps");
     expect(dispatchActions).toHaveProperty("ask_app");
     expect(dispatchActions).toHaveProperty("ask_app_status");
+    expect(dispatchActions).toHaveProperty("claim-workspace-app-organization");
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
     expect(dispatchActions).toHaveProperty(

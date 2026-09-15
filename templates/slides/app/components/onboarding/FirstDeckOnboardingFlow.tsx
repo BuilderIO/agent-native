@@ -59,7 +59,7 @@ export function FirstDeckOnboardingFlow({
   const { session } = useSession();
   const { decks, createDeck, ensureDeckPersisted, deleteDeck, reloadDecks } =
     useDecks();
-  const { designSystems } = useDesignSystems();
+  const { designSystems, refetch: refetchDesignSystems } = useDesignSystems();
   const { designSystem: workspaceDesignSystem } = useWorkspaceDefaults();
   const { submit: agentSubmit } = useAgentGenerating();
   const [step, setStep] = useState<FirstDeckStep>("prompt");
@@ -589,6 +589,7 @@ export function FirstDeckOnboardingFlow({
         designSystems={designSystems}
         defaultDesignSystemId={initialDesignSystemId}
         defaultReferenceDeckId={initialReferenceDeckId}
+        onDesignSystemsChanged={() => void refetchDesignSystems()}
         onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}
         onImportSource={handleReferenceSourceImport}
