@@ -11,6 +11,7 @@ const mockAddFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockRevokeFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockUpdateFederatedOrganizationMemberRole = vi.hoisted(() => vi.fn());
 const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
+const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -32,6 +33,8 @@ vi.mock("../feature-flags/store.js", () => ({
 vi.mock("./context.js", () => ({
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
   createOrganization: vi.fn(),
+  bootstrapAdminOrganization: (...args: any[]) =>
+    mockBootstrapAdminOrganization(...args),
 }));
 
 vi.mock("./federation.js", () => ({
@@ -56,6 +59,8 @@ vi.mock("../server/auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
 }));
 
+import { resetAppConfigForTests } from "../app-config/index.js";
+
 vi.mock("../server/email-templates.js", () => ({
   renderInviteEmail: vi.fn(() => ({ subject: "", html: "", text: "" })),
 }));
@@ -74,6 +79,7 @@ vi.mock("../settings/user-settings.js", () => ({
 }));
 
 import { putUserSetting } from "../settings/user-settings.js";
+import { createOrganization } from "./context.js";
 import {
   listMembersHandler,
   deleteOrgHandler,
@@ -85,6 +91,7 @@ import {
   updateOrgHandler,
   setDomainHandler,
   setWorkspaceAppDefaultVisibilityHandler,
+  createOrgHandler,
 } from "./handlers.js";
 import {
   cachedMemberships,
@@ -98,6 +105,9 @@ function makeEvent(path: string, body?: unknown) {
 describe("org handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetAppConfigForTests();
+    delete process.env.ORG_CREATION;
+    delete process.env.AUTH_BOOTSTRAP_ADMINS;
     mockGetOrgContext.mockResolvedValue({
       email: "owner@example.test",
       orgId: "org-1",
@@ -110,6 +120,99 @@ describe("org handlers", () => {
     mockRevokeFederatedOrganizationMember.mockResolvedValue(false);
     mockUpdateFederatedOrganizationMemberRole.mockResolvedValue(false);
     mockEvaluateFeatureFlagStrict.mockResolvedValue(false);
+    mockBootstrapAdminOrganization.mockResolvedValue(false);
+  });
+
+  it("blocks direct organization creation in a closed deployment", async () => {
+    process.env.ORG_CREATION = "closed";
+    resetAppConfigForTests();
+    mockExecute.mockResolvedValueOnce({ rows: [{ id: "existing-org" }] });
+
+    await expect(
+      createOrgHandler(
+        makeEvent("/_agent-native/org", { name: "Personal org" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(createOrganization).not.toHaveBeenCalled();
+  });
+
+  it("allows the first authenticated creator when a closed deployment has no organizations", async () => {
+    process.env.ORG_CREATION = "closed";
+    resetAppConfigForTests();
+    mockExecute.mockResolvedValueOnce({ rows: [] });
+    vi.mocked(createOrganization).mockResolvedValueOnce({
+      id: "org-1",
+      name: "Initial org",
+      role: "owner",
+      a2aSecret: "secret",
+      createdAt: 1,
+    });
+
+    await expect(
+      createOrgHandler(
+        makeEvent("/_agent-native/org", { name: "Initial org" }),
+      ),
+    ).resolves.toEqual({ id: "org-1", name: "Initial org", role: "owner" });
+    expect(createOrganization).toHaveBeenCalledWith(
+      "Initial org",
+      "member@example.test",
+    );
+  });
+
+  it("waits for a configured bootstrap admin before allowing closed creation", async () => {
+    process.env.ORG_CREATION = "closed";
+    process.env.AUTH_BOOTSTRAP_ADMINS = "admin@example.test";
+    resetAppConfigForTests();
+    mockExecute.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      createOrgHandler(makeEvent("/_agent-native/org", { name: "Seized org" })),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(createOrganization).not.toHaveBeenCalled();
+  });
+
+  it("lets a bootstrap admin initialize only the canonical org in a closed deployment", async () => {
+    process.env.ORG_CREATION = "closed";
+    process.env.AUTH_BOOTSTRAP_ADMINS = "member@example.test";
+    resetAppConfigForTests();
+    mockGetSession.mockResolvedValue({
+      email: "member@example.test",
+      emailVerified: true,
+    });
+    mockExecute.mockResolvedValueOnce({ rows: [{ id: "existing-org" }] });
+    mockBootstrapAdminOrganization.mockResolvedValue(true);
+
+    await expect(
+      createOrgHandler(
+        makeEvent("/_agent-native/org", { name: "Unrelated org" }),
+      ),
+    ).resolves.toEqual({ success: true });
+    expect(mockBootstrapAdminOrganization).toHaveBeenCalledWith(
+      "member@example.test",
+    );
+    expect(createOrganization).not.toHaveBeenCalled();
+  });
+
+  it("uses the canonical bootstrap path for a verified bootstrap admin on an empty database", async () => {
+    process.env.ORG_CREATION = "closed";
+    process.env.AUTH_BOOTSTRAP_ADMINS = "member@example.test";
+    resetAppConfigForTests();
+    mockGetSession.mockResolvedValue({
+      email: "member@example.test",
+      emailVerified: true,
+    });
+    mockExecute.mockResolvedValueOnce({ rows: [] });
+    mockBootstrapAdminOrganization.mockResolvedValue(true);
+
+    await expect(
+      createOrgHandler(
+        makeEvent("/_agent-native/org", { name: "Ignored by bootstrap" }),
+      ),
+    ).resolves.toEqual({ success: true });
+    expect(mockBootstrapAdminOrganization).toHaveBeenCalledWith(
+      "member@example.test",
+    );
+    expect(createOrganization).not.toHaveBeenCalled();
   });
 
   it("keeps a federated removal atomic across the local and identity rosters", async () => {
