@@ -44,6 +44,29 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
+  it("carries the already-imported reference source into a retry", () => {
+    // The failed attempt keeps which upload became the reference deck, and the
+    // retry reuses it only while that same deck is still selected — otherwise
+    // the retry re-reads a file the reference deck already represents.
+    expect(source).toContain("retryImportedReference: importedReferenceSource");
+    expect(source).toContain(
+      "setNewDeckRetryImportedReference(state.retryImportedReference)",
+    );
+    expect(source).toContain(
+      "selection.referenceDeckId === carriedImportedReference.deckId",
+    );
+    // A deleted reference deck must not keep its source excluded, or the run
+    // has neither the deck nor the file it was built from.
+    expect(source).toContain(
+      "!decks.some((deck) => deck.id === carriedImportedReference.deckId)",
+    );
+    // A deck that is gone must also stop being passed as the reference, or it
+    // reads as one while loading nothing.
+    expect(source).toContain(
+      "...(carriedDeckMissing ? { referenceDeckId: null } : {})",
+    );
+  });
+
   it("shows the destination-shaped loading surface before navigation", () => {
     const loadingIndex = flow.indexOf("setIsStartingNewDeck(true)");
     const navigateIndex = flow.indexOf(

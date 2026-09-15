@@ -21,7 +21,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   format,
   startOfWeek,
-  endOfWeek,
   addMonths,
   subMonths,
   addWeeks,
@@ -52,13 +51,24 @@ import { useCalendarContext } from "@/components/layout/AppLayout";
 import type { ViewMode } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -73,6 +83,7 @@ import {
   useDeleteEvent,
   useRsvpEvent,
   findEventByCurrentOrReplacedId,
+  findVisibleSelectedEvent,
   prefetchEvents,
   shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
@@ -106,6 +117,13 @@ import {
   moveEventToCalendarDate,
   normalizeTimezone,
 } from "@/lib/calendar-timezone";
+import {
+  DEFAULT_CALENDAR_DAYS,
+  isEventVisibleForDeclinedPreference,
+  MAX_CALENDAR_DAYS,
+  MIN_CALENDAR_DAYS,
+  normalizeNumberOfDays,
+} from "@/lib/calendar-view-preferences";
 import { resolveEventAccountEmail } from "@/lib/event-account-selection";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
@@ -443,6 +461,10 @@ export default function CalendarView() {
     new Map(),
   );
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [customDaysOpen, setCustomDaysOpen] = useState(false);
+  const [customDaysInput, setCustomDaysInput] = useState(
+    String(DEFAULT_CALENDAR_DAYS),
+  );
   const openCommandPalette = useCallback(() => {
     if (commandPaletteOpen) return;
     trackEvent("calendar_search_opened", {
@@ -586,8 +608,20 @@ export default function CalendarView() {
   // timezone is only a temporary fallback while settings are loading.
   const { from, to } = useMemo(
     () =>
-      getViewDateRange(viewMode, selectedDate, displayTimezone, weekStartsOn),
-    [displayTimezone, selectedDate, viewMode, weekStartsOn],
+      getViewDateRange(
+        viewMode,
+        selectedDate,
+        displayTimezone,
+        weekStartsOn,
+        viewPrefs.numberOfDays,
+      ),
+    [
+      displayTimezone,
+      selectedDate,
+      viewMode,
+      viewPrefs.numberOfDays,
+      weekStartsOn,
+    ],
   );
 
   const {
@@ -646,12 +680,28 @@ export default function CalendarView() {
           );
         }
         case "week": {
-          // Two weeks forward so rapid `j j` stays instant, plus one back.
-          const next = addWeeks(selectedDate, 1);
-          const next2 = addWeeks(selectedDate, 2);
-          const prev = subWeeks(selectedDate, 1);
+          // Warm two displayed periods so rapid `j j` stays instant, plus one
+          // period back. A custom day count advances by that same count.
+          const step = normalizeNumberOfDays(viewPrefs.numberOfDays);
+          const currentPeriodStart =
+            step === 7
+              ? dateKeyToDate(
+                  dateToCalendarDateKey(
+                    startOfWeek(selectedDate, { weekStartsOn }),
+                  ),
+                )
+              : selectedDate;
+          const next = addDays(currentPeriodStart, step);
+          const next2 = addDays(currentPeriodStart, step * 2);
+          const prev = subDays(currentPeriodStart, step);
           return [next, next2, prev].map((date) =>
-            getViewDateRange("week", date, displayTimezone, weekStartsOn),
+            getViewDateRange(
+              "week",
+              date,
+              displayTimezone,
+              weekStartsOn,
+              viewPrefs.numberOfDays,
+            ),
           );
         }
         case "day": {
@@ -680,6 +730,7 @@ export default function CalendarView() {
     queryClient,
     selectedDate,
     viewMode,
+    viewPrefs.numberOfDays,
     weekStartsOn,
   ]);
 
@@ -740,6 +791,14 @@ export default function CalendarView() {
         ) {
           return false;
         }
+        if (
+          !isEventVisibleForDeclinedPreference(
+            e.responseStatus,
+            viewPrefs.showDeclinedEvents,
+          )
+        ) {
+          return false;
+        }
         // Hide events from hidden external calendars
         if (e.source === "ical") {
           const hiddenMatch = hiddenCalendars.external.some((calId) =>
@@ -755,6 +814,7 @@ export default function CalendarView() {
     overlayPeople,
     hiddenCalendars,
     quickEditTempIds,
+    viewPrefs.showDeclinedEvents,
     viewPrefs.googleCalendarVisibility,
   ]);
 
@@ -1055,25 +1115,54 @@ export default function CalendarView() {
 
   useEffect(() => {
     if (sidebarEvent) {
-      const rebound = findEventByCurrentOrReplacedId(events, sidebarEvent);
-      if (rebound && rebound.id !== sidebarEvent.id) setSidebarEvent(rebound);
+      const rebound = findVisibleSelectedEvent(
+        events,
+        sidebarEvent,
+        viewPrefs.showDeclinedEvents,
+      );
+      if (!rebound) setSidebarEvent(null);
+      else if (rebound.id !== sidebarEvent.id) setSidebarEvent(rebound);
     }
     if (focusedEvent) {
-      const rebound = findEventByCurrentOrReplacedId(events, focusedEvent);
-      if (rebound && rebound.id !== focusedEvent.id) setFocusedEvent(rebound);
+      const rebound = findVisibleSelectedEvent(
+        events,
+        focusedEvent,
+        viewPrefs.showDeclinedEvents,
+      );
+      if (!rebound) setFocusedEvent(null);
+      else if (rebound.id !== focusedEvent.id) setFocusedEvent(rebound);
     }
-  }, [events, focusedEvent, setFocusedEvent, setSidebarEvent, sidebarEvent]);
+  }, [
+    events,
+    focusedEvent,
+    setFocusedEvent,
+    setSidebarEvent,
+    sidebarEvent,
+    viewPrefs.showDeclinedEvents,
+  ]);
 
   const selectedEvent = useMemo(() => {
     const candidate = sidebarEvent ?? focusedEvent;
     if (!candidate) return null;
-    return findEventByCurrentOrReplacedId(events, candidate) ?? candidate;
-  }, [events, sidebarEvent, focusedEvent]);
+    return (
+      findVisibleSelectedEvent(
+        events,
+        candidate,
+        viewPrefs.showDeclinedEvents,
+      ) ?? null
+    );
+  }, [events, sidebarEvent, focusedEvent, viewPrefs.showDeclinedEvents]);
 
   const refreshedSidebarEvent = useMemo(() => {
     if (!sidebarEvent) return null;
-    return findEventByCurrentOrReplacedId(events, sidebarEvent) ?? sidebarEvent;
-  }, [events, sidebarEvent]);
+    return (
+      findVisibleSelectedEvent(
+        events,
+        sidebarEvent,
+        viewPrefs.showDeclinedEvents,
+      ) ?? null
+    );
+  }, [events, sidebarEvent, viewPrefs.showDeclinedEvents]);
 
   function handleNavigate(direction: "prev" | "next") {
     trackEvent("calendar_date_navigated", {
@@ -1083,7 +1172,13 @@ export default function CalendarView() {
       view_type: viewMode,
     });
     setSelectedDate(
-      navigateCalendarDate(viewMode, selectedDate, direction, weekStartsOn),
+      navigateCalendarDate(
+        viewMode,
+        selectedDate,
+        direction,
+        weekStartsOn,
+        viewPrefs.numberOfDays,
+      ),
     );
   }
 
@@ -1883,8 +1978,12 @@ export default function CalendarView() {
           ? format(selectedDate, "MMM yyyy")
           : format(selectedDate, "MMMM yyyy");
       case "week": {
-        const ws = startOfWeek(selectedDate, { weekStartsOn });
-        const we = endOfWeek(selectedDate, { weekStartsOn });
+        const displayedDays = normalizeNumberOfDays(viewPrefs.numberOfDays);
+        const ws =
+          displayedDays === 7
+            ? startOfWeek(selectedDate, { weekStartsOn })
+            : selectedDate;
+        const we = addDays(ws, displayedDays - 1);
         return isMobile
           ? `${format(ws, "MMM d")} – ${format(we, "d")}`
           : `${format(ws, "MMM d")} – ${format(we, "d, yyyy")}`;
@@ -1895,6 +1994,18 @@ export default function CalendarView() {
           : format(selectedDate, "EEEE, MMMM d, yyyy");
     }
   })();
+
+  function applyCustomDays() {
+    const value = Number(customDaysInput);
+    if (!Number.isInteger(value)) return;
+    setViewPrefs({
+      numberOfDays: Math.min(
+        MAX_CALENDAR_DAYS,
+        Math.max(MIN_CALENDAR_DAYS, value),
+      ),
+    });
+    setCustomDaysOpen(false);
+  }
 
   return (
     <TooltipProvider delayDuration={500}>
@@ -1962,20 +2073,83 @@ export default function CalendarView() {
                     </kbd>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[10px] font-normal uppercase tracking-wider text-muted-foreground">
-                    {t("calendarView.display")}
-                  </DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setViewPrefs({ hideWeekends: !viewPrefs.hideWeekends });
-                    }}
-                  >
-                    {t("calendarView.hideWeekends")}
-                    {viewPrefs.hideWeekends && (
-                      <IconCheck className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                  </DropdownMenuItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      {t("calendarView.numberOfDays")}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {Array.from({ length: 8 }, (_, index) => index + 2).map(
+                        (count) => (
+                          <DropdownMenuItem
+                            key={count}
+                            onSelect={() =>
+                              setViewPrefs({ numberOfDays: count })
+                            }
+                          >
+                            {t("calendarView.daysCount", { count })}
+                            {viewPrefs.numberOfDays === count && (
+                              <IconCheck className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+                            )}
+                          </DropdownMenuItem>
+                        ),
+                      )}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setCustomDaysInput(String(viewPrefs.numberOfDays));
+                          setCustomDaysOpen(true);
+                        }}
+                      >
+                        {t("calendarView.other")}
+                        {!Array.from(
+                          { length: 8 },
+                          (_, index) => index + 2,
+                        ).includes(viewPrefs.numberOfDays) && (
+                          <IconCheck className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+                        )}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      {t("calendarView.viewSettings")}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuCheckboxItem
+                        checked={!viewPrefs.hideWeekends}
+                        onCheckedChange={(checked) =>
+                          setViewPrefs({ hideWeekends: !checked })
+                        }
+                      >
+                        {t("calendarView.weekends")}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={viewPrefs.showDeclinedEvents}
+                        onCheckedChange={(checked) =>
+                          setViewPrefs({ showDeclinedEvents: checked })
+                        }
+                      >
+                        {t("calendarView.declinedEvents")}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={viewPrefs.showWeekNumbers}
+                        onCheckedChange={(checked) =>
+                          setViewPrefs({ showWeekNumbers: checked })
+                        }
+                      >
+                        {t("calendarView.weekNumbers")}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link
+                          to="/settings"
+                          className="flex w-full items-center"
+                        >
+                          {t("calendarView.generalSettings")}
+                        </Link>
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -2116,6 +2290,7 @@ export default function CalendarView() {
                 onDraftDiscard={discardDraftEvent}
                 isLoading={eventsLoading}
                 weekStartsOn={weekStartsOn}
+                numberOfDays={viewPrefs.numberOfDays}
               />
             )}
             {viewMode === "day" && (
@@ -2265,6 +2440,41 @@ export default function CalendarView() {
           }}
         />
         {guestNotificationDialog}
+        <Dialog open={customDaysOpen} onOpenChange={setCustomDaysOpen}>
+          <DialogContent className="sm:max-w-[320px]">
+            <DialogHeader>
+              <DialogTitle>{t("calendarView.numberOfDays")}</DialogTitle>
+            </DialogHeader>
+            <form
+              className="grid gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                applyCustomDays();
+              }}
+            >
+              <Input
+                type="number"
+                min={MIN_CALENDAR_DAYS}
+                max={MAX_CALENDAR_DAYS}
+                step={1}
+                value={customDaysInput}
+                onChange={(event) => setCustomDaysInput(event.target.value)}
+                autoFocus
+                aria-label={t("calendarView.numberOfDays")}
+              />
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCustomDaysOpen(false)}
+                >
+                  {t("eventForm.cancel")}
+                </Button>
+                <Button type="submit">{t("eventForm.save")}</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   );

@@ -1,3 +1,4 @@
+import { assessThreadDispositions } from "./babysit-thread-closure.js";
 import type { TriageCoverage } from "./contracts.js";
 import { metadataString, type TriageMetadata } from "./metadata.js";
 import type { PullRequestCheckObservation } from "./pr-monitor.js";
@@ -26,6 +27,8 @@ export interface ReviewCommentObservation {
   // Provider thread resolution. `undefined` means the provider could not tell
   // us — its lookup can fail or page out — so it is unknown, never resolved.
   isResolved?: boolean;
+  isOutdated?: boolean;
+  threadId?: string;
 }
 
 export interface HumanReviewObservation {
@@ -44,6 +47,12 @@ export interface BabysitInput {
   commentsTruncated?: boolean;
   reviews?: readonly HumanReviewObservation[];
   reviewsTruncated?: boolean;
+  issueComments?: readonly {
+    body: string;
+    author: string;
+    createdAt: string;
+  }[];
+  lastCommentAtMs?: number | null;
 }
 
 export interface BabysitProposal {
@@ -111,6 +120,38 @@ export function hasCompletePassingChecks(input: {
 export const DEFAULT_BABYSIT_PR_COMMENT =
   "@builderio-bot look at the latest PR feedback and fix anything you agree with. Be skeptical. Reply on each comment thread whether you fixed it and why. Get CI green and keep the branch mergeable.";
 
+export const BABYSIT_COMMENT_V2_PREFIX = "<!-- factory-babysit-v2 -->";
+
+export const BABYSIT_COMMENT_V2 = `${BABYSIT_COMMENT_V2_PREFIX}
+@builderio-bot look at the latest PR feedback and fix anything you agree with. Be skeptical.
+
+Reply in each **open inline thread** with exactly one of:
+- \`Required — fixed: …\`
+- \`Required — not fixing: …\`
+- \`Optional — skipping: …\`
+
+Or resolve the thread in GitHub. Outdated threads after new commits do not need a new reply.
+
+Get CI green and keep the branch mergeable.`;
+
+export const CURRENT_BABYSIT_COMMENT_VERSION = 2;
+
+export function babysitCommentBodyForVersion(
+  version: number | undefined,
+): string {
+  return version === 1 ? DEFAULT_BABYSIT_PR_COMMENT : BABYSIT_COMMENT_V2;
+}
+
+export function isFactoryBabysitCommentBody(
+  body: string,
+  version?: number,
+): boolean {
+  const trimmed = body.trim();
+  if (version === 1) return trimmed === DEFAULT_BABYSIT_PR_COMMENT.trim();
+  if (trimmed === DEFAULT_BABYSIT_PR_COMMENT.trim()) return true;
+  return trimmed.startsWith(BABYSIT_COMMENT_V2_PREFIX);
+}
+
 /** Shared by the read-only briefing and the write action so their verdicts cannot diverge. */
 export const MIN_BABYSIT_COMMENT_INTERVAL_MS = 90_000;
 
@@ -127,15 +168,14 @@ export function countBabysitComments(
 export function countFactoryBabysitComments(
   comments: readonly { body: string; author: string }[],
   factoryAuthorLogin: string | null | undefined,
-  body: string = DEFAULT_BABYSIT_PR_COMMENT,
+  commentVersion: number = CURRENT_BABYSIT_COMMENT_VERSION,
 ): number {
   const factoryAuthor = factoryAuthorLogin?.trim().toLowerCase();
   if (!factoryAuthor) return 0;
-  const target = body.trim();
   return comments.filter(
     (comment) =>
-      comment.body.trim() === target &&
-      comment.author.trim().toLowerCase() === factoryAuthor,
+      comment.author.trim().toLowerCase() === factoryAuthor &&
+      isFactoryBabysitCommentBody(comment.body, commentVersion),
   ).length;
 }
 
@@ -345,6 +385,8 @@ export const PARKED_BABYSIT_STATES = [
   "clean",
   "stuck",
   "defer",
+  "closed-or-draft",
+  "merged",
 ] as const;
 
 export function babysitLeavesReviewWindow(
@@ -577,6 +619,7 @@ function isAnswered(
   repliedToIds: ReadonlySet<string>,
 ): boolean {
   if (repliedToIds.has(comment.id)) return true;
+  if (comment.isOutdated === true) return true;
   if (comment.isResolved !== undefined) return comment.isResolved;
   return false;
 }
@@ -593,16 +636,34 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
       .filter((id): id is string => id !== null),
   );
 
+  const threadAssessment = input.issueComments
+    ? assessThreadDispositions({
+        comments: input.comments,
+        issueComments: input.issueComments,
+        lastCommentAtMs: input.lastCommentAtMs,
+        botAuthors: input.botAuthors,
+      })
+    : null;
+  const rootBlocksMergeable = (comment: ReviewCommentObservation): boolean => {
+    if (comment.inReplyToId !== null) return false;
+    if (threadAssessment) {
+      const thread = threadAssessment.threads.find(
+        (entry) => entry.rootCommentId === comment.id,
+      );
+      return thread?.blocksMergeable ?? true;
+    }
+    return !isAnswered(comment, repliedToIds);
+  };
   const unansweredComments = input.comments.filter(
     (comment) =>
       comment.inReplyToId === null &&
-      !isAnswered(comment, repliedToIds) &&
+      rootBlocksMergeable(comment) &&
       !isBabysitBotAuthor(comment.author, [...botAuthors]),
   );
   const unansweredBotComments = input.comments.filter(
     (comment) =>
       comment.inReplyToId === null &&
-      !isAnswered(comment, repliedToIds) &&
+      rootBlocksMergeable(comment) &&
       isBabysitBotAuthor(comment.author, [...botAuthors]),
   );
   const failingChecks = input.checks.filter(
@@ -650,14 +711,40 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
   };
 }
 
-const BOT_ERROR_AFTER_PING =
-  /\b(error|failed|could not|unable to|exception|timeout)\b/i;
+const BOT_FAILURE_AFTER_PING_PATTERNS: readonly RegExp[] = [
+  /\brequest failed\b/i,
+  /\bfailed to\b/i,
+  /\bcould not\b/i,
+  /\bunable to\b/i,
+  /\bplease try again\b/i,
+  /\bsomething went wrong\b/i,
+  /\bproblem with your request\b/i,
+  /\bservice unavailable\b/i,
+  /\bunexpected error\b/i,
+  /\ban error occurred\b/i,
+  /\berror id:\s*\S+/i,
+  /\bexception\b/i,
+  /\btimed out\b/i,
+  /\btimeout\b/i,
+];
 
 export type BabysitPingWatchComment = {
   author: string;
   body: string;
   createdAt: string;
 };
+
+export function stripCodeContextForBotErrorScan(body: string): string {
+  return body
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`]*`/g, " ")
+    .replace(/\[[^\]]*\]\([^)]*\)/g, " ");
+}
+
+export function commentBodyLooksLikeBotFailureAfterPing(body: string): boolean {
+  const prose = stripCodeContextForBotErrorScan(body);
+  return BOT_FAILURE_AFTER_PING_PATTERNS.some((pattern) => pattern.test(prose));
+}
 
 function botErrorAfterPingInComments(
   comments: readonly BabysitPingWatchComment[],
@@ -668,7 +755,7 @@ function botErrorAfterPingInComments(
     (comment) =>
       isBabysitBotAuthor(comment.author, bots) &&
       Date.parse(comment.createdAt) >= lastCommentAtMs &&
-      BOT_ERROR_AFTER_PING.test(comment.body),
+      commentBodyLooksLikeBotFailureAfterPing(comment.body),
   );
 }
 
@@ -722,6 +809,17 @@ export function formatBabysitAuditSummary(
       ? `#${pullRequestNumber}`
       : "Item";
   return `${label} ${clause}`;
+}
+
+export function formatBabysitMergeableAuditSummary(
+  pullRequestNumber: number | null | undefined,
+  mergeableAtIso: string,
+): string {
+  const label =
+    typeof pullRequestNumber === "number" && pullRequestNumber > 0
+      ? `#${pullRequestNumber}`
+      : "Item";
+  return `${label} in mergeable condition as of ${mergeableAtIso}; no further Builder ping.`;
 }
 
 export function babysitOutOfScopeClause(author: string | null): string {
