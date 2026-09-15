@@ -3216,6 +3216,20 @@ export async function abortRunDurably(
   return abortedInMemory;
 }
 
+/** Stop every in-process and durable chunk belonging to one logical turn. */
+export async function abortTurnByRefDurably(
+  threadId: string,
+  turnId: string,
+  reason: string = "user",
+): Promise<"aborted" | "already_terminal"> {
+  for (const run of activeRuns.values()) {
+    if (run.threadId === threadId && run.turnId === turnId) {
+      abortInMemoryRun(run, reason);
+    }
+  }
+  return markTurnAborted(threadId, turnId, reason);
+}
+
 /**
  * Stop the whole turn `runId` belongs to, not just that run.
  *
@@ -3238,7 +3252,7 @@ export async function abortTurnDurably(
     : await getRunTurnRef(runId).catch(() => null);
   if (!ref) return;
   try {
-    await markTurnAborted(ref.threadId, ref.turnId, reason);
+    await abortTurnByRefDurably(ref.threadId, ref.turnId, reason);
   } catch (error) {
     // The current run is already stopped; a failed marker write must not turn
     // Stop into a 500. Successors will keep running — capture it so that is

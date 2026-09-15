@@ -33,6 +33,7 @@ const messages = {
     bookMeeting: "預約會議",
     eventPreview: "事件預覽",
     manageBooking: "管理預約",
+    addSharedAvailability: "加入行事曆 — Calendar",
     notFound: "未找到 - Calendar",
     settings: "設定 — Calendar",
     team: "團隊 — Calendar",
@@ -143,6 +144,8 @@ const messages = {
     googleCalendarSettings: "Google Calendar 設定",
     hideCalendar: "隱藏行事曆",
     myCalendars: "我的行事曆",
+    feedsGroup: "訂閱來源",
+    managePeerAvailability: "管理共用空檔時間",
     nextYear: "下一年",
     otherCalendars: "其他行事曆",
     otherCalendarsDescription: "新增隊友的行事曆或訂閱公開行事曆 URL",
@@ -561,6 +564,47 @@ const messages = {
     overlayHostsEmpty: "未找到任何人。",
     noOverlayPeopleYet: "你尚未在行事曆中新增任何同事。",
     addOverlayPersonCta: "新增同事的行事曆",
+    sharedAvailability: "共用空檔時間",
+    sharedAvailabilityDescription:
+      "將同事加為必要主持人。一律檢查其空閒/忙碌狀態；對方也將你加入後，還會套用其工作時間。",
+    sharedAvailabilityEmpty:
+      "行事曆中還沒有其他人。新增同事後即可在預約連結中使用其工作時間。",
+    workingHoursAppliedLabel: "已套用工作時間",
+    workingHoursPendingScheduleLabel: "尚未儲存工作時間",
+    workingHoursNotAppliedLabel: "尚未將你加入行事曆",
+    removePeerAriaLabel: "從你的行事曆移除 {{email}}",
+    removePeerConfirm:
+      "要移除 {{name}} 嗎？其行程將不再顯示於你的行事曆，其工作時間也不再套用於你的預約連結。",
+    removePeerConfirmAction: "移除",
+    workingHoursAppliedTooltip:
+      "{{name}} 的工作時間（{{timezone}}）已套用至此連結。",
+    workingHoursAppliedAriaLabel: "已套用 {{email}} 的工作時間",
+    workingHoursPendingScheduleTooltip:
+      "{{name}} 尚未設定工作時間，因此僅檢查其忙碌狀態。",
+    workingHoursPendingScheduleAriaLabel: "{{email}} 尚未設定工作時間",
+    workingHoursNotAppliedWarning:
+      "{{name}} 尚未將你加入他們的行事曆，因此僅檢查其忙碌狀態，而非工作時間。",
+    workingHoursNotAppliedAriaLabel: "{{email}} 尚未將你加入他們的行事曆",
+    workingHoursManualHost:
+      "{{name}} 不在你的行事曆中，因此僅檢查其忙碌狀態，而非工作時間。",
+    workingHoursManualHostAriaLabel: "{{email}} 不在你的行事曆中",
+    addHostToMyCalendar: "加入我的行事曆",
+    sendOverlayRequest: "傳送請求",
+    resendOverlayRequest: "重新傳送請求",
+    overlayRequestSentJustNow: "請求剛剛已傳送",
+    overlayRequestSentAgo: "請求已於{{time}}傳送",
+    overlayRequestFailed: "請求傳送失敗",
+    overlayRequestEmailNotConfigured: "電子郵件傳送尚未設定",
+    overlayRequestInProgress: "已經有一個針對這位聯絡人的請求正在處理中",
+    overlayRequestPageTitle: "要將 {{email}} 加入你的行事曆嗎？",
+    overlayRequestPageDescription:
+      "{{email}} 已將你加入他們的行事曆，並且有預約連結需要你擔任必要主持人。目前這些連結只能看到你是否忙碌——把他們加回來後，連結就能使用你真實的工作時間。",
+    overlayRequestPageAlreadyAdded: "你已經將 {{email}} 加入你的行事曆。",
+    overlayRequestPageAdded:
+      "已加入。{{email}} 的預約連結現在將使用你真實的工作時間。",
+    overlayRequestPageDismiss: "暫不",
+    overlayRequestPageInvalidLink: "此連結無效或已過期。",
+    overlayRequestPageAddFailed: "無法新增 {{email}}，請再試一次。",
     addOtherEmail: "新增其他電子郵件",
     overlayHostsHint:
       "來自你行事曆的聯絡人會依照他們的工作時間安排行程。其他電子郵件僅用於檢查衝突。",
