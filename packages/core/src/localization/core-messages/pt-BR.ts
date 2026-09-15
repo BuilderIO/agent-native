@@ -143,6 +143,21 @@ const messages: AgentChatTranslation = {
   "common.retry": "Tentar novamente",
   "common.save": "Salvar",
   "agents.hostedAgent": "Agente hospedado",
+  "agents.provider": "Provedor",
+  "agents.providerA2A": "Agente A2A (Foundry, Gemini ou personalizado)",
+  "agents.providerAnthropic": "Agentes gerenciados da Anthropic",
+  "agents.agentId": "ID do agente",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "ID do ambiente",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "URL base da API (opcional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Preencha os campos do Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "A conexão é verificada quando você delega pelo chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent salvo. Delegue para ele pelo chat.",
   "agents.cardUrl": "URL do cartão do agente",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Autenticação",
@@ -369,6 +384,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Insights de dados",
   "widget.dataTable": "Tabela de dados",
   "widget.downloadCsv": "Baixar CSV",
+  "widget.connectProvider": "Conectar o {{provider}}",
   "widget.loadingToolResult": "Carregando resultado da ferramenta",
   "widget.noRows": "Nenhuma linha",
   "widget.points": "{{formattedCount}} pontos",
@@ -632,6 +648,10 @@ const messages: AgentChatTranslation = {
     "A conexão com o agente expirou antes da conclusão. Você pode continuar a partir do trabalho parcial ou tentar novamente.",
   "errorMessages.invalidToolSchema":
     "O esquema de uma ferramenta era inválido, então o modelo rejeitou a solicitação antes de iniciá-la. Você pode ignorar a ferramenta inválida e tentar novamente.",
+  "errorMessages.malformedRequest":
+    "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
+  "errorMessages.malformedRequestAttachment":
+    "O modelo rejeitou um arquivo anexado, então esta mensagem nunca foi enviada. Remova o anexo e tente novamente: um PDF, um arquivo de texto simples ou uma imagem JPEG, PNG, GIF ou WebP é lido diretamente; outros formatos precisam ser enviados e vinculados.",
   "errorMessages.noProviderConnected":
     "Nenhum provedor de LLM está conectado. Abra Configurações > Agente > Provedores de IA e conecte o Builder.io (nível gratuito disponível) ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":

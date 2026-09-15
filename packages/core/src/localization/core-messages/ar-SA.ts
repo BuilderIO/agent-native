@@ -137,6 +137,19 @@ const messages: AgentChatTranslation = {
   "common.retry": "إعادة المحاولة",
   "common.save": "حفظ",
   "agents.hostedAgent": "وكيل مستضاف",
+  "agents.provider": "المزوّد",
+  "agents.providerA2A": "وكيل A2A (Foundry أو Gemini أو مخصّص)",
+  "agents.providerAnthropic": "وكلاء Anthropic المُدارون",
+  "agents.agentId": "معرّف الوكيل",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "معرّف البيئة",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "عنوان URL الأساسي لـ API (اختياري)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "أكمل حقول Anthropic Managed Agents.",
+  "agents.managedAgentCheck": "يتم التحقق من الاتصال عند التفويض من الدردشة.",
+  "agents.managedAgentSaved":
+    "تم حفظ Anthropic Managed Agent. فوّض إليه من الدردشة.",
   "agents.cardUrl": "عنوان بطاقة الوكيل",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "المصادقة",
@@ -406,6 +419,10 @@ const messages: AgentChatTranslation = {
     "انتهت مهلة اتصال الوكيل قبل أن يتمكن من الإكمال. يمكنك المتابعة من العمل الجزئي أو إعادة المحاولة.",
   "errorMessages.invalidToolSchema":
     "كان مخطط إحدى الأدوات غير صالح، لذلك رفض النموذج الطلب قبل بدئه. يمكن تخطي الأداة غير الصالحة وإعادة محاولة الطلب.",
+  "errorMessages.malformedRequest":
+    "رفض مزوّد النموذج هذا الطلب لأنه غير صالح، لذلك لم تُعد المحاولة. أعد المحاولة، أو ابدأ محادثة جديدة إذا استمر الأمر.",
+  "errorMessages.malformedRequestAttachment":
+    "رفض النموذج ملفًا مرفقًا، لذلك لم تُرسل هذه الرسالة إطلاقًا. أزل المرفق وأعد المحاولة — تُقرأ ملفات PDF والنصوص العادية وصور JPEG وPNG وGIF وWebP مباشرةً، أما الصيغ الأخرى فيجب رفعها والإشارة إليها برابط.",
   "errorMessages.noProviderConnected":
     "لا يوجد مزوّد LLM متصل. افتح الإعدادات > الوكيل > مزوّدو الذكاء الاصطناعي، ثم اربط Builder.io (تتوفر خطة مجانية) أو أضف مفتاح مزوّد.",
   "errorMessages.openBuilderSpaceSettings": "فتح إعدادات مساحة Builder",
@@ -752,6 +769,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "رؤى البيانات",
   "widget.dataTable": "جدول بيانات",
   "widget.downloadCsv": "تنزيل CSV",
+  "widget.connectProvider": "ربط {{provider}}",
   "widget.loadingToolResult": "جارٍ تحميل نتيجة الأداة",
   "widget.noRows": "لا توجد صفوف",
   "widget.points": "{{formattedCount}} نقطة",

@@ -153,6 +153,7 @@ import type {
   TransformBadge,
   VectorEditOverlayState,
 } from "./multi-screen/types";
+import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
 import { type ElementInfo, type PortableStyleSnapshot } from "./types";
 
 /**
@@ -9331,6 +9332,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
                 background: CANVAS_BACKGROUND_VAR,
+                ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
               }}
             />
           </div>
@@ -11453,12 +11455,7 @@ const Screen = memo(function Screen({
                   transformOrigin: "top left",
                   backgroundColor: "white",
                   colorScheme: "light",
-                  // Prevent the browser from discarding the composited layer at
-                  // fractional zoom levels, which causes the iframe to go black.
-                  // backface-visibility:hidden forces the browser to keep the
-                  // backing store alive even when the effective scale is very small
-                  // (e.g. 0.25 iframe scale × 0.5 canvas zoom = 0.125 total).
-                  backfaceVisibility: "hidden",
+                  ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
                 }}
                 title={screen.filename}
               />
@@ -12216,7 +12213,7 @@ function BreakpointPreviewRow({
                       transformOrigin: "top left",
                       backgroundColor: "white",
                       colorScheme: "light",
-                      backfaceVisibility: "hidden",
+                      ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
                     }}
                     title={`${screen.filename} — ${breakpointLabel(widthPx)}`}
                   />

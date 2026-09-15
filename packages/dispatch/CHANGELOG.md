@@ -1,5 +1,57 @@
 # @agent-native/dispatch
 
+## 0.37.0
+
+### Minor Changes
+
+- 0d80d8d: Support multiple app roles per organization member, invitation role pre-assignment, and organization-admin-editable app permission mappings.
+
+  The additive migration drops only the prior unique index on `(org_id, app_id, LOWER(email))` and replaces it with one including `role`; it does not change or delete assignment rows.
+
+  The new array-based client fields are additive for this minor release: `role`, `myRole`, and the deprecated `useSetAppMemberRole` adapter remain available while callers migrate to `roles`, `myRoles`, and `useSetAppMemberRoles`.
+
+### Patch Changes
+
+- bd46fc2: Fix the "Import an agent" pickers offering files the import cannot read. The
+  "Choose folder" input never received `webkitdirectory`, because the effect that
+  set it ran before Radix mounted the tab panel and left the ref null, so the
+  button opened an unfiltered multi-file picker instead of a folder picker. The
+  attribute is now set declaratively. "Choose file" also accepted any file the
+  user selected past the `accept` hint and pasted the decoded bytes into the
+  definition field; it now rejects unsupported files. Both pickers and
+  `normalizeAgentPack` share one list of importable extensions, and skipped
+  folder files are summarized instead of listed one per line.
+- c509af1: Treat an agent pack response that is missing its `files` array as unreadable
+  instead of spreading it during render. The throw escaped to the router error
+  boundary and replaced the whole page with "Something went wrong", so the Agent
+  pack dialog could never report the failure. The dialog now stays open and says
+  the pack could not be read, and an empty pack is still distinct from an
+  unreadable one.
+- 09bcc96: Give a tool that stops on a missing integration something to click. `connectRequiredResult()` from `@agent-native/core/shared` is the shared shape a gated tool spreads into its own result, and chat renders a Connect control by matching that shape rather than by knowing the tool's name, so a newly gated tool gets the affordance without an allow-list entry.
+
+  Dispatch app creation was the reported case: every Builder authorization failure collapsed into the transient `builder-error` reason ("try again in a moment") even when the real cause was a disconnected Builder account, so the agent narrated a dead end and the `builder-not-connected` Connect control that the create-app popover and `NewWorkspaceAppFlow` already implement could never render. `startWorkspaceAppCreation` (and `remix-workspace-template` through it) now classifies a missing Builder connection as `builder-not-connected` with a connect action attached, and keeps an unreadable credential store as its own retryable `credential-store-unavailable` reason.
+
+  Because the renderer matches by shape, a card can arrive from an MCP server or a remote A2A agent, so the contract only accepts a root-relative path or an absolute http(s) URL as a connect target and drops anything else before it reaches an `href`.
+
+  A Builder API call that comes back 401 now raises a `builder_not_connected` contract error instead of a plain one, so a credential revoked upstream also reaches the Connect action rather than retry prose. A 403 stays an ordinary error, since Builder also returns it for a Space membership problem where reconnecting is the wrong advice.
+
+  The blocker card asks for a reconnect rather than showing a Connected badge, because Builder can revoke a credential upstream without that landing in the local connection status.
+
+- a57a72b: Bound Neon Drizzle transaction acquisition and keep hosted workspace registry authorization failures visible instead of silently falling back to an incomplete local app list.
+- Release all public npm packages with a patch version bump.
+- 1233458: Use beta Dispatch SSO for Google sign-in from immutable Netlify deploy previews.
+- 5b75762: Support passing validated file and URL attachments to Builder workspace app creation runs.
+- Updated dependencies [9f08f5d]
+- Updated dependencies [cd40555]
+- Updated dependencies [1f43d89]
+- Updated dependencies [25dc407]
+- Updated dependencies [e32e1d5]
+- Updated dependencies
+- Updated dependencies [657bba1]
+- Updated dependencies [25dc407]
+- Updated dependencies [6ba23d3]
+  - @agent-native/toolkit@0.20.1
+
 ## 0.36.2
 
 ### Patch Changes
@@ -938,12 +990,5 @@
 ### Minor Changes
 
 - 1d5bab1: Simplify the Dispatch Admin overview and Apps catalog with shared icon cards, app colors, and lighter progressive disclosure.
-
-## 0.19.2
-
-### Patch Changes
-
-- Updated dependencies [da40677]
-  - @agent-native/toolkit@0.13.4
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

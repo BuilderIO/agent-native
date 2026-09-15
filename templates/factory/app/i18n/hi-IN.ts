@@ -119,7 +119,10 @@ const messages = {
         stuck: "अटका",
         clean: "साफ",
         ineligible: "अयोग्य",
+        merged: "GitHub पर मर्ज",
         reopened: "अपडेट के बाद फिर खोला",
+        mergeable_as_of:
+          "Mergeable; Factory इस branch पर Builder को दोबारा ping नहीं करेगी।",
       },
       slack: {
         claimed: "दावा किया",
@@ -362,6 +365,9 @@ const messages = {
     auditSkipped: "{{count}} छोड़ी गईं",
     auditStartedCount: "{{count}} शुरू",
     auditSeenBefore: "पहले देखा",
+    auditMergedOnGitHub: "GitHub पर मर्ज",
+    auditClosedOnGitHub: "GitHub पर बंद",
+    auditDraftOnGitHub: "GitHub पर ड्राफ्ट",
     auditNewThisRun: "नई",
     auditAlreadyStarted: "पहले से शुरू",
     historyTab: "इतिहास",

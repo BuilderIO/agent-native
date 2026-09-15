@@ -21,6 +21,8 @@ Avec `AUTH_SIGNUP=invited`, un nouveau compte doit avoir une invitation en atten
 
 Le premier administrateur d’amorçage qui se connecte crée l’organisation canonique et en devient propriétaire. S’il existe déjà une organisation, il en devient propriétaire. S’il en existe plusieurs, le système n’en choisit aucune. Configurez ensuite le domaine autorisé et invitez l’équipe depuis **Team settings**.
 
+Avec `ORG_CREATION=closed`, la création d’organisations est refusée tant que `AUTH_BOOTSTRAP_ADMINS` ne comporte pas au moins un administrateur vérifié, qui crée l’organisation canonique lors de sa première connexion.
+
 ## Clés et rôles de l’entreprise
 
 Un propriétaire ou administrateur peut enregistrer une clé LLM pour l’organisation. Une clé personnelle reste prioritaire jusqu’à ce que le membre choisisse la clé de l’organisation. Les rôles applicatifs s’appliquent à une seule application et un membre peut en avoir plusieurs. Les administrateurs peuvent associer des permissions définies dans le code à des rôles sans redéployer.
