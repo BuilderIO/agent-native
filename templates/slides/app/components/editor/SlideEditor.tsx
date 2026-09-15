@@ -147,12 +147,14 @@ import {
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
+  clampSlideObjectPlacementPosition,
   clientPointToSlideCoordinates,
   cloneSlideObject,
   collectMovableSlideObjects,
   copySlideObjects,
   computeSlideObjectZOrder,
   computeSlideObjectZOrderForSelection,
+  createSlideLinePlacementGeometry,
   createSlideObjectId,
   createSlideObjectPlacementGeometry,
   createSlidesSelectionState,
@@ -191,6 +193,7 @@ import {
   resolveSlideClipboardElement,
   restoreSlideObjectStyle,
   setSlideObjectDimension,
+  setSlideObjectRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -3055,6 +3058,15 @@ export default function SlideEditor({
     ],
   );
 
+  // Reconciliation is keyed to the persisted slide content, not to the
+  // selection callback's closure. Keep the latest callback available without
+  // making the content effect interpret a selection-only rerender as a DOM
+  // replacement.
+  const applyMultiSelectionRef = useRef(applyMultiSelection);
+  useEffect(() => {
+    applyMultiSelectionRef.current = applyMultiSelection;
+  }, [applyMultiSelection]);
+
   const clearMultiSelection = useCallback(() => {
     if (multiSelection.size === 0) return;
     applyMultiSelection(new Set());
@@ -3304,7 +3316,7 @@ export default function SlideEditor({
       // Undo/redo, agent reconciliation, and external updates replace the DOM
       // without preserving transient builder ids. Never leave stale ids in a
       // multi-selection that could later target unrelated newly-stamped nodes.
-      applyMultiSelection(new Set());
+      applyMultiSelectionRef.current(new Set());
       return;
     }
     const slideContent = getSlideContent();
@@ -3318,8 +3330,8 @@ export default function SlideEditor({
       const builderId = element?.getAttribute("data-builder-id");
       if (builderId) ids.add(builderId);
     }
-    applyMultiSelection(ids);
-  }, [slide.content, getSlideContent, applyMultiSelection]);
+    applyMultiSelectionRef.current(ids);
+  }, [slide.content, getSlideContent]);
 
   // One Escape owner for the HTML editor. Radix dialogs/popovers and native
   // form controls retain their own Escape behavior before we arbitrate canvas
@@ -4767,6 +4779,7 @@ export default function SlideEditor({
       geometry: SlideObjectGeometry,
       type: SlideShapeType,
       target: HTMLElement | null,
+      lineRotationDeg?: number,
     ) => {
       const canvas = containerRef.current
         ? ensureSlideTextBoxCanvas(containerRef.current)
@@ -4788,8 +4801,14 @@ export default function SlideEditor({
       ensureSlideObjectId(shape);
       ensureBuilderId(shape);
       shape.style.position = "absolute";
-      shape.style.left = `${Math.max(0, Math.min(geometry.x, containingBlock.offsetWidth - geometry.width))}px`;
-      shape.style.top = `${Math.max(0, Math.min(geometry.y, containingBlock.offsetHeight - geometry.height))}px`;
+      const clampedPosition = clampSlideObjectPlacementPosition(
+        geometry,
+        containingBlock.offsetWidth,
+        containingBlock.offsetHeight,
+        lineRotationDeg,
+      );
+      shape.style.left = `${clampedPosition.x}px`;
+      shape.style.top = `${clampedPosition.y}px`;
       shape.style.width = `${geometry.width}px`;
       shape.style.height = `${geometry.height}px`;
       shape.style.boxSizing = "border-box";
@@ -4805,6 +4824,7 @@ export default function SlideEditor({
         shape.style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
       }
       shape.style.opacity = "0.85";
+      if (lineRotationDeg) setSlideObjectRotation(shape, lineRotationDeg);
       positioningLayer.appendChild(shape);
 
       const selector = getBuilderSelector(shape);
@@ -6670,16 +6690,23 @@ export default function SlideEditor({
       const defaultSize = placement.shapeType
         ? SLIDE_SHAPE_DEFAULT_SIZES[placement.shapeType]
         : { width: 320, height: 24 };
-      const geometry = dragSized
-        ? createSlideObjectPlacementGeometry(
-            start,
-            end,
-            placement.shapeType === "line" ? 4 : undefined,
-          )
-        : { x: start.x, y: start.y, ...defaultSize };
+      const isLineDrag = dragSized && placement.shapeType === "line";
+      const lineGeometry = isLineDrag
+        ? createSlideLinePlacementGeometry(start, end)
+        : null;
+      const geometry = lineGeometry
+        ? lineGeometry
+        : dragSized
+          ? createSlideObjectPlacementGeometry(start, end)
+          : { x: start.x, y: start.y, ...defaultSize };
 
       if (placement.shapeType) {
-        placeShapeAt(geometry, placement.shapeType, placement.target);
+        placeShapeAt(
+          geometry,
+          placement.shapeType,
+          placement.target,
+          lineGeometry?.rotation,
+        );
         onExitShapeMode?.();
       } else {
         placeTextBoxAt(geometry, placement.target, dragSized);

@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   setDesktopExchangeError: vi.fn(),
   setOAuthDisplayName: vi.fn(),
   setResponseStatus: vi.fn(),
+  wrapNetlifyPreviewGoogleOAuthState: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
@@ -64,6 +65,7 @@ vi.mock("@agent-native/core/server", () => ({
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
+  wrapNetlifyPreviewGoogleOAuthState: mocks.wrapNetlifyPreviewGoogleOAuthState,
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -127,6 +129,9 @@ describe("Mail Google auth-url handlers", () => {
       "https://mail.agent-native.com/_agent-native/google/callback",
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.wrapNetlifyPreviewGoogleOAuthState.mockImplementation(
+      (_event: unknown, state: string) => state,
+    );
     mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
     mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
     mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
@@ -149,6 +154,71 @@ describe("Mail Google auth-url handlers", () => {
     expect(response).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
     });
+  });
+
+  it("keeps Gmail-scoped OAuth on the preview relay", async () => {
+    mocks.resolveOAuthRedirectUri.mockReturnValue(
+      "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+    );
+    mocks.wrapNetlifyPreviewGoogleOAuthState.mockReturnValue("relay-state");
+
+    await getGoogleAuthUrl(
+      createEvent({ return: "/inbox", redirect: "1" }) as any,
+    );
+
+    expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        redirectUri:
+          "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      }),
+    );
+    expect(mocks.wrapNetlifyPreviewGoogleOAuthState).toHaveBeenCalledWith(
+      expect.anything(),
+      "encoded-state",
+    );
+    expect(mocks.getAuthUrl).toHaveBeenCalledWith(
+      undefined,
+      "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      "relay-state",
+      "owner@example.com",
+    );
+  });
+
+  it("exchanges the first preview sign-in into a Gmail-scoped account", async () => {
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      owner: undefined,
+      addAccount: false,
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    mocks.exchangeCode.mockResolvedValue("owner@example.com");
+    mocks.createOAuthSession.mockResolvedValue({ sessionToken: "session" });
+    mocks.getClient.mockResolvedValue({
+      email: "owner@example.com",
+      accessToken: "gmail-access-token",
+    });
+    mocks.googleFetch.mockResolvedValue({ id: "google-user-id" });
+    mocks.oauthCallbackResponse.mockReturnValue("signed-in");
+
+    await expect(
+      handleGoogleCallback(
+        createEvent({ code: "google-code", state: "inner-state" }) as any,
+      ),
+    ).resolves.toBe("signed-in");
+
+    expect(mocks.exchangeCode).toHaveBeenCalledWith(
+      "google-code",
+      undefined,
+      "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      undefined,
+    );
+    expect(mocks.createOAuthSession).toHaveBeenCalled();
+    expect(mocks.getClient).toHaveBeenCalledWith("owner@example.com");
   });
 
   it("returns a JSON auth URL for verifier-bound add-account sign-in", async () => {

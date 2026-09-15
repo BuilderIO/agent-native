@@ -346,7 +346,10 @@ import { isWheelCameraGestureActive } from "@/components/design/multi-screen/whe
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
-import { ResponsiveInteractBar } from "@/components/design/ResponsiveInteractBar";
+import {
+  ResponsiveInteractBar,
+  ResponsiveInteractExitButton,
+} from "@/components/design/ResponsiveInteractBar";
 import { type ReviewCommentsPanelProps } from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
@@ -15365,6 +15368,24 @@ function DesignEditor() {
     () => enterOverviewFromZoom(),
     [enterOverviewFromZoom],
   );
+  // Escape is the standard "leave this mode" convention users try first, and
+  // Interact had no keyboard path back to Edit at all — only the bar's Close
+  // button. This listens on `window` in the default bubble phase, same as
+  // useDesignHotkeys elsewhere, so a Radix layer (the device Select, zoom
+  // Popover) still gets first refusal: its own document-level Escape
+  // handling stops the event before it reaches here, matching
+  // DesignColorPicker.escape.test.tsx's documented ordering. It intentionally
+  // does not reuse useDesignHotkeys, which stays disabled in Interact so the
+  // running prototype keeps owning every other shortcut.
+  useEffect(() => {
+    if (!responsiveInteractActive) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      handleExitResponsiveInteract();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [responsiveInteractActive, handleExitResponsiveInteract]);
   // Fit against the actual center canvas, not window.innerWidth: both rails
   // remain mounted in Interact, so window-level math can place a wide device
   // partly behind them. ResizeObserver also refits after either rail moves.
@@ -16196,8 +16217,11 @@ function DesignEditor() {
     onSendToBack: canEditDesign
       ? () => changeSelectedZIndex("back")
       : undefined,
-    // Interact owns the running app's keyboard behavior. The editor shell must
-    // not consume Escape or use it to change view/selection underneath it.
+    // Interact owns the running app's keyboard behavior. The editor shell's
+    // canvas Escape handling (selection clearing, drawing/pin-mode exit,
+    // breakpoint targeting) must not fire underneath it — the separate
+    // Escape listener next to handleExitResponsiveInteract covers leaving
+    // Interact itself.
     onEscape: responsiveInteractActive ? undefined : handleEscapeHotkey,
     onEnter: handleEnterHotkey,
     onSelectParent: handleSelectParentLayer,
@@ -22898,6 +22922,13 @@ function DesignEditor() {
       onModeChange={handleModeChange}
       canAnnotate={canEditDesign}
       onClose={handleExitResponsiveInteract}
+      // The docked bar sits in the canvas column, inset by the left rail's
+      // width — a wide rail plus a narrow window can squeeze that column
+      // enough to clip Close before anything else in the bar (see the
+      // pinned ResponsiveInteractExitButton rendered alongside the left
+      // rail below). The floating bar has no rail competing for width, so
+      // it keeps Close inline.
+      showClose={floating}
       className={
         floating
           ? "pointer-events-auto w-full max-w-[680px] rounded-lg border shadow-xl"
@@ -23407,6 +23438,27 @@ function DesignEditor() {
                 onPointerDown={(event) => startSidebarResize("left", event)}
               />
             ) : null}
+          </div>
+        ) : null}
+
+        {/* The docked bar's Close used to live inside a canvas column inset
+            by the left rail's width (`leftChromeOverlayInset`). A wide rail
+            (the Code panel is 640px) plus a modest window can squeeze that
+            column until the bar's own `overflow-hidden` clips Close before
+            it clips anything else in the row — the rail sits at z-[70], so a
+            squeeze this severe doesn't just crowd Close, it makes it
+            unreachable. Anchoring it here instead, to the canvas area's own
+            right edge rather than the bar's shrunken one, guarantees a way
+            out no matter how little room the rail has left the bar. Height-
+            and edge-matched to the bar (h-12, pr-3) so it reads as the same
+            row rather than a second floating control. Not needed for the
+            floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
+        {responsiveInteractActive && !minimalUi ? (
+          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center pr-3">
+            <ResponsiveInteractExitButton
+              onClose={handleExitResponsiveInteract}
+              className="pointer-events-auto"
+            />
           </div>
         ) : null}
 

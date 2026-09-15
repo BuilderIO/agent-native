@@ -26,6 +26,8 @@ function summary(overrides: Record<string, unknown> = {}) {
     userId: 1,
     state: "open",
     draft: false,
+    merged: false,
+    mergedAt: null,
     headSha: "sha-1",
     headRef: "feature",
     baseRef: "main",

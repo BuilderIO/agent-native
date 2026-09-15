@@ -2,7 +2,7 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandGithub,
   IconMenu2,
-  IconMessage,
+  IconLayoutSidebarRight,
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
@@ -49,7 +49,7 @@ function AskAiIconButton() {
       aria-label={label}
       title={label}
     >
-      <IconMessage size={18} stroke={1.5} />
+      <IconLayoutSidebarRight size={18} stroke={1.5} />
     </IconButton>
   );
 }

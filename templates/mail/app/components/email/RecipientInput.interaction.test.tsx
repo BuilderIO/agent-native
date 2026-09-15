@@ -69,7 +69,14 @@ import { RecipientInput } from "./RecipientInput";
 
 function RecipientHarness({ initialValue = "" }: { initialValue?: string }) {
   const [value, setValue] = useState(initialValue);
-  return <RecipientInput value={value} onChange={setValue} placeholder="To" />;
+  return (
+    <RecipientInput
+      value={value}
+      onChange={setValue}
+      placeholder="To"
+      ariaLabel="To recipients"
+    />
+  );
 }
 
 describe("RecipientInput autocomplete interaction", () => {
@@ -138,6 +145,23 @@ describe("RecipientInput autocomplete interaction", () => {
     expect(screen.getByText("ada@example.test")).toBeTruthy();
     expect(input.value).toBe("");
     expect(input.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("resets the active suggestion when the query changes", () => {
+    render(<RecipientHarness />);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "ad" } });
+    const initialOptions = screen.getAllByRole("option");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(initialOptions[1].getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.change(input, { target: { value: "a" } });
+    const updatedOptions = screen.getAllByRole("option");
+    expect(updatedOptions[0].getAttribute("aria-selected")).toBe("true");
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      updatedOptions[0].getAttribute("id"),
+    );
   });
 
   it("dismisses suggestions with Escape without discarding the query", () => {
@@ -232,6 +256,20 @@ describe("RecipientInput autocomplete interaction", () => {
     fireEvent.blur(input);
     expect(screen.getByText("ada@example.test")).toBeTruthy();
     expect(input.value).toBe("");
+  });
+
+  it("names the recipient field and chip removal control", () => {
+    render(<RecipientHarness initialValue="ada@example.test" />);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    expect(input.getAttribute("aria-label")).toBe("To recipients");
+
+    const removeButton = screen.getByRole("button", {
+      name: "mail.recipients.removeRecipient",
+    });
+    fireEvent.click(removeButton);
+
+    expect(screen.queryByText("ada@example.test")).toBeNull();
   });
 
   it("keeps malformed recipient text visible after blur instead of committing it", () => {
