@@ -9,6 +9,7 @@ import {
   createAnthropicManagedAgentsHandler,
   type AnthropicManagedAgentRuntimeEvent,
 } from "./anthropic-managed-agents.js";
+import { RemoteAgentCredentialRejectedError } from "./remote-agent-auth.js";
 import type { A2AHandlerResult } from "./types.js";
 
 function readBody(request: IncomingMessage): Promise<string> {
@@ -50,7 +51,8 @@ describe("Anthropic Managed Agents A2A handler", () => {
     | "approval"
     | "terminated"
     | "race"
-    | "connect-timeout" = "complete";
+    | "connect-timeout"
+    | "credential-rejected" = "complete";
   let streamConnected = false;
   const previousA2ASecret = process.env.A2A_SECRET;
   const requests: Array<{
@@ -104,6 +106,10 @@ describe("Anthropic Managed Agents A2A handler", () => {
         request.method === "GET"
       ) {
         if (mode === "connect-timeout") return;
+        if (mode === "credential-rejected") {
+          response.writeHead(401).end("invalid credential");
+          return;
+        }
         if (mode === "race") {
           await new Promise((resolve) => setTimeout(resolve, 25));
           streamConnected = true;
@@ -412,6 +418,21 @@ describe("Anthropic Managed Agents A2A handler", () => {
     ]);
   });
 
+  it("preserves credential rejection from stream requests", async () => {
+    mode = "credential-rejected";
+    const handler = makeHandler([]);
+
+    await expect(
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Use the managed agent." }],
+        },
+        context(),
+      ),
+    ).rejects.toBeInstanceOf(RemoteAgentCredentialRejectedError);
+  });
+
   it("treats termination after partial text as a failed state", async () => {
     mode = "terminated";
     const handler = makeHandler([]);
@@ -563,7 +584,12 @@ describe("Anthropic Managed Agents A2A handler", () => {
       ANTHROPIC_MANAGED_AGENTS_METADATA_KEY
     ] as Record<string, unknown>;
     const token = String(metadata.continuationToken);
-    const tamperedToken = `${token.slice(0, -1)}${token.endsWith("a") ? "b" : "a"}`;
+    const segments = token.split(".");
+    const signature = segments[2] ?? "";
+    const mutationOffset = Math.floor(signature.length / 2);
+    const mutation = signature[mutationOffset] === "a" ? "b" : "a";
+    segments[2] = `${signature.slice(0, mutationOffset)}${mutation}${signature.slice(mutationOffset + 1)}`;
+    const tamperedToken = segments.join(".");
 
     await expect(
       withCaller(() =>

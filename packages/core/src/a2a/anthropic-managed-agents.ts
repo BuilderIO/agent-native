@@ -469,6 +469,7 @@ async function runSessionTurn(args: {
         cause,
       });
     }
+    if (cause instanceof RemoteAgentCredentialRejectedError) throw cause;
     if (cause instanceof AnthropicManagedAgentsError) throw cause;
     throw new AnthropicManagedAgentsError({
       code: "stream_error",
