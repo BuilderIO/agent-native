@@ -28,6 +28,7 @@ import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
   deckContrastCoverage,
+  needsInheritedCanvas,
   type ContrastCheckedSlide,
 } from "../shared/deck-contrast.js";
 import {
@@ -45,6 +46,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { inheritedSlideCanvas } from "./_design-system-canvas.js";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 import getDesignSystem from "./get-design-system.js";
 
@@ -507,8 +509,13 @@ export default defineAction({
     );
     const contrastCoverage = deckContrastCoverage(
       slides as ContrastCheckedSlide[],
-      linkedDesignSystem?.status === "available"
-        ? linkedDesignSystem.colorMode?.background
+      needsInheritedCanvas(slides as ContrastCheckedSlide[])
+        ? await inheritedSlideCanvas(
+            resolvedDesignSystemId,
+            linkedDesignSystem?.status === "available"
+              ? linkedDesignSystem.colorMode?.background
+              : null,
+          )
         : null,
     );
     return {

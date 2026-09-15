@@ -179,6 +179,8 @@ const LIGHT_TAILWIND_BACKGROUND =
 /** Red, green, blue (0-255) and alpha (0-1). */
 export type Rgba = [number, number, number, number];
 
+const HEX_DIGITS = /^[\da-f]+$/;
+
 /**
  * The channels of a single CSS color literal, or null when the value carries
  * no readable color (a variable, a gradient, an image URL). Alpha is kept:
@@ -197,6 +199,10 @@ export function cssColorChannels(value: unknown): Rgba | null {
 
 function hexChannels(hex: string): Rgba | null {
   const value = hex.replace("#", "");
+  // Length alone does not make a hex literal: a payload of non-hex letters
+  // parses to NaN channels, and a NaN contrast ratio compares false against
+  // every threshold, so an unreadable pairing would be reported as a pass.
+  if (!HEX_DIGITS.test(value)) return null;
   if (value.length === 3 || value.length === 4) {
     const [r, g, b] = value
       .slice(0, 3)
@@ -222,34 +228,98 @@ function hexChannels(hex: string): Rgba | null {
 
 function functionalChannels(value: string): Rgba | null {
   const rgb = value.match(
-    /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+)(%?))?/i,
+    /^rgba?\(\s*([\d.]+)(%?)[\s,]+([\d.]+)(%?)[\s,]+([\d.]+)(%?)(?:[\s,/]+([\d.]+)(%?))?/i,
   );
   if (rgb) {
     return [
-      Number(rgb[1]),
-      Number(rgb[2]),
-      Number(rgb[3]),
-      parseAlpha(rgb[4], rgb[5]),
+      rgbChannel(rgb[1]!, rgb[2]),
+      rgbChannel(rgb[3]!, rgb[4]),
+      rgbChannel(rgb[5]!, rgb[6]),
+      parseAlpha(rgb[7], rgb[8]),
     ];
   }
-  // hsl and the lightness-first spaces (oklch/oklab/lch/lab) can be read as a
-  // grey of the same lightness without a full color-space conversion. hsl puts
-  // lightness third; the others put it first.
+
   const hsl = value.match(
-    /^hsla?\(\s*[\d.]+(?:deg|rad|grad|turn)?[\s,]+[\d.]+%?[\s,]+([\d.]+)(%?)(?:[\s,/]+([\d.]+)(%?))?/i,
+    /^hsla?\(\s*([\d.]+)(deg|rad|grad|turn)?[\s,]+([\d.]+)%?[\s,]+([\d.]+)%?(?:[\s,/]+([\d.]+)(%?))?/i,
   );
+  if (hsl) {
+    const [r, g, b] = hslChannels(
+      hueDegrees(Number(hsl[1]), hsl[2]),
+      clamp01(Number(hsl[3]) / 100),
+      clamp01(Number(hsl[4]) / 100),
+    );
+    return [r, g, b, parseAlpha(hsl[5], hsl[6])];
+  }
+
+  // The lightness-first spaces (oklch/oklab/lch/lab) state a perceptual
+  // lightness, which reads closely enough as a grey of that lightness to rank
+  // a canvas without a full color-space conversion. hsl cannot be read that
+  // way: its L is the midpoint between the pure hue and white, so a saturated
+  // hue at 50% is far darker than mid-grey.
   const lightnessFirst = value.match(
     /^(?:oklch|oklab|lch|lab)\(\s*([\d.]+)(%?)[^)/]*(?:\/\s*([\d.]+)(%?))?/i,
   );
-  const lightness = hsl ?? lightnessFirst;
-  if (lightness) {
-    const raw = Number(lightness[1]);
+  if (lightnessFirst) {
+    const raw = Number(lightnessFirst[1]);
     const normalized =
-      lightness[2] === "%" ? raw / 100 : raw > 1 ? raw / 100 : raw;
-    const channel = Math.round(Math.min(Math.max(normalized, 0), 1) * 255);
-    return [channel, channel, channel, parseAlpha(lightness[3], lightness[4])];
+      lightnessFirst[2] === "%" ? raw / 100 : raw > 1 ? raw / 100 : raw;
+    const channel = Math.round(clamp01(normalized) * 255);
+    return [
+      channel,
+      channel,
+      channel,
+      parseAlpha(lightnessFirst[3], lightnessFirst[4]),
+    ];
   }
   return null;
+}
+
+/** One red/green/blue channel, which CSS states as 0-255 or as a percentage. */
+function rgbChannel(raw: string, percent: string | undefined): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return 0;
+  const scaled = percent === "%" ? (value / 100) * 255 : value;
+  return Math.min(Math.max(scaled, 0), 255);
+}
+
+function hueDegrees(raw: number, unit: string | undefined): number {
+  if (!Number.isFinite(raw)) return 0;
+  if (unit === "rad") return (raw * 180) / Math.PI;
+  if (unit === "grad") return raw * 0.9;
+  if (unit === "turn") return raw * 360;
+  return raw;
+}
+
+function hslChannels(
+  hue: number,
+  saturation: number,
+  lightness: number,
+): [number, number, number] {
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const sector = (((hue % 360) + 360) % 360) / 60;
+  const second = chroma * (1 - Math.abs((sector % 2) - 1));
+  const rgb: [number, number, number] =
+    sector < 1
+      ? [chroma, second, 0]
+      : sector < 2
+        ? [second, chroma, 0]
+        : sector < 3
+          ? [0, chroma, second]
+          : sector < 4
+            ? [0, second, chroma]
+            : sector < 5
+              ? [second, 0, chroma]
+              : [chroma, 0, second];
+  const offset = lightness - chroma / 2;
+  return [
+    Math.round((rgb[0] + offset) * 255),
+    Math.round((rgb[1] + offset) * 255),
+    Math.round((rgb[2] + offset) * 255),
+  ];
+}
+
+function clamp01(value: number): number {
+  return Number.isFinite(value) ? Math.min(Math.max(value, 0), 1) : 0;
 }
 
 /** A CSS alpha term, as a number or a percentage. Absent means opaque. */
@@ -291,7 +361,9 @@ export function isDarkColorValue(value: unknown): boolean | null {
   let readable = 0;
   for (const stop of stops) {
     const channels = cssColorChannels(stop);
-    if (!channels) continue;
+    // A fully transparent stop paints nothing, so its channels say nothing
+    // about how the canvas reads.
+    if (!channels || channels[3] === 0) continue;
     readable += 1;
     if (isDarkChannels(channels)) dark += 1;
   }

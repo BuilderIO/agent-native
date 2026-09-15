@@ -19,6 +19,15 @@ export interface DeckContrastCoverage {
 }
 
 /**
+ * Whether any slide in the deck renders on a canvas it does not declare.
+ * Resolving the linked design system costs a read, so callers only pay for it
+ * when a slide actually inherits.
+ */
+export function needsInheritedCanvas(slides: ContrastCheckedSlide[]): boolean {
+  return slides.some((slide) => Boolean(slide.content) && !slide.background);
+}
+
+/**
  * Deck-wide readability, reported the same way `sourceCoverage` reports
  * deck-wide source fidelity.
  *
@@ -32,9 +41,11 @@ export interface DeckContrastCoverage {
  */
 export function deckContrastCoverage(
   slides: ContrastCheckedSlide[],
-  /** Canvas a slide inherits from the linked design system when it declares
-   *  none of its own. Without it, a slide that relies on the system's canvas
-   *  is invisible to the audit and an unreadable pairing goes unreported. */
+  /** Canvas a slide inherits when it declares none of its own, from
+   *  `inheritedSlideCanvas`. Without it, a slide that relies on the deck's
+   *  canvas is invisible to the audit and an unreadable pairing goes
+   *  unreported. Null means the canvas could not be read, which leaves those
+   *  slides unchecked rather than audited against a guess. */
   inheritedBackground?: string | null,
 ): DeckContrastCoverage | null {
   const unreadableSlideIds: string[] = [];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deckContrastCoverage } from "./deck-contrast";
+import { deckContrastCoverage, needsInheritedCanvas } from "./deck-contrast";
 
 const unreadable = (id: string) => ({
   id,
@@ -105,5 +105,15 @@ describe("deckContrastCoverage", () => {
 
   it("skips empty slides instead of reporting them as unreadable", () => {
     expect(deckContrastCoverage([{ id: "blank", content: "" }])).toBeNull();
+  });
+});
+
+describe("needsInheritedCanvas", () => {
+  it("is true only while a slide renders on a canvas it never declared", () => {
+    expect(needsInheritedCanvas([readable("a")])).toBe(true);
+    expect(
+      needsInheritedCanvas([{ ...readable("a"), background: "bg-[#0B0E14]" }]),
+    ).toBe(false);
+    expect(needsInheritedCanvas([{ id: "empty" }])).toBe(false);
   });
 });

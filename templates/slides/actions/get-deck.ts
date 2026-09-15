@@ -15,7 +15,10 @@ import {
 } from "../server/lib/source-import.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
-import { deckContrastCoverage } from "../shared/deck-contrast.js";
+import {
+  deckContrastCoverage,
+  needsInheritedCanvas,
+} from "../shared/deck-contrast.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
@@ -24,6 +27,7 @@ import {
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
+import { inheritedSlideCanvas } from "./_design-system-canvas.js";
 import getDesignSystem from "./get-design-system.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -266,8 +270,13 @@ export default defineAction({
     );
     const contrastCoverage = deckContrastCoverage(
       slides as any,
-      designSystem?.status === "available"
-        ? designSystem.colorMode?.background
+      needsInheritedCanvas(slides as any)
+        ? await inheritedSlideCanvas(
+            linkedDesignSystemId,
+            designSystem?.status === "available"
+              ? designSystem.colorMode?.background
+              : null,
+          )
         : null,
     );
 

@@ -35,6 +35,27 @@ describe("isDarkColorValue", () => {
     expect(cssColorChannels("rgba(0, 0, 0, 40%)")![3]).toBeCloseTo(0.4, 5);
   });
 
+  it("converts hsl rather than reading its lightness as grey", () => {
+    // A saturated hue at 50% lightness is far darker than mid-grey: read as
+    // grey, pure blue would be called light and its canvas mis-classified.
+    expect(cssColorChannels("hsl(240 100% 50%)")).toEqual([0, 0, 255, 1]);
+    expect(isDarkColorValue("hsl(240 100% 50%)")).toBe(true);
+    expect(isDarkColorValue("hsl(60, 100%, 50%)")).toBe(false);
+    expect(cssColorChannels("hsl(0.5turn 100% 50%)")).toEqual([0, 255, 255, 1]);
+  });
+
+  it("scales percentage rgb channels", () => {
+    expect(cssColorChannels("rgb(100% 100% 100%)")).toEqual([255, 255, 255, 1]);
+    expect(isDarkColorValue("rgb(100% 100% 100%)")).toBe(false);
+    expect(isDarkColorValue("rgb(0% 0% 0%)")).toBe(true);
+  });
+
+  it("rejects a hex payload that is not hexadecimal", () => {
+    expect(cssColorChannels("#gggggg")).toBeNull();
+    expect(isDarkColorValue("#gggggg")).toBeNull();
+    expect(cssColorChannels("#12345")).toBeNull();
+  });
+
   it("reads the tailwind background utilities a slide can be set to", () => {
     expect(isDarkColorValue("bg-black")).toBe(true);
     expect(isDarkColorValue("bg-slate-950")).toBe(true);

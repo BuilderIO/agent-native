@@ -12,6 +12,13 @@ describe("contrastRatio", () => {
     expect(contrastRatio("#ffffff", "#ffffff")).toBeCloseTo(1, 5);
   });
 
+  it("returns null for a hex payload that is not hexadecimal", () => {
+    // NaN channels would compare false against every threshold, reporting an
+    // unchecked pairing as a pass.
+    expect(contrastRatio("#gggggg", "#ffffff")).toBeNull();
+    expect(contrastRatio("#ffffff", "#zzzzzz")).toBeNull();
+  });
+
   it("composites a translucent foreground instead of scoring it opaque", () => {
     // Without alpha compositing this is black-on-white and scores 21:1.
     expect(contrastRatio("rgba(0, 0, 0, 0.1)", "#ffffff")!).toBeLessThan(1.3);

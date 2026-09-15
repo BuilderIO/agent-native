@@ -4,7 +4,7 @@ import {
 } from "@agent-native/core/shared";
 
 import { backgroundCssValue } from "../shared/slide-background.js";
-import getDesignSystem from "./get-design-system.js";
+import { inheritedSlideCanvas } from "./_design-system-canvas.js";
 
 /**
  * The contrast warning for one slide that was just written.
@@ -25,31 +25,18 @@ export async function slideContrastWarning({
   background?: string | null;
   designSystemId?: string | null;
 }): Promise<string | null> {
-  const slideBackground = background ? backgroundCssValue(background) : null;
-  const report = findUnreadableTextColors({ html, slideBackground });
-  if (report.checkedBackgrounds.length > 0 || !designSystemId) {
+  const declared = background ? backgroundCssValue(background) : null;
+  const report = findUnreadableTextColors({ html, slideBackground: declared });
+  // A slide that names its own canvas is already checked against it. That
+  // includes a canvas this module cannot parse (a named utility): inheriting
+  // over it would audit the slide against a canvas it does not render on.
+  if (report.checkedBackgrounds.length > 0 || background) {
     return formatSlideContrastWarning(report);
   }
 
-  const inherited = await inheritedCanvas(designSystemId);
+  const inherited = await inheritedSlideCanvas(designSystemId);
   if (!inherited) return formatSlideContrastWarning(report);
   return formatSlideContrastWarning(
     findUnreadableTextColors({ html, slideBackground: inherited }),
   );
-}
-
-async function inheritedCanvas(designSystemId: string): Promise<string | null> {
-  try {
-    const system = (await getDesignSystem.run({
-      id: designSystemId,
-      compact: "true",
-    })) as { colorMode?: { background?: unknown } } | undefined;
-    const background = system?.colorMode?.background;
-    return typeof background === "string" && background ? background : null;
-  } catch {
-    // coercion-ok: null means "no canvas to check against", which leaves the
-    // markup-only report standing. It never turns an unreadable slide into a
-    // readable one, and a failed lookup must not fail the write itself.
-    return null;
-  }
 }
