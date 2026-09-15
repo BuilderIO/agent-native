@@ -63,6 +63,15 @@ const QUEUE_ROWS = [
   { id: "INV-4817", account: "Halcyon Labs", amount: "$3,980", age: "5d" },
   { id: "INV-4802", account: "Redpine Freight", amount: "$28,150", age: "9d" },
   { id: "INV-4795", account: "Owl & Oak", amount: "$1,220", age: "14d" },
+  { id: "INV-4788", account: "Marrow & Sons", amount: "$7,640", age: "18d" },
+  {
+    id: "INV-4771",
+    account: "Bluefin Logistics",
+    amount: "$19,300",
+    age: "21d",
+  },
+  { id: "INV-4764", account: "Cedarworks", amount: "$2,450", age: "26d" },
+  { id: "INV-4750", account: "Atlas Print Co", amount: "$9,875", age: "33d" },
 ];
 
 const TYPE_SCALE = [
@@ -254,7 +263,9 @@ const DESIGN_DASHBOARD_MOCK_CSS = [
   // as the loudest thing on the landing page.
   ".design-dashboard-mock { --lg-bg: #0c0c0e; --lg-elevated: #16161a; --lg-chrome: #131317; --lg-fg: #a9a9af; --lg-fg-soft: rgba(169, 169, 175, 0.62); --lg-line: rgba(169, 169, 175, 0.12); --lg-line-strong: rgba(169, 169, 175, 0.26); --lg-accent: #cdcdd1; --lg-accent-on: #0c0c0e; }",
   "html.light .design-dashboard-mock { --lg-bg: #f4f4f5; --lg-elevated: #ffffff; --lg-chrome: #e8e8ea; --lg-fg: #55555e; --lg-fg-soft: rgba(85, 85, 94, 0.62); --lg-line: rgba(85, 85, 94, 0.14); --lg-line-strong: rgba(85, 85, 94, 0.28); --lg-accent: #26262b; --lg-accent-on: #f4f4f5; }",
-  ".design-dashboard-mock .lg-board { display: flex; min-height: 100%; background: var(--lg-bg); color: var(--lg-fg); }",
+  // The design is at least as tall as the visible board so the sidebar chrome
+  // reaches the crop line instead of stopping short of it.
+  `.design-dashboard-mock .lg-board { display: flex; min-height: calc(${BOARD_BODY_HEIGHT}px / var(--dd-scale)); background: var(--lg-bg); color: var(--lg-fg); }`,
 
   ".design-dashboard-mock .lg-sidebar { display: flex; width: 210px; flex-shrink: 0; flex-direction: column; gap: 6px; padding: 26px 18px; background: var(--lg-chrome); }",
   ".design-dashboard-mock .lg-wordmark { margin-bottom: 18px; padding: 0 12px; font-size: 26px; font-weight: 700; letter-spacing: -0.04em; }",
