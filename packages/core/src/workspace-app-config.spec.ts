@@ -11,7 +11,10 @@ const jitiMock = vi.hoisted(() => ({
 vi.mock("jiti", () => jitiMock);
 
 import { resetAppConfigForTests, defineAppConfig } from "./app-config/index.js";
-import { readConfiguredWorkspaceAppHomePath } from "./workspace-app-config.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "./workspace-app-config.js";
 
 let tempRoot: string | undefined;
 
@@ -25,6 +28,21 @@ afterEach(() => {
 });
 
 describe("workspace app configuration discovery", () => {
+  it.each(["home._index.tsx", "_app.home._index.tsx"])(
+    "recognizes %s as an existing home route",
+    (homeRoute) => {
+      tempRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "workspace-app-routes-"),
+      );
+      const routesDir = path.join(tempRoot, "app", "routes");
+      fs.mkdirSync(routesDir, { recursive: true });
+      fs.writeFileSync(path.join(routesDir, "_index.tsx"), "export {};");
+      fs.writeFileSync(path.join(routesDir, homeRoute), "export {};");
+
+      expect(inferWorkspaceAppRootHomePath(tempRoot)).toBeUndefined();
+    },
+  );
+
   it("serializes app config reads that share the process-global config store", async () => {
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "workspace-app-config-"));
     const firstApp = makeConfigApp("first");

@@ -11,7 +11,7 @@ export function inferWorkspaceAppRootHomePath(appDir: string): "/" | undefined {
     /^_index\.(?:[cm]?[jt]sx?)$/.test(filename),
   );
   const hasHomeRoute = routeFiles.some((filename) =>
-    /^(?:_app\.)?home\.(?:[cm]?[jt]sx?)$/.test(filename),
+    /^(?:_app\.)?home(?:\._index)?\.(?:[cm]?[jt]sx?)$/.test(filename),
   );
   return hasRootRoute && !hasHomeRoute ? "/" : undefined;
 }

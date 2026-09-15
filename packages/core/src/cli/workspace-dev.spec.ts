@@ -374,6 +374,47 @@ describe("workspace dev startup", () => {
     );
   });
 
+  it("keeps healthy apps discoverable when a sibling config or route tree is broken", async () => {
+    tmpDir = makeWorkspace([
+      "dispatch",
+      "healthy",
+      "config-broken",
+      "routes-broken",
+    ]);
+    const configDir = path.join(
+      tmpDir,
+      "apps",
+      "config-broken",
+      "server",
+      "plugins",
+    );
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, "config.ts"),
+      'import "missing-workspace-app-dependency";\n',
+    );
+    const brokenRoutes = path.join(
+      tmpDir,
+      "apps",
+      "routes-broken",
+      "app",
+      "routes",
+    );
+    fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+    fs.writeFileSync(brokenRoutes, "not a directory");
+
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+
+    expect(handle.apps.map((app) => app.id)).toEqual(["dispatch", "healthy"]);
+  });
+
   it("uses polling watchers in Builder-style remote dev environments", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
