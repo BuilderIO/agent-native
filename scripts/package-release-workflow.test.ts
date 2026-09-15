@@ -14,6 +14,10 @@ type Workflow = Record<string, unknown>;
 const workflow = parse(
   readFileSync(".github/workflows/auto-publish.yml", "utf8"),
 ) as Workflow;
+const publisherSource = readFileSync(
+  "scripts/changeset-publish-sequential.ts",
+  "utf8",
+);
 const trigger = workflow.on as Workflow;
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
@@ -107,11 +111,15 @@ describe("npm package release workflow", () => {
   it("keeps the release changeset package list aligned with the publisher", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
-    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 8);
+    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 9);
   });
 
   it("allows npm propagation to settle before failing a publish", () => {
-    assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 15 * 60_000);
+    assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 30 * 60_000);
+    assert.match(
+      publisherSource,
+      /packagesNeedingTags\.map\(\(pkg\) => waitForPackageAvailability\(pkg\)\)/,
+    );
   });
 
   it("consumes concurrent public changesets after stable publication", () => {

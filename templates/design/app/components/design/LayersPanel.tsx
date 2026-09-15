@@ -156,6 +156,10 @@ export interface LayersPanelMoveIntent {
   draggedIds: string[];
   targetId: string;
   placement: "before" | "after" | "inside";
+  /** Alt/Option was held for this drop — duplicate the dragged layer(s) at
+   * the drop position instead of moving the originals, mirroring the
+   * canvas's own alt-drag-duplicate gesture (Figma parity). */
+  duplicate?: boolean;
 }
 
 export interface LayersPanelLabels {
@@ -312,6 +316,35 @@ const SECTION_ELEMENT_ID = "__design_layers_elements__";
 // per spec; the source row stores the drag payload here on dragstart instead.
 let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
 let activeDropIntent: LayersPanelMoveIntent | null = null;
+
+// Module-level continuous-toggle-drag state for the eye/lock icon
+// "click-drag across a run of rows" gesture (Figma parity, unique-paths.md
+// #13): a plain mousedown/up, not HTML5 DnD, so per-row React state can't
+// carry it across rows the way activeDragState does above for drag-and-drop.
+// `value` is the state every icon under the drag is set TO, decided once by
+// the first icon's own toggle so a run always ends up uniform.
+let activeIconToggleDrag: { kind: "hidden" | "locked"; value: boolean } | null =
+  null;
+
+// Arms the drag above and clears it on whichever end signal fires first. A
+// plain mouseup only fires when the button releases over this window — if
+// the pointer leaves the window first (dragged out past the edge, or the
+// window loses focus mid-gesture) neither the row nor the window ever sees
+// it, so blur and pointercancel are armed alongside it; otherwise the state
+// stays "on" and the next hover over an unrelated icon applies a stale
+// toggle.
+function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
+  activeIconToggleDrag = { kind, value };
+  const clear = () => {
+    activeIconToggleDrag = null;
+    window.removeEventListener("mouseup", clear);
+    window.removeEventListener("blur", clear);
+    window.removeEventListener("pointercancel", clear);
+  };
+  window.addEventListener("mouseup", clear, { once: true });
+  window.addEventListener("blur", clear, { once: true });
+  window.addEventListener("pointercancel", clear, { once: true });
+}
 
 // Every level is represented by a real flex child instead of arithmetic
 // padding. Keeping the hierarchy in the DOM makes the icon-width indent and
@@ -2026,6 +2059,7 @@ const LayerRow = memo(function LayerRow({
         canDropInside,
         isExpandedWithChildren,
       ),
+      duplicate: event.altKey,
     } satisfies LayersPanelMoveIntent;
     const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
     if (canMoveLayer && !canMoveLayer(moveIntent)) {
@@ -2095,9 +2129,12 @@ const LayerRow = memo(function LayerRow({
               ),
             }
           : null;
-      const panelIntent =
+      const panelIntent: LayersPanelMoveIntent =
         storedIntent && storedIntent.draggedIds.length > 0
-          ? storedIntent
+          ? // The drop event's own altKey is authoritative for "was Alt held
+            // at the moment of the drop" — a dragover captured earlier in the
+            // gesture can go stale if the key is pressed/released mid-drag.
+            { ...storedIntent, duplicate: event.altKey }
           : ({
               draggedIds: cleanedIds,
               targetId: node.id,
@@ -2106,6 +2143,7 @@ const LayerRow = memo(function LayerRow({
                 canDropInside,
                 isExpandedWithChildren,
               ),
+              duplicate: event.altKey,
             } satisfies LayersPanelMoveIntent);
       const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
       if (!canMoveLayer || canMoveLayer(moveIntent)) {
@@ -2387,9 +2425,45 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.locked ? labels.unlock : labels.lock}
+                        // The row itself is draggable="true" (drag-reorder);
+                        // without this override, a mousedown-then-move on
+                        // this child (the click-drag-across-a-run gesture)
+                        // reads as the START of that native HTML5 row drag
+                        // instead of a plain button press, hijacking every
+                        // mouseenter this gesture depends on.
+                        draggable={false}
+                        onMouseDown={(event) => {
+                          // The real toggle trigger: a click-drag onto a
+                          // DIFFERENT row's icon (see onMouseEnter below)
+                          // ends the gesture with mouseup over that other
+                          // row, so the browser never fires "click" on THIS
+                          // one at all — mousedown is the only event this
+                          // icon is guaranteed to receive either way.
+                          event.stopPropagation();
+                          const nextLocked = !node.locked;
+                          onToggleLocked?.(node.id, nextLocked);
+                          beginIconToggleDrag("locked", nextLocked);
+                        }}
                         onClick={(event) => {
+                          // detail === 0 is a keyboard/synthetic activation
+                          // (Enter/Space) — those fire no mousedown, so this
+                          // is the only handler that runs for them. A real
+                          // pointer click already toggled onMouseDown above;
+                          // handling it again here would flip it right back.
+                          if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleLocked?.(node.id, !node.locked);
+                        }}
+                        onMouseEnter={() => {
+                          if (
+                            activeIconToggleDrag?.kind === "locked" &&
+                            node.locked !== activeIconToggleDrag.value
+                          ) {
+                            onToggleLocked?.(
+                              node.id,
+                              activeIconToggleDrag.value,
+                            );
+                          }
                         }}
                       >
                         {node.locked ? (
@@ -2418,9 +2492,45 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.hidden ? labels.show : labels.hide}
+                        // The row itself is draggable="true" (drag-reorder);
+                        // without this override, a mousedown-then-move on
+                        // this child (the click-drag-across-a-run gesture)
+                        // reads as the START of that native HTML5 row drag
+                        // instead of a plain button press, hijacking every
+                        // mouseenter this gesture depends on.
+                        draggable={false}
+                        onMouseDown={(event) => {
+                          // The real toggle trigger: a click-drag onto a
+                          // DIFFERENT row's icon (see onMouseEnter below)
+                          // ends the gesture with mouseup over that other
+                          // row, so the browser never fires "click" on THIS
+                          // one at all — mousedown is the only event this
+                          // icon is guaranteed to receive either way.
+                          event.stopPropagation();
+                          const nextHidden = !node.hidden;
+                          onToggleHidden?.(node.id, nextHidden);
+                          beginIconToggleDrag("hidden", nextHidden);
+                        }}
                         onClick={(event) => {
+                          // detail === 0 is a keyboard/synthetic activation
+                          // (Enter/Space) — those fire no mousedown, so this
+                          // is the only handler that runs for them. A real
+                          // pointer click already toggled onMouseDown above;
+                          // handling it again here would flip it right back.
+                          if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleHidden?.(node.id, !node.hidden);
+                        }}
+                        onMouseEnter={() => {
+                          if (
+                            activeIconToggleDrag?.kind === "hidden" &&
+                            node.hidden !== activeIconToggleDrag.value
+                          ) {
+                            onToggleHidden?.(
+                              node.id,
+                              activeIconToggleDrag.value,
+                            );
+                          }
                         }}
                       >
                         {node.hidden ? (

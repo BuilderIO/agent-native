@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { useAfterPaint } from "../use-after-paint.js";
 import { EmbeddedExtension } from "./EmbeddedExtension.js";
 import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
@@ -77,8 +78,12 @@ export function ExtensionSlot({
   const t = useT();
   const readyInstallIds = useRef(new Set<string>());
   const readyNotified = useRef(false);
+  // Slot installs render in sidebars and panels that are not visible during
+  // first paint; wait out the startup window before fetching.
+  const afterPaint = useAfterPaint();
   const installsQuery = useQuery<SlotInstall[]>({
     queryKey: ["slot-installs", id],
+    enabled: afterPaint,
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(
@@ -91,6 +96,11 @@ export function ExtensionSlot({
     },
   });
   const installs = installsQuery.data ?? [];
+  // While the paint-gated query is deferred it sits idle with no data —
+  // that state must read as "not settled yet", not "zero installs", or the
+  // slot reports ready and flashes its empty affordance before the fetch
+  // could even begin.
+  const installsSettled = afterPaint && !installsQuery.isPending;
 
   useEffect(() => {
     readyInstallIds.current.clear();
@@ -98,7 +108,7 @@ export function ExtensionSlot({
   }, [id]);
 
   useEffect(() => {
-    if (readyNotified.current || installsQuery.isLoading) return;
+    if (readyNotified.current || !installsSettled) return;
     if (
       installsQuery.isError ||
       installs.length === 0 ||
@@ -107,13 +117,13 @@ export function ExtensionSlot({
       readyNotified.current = true;
       onReady?.();
     }
-  }, [installs, installsQuery.isError, installsQuery.isLoading, onReady]);
+  }, [installs, installsQuery.isError, installsSettled, onReady]);
 
   const markInstallReady = (installId: string) => {
     readyInstallIds.current.add(installId);
     if (
       !readyNotified.current &&
-      !installsQuery.isLoading &&
+      installsSettled &&
       readyInstallIds.current.size >= installs.length
     ) {
       readyNotified.current = true;
@@ -121,7 +131,7 @@ export function ExtensionSlot({
     }
   };
 
-  if (installsQuery.isLoading) {
+  if (!installsSettled) {
     return null;
   }
 

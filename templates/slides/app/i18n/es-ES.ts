@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Ajustes",
     description: "Preferencias de idioma y espacio de trabajo para esta app.",
+    labs: "Labs",
+    labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
+    labLayoutOverflowWarningDescription:
+      "Mostrar la advertencia de desbordamiento del diseño en el editor.",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:
       "Recibe un correo cuando alguien comente o responda en tu presentación.",
@@ -300,6 +304,10 @@ const messages = {
     exportPptx: "Exportar como PPTX",
     connectGoogle: "Conectar Google",
     openInGoogleSlides: "Abrir en Google Slides",
+    googleSlidesUnavailable: "No disponible",
+    googleSlidesOpenImporter: "Abrir la importación de Google Slides",
+    googleSlidesUnavailableHint:
+      "La exportación a Google Slides no está disponible ahora mismo porque la conexión con Google no está configurada. Exporta como PPTX e impórtalo en Google Slides.",
     googleSlidesCreated: "Abierto en Google Slides",
     googleSlidesCreatedHint:
       "Se creó una copia de esta presentación en tu Google Drive.",
@@ -477,6 +485,10 @@ const messages = {
     rose: "Rose",
     arrange: "Organizar",
     order: "Orden",
+    group: "Agrupar",
+    ungroup: "Desagrupar",
+    bringForward: "Traer adelante",
+    sendBackward: "Enviar atrás",
     bringToFront: "Traer al frente",
     sendToBack: "Enviar al fondo",
     copyStyle: "Copiar estilo",
@@ -815,6 +827,10 @@ const messages = {
     continue: "Continuar",
     continueToGenerate: "Continuar para generar",
     designSystem: "Sistema de diseño",
+    designSystemIndexing: "Indexando…",
+    designSystemUnavailable: "No disponible",
+    designSystemIndexingNotice:
+      "Este sistema de diseño todavía se está indexando. Elige otro o espera a que termine la indexación antes de continuar.",
     referenceDeck: "Deck de referencia",
     referenceDeckPlaceholder: "Imitar el estilo de un deck existente",
     referenceDeckNone: "No usar ninguno",

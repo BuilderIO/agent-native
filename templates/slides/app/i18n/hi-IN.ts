@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "सेटिंग्स",
     description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
+    labs: "लैब्स",
+    labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
+    labLayoutOverflowWarningDescription: "एडिटर में लेआउट ओवरफ्लो चेतावनी दिखाएँ।",
     emailNotifications: "ईमेल सूचनाएँ",
     emailNotificationsDescription:
       "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",
@@ -291,6 +294,10 @@ const messages = {
     exportPptx: "PPTX के रूप में निर्यात करें",
     connectGoogle: "Google कनेक्ट करें",
     openInGoogleSlides: "Google Slides में खोलें",
+    googleSlidesUnavailable: "अनुपलब्ध",
+    googleSlidesOpenImporter: "Google Slides इंपोर्ट खोलें",
+    googleSlidesUnavailableHint:
+      "Google Slides एक्सपोर्ट अभी अनुपलब्ध है क्योंकि Google कनेक्शन सेट अप नहीं है. इसके बजाय PPTX के रूप में एक्सपोर्ट करें और उसे Google Slides में इंपोर्ट करें.",
     googleSlidesCreated: "Google Slides में खोला गया",
     googleSlidesCreatedHint: "इस प्रस्तुति की एक प्रति आपके Google Drive में बनाई गई।",
     duplicateDeck: "डेक डुप्लिकेट करें",
@@ -466,6 +473,10 @@ const messages = {
     rose: "Rose",
     arrange: "व्यवस्थित करें",
     order: "क्रम",
+    group: "समूहित करें",
+    ungroup: "समूह से अलग करें",
+    bringForward: "आगे लाएं",
+    sendBackward: "पीछे भेजें",
     bringToFront: "सबसे आगे लाएं",
     sendToBack: "सबसे पीछे भेजें",
     copyStyle: "शैली कॉपी करें",
@@ -785,6 +796,10 @@ const messages = {
     continue: "जारी रखें",
     continueToGenerate: "जनरेट करने के लिए जारी रखें",
     designSystem: "डिज़ाइन सिस्टम",
+    designSystemIndexing: "इंडेक्सिंग हो रही है…",
+    designSystemUnavailable: "अनुपलब्ध",
+    designSystemIndexingNotice:
+      "यह डिज़ाइन सिस्टम अभी भी इंडेक्स हो रहा है। जारी रखने से पहले कोई अन्य सिस्टम चुनें या इंडेक्सिंग पूरी होने की प्रतीक्षा करें।",
     referenceDeck: "संदर्भ डेक",
     referenceDeckPlaceholder: "किसी मौजूदा डेक की शैली अपनाएँ",
     referenceDeckNone: "किसी का उपयोग न करें",

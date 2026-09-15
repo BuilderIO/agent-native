@@ -721,6 +721,7 @@ function ComposerPlusMenuFull({
               <PopoverTrigger asChild>
                 <button
                   type="button"
+                  data-agent-composer-slot="plus-button"
                   aria-label={t("agentChat.composer.add", {
                     defaultValue: "Add...",
                   })}

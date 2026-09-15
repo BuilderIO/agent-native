@@ -159,7 +159,7 @@ describe("resolveNudgeIntent — free-placed objects", () => {
     expect(resolveNudgeIntent({ direction: "up", largeStep: true })).toEqual({
       kind: "translate",
       dx: 0,
-      dy: -8,
+      dy: -10,
     });
   });
 
@@ -403,8 +403,8 @@ describe("hasExplicitGridPlacement", () => {
 });
 
 describe("DEFAULT_NUDGE_AMOUNTS", () => {
-  it("uses a big nudge that lands on the 8px grid rather than Figma's 10", () => {
-    expect(DEFAULT_NUDGE_AMOUNTS).toEqual({ small: 1, big: 8 });
+  it("uses the Figma-style 10px Shift nudge independently of the layout grid", () => {
+    expect(DEFAULT_NUDGE_AMOUNTS).toEqual({ small: 1, big: 10 });
   });
 });
 

@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
+    labs: "Labs",
+    labsIntro: "リリース前に実験的な機能をプレビューできます。",
+    labLayoutOverflowWarningDescription:
+      "エディターでレイアウトのはみ出し警告を表示します。",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
       "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
@@ -294,6 +298,10 @@ const messages = {
     exportPptx: "PPTX としてエクスポート",
     connectGoogle: "Google に接続",
     openInGoogleSlides: "Google Slides で開く",
+    googleSlidesUnavailable: "利用不可",
+    googleSlidesOpenImporter: "Google Slides のインポートを開く",
+    googleSlidesUnavailableHint:
+      "Google 連携が設定されていないため、Google Slides へのエクスポートは現在利用できません。代わりに PPTX として書き出し、Google Slides にインポートしてください。",
     googleSlidesCreated: "Google Slides で開きました",
     googleSlidesCreatedHint:
       "このデッキのコピーを Google ドライブに作成しました。",
@@ -471,6 +479,10 @@ const messages = {
     rose: "Rose",
     arrange: "配置",
     order: "順序",
+    group: "グループ化",
+    ungroup: "グループ化を解除",
+    bringForward: "前面へ移動",
+    sendBackward: "背面へ移動",
     bringToFront: "最前面へ移動",
     sendToBack: "最背面へ移動",
     copyStyle: "スタイルをコピー",
@@ -795,6 +807,10 @@ const messages = {
     continue: "続行",
     continueToGenerate: "生成に進む",
     designSystem: "デザインシステム",
+    designSystemIndexing: "インデックス作成中…",
+    designSystemUnavailable: "利用不可",
+    designSystemIndexingNotice:
+      "このデザインシステムはまだインデックス作成中です。続行する前に別のシステムを選択するか、完了をお待ちください。",
     referenceDeck: "参考デッキ",
     referenceDeckPlaceholder: "既存デッキのスタイルに合わせる",
     referenceDeckNone: "使用しない",

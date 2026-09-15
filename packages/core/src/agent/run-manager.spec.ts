@@ -149,6 +149,7 @@ import {
   resolveRunNoProgressTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
   getActiveRunForThreadAsync,
+  getRun,
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
@@ -2531,6 +2532,157 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("auto-continues a foreground run whose last tool call failed", async () => {
+    // Design "Build this design as production code": the turn ends on failing
+    // tool calls with no assistant text, and a plain `done` left the client
+    // able to say only "stopped after these actions ... without sending a final
+    // message". The model never read the error, so the turn is unfinished.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-foreground-tool-error",
+      "thread-foreground-tool-error",
+      async (send) => {
+        await Promise.resolve();
+        send({ type: "text", text: "I'll build this as production code." });
+        send({
+          type: "tool_done",
+          tool: "resources",
+          id: "call-1",
+          input: {},
+          result: "Resource not found: design/handoff",
+          isError: true,
+        });
+        send({
+          type: "tool_done",
+          tool: "web_request",
+          id: "call-2",
+          input: {},
+          result: "Request timed out after 15000ms",
+          isError: true,
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-foreground-tool-error",
+      "stream_ended",
+    );
+  });
+
+  it("auto-continues when a precondition failure is the last tool result", async () => {
+    // Analytics /ask: the first turn stopped silently after a
+    // `provider-api-request` precondition failure, and the missing credential
+    // only surfaced when the user typed "continue" by hand. The successful
+    // lookups before it must not make the failing tail look like a finished
+    // answer.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-precondition-tool-error",
+      "thread-precondition-tool-error",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "search-analytics-query-catalog",
+          id: "call-1",
+          input: {},
+          result: '{"matches":3}',
+        });
+        send({
+          type: "tool_done",
+          tool: "data-source-status",
+          id: "call-2",
+          input: {},
+          result: '{"sources":["bigquery"]}',
+        });
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-3",
+          input: {},
+          result:
+            "Error running provider-api-request: stripe credential not configured.",
+          isError: true,
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-precondition-tool-error",
+      "stream_ended",
+    );
+  });
+
+  it("does not continue a failed tool the agent already stopped on", async () => {
+    // The bound on failed-tool continuations. A precondition the turn cannot
+    // satisfy (missing credential, missing role) is classified on the first
+    // attempt and emits a terminal error, so the chain must end on that real
+    // message rather than retrying a failure whose outcome cannot change.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-permanent-precondition",
+      "thread-permanent-precondition",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-1",
+          input: {},
+          result: "Stopped: provider-api-request can't run yet.",
+          isError: true,
+        });
+        send({
+          type: "error",
+          error:
+            "I stopped because provider-api-request needs a setup step outside this turn.",
+          errorCode: "permanent_precondition",
+          recoverable: false,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      errorCode: "permanent_precondition",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-permanent-precondition",
+      "error:permanent_precondition",
+    );
+  });
+
   it("auto-continues a run that ends during action preparation", async () => {
     const events: AgentChatEvent[] = [];
     const run = startRun(
@@ -3828,6 +3980,117 @@ describe("run manager soft timeout", () => {
     expect(persistOrder.indexOf(0)).toBeLessThan(persistOrder.indexOf(1));
   });
 
+  it("retries a failed sequence before persisting later events", async () => {
+    const attempts: number[] = [];
+    const durableOrder: number[] = [];
+    let seq0Attempts = 0;
+    const transientError = new Error("transient event persistence failure");
+
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+      attempts.push(seq);
+      if (seq === 0 && seq0Attempts++ === 0) {
+        throw transientError;
+      }
+      durableOrder.push(seq);
+    });
+
+    const run = startRun(
+      "run-persist-retry-order",
+      "thread-persist-retry-order",
+      async (send) => {
+        send({ type: "text", text: "first" });
+        send({ type: "text", text: "second" });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await run.finalized;
+
+    expect(attempts).toEqual([0, 0, 1, 2]);
+    expect(durableOrder).toEqual([0, 1, 2]);
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-persist-retry-order",
+      "completed",
+    );
+  });
+
+  it.each(["done", "auto_continue"] as const)(
+    "does not finalize %s after a permanent gap",
+    async (terminalType) => {
+      const attempts: number[] = [];
+      const durableOrder: number[] = [];
+      const permanentError = new Error("permanent event persistence failure");
+      const onComplete = vi.fn();
+
+      vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+        attempts.push(seq);
+        if (seq === 0) throw permanentError;
+        durableOrder.push(seq);
+      });
+
+      const run = startRun(
+        "run-persist-permanent-gap",
+        "thread-persist-permanent-gap",
+        async (send) => {
+          send({ type: "text", text: "first" });
+          send({ type: "text", text: "second" });
+          send(
+            terminalType === "done"
+              ? { type: "done" }
+              : { type: "auto_continue", reason: "stream_ended" },
+          );
+        },
+        onComplete,
+        { softTimeoutMs: 0 },
+      );
+
+      await expect(run.finalized).rejects.toThrow(
+        "permanent event persistence failure",
+      );
+
+      expect(attempts).toEqual([0, 0]);
+      expect(durableOrder).toEqual([]);
+      expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+        "run-persist-permanent-gap",
+        "completed",
+      );
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-persist-permanent-gap",
+        "errored",
+      );
+      expect(setRunError).toHaveBeenCalledWith(
+        "run-persist-permanent-gap",
+        "run_event_persistence_failed",
+        "Agent run ended unexpectedly",
+      );
+      expect(onComplete).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "errored",
+          events: expect.arrayContaining([
+            expect.objectContaining({
+              event: expect.objectContaining({
+                type: "error",
+                errorCode: "run_event_persistence_failed",
+              }),
+            }),
+          ]),
+        }),
+      );
+      expect(onComplete.mock.calls[0][0].events.at(-1).event.type).toBe(
+        "error",
+      );
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        "run-persist-permanent-gap",
+        "error:run_event_persistence_failed",
+      );
+      expect(cleanupOldRuns).toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(getRun("run-persist-permanent-gap")).toBeNull();
+    },
+  );
+
   // ─── No-progress backstop (RUN_NO_PROGRESS_HARD_TIMEOUT_MS) ────────────────
   // Timer-driven, independent of the in-loop watchdogs: catches a stall in a
   // segment that never emits a real-progress event (only keepalives), while
@@ -4623,6 +4886,8 @@ describe("run manager soft timeout", () => {
       await run.finalized;
 
       expect(completions).toEqual(["errored"]);
+      expect(run.status).toBe("errored");
+      expect(getRun("run-terminal-error-return")?.status).toBe("errored");
     });
 
     it("counts a boundary as recovered only once a round actually starts", async () => {

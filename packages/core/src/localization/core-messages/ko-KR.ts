@@ -140,6 +140,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "이 채팅을 사용하려면 데스크톱 앱을 여세요.",
   "composer.removeAttachment": "{{name}} 제거",
   "composer.scrollToBottom": "맨 아래로 스크롤",
+  "composer.suggestedPrompts": "추천 프롬프트",
   "composer.stopResponse": "응답 중지",
   "composer.subAgentReadOnly":
     "오케스트레이터 채팅에 메시지를 보내세요. 이 하위 에이전트는 자동으로 실행됩니다",
@@ -167,6 +168,7 @@ const messages: AgentChatTranslation = {
   "composer.configureProviderKeys": "Anthropic, OpenAI 또는 다른 제공업체 설정",
   "composer.connectAbove": "계속하려면 위에서 AI를 연결하세요...",
   "composer.connectBuilder": "Builder.io 연결",
+  "composer.connectKeys": "키 연결",
   "composer.connectingBuilder": "Builder.io 연결 중…",
   "composer.costHigher": "높은 비용",
   "composer.costLower": "낮은 비용",
@@ -291,7 +293,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "이 브라우저는 실시간 음성 대화를 지원하지 않습니다.",
   "voiceMode.hideChat": "채팅 숨기기",
-  "voiceMode.keepDictating": "받아쓰기",
+  "voiceMode.keepDictating": "메시지 받아쓰기",
   "voiceMode.promptDescription":
     "음성 모드는 에이전트가 탐색하고 작업하는 동안 계속 음성을 듣습니다.",
   "voiceMode.promptTitle": "음성 사용",
@@ -333,7 +335,7 @@ const messages: AgentChatTranslation = {
     "Builder.io를 연결하여 무료 크레딧이 포함된 관리형 음성을 사용하거나 직접 키를 추가하세요.",
   "voiceMode.setupTitle": "음성 모드 설정",
   "voiceMode.showChat": "채팅 표시",
-  "voiceMode.start": "실시간 음성",
+  "voiceMode.start": "음성 채팅 시작",
   "voiceMode.startWithOpenAiKey": "OpenAI 키로 시작",
   "voiceMode.status.connecting": "연결 중",
   "voiceMode.status.ending": "음성 모드 종료 중",
@@ -362,6 +364,7 @@ const messages: AgentChatTranslation = {
     "에이전트가 답변하기 전에 모델 게이트웨이에서 내부 오류가 발생했습니다. 잠시 후 다시 시도하고, 계속 발생하면 아래 오류 ID를 알려 주세요.",
   "errorMessages.gatewayNoDetails":
     "모델 게이트웨이가 오류 세부 정보를 반환하지 않아 채팅을 복구할 수 없습니다. 잠시 후 다시 시도하고, 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.creditsLimitReached": "AI 크레딧 한도에 도달했습니다.",
   "errorMessages.inactivityTimeout":
     "에이전트 연결이 완료 전에 시간 초과되었습니다. 부분적으로 완료된 작업에서 계속하거나 다시 시도할 수 있습니다.",
   "errorMessages.invalidToolSchema":
@@ -378,6 +381,8 @@ const messages: AgentChatTranslation = {
     "모델 제공업체에 연결할 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
   "errorMessages.providerRateLimit":
     "현재 모델 제공업체가 이 채팅의 요청 속도를 제한하고 있습니다. 잠시 후 다시 시도하세요.",
+  "errorMessages.providerTransientRejection":
+    "AI 제공업체가 이 요청을 일시적으로 거부했습니다. 보통 1분 이내에 해결되니 다시 시도하세요.",
   "errorMessages.startNewChat": "새 채팅 시작",
   "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
   "feedback.inaccurate": "부정확함",
@@ -385,6 +390,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "도움이 되지 않음",
   "feedback.placeholder": "무엇이 문제였는지 알려주세요…",
   "feedback.submit": "제출",
+  "feedback.submitted": "피드백이 제출되었습니다",
   "feedback.thumbsDown": "싫어요",
   "feedback.thumbsUp": "좋아요",
   "feedback.tooSlow": "너무 느림",
@@ -516,6 +522,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "대기열에서 제거",
   "queue.sendNow": "지금 보내기",
   "queue.sendNowHint": "지금 보내기(현재 응답 중지)",
+  "queue.steer": "조정",
+  "queue.steerHint": "이 메시지를 다음에 보내기",
+  "queue.moreActions": "추가 작업",
+  "queue.moveToTop": "맨 위로 이동",
   "recovery.connectingBuilder": "Builder.io에 연결 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",

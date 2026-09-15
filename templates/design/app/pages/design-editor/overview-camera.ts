@@ -71,6 +71,36 @@ export function getScreenFrameOriginCanvas(args: {
   };
 }
 
+/** Fits the selected Screen frames together with a live Board layer. */
+export function getBoardSelectionFitBounds(args: {
+  selectedFrameEntries: readonly FrameEntry[];
+  selectedScreenIds: ReadonlySet<string>;
+  boardFileId: string;
+  boardBounds: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+}) {
+  const selectedScreens = args.selectedFrameEntries.filter(
+    (frame) =>
+      frame.id !== args.boardFileId && args.selectedScreenIds.has(frame.id),
+  );
+  return getFrameGroupBounds([
+    ...selectedScreens,
+    {
+      id: args.boardFileId,
+      geometry: {
+        x: args.boardBounds.left,
+        y: args.boardBounds.top,
+        width: args.boardBounds.width,
+        height: args.boardBounds.height,
+      },
+    },
+  ]);
+}
+
 /**
  * Resolves every overview screen's effective canvas-space frame geometry —
  * persisted `canvasFrameGeometryById` entry merged over the same
@@ -112,6 +142,63 @@ export function getAllScreenFrameEntries(args: {
     entries.push({ id: args.boardFileId, geometry: args.boardContentBounds });
   }
   return entries;
+}
+
+/** The pinned ids in the overview screen list. Pinned screens clip
+ *  overflow at their persisted height, so camera fitting must use that
+ *  rendered height too.
+ */
+export function pinnedHeightScreenIds(
+  overviewScreens: ReadonlyArray<{ id: string; heightPinned?: boolean }>,
+): ReadonlySet<string> {
+  return new Set(
+    overviewScreens
+      .filter((screen) => screen.heightPinned)
+      .map((screen) => screen.id),
+  );
+}
+
+/** Accepted primary iframe heights only drive auto-height rendering. Missing
+ *  mode defaults to Auto; Hug uses natural height, while Fixed is persisted.
+ */
+export function autoHeightScreenIds(
+  overviewScreens: ReadonlyArray<{
+    id: string;
+    heightMode?: "auto" | "fixed" | "hug";
+  }>,
+): ReadonlySet<string> {
+  return new Set(
+    overviewScreens
+      .filter(
+        (screen) =>
+          screen.heightMode !== "fixed" && screen.heightMode !== "hug",
+      )
+      .map((screen) => screen.id),
+  );
+}
+
+/**
+ * Widens a resolved frame to its live measured height only when the overview
+ * canvas renders that screen through auto-height. This overlays live canvas
+ * geometry on persisted/export geometry without changing position or width,
+ * and never shrinks a frame. Pinned frames clip overflow, and Hug export
+ * geometry already uses natural height, so both are excluded.
+ */
+export function withMeasuredFrameHeights(
+  frames: FrameEntry[],
+  measuredHeightById: Record<string, number>,
+  pinnedHeightIds: ReadonlySet<string>,
+  autoHeightIds: ReadonlySet<string>,
+): FrameEntry[] {
+  if (Object.keys(measuredHeightById).length === 0) return frames;
+  return frames.map((frame) => {
+    if (pinnedHeightIds.has(frame.id) || !autoHeightIds.has(frame.id)) {
+      return frame;
+    }
+    const measured = measuredHeightById[frame.id];
+    if (!measured || measured <= (frame.geometry.height ?? 0)) return frame;
+    return { ...frame, geometry: { ...frame.geometry, height: measured } };
+  });
 }
 
 /**

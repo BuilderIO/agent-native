@@ -419,6 +419,50 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
+  it.each([401, 403])(
+    "surfaces hosted registry authorization failures instead of using local manifests (%i)",
+    async (status) => {
+      const fetchMock = vi.fn(async () => new Response("denied", { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "clips", name: "Clips", path: "/clips" },
+      ]);
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toThrow(
+        `Workspace apps gateway rejected the request with HTTP ${status}.`,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("falls back to local manifests when the hosted registry route is missing", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+  });
+
   it("passes the Vercel protection bypass to the hosted workspace registry", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(

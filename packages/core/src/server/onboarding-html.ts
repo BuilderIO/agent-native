@@ -1255,6 +1255,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     "/agent-native-icon-dark.svg",
     appBasePath,
   );
+  const brandMarkLightSrc = withAppBasePath(
+    "/agent-native-icon-light.svg",
+    appBasePath,
+  );
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
@@ -1295,18 +1299,27 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
+  body.has-marketing {
+    --b-hero-ocean-opacity: 0.32;
+    --b-hero-shader-opacity: 0.15;
+    padding: 0;
+    position: relative;
+    overflow-x: hidden;
+    color-scheme: dark;
+  }
   [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.15;
+    opacity: var(--b-hero-shader-opacity, 0.15);
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    [data-agent-native-starfield] { opacity: 0.15; }
+    [data-agent-native-starfield] {
+      opacity: var(--b-hero-shader-opacity, 0.15);
+    }
   }
   .split {
     position: relative;
@@ -1476,6 +1489,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
+      --b-hero-ocean-opacity: 0.3;
+      --b-hero-shader-opacity: 0.22;
       background: color-mix(in srgb, CanvasText 4%, Canvas);
       color: CanvasText;
       color-scheme: light;
@@ -1491,6 +1506,33 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     }
     .auth-marketing-home .auth-marketing-learn-more-link {
       color: LinkText;
+    }
+    /* The marketing panel's base colors are picked for the near-black body.
+       Without these the app name renders white-on-white and the whole panel
+       reads as empty rather than as low contrast. */
+    .auth-marketing-home .app-name { color: CanvasText; }
+    .auth-marketing-home .app-tagline,
+    .auth-marketing-home .feature-list li {
+      color: color-mix(in srgb, CanvasText 72%, Canvas);
+    }
+    .auth-marketing-home .app-desc {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+    }
+    .auth-marketing-home .feature-list li::before {
+      background: color-mix(in srgb, CanvasText 22%, transparent);
+      border-color: color-mix(in srgb, CanvasText 38%, transparent);
+    }
+    .auth-marketing-home .oss-link { color: LinkText; }
+    .auth-marketing-home .oss-link:hover {
+      color: color-mix(in srgb, LinkText 75%, CanvasText);
+    }
+    .auth-marketing-home .copy-run-local {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .copy-run-local:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 32%, transparent);
     }
     .auth-marketing-home .card {
       background: Canvas;
@@ -1655,6 +1697,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
         : undefined,
     marketingLocales: authMarketingLocales,
     brandMarkSrc,
+    brandMarkLightSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
     showGoogle,
     signupLegalNotice,
@@ -2321,7 +2364,6 @@ ${marketingStyles}
     max-width: none;
     max-height: none;
     filter: none;
-    opacity: 0.15;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
     position: fixed;
@@ -2333,7 +2375,7 @@ ${marketingStyles}
     width: 100%;
     min-width: 0;
     max-width: none;
-    padding: 1rem;
+    padding: 1rem clamp(1rem, 4vw, 4rem);
     overflow-y: auto;
   }
   .auth-marketing-home.has-product-screenshot .form-panel > .card {
@@ -2358,6 +2400,7 @@ ${marketingStyles}
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
+      align-items: center;
       padding: 1rem;
     }
   }

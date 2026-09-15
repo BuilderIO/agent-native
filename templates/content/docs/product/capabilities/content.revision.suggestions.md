@@ -68,6 +68,8 @@ The document-markdown slice now supports amendments through the shared `update-r
 
 Focused core amendment and Content adapter tests cover author/access checks, stale basis and proposal revisions, amendment/decision races, exact retry receipts, additive schema preservation, and unchanged canonical content. These checks do not establish generic typed Revision support, a user-visible amendment-history viewer, Notifications, or deployment acceptance.
 
+Agents propose body suggestions through `suggest-document-edit` (Content action, `mcpTool` with a fully typed agent input schema): the agent supplies the document id, its `baseRevision` from `get-document`, an `idempotencyKey`, and exact find/replace text; the action resolves the match, builds the full before/after Markdown payload and the contextual anchor, and delegates to `create-resource-suggestion` so access, idempotent replay, threads, and notifications stay in one path. Malformed or stale calls fail with errors that name the fix (`SUGGESTION_FIND_NOT_FOUND`, `SUGGESTION_FIND_AMBIGUOUS`, `SUGGESTION_EDIT_PROTOCOL_REQUIRED`). The generic action's Markdown payload errors also state the expected object shape. Focused Content db tests cover creation, idempotent replay, missing and ambiguous finds, the external-caller protocol, and database-item rejection.
+
 ## Proof plan
 
 1. Create, edit, submit, accept, reject, defer, supersede, and expire human and agent suggestions.

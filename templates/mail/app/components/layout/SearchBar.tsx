@@ -32,6 +32,7 @@ import {
   type Contact,
   type InfiniteEmails,
 } from "@/hooks/use-emails";
+import { getActiveDescendantId } from "@/lib/combobox-aria";
 import { ensureThread } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,9 @@ export function SearchBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const blurCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const lastSyncedQueryRef = useRef(initialQuery);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -70,6 +74,15 @@ export function SearchBar({
 
   const { data: contacts = [] } = useContacts();
   const queryClient = useQueryClient();
+
+  useEffect(
+    () => () => {
+      if (blurCloseTimeoutRef.current !== null) {
+        clearTimeout(blurCloseTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   // Sync from URL when it changes externally (e.g. browser back/forward).
   // Track the last prop we absorbed so user typing isn't clobbered when the
@@ -244,7 +257,7 @@ export function SearchBar({
   // Scroll selected item into view
   useEffect(() => {
     if (selectedIndex < 0 || !listRef.current) return;
-    const items = listRef.current.querySelectorAll("[data-contact-item]");
+    const items = listRef.current.querySelectorAll("[data-search-item]");
     items[selectedIndex]?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
@@ -310,11 +323,29 @@ export function SearchBar({
         <input
           ref={inputRef}
           id="mail-search"
+          data-mail-search
+          role="combobox"
+          aria-label={t("mail.search.label")}
+          aria-autocomplete="list"
+          aria-controls={showDropdown ? "mail-search-suggestions" : undefined}
+          aria-expanded={showDropdown}
+          aria-activedescendant={getActiveDescendantId(
+            "mail-search-suggestion-",
+            showDropdown,
+            selectedIndex,
+            combinedMatchCount,
+          )}
           autoFocus={autoFocus}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={() => setIsFocused(true)}
+          onFocus={() => {
+            if (blurCloseTimeoutRef.current !== null) {
+              clearTimeout(blurCloseTimeoutRef.current);
+              blurCloseTimeoutRef.current = null;
+            }
+            setIsFocused(true);
+          }}
           onBlur={(e) => {
             // Don't close if clicking on a dropdown item
             if (
@@ -327,7 +358,10 @@ export function SearchBar({
             // Keep the bar mounted while a search is active — the user needs
             // to see what they searched. Only collapse when empty.
             if (hasActiveSearch || query.trim()) return;
-            setTimeout(onClose, 100);
+            blurCloseTimeoutRef.current = setTimeout(() => {
+              blurCloseTimeoutRef.current = null;
+              onClose();
+            }, 100);
           }}
           placeholder={t("mail.search.placeholder")}
           className={cn(
@@ -356,9 +390,15 @@ export function SearchBar({
             <TooltipTrigger asChild>
               <button
                 type="button"
+                aria-label={t("mail.search.clear")}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   handleClear();
+                }}
+                onClick={(e) => {
+                  // Pointer activation is handled on mousedown so the input
+                  // keeps focus; detail=0 covers keyboard activation.
+                  if (e.detail === 0) handleClear();
                 }}
                 className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
               >
@@ -374,6 +414,8 @@ export function SearchBar({
       {showDropdown && (
         <div
           data-search-dropdown
+          id="mail-search-suggestions"
+          role="listbox"
           ref={listRef}
           className="absolute end-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
         >
@@ -381,6 +423,10 @@ export function SearchBar({
             <button
               key={contact.email}
               data-contact-item
+              data-search-item
+              id={`mail-search-suggestion-${i}`}
+              role="option"
+              aria-selected={i === selectedIndex}
               type="button"
               tabIndex={-1}
               onMouseDown={(e) => {
@@ -420,7 +466,10 @@ export function SearchBar({
                 return (
                   <button
                     key={email.threadId || email.id}
-                    data-contact-item
+                    data-search-item
+                    id={`mail-search-suggestion-${combinedIndex}`}
+                    role="option"
+                    aria-selected={combinedIndex === selectedIndex}
                     type="button"
                     tabIndex={-1}
                     onMouseDown={(e) => {

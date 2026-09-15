@@ -52,10 +52,17 @@ export interface ComposerBuilderConnectFlow {
   envManaged: boolean;
   connecting: boolean;
   statusResolved: boolean;
+  statusReadSettledCount?: number;
   error: string | null;
   agentNativeProvisioningEnabled?: boolean;
   accountExists?: boolean;
   start: (options?: { provisionAccount?: boolean }) => void;
+  /**
+   * Re-read status. Returns true when a read actually started, which is what
+   * lets a Connect click arriving before the first read resolves be held
+   * rather than dropped. A runtime that omits it keeps the old behavior.
+   */
+  retry?: () => boolean | void;
 }
 
 export interface ComposerBuilderConnectPopoverProps {
@@ -236,10 +243,12 @@ const fallbackBuilderFlow = {
   envManaged: false,
   connecting: false,
   statusResolved: false,
+  statusReadSettledCount: 0,
   error: null,
   agentNativeProvisioningEnabled: false,
   accountExists: false,
   start: () => {},
+  retry: () => false,
 };
 
 const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &

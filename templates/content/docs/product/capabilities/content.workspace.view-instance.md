@@ -33,7 +33,7 @@ order to do it.
 
 ## Example workflow
 
-An editor opens one Database in a Table tab and a Timeline pane, changes a record in the
+An editor opens one Collection in a Table tab and a Timeline pane, changes a record in the
 Table, and sees the Timeline reconcile while its range and focus remain independent.
 
 ## Product contract
@@ -45,14 +45,14 @@ Table, and sees the Timeline reconcile while its range and focus remain independ
 
 ## Boundaries and non-goals
 
-Working set owns instance persistence. A View instance is not a Page, Database, Query,
+Working set owns instance persistence. A View instance is not a Page, Collection, Query,
 permission boundary, or a fork of data.
 
 ## Acceptance stories
 
 ### Compare two presentations
 
-Given a Database open in a Table and Timeline instance, when a person changes Timeline
+Given a Collection open in a Table and Timeline instance, when a person changes Timeline
 range, then Table configuration is unchanged while both retain the same canonical records.
 
 ### Reconcile one edit

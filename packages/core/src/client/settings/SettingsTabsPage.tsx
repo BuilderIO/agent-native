@@ -71,6 +71,8 @@ export interface SettingsTabItem {
    * keeps the compact horizontal tab scroller unchanged.
    */
   group?: string;
+  /** Optional human-readable label for the visual navigation group. */
+  groupLabel?: string;
   /** Extra space-separated terms so this tab is findable via search. */
   keywords?: string;
   /** Deep-link entries within this tab for the settings search. */
@@ -410,7 +412,7 @@ function SettingsTabsPageContent({
         id: "whats-new",
         label: whatsNewLabel,
         icon: IconHistory,
-        group: next.at(-1)?.group ?? "app",
+        group: "app",
         content: whatsNew,
       });
     }
@@ -836,7 +838,9 @@ function SettingsTabsPageContent({
               >
                 <div className="contents sm:flex sm:flex-col sm:gap-1">
                   <div className="hidden px-3 pb-1 pt-1 text-[11px] font-medium text-muted-foreground sm:block">
-                    {tabGroupLabels[group.id] ?? group.id}
+                    {group.tabs.find((tab) => tab.groupLabel)?.groupLabel ??
+                      tabGroupLabels[group.id] ??
+                      group.id}
                   </div>
                   {group.tabs.map((tab) => {
                     const Icon = tab.icon;

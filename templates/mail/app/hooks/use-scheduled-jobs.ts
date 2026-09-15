@@ -1,6 +1,5 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
-import { callAction } from "@agent-native/core/client/hooks";
-import type { ComposeAttachment } from "@shared/types";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -8,8 +7,10 @@ import {
   unsuppressThread,
   mapInfiniteEmails,
   flattenInfiniteEmails,
+  LABELS_QUERY_KEY,
   type InfiniteEmails,
 } from "./use-emails";
+import { invalidateInboxThreads } from "./use-inbox-threads";
 
 export interface ScheduledJob {
   id: string;
@@ -115,7 +116,8 @@ export function useSnoozeEmail() {
       // Delay email/label refetch — Gmail eventual consistency
       setTimeout(() => {
         void qc.invalidateQueries({ queryKey: ["emails"] });
-        void qc.invalidateQueries({ queryKey: ["labels"] });
+        void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+        void invalidateInboxThreads(qc);
       }, 3000);
     },
   });
@@ -123,31 +125,7 @@ export function useSnoozeEmail() {
 
 export function useScheduleEmail() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      to: string;
-      cc?: string;
-      bcc?: string;
-      subject: string;
-      body: string;
-      runAt: number;
-      accountEmail?: string;
-      from?: string;
-      replyToId?: string;
-      threadId?: string;
-      attachments?: ComposeAttachment[];
-    }) => {
-      const res = await fetch(appApiPath("/api/emails/schedule"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error || "Failed to schedule email");
-      }
-      return res.json() as Promise<ScheduledJob>;
-    },
+  return useActionMutation("create-scheduled-send", {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
       void qc.invalidateQueries({ queryKey: ["emails"] });

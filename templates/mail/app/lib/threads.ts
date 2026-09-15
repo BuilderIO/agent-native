@@ -1,5 +1,25 @@
 import type { EmailMessage } from "@shared/types";
 
+// The inbox view (`useInboxThreads`) hands EmailList one pre-aggregated row
+// per thread — its own `messageCount`/`unreadCount` already reflect the
+// whole thread, not just this one row. Duck-typed rather than imported from
+// `shared/inbox-threads.ts` so this stays a generic list utility: real
+// per-message `EmailMessage` objects (every other view) never carry these
+// fields, so the check is a no-op there.
+type PreAggregatedThread = EmailMessage & {
+  messageCount: number;
+  unreadCount: number;
+};
+
+function isPreAggregatedThread(
+  email: EmailMessage,
+): email is PreAggregatedThread {
+  return (
+    typeof (email as Partial<PreAggregatedThread>).messageCount === "number" &&
+    typeof (email as Partial<PreAggregatedThread>).unreadCount === "number"
+  );
+}
+
 export interface ThreadSummary {
   /** The latest message in the thread (used for display and navigation) */
   latestMessage: EmailMessage;
@@ -56,11 +76,21 @@ export function groupIntoThreads(emails: EmailMessage[]): ThreadSummary[] {
       for (const l of msg.labelIds) labelSet.add(l);
     }
 
+    // A one-row-per-thread source (the inbox view) already carries the real
+    // thread-wide counts on that single row — use them instead of treating
+    // the row as a thread of size 1.
+    const aggregate =
+      messages.length === 1 && isPreAggregatedThread(messages[0])
+        ? messages[0]
+        : undefined;
+
     threads.push({
       latestMessage,
       participants,
-      messageCount: messages.length,
-      hasUnread: messages.some((m) => !m.isRead),
+      messageCount: aggregate?.messageCount ?? messages.length,
+      hasUnread: aggregate
+        ? aggregate.unreadCount > 0
+        : messages.some((m) => !m.isRead),
       hasStarred: messages.some((m) => m.isStarred),
       labelIds: Array.from(labelSet),
     });

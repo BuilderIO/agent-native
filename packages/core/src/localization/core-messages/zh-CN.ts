@@ -134,6 +134,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "请打开桌面应用以使用此聊天。",
   "composer.removeAttachment": "移除 {{name}}",
   "composer.scrollToBottom": "滚动到底部",
+  "composer.suggestedPrompts": "推荐提示",
   "composer.stopResponse": "停止响应",
   "composer.subAgentReadOnly":
     "请向编排智能体聊天发送消息——此子智能体会自动运行",
@@ -161,6 +162,7 @@ const messages: AgentChatTranslation = {
   "composer.configureProviderKeys": "配置 Anthropic、OpenAI 或其他提供商",
   "composer.connectAbove": "请在上方连接 AI 以继续...",
   "composer.connectBuilder": "连接 Builder.io",
+  "composer.connectKeys": "连接密钥",
   "composer.connectingBuilder": "正在连接 Builder.io…",
   "composer.costHigher": "较高费用",
   "composer.costLower": "较低费用",
@@ -277,7 +279,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.sessionFailed": "实时语音会话遇到错误。",
   "voiceMode.errors.unsupported": "此浏览器不支持实时语音对话。",
   "voiceMode.hideChat": "隐藏聊天",
-  "voiceMode.keepDictating": "听写",
+  "voiceMode.keepDictating": "听写消息",
   "voiceMode.promptDescription": "语音模式会在智能体导航和执行操作时持续聆听。",
   "voiceMode.promptTitle": "使用语音",
   "voiceMode.rememberPreference": "记住我的偏好",
@@ -318,7 +320,7 @@ const messages: AgentChatTranslation = {
     "连接 Builder.io 以使用含免费额度的托管语音，或添加您自己的密钥。",
   "voiceMode.setupTitle": "设置语音模式",
   "voiceMode.showChat": "显示聊天",
-  "voiceMode.start": "实时语音",
+  "voiceMode.start": "开始语音对话",
   "voiceMode.startWithOpenAiKey": "使用 OpenAI 密钥启动",
   "voiceMode.status.connecting": "正在连接",
   "voiceMode.status.ending": "正在结束语音模式",
@@ -346,6 +348,7 @@ const messages: AgentChatTranslation = {
     "模型网关在智能体作答前发生内部错误。请稍后重试；如果持续出现，请提供下方的错误 ID。",
   "errorMessages.gatewayNoDetails":
     "模型网关未返回错误详情，聊天无法恢复。请稍等片刻后重试；如果问题持续出现，请开始新聊天。",
+  "errorMessages.creditsLimitReached": "你已达到 AI 积分额度上限。",
   "errorMessages.inactivityTimeout":
     "智能体连接在完成前超时。您可以从已完成的部分继续，也可以重试。",
   "errorMessages.invalidToolSchema":
@@ -361,6 +364,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerNetwork": "无法连接模型提供商。请检查网络连接后重试。",
   "errorMessages.providerRateLimit":
     "模型提供商目前正在限制此聊天的请求频率。请稍等片刻后重试。",
+  "errorMessages.providerTransientRejection":
+    "AI 提供商暂时拒绝了此请求。这种情况通常在一分钟内自行恢复,请重试。",
   "errorMessages.startNewChat": "开始新聊天",
   "errorMessages.upgradeAtBuilder": "在 Builder.io 升级",
   "feedback.inaccurate": "不准确",
@@ -368,6 +373,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "没有帮助",
   "feedback.placeholder": "告诉我们哪里出了问题……",
   "feedback.submit": "提交",
+  "feedback.submitted": "反馈已提交",
   "feedback.thumbsDown": "不喜欢",
   "feedback.thumbsUp": "喜欢",
   "feedback.tooSlow": "太慢",
@@ -496,6 +502,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "从队列中移除",
   "queue.sendNow": "立即发送",
   "queue.sendNowHint": "立即发送（停止当前响应）",
+  "queue.steer": "引导",
+  "queue.steerHint": "下一条发送此消息",
+  "queue.moreActions": "更多操作",
+  "queue.moveToTop": "移至顶部",
   "recovery.connectingBuilder": "正在连接 Builder.io",
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",

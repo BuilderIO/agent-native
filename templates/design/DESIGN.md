@@ -1,8 +1,9 @@
 # Design System Contract
 
 This file is the source-control scaffold for Design projects that point at real
-code. The app can keep inline prototypes in SQL today, connect to localhost next,
-and later blend hosted/fusion sources without changing the artboard model.
+code. The app can keep inline prototypes in SQL, connect to a running localhost
+app as live URL-backed frames, and later blend hosted/fusion sources without
+changing the artboard model.
 
 ## Editor Contract
 
@@ -25,7 +26,9 @@ be stored in `data-agent-native-layer-name`; selector ids such as
 
 - `inline`: the current SQL-backed Design files and deterministic HTML swaps.
 - `localhost`: a running app dev server exposed through
-  `npx @agent-native/core@latest design connect`.
+  `npx @agent-native/core@latest design connect`. The `/visual-edit` flow can
+  register it without a Design account; a short-lived embed capability grants
+  only the current design's scoped editing session.
 - `fusion`: future hosted or hybrid sources that can provide snapshots and code
   context through the same bridge contract.
 
@@ -46,11 +49,12 @@ The command starts a local bridge and prints a manifest URL. It also creates
 That manifest is non-authoritative scaffolding; the live bridge response and the
 Design `connect-localhost` action are the durable app contract.
 
-For agent-launched visual editing, install or invoke `/visual-edit`. The skill
-registers the bridge with `connect-localhost`, uses `add-localhost-screens` to
-place each route or path/query state as a URL-backed iframe screen, then
-navigates the editor to overview mode. Keep these screens as URL sources; do not
-copy localhost HTML into inline files unless intentionally freezing a snapshot.
+For agent-launched visual editing, invoke `/visual-edit`. The skill registers
+the bridge with `connect-localhost`, uses `add-localhost-screens` to place each
+route or path/query state as a URL-backed iframe screen, then navigates the
+editor to overview mode. Keep these screens as URL sources; use the selected
+screen's right-rail Screen section or `update-screen-source` when intentionally
+freezing one sanitized snapshot as static HTML.
 
 Current bridge operations:
 
@@ -62,9 +66,10 @@ Current bridge operations:
 - `captureSnapshot`
 - `captureState`
 
-`select`, route listing, and capture contracts are foundations now. Local file
-reads/writes and LLM-backed instructions remain planned until the bridge has
-permission hardening and explicit user controls.
+`select`, route listing, capture, and scoped visual-edit source controls are
+available now. Local file reads/writes remain behind the bridge permission model
+and LLM-backed instructions are returned by the page-local
+`get-visual-edit-prompt` WebMCP tool rather than persisted in the bridge.
 
 ## Code-Layer Editing
 

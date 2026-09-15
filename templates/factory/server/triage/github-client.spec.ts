@@ -242,7 +242,11 @@ describe("GitHub triage client", () => {
         );
       if (path.endsWith("/comments"))
         return response(
-          { id: 10, html_url: "https://github.test/comment/10" },
+          {
+            id: 10,
+            html_url: "https://github.test/comment/10",
+            user: { login: "factory-bot" },
+          },
           201,
         );
       if (path.endsWith("/merge"))
@@ -292,6 +296,7 @@ describe("GitHub triage client", () => {
     ).resolves.toEqual({
       id: 10,
       htmlUrl: "https://github.test/comment/10",
+      author: "factory-bot",
     });
     await expect(client.mergePullRequest(repository, 2)).resolves.toEqual({
       sha: "merge-sha",

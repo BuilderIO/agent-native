@@ -9,15 +9,48 @@
  * depending on a client-side backfill the first time someone opens it.
  */
 
+import { readFileSync } from "node:fs";
+
+import { QueryClient } from "@tanstack/react-query";
+import { transformSync } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   let existingRows: Array<Record<string, unknown>> = [];
+  let whereCondition:
+    | {
+        and?: Array<{ left?: unknown; right?: unknown }>;
+        left?: unknown;
+        right?: unknown;
+      }
+    | undefined;
 
-  const selectChain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
+  const matchingRows = () => {
+    const conditions =
+      whereCondition?.and ?? (whereCondition ? [whereCondition] : []);
+    return existingRows.filter((row) =>
+      conditions.every((condition) => {
+        const column = String(condition.left).split(".").pop();
+        return column ? row[column] === condition.right : true;
+      }),
+    );
+  };
+
+  const selectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+    then: vi.fn(),
+  };
   selectChain.from.mockReturnValue(selectChain);
-  selectChain.where.mockReturnValue(selectChain);
-  selectChain.limit.mockImplementation(() => Promise.resolve(existingRows));
+  selectChain.where.mockImplementation((condition) => {
+    whereCondition = condition;
+    return selectChain;
+  });
+  selectChain.limit.mockImplementation(() => Promise.resolve(matchingRows()));
+  selectChain.then.mockImplementation((resolve, reject) =>
+    Promise.resolve(matchingRows()).then(resolve, reject),
+  );
 
   const insertValues = vi.fn().mockResolvedValue(undefined);
   const insert = vi.fn(() => ({ values: insertValues }));
@@ -27,7 +60,14 @@ const mocks = vi.hoisted(() => {
   updateChain.where.mockResolvedValue(undefined);
   const update = vi.fn(() => updateChain);
 
-  const db = { select: vi.fn(() => selectChain), insert, update };
+  const db = {
+    select: vi.fn(() => {
+      whereCondition = undefined;
+      return selectChain;
+    }),
+    insert,
+    update,
+  };
 
   let designData: Record<string, unknown> = {};
 
@@ -72,6 +112,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "designFiles.id",
       designId: "designFiles.designId",
       filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
     },
     designs: { id: "designs.id" },
   },
@@ -81,7 +122,46 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
+import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import action from "./create-file.js";
+
+function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
+  const source = readFileSync(
+    new URL("../app/pages/DesignEditor.tsx", import.meta.url),
+    "utf8",
+  );
+  const start = source.indexOf(
+    "const optimisticallyInsertCreatedFile = useCallback(",
+  );
+  const end = source.indexOf("\n  const focusCreatedScreen", start);
+  if (start < 0 || end < 0) {
+    throw new Error("Could not extract created-file optimistic cache callback");
+  }
+  const callback = transformSync(source.slice(start, end), {
+    loader: "tsx",
+    format: "cjs",
+  }).code;
+  const create = new Function(
+    "useCallback",
+    "id",
+    "queryClient",
+    "annotateScreenHtmlForPersist",
+    `${callback}\nreturn optimisticallyInsertCreatedFile;`,
+  );
+  return create(
+    (value: unknown) => value,
+    "design-1",
+    queryClient,
+    annotateScreenHtmlForPersist,
+  ) as (args: {
+    fileId: string;
+    filename: string;
+    fileType: "html";
+    content: string;
+    result?: Record<string, unknown> | null;
+  }) => void;
+}
 
 describe("create-file: node-id annotation", () => {
   beforeEach(() => {
@@ -128,6 +208,134 @@ describe("create-file: node-id annotation", () => {
       expect.any(String),
       insertedValues.content,
     );
+  });
+
+  it("keeps optimistic created-screen bytes aligned with the persisted source projection", async () => {
+    const rawContent = "<main><button>Buy</button></main>";
+    const result = await action.run({
+      designId: "design-1",
+      filename: "index.html",
+      content: rawContent,
+      fileType: "html",
+    });
+    const persisted = mocks.insertValues.mock.calls[0]![0] as {
+      content: string;
+    };
+    const queryClient = new QueryClient();
+    const queryKey = ["action", "get-design", { id: "design-1" }] as const;
+    queryClient.setQueryData(queryKey, {
+      files: [] as Array<Record<string, unknown>>,
+    });
+    const insertOptimistically =
+      loadOptimisticCreatedFileInsertion(queryClient);
+
+    try {
+      insertOptimistically({
+        fileId: result.id,
+        filename: "index.html",
+        fileType: "html",
+        content: rawContent,
+        result,
+      });
+      const optimistic = queryClient
+        .getQueryData<{ files: Array<Record<string, unknown>> }>(queryKey)
+        ?.files.find((file) => file.id === result.id);
+      expect(optimistic?.content).toBe(persisted.content);
+      expect(mocks.seedFromText).toHaveBeenCalledWith(
+        result.id,
+        persisted.content,
+      );
+
+      const preparedForSourceIdentity = ensureCodeLayerNodeIdsInHtml(
+        String(optimistic?.content),
+        { source: { kind: "design-file", fileId: result.id } },
+      );
+      expect(preparedForSourceIdentity).toEqual({
+        content: persisted.content,
+        changed: false,
+        stamped: 0,
+      });
+    } finally {
+      queryClient.clear();
+    }
+  });
+
+  it("cancels a pre-create get-design read before inserting the created file", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "index.html",
+      content: "<main><button>Buy</button></main>",
+      fileType: "html",
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity, staleTime: 0 },
+      },
+    });
+    const queryKey = ["action", "get-design", { id: "design-1" }] as const;
+    const staleResult = {
+      id: "design-1",
+      files: [{ id: "old-file", filename: "index.html", content: "old" }],
+    };
+    queryClient.setQueryData(queryKey, staleResult);
+
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    let resolveRead!: (value: typeof staleResult) => void;
+    let requestSignal: AbortSignal | undefined;
+    const oldRead = queryClient
+      .fetchQuery({
+        queryKey,
+        staleTime: 0,
+        queryFn: ({ signal }) => {
+          requestSignal = signal;
+          resolveStarted();
+          return new Promise<typeof staleResult>((resolve) => {
+            resolveRead = resolve;
+          });
+        },
+      })
+      .catch((error: unknown) => error);
+
+    try {
+      await started;
+      const insertOptimistically =
+        loadOptimisticCreatedFileInsertion(queryClient);
+      insertOptimistically({
+        fileId: result.id,
+        filename: "index.html",
+        fileType: "html",
+        content: "<main><button>Buy</button></main>",
+        result,
+      });
+
+      const immediatelyAfterInsert =
+        queryClient
+          .getQueryData<{ files: Array<{ id: string }> }>(queryKey)
+          ?.files.map((file) => file.id) ?? [];
+      const fetchStatusAfterInsert =
+        queryClient.getQueryState(queryKey)?.fetchStatus;
+      const requestAbortedAfterInsert = requestSignal?.aborted;
+
+      // Resolve even though the fetch was cancelled to prove a late stale
+      // response cannot replace the new file row.
+      resolveRead(staleResult);
+      await oldRead;
+      expect(immediatelyAfterInsert).toEqual(["old-file", result.id]);
+      expect(
+        queryClient
+          .getQueryData<{ files: Array<{ id: string }> }>(queryKey)
+          ?.files.map((file) => file.id),
+      ).toEqual(["old-file", result.id]);
+      expect(fetchStatusAfterInsert).toBe("idle");
+      expect(requestAbortedAfterInsert).toBe(true);
+    } finally {
+      resolveRead(staleResult);
+      await oldRead;
+      queryClient.clear();
+    }
   });
 
   it("is idempotent: does not double-stamp elements that already have a clean id", async () => {
@@ -267,6 +475,145 @@ describe("create-file: canvas placement and landing URL", () => {
       width: 1440,
       height: 1024,
     });
+  });
+
+  it("clears the measured height of an existing responsive preview", async () => {
+    mocks.setExistingRows([
+      {
+        id: "existing",
+        designId: "design-1",
+        filename: "existing.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      screenMetadata: {
+        existing: {
+          width: 1440,
+          height: 900,
+          breakpointHeights: { "390": 2200 },
+        },
+      },
+      canvasFrames: {
+        existing: { x: 0, y: 0, width: 1440, height: 900 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "second.html",
+      content: "<main>Second screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBe(2200 + 96);
+  });
+
+  it("does not expand the board file into responsive previews", async () => {
+    mocks.setExistingRows([
+      {
+        id: "board",
+        designId: "design-1",
+        filename: "__board__.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        board: { x: 0, y: 1000, width: 1440, height: 100, rotation: 90 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "next.html",
+      content: "<main>Next screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBe(1770 + 96);
+  });
+
+  it("does not reserve responsive space for JSX support files", async () => {
+    mocks.setExistingRows([
+      {
+        id: "support",
+        designId: "design-1",
+        filename: "support.jsx",
+        fileType: "jsx",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        support: { x: 0, y: 0, width: 1440, height: 100 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "next.html",
+      content: "<main>Next screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBe(100 + 96);
+  });
+
+  it("uses responsive bounds for existing screens without metadata", async () => {
+    mocks.setExistingRows([
+      {
+        id: "screen",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        screen: { x: 0, y: 1000, width: 1440, height: 100, rotation: 90 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "next.html",
+      content: "<main>Next screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBeGreaterThan(1770 + 96);
   });
 
   it("does not place or focus a non-renderable file", async () => {

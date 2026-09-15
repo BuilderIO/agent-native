@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
 /**
@@ -398,7 +399,9 @@ function pgliteClientKey(dataDir: string): string {
   return dataDir === "memory://" ? dataDir : path.resolve(dataDir);
 }
 
-function isProcessAlive(pid: number): boolean {
+/** Exported for the dev action bridge, which does the same liveness check
+ * against a discovery file's `pid` before trusting it. */
+export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -2300,7 +2303,15 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
   return err;
 }
 
+const scopedDbExec = new AsyncLocalStorage<DbExec>();
+
+export function withDbExec<T>(exec: DbExec, run: () => T): T {
+  return scopedDbExec.run(exec, run);
+}
+
 export function getDbExec(): DbExec {
+  const scoped = scopedDbExec.getStore();
+  if (scoped) return scoped;
   if (_exec) return _exec;
 
   // Sanitize args because PostgreSQL parameters cannot be undefined.

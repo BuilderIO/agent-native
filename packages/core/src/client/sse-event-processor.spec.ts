@@ -1856,6 +1856,13 @@ describe("SSE event processor no-progress recovery", () => {
         "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
       ],
       ["authentication_error", "Missing Authentication header"],
+      // The server already retried this bare-403 load-shedding signature
+      // before it reached the client; auto-continuing here would just POST
+      // the same request into the same throttle.
+      [
+        "provider_transient_rejection",
+        "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
+      ],
     ]) {
       const caught = await (async () => {
         try {
@@ -2180,6 +2187,56 @@ describe("SSE event processor error classification", () => {
               "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
             details: "429 status code (no body)",
             errorCode: "provider_rate_limited",
+          },
+        },
+      },
+    });
+  });
+
+  it("surfaces a bare-403 transient rejection as a terminal run error, not a credential rejection", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    const rawMessage =
+      "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.";
+    const expectedMessage =
+      "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: rawMessage,
+            errorCode: "provider_transient_rejection",
+            details: rawMessage,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-transient-403",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message: expectedMessage,
+          details: rawMessage,
+          errorCode: "provider_transient_rejection",
+          tabId: "tab-transient-403",
+        },
+      }),
+    );
+    expect(results[0]).toEqual({
+      content: [{ type: "text", text: `Error: ${expectedMessage}` }],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message: expectedMessage,
+            details: rawMessage,
+            errorCode: "provider_transient_rejection",
           },
         },
       },
@@ -2531,6 +2588,192 @@ describe("SSE event processor error classification", () => {
         },
       },
     });
+  });
+
+  it("names the failing action and its error when a turn stops on a tool failure", async () => {
+    // Analytics /ask reported the generic "stopped after these actions ...
+    // without sending a final message" note while the real cause — a missing
+    // Stripe credential — stayed buried in the tool card.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Pulling the revenue numbers." },
+          {
+            type: "tool_start",
+            tool: "provider-api-request",
+            id: "call-1",
+            input: { provider: "stripe" },
+          },
+          {
+            type: "tool_done",
+            tool: "provider-api-request",
+            id: "call-1",
+            result:
+              "Error running provider-api-request: stripe credential not configured.",
+            isError: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-failed-tool",
+      ),
+    );
+
+    const warningText = results
+      .at(-1)
+      ?.content.find(
+        (part): part is { type: "text"; text: string } =>
+          part.type === "text" &&
+          part.text.includes("without sending a final message"),
+      )?.text;
+    expect(warningText).toContain("provider api request");
+    expect(warningText).toContain("failed");
+    expect(warningText).toContain("stripe credential not configured");
+    expect(results.at(-1)?.metadata).toMatchObject({
+      custom: {
+        runWarning: {
+          errorCode: "final_response_missing_after_tool",
+          failedTools: ["provider-api-request"],
+          recoverable: true,
+        },
+      },
+    });
+  });
+
+  it("does not let a rendered custom UI hide a tool that failed after it", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Rendering the widget." },
+          {
+            type: "tool_start",
+            tool: "render-inline-extension",
+            id: "call-ui",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "render-inline-extension",
+            id: "call-ui",
+            result: '{"rendered":true}',
+            chatUI: { renderer: "core.inline-extension" },
+          },
+          {
+            type: "tool_start",
+            tool: "provider-api-request",
+            id: "call-2",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "provider-api-request",
+            id: "call-2",
+            result: "Error running provider-api-request: rate limited.",
+            isError: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-custom-ui-then-failure",
+      ),
+    );
+
+    expect(results.at(-1)?.metadata).toMatchObject({
+      custom: { runWarning: { failedTools: ["provider-api-request"] } },
+    });
+  });
+
+  it("keeps a custom UI result terminal when the failure came before it", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Trying the API, then rendering." },
+          {
+            type: "tool_start",
+            tool: "provider-api-request",
+            id: "call-1",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "provider-api-request",
+            id: "call-1",
+            result: "Error running provider-api-request: rate limited.",
+            isError: true,
+          },
+          {
+            type: "tool_start",
+            tool: "render-inline-extension",
+            id: "call-ui",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "render-inline-extension",
+            id: "call-ui",
+            result: '{"rendered":true}',
+            chatUI: { renderer: "core.inline-extension" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-failure-then-custom-ui",
+      ),
+    );
+
+    expect(
+      (results.at(-1)?.metadata as { custom?: { runWarning?: unknown } })
+        ?.custom?.runWarning,
+    ).toBeUndefined();
+  });
+
+  it("keeps the completed-action note when the trailing tools all succeeded", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Looking that up." },
+          {
+            type: "tool_start",
+            tool: "resources",
+            id: "call-1",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "resources",
+            id: "call-1",
+            result: '{"ok":true}',
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-completed-tool",
+      ),
+    );
+
+    const warningText = results
+      .at(-1)
+      ?.content.find(
+        (part): part is { type: "text"; text: string } =>
+          part.type === "text" && part.text.includes("final message"),
+      )?.text;
+    expect(warningText).toContain("completed the resources action");
+    expect(results.at(-1)?.metadata).toMatchObject({
+      custom: {
+        runWarning: { errorCode: "final_response_missing_after_tool" },
+      },
+    });
+    expect(
+      (
+        results.at(-1)?.metadata as {
+          custom?: { runWarning?: { failedTools?: string[] } };
+        }
+      )?.custom?.runWarning?.failedTools,
+    ).toBeUndefined();
   });
 
   it("keeps an intentional user stop neutral instead of adding a final warning", async () => {
@@ -3898,6 +4141,67 @@ describe("SSE event processor error classification", () => {
           message: "The agent stopped before finishing.",
           recoverable: true,
         }),
+      }),
+    );
+  });
+
+  // http_429/http_529 used to auto-continue here. The server now owns
+  // rate-limit recovery end to end (in-loop retries, sibling-model fallback,
+  // one cooled continuation, then a terminal `provider_rate_limited`) and
+  // caps the continuation chain it hands back. Re-POSTing a client
+  // continuation for an exhausted rate-limit error bypasses that one-hop cap
+  // and restarts the retry/fallback budget the server already spent, so both
+  // codes must render with the manual Retry affordance instead.
+  it.each([
+    "http_429",
+    "http_529",
+    "rate_limited",
+    "too_many_concurrent_requests",
+  ])("does not auto-continue a %s error", async (errorCode) => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "Rate limited",
+            errorCode,
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-rate-limit-code",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({ errorCode }),
       }),
     );
   });

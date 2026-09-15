@@ -35,7 +35,7 @@ function Skeleton() {
 export default function SpacesIndexRoute() {
   const t = useT();
   const [createOpen, setCreateOpen] = useState(false);
-  const { canManageOrg } = useOrgRole();
+  const { canManageOrg, role } = useOrgRole();
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
@@ -62,6 +62,11 @@ export default function SpacesIndexRoute() {
     recordingCount: s.recordingCount ?? 0,
     memberEmails: s.memberEmails ?? [],
   }));
+  const emptyStateDescription = canManageOrg
+    ? t("createSpaceDialog.description")
+    : role === "member"
+      ? t("navigation.noSpacesAdminCta")
+      : undefined;
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
@@ -88,9 +93,7 @@ export default function SpacesIndexRoute() {
           <AppEmptyState
             icon={IconUsersGroup}
             title={t("navigation.noSpaces")}
-            description={
-              canManageOrg ? t("createSpaceDialog.description") : undefined
-            }
+            description={emptyStateDescription}
             content={
               canManageOrg ? (
                 <Button onClick={() => setCreateOpen(true)} size="sm">

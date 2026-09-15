@@ -14,7 +14,10 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -46,6 +49,7 @@ function InteractiveLayout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
 
   // Analytics stages the active primary resource as composer context —
   // dashboards (`/dashboards/:id`, legacy `/adhoc/:id`) and ad-hoc analyses
@@ -271,7 +275,11 @@ function InteractiveLayout({ children }: LayoutProps) {
               ]}
               scope={analyticsScope}
               chatHistory={analyticsChatHistory}
-              composerSlot={<CreativeContextComposerChip />}
+              composerSlot={
+                creativeContextEnabled ? (
+                  <CreativeContextComposerChip />
+                ) : undefined
+              }
             >
               {contentFrame}
             </AgentSidebar>

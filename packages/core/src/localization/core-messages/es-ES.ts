@@ -150,6 +150,7 @@ const messages: AgentChatTranslation = {
     "Abre la aplicación de escritorio para usar este chat.",
   "composer.removeAttachment": "Quitar {{name}}",
   "composer.scrollToBottom": "Desplazarse hasta el final",
+  "composer.suggestedPrompts": "Indicaciones sugeridas",
   "composer.stopResponse": "Detener respuesta",
   "composer.subAgentReadOnly":
     "Envía mensajes al chat del orquestador; este subagente se ejecuta automáticamente",
@@ -225,6 +226,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Quitar de la cola",
   "queue.sendNow": "Enviar ahora",
   "queue.sendNowHint": "Enviar ahora (detiene la respuesta actual)",
+  "queue.steer": "Dirigir",
+  "queue.steerHint": "Enviar este mensaje a continuación",
+  "queue.moreActions": "Más acciones",
+  "queue.moveToTop": "Mover arriba",
   "recovery.connectingBuilder": "Conectando con Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
@@ -376,6 +381,7 @@ const messages: AgentChatTranslation = {
   "composer.connectAbove":
     "Conecta arriba un proveedor de IA para continuar...",
   "composer.connectBuilder": "Conectar Builder.io",
+  "composer.connectKeys": "Conectar claves",
   "composer.connectingBuilder": "Conectando Builder.io…",
   "composer.costHigher": "Mayor costo",
   "composer.costLower": "Menor costo",
@@ -513,7 +519,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Este navegador no admite conversaciones de voz en tiempo real.",
   "voiceMode.hideChat": "Ocultar chat",
-  "voiceMode.keepDictating": "Dictar",
+  "voiceMode.keepDictating": "Dictar un mensaje",
   "voiceMode.promptDescription":
     "El modo de voz sigue escuchando mientras el agente navega y realiza acciones.",
   "voiceMode.promptTitle": "Usa tu voz",
@@ -555,7 +561,7 @@ const messages: AgentChatTranslation = {
     "Conecta Builder.io para usar el servicio de voz administrado con créditos gratuitos o añade tus propias claves.",
   "voiceMode.setupTitle": "Configurar el modo de voz",
   "voiceMode.showChat": "Mostrar chat",
-  "voiceMode.start": "Voz en tiempo real",
+  "voiceMode.start": "Iniciar chat de voz",
   "voiceMode.startWithOpenAiKey": "Iniciar con una clave de OpenAI",
   "voiceMode.status.connecting": "Conectando",
   "voiceMode.status.ending": "Finalizar el modo de voz",
@@ -599,6 +605,8 @@ const messages: AgentChatTranslation = {
     "La pasarela del modelo tuvo un error interno antes de que el agente pudiera responder. Vuelve a intentarlo en un momento e indica el id de error de abajo si sigue ocurriendo.",
   "errorMessages.gatewayNoDetails":
     "La pasarela del modelo no devolvió detalles del error y el chat no pudo recuperarse. Espera un momento y vuelve a intentarlo. Si el problema continúa, inicia un chat nuevo.",
+  "errorMessages.creditsLimitReached":
+    "Has alcanzado el límite de créditos de IA.",
   "errorMessages.inactivityTimeout":
     "La conexión del agente expiró antes de que pudiera finalizar. Puedes continuar desde el trabajo parcial o volver a intentarlo.",
   "errorMessages.invalidToolSchema":
@@ -617,6 +625,8 @@ const messages: AgentChatTranslation = {
     "No se pudo contactar con el proveedor del modelo. Comprueba tu conexión y vuelve a intentarlo.",
   "errorMessages.providerRateLimit":
     "El proveedor del modelo está limitando temporalmente este chat. Espera un momento y vuelve a intentarlo.",
+  "errorMessages.providerTransientRejection":
+    "El proveedor de IA rechazó temporalmente esta solicitud. Esto suele resolverse en menos de un minuto: vuelve a intentarlo.",
   "errorMessages.startNewChat": "Iniciar un chat nuevo",
   "errorMessages.upgradeAtBuilder": "Mejorar el plan en Builder.io",
   "feedback.inaccurate": "Impreciso",
@@ -624,6 +634,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Poco útil",
   "feedback.placeholder": "Cuéntanos qué salió mal...",
   "feedback.submit": "Enviar",
+  "feedback.submitted": "Comentarios enviados",
   "feedback.thumbsDown": "No me gusta",
   "feedback.thumbsUp": "Me gusta",
   "feedback.tooSlow": "Demasiado lento",

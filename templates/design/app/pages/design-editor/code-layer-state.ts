@@ -1,16 +1,20 @@
 import {
+  LINKED_COMPONENT_STRUCTURE_REFUSAL,
   buildCodeLayerProjection,
   type CodeLayerNode,
   type CodeLayerProjection,
+  type CodeLayerSource,
   type CodeLayerTreeNode,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { isComponentInstance } from "@shared/component-model";
 import {
   ELEMENT_PROVENANCE_METHODS,
   type ElementProvenanceFramework,
   type ElementProvenanceMethod,
 } from "@shared/source-mode";
+
 export {
   renameFilenamePreservingExtension,
   replaceDataScreenReferences,
@@ -275,7 +279,8 @@ export function codeLayerTreeToPanelNodes(
     const locked = inheritedLocked || selfLocked;
     const hidden = inheritedHidden || selfHidden;
     let children: LayersPanelNode[] = [];
-    if (!ancestors.has(node.id)) {
+    // T-tool line wrappers stay in the source projection for text-range and style operations.
+    if (!node.isNativeTextPrimitive && !ancestors.has(node.id)) {
       ancestors.add(node.id);
       children = codeLayerTreeToPanelNodes(
         node.children,
@@ -478,6 +483,18 @@ function provenanceForCodeLayerNode(
 }
 
 export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
+  const sourceStyles = Object.fromEntries(
+    Object.entries(node.style).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+  const styles = cssStyleAliases(
+    sourceStyles,
+    typeof node.attributes.style === "string"
+      ? node.attributes.style
+      : undefined,
+    node.classes.length === 0,
+  );
   return {
     tagName: node.tag,
     id: typeof node.attributes.id === "string" ? node.attributes.id : undefined,
@@ -488,20 +505,18 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     // The inspector reads camelCase keys, so a hyphenated source declaration
     // (stroke-width, border-color) is invisible without the alias pass that
     // `refreshedComputedStyles` already applies on the sibling path.
-    computedStyles: cssStyleAliases(
-      Object.fromEntries(
-        Object.entries(node.style).filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string",
-        ),
-      ),
-    ),
+    computedStyles: styles,
+    inlineStyles: { ...styles },
     // Dropping this made every projection-backed selection (URL-restored,
     // layers panel, post-draw overview) fall back to tag heuristics, so a
     // drawn vector was styled as a plain box.
     primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
+    isGroup: node.dataAttributes["data-agent-native-group"] === "true",
+    vectorStrokeCanAlign: node.style["--an-vector-stroke-can-align"] === "true",
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
     hasOwnText: node.paintsOwnText,
+    wholeTextStyleRoot: node.wholeTextStyleRoot === true,
     // A layers-panel selection is the LAYER, which renders every row, so no
     // single item index exists. Reported anyway so a content edit refuses with
     // a reason instead of writing markup the next render throws away.
@@ -571,18 +586,98 @@ function fontShorthandLonghands(value: string): Record<string, string> {
   return longhands;
 }
 
+// A canvas-drawn shape/frame primitive (canvas-primitive-insert.ts) and hand-
+// authored markup both commit a plain solid fill through the `background`
+// shorthand rather than the `background-color` longhand. Only expand it to
+// `backgroundColor` when the whole value parses as one color — an authored
+// `background: url(...) center/cover` or a gradient is a real shorthand this
+// must not misread as a solid fill.
+function backgroundShorthandColor(value: string): string | undefined {
+  return parseCssColorExtended(value.trim()) ? value.trim() : undefined;
+}
+
 export function cssStyleAliases(
   styles: Record<string, string>,
+  sourceStyleText?: string,
+  fillMissingBackgroundDefaults = false,
 ): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [property, value] of Object.entries(styles)) {
     // Expanded in source order so a later explicit longhand still wins.
+    if (property === "background" && typeof document !== "undefined") {
+      const declaration = document.createElement("div").style;
+      declaration.background = value;
+      for (const longhand of [
+        "backgroundColor",
+        "backgroundImage",
+        "backgroundPosition",
+        "backgroundSize",
+        "backgroundRepeat",
+        "backgroundOrigin",
+        "backgroundClip",
+        "backgroundAttachment",
+      ] as const) {
+        if (declaration[longhand]) result[longhand] = declaration[longhand];
+      }
+    }
     if (property === "font") {
       Object.assign(result, fontShorthandLonghands(value));
+    } else if (property === "background") {
+      const color = backgroundShorthandColor(value);
+      if (color) result.backgroundColor = color;
     }
     result[property] = value;
     if (property.includes("-")) {
       result[camelCaseCssProperty(property)] = value;
+    }
+  }
+  if (sourceStyleText !== undefined && typeof document !== "undefined") {
+    const authored = document.createElement("div").style;
+    authored.cssText = sourceStyleText;
+    const authoredProperties = Array.from(
+      { length: authored.length },
+      (_, index) => authored.item(index),
+    );
+    const hasBackgroundShorthand = authoredProperties.includes("background");
+    const hasBackgroundDeclaration = authoredProperties.some(
+      (property) =>
+        property === "background" || property.startsWith("background-"),
+    );
+    const backgroundProperties = [
+      ["backgroundColor", "background-color"],
+      ["backgroundImage", "background-image"],
+      ["backgroundPosition", "background-position"],
+      ["backgroundSize", "background-size"],
+      ["backgroundRepeat", "background-repeat"],
+      ["backgroundOrigin", "background-origin"],
+      ["backgroundClip", "background-clip"],
+      ["backgroundAttachment", "background-attachment"],
+    ] as const;
+    if (hasBackgroundDeclaration) {
+      const declaration = document.createElement("div").style;
+      declaration.cssText = [
+        "background-color: transparent",
+        "background-image: none",
+        "background-position: 0% 0%",
+        "background-size: auto",
+        "background-repeat: repeat",
+        "background-origin: padding-box",
+        "background-clip: border-box",
+        "background-attachment: scroll",
+        sourceStyleText,
+      ].join("; ");
+      for (const [property, sourceProperty] of backgroundProperties) {
+        // A longhand doesn't reset the other background components; keep
+        // their measured class values unless the source actually uses shorthand.
+        if (
+          hasBackgroundShorthand ||
+          fillMissingBackgroundDefaults ||
+          authoredProperties.includes(sourceProperty)
+        ) {
+          const value = declaration[property];
+          if (value) result[property] = value;
+        }
+      }
     }
   }
   return result;
@@ -605,8 +700,13 @@ export function refreshedComputedStyles(
   info: ElementInfo,
   sourceStyles: Record<string, string>,
   sourceClasses: readonly string[],
+  sourceStyleText?: string,
 ): Record<string, string> {
-  const sourceWithAliases = cssStyleAliases(sourceStyles);
+  const sourceWithAliases = cssStyleAliases(
+    sourceStyles,
+    sourceStyleText,
+    sourceClasses.length === 0,
+  );
   const merged: Record<string, string> =
     sourceClasses.length > 0
       ? { ...info.computedStyles, ...sourceWithAliases }
@@ -714,19 +814,27 @@ export function resolveCodeLayerTargetFromBridge(
   selector?: string,
   sourceId?: string,
 ): CodeLayerResolution {
-  // Id-based match first, across the WHOLE projection (not just up to
-  // whichever node the old combined-predicate `.find()` reached first) — a
-  // sourceId identifies one node by its own stable id/data-attribute, which
-  // is unique in a well-formed projection, so this branch alone can never be
-  // ambiguous. Checking it before the selector fallback also fixes a subtler
-  // pre-existing bug: the old single-pass `.find()` could match an EARLIER
-  // node purely by selector before ever reaching the correct sourceId match
-  // later in iteration order.
+  // Resolve stable identities first. Generated or partially migrated source
+  // can contain duplicate ids, so use the bridge's structural selector to
+  // disambiguate those candidates instead of accepting the first DOM-order
+  // match. A selector that points outside the id matches cannot override the
+  // stable identity.
   if (sourceId) {
-    const idMatch = projection.nodes.find((node) =>
+    const idMatches = projection.nodes.filter((node) =>
       codeLayerNodeMatchesSourceId(node, sourceId),
     );
-    if (idMatch) return { status: "resolved", node: idMatch };
+    if (idMatches.length === 1) {
+      return { status: "resolved", node: idMatches[0]! };
+    }
+    if (idMatches.length > 1) {
+      const selectorMatches = selector
+        ? idMatches.filter((node) => codeLayerSelectorMatches(node, selector))
+        : [];
+      if (selectorMatches.length === 1) {
+        return { status: "resolved", node: selectorMatches[0]! };
+      }
+      return { status: "ambiguous", candidates: idMatches };
+    }
   }
   // No sourceId (or no node carries it yet, e.g. a bridge target minted a
   // fresh pending id the projection hasn't picked up) — fall back to the
@@ -762,15 +870,41 @@ export function resolveCodeLayerNodeFromBridge(
   return resolution.status === "resolved" ? resolution.node : null;
 }
 
+export function remapLegacyCodeLayerNodeId(
+  legacyProjection: CodeLayerProjection,
+  scopedProjection: CodeLayerProjection,
+  legacyNodeId: string,
+): string | null {
+  const legacyNodes = legacyProjection.nodes.filter(
+    (node) => node.id === legacyNodeId,
+  );
+  if (legacyNodes.length !== 1) return null;
+  const legacyNode = legacyNodes[0]!;
+  const matches = scopedProjection.nodes.filter(
+    (node) => node.tag === legacyNode.tag && node.path === legacyNode.path,
+  );
+  return matches.length === 1 ? matches[0]!.id : null;
+}
+
 export function collapsedElementText(value: string | null | undefined): string {
   return value?.replace(/\s+/g, " ").trim() ?? "";
 }
 
 export function resolveCodeLayerTargetFromElementInfo(
-  projection: { nodes: CodeLayerNode[] },
+  projection: {
+    nodes: CodeLayerNode[];
+    source?: Pick<CodeLayerSource, "fileId">;
+  },
   info: ElementInfo | null | undefined,
 ): CodeLayerResolution {
   if (!info) return { status: "absent" };
+  if (
+    info.sourceLayerIdentity?.screenId &&
+    projection.source?.fileId &&
+    info.sourceLayerIdentity.screenId !== projection.source.fileId
+  ) {
+    return { status: "absent" };
+  }
   const direct = resolveCodeLayerTargetFromBridge(
     projection,
     info.selector,
@@ -779,11 +913,14 @@ export function resolveCodeLayerTargetFromElementInfo(
   if (direct.status === "resolved") return direct;
 
   // Score even an ambiguous selector: text/class/id evidence it does not carry
-  // can single out one instance. Ambiguity only survives if scoring ties too.
+  // can single out one instance, but it cannot escape an identity candidate
+  // set that already disagreed with the selector.
   const tagName = info.tagName.toLowerCase();
   const text = collapsedElementText(info.textContent);
   const classes = new Set(info.classes);
-  const scored = projection.nodes
+  const candidates =
+    direct.status === "ambiguous" ? direct.candidates : projection.nodes;
+  const scored = candidates
     .filter((node) => node.tag === tagName)
     .map((node) => {
       let score = 0;
@@ -819,7 +956,10 @@ export function resolveCodeLayerTargetFromElementInfo(
 }
 
 export function resolveCodeLayerNodeFromElementInfo(
-  projection: { nodes: CodeLayerNode[] },
+  projection: {
+    nodes: CodeLayerNode[];
+    source?: Pick<CodeLayerSource, "fileId">;
+  },
   info: ElementInfo | null | undefined,
 ): CodeLayerNode | null {
   const resolution = resolveCodeLayerTargetFromElementInfo(projection, info);
@@ -829,17 +969,27 @@ export function resolveCodeLayerNodeFromElementInfo(
 export function canonicalElementInfoForCodeLayerNode(
   info: ElementInfo,
   node: CodeLayerNode,
+  ownerScreenId?: string,
 ): ElementInfo {
   return {
     ...info,
+    vectorStrokeCanAlign:
+      info.vectorStrokeCanAlign ||
+      node.style["--an-vector-stroke-can-align"] === "true",
     // Keep the bridge's own identity before overwriting it — it is the only
     // one that resolves in a live document. Idempotent: re-canonicalizing an
     // already-canonicalized info must not overwrite it with the source id.
     runtimeSelector: info.runtimeSelector ?? info.selector,
     runtimeSourceId: info.runtimeSourceId ?? info.sourceId,
+    sourceLayerIdentity: ownerScreenId
+      ? { screenId: ownerScreenId, nodeId: node.id }
+      : info.sourceLayerIdentity?.nodeId === node.id
+        ? info.sourceLayerIdentity
+        : undefined,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
+    isGroup: node.dataAttributes["data-agent-native-group"] === "true",
     confidence: node.confidence,
     childElementCount: node.children.length,
     editCapabilities: info.editCapabilities?.some((capability) =>
@@ -857,12 +1007,47 @@ export function canonicalElementInfoForCodeLayerNode(
   };
 }
 
+export function elementInfoForOwnedCodeLayerNode(args: {
+  info: ElementInfo | null;
+  node: CodeLayerNode;
+  ownerFileId: string;
+}): ElementInfo {
+  const { info, node, ownerFileId } = args;
+  if (
+    (info?.portableStyleSnapshot !== undefined ||
+      info?.styleSnapshotCaptureFailed === true) &&
+    info.sourceLayerIdentity?.screenId === ownerFileId &&
+    info.sourceLayerIdentity.nodeId === node.id
+  ) {
+    return canonicalElementInfoForCodeLayerNode(info, node, ownerFileId);
+  }
+  return {
+    ...elementInfoFromCodeLayerNode(node),
+    sourceLayerIdentity: { screenId: ownerFileId, nodeId: node.id },
+  };
+}
+
 export function canonicalizeElementInfoFromProjection(
-  projection: { nodes: CodeLayerNode[] },
+  projection: {
+    nodes: CodeLayerNode[];
+    source?: Pick<CodeLayerSource, "fileId">;
+  },
   info: ElementInfo,
+  ownerScreenId?: string,
 ): ElementInfo {
+  if (
+    info.sourceLayerIdentity?.screenId &&
+    projection.source?.fileId &&
+    info.sourceLayerIdentity.screenId !== projection.source.fileId
+  ) {
+    return info;
+  }
   const node = resolveCodeLayerNodeFromElementInfo(projection, info);
-  return node ? canonicalElementInfoForCodeLayerNode(info, node) : info;
+  if (node)
+    return canonicalElementInfoForCodeLayerNode(info, node, ownerScreenId);
+  return ownerScreenId && info.sourceLayerIdentity
+    ? { ...info, sourceLayerIdentity: undefined }
+    : info;
 }
 
 export function elementInfoIsRuntimeOnly(
@@ -892,15 +1077,31 @@ export function elementInfoIsRuntimeOnly(
  * shared/code-layer.ts), and sourceKey differs between the runtime and
  * source projection parses of the very same content, so `id` never lines up
  * even for the identical element — the stamped DOM attribute does.
+ * Runtime snapshot ids (`runtime-<base36 hash>`) are editor-minted, not source
+ * identity; snapshots can make them appear in a projection that is otherwise
+ * treated as source, so compare them against the persisted screen content.
  */
 export function isCodeLayerNodeRuntimeOnly(args: {
   fileIsRuntimeProjected: boolean;
   nodeIdAttr: string | undefined;
   sourceNodeIdAttrs: ReadonlySet<string>;
 }): boolean {
-  if (!args.fileIsRuntimeProjected) return false;
-  if (!args.nodeIdAttr) return true;
-  return !args.sourceNodeIdAttrs.has(args.nodeIdAttr);
+  if (!args.nodeIdAttr) return args.fileIsRuntimeProjected;
+  if (args.sourceNodeIdAttrs.has(args.nodeIdAttr)) return false;
+  return (
+    args.fileIsRuntimeProjected || /^runtime-[a-z0-9]+$/i.test(args.nodeIdAttr)
+  );
+}
+
+/** Runtime/external projections are not a source-id inventory for movement. */
+export function codeLayerSourceNodeIdAttrs(
+  content: string,
+): ReadonlySet<string> {
+  return new Set(
+    buildCodeLayerProjection(content)
+      .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+      .filter((value): value is string => Boolean(value)),
+  );
 }
 
 /**
@@ -928,24 +1129,54 @@ export function runtimeLayerStateHandoffMode(args: {
 export function codeLayerPatchMessage(
   message: string | null | undefined,
   fallback: string,
+  t?: (key: string) => string,
 ): string {
+  if (message === LINKED_COMPONENT_STRUCTURE_REFUSAL)
+    return (
+      t?.("designEditor.componentInstances.linkedStructureUnsupported") ??
+      message
+    );
   if (!message) return fallback;
-  return message.includes("did not match a code layer node")
+  return /code layer node|data-agent-native-node-id/i.test(message)
     ? fallback
     : message;
 }
 
-// T16: known Google Font families offered by the inspector's font-family
-// picker (FONT_FAMILY_OPTIONS in @agent-native/toolkit/design-tweaks). Maps
-// the exact display family name to the Google Fonts CSS2 API family query param
-// (weight range 400-700 covers
-// the FONT_WEIGHT_OPTIONS range without over-fetching every weight).
+// Known Google Font families offered by the inspector's font-family picker.
+// Lato's weight 500 comes from the pinned OFL face below because the CSS2 API
+// currently serves only its 400 and 700 files.
 export const KNOWN_GOOGLE_FONTS: Record<string, string> = {
   Inter: "Inter:wght@400;500;600;700",
   Poppins: "Poppins:wght@400;500;600;700",
   "Playfair Display": "Playfair+Display:wght@400;500;600;700",
   "JetBrains Mono": "JetBrains+Mono:wght@400;500;600;700",
+  Lato: "Lato:wght@400;700",
 };
+
+const LATO_MEDIUM_FACE_URL =
+  "https://raw.githubusercontent.com/google/fonts/809e4d8b8d7e9364a914909bb777679606c178b8/ofl/lato/Lato-Medium.ttf";
+
+function ensurePinnedFontFace(doc: Document, family: string): boolean {
+  if (
+    family !== "Lato" ||
+    doc.head.querySelector('style[data-agent-native-font-face="Lato-500"]')
+  ) {
+    return false;
+  }
+
+  const style = doc.createElement("style");
+  style.setAttribute("data-agent-native-font-face", "Lato-500");
+  style.textContent = `/* Lato Medium; Copyright (c) 2011-2015 tyPoland, Lukasz Dziedzic; SIL Open Font License 1.1. */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('${LATO_MEDIUM_FACE_URL}') format('truetype');
+}`;
+  doc.head.appendChild(style);
+  return true;
+}
 
 /**
  * T16: extract the primary (first) font-family name from a CSS font-family
@@ -965,16 +1196,8 @@ export function primaryFontFamilyName(value: string): string {
 }
 
 /**
- * T16: EditPanel's font-family picker lets a user choose Inter/Poppins/
- * Playfair Display/JetBrains Mono, but EditPanel only calls onStyleChange —
- * it has no way to also load the webfont, so picking one just silently fell
- * back to the browser's default font (the family was never actually
- * available). Injects a Google Fonts <link> into the screen's <head> when
- * the committed fontFamily's primary family is a KNOWN_GOOGLE_FONTS entry
- * and no link for that family is already present. Conservative by design:
- * exact-match family name only (case-sensitive, matching the picker's own
- * option values), and skips if ANY existing <link> already mentions the
- * family (avoids duplicate/near-duplicate <link> tags on repeated edits).
+ * Add portable font references to the screen source for a known family. The
+ * family allowlist keeps typed custom CSS names from triggering network loads.
  */
 export function ensureGoogleFontLinkInHtml(
   content: string,
@@ -995,38 +1218,40 @@ export function ensureGoogleFontLinkInHtml(
       const href = link.getAttribute("href") ?? "";
       return href.includes(encodeURIComponent(family)) || href.includes(family);
     });
-    if (alreadyLoaded) return content;
-    const preconnectGoogleapis = doc.createElement("link");
-    preconnectGoogleapis.setAttribute("rel", "preconnect");
-    preconnectGoogleapis.setAttribute("href", "https://fonts.googleapis.com");
-    const preconnectGstatic = doc.createElement("link");
-    preconnectGstatic.setAttribute("rel", "preconnect");
-    preconnectGstatic.setAttribute("href", "https://fonts.gstatic.com");
-    preconnectGstatic.setAttribute("crossorigin", "");
-    const fontLink = doc.createElement("link");
-    fontLink.setAttribute("rel", "stylesheet");
-    fontLink.setAttribute(
-      "href",
-      `https://fonts.googleapis.com/css2?family=${fontQuery}&display=swap`,
-    );
-    // Skip the preconnect hints if the head already has one for either host
-    // (avoids piling up duplicates across repeated font picks).
-    if (
-      !existingLinks.some((link) =>
-        (link.getAttribute("href") ?? "").includes("fonts.googleapis.com"),
-      ) &&
-      !head.querySelector(
-        'link[href*="fonts.googleapis.com"][rel="preconnect"]',
-      )
-    ) {
-      head.appendChild(preconnectGoogleapis);
+    let changed = ensurePinnedFontFace(doc, family);
+    if (!alreadyLoaded) {
+      const preconnectGoogleapis = doc.createElement("link");
+      preconnectGoogleapis.setAttribute("rel", "preconnect");
+      preconnectGoogleapis.setAttribute("href", "https://fonts.googleapis.com");
+      const preconnectGstatic = doc.createElement("link");
+      preconnectGstatic.setAttribute("rel", "preconnect");
+      preconnectGstatic.setAttribute("href", "https://fonts.gstatic.com");
+      preconnectGstatic.setAttribute("crossorigin", "");
+      const fontLink = doc.createElement("link");
+      fontLink.setAttribute("rel", "stylesheet");
+      fontLink.setAttribute(
+        "href",
+        `https://fonts.googleapis.com/css2?family=${fontQuery}&display=swap`,
+      );
+      // Skip preconnects already present in the document head.
+      if (
+        !head.querySelector(
+          'link[href="https://fonts.googleapis.com"][rel="preconnect"]',
+        )
+      ) {
+        head.appendChild(preconnectGoogleapis);
+      }
+      if (
+        !head.querySelector(
+          'link[href="https://fonts.gstatic.com"][rel="preconnect"]',
+        )
+      ) {
+        head.appendChild(preconnectGstatic);
+      }
+      head.appendChild(fontLink);
+      changed = true;
     }
-    if (
-      !head.querySelector('link[href*="fonts.gstatic.com"][rel="preconnect"]')
-    ) {
-      head.appendChild(preconnectGstatic);
-    }
-    head.appendChild(fontLink);
+    if (!changed) return content;
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return content;
@@ -1036,9 +1261,22 @@ export function ensureGoogleFontLinkInHtml(
 export function refreshElementInfoFromContent(
   content: string,
   info: ElementInfo | null,
+  source?: CodeLayerSource,
 ): ElementInfo | null {
   if (!info) return null;
-  const projection = buildCodeLayerProjection(content);
+  const infoScreenId = info.sourceLayerIdentity?.screenId;
+  if (source?.fileId && infoScreenId && source.fileId !== infoScreenId) {
+    return info;
+  }
+  const projectionSource =
+    source ??
+    (infoScreenId
+      ? { kind: "design-file" as const, fileId: infoScreenId }
+      : undefined);
+  const projection = buildCodeLayerProjection(
+    content,
+    projectionSource ? { source: projectionSource } : undefined,
+  );
   const node =
     resolveCodeLayerNodeFromElementInfo(projection, info) ??
     resolveCodeLayerNodeFromBridge(
@@ -1052,10 +1290,18 @@ export function refreshElementInfoFromContent(
       info,
       sourceInfo.computedStyles,
       sourceInfo.classes,
+      typeof node.attributes.style === "string"
+        ? node.attributes.style
+        : undefined,
     );
     return {
-      ...canonicalElementInfoForCodeLayerNode(info, node),
+      ...canonicalElementInfoForCodeLayerNode(
+        info,
+        node,
+        projectionSource?.fileId,
+      ),
       computedStyles,
+      inlineStyles: sourceInfo.inlineStyles ?? {},
       boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: sourceInfo.textContent,
       childElementCount: sourceInfo.childElementCount,
@@ -1070,15 +1316,22 @@ export function refreshElementInfoFromContent(
     const element = queryUniqueSelector(doc, info.selector);
     if (!element) return null;
     const classes = Array.from(element.classList);
+    const sourceStyleText = element.getAttribute("style") ?? undefined;
+    const inlineStyles = cssStyleAliases(
+      parseInlineStyleAttribute(sourceStyleText ?? null),
+      sourceStyleText,
+    );
     const computedStyles = refreshedComputedStyles(
       info,
-      parseInlineStyleAttribute(element.getAttribute("style")),
+      inlineStyles,
       classes,
+      sourceStyleText,
     );
     return {
       ...info,
       classes,
       computedStyles,
+      inlineStyles,
       boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: element.textContent?.slice(0, 200) ?? info.textContent,
       childElementCount: element.children.length,
@@ -1099,9 +1352,13 @@ export function refreshElementInfoFromContent(
 export function refreshSelectedLayerIdsFromContent(
   content: string,
   layerIds: readonly string[],
+  source?: CodeLayerSource,
 ): string[] {
   if (layerIds.length === 0) return layerIds as string[];
-  const projection = buildCodeLayerProjection(content);
+  const projection = buildCodeLayerProjection(
+    content,
+    source ? { source } : undefined,
+  );
   const validIds = new Set<string>();
   projection.nodes.forEach((node) => {
     validIds.add(node.id);
@@ -1147,16 +1404,23 @@ export function findCodeLayerSiblingOrder(
   return null;
 }
 
-// L25: matches the auto-generated wrapper name pattern from
-// nextSequentialGroupName in shared/code-layer.ts ("Group", "Group 2", ...).
-// Used to identify wrappers that were CREATED by the group action (as opposed
-// to a user's own named container) so we only auto-clean up ones we made.
-export const GENERATED_GROUP_NAME_PATTERN = /^Group(?: \d+)?$/;
-
 export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
-  const layerNameAttr = node.dataAttributes["data-agent-native-layer-name"];
-  return Boolean(
-    layerNameAttr && GENERATED_GROUP_NAME_PATTERN.test(layerNameAttr.trim()),
+  if (node.dataAttributes["data-agent-native-clone-root"] === "true") {
+    return false;
+  }
+  if (node.dataAttributes["data-agent-native-group-wrapper"] === "true") {
+    return true;
+  }
+  const layerName =
+    node.dataAttributes["data-agent-native-layer-name"] ??
+    node.dataAttributes["data-layer-name"] ??
+    "";
+  const nodeId = node.dataAttributes["data-agent-native-node-id"] ?? "";
+  // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
+  return (
+    /^an-[a-z0-9]+$/i.test(nodeId) &&
+    /^group(?: \d+)?$/i.test(layerName.trim()) &&
+    node.dataAttributes["data-agent-native-preserve-styles"] === "true"
   );
 }
 
@@ -1175,13 +1439,12 @@ export function removeEmptyGeneratedGroupWrappers(
   candidateParentAttrIds: ReadonlySet<string>,
 ): string {
   if (candidateParentAttrIds.size === 0) return content;
-  // Both are necessary conditions for isGeneratedGroupWrapperNode to ever
-  // match. Checking them on the raw string first keeps a document with no
-  // generated groups — the common case — from paying for a full projection of
-  // post-edit content on every structural edit.
+  // Checking for either current or legacy markers keeps a document with no
+  // generated groups — the common case — from paying for a full projection
+  // of post-edit content on every structural edit.
   if (
-    !content.includes("data-agent-native-layer-name") ||
-    !content.includes("Group")
+    !content.includes("data-agent-native-group-wrapper") &&
+    !content.includes("data-agent-native-preserve-styles")
   ) {
     return content;
   }
@@ -1446,8 +1709,12 @@ export function liveNudgeReorderHandoff(args: {
   content: string;
   anchorNodeId: string;
   placement: "before" | "after";
+  source?: CodeLayerSource;
 }): LiveNudgeReorderHandoff | null {
-  const projection = buildCodeLayerProjection(args.content);
+  const projection = buildCodeLayerProjection(
+    args.content,
+    args.source ? { source: args.source } : undefined,
+  );
   const anchorNode = projection.nodes.find(
     (node) => node.id === args.anchorNodeId,
   );

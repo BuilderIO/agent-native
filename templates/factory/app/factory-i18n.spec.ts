@@ -55,6 +55,7 @@ const requiredKeys = [
   "triage.sourceValues.slack",
   "triage.statusValues.received",
   "triage.feedbackTitle",
+  "triage.summary",
   "triage.evidence",
   "triage.actionsTaken",
   "factoryRoute.auditTab",

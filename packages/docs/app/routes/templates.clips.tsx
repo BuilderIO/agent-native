@@ -13,6 +13,7 @@ import { templates, trackEvent } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
 import {
   GridInner,
   PageSection,
@@ -156,8 +157,11 @@ export default function ClipsTemplate() {
         <TemplateHero
           title={t("templateLanding.clips.heroTitle")}
           eyebrow={
-            <span className="text-[var(--fg-secondary)]">
-              {t("templateLanding.clips.heroEyebrow")}
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-2xl font-bold tracking-tight">
+                {t("templateLanding.clips.heroEyebrow")}
+              </span>
             </span>
           }
           customizeTemplate={template}
@@ -335,7 +339,7 @@ export default function ClipsTemplate() {
                 body={t("templateLanding.clips.watchClipLabel")}
                 image={{ src: clip.thumbnail, alt: clip.title }}
                 imageAspect="16 / 9"
-                imageObjectPosition="bottom"
+                imageObjectPosition="top"
                 imagePosition="top"
                 href={clip.href}
                 onClick={() =>
@@ -386,8 +390,11 @@ export default function ClipsTemplate() {
             rel="noopener noreferrer"
             // Same optical fix as the hero CTA: the trailing arrow's ink
             // sits top-right in its box, so the default 6px gap still reads
-            // as extra space after the icon.
-            style={{ gap: "3px" }}
+            // as extra space after the icon. fontSize/textTransform match
+            // the hero's .primary-button (uppercase 12px mono, via the
+            // .template-detail-page CSS rule), which only applies inside
+            // the hero wrapper — this button sits outside it.
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
             onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("try live demo", {

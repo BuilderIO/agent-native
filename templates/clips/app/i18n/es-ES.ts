@@ -67,6 +67,8 @@ const messages = {
     recordings: "Grabaciones",
     newFolder: "Nueva carpeta",
     noSpaces: "Aún no hay espacios",
+    noSpacesAdminCta:
+      "Pide a un administrador de la organización que cree el primer espacio.",
     desktopCta: "Obtener la app de escritorio",
     desktopTitle: "Obtén la app de escritorio de Clips.",
     desktopBody:
@@ -741,7 +743,8 @@ const messages = {
     labMeetingsDescription:
       "Prueba la captura y transcripción automática de reuniones.",
     labWisprFlow: "Dictado por voz",
-    labWisprFlowDescription: "Prueba la nueva función de dictado por voz.",
+    labWisprFlowDescription:
+      "Muestra u oculta el dictado por voz en Clips Desktop.",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
     preferencesTitle: "Preferencias",
     languageTitle: "Idioma",
@@ -978,6 +981,8 @@ const messages = {
     renameFailed: "No se pudo renombrar el clip",
     renameClip: "Renombrar clip",
     clipTitle: "Título del clip",
+    archiveAction: "Archivar",
+    moveToTrashAction: "Mover a la papelera",
     movedToTrash: "Movido a la papelera",
     restoredFromArchive: "Restaurado desde el archivo",
     archived: "Archivado",
@@ -1865,6 +1870,7 @@ const messages = {
       "{{consoleCount}} problemas de consola · {{networkCount}} solicitudes fallidas",
     noFailures: "No se detectaron fallos",
     failuresPresent: "Se detectaron fallos del navegador",
+    unviewedCount: "{{count}} sin ver",
     captureSuccessful: "Diagnósticos capturados correctamente",
     capturedFrom: "Capturado desde {{source}}",
     browserCapture: "Captura del navegador",

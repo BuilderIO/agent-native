@@ -117,6 +117,7 @@ import {
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
   workspaceAppRoute,
+  workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
@@ -1068,6 +1069,7 @@ export function NavContent({
     <ChatFirstAppsRail
       apps={chatFirstApps}
       activeAppId={chatFirstActiveAppId}
+      activeTab={chatFirstActivePrimaryTab}
       collapsed={collapsed}
       loading={chatFirstAppsLoading}
       error={chatFirstAppsError}
@@ -1325,6 +1327,7 @@ export function renderChatFirstAppSurfaceTab({
         id: registration.id,
         name: registration.name ?? registration.id,
         path: registration.path,
+        homePath: registration.homePath,
         url: registration.url,
       }}
       embedPath={embedPath}
@@ -1426,6 +1429,7 @@ export function Layout({
         name: app.name,
         path: app.path,
         url: app.url,
+        homePath: app.homePath,
         enabled: app.status !== "pending" && app.archived !== true,
       });
     }
@@ -1463,7 +1467,10 @@ export function Layout({
         registration &&
         !isWorkspaceSsoApp(registration) &&
         isPathMountedWorkspaceApp(registration)
-          ? workspaceAppDirectHref(registration, "/")
+          ? workspaceAppDirectHref(
+              registration,
+              workspaceAppTargetPath(registration),
+            )
           : null;
       if (directHref && shouldOpenWorkspaceAppInTopWindow()) {
         if (navigateToWorkspaceApp(directHref)) return;

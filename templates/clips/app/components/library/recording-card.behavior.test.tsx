@@ -294,7 +294,9 @@ describe("RecordingCard behavior", () => {
 
     const deleteItem = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("navigation.trash"));
+    ).find((item) =>
+      item.textContent?.includes("libraryGrid.moveToTrashAction"),
+    );
     expect(deleteItem).not.toBeUndefined();
 
     act(() => deleteItem?.click());

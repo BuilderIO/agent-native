@@ -1,7 +1,10 @@
 import { removeBreakpointMediaDeclaration } from "@shared/breakpoint-media";
 import {
+  applyOrdinaryVisualStyleBatch,
   applyVisualEdit,
   type ApplyVisualEditResult,
+  type CodeLayerSource,
+  type VisualStyleBatchResult,
 } from "@shared/code-layer";
 import {
   duplicateStatePreviewRules,
@@ -434,9 +437,8 @@ export function reactSourceAnchorForPendingEdit(args: {
       args.info?.sourceId?.trim() ||
       args.info?.selector?.trim() ||
       undefined,
-    // Keep the raw Fiber value only in local state. Prompt serialization goes
-    // through redactReactSourceAnchor, which omits absolute paths until the
-    // connection root has resolved them to a safe project-relative relPath.
+    // Keep the raw Fiber value here so prompt serialization can retain an
+    // absolute path when the connection root cannot resolve a relPath.
     sourceFile,
     ...(relPath ? { relPath } : {}),
     line: provenance.line,
@@ -489,10 +491,49 @@ export type PendingLiveNonStyleEdit =
   | PendingLiveTextEdit
   | PendingLiveLayerStateEdit
   | PendingLiveStructureEdit;
-export type PendingVisualStyleUndoEntry = {
+export type PendingVisualStyleUndoTarget = {
   edit: PendingVisualStyleEdit;
   revertStyles: Record<string, string>;
 };
+export type PendingVisualStyleUndoEntry = PendingVisualStyleUndoTarget & {
+  /** All targets changed by one inspector gesture share one undo entry. */
+  gestureId?: string;
+  groupedTargets?: PendingVisualStyleUndoTarget[];
+};
+export interface PendingVisualStyleGestureState {
+  sequence: number;
+  activeId: string | null;
+}
+
+export function pendingVisualStyleGestureIdForPhase(
+  state: PendingVisualStyleGestureState,
+  phase: "preview" | "commit" | "cancel" | undefined,
+  enabled: boolean,
+): string | undefined {
+  if (phase === "cancel") {
+    state.activeId = null;
+    return undefined;
+  }
+  if (phase === "commit" && !enabled) {
+    state.activeId = null;
+    return undefined;
+  }
+  if (!enabled) return undefined;
+  const nextId = () => {
+    state.sequence += 1;
+    return `pending-live-style-${state.sequence}`;
+  };
+  if (phase === "preview") {
+    state.activeId ??= nextId();
+    return state.activeId;
+  }
+  if (phase === "commit") {
+    const gestureId = state.activeId ?? nextId();
+    state.activeId = null;
+    return gestureId;
+  }
+  return nextId();
+}
 export type PendingLiveTextUndoEntry = {
   kind: "text";
   edit: PendingLiveTextEdit;
@@ -520,7 +561,46 @@ export function appendPendingVisualStyleUndoEntry(
   entry: PendingVisualStyleUndoEntry,
 ): void {
   const last = stack[stack.length - 1];
+  if (entry.gestureId && last?.gestureId === entry.gestureId) {
+    const targets = pendingVisualStyleUndoTargets(last);
+    const index = targets.findIndex(
+      (target) =>
+        pendingVisualStyleEditKey(target.edit) ===
+        pendingVisualStyleEditKey(entry.edit),
+    );
+    if (index === -1) {
+      last.groupedTargets = [
+        ...(last.groupedTargets ?? []),
+        { edit: entry.edit, revertStyles: entry.revertStyles },
+      ];
+    } else {
+      const previous = targets[index]!;
+      const nextTarget = {
+        edit: {
+          ...entry.edit,
+          styles: { ...previous.edit.styles, ...entry.edit.styles },
+          originalStyles: {
+            ...entry.edit.originalStyles,
+            ...previous.edit.originalStyles,
+          },
+        },
+        revertStyles: { ...entry.revertStyles, ...previous.revertStyles },
+      };
+      if (index === 0) {
+        last.edit = nextTarget.edit;
+        last.revertStyles = nextTarget.revertStyles;
+      } else {
+        last.groupedTargets![index - 1] = nextTarget;
+      }
+    }
+    // Undo ordering compares the primary edit's timestamp with other pending
+    // edit kinds, so keep it at the time of the latest tick in this gesture.
+    last.edit = { ...last.edit, updatedAt: entry.edit.updatedAt };
+    return;
+  }
   if (
+    !entry.gestureId &&
+    !last?.gestureId &&
     last &&
     pendingVisualStyleEditKey(last.edit) ===
       pendingVisualStyleEditKey(entry.edit)
@@ -537,6 +617,23 @@ export function appendPendingVisualStyleUndoEntry(
     return;
   }
   stack.push(entry);
+}
+
+export function pendingVisualStyleUndoTargets(
+  entry: PendingVisualStyleUndoEntry,
+): PendingVisualStyleUndoTarget[] {
+  return [
+    { edit: entry.edit, revertStyles: entry.revertStyles },
+    ...(entry.groupedTargets ?? []),
+  ];
+}
+
+export function pendingVisualStyleEditsFromUndoStack(
+  stack: readonly PendingVisualStyleUndoEntry[],
+): PendingVisualStyleEdit[] {
+  return stack.flatMap((entry) =>
+    pendingVisualStyleUndoTargets(entry).map((target) => target.edit),
+  );
 }
 
 export function appendPendingLiveNonStyleUndoEntry(
@@ -921,6 +1018,13 @@ export function formatPendingVisualStylePrompt(args: {
       anchor.scope === "repeated-render" ||
       anchor.scope === "shared-component-definition",
   );
+  const hasOutsideConnectedRootPaths = reactSourceAnchors.some((anchor) => {
+    const redacted = redactReactSourceAnchor(anchor);
+    return (
+      redacted?.sourcePathStatus === "outside-connected-root" ||
+      redacted?.ownerSourcePathStatus === "outside-connected-root"
+    );
+  });
   const liveEditPayload = (args.liveEdits ?? []).map((edit) => {
     if (edit.kind === "text") {
       return {
@@ -1157,6 +1261,9 @@ export function formatPendingVisualStylePrompt(args: {
     codingAgent
       ? "These were made against the running app in a visual canvas, so the selectors and node ids below are runtime-only — they do not appear in source. Locate the component that renders each element using its tag, class names and current text, then make the change in that source file. Preserve layout, behavior, and unrelated styling."
       : "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, layer-state, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    hasOutsideConnectedRootPaths
+      ? "Some source anchors include an absolute or served path outside the connected root. Keep that sourceFile path and the `outside-connected-root` status in the diagnosis; inspect it read-only or ask for the correct connection, and never silently omit the file."
+      : "",
     hasReactSourceAnchors && !codingAgent
       ? "React sourceAnchor fields are source provenance; runtime source ids and selectors are correlation hints only. For a single-instance leaf text, literal className/class, or flat literal style-object edit, call apply-visual-edit with source.kind=local-file plus designId, connectionId, the verified project-relative path, and target.sourceAnchor. First omit persist and inspect proposedDiff; then retry with persist=true only when the diff matches the preview. That write still requires human localhost consent and exact version-hash concurrency. Verify every file, line, column, component, and surrounding control flow before editing. Never use a generic AST reparent, group, wrapper, breakpoint, dynamic expression, repeated render, or shared component transform through this path. For semantic structure edits, follow the embedded semanticHandoff packet and use this exact guarded sequence: read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash and requireExpectedVersionHash: true, then keep the preview pending until HMR proves the intended runtime relationship. On a version conflict, re-read and re-plan; never overwrite blindly."
       : "",
@@ -1193,6 +1300,15 @@ export function formatPendingVisualStylePrompt(args: {
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+export function formatVisualEditClipboardPrompt(
+  prompt: string,
+  host: "chatgpt" | "claude" | "webmcp" | null | undefined,
+): string {
+  return host === "chatgpt" || host === "claude" || host === "webmcp"
+    ? "Call the get-visual-edit-prompt WebMCP tool and apply the returned instructions."
+    : prompt;
 }
 
 export function resolveOverviewScreenSourceType(
@@ -1290,11 +1406,20 @@ export function applyScopedVisualStyleEdit(args: {
   property: string;
   value: string;
   upperBoundPx: number | null;
+  source?: CodeLayerSource;
   /** Inclusive lower bound for an exact-range edit. Omit for the normal
    * desktop-down “this breakpoint and smaller” cascade. */
   lowerBoundPx?: number | null;
 }): ApplyVisualEditResult {
-  const { content, target, property, value, upperBoundPx, lowerBoundPx } = args;
+  const {
+    content,
+    target,
+    property,
+    value,
+    upperBoundPx,
+    lowerBoundPx,
+    source,
+  } = args;
   const normalizedProperty = normalizeCssPropertyName(property);
   if (
     lowerBoundPx != null &&
@@ -1304,14 +1429,18 @@ export function applyScopedVisualStyleEdit(args: {
     lowerBoundPx > 0 &&
     upperBoundPx >= lowerBoundPx
   ) {
-    const maxPatch = applyVisualEdit(content, {
-      kind: "breakpoint-style",
-      target,
-      maxWidthPx: upperBoundPx,
-      property: normalizedProperty,
-      value,
-      operation: "set",
-    });
+    const maxPatch = applyVisualEdit(
+      content,
+      {
+        kind: "breakpoint-style",
+        target,
+        maxWidthPx: upperBoundPx,
+        property: normalizedProperty,
+        value,
+        operation: "set",
+      },
+      { source },
+    );
     if (maxPatch.result.status !== "applied") return maxPatch;
     const withoutCascade = removeBreakpointMediaDeclaration(maxPatch.content, {
       nodeId: target.nodeId,
@@ -1338,16 +1467,20 @@ export function applyScopedVisualStyleEdit(args: {
       : content;
   const plan = planBreakpointStyleWrite({ property, value, upperBoundPx });
   if (plan.mode === "class") {
-    const rcPatch = applyVisualEdit(cleanedContent, {
-      kind: "responsive-class",
-      target,
-      // `prefix` is ignored when maxWidthPx is set (desktop-down scope).
-      prefix: "base",
-      maxWidthPx: plan.boundPx,
-      operation: "replace",
-      utility: plan.utility,
-      stem: utilityStem(plan.utility),
-    });
+    const rcPatch = applyVisualEdit(
+      cleanedContent,
+      {
+        kind: "responsive-class",
+        target,
+        // `prefix` is ignored when maxWidthPx is set (desktop-down scope).
+        prefix: "base",
+        maxWidthPx: plan.boundPx,
+        operation: "replace",
+        utility: plan.utility,
+        stem: utilityStem(plan.utility),
+      },
+      { source },
+    );
     if (rcPatch.result.status === "applied") return rcPatch;
     // Fall through to the media path so the edit still lands scoped.
   }
@@ -1356,21 +1489,29 @@ export function applyScopedVisualStyleEdit(args: {
     upperBoundPx !== null &&
     upperBoundPx !== undefined
   ) {
-    return applyVisualEdit(cleanedContent, {
-      kind: "breakpoint-style",
+    return applyVisualEdit(
+      cleanedContent,
+      {
+        kind: "breakpoint-style",
+        target,
+        maxWidthPx: upperBoundPx,
+        property,
+        value,
+        operation: "set",
+      },
+      { source },
+    );
+  }
+  return applyVisualEdit(
+    cleanedContent,
+    {
+      kind: "style",
       target,
-      maxWidthPx: upperBoundPx,
       property,
       value,
-      operation: "set",
-    });
-  }
-  return applyVisualEdit(cleanedContent, {
-    kind: "style",
-    target,
-    property,
-    value,
-  });
+    },
+    { source },
+  );
 }
 
 const EXACT_BREAKPOINT_ATTR = "data-agent-native-breakpoint-range";
@@ -1417,6 +1558,52 @@ function removeExactBreakpointDeclarations(
     "gis",
   );
   return content.replace(styleRe, "");
+}
+
+function removeExactBreakpointDeclarationsBatch(
+  content: string,
+  edits: readonly {
+    target: { nodeId: string };
+    property: string;
+  }[],
+): string {
+  const markerBases = new Set(
+    edits.map(({ target, property }) =>
+      exactBreakpointMarker(target.nodeId, normalizeCssPropertyName(property)),
+    ),
+  );
+  if (markerBases.size === 0) return content;
+
+  const styleRe = new RegExp(
+    `<style\\b[^>]*\\b${EXACT_BREAKPOINT_ATTR}="([^"]+)"[^>]*>.*?<\\/style>\\n?`,
+    "gis",
+  );
+  return content.replace(styleRe, (styleBlock, marker: string) => {
+    const separator = marker.lastIndexOf("::");
+    return separator > 0 && markerBases.has(marker.slice(0, separator))
+      ? ""
+      : styleBlock;
+  });
+}
+
+/** Base-scope K scaling writes all ordinary properties as one atomic patch. */
+export function applyScopedVisualStyleBatch(args: {
+  content: string;
+  source?: CodeLayerSource;
+  edits: readonly {
+    target: { nodeId: string };
+    property: string;
+    value: string;
+  }[];
+}): VisualStyleBatchResult {
+  const result = applyOrdinaryVisualStyleBatch(args.content, args.edits, {
+    source: args.source,
+  });
+  if (result.status !== "applied") return result;
+  return {
+    ...result,
+    content: removeExactBreakpointDeclarationsBatch(result.content, args.edits),
+  };
 }
 
 function setExactBreakpointDeclaration(

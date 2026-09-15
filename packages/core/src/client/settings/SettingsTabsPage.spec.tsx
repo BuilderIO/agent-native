@@ -529,7 +529,7 @@ describe("SettingsTabsPage", () => {
       container.querySelectorAll('[role="tab"]'),
       (tab) => tab.textContent,
     );
-    expect(tabLabels).toEqual(["General", "Agent", "Team", "What's new"]);
+    expect(tabLabels).toEqual(["General", "Agent", "What's new", "Team"]);
   });
 
   it("visually separates app, agent, and workspace tabs", () => {
@@ -569,6 +569,35 @@ describe("SettingsTabsPage", () => {
     expect(
       container.querySelector('[data-settings-tab-group="updates"]'),
     ).toBeNull();
+  });
+
+  it("keeps What's new out of the preceding feature group", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          whatsNew={<div>Recent updates</div>}
+          extraTabs={[
+            {
+              id: "library",
+              label: "Library",
+              group: "creative-context",
+              groupLabel: "Creative context",
+              content: <div>Creative Context library</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const creativeContextGroup = container.querySelector<HTMLElement>(
+      '[data-settings-tab-group="creative-context"]',
+    );
+    expect(creativeContextGroup?.textContent).toContain("Creative context");
+    expect(creativeContextGroup?.textContent).not.toContain("What's new");
+    expect(
+      container.querySelector('[data-settings-tab-group="app"]')?.textContent,
+    ).toContain("What's new");
   });
 
   it("merges tabs sharing a group id into one section even when another group intervenes", () => {
@@ -647,7 +676,7 @@ describe("SettingsTabsPage", () => {
       Array.from(container.querySelectorAll('[role="tab"]'), (tab) =>
         tab.textContent?.trim(),
       ),
-    ).toEqual(["General", "Integrations", "Team", "What's new", "Workspace"]);
+    ).toEqual(["General", "What's new", "Integrations", "Team", "Workspace"]);
 
     const workspaceLink = container.querySelector<HTMLAnchorElement>(
       'a[href="/settings/workspace"]',

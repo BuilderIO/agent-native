@@ -14,6 +14,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useId,
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
@@ -39,6 +40,7 @@ import {
   aliasIdFromToken,
   ALIAS_PREFIX,
 } from "@/lib/alias-utils";
+import { getActiveDescendantId } from "@/lib/combobox-aria";
 import { cn } from "@/lib/utils";
 
 /** Which header field a RecipientInput represents — used for cross-field drag. */
@@ -327,6 +329,8 @@ export function RecipientInput({
   onMoveRecipient,
 }: RecipientInputProps) {
   const t = useT();
+  const recipientInstanceId = useId().replace(/:/g, "");
+  const suggestionListId = `mail-recipient-suggestions-${recipientInstanceId}`;
   const [inputValue, setInputValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -598,16 +602,29 @@ export function RecipientInput({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Clamp selected index when filtered list changes (preserves position when possible)
-  useEffect(() => {
-    setSelectedIndex((prev) => Math.min(prev, allSuggestions.length - 1));
+  // Keep a visible suggestion active when results return, preserving its
+  // position when possible and clamping it to the new list.
+  useLayoutEffect(() => {
+    if (allSuggestions.length === 0) return;
+    setSelectedIndex((prev) =>
+      Math.min(Math.max(prev, 0), allSuggestions.length - 1),
+    );
   }, [allSuggestions.length]);
+
+  useLayoutEffect(() => {
+    if (!showSuggestions || !hasSuggestions) return;
+    dropdownRef.current
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [allSuggestions, hasSuggestions, selectedIndex, showSuggestions]);
 
   const dropdown =
     showSuggestions && hasSuggestions
       ? createPortal(
           <div
             ref={dropdownRef}
+            id={suggestionListId}
+            role="listbox"
             className="fixed z-[9999] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
             style={{
               top: dropdownPos.top,
@@ -619,6 +636,9 @@ export function RecipientInput({
               {filteredAliases.slice(0, 4).map((alias, i) => (
                 <button
                   key={`alias-${alias.id}`}
+                  id={`${suggestionListId}-option-${i}`}
+                  role="option"
+                  aria-selected={i === selectedIndex}
                   type="button"
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] transition-colors",
@@ -650,6 +670,9 @@ export function RecipientInput({
                   return (
                     <button
                       key={contact.email}
+                      id={`${suggestionListId}-option-${globalIndex}`}
+                      role="option"
+                      aria-selected={globalIndex === selectedIndex}
                       type="button"
                       className={cn(
                         "flex w-full items-center justify-between gap-4 rounded-md px-3 py-1.5 text-left text-[13px] transition-colors",
@@ -770,6 +793,21 @@ export function RecipientInput({
         })}
         <input
           ref={inputRef}
+          id={`${suggestionListId}-input`}
+          data-mail-recipient-input
+          data-recipient-field={field}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls={
+            showSuggestions && hasSuggestions ? suggestionListId : undefined
+          }
+          aria-expanded={showSuggestions && hasSuggestions}
+          aria-activedescendant={getActiveDescendantId(
+            `${suggestionListId}-option-`,
+            showSuggestions && hasSuggestions,
+            selectedIndex,
+            allSuggestions.length,
+          )}
           type="text"
           value={inputValue}
           onChange={(e) => {
