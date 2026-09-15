@@ -12,6 +12,7 @@ import {
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { openOAuthPopup } from "../oauth-popup.js";
 import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
@@ -1539,7 +1540,13 @@ export function AuthPage(props: AuthPageProps) {
     if (flow === "popup") {
       const builderPreviewFrame = isBuilderPreview() && isInFrame();
       try {
-        popup = window.open("", "_blank", "width=640,height=760");
+        popup = openOAuthPopup({
+          initialUrl: new URL(
+            `${runtimeAppBasePath}/_agent-native/oauth/popup`,
+            window.location.origin,
+          ).href,
+          features: "width=640,height=760",
+        });
         if (!popup) {
           if (builderPreviewFrame) {
             setGoogleBusy(false);
@@ -1639,6 +1646,7 @@ export function AuthPage(props: AuthPageProps) {
     googleViaIdentitySso,
     resolveGoogleFlow,
     resumeHref,
+    runtimeAppBasePath,
     setNotice,
     showGoogle,
     startOAuthExchange,

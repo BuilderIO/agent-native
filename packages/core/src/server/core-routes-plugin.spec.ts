@@ -38,6 +38,7 @@ import {
   matchesSavedHostedAgentProbe,
   stripRemoteAgentAuth,
   createPublicRemoteAgentsHandler,
+  createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 
@@ -57,6 +58,37 @@ describe("mountApplicationStateRoutes", () => {
       "/_agent-native/application-state/compose",
       "/_agent-native/application-state",
     ]);
+  });
+});
+
+describe("OAuth popup waiting route", () => {
+  it("serves an inert public HTML document with restrictive framing policy", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    );
+    expect(await response.text()).not.toContain("script");
+  });
+
+  it("rejects writes", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(405);
   });
 });
 
