@@ -121,6 +121,42 @@ describe("workspace dev startup", () => {
     expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
   });
 
+  it("reserves child ports on IPv4 when the gateway binds IPv6", async () => {
+    const occupied = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.1", () => resolve());
+    });
+    try {
+      const address = occupied.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected the occupied server to expose a TCP port");
+      }
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn();
+      let output = "";
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: {
+          ...testEnv(),
+          WORKSPACE_HOST: "[::1]",
+          WORKSPACE_APP_PORT_START: String(address.port),
+        },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+        stdout: { write: (chunk) => void (output += String(chunk)) },
+      });
+      await handle.ready;
+
+      expect(handle.apps[0]?.port).not.toBe(address.port);
+      expect(output).toContain(
+        `[workspace] Port ${address.port} unavailable for /dispatch`,
+      );
+    } finally {
+      await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    }
+  });
+
   it("starts only Dispatch by default and starts other apps on first visit", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();

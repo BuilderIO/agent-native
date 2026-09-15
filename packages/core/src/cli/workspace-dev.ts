@@ -712,7 +712,9 @@ export async function runWorkspaceDev(
       probe.once("listening", () => {
         probe.close(() => resolve(true));
       });
-      probe.listen(port, gatewayHost);
+      // Child Vite servers always bind IPv4 loopback, independently of the
+      // gateway bind host, so reserve against the address they actually use.
+      probe.listen(port, "127.0.0.1");
     });
   }
 
