@@ -525,6 +525,16 @@ describe("inferElementSizing — authored vs resolved size", () => {
     expect(inferElementSizing(element, "vertical")).toBe("fixed");
   });
 
+  it("keeps stylesheet-sized containers fixed when the authored snapshot has no inline value", () => {
+    const element = makeElement({
+      isGridContainer: true,
+      computedStyles: { width: "240px" },
+      inlineStyles: {},
+      authoredSizeStyles: {},
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fixed");
+  });
+
   it("keeps a non-container with no authored height conservative", () => {
     const element = makeElement({
       computedStyles: { height: "38.8px" },

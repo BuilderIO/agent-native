@@ -461,6 +461,7 @@ describe("LayersPanel row hierarchy", () => {
     const panel = host.querySelector<HTMLElement>("[data-layers-panel]");
     expect(panel).not.toBeNull();
     expect(panel?.className).toContain("[--design-icon-size:12px]");
+    expect(panel?.className).toContain("[--design-row-height:24px]");
     expect(panel?.className).toContain("text-[11px]");
 
     const rows = Array.from(

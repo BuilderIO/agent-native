@@ -1554,7 +1554,7 @@ function LayersPanelImpl(
         ref={layersPanelRef}
         data-layers-panel
         className={cn(
-          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-section-height:28px]",
+          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-row-height:24px] [--design-section-height:28px]",
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[11px] font-normal text-foreground",
           className,
         )}

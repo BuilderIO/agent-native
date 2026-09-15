@@ -477,7 +477,6 @@ export function inferElementSizing(
   const authoredSize =
     element.authoredSizeStyles?.[property]?.trim().toLowerCase() ||
     element.inlineStyles?.[property]?.trim().toLowerCase();
-  const hasAuthoredSize = Boolean(authoredSize);
   const size = authoredSize || styles[property];
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);
@@ -492,19 +491,6 @@ export function inferElementSizing(
     (isCrossFlexAxis && alignSelf === "stretch")
   ) {
     return "fill";
-  }
-  // A supported native size snapshot answers the authored sizing question even
-  // when the browser resolved the value to px. If that API is unavailable, an
-  // absent inline declaration is not evidence of Hug: a class or inherited
-  // rule may have supplied a fixed size. Only use this fallback when a
-  // supported snapshot exists but omitted this property.
-  if (
-    !hasAuthoredSize &&
-    element.authoredSizeStyles !== undefined &&
-    element.inlineStyles !== undefined &&
-    (element.isFlexContainer || element.isGridContainer)
-  ) {
-    return "hug";
   }
   if (size === "auto" || size === "fit-content" || size === "max-content") {
     return "hug";
