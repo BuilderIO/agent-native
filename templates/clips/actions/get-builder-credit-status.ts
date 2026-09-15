@@ -9,7 +9,7 @@ import {
 
 export default defineAction({
   description:
-    "Return the last known Builder.io AI credit limit state for Clips. Use this before explaining paused backup transcription, transcript cleanup, summaries, or AI title generation.",
+    "Return the last known Builder.io Agent Credits limit state for Clips. Use this before explaining paused backup transcription, transcript cleanup, summaries, or AI title generation.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
