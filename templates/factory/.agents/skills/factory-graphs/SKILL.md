@@ -27,13 +27,13 @@ member ids or GitHub numeric user ids, never names. `inboxLimit` and `workLimit`
 are action-enforced fields, not prompt text. Source reactions are an
 optional `reaction` argument on `dispatch-factory-item`, not a job field. Inbox filters
 (`status`, `source`, `risk`, `updatedAfter`) belong on `list-triage-items`, not
-on a client-side page of results. The PR babysitter lists the next GitHub PRs
-like Slack lists the next messages, then records inScope false so other authors
-leave the review window. `propose-pr-babysit-status` briefs the agent, which
-passes `decision` ping, already_asked, or stuck to the babysit action; that
-action posts one hardcoded ask, refuses a duplicate or unreadable-scan ping, and
-parks out of needsReview until new human feedback or a conflict that appeared
-after the branch was known clean. Selected automation is `automationId` on the factory
+on a client-side page of results. The PR babysitter fair-queues re-queued and
+never-pinged PRs ahead of stale backlog rows, then records inScope false so other
+authors leave the review window. `propose-pr-babysit-status` briefs the agent,
+which passes `decision` ping, already_asked, or stuck to the babysit action; that
+action posts one v2 disposition ask, refuses a duplicate or unreadable-scan ping,
+and parks out of needsReview until threads close via reply, resolve, outdated,
+coverage comment, or new human feedback. Selected automation is `automationId` on the factory
 view. Creating one is `createAutomation=1` on the Automations tab.
 
 ## Workflow
