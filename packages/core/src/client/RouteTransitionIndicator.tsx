@@ -26,6 +26,10 @@ export function RouteTransitionIndicator() {
     navigation.state === "loading" && navigation.location
       ? `${navigation.location.pathname}${navigation.location.search}${navigation.location.hash}`
       : null;
+  const navigationKey =
+    navigation.state === "loading" && navigation.location
+      ? navigation.location.key
+      : null;
   const [visibleDestination, setVisibleDestination] = useState<string | null>(
     null,
   );
@@ -48,7 +52,7 @@ export function RouteTransitionIndicator() {
       window.clearTimeout(timer);
       window.clearTimeout(maxDurationTimer);
     };
-  }, [destination]);
+  }, [destination, navigationKey]);
 
   if (!destination || visibleDestination !== destination) return null;
 
