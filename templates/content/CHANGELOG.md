@@ -5,13 +5,33 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-09-14
 
+### Improved
+
+- Search is now available from the Content sidebar, with clearer date filters and keyboard-friendly calendar navigation.
+
 ### Fixed
 
+- Pages created in agent conversations now appear in navigation and open when they are ready.
+- Cmd+K now opens the command menu while writing in a page.
 - The block drag-handle menu now always opens beside the block instead of sometimes jumping to the corner of the window.
 - Pasting a checklist from Notion or GitHub now keeps its checkboxes instead of turning into plain bullets.
 - Asking the agent about Notion no longer reports "not connected" when the Notion MCP server is connected — it now names the account connection and the MCP connection separately.
 
+## 2026-09-13
+
+### Fixed
+
+- Suggestion previews and highlights stay aligned when editing text near lists.
+
 ## 2026-09-12
+
+### Improved
+
+- Search with quoted phrases, exclusions, OR, and intitle: operators, search all workspaces, pick a modified date from the calendar, and see snippets anchored at the matching sentence deep inside long pages.
+
+### Fixed
+
+- Setting up Notion from a document now opens the Integrations settings, where Notion can actually be connected.
 
 ### Changed
 
@@ -28,6 +48,10 @@ time from the command menu (Cmd+K → "What's new").
 ### Added
 
 - Connected agents can set up ordinary databases, configure fields and table views, and recover them from Trash with verified results.
+
+### Improved
+
+- Search pages and databases with scoped filters, result previews, and keyboard navigation across result pages.
 
 ### Fixed
 
