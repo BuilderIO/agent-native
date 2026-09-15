@@ -1,7 +1,7 @@
 pr=5081
 owner_thread=01a0a1ec-3c45-7600-91b5-d98e550b00f5
-version=10
+version=11
 acquired_at=2026-09-15T17:53:35Z
-expires_at=2026-09-15T22:00:00Z
+expires_at=2026-09-15T23:00:00Z
 observed_legacy_heartbeat=absent
 legacy_retired=true
