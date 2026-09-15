@@ -4482,8 +4482,17 @@ const TOP_LEVEL_RENDERABLE_TYPES = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
  * nodes (and nested sections) to wrap frames; sections are organizational
  * containers, not standalone designs, so we recurse THROUGH them and
  * collect the frames inside. Anything that isn't a SECTION or a
- * renderable type is ignored. Children are returned in document order
- * (depth-first across sections).
+ * renderable type is ignored.
+ *
+ * The traversal itself walks children in `parentIndex.position` order (the
+ * layer stacking/creation order), but that has no necessary relation to how
+ * frames are actually laid out on the canvas — a designer can duplicate or
+ * reorder frames in the layers panel without moving them, or create later
+ * frames to the LEFT of earlier ones. Once collected, the top-level frames
+ * are re-sorted by their absolute canvas X (falling back to Y, then the
+ * traversal order for exact ties) so multi-frame flows import left-to-right
+ * in the same reading order they have in Figma, instead of in creation/layer
+ * order.
  */
 export function collectTopLevelFrames(
   parent: FigNode,
@@ -4495,14 +4504,14 @@ export function collectTopLevelFrames(
       const pb = b.parentIndex?.position ?? "";
       return pa < pb ? -1 : pa > pb ? 1 : 0;
     });
-  const out: FigNode[] = [];
+  const out: Array<{ node: FigNode; x: number; y: number }> = [];
   const visitedSections = new Set<string>();
   const stack = sortChildren(childrenOf.get(guidKey(parent.guid)) ?? [])
     .reverse()
-    .map((node) => ({ node, depth: 1 }));
+    .map((node) => ({ node, depth: 1, x: 0, y: 0 }));
   let visited = 0;
   while (stack.length > 0) {
-    const { node, depth } = stack.pop()!;
+    const { node, depth, x, y } = stack.pop()!;
     visited += 1;
     if (visited > DEFAULT_MAX_RENDERED_NODES) {
       throw new Error(".fig section traversal exceeded its node budget.");
@@ -4511,6 +4520,11 @@ export function collectTopLevelFrames(
       throw new Error(".fig section tree is nested too deeply.");
     }
     if (!node.type || node.visible === false) continue;
+    // Accumulate ancestor SECTION offsets so a frame nested inside one or
+    // more sections still sorts by its true canvas position, not its
+    // position relative to the innermost section.
+    const nodeX = x + (node.transform?.m02 ?? 0);
+    const nodeY = y + (node.transform?.m12 ?? 0);
     if (node.type === "SECTION") {
       const key = guidKey(node.guid);
       if (visitedSections.has(key)) {
@@ -4519,13 +4533,23 @@ export function collectTopLevelFrames(
       visitedSections.add(key);
       const children = sortChildren(childrenOf.get(key) ?? []);
       for (let index = children.length - 1; index >= 0; index -= 1) {
-        stack.push({ node: children[index]!, depth: depth + 1 });
+        stack.push({
+          node: children[index]!,
+          depth: depth + 1,
+          x: nodeX,
+          y: nodeY,
+        });
       }
       continue;
     }
-    if (TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) out.push(node);
+    if (TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) {
+      out.push({ node, x: nodeX, y: nodeY });
+    }
   }
-  return out;
+  return out
+    .map((entry, index) => ({ ...entry, index }))
+    .sort((a, b) => a.x - b.x || a.y - b.y || a.index - b.index)
+    .map((entry) => entry.node);
 }
 // Maps a Figma `variableField` (on a node's variableConsumptionMap entry) to
 // the literal FigNode field it overrides. Only layout-affecting numeric fields

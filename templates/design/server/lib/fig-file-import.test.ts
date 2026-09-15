@@ -408,6 +408,57 @@ describe("editable .fig conversion", () => {
     expect(result.files).toHaveLength(2);
   });
 
+  it("imports multi-frame flows in left-to-right canvas order, not layer/creation order", async () => {
+    // A designer can reorder or duplicate frames in the layers panel without
+    // moving them on the canvas, so `parentIndex.position` (creation/z order)
+    // can point the opposite way from where the frames actually sit. Three
+    // frames laid out left-to-right on the canvas (x: 0, 400, 800) but stored
+    // with their layer order reversed (rightmost frame has the earliest
+    // `position`) must still import in canvas order: Left, Middle, Right.
+    const document = editableDocument();
+    const frame = (
+      localID: number,
+      position: string,
+      name: string,
+      x: number,
+    ) => ({
+      guid: { sessionID: 1, localID },
+      parentIndex: { guid: { sessionID: 1, localID: 2 }, position },
+      type: "FRAME" as const,
+      name,
+      size: { x: 320, y: 200 },
+      transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: 0 },
+      fillPaints: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }],
+    });
+    document.nodeChanges = [
+      document.nodeChanges[0]!,
+      document.nodeChanges[1]!,
+      frame(10, "a", "Right", 800),
+      frame(11, "b", "Middle", 400),
+      frame(12, "c", "Left", 0),
+    ];
+
+    const result = await convertDecodedFigToEditableHtml(
+      {
+        format: "kiwi",
+        document,
+        images: [],
+        thumbnail: null,
+      },
+      {
+        originalName: "reordered-frames.fig",
+        ownerEmail: "example@example.com",
+        uploader: vi.fn(),
+      },
+    );
+
+    expect(result.files.map((file) => file.preferredFrame?.title)).toEqual([
+      "Left",
+      "Middle",
+      "Right",
+    ]);
+  });
+
   it("uploads embedded images through file storage and persists only the URL", async () => {
     const uploader = vi.fn().mockResolvedValue({
       url: "https://assets.example.com/figma-image.png",
