@@ -83,6 +83,7 @@ import {
   useDeleteEvent,
   useRsvpEvent,
   findEventByCurrentOrReplacedId,
+  findVisibleSelectedEvent,
   prefetchEvents,
   shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
@@ -1114,25 +1115,54 @@ export default function CalendarView() {
 
   useEffect(() => {
     if (sidebarEvent) {
-      const rebound = findEventByCurrentOrReplacedId(events, sidebarEvent);
-      if (rebound && rebound.id !== sidebarEvent.id) setSidebarEvent(rebound);
+      const rebound = findVisibleSelectedEvent(
+        events,
+        sidebarEvent,
+        viewPrefs.showDeclinedEvents,
+      );
+      if (!rebound) setSidebarEvent(null);
+      else if (rebound.id !== sidebarEvent.id) setSidebarEvent(rebound);
     }
     if (focusedEvent) {
-      const rebound = findEventByCurrentOrReplacedId(events, focusedEvent);
-      if (rebound && rebound.id !== focusedEvent.id) setFocusedEvent(rebound);
+      const rebound = findVisibleSelectedEvent(
+        events,
+        focusedEvent,
+        viewPrefs.showDeclinedEvents,
+      );
+      if (!rebound) setFocusedEvent(null);
+      else if (rebound.id !== focusedEvent.id) setFocusedEvent(rebound);
     }
-  }, [events, focusedEvent, setFocusedEvent, setSidebarEvent, sidebarEvent]);
+  }, [
+    events,
+    focusedEvent,
+    setFocusedEvent,
+    setSidebarEvent,
+    sidebarEvent,
+    viewPrefs.showDeclinedEvents,
+  ]);
 
   const selectedEvent = useMemo(() => {
     const candidate = sidebarEvent ?? focusedEvent;
     if (!candidate) return null;
-    return findEventByCurrentOrReplacedId(events, candidate) ?? candidate;
-  }, [events, sidebarEvent, focusedEvent]);
+    return (
+      findVisibleSelectedEvent(
+        events,
+        candidate,
+        viewPrefs.showDeclinedEvents,
+      ) ?? null
+    );
+  }, [events, sidebarEvent, focusedEvent, viewPrefs.showDeclinedEvents]);
 
   const refreshedSidebarEvent = useMemo(() => {
     if (!sidebarEvent) return null;
-    return findEventByCurrentOrReplacedId(events, sidebarEvent) ?? sidebarEvent;
-  }, [events, sidebarEvent]);
+    return (
+      findVisibleSelectedEvent(
+        events,
+        sidebarEvent,
+        viewPrefs.showDeclinedEvents,
+      ) ?? null
+    );
+  }, [events, sidebarEvent, viewPrefs.showDeclinedEvents]);
 
   function handleNavigate(direction: "prev" | "next") {
     trackEvent("calendar_date_navigated", {

@@ -4,6 +4,7 @@ import { normalizeCalendarViewPreferences } from "@/lib/calendar-view-preference
 
 import {
   enqueueSourcePreferenceMutation,
+  enqueueVisualPreferenceMutation,
   mergePendingVisualPreferences,
   rollbackVisualPreferencePatch,
   shouldApplyPreferencePoll,
@@ -125,5 +126,26 @@ describe("source preference sequencing", () => {
 
     await Promise.all([mode, color]);
     expect(order).toEqual(["mode", "color"]);
+  });
+
+  it("persists rapid visual-preference updates in invocation order", async () => {
+    const chains: Record<string, Promise<unknown>> = {};
+    const persistedValues: number[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const first = enqueueVisualPreferenceMutation(chains, async () => {
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      persistedValues.push(5);
+    });
+    const second = enqueueVisualPreferenceMutation(chains, async () => {
+      persistedValues.push(6);
+    });
+
+    await Promise.resolve();
+    expect(persistedValues).toEqual([]);
+    releaseFirst?.();
+    await Promise.all([first, second]);
+    expect(persistedValues).toEqual([5, 6]);
   });
 });

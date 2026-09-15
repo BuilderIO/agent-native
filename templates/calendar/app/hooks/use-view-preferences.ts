@@ -182,6 +182,17 @@ export function enqueueSourcePreferenceMutation<T>(
   return request;
 }
 
+export function enqueueVisualPreferenceMutation<T>(
+  chains: Record<string, Promise<unknown>>,
+  run: () => Promise<T>,
+): Promise<T> {
+  return enqueueSourcePreferenceMutation(
+    chains,
+    CALENDAR_VIEW_PREFERENCES_KEY,
+    run,
+  );
+}
+
 async function readAppStatePreferences(): Promise<CalendarViewPreferences | null> {
   const controller = new AbortController();
   const abortTimer = setTimeout(() => controller.abort(), REFRESH_ABORT_MS);
@@ -216,6 +227,9 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
   const accountMutationChains = useRef<Record<string, Promise<unknown>>>({});
   const visualPreferenceRequestIds = useRef<
     Partial<Record<keyof CalendarViewPreferences, number>>
+  >({});
+  const visualPreferenceMutationChains = useRef<
+    Record<string, Promise<unknown>>
   >({});
   const pendingVisualPreferences = useRef<Partial<CalendarViewPreferences>>({});
   const confirmedServerRevision = useRef(0);
@@ -371,7 +385,10 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
         return next;
       });
 
-      callAction("update-calendar-visual-preferences", patch)
+      enqueueVisualPreferenceMutation(
+        visualPreferenceMutationChains.current,
+        () => callAction("update-calendar-visual-preferences", patch),
+      )
         .then(() => {
           let confirmed = false;
           for (const key of preferenceKeys) {
