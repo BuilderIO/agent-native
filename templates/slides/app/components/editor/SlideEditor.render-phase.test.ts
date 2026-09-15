@@ -243,6 +243,25 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain("window.getSelection()?.removeAllRanges();");
   });
 
+  it("does not let selection rerenders clear a newly selected object set", () => {
+    const start = source.indexOf("const applyMultiSelectionRef");
+    const end = source.indexOf("// One Escape owner", start);
+    const reconciliationBody = source.slice(start, end);
+
+    expect(reconciliationBody).toContain(
+      "applyMultiSelectionRef.current(new Set());",
+    );
+    expect(reconciliationBody).toContain(
+      "applyMultiSelectionRef.current(ids);",
+    );
+    expect(reconciliationBody).toContain(
+      "}, [slide.content, getSlideContent]);",
+    );
+    expect(reconciliationBody).not.toContain(
+      "[slide.content, getSlideContent, applyMultiSelection]",
+    );
+  });
+
   it("collapses a grouped multi-selection to the new group", () => {
     const start = source.indexOf("const handleGroupSelected");
     const end = source.indexOf("const handleUngroupSelected", start);
