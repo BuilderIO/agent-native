@@ -11,6 +11,7 @@ import {
   startWorkspaceAppCreation,
   updateWorkspaceAppMetadata,
 } from "./app-creation-store.js";
+import { listCuratedWorkspaceTemplates } from "./curated-workspace-templates.js";
 
 const originalFetch = globalThis.fetch;
 const settingsKey = "dispatch-app-creation-settings:user:dev@example.test";
@@ -420,16 +421,42 @@ describe("listWorkspaceApps", () => {
   });
 
   it.each([401, 403])(
-    "surfaces hosted registry authorization failures instead of using local manifests (%i)",
+    "serves the deployment manifest when the hosted registry denies the read (%i)",
     async (status) => {
       const fetchMock = vi.fn(async () => new Response("denied", { status }));
       vi.stubGlobal("fetch", fetchMock);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.stubEnv("A2A_SECRET", "test-a2a-secret");
       vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
       stubManifest([
         { id: "dispatch", name: "Dispatch", path: "/dispatch" },
         { id: "clips", name: "Clips", path: "/clips" },
       ]);
+
+      const apps = await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `workspace apps gateway denied the registry read with HTTP ${status}`,
+        ),
+      );
+      warn.mockRestore();
+    },
+  );
+
+  it.each([401, 403])(
+    "still rejects a denied registry read when no deployment manifest can answer (%i)",
+    async (status) => {
+      const fetchMock = vi.fn(async () => new Response("denied", { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
 
       await expect(
         runWithRequestContext({ userEmail: "dev@example.test" }, () =>
@@ -438,9 +465,38 @@ describe("listWorkspaceApps", () => {
       ).rejects.toThrow(
         `Workspace apps gateway rejected the request with HTTP ${status}.`,
       );
-      expect(fetchMock).toHaveBeenCalledTimes(1);
     },
   );
+
+  // The Apps page rendered two "Couldn't load data" cards from one failure:
+  // the curated catalog reads the same registry only to mark apps installed.
+  it("keeps the curated template catalog readable when the registry denies the read", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "mail", name: "Mail", path: "/mail" },
+    ]);
+
+    const templates = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listCuratedWorkspaceTemplates(),
+    );
+
+    expect(templates.length).toBeGreaterThan(0);
+    expect(
+      templates.find((template) => template.id === "mail")?.installed,
+    ).toBe(true);
+    expect(
+      templates.find((template) => template.id === "calendar")?.installed,
+    ).toBe(false);
+    warn.mockRestore();
+  });
 
   it("falls back to local manifests when the hosted registry route is missing", async () => {
     const fetchMock = vi.fn(

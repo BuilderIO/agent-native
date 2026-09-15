@@ -109,6 +109,20 @@ class WorkspaceAppsGatewayAuthorizationError extends Error {
   statusCode: 401 | 403;
 }
 
+/**
+ * A denial that a fallback source answered is still a misconfiguration worth
+ * diagnosing, so it must stay visible in logs even though the read succeeded.
+ */
+function warnWorkspaceAppsGatewayDenial(
+  denial: WorkspaceAppsGatewayAuthorizationError | null,
+  source: string,
+): void {
+  if (!denial) return;
+  console.warn(
+    `[dispatch] workspace apps gateway denied the registry read with HTTP ${denial.statusCode}; served the ${source} instead`,
+  );
+}
+
 type WorkspaceAppAudience = "internal" | "public";
 type WorkspaceAppVisibility = "private" | "org";
 
@@ -1981,7 +1995,20 @@ export async function listWorkspaceApps(
     );
     return maybeIncludeAgentCards(visible, options);
   };
-  const gatewayApps = await readWorkspaceAppsFromGateway();
+  let gatewayDenial: WorkspaceAppsGatewayAuthorizationError | null = null;
+  let gatewayApps: WorkspaceAppDiscovery | null = null;
+  try {
+    gatewayApps = await readWorkspaceAppsFromGateway();
+  } catch (error) {
+    if (!(error instanceof WorkspaceAppsGatewayAuthorizationError)) throw error;
+    // A denial answers for the gateway hop, not for what this caller may see.
+    // The receiver resolves org membership against its own database, so a
+    // cross-deployment trust gap reads as 403 for every user at once. The
+    // deployment-owned manifests below describe the same mounted apps and are
+    // still access-filtered per caller in finalize(), so prefer them over
+    // blanking the workspace. A registry nothing can answer still throws.
+    gatewayDenial = error;
+  }
   if (gatewayApps) {
     return finalize(gatewayApps.apps, gatewayApps.authoritative);
   }
@@ -1992,14 +2019,21 @@ export async function listWorkspaceApps(
       ? readWorkspaceAppsFromFilesystem(workspaceRoot)
       : null;
   if (localFilesystemApps) {
+    warnWorkspaceAppsGatewayDenial(gatewayDenial, "local filesystem");
     return finalize(localFilesystemApps, true);
   }
 
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
   if (manifestApps) {
+    warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment manifest");
     return finalize(manifestApps, true);
   }
+
+  // Every remaining branch synthesizes a registry instead of reading one, so a
+  // denial must stay a denial rather than become an empty or Dispatch-only
+  // workspace the caller cannot tell apart from a real answer.
+  if (gatewayDenial) throw gatewayDenial;
 
   if (!workspaceRoot) {
     return finalize([
