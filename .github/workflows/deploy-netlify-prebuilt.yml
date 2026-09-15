@@ -654,6 +654,64 @@ jobs:
           set -euo pipefail
           node scripts/check-function-size-baseline.mjs --site "$SITE" --dir "$FUNCTIONS_DIRECTORY"
 
+      # Beta's artifact producer has deploy=false but receives the inherited
+      # Netlify credential; PR preview producers intentionally do not, and
+      # their trusted deploy job runs this check before the Netlify upload.
+      - name: Verify Netlify Google OAuth relay metadata
+        if: >-
+          (inputs.deploy || inputs.target == 'beta') &&
+          inputs.migration_only != true &&
+          ((inputs.target == 'preview' &&
+          contains(' analytics assets brain calendar chat clips content crm design dispatch factory forms mail plan slides ',
+          format(' {0} ', steps.target.outputs.source_template))) ||
+          (inputs.target == 'beta' &&
+          steps.target.outputs.source_template == 'dispatch'))
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          NETLIFY_ACCOUNT_ID: builder-io
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          relay_context="$BUILD_CONTEXT"
+          if [[ "$TARGET" == "beta" && "$DEPLOY_MODE" == "production" ]]; then
+            relay_context=production
+          fi
+          if [[ "$relay_context" != "deploy-preview" && "$relay_context" != "branch-deploy" && "$relay_context" != "production" ]]; then
+            echo "::error::Google OAuth relay validation does not support Netlify context $relay_context."
+            exit 1
+          fi
+          # Netlify masks secret values in API and CLI responses; this
+          # pre-deploy check can only validate the secret-scoped runtime entry.
+          env_json="$(netlify api getEnvVars --data "{\"account_id\":\"$NETLIFY_ACCOUNT_ID\",\"site_id\":\"$NETLIFY_SITE_ID\"}")"
+          printf '%s' "$env_json" |
+            node -e '
+              const fs = require("node:fs");
+              const context = process.argv[1];
+              const variables = JSON.parse(fs.readFileSync(0, "utf8"));
+              const relay = variables.find(
+                (variable) => variable.key === "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
+              );
+              const value =
+                relay?.values?.find((entry) => entry.context === context) ??
+                relay?.values?.find((entry) => entry.context === "all");
+              if (
+                !relay?.is_secret ||
+                !relay.scopes?.includes("runtime") ||
+                !value
+              ) {
+                throw new Error(
+                  "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET is not provisioned as a runtime secret for " +
+                    context +
+                    ".",
+                );
+              }
+            ' "$relay_context"
+          echo "Verified Google OAuth relay metadata for $relay_context."
+
       - name: Package the prebuilt artifact
         if: inputs.artifact_upload && inputs.migration_only != true
         env:

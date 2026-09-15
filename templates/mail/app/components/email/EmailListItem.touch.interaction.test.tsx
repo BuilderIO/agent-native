@@ -228,6 +228,23 @@ describe("EmailListItem touch swipe interactions", () => {
     expect(props.onSelect).toHaveBeenCalledExactlyOnceWith(thread);
   });
 
+  it("uses localized read-state labels in the hover action tooltip", () => {
+    const unreadTooltipRow = renderRow({ onToggleRead: vi.fn() }).row;
+    expect(unreadTooltipRow.textContent).toContain("mail.actions.markUnread");
+
+    cleanup();
+    const readTooltipRow = renderRow({
+      email: { ...email, isRead: false },
+      thread: {
+        ...thread,
+        latestMessage: { ...email, isRead: false },
+        hasUnread: true,
+      },
+      onToggleRead: vi.fn(),
+    }).row;
+    expect(readTooltipRow.textContent).toContain("mail.actions.markRead");
+  });
+
   it("does not reveal or commit the direction whose handler is absent", () => {
     const onSwipeArchive = vi.fn();
     const { row } = renderRow({ onSwipeArchive });

@@ -20,7 +20,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { betterAuth, type BetterAuthOptions } from "better-auth";
+import {
+  betterAuth,
+  type BetterAuthOptions,
+  type BetterAuthPlugin,
+} from "better-auth";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 import { magicLink } from "better-auth/plugins/magic-link";
@@ -29,11 +33,15 @@ import {
   text as pgText,
   timestamp as pgTimestamp,
   boolean as pgBoolean,
+  bigint as pgBigint,
 } from "drizzle-orm/pg-core";
 import { setCookie } from "h3";
 import type { H3Event } from "h3";
 
-import { getAppConfig } from "../app-config/index.js";
+import {
+  enterpriseAuthAdaptersBuilt,
+  getAppConfig,
+} from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec } from "../db/client.js";
 import {
@@ -41,6 +49,7 @@ import {
   getPgliteClient,
   isPgliteUrl,
   loadPgliteDrizzle,
+  pgliteDrizzleClient,
   pgPoolOptions,
   neonPoolOptions,
   guardNeonPool,
@@ -49,10 +58,19 @@ import {
   onSharedDbPoolReplaced,
 } from "../db/client.js";
 import {
+  CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+  CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID,
   CORE_MAGIC_LINK_EMAIL_ID,
   CORE_RESET_PASSWORD_EMAIL_ID,
   CORE_VERIFY_SIGNUP_EMAIL_ID,
 } from "../email-catalog/system-emails.js";
+import {
+  executeIdentityRekey,
+  rekeyIdentity,
+  resumePendingIdentityRekeys,
+  verifiedEmailChangeFromToken,
+  type IdentityRekeyDb,
+} from "../identity/rekey.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
@@ -60,6 +78,14 @@ import {
   getRequiredAuthProviderForEmail,
 } from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import {
+  createFrameworkSCIMIdentity,
+  frameworkOrgBridgePlugin,
+} from "../org/scim-provisioning.js";
+import {
+  enforceSignupAdmission,
+  isBootstrapAdmin,
+} from "../org/signup-admission.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -81,6 +107,8 @@ import {
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
+  renderChangeEmailConfirmationEmail,
+  renderChangeEmailVerificationEmail,
   renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
@@ -102,6 +130,52 @@ import {
   getRequestContext,
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
+
+function identityRekeyDbFromExec(
+  exec: Awaited<ReturnType<typeof getDbExec>>,
+): IdentityRekeyDb {
+  const db: IdentityRekeyDb = {
+    async unsafe(sql: string, args: unknown[] = []) {
+      const result = await exec.execute({ sql, args });
+      return Object.assign(result.rows as Array<Record<string, unknown>>, {
+        count: result.rowsAffected,
+      });
+    },
+  };
+  if (exec.transaction) {
+    db.transaction = <T>(fn: (tx: IdentityRekeyDb) => Promise<T>) =>
+      exec.transaction!((tx) => fn(identityRekeyDbFromExec(tx)));
+  }
+  return db;
+}
+
+/** Retry a rekey whose Better Auth account update committed before framework rows did. */
+export async function resumeIdentityRekeysForEmail(
+  email: string,
+): Promise<void> {
+  await resumePendingIdentityRekeys(
+    identityRekeyDbFromExec(getDbExec()),
+    email,
+    {
+      ensureLedger: false,
+    },
+  );
+}
+
+async function preflightEmailIdentityRekey(
+  oldEmail: string,
+  newEmail: string,
+): Promise<void> {
+  await rekeyIdentity(
+    identityRekeyDbFromExec(getDbExec()),
+    oldEmail,
+    newEmail,
+    {
+      dryRun: true,
+      revokeSessions: false,
+    },
+  );
+}
 
 export {
   getAuthLoginMode,
@@ -749,6 +823,217 @@ const pgAuthSchema = {
     createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
     expiresAt: pgTimestamp("expires_at", { withTimezone: true }),
   }),
+  // Better Auth's opt-in SSO/SCIM plugins use these model keys. Keep their
+  // Drizzle schema here even when the plugins are disabled so enabling either
+  // feature later does not require a generated-schema deployment.
+  ssoProvider: pgTable("sso_provider", {
+    id: pgText("id").primaryKey(),
+    issuer: pgText("issuer").notNull(),
+    oidcConfig: pgText("oidc_config"),
+    samlConfig: pgText("saml_config"),
+    userId: pgText("user_id"),
+    providerId: pgText("provider_id").notNull().unique(),
+    organizationId: pgText("organization_id"),
+    domain: pgText("domain").notNull(),
+    domainVerified: pgBoolean("domain_verified"),
+  }),
+  scimManagedConnection: pgTable("scim_managed_connection", {
+    id: pgText("id").primaryKey(),
+    creationRequestId: pgText("creation_request_id").notNull().unique(),
+    connectionId: pgText("connection_id").notNull().unique(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    status: pgText("status").notNull(),
+    revision: pgBigint("revision", { mode: "number" }).notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    createdBy: pgText("created_by").notNull(),
+    decommissionStartedAt: pgTimestamp("decommission_started_at", {
+      withTimezone: true,
+    }),
+    decommissionStartedBy: pgText("decommission_started_by"),
+    decommissionedAt: pgTimestamp("decommissioned_at", {
+      withTimezone: true,
+    }),
+    decommissionedBy: pgText("decommissioned_by"),
+  }),
+  scimManagedCredential: pgTable("scim_managed_credential", {
+    id: pgText("id").primaryKey(),
+    connectionRecordId: pgText("connection_record_id").notNull(),
+    credentialId: pgText("credential_id").notNull().unique(),
+    tokenDigest: pgText("token_digest").notNull(),
+    hashVersion: pgText("hash_version").notNull(),
+    activeSlotKey: pgText("active_slot_key").notNull().unique(),
+    status: pgText("status").notNull(),
+    serializedScopes: pgText("serialized_scopes").notNull(),
+    expiresAt: pgTimestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    createdBy: pgText("created_by").notNull(),
+    lastUsedAt: pgTimestamp("last_used_at", { withTimezone: true }),
+    revokedAt: pgTimestamp("revoked_at", { withTimezone: true }),
+    revokedBy: pgText("revoked_by"),
+    decommissionedAt: pgTimestamp("decommissioned_at", {
+      withTimezone: true,
+    }),
+  }),
+  scimManagedConnectionEvent: pgTable("scim_managed_connection_event", {
+    id: pgText("id").primaryKey(),
+    connectionRecordId: pgText("connection_record_id").notNull(),
+    eventKey: pgText("event_key").notNull().unique(),
+    sequence: pgBigint("sequence", { mode: "number" }).notNull(),
+    type: pgText("type").notNull(),
+    actorId: pgText("actor_id").notNull(),
+    credentialId: pgText("credential_id"),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+  }),
+  scimConnectionBinding: pgTable("scim_connection_binding", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    connectionKey: pgText("connection_key").notNull().unique(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    decommissionedAt: pgTimestamp("decommissioned_at", {
+      withTimezone: true,
+    }),
+    decommissionStatus: pgText("decommission_status")
+      .notNull()
+      .default("active"),
+    decommissionCursorUserId: pgText("decommission_cursor_user_id"),
+    decommissionReconciledUserCount: pgBigint(
+      "decommission_reconciled_user_count",
+      { mode: "number" },
+    )
+      .notNull()
+      .default(0),
+    decommissionBatchCount: pgBigint("decommission_batch_count", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    decommissionRevision: pgBigint("decommission_revision", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    decommissionCompletedAt: pgTimestamp("decommission_completed_at", {
+      withTimezone: true,
+    }),
+    decommissionLeaseId: pgText("decommission_lease_id"),
+    decommissionLeaseExpiresAt: pgTimestamp("decommission_lease_expires_at", {
+      withTimezone: true,
+    }),
+  }),
+  scimIdentityTombstone: pgTable("scim_identity_tombstone", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    externalId: pgText("external_id").notNull(),
+    externalIdKey: pgText("external_id_key").notNull().unique(),
+    userId: pgText("user_id").notNull(),
+    profile: pgText("profile").notNull(),
+    deletedAt: pgTimestamp("deleted_at", { withTimezone: true }).notNull(),
+  }),
+  scimSubject: pgTable("scim_subject", {
+    id: pgText("id").primaryKey(),
+    userId: pgText("user_id").notNull().unique(),
+    profileSourceId: pgText("profile_source_id"),
+    revision: pgBigint("revision", { mode: "number" }).notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  scimUser: pgTable("scim_user", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    userId: pgText("user_id").notNull(),
+    connectionUserKey: pgText("connection_user_key").notNull().unique(),
+    userName: pgText("user_name").notNull(),
+    userNameKey: pgText("user_name_key").notNull().unique(),
+    primaryEmail: pgText("primary_email").notNull(),
+    workEmailValueIndex: pgText("work_email_value_index").notNull(),
+    emailValueIndex: pgText("email_value_index").notNull(),
+    displayName: pgText("display_name").notNull(),
+    formattedName: pgText("formatted_name").notNull(),
+    givenName: pgText("given_name"),
+    familyName: pgText("family_name"),
+    serializedEmails: pgText("serialized_emails").notNull(),
+    serializedAttributes: pgText("serialized_attributes"),
+    externalId: pgText("external_id"),
+    externalIdKey: pgText("external_id_key").unique(),
+    active: pgBoolean("active").notNull(),
+    orderKey: pgText("order_key").notNull().unique(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  scimProjectionGrant: pgTable("scim_projection_grant", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    scimUserId: pgText("scim_user_id").notNull(),
+    userId: pgText("user_id").notNull(),
+    sourceKind: pgText("source_kind").notNull(),
+    sourceId: pgText("source_id").notNull(),
+    sourceValue: pgText("source_value"),
+    role: pgText("role").notNull(),
+    grantKey: pgText("grant_key").notNull().unique(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  scimGroup: pgTable("scim_group", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    revision: pgBigint("revision", { mode: "number" }).notNull().default(0),
+    displayName: pgText("display_name").notNull(),
+    displayNameKey: pgText("display_name_key").notNull().unique(),
+    externalId: pgText("external_id"),
+    externalIdKey: pgText("external_id_key").unique(),
+    orderKey: pgText("order_key").notNull().unique(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  scimGroupMember: pgTable("scim_group_member", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    groupId: pgText("group_id").notNull(),
+    scimUserId: pgText("scim_user_id").notNull(),
+    membershipKey: pgText("membership_key").notNull().unique(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+  }),
+  // Application-owned bridge models used by the SCIM identity callback. They
+  // are deliberately keyed by Better Auth userId, never by an email column.
+  frameworkOrganization: pgTable("organizations", {
+    id: pgText("id").primaryKey(),
+    name: pgText("name").notNull(),
+    createdBy: pgText("created_by").notNull(),
+    createdAt: pgBigint("created_at", { mode: "number" }).notNull(),
+    allowedDomain: pgText("allowed_domain"),
+  }),
+  orgMember: pgTable("org_members", {
+    id: pgText("id").primaryKey(),
+    orgId: pgText("org_id").notNull(),
+    email: pgText("email").notNull(),
+    role: pgText("role").notNull(),
+    joinedAt: pgBigint("joined_at", { mode: "number" }).notNull(),
+    federationRemovalPendingAt: pgBigint("federation_removal_pending_at", {
+      mode: "number",
+    }),
+  }),
+  orgScimMembership: pgTable("org_scim_memberships", {
+    id: pgText("id").primaryKey(),
+    orgId: pgText("org_id").notNull(),
+    userId: pgText("user_id").notNull(),
+    memberId: pgText("member_id"),
+    createdMembership: pgBoolean("created_membership").notNull(),
+    createdAt: pgBigint("created_at", { mode: "number" }).notNull(),
+  }),
+  appMemberRole: pgTable("app_member_roles", {
+    id: pgText("id").primaryKey(),
+    orgId: pgText("org_id").notNull(),
+    appId: pgText("app_id").notNull(),
+    email: pgText("email").notNull(),
+    role: pgText("role").notNull(),
+    updatedBy: pgText("updated_by").notNull(),
+    updatedAt: pgBigint("updated_at", { mode: "number" }).notNull(),
+  }),
 };
 
 /**
@@ -1275,6 +1560,10 @@ export async function createBetterAuthSessionForEmail(
   config?: BetterAuthConfig,
   options?: { expiresAt?: Date },
 ): Promise<{ email: string; token: string; userId: string } | null> {
+  // This helper is used by framework action bridges, but it still creates a
+  // real Better Auth session. Do not let it mint a password-shaped session for
+  // an organization that requires a provider-specific sign-in.
+  if (await getRequiredAuthProviderForEmail(email)) return null;
   const adapter = await getBetterAuthInternalAdapter(config);
   if (!adapter) return null;
   const existing = await adapter.findUserByEmail(email, {
@@ -1443,6 +1732,11 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     adapter.findUserByEmail(email, { includeAccounts: true });
   let existing = await findExisting();
 
+  // The legacy Google bridge creates a Better Auth user through the internal
+  // adapter, so keep the shared admission check here as defense in depth even
+  // though normal Better Auth adapter creates run `databaseHooks.user.create.before`.
+  if (!existing) await enforceSignupAdmission(user);
+
   let linkedAccount = await adapter.findAccountByProviderId(
     accountId,
     "google",
@@ -1591,6 +1885,7 @@ async function createBetterAuthInstance(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInstance> {
   const basePath = config?.basePath ?? "/_agent-native/auth/ba";
+  const access = getAppConfig().access;
 
   // Build social providers from env vars
   const socialProviders: BetterAuthOptions["socialProviders"] = {
@@ -1668,6 +1963,73 @@ async function createBetterAuthInstance(
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
 
+  const enterprisePlugins: BetterAuthPlugin[] = [];
+  if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
+    const { sso } = await import("@better-auth/sso");
+    enterprisePlugins.push(
+      sso({
+        domainVerification: { enabled: true },
+        resolveUser: async ({ providerUser }, context) => {
+          const existing = await context.database.findOne<{
+            id: string;
+          }>({
+            model: "user",
+            where: [
+              {
+                field: "email",
+                value: providerUser.email.trim().toLowerCase(),
+                mode: "insensitive",
+              },
+            ],
+          });
+          return existing
+            ? { action: "link", userId: existing.id, profile: "preserve" }
+            : { action: "continue" };
+        },
+        provisionUserOnEveryLogin: true,
+        provisionUser: async ({ user }) => {
+          await autoJoinDomainMatchingOrgs(user.email, {
+            activateJoinedOrg: "if-missing",
+          });
+          await acceptPendingInvitationsForEmail(user.email);
+        },
+      }),
+    );
+  }
+  if (!enterpriseAuthAdaptersBuilt && access.sso.enabled) {
+    throw new Error(
+      "Organization SSO is enabled, but this deployment was built without enterprise auth adapters. Rebuild with AUTH_SSO=true.",
+    );
+  }
+  if (enterpriseAuthAdaptersBuilt && access.scim.enabled) {
+    const { scim } = await import("@better-auth/scim");
+    // Better Auth intentionally requires a separate 32-character HMAC secret
+    // for managed SCIM credentials. Falling back to the deployment auth secret
+    // keeps the opt-in feature usable for existing deployments while allowing
+    // operators to rotate the SCIM boundary independently via app-config.
+    const credentialHashSecret = access.scim.credentialHashSecret ?? secret;
+    if (credentialHashSecret.length < 32) {
+      throw new Error(
+        "AUTH_SCIM_CREDENTIAL_HASH_SECRET (or BETTER_AUTH_SECRET) must contain at least 32 characters when SCIM is enabled",
+      );
+    }
+    enterprisePlugins.push(
+      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
+    );
+    enterprisePlugins.push(
+      scim({
+        connections: [],
+        managedConnections: { credentialHashSecret },
+        identity: createFrameworkSCIMIdentity(),
+      }),
+    );
+  }
+  if (!enterpriseAuthAdaptersBuilt && access.scim.enabled) {
+    throw new Error(
+      "Organization SCIM is enabled, but this deployment was built without enterprise auth adapters. Rebuild with AUTH_SCIM=true.",
+    );
+  }
+
   const magicLinkPlugin = magicLink({
     expiresIn: 60 * 5,
     storeToken: "hashed",
@@ -1728,10 +2090,6 @@ async function createBetterAuthInstance(
     baseURL: appUrl,
     database,
     trustedOrigins: [...getConfiguredOriginAllowlist()],
-    // Auth schema relations are intentionally not registered here. Keep the
-    // experimental relational-query path off so a bundled Drizzle adapter
-    // cannot recurse while resolving a session or account join.
-    experimental: { joins: false },
     secret,
     emailAndPassword: {
       enabled: true,
@@ -1773,7 +2131,7 @@ async function createBetterAuthInstance(
       // verified users would have to go back and sign in manually, which is
       // a confusing dead-end on the verify screen.
       autoSignInAfterVerification: true,
-      sendVerificationEmail: async ({ user, url }) => {
+      sendVerificationEmail: async ({ user, url, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
         // verification link must include that prefix so the page resolves correctly.
         const verifyBasePath = (
@@ -1784,22 +2142,81 @@ async function createBetterAuthInstance(
         const verifyUrl = verifyBasePath
           ? url.replace(/(\/\/[^/]+)(\/)/, `$1${verifyBasePath}$2`)
           : url;
-        const { subject, html, text, appSender } = renderVerifySignupEmail({
-          email: user.email,
-          verifyUrl,
-        });
+        const emailChange = await verifiedEmailChangeFromToken(
+          token,
+          secret,
+          user.email,
+        );
+        if (emailChange)
+          await preflightEmailIdentityRekey(
+            emailChange.oldEmail,
+            emailChange.newEmail,
+          );
+        const renderedEmail = emailChange
+          ? renderChangeEmailVerificationEmail({ email: user.email, verifyUrl })
+          : renderVerifySignupEmail({ email: user.email, verifyUrl });
         await sendEmail({
           to: user.email,
-          subject,
-          html,
-          text,
-          appSender,
+          ...renderedEmail,
           disableClickTracking: true,
-          templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
+          templateId: emailChange
+            ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+            : CORE_VERIFY_SIGNUP_EMAIL_ID,
         });
+      },
+      afterEmailVerification: async (user, request) => {
+        if (!request) return;
+        const token = new URL(request.url).searchParams.get("token");
+        if (!token) return;
+        const db = getDbExec();
+        const emailChange = await verifiedEmailChangeFromToken(
+          token,
+          secret,
+          user.email,
+        );
+        if (!emailChange) return;
+        try {
+          await executeIdentityRekey(
+            identityRekeyDbFromExec(db),
+            emailChange.oldEmail,
+            emailChange.newEmail,
+            {
+              accountAlreadyUpdated: true,
+              actorEmail: user.email,
+              caller: "email-verification",
+            },
+          );
+        } catch (error) {
+          // Better Auth has already committed the verified address. Keep the
+          // callback successful and let the next authenticated session retry
+          // the durable pending ledger row.
+          console.error("[identity] email rekey deferred for retry", error);
+        }
       },
     },
     user: {
+      changeEmail: {
+        enabled: emailReadiness.status === "ready",
+        updateEmailWithoutVerification: false,
+        sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
+          await preflightEmailIdentityRekey(user.email, newEmail);
+          const confirmationBasePath = getConfiguredAppBasePath();
+          const confirmationUrl = confirmationBasePath
+            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${confirmationBasePath}$2`)
+            : url;
+          const renderedEmail = renderChangeEmailConfirmationEmail({
+            email: user.email,
+            newEmail,
+            confirmationUrl,
+          });
+          await sendEmail({
+            to: user.email,
+            ...renderedEmail,
+            disableClickTracking: true,
+            templateId: CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+          });
+        },
+      },
       additionalFields: {
         // Keep this internal profile field in Better Auth's adapter reads and
         // writes without exposing it as a client-controlled auth field.
@@ -1828,9 +2245,9 @@ async function createBetterAuthInstance(
         create: {
           before: async (session, context) => {
             const email = await getAuthEmailForUserId(session.userId);
-            if ((await getRequiredAuthProviderForEmail(email)) !== "google") {
-              return;
-            }
+            const requiredProvider =
+              await getRequiredAuthProviderForEmail(email);
+            if (!requiredProvider) return;
 
             const path = stringifyValue(context?.path ?? "").toLowerCase();
             const requestUrl = context?.request?.url ?? "";
@@ -1858,14 +2275,69 @@ async function createBetterAuthInstance(
                   ?.providerId ?? "",
               ),
             ].map((value) => value.toLowerCase());
-            if (!providerValues.some((value) => value.includes("google"))) {
+            if (requiredProvider === "google") {
+              if (!providerValues.some((value) => value.includes("google"))) {
+                return false;
+              }
+              return;
+            }
+
+            const providerId = requiredProvider.slice(4).toLowerCase();
+            const providerParams = context?.params as
+              | Record<string, unknown>
+              | undefined;
+            const explicitProvider = [
+              providerParams?.providerId,
+              providerParams?.provider,
+              providerParams?.id,
+              (context?.body as Record<string, unknown> | undefined)
+                ?.providerId,
+            ]
+              .map((value) => String(value ?? "").toLowerCase())
+              .filter(Boolean);
+            const pathMatchesProvider = providerValues.some((value) => {
+              if (!value.includes("/sso/")) return false;
+              try {
+                const path = value.startsWith("http")
+                  ? new URL(value).pathname
+                  : value.split("?", 1)[0];
+                return path
+                  .split("/")
+                  .some((part) => decodeURIComponent(part) === providerId);
+              } catch (error) {
+                console.warn(
+                  "[auth] could not parse SSO provider callback path",
+                  error,
+                );
+                return false;
+              }
+            });
+            if (
+              !explicitProvider.includes(providerId) &&
+              !pathMatchesProvider
+            ) {
               return false;
             }
+          },
+          after: async (session) => {
+            const email = await getAuthEmailForUserId(session.userId);
+            if (!isBootstrapAdmin(email)) return;
+            const adapter = await getBetterAuthInternalAdapter();
+            const existing = await adapter?.findUserByEmail(email, {
+              includeAccounts: false,
+            });
+            if (existing?.user.emailVerified !== true) return;
+            const { bootstrapAdminOrganization } =
+              await import("../org/context.js");
+            await bootstrapAdminOrganization(email);
           },
         },
       },
       user: {
         create: {
+          before: async (user, context) => {
+            await enforceSignupAdmission(user, context);
+          },
           after: async (
             user: {
               id?: string;
@@ -2003,6 +2475,7 @@ async function createBetterAuthInstance(
       ),
       // Bearer: accept Bearer tokens on API requests
       bearer(),
+      ...enterprisePlugins,
       ...(config?.plugins ?? []),
     ],
   });
@@ -2020,11 +2493,19 @@ export async function buildDatabaseConfig(): Promise<
   if (isPgliteUrl(url)) {
     const { drizzle } = await loadPgliteDrizzle();
     const client = await getPgliteClient(url);
-    const db = drizzle({ client, schema: pgAuthSchema });
+    const db = drizzle({
+      client: pgliteDrizzleClient(url, client),
+      schema: pgAuthSchema,
+    });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
       provider: "pg",
       schema: pgAuthSchema,
+      // Better Auth's SSO and managed-SCIM plugins require native adapter
+      // transactions for identity resolution and reconciliation. Keep this
+      // enabled for every Postgres backend so opting into either plugin does
+      // not fail at request time on PGlite, Neon, or postgres-js.
+      transaction: true,
     });
   }
 
@@ -2052,6 +2533,7 @@ export async function buildDatabaseConfig(): Promise<
     return drizzleAdapter(db, {
       provider: "pg",
       schema: pgAuthSchema,
+      transaction: true,
     });
   }
 
@@ -2073,5 +2555,6 @@ export async function buildDatabaseConfig(): Promise<
   return drizzleAdapter(db, {
     provider: "pg",
     schema: pgAuthSchema,
+    transaction: true,
   });
 }

@@ -204,6 +204,34 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("keeps object clipboard shortcuts scoped to the focused slide canvas", () => {
+    const keyStart = source.indexOf(
+      "// One window listener for object copy/paste/duplicate",
+    );
+    const pasteStart = source.indexOf(
+      "// The native paste event is authoritative",
+      keyStart,
+    );
+    const appearanceStart = source.indexOf(
+      "// Appearance clipboard shortcuts",
+      pasteStart,
+    );
+    const placementStart = source.indexOf(
+      "const placeTextBoxAt = useCallback",
+      appearanceStart,
+    );
+
+    expect(source.slice(keyStart, pasteStart)).toContain(
+      "isSlideCanvasShortcutTarget(active, slideCanvasRef.current)",
+    );
+    expect(source.slice(pasteStart, appearanceStart)).toContain(
+      "isSlideCanvasShortcutTarget(active, slideCanvasRef.current)",
+    );
+    expect(source.slice(appearanceStart, placementStart)).toContain(
+      "isSlideCanvasShortcutTarget(active, slideCanvasRef.current)",
+    );
+  });
+
   it("ends native text editing before entering a multi-selection", () => {
     const start = source.indexOf("const applyMultiSelection");
     const end = source.indexOf("const clearMultiSelection", start);

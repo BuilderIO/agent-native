@@ -82,6 +82,7 @@ vi.mock("drizzle-orm", () => ({
     kind: "and",
     conditions,
   }),
+  sql: vi.fn(),
   isNull: (value: unknown): Predicate => ({ kind: "isNull", value }),
 }));
 

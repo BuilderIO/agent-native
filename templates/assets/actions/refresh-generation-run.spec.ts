@@ -64,6 +64,7 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
   ne: vi.fn((column, value) => ({ op: "ne", column, value })),
+  sql: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({

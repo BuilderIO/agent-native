@@ -10,6 +10,11 @@ import {
 } from "../a2a/client.js";
 import { MAX_A2A_DELEGATION_HOPS } from "../a2a/correlation.js";
 import { invokeAgentAction } from "../a2a/invoke.js";
+import {
+  RemoteAgentAuthError,
+  RemoteAgentCredentialRejectedError,
+  resolveRemoteAgentToken,
+} from "../a2a/remote-agent-auth.js";
 import type {
   A2AApprovedAction,
   A2ACorrelationMetadata,
@@ -312,6 +317,48 @@ function formatDownstreamLlmCredentialFailure(
     : null;
 }
 
+function remoteAgentAuthFailure(
+  agentName: string,
+  value: unknown,
+  hostedAuthConfigured = false,
+): { message: string; errorCode: string } | null {
+  if (value instanceof RemoteAgentCredentialRejectedError) {
+    if (!hostedAuthConfigured) {
+      return ordinaryPeerAuthFailure(agentName, value.status);
+    }
+    return {
+      message:
+        `Error: The ${agentName} hosted-agent credential was rejected (HTTP ${value.statusCode}). ` +
+        "Update the configured credential and try again.",
+      errorCode: value.code,
+    };
+  }
+  if (value instanceof RemoteAgentAuthError) {
+    if (!hostedAuthConfigured) return null;
+    return {
+      message: `Error: The ${agentName} hosted-agent authentication failed. ${value.message}`,
+      errorCode: value.code,
+    };
+  }
+  return null;
+}
+
+function hostedAgentCardUrl(agent: { cardUrl?: string }): string | undefined {
+  return agent.cardUrl;
+}
+
+function ordinaryPeerAuthFailure(
+  agentName: string,
+  statusCode: 401 | 403,
+): { message: string; errorCode: string } {
+  return {
+    message:
+      `Error: The ${agentName} agent rejected the caller's A2A authentication (HTTP ${statusCode}). ` +
+      "Check the receiving app's A2A authentication configuration and try again.",
+    errorCode: "a2a_auth_rejected",
+  };
+}
+
 export const tool: ActionTool = {
   description:
     "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
@@ -466,11 +513,20 @@ export async function run(
       });
     }
     try {
+      const hostedAgentToken = agent.auth
+        ? await resolveRemoteAgentToken(agent.auth, {
+            userEmail: getRequestUserEmail(),
+            orgId: getRequestOrgId(),
+          })
+        : undefined;
       const output = await invokeReadOnlyAppAction(
         agent,
         action,
         input as Record<string, unknown>,
         buildDelegationCorrelation(context, selfAppId, randomUUID()),
+        hostedAgentToken,
+        hostedAgentCardUrl(agent),
+        Boolean(agent.auth),
       );
       if (/^Error\b/i.test(output)) {
         terminalStatus = "error";
@@ -487,7 +543,17 @@ export async function run(
       return output;
     } catch (error) {
       terminalStatus = "error";
-      terminalCode = "direct_action_failed";
+      const authFailure = remoteAgentAuthFailure(
+        agent.name,
+        error,
+        Boolean(agent.auth),
+      );
+      terminalCode = authFailure?.errorCode ?? "direct_action_failed";
+      if (authFailure) {
+        throw new A2AInvocationError(authFailure.message, {
+          errorCode: authFailure.errorCode,
+        });
+      }
       throw error;
     } finally {
       trackA2AInvocation({
@@ -564,7 +630,11 @@ export async function run(
 
       // Sign JWT with identity + org domain for the streaming client
       let apiKey: string | undefined;
-      if (callerEmail && (callerOrgSecret || process.env.A2A_SECRET)) {
+      if (
+        !agent.auth &&
+        callerEmail &&
+        (callerOrgSecret || process.env.A2A_SECRET)
+      ) {
         try {
           apiKey = await signA2AToken(
             callerEmail,
@@ -578,7 +648,7 @@ export async function run(
         } catch {}
       }
 
-      if (process.env.NODE_ENV === "production" && callerEmail) {
+      if (!agent.auth && process.env.NODE_ENV === "production" && callerEmail) {
         try {
           const { listOAuthAccountsByOwner } =
             await import("../oauth-tokens/store.js");
@@ -729,6 +799,12 @@ export async function run(
       };
 
       try {
+        const hostedAgentToken = agent.auth
+          ? await resolveRemoteAgentToken(agent.auth, {
+              userEmail: callerEmail,
+              orgId,
+            })
+          : undefined;
         // Apply a polling cap ONLY for integration-platform callers on
         // serverless hosts. Normal chat, local Node, self-hosted Node, and
         // Docker can wait for slow-but-valid answers; integration processors
@@ -739,10 +815,17 @@ export async function run(
             ? NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS
             : undefined;
         responseText = await callAgent(agent.url, messageWithHint, {
-          apiKey,
-          userEmail: callerEmail,
-          orgDomain: callerOrgDomain,
-          orgSecret: callerOrgSecret,
+          apiKey: agent.auth ? hostedAgentToken : apiKey,
+          ...(agent.auth
+            ? {}
+            : {
+                userEmail: callerEmail,
+                orgDomain: callerOrgDomain,
+                orgSecret: callerOrgSecret,
+              }),
+          ...(hostedAgentCardUrl(agent)
+            ? { cardUrl: hostedAgentCardUrl(agent) }
+            : {}),
           approvedActions,
           ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
           contextId: context.threadId,
@@ -833,9 +916,15 @@ export async function run(
             (detail ? `: ${detail}` : "");
         } else {
           terminalStatus = "error";
-          invocationTerminalCode = "call_failed";
+          const authFailure = remoteAgentAuthFailure(
+            agent.name,
+            pollErr,
+            Boolean(agent.auth),
+          );
+          invocationTerminalCode = authFailure?.errorCode ?? "call_failed";
           const reason = pollErr?.message ?? "unknown error";
           responseText =
+            authFailure?.message ??
             formatDownstreamLlmCredentialFailure(agent.name, pollErr) ??
             `Error: The ${agent.name} agent call failed. (${reason})`;
         }
@@ -900,10 +989,18 @@ export async function run(
         orgSecret = (await getOrgA2ASecret(currentOrgId)) ?? undefined;
       } catch {}
     }
+    const hostedAgentToken = agent.auth
+      ? await resolveRemoteAgentToken(agent.auth, {
+          userEmail: email,
+          orgId: currentOrgId,
+        })
+      : undefined;
     const response = await callAgent(agent.url, messageWithHint, {
-      userEmail: email,
-      orgDomain: domain,
-      orgSecret,
+      apiKey: hostedAgentToken,
+      ...(agent.auth ? {} : { userEmail: email, orgDomain: domain, orgSecret }),
+      ...(hostedAgentCardUrl(agent)
+        ? { cardUrl: hostedAgentCardUrl(agent) }
+        : {}),
       approvedActions,
       ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
       contextId: context?.threadId,
@@ -932,6 +1029,18 @@ export async function run(
     return expanded;
   } catch (err: any) {
     if (err instanceof A2AInvocationError) throw err;
+    const authFailure = remoteAgentAuthFailure(
+      agent.name,
+      err,
+      Boolean(agent.auth),
+    );
+    if (authFailure) {
+      invocationStatus = "error";
+      invocationTerminalCode = authFailure.errorCode;
+      throw new A2AInvocationError(authFailure.message, {
+        errorCode: authFailure.errorCode,
+      });
+    }
     const msg = err?.message ?? String(err);
     const credentialMessage = formatDownstreamLlmCredentialFailure(
       agent.name,
@@ -1010,6 +1119,9 @@ async function invokeReadOnlyAppAction(
   action: string,
   input: Record<string, unknown>,
   correlation: A2ACorrelationMetadata,
+  hostedAgentToken?: string,
+  cardUrl?: string,
+  hostedAuthConfigured = false,
 ): Promise<string> {
   const callerEmail = getRequestUserEmail();
   if (!callerEmail) {
@@ -1028,7 +1140,7 @@ async function invokeReadOnlyAppAction(
     } catch {}
   }
 
-  if (!callerOrgSecret && !process.env.A2A_SECRET) {
+  if (!hostedAgentToken && !callerOrgSecret && !process.env.A2A_SECRET) {
     return `Error calling ${agent.name} action ${action}: direct cross-app reads require A2A identity verification`;
   }
 
@@ -1037,15 +1149,30 @@ async function invokeReadOnlyAppAction(
       target: agent.url,
       action,
       input,
-      userEmail: callerEmail,
-      orgDomain: callerOrgDomain,
-      orgSecret: callerOrgSecret,
+      ...(hostedAgentToken
+        ? { apiKey: hostedAgentToken }
+        : {
+            userEmail: callerEmail,
+            orgDomain: callerOrgDomain,
+            orgSecret: callerOrgSecret,
+          }),
       correlation,
+      ...(cardUrl ? { cardUrl } : {}),
     });
     return invocation.result.status === "completed"
       ? invocation.result.output
       : `Error calling ${agent.name} action ${action}: ${invocation.result.output}`;
   } catch (error) {
+    const authFailure = remoteAgentAuthFailure(
+      agent.name,
+      error,
+      hostedAuthConfigured,
+    );
+    if (authFailure) {
+      throw new A2AInvocationError(authFailure.message, {
+        errorCode: authFailure.errorCode,
+      });
+    }
     return `Error calling ${agent.name} action ${action}: ${
       error instanceof Error ? error.message : stringifyValue(error)
     }`;

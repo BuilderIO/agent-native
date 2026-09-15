@@ -813,6 +813,7 @@ export function RecipientInput({
           onChange={(e) => {
             setInputValue(e.target.value);
             setShowSuggestions(true);
+            setSelectedIndex(0);
           }}
           onFocus={() => {
             if (inputValue.trim()) setShowSuggestions(true);

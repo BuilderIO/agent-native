@@ -14,6 +14,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
 import type { UserProfile } from "../../user-profile/shared.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
@@ -247,6 +248,123 @@ function PasswordSettings() {
   );
 }
 
+function EmailSettings({ email }: { email: string }) {
+  const t = useT();
+  const [newEmail, setNewEmail] = useState(email);
+  const [pending, setPending] = useState(false);
+  const [status, setStatus] = useState<"idle" | "sent" | "error">("idle");
+
+  useEffect(() => {
+    setNewEmail(email);
+    setStatus("idle");
+  }, [email]);
+
+  const submit = async () => {
+    const nextEmail = newEmail.trim();
+    if (!nextEmail || nextEmail.toLowerCase() === email.toLowerCase()) return;
+    setPending(true);
+    setStatus("idle");
+    try {
+      const response = await fetch(
+        agentNativePath("/_agent-native/auth/ba/change-email"),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ newEmail: nextEmail }),
+        },
+      );
+      let data: { status?: unknown } | null = null;
+      try {
+        data = (await response.json()) as { status?: unknown };
+      } catch (error) {
+        console.warn("[settings] change-email response was not JSON", error);
+      }
+      if (!response.ok || data?.status !== true)
+        throw new Error("change-email failed");
+      setStatus("sent");
+    } catch {
+      setStatus("error");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <SettingsRow
+      id="email"
+      label={t("settings.emailTitle")}
+      description={
+        status === "sent" ? (
+          <span className="text-primary" role="status">
+            {t("settings.emailChangeSent")}
+          </span>
+        ) : status === "error" ? (
+          <span className="text-destructive" role="alert">
+            {t("settings.emailChangeError")}
+          </span>
+        ) : (
+          email
+        )
+      }
+      control={
+        <Popover>
+          <PopoverTrigger asChild>
+            <ActionButton
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              size="compact"
+            >
+              {t("settings.emailChange")}
+            </ActionButton>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={6}
+            className="w-[min(420px,calc(100vw-2rem))] p-4"
+          >
+            <div className="space-y-3">
+              <TextField
+                id="agent-native-new-email"
+                type="email"
+                label={t("settings.emailNewLabel")}
+                value={newEmail}
+                onChange={(value) => {
+                  setStatus("idle");
+                  setNewEmail(value);
+                }}
+                placeholder={t("settings.emailNewPlaceholder")}
+                autoComplete="email"
+                disabled={pending}
+              />
+              <div className="flex justify-end">
+                <ActionButton
+                  type="button"
+                  intent="primary"
+                  emphasis="solid"
+                  size="compact"
+                  pending={pending}
+                  disabled={
+                    pending ||
+                    !newEmail.trim() ||
+                    newEmail.trim().toLowerCase() === email.toLowerCase()
+                  }
+                  onPress={() => void submit()}
+                >
+                  {pending
+                    ? t("settings.emailChanging")
+                    : t("settings.emailChange")}
+                </ActionButton>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      }
+    />
+  );
+}
+
 export interface AccountSettingsFormProps {
   compact?: boolean;
 }
@@ -399,6 +517,7 @@ export function AccountSettingsForm({
           </div>
         }
       />
+      {email && <EmailSettings email={email} />}
       <SettingsRow
         id="profile-name"
         label={t("settings.profileNameLabel")}
