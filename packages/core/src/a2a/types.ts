@@ -1,4 +1,4 @@
-// A2A Protocol types (spec v0.3) + framework config types
+// A2A Protocol types (spec v0.3/v1.0) + framework config types
 import type { PublicAgentActionConfig } from "../action.js";
 
 export type {
@@ -106,6 +106,7 @@ export interface AgentCapabilities {
   streaming?: boolean;
   pushNotifications?: boolean;
   stateTransitionHistory?: boolean;
+  extendedAgentCard?: boolean;
 }
 
 export interface AgentSecurityScheme {
@@ -116,12 +117,40 @@ export interface AgentSecurityScheme {
   name?: string;
 }
 
+/** Protocol version advertised by an A2A agent card. */
+export type A2AProtocolVersion = "0.3" | "1.0" | (string & {});
+
+/** A JSON-RPC interface advertised by an A2A v1.0 agent card. */
+export interface AgentInterface {
+  url: string;
+  protocolBinding: string;
+  protocolVersion: A2AProtocolVersion;
+  tenant?: string;
+}
+
+/** A v0.3 additional interface, retained for card compatibility. */
+export interface AgentAdditionalInterface {
+  url: string;
+  transport?: string;
+  protocolBinding?: string;
+  protocolVersion?: A2AProtocolVersion;
+  tenant?: string;
+}
+
 export interface AgentCard {
   name: string;
   description: string;
-  url: string;
+  /** v0.3 primary endpoint. v1.0 cards use supportedInterfaces instead. */
+  url?: string;
   version: string;
-  protocolVersion: "0.3";
+  /** v0.3 protocol selector. */
+  protocolVersion?: A2AProtocolVersion;
+  /** v0.3 primary transport selector. */
+  preferredTransport?: string;
+  /** v0.3 transport alternatives. */
+  additionalInterfaces?: AgentAdditionalInterface[];
+  /** v1.0 protocol/transport alternatives; the first JSON-RPC entry wins. */
+  supportedInterfaces?: AgentInterface[];
   capabilities: AgentCapabilities;
   skills: AgentSkill[];
   securitySchemes?: Record<string, AgentSecurityScheme>;

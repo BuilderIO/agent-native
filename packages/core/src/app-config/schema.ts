@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { a2aConfig } from "./a2a.js";
+import { accessConfig } from "./access.js";
 import { agentConfig } from "./agent.js";
 import { analyticsConfig } from "./analytics.js";
 import { appConfig } from "./app.js";
@@ -31,6 +32,7 @@ import { workspaceConfig } from "./workspace.js";
 // the domain schema over the empty object, so a declared default is there.
 export const appConfigSchema = z.object({
   a2a: a2aConfig.prefault({}),
+  access: accessConfig.prefault({}),
   agent: agentConfig.prefault({}),
   analytics: analyticsConfig.prefault({}),
   app: appConfig.prefault({}),

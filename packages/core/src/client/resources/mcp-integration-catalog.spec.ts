@@ -266,11 +266,17 @@ describe("MCP integration catalog", () => {
         integration.verification,
       );
     }
+    // GitHub's authorization server publishes no registration_endpoint, so an
+    // OAuth entry here would render a Connect button that can only ever fail.
     expect(
       DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "github"),
     ).toMatchObject({
-      availability: "provider-setup",
-      verification: "restricted",
+      url: "https://api.githubcopilot.com/mcp/",
+      authMode: "headers",
+      connectionMode: "headers",
+      availability: "ready",
+      verification: "preflight-only",
+      headerPlaceholder: "Authorization: Bearer <github-token>",
     });
     expect(
       DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "hubspot"),

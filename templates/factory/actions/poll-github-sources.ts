@@ -24,11 +24,19 @@ import {
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import {
+  closedPullRequestKind,
+  closedPullRequestTerminalMetadataPatch,
+  pullRequestReopenedFromTerminal,
+  reopenedFromTerminalBabysitMetadataPatch,
+  terminalItemStatusForClosedPullRequest,
+} from "../server/triage/babysit-pr-terminal.js";
+import {
   createGitHubClient,
   GitHubRequestError,
   type GitHubIssue,
   type GitHubOpenItemPage,
   type GitHubPullRequest,
+  type GitHubPullRequestSummary,
 } from "../server/triage/github-client.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import {
@@ -48,7 +56,9 @@ import {
   countHumanReviewComments,
   detectBotErrorAfterPing,
   hasHumanChangesRequested,
+  hasNewBotReviewWork,
   hasNewDefiniteMergeConflict,
+  hasNewHumanReviewWork,
   resolveStickyMergeability,
   shouldReopenParkedBabysit,
   type StoredMergeability,
@@ -69,6 +79,7 @@ type NewlyObservedSource = {
 };
 
 export const PARKED_PR_RECHECK_EXTRA_LIMIT = 20;
+export const OPEN_PR_RECHECK_EXTRA_LIMIT = 20;
 export const PARKED_PR_RECHECK_CONCURRENCY = 4;
 export const OPEN_ITEM_PAGE_SIZE = 50;
 export const MAX_OPEN_ITEM_PAGES = 5;
@@ -216,6 +227,68 @@ function parkedRecheckPollMetadataPatch(
   };
 }
 
+function openRecheckPollMetadataPatch(
+  existingMetadata: TriageMetadata,
+  recheck: ParkedRecheck,
+  requeueOpen: boolean,
+  checkedAt: string,
+): TriageMetadata {
+  return {
+    ...parkedRecheckEvidencePatch(existingMetadata, recheck, { checkedAt }),
+    ...(requeueOpen
+      ? {
+          prBabysitState: "queued",
+          prBabysitPendingReopen: true,
+          prBabysitBuilderActiveUntil: null,
+        }
+      : {}),
+  };
+}
+
+export function shouldRequeueOpenFromRecheck(
+  existingMetadata: TriageMetadata,
+  recheck: ParkedRecheck | undefined,
+): boolean {
+  if (!recheck) return false;
+  if (
+    babysitLeavesReviewWindow(
+      metadataString(existingMetadata, "prBabysitState"),
+    )
+  ) {
+    return false;
+  }
+  return (
+    hasNewBotReviewWork({
+      storedBotReviewBodyKeys: readStoredStringArray(
+        existingMetadata,
+        "prBabysitBotReviewBodyKeys",
+      ),
+      nextBotReviewBodyKeys: recheck.botReviewBodyKeys,
+    }) ||
+    hasNewHumanReviewWork({
+      storedChangesRequested:
+        metadataBoolean(existingMetadata, "prBabysitChangesRequested") === true,
+      nextChangesRequested: recheck.changesRequested,
+      storedCommentsTruncated:
+        metadataBoolean(existingMetadata, "prBabysitCommentsTruncated") ===
+        true,
+      storedHumanReviewCommentCount: metadataNumber(
+        existingMetadata,
+        "prBabysitHumanReviewCommentCount",
+      ),
+      nextHumanReviewCommentCount: recheck.humanReviewCommentCount,
+      storedHumanReviewBodyCount: metadataNumber(
+        existingMetadata,
+        "prBabysitHumanReviewBodyCount",
+      ),
+      nextHumanReviewBodyCount: recheck.humanReviewBodyCount,
+      storedReviewsTruncated:
+        metadataBoolean(existingMetadata, "prBabysitReviewsTruncated") === true,
+      nextReviewsTruncated: recheck.reviewsTruncated,
+    })
+  );
+}
+
 export function buildPullRequestPollMetadataJson(
   currentMetadataJson: string,
   pullRequest: GitHubPullRequest,
@@ -246,6 +319,18 @@ export function buildPullRequestPollMetadataJson(
   }
   if (reopenParked) {
     return mergeTriageMetadata(metadata, { prBabysitState: "queued" });
+  }
+  if (
+    pullRequestReopenedFromTerminal({
+      existingBabysitState: metadataString(currentMetadata, "prBabysitState"),
+      nextState: pullRequest.state,
+      nextDraft: pullRequest.draft,
+    })
+  ) {
+    return mergeTriageMetadata(
+      metadata,
+      reopenedFromTerminalBabysitMetadataPatch(),
+    );
   }
   return metadata;
 }
@@ -344,6 +429,47 @@ export function selectParkedRowsForRecheck<
     }
   }
   // Oldest recheck first so every parked row is eventually covered by the cap.
+  extras.sort((left, right) =>
+    parkedRecheckSortKey(left.metadataJson).localeCompare(
+      parkedRecheckSortKey(right.metadataJson),
+    ),
+  );
+  return [...inOpenPage, ...extras.slice(0, extraLimit)];
+}
+
+export function selectOpenPrRowsForRecheck<
+  T extends {
+    pullRequestNumber: number | null;
+    repository: string | null;
+    metadataJson?: string | null;
+  },
+>(
+  rows: readonly T[],
+  input: {
+    configuredRepository: string;
+    listedOpenPrNumbers: ReadonlySet<number>;
+    extraLimit?: number;
+  },
+): T[] {
+  const extraLimit = input.extraLimit ?? OPEN_PR_RECHECK_EXTRA_LIMIT;
+  const inOpenPage: T[] = [];
+  const extras: T[] = [];
+  for (const row of rows) {
+    if (typeof row.pullRequestNumber !== "number") continue;
+    if (!gitHubRepositoriesEqual(row.repository, input.configuredRepository)) {
+      continue;
+    }
+    const babysitState = metadataString(
+      parseTriageMetadata(row.metadataJson ?? "{}"),
+      "prBabysitState",
+    );
+    if (babysitLeavesReviewWindow(babysitState)) continue;
+    if (input.listedOpenPrNumbers.has(row.pullRequestNumber)) {
+      inOpenPage.push(row);
+    } else {
+      extras.push(row);
+    }
+  }
   extras.sort((left, right) =>
     parkedRecheckSortKey(left.metadataJson).localeCompare(
       parkedRecheckSortKey(right.metadataJson),
@@ -536,6 +662,13 @@ export default defineAction({
     const providerHasMore =
       issueCollection.hasMore || pullRequestCollection.hasMore;
     const parkedRechecks = new Map<number, ParkedRecheck>();
+    const closedRecheckUpdates = new Map<
+      number,
+      {
+        row: (typeof existingPrs)[number];
+        summary: GitHubPullRequestSummary;
+      }
+    >();
     const listedOpenPrNumbers = new Set(
       pullRequests.map((pullRequest) => pullRequest.number),
     );
@@ -559,23 +692,44 @@ export default defineAction({
             ),
           )
       : [];
-    const parkedRows = existingPrs.filter(
+    const authorScopedPrs = existingPrs.filter(
       (row) =>
         typeof row.pullRequestNumber === "number" &&
-        acceptsAuthor(triageItemAuthorId(row.metadataJson)) &&
-        babysitLeavesReviewWindow(
+        acceptsAuthor(triageItemAuthorId(row.metadataJson)),
+    );
+    const parkedRows = authorScopedPrs.filter((row) =>
+      babysitLeavesReviewWindow(
+        metadataString(parseTriageMetadata(row.metadataJson), "prBabysitState"),
+      ),
+    );
+    const openPrRows = authorScopedPrs.filter(
+      (row) =>
+        !babysitLeavesReviewWindow(
           metadataString(
             parseTriageMetadata(row.metadataJson),
             "prBabysitState",
           ),
         ),
     );
-    const parkedRecheckRows = selectParkedRowsForRecheck(parkedRows, {
-      configuredRepository: repositoryName,
-      listedOpenPrNumbers,
-    });
+    const recheckByNumber = new Map<number, (typeof existingPrs)[number]>();
+    for (const row of [
+      ...selectParkedRowsForRecheck(parkedRows, {
+        configuredRepository: repositoryName,
+        listedOpenPrNumbers,
+      }),
+      ...selectOpenPrRowsForRecheck(openPrRows, {
+        configuredRepository: repositoryName,
+        listedOpenPrNumbers,
+      }),
+    ]) {
+      const number = row.pullRequestNumber;
+      if (typeof number === "number" && !recheckByNumber.has(number)) {
+        recheckByNumber.set(number, row);
+      }
+    }
+    const recheckRows = [...recheckByNumber.values()];
     await mapWithConcurrency(
-      parkedRecheckRows,
+      recheckRows,
       PARKED_PR_RECHECK_CONCURRENCY,
       async (row) => {
         const number = row.pullRequestNumber;
@@ -585,7 +739,11 @@ export default defineAction({
             repository,
             number,
           );
-          if (summary.state !== "open") return;
+          const terminalKind = closedPullRequestKind(summary);
+          if (terminalKind) {
+            closedRecheckUpdates.set(number, { row, summary });
+            return;
+          }
           const headSha = summary.headSha || row.headSha;
           if (!headSha) return;
           const [evidence, issueComments] = await Promise.all([
@@ -764,15 +922,21 @@ export default defineAction({
           nextAuthor: pullRequest.userLogin,
           existingBabysitState,
           babysitReopened: reopenParked,
+          nextState: pullRequest.state,
           nextDraft: pullRequest.draft,
           sourceChanged,
         });
         const lastSeenAt = pullRequest.updatedAt;
         if (!existing) added += 1;
         else updated += 1;
+        const requeueOpenInitial =
+          existing &&
+          !reopenParked &&
+          shouldRequeueOpenFromRecheck(existingMetadata, parkedRecheck);
         if (
           !existing ||
           reopenParked ||
+          requeueOpenInitial ||
           (sourceChanged && status === "pr_observed")
         ) {
           newlyObserved.push({
@@ -804,19 +968,39 @@ export default defineAction({
             babysitLeavesReviewWindow(freshBabysitState),
             freshBabysitState,
           );
-          const metadataWithBabysit = buildPullRequestPollMetadataJson(
-            fresh.metadataJson,
-            pullRequest,
-            parkedRecheck,
-            reopenParkedFresh,
-            now,
-          );
+          const requeueOpenFresh =
+            !reopenParkedFresh &&
+            shouldRequeueOpenFromRecheck(freshMetadata, parkedRecheck);
+          const metadataWithBabysit = requeueOpenFresh
+            ? mergeTriageMetadata(
+                buildPullRequestPollMetadataJson(
+                  fresh.metadataJson,
+                  pullRequest,
+                  parkedRecheck,
+                  false,
+                  now,
+                ),
+                openRecheckPollMetadataPatch(
+                  freshMetadata,
+                  parkedRecheck as ParkedRecheck,
+                  true,
+                  now,
+                ),
+              )
+            : buildPullRequestPollMetadataJson(
+                fresh.metadataJson,
+                pullRequest,
+                parkedRecheck,
+                reopenParkedFresh,
+                now,
+              );
           const statusFresh = statusAfterPullRequestPoll({
             existingStatus: fresh.status,
             existingAuthor: metadataString(freshMetadata, "author"),
             nextAuthor: pullRequest.userLogin,
             existingBabysitState: freshBabysitState,
             babysitReopened: reopenParkedFresh,
+            nextState: pullRequest.state,
             nextDraft: pullRequest.draft,
             sourceChanged,
           });
@@ -833,7 +1017,9 @@ export default defineAction({
               metadataJson: metadataWithBabysit,
               lastSeenAt,
               updatedAt:
-                sourceChanged || reopenParkedFresh ? now : fresh.updatedAt,
+                sourceChanged || reopenParkedFresh || requeueOpenFresh
+                  ? now
+                  : fresh.updatedAt,
               factoryId,
             })
             .where(
@@ -894,10 +1080,49 @@ export default defineAction({
         }
         pullRequestCount += 1;
       }
-      for (const row of parkedRows) {
+      for (const { row, summary } of closedRecheckUpdates.values()) {
+        const kind = closedPullRequestKind(summary);
+        if (!kind) continue;
+        const current = (
+          await tx
+            .select({
+              metadataJson: triageItems.metadataJson,
+              updatedAt: triageItems.updatedAt,
+            })
+            .from(triageItems)
+            .where(
+              and(eq(triageItems.id, row.id), eq(triageItems.orgId, orgId)),
+            )
+            .limit(1)
+        )[0];
+        if (!current) continue;
+        await tx
+          .update(triageItems)
+          .set({
+            metadataJson: mergeTriageMetadata(
+              current.metadataJson,
+              closedPullRequestTerminalMetadataPatch(kind, now, summary),
+            ),
+            status: terminalItemStatusForClosedPullRequest(kind),
+            updatedAt: now,
+            lastSeenAt: summary.updatedAt,
+            factoryId,
+          })
+          .where(
+            and(
+              eq(triageItems.id, row.id),
+              eq(triageItems.orgId, orgId),
+              eq(triageItems.updatedAt, current.updatedAt),
+            ),
+          );
+        updated += 1;
+      }
+
+      for (const row of recheckRows) {
         const number = row.pullRequestNumber;
         if (typeof number !== "number" || listedOpenPrNumbers.has(number))
           continue;
+        if (closedRecheckUpdates.has(number)) continue;
         const parkedRecheck = parkedRechecks.get(number);
         if (!parkedRecheck) continue;
         const current = (
@@ -920,29 +1145,61 @@ export default defineAction({
           currentMetadata,
           "prBabysitState",
         );
-        if (!babysitLeavesReviewWindow(currentBabysitState)) continue;
-        const reopenParked = shouldReopenFromRecheck(
-          currentMetadata,
-          parkedRecheck,
-          true,
-          currentBabysitState,
-        );
+        const parked = babysitLeavesReviewWindow(currentBabysitState);
+        const reopenParked = parked
+          ? shouldReopenFromRecheck(
+              currentMetadata,
+              parkedRecheck,
+              true,
+              currentBabysitState,
+            )
+          : false;
+        const requeueOpen =
+          !parked &&
+          shouldRequeueOpenFromRecheck(currentMetadata, parkedRecheck);
+        const shouldBump = reopenParked || requeueOpen;
+        if (!shouldBump) {
+          await tx
+            .update(triageItems)
+            .set({
+              metadataJson: mergeTriageMetadata(
+                current.metadataJson,
+                parkedRecheckEvidencePatch(currentMetadata, parkedRecheck, {
+                  checkedAt: now,
+                }),
+              ),
+            })
+            .where(
+              and(
+                eq(triageItems.id, row.id),
+                eq(triageItems.orgId, orgId),
+                eq(triageItems.updatedAt, current.updatedAt),
+              ),
+            );
+          continue;
+        }
         const metadataWithBabysit = mergeTriageMetadata(
           current.metadataJson,
-          parkedRecheckPollMetadataPatch(
-            currentMetadata,
-            parkedRecheck,
-            reopenParked,
-            now,
-          ),
+          parked
+            ? parkedRecheckPollMetadataPatch(
+                currentMetadata,
+                parkedRecheck,
+                reopenParked,
+                now,
+              )
+            : openRecheckPollMetadataPatch(
+                currentMetadata,
+                parkedRecheck,
+                true,
+                now,
+              ),
         );
         await tx
           .update(triageItems)
           .set({
             metadataJson: metadataWithBabysit,
-            ...(reopenParked
-              ? { updatedAt: now, status: "pr_observed" as const }
-              : {}),
+            updatedAt: now,
+            status: "pr_observed" as const,
           })
           .where(
             and(
@@ -951,7 +1208,6 @@ export default defineAction({
               eq(triageItems.updatedAt, current.updatedAt),
             ),
           );
-        if (!reopenParked) continue;
         updated += 1;
         newlyObserved.push({
           itemId: row.id,

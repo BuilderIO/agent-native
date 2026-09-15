@@ -102,6 +102,15 @@ describe("deriveInboxPresentation automation display", () => {
     ).toBe("triage.inboxPhase.babysit.reopened");
   });
 
+  it("adds mergeable hint when babysit parked clean with timestamp", () => {
+    expect(
+      presentation("github", "pr_observed", {
+        prBabysitState: "clean",
+        prBabysitMergeableAt: "2026-09-14T18:00:00.000Z",
+      }).automation?.hintKey,
+    ).toBe("triage.inboxPhase.babysit.mergeable_as_of");
+  });
+
   it("maps eyes reaction to claimed and parks Slack items", () => {
     const result = presentation("slack", "received", {
       slackReactionName: "eyes",

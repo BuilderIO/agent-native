@@ -74,6 +74,7 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
           updated_at TIMESTAMPTZ NOT NULL,
           ip_address TEXT,
           user_agent TEXT,
+          -- guard:allow-identity-column — Better Auth user primary key, not an email identity.
           user_id TEXT NOT NULL,
           active_organization_id TEXT
         );
@@ -81,6 +82,7 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
           id TEXT PRIMARY KEY,
           account_id TEXT NOT NULL,
           provider_id TEXT NOT NULL,
+          -- guard:allow-identity-column — Better Auth user primary key, not an email identity.
           user_id TEXT NOT NULL,
           access_token TEXT,
           refresh_token TEXT,
@@ -112,6 +114,7 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
         CREATE TABLE IF NOT EXISTS "member" (
           id TEXT PRIMARY KEY,
           organization_id TEXT NOT NULL,
+          -- guard:allow-identity-column — Better Auth user primary key, not an email identity.
           user_id TEXT NOT NULL,
           role TEXT NOT NULL DEFAULT 'member',
           created_at TIMESTAMPTZ NOT NULL,
@@ -193,6 +196,230 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     sql: {
       postgres:
         'CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON "user" (LOWER(email))',
+    },
+  },
+  {
+    version: 6,
+    name: "better-auth-enterprise-sso-scim-tables",
+    // These tables are provisioned even when the opt-in plugins are disabled.
+    // Plugin flags can be enabled after a deployment without requiring a
+    // second migration run, and CREATE IF NOT EXISTS is additive for existing
+    // installs.
+    sql: {
+      postgres: `
+        CREATE TABLE IF NOT EXISTS sso_provider (
+          id TEXT PRIMARY KEY,
+          issuer TEXT NOT NULL,
+          oidc_config TEXT,
+          saml_config TEXT,
+          -- guard:allow-identity-column - immutable Better Auth provider user id
+          user_id TEXT,
+          provider_id TEXT NOT NULL UNIQUE,
+          organization_id TEXT,
+          domain TEXT NOT NULL,
+          domain_verified BOOLEAN
+        );
+        CREATE TABLE IF NOT EXISTS scim_managed_connection (
+          id TEXT PRIMARY KEY,
+          creation_request_id TEXT NOT NULL UNIQUE,
+          connection_id TEXT NOT NULL UNIQUE,
+          provisioning_domain_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          revision BIGINT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          -- guard:allow-identity-column - immutable Better Auth actor id
+          created_by TEXT NOT NULL,
+          decommission_started_at TIMESTAMPTZ,
+          decommission_started_by TEXT,
+          decommissioned_at TIMESTAMPTZ,
+          decommissioned_by TEXT
+        );
+        CREATE INDEX IF NOT EXISTS scim_managed_connection_domain_idx
+          ON scim_managed_connection (provisioning_domain_id);
+        CREATE TABLE IF NOT EXISTS scim_managed_credential (
+          id TEXT PRIMARY KEY,
+          connection_record_id TEXT NOT NULL,
+          credential_id TEXT NOT NULL UNIQUE,
+          token_digest TEXT NOT NULL,
+          hash_version TEXT NOT NULL,
+          active_slot_key TEXT NOT NULL UNIQUE,
+          status TEXT NOT NULL,
+          serialized_scopes TEXT NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          -- guard:allow-identity-column - immutable Better Auth actor id
+          created_by TEXT NOT NULL,
+          last_used_at TIMESTAMPTZ,
+          revoked_at TIMESTAMPTZ,
+          revoked_by TEXT,
+          decommissioned_at TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS scim_managed_credential_connection_idx
+          ON scim_managed_credential (connection_record_id);
+        CREATE TABLE IF NOT EXISTS scim_managed_connection_event (
+          id TEXT PRIMARY KEY,
+          connection_record_id TEXT NOT NULL,
+          event_key TEXT NOT NULL UNIQUE,
+          sequence BIGINT NOT NULL,
+          type TEXT NOT NULL,
+          actor_id TEXT NOT NULL,
+          credential_id TEXT,
+          created_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS scim_managed_connection_event_connection_idx
+          ON scim_managed_connection_event (connection_record_id);
+        CREATE TABLE IF NOT EXISTS scim_connection_binding (
+          id TEXT PRIMARY KEY,
+          connection_id TEXT NOT NULL,
+          connection_key TEXT NOT NULL UNIQUE,
+          provisioning_domain_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          decommissioned_at TIMESTAMPTZ,
+          decommission_status TEXT NOT NULL DEFAULT 'active',
+          decommission_cursor_user_id TEXT,
+          decommission_reconciled_user_count BIGINT NOT NULL DEFAULT 0,
+          decommission_batch_count BIGINT NOT NULL DEFAULT 0,
+          decommission_revision BIGINT NOT NULL DEFAULT 0,
+          decommission_completed_at TIMESTAMPTZ,
+          decommission_lease_id TEXT,
+          decommission_lease_expires_at TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS scim_connection_binding_connection_idx
+          ON scim_connection_binding (connection_id);
+        CREATE TABLE IF NOT EXISTS scim_identity_tombstone (
+          id TEXT PRIMARY KEY,
+          connection_id TEXT NOT NULL,
+          provisioning_domain_id TEXT NOT NULL,
+          external_id TEXT NOT NULL,
+          external_id_key TEXT NOT NULL UNIQUE,
+          -- guard:allow-identity-column - immutable Better Auth user id
+          user_id TEXT NOT NULL,
+          profile TEXT NOT NULL,
+          deleted_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS scim_identity_tombstone_connection_idx
+          ON scim_identity_tombstone (connection_id);
+        CREATE INDEX IF NOT EXISTS scim_identity_tombstone_domain_idx
+          ON scim_identity_tombstone (provisioning_domain_id);
+        CREATE INDEX IF NOT EXISTS scim_identity_tombstone_user_idx
+          ON scim_identity_tombstone (user_id);
+        CREATE TABLE IF NOT EXISTS scim_subject (
+          id TEXT PRIMARY KEY,
+          -- guard:allow-identity-column - immutable Better Auth user id
+          user_id TEXT NOT NULL UNIQUE,
+          profile_source_id TEXT,
+          revision BIGINT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS scim_subject_profile_source_idx
+          ON scim_subject (profile_source_id);
+        CREATE TABLE IF NOT EXISTS scim_user (
+          id TEXT PRIMARY KEY,
+          connection_id TEXT NOT NULL,
+          provisioning_domain_id TEXT NOT NULL,
+          -- guard:allow-identity-column - immutable Better Auth user id
+          user_id TEXT NOT NULL,
+          connection_user_key TEXT NOT NULL UNIQUE,
+          user_name TEXT NOT NULL,
+          user_name_key TEXT NOT NULL UNIQUE,
+          primary_email TEXT NOT NULL,
+          work_email_value_index TEXT NOT NULL,
+          email_value_index TEXT NOT NULL,
+          display_name TEXT NOT NULL,
+          formatted_name TEXT NOT NULL,
+          given_name TEXT,
+          family_name TEXT,
+          serialized_emails TEXT NOT NULL,
+          serialized_attributes TEXT,
+          external_id TEXT,
+          external_id_key TEXT UNIQUE,
+          active BOOLEAN NOT NULL,
+          order_key TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS scim_user_connection_idx ON scim_user (connection_id);
+        CREATE INDEX IF NOT EXISTS scim_user_domain_idx ON scim_user (provisioning_domain_id);
+        CREATE INDEX IF NOT EXISTS scim_user_better_auth_user_idx ON scim_user (user_id);
+        CREATE TABLE IF NOT EXISTS scim_projection_grant (
+          id TEXT PRIMARY KEY,
+          connection_id TEXT NOT NULL,
+          provisioning_domain_id TEXT NOT NULL,
+          scim_user_id TEXT NOT NULL,
+          -- guard:allow-identity-column - immutable Better Auth user id
+          user_id TEXT NOT NULL,
+          source_kind TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          source_value TEXT,
+          role TEXT NOT NULL,
+          grant_key TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS scim_projection_grant_connection_idx
+          ON scim_projection_grant (connection_id);
+        CREATE INDEX IF NOT EXISTS scim_projection_grant_domain_idx
+          ON scim_projection_grant (provisioning_domain_id);
+        CREATE INDEX IF NOT EXISTS scim_projection_grant_scim_user_idx
+          ON scim_projection_grant (scim_user_id);
+        CREATE INDEX IF NOT EXISTS scim_projection_grant_user_idx
+          ON scim_projection_grant (user_id);
+        CREATE TABLE IF NOT EXISTS scim_group (
+          id TEXT PRIMARY KEY,
+          connection_id TEXT NOT NULL,
+          provisioning_domain_id TEXT NOT NULL,
+          revision BIGINT NOT NULL DEFAULT 0,
+          display_name TEXT NOT NULL,
+          display_name_key TEXT NOT NULL UNIQUE,
+          external_id TEXT,
+          external_id_key TEXT UNIQUE,
+          order_key TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS scim_group_connection_idx ON scim_group (connection_id);
+        CREATE INDEX IF NOT EXISTS scim_group_domain_idx ON scim_group (provisioning_domain_id);
+        CREATE TABLE IF NOT EXISTS scim_group_member (
+          id TEXT PRIMARY KEY,
+          connection_id TEXT NOT NULL,
+          group_id TEXT NOT NULL,
+          scim_user_id TEXT NOT NULL,
+          membership_key TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS scim_group_member_connection_idx
+          ON scim_group_member (connection_id);
+        CREATE INDEX IF NOT EXISTS scim_group_member_group_idx
+          ON scim_group_member (group_id);
+        CREATE INDEX IF NOT EXISTS scim_group_member_user_idx
+          ON scim_group_member (scim_user_id)
+      `,
+    },
+  },
+  {
+    version: 7,
+    name: "better-auth-identity-rekey-ledger",
+    sql: {
+      postgres: `
+        CREATE TABLE IF NOT EXISTS identity_rekeys (
+          id TEXT PRIMARY KEY,
+          -- guard:allow-identity-column — immutable rekey source recorded for recovery
+          old_email TEXT NOT NULL,
+          -- guard:allow-identity-column — immutable rekey destination recorded for recovery
+          new_email TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error TEXT,
+          -- guard:allow-identity-column — operator attribution, never used for access
+          actor_email TEXT,
+          counts_json TEXT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          completed_at BIGINT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS identity_rekeys_old_new_idx
+          ON identity_rekeys (LOWER(old_email), LOWER(new_email))
+      `,
     },
   },
 ];

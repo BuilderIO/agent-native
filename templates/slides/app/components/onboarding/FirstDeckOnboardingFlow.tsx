@@ -6,10 +6,13 @@ import {
 } from "@agent-native/core/client/composer";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import type { FirstRunOnboardingExtensionProps } from "@agent-native/core/client/onboarding";
+import {
+  isOnboardingPreviewQuery,
+  type FirstRunOnboardingExtensionProps,
+} from "@agent-native/core/client/onboarding";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -32,6 +35,7 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { startDeckGeneration } from "@/lib/create-deck-generation";
+import { isDesignSystemSelectable } from "@/lib/design-system-selection";
 import { IMPORT_ACTION_TIMEOUT_MS } from "@/lib/import-uploaded-deck";
 import {
   forgetRecentReference,
@@ -54,6 +58,7 @@ export function FirstDeckOnboardingFlow({
   onSkip,
 }: FirstRunOnboardingExtensionProps) {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useSession();
@@ -62,7 +67,20 @@ export function FirstDeckOnboardingFlow({
   const { designSystems, refetch: refetchDesignSystems } = useDesignSystems();
   const { designSystem: workspaceDesignSystem } = useWorkspaceDefaults();
   const { submit: agentSubmit } = useAgentGenerating();
-  const [step, setStep] = useState<FirstDeckStep>("prompt");
+  const [step, setStep] = useState<FirstDeckStep>(() =>
+    isOnboardingPreviewQuery(location.search) &&
+    searchParams.get("step") === "references"
+      ? "references"
+      : "prompt",
+  );
+  useEffect(() => {
+    if (!isOnboardingPreviewQuery(location.search)) return;
+    setStep(
+      new URLSearchParams(location.search).get("step") === "references"
+        ? "references"
+        : "prompt",
+    );
+  }, [location.search]);
   const [prompt, setPrompt] = useState("");
   const [promptFiles, setPromptFiles] = useState<UploadedFile[]>([]);
   const [referenceFilePaths, setReferenceFilePaths] = useState<string[]>([]);
@@ -84,14 +102,24 @@ export function FirstDeckOnboardingFlow({
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
   const workspaceDesignSystemId =
-    workspaceDesignSystem && workspaceDesignSystem.status === "available"
+    workspaceDesignSystem &&
+    workspaceDesignSystem.status === "available" &&
+    designSystems.some(
+      (designSystem) =>
+        designSystem.id === workspaceDesignSystem.id &&
+        isDesignSystemSelectable(designSystem),
+    )
       ? workspaceDesignSystem.id
       : null;
   const lastUsedDesignSystemId =
     recentReferences.find(
       (reference) =>
         reference.kind === "design-system" &&
-        designSystems.some((designSystem) => designSystem.id === reference.id),
+        designSystems.some(
+          (designSystem) =>
+            designSystem.id === reference.id &&
+            isDesignSystemSelectable(designSystem),
+        ),
     )?.id ?? null;
   const lastUsedReferenceDeckId =
     recentReferences.find(
@@ -423,6 +451,7 @@ export function FirstDeckOnboardingFlow({
                 : t("home.importedReferenceDeck"),
             source: "pptx",
             referenceFilePaths,
+            importedFilePath: pptxReference.path,
           };
         } else if (pdfReference || docxReference) {
           const documentReference = pdfReference ?? docxReference;
@@ -481,6 +510,7 @@ export function FirstDeckOnboardingFlow({
                   : t("home.importedReferenceDeck"),
               source: documentFormat,
               referenceFilePaths,
+              importedFilePath: documentReference.path,
             };
           } catch (error) {
             deleteDeck(referenceDeck.id);

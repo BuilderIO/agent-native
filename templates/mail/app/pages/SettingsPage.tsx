@@ -1245,11 +1245,62 @@ function DraftingSection() {
       <div className="max-w-2xl space-y-4">
         {isLoading ? (
           <>
+            <Skeleton className="h-12 w-full" />
             <Skeleton className="h-36 w-full" />
             <Skeleton className="h-32 w-full" />
           </>
         ) : (
           <>
+            <div className="flex items-center justify-between rounded-lg border border-border/20 bg-card/50 px-4 py-3">
+              <label
+                htmlFor="mail-autocomplete-setting"
+                className="text-[13px] font-medium text-foreground"
+              >
+                {t("settings.autocomplete")}
+              </label>
+              <Switch
+                id="mail-autocomplete-setting"
+                checked={settings?.autocompleteEnabled ?? false}
+                onCheckedChange={(checked) =>
+                  updateSettings.mutate(
+                    { autocompleteEnabled: checked },
+                    {
+                      onError: (error) =>
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : t("settings.autocompleteSaveFailed"),
+                        ),
+                    },
+                  )
+                }
+                disabled={updateSettings.isPending}
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border border-border/20 bg-card/50 px-4 py-3">
+              <label
+                htmlFor="mail-send-and-mark-done-setting"
+                className="text-[13px] font-medium text-foreground"
+              >
+                {t("settings.sendAndMarkDone")}
+              </label>
+              <Switch
+                id="mail-send-and-mark-done-setting"
+                checked={settings?.sendAndArchive ?? false}
+                onCheckedChange={(checked) =>
+                  updateSettings.mutate(
+                    { sendAndArchive: checked },
+                    {
+                      onError: () =>
+                        toast.error(t("settings.draftingSettingsSaveFailed")),
+                    },
+                  )
+                }
+                disabled={updateSettings.isPending}
+              />
+            </div>
+
             <div className="rounded-lg border border-border/20 bg-card/50 p-4">
               <div className="mb-1.5 flex items-center justify-between gap-3">
                 <label className="block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">

@@ -50,6 +50,7 @@ export interface PendingStructureVerificationSource {
 export interface PendingStructureVerificationSession {
   requestId: number;
   cancelled: boolean;
+  abortController: AbortController;
   edits: PendingLiveStructureEdit[];
   sources: PendingStructureVerificationSource[];
 }
@@ -72,6 +73,7 @@ export interface CanvasLayerClipboardEntry {
   sourceParentNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 

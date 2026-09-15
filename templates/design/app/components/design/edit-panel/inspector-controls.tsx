@@ -76,11 +76,13 @@ export function SectionIconButton({
 export function SectionIconToggle({
   label,
   active = false,
+  disabled = false,
   onClick,
   children,
 }: {
   label: string;
   active?: boolean;
+  disabled?: boolean;
   onClick?: () => void;
   children: ReactNode;
 }) {
@@ -93,6 +95,7 @@ export function SectionIconToggle({
           size="icon"
           aria-label={label}
           aria-pressed={active}
+          disabled={disabled}
           onClick={onClick}
           className={cn(
             "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",

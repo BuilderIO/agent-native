@@ -632,6 +632,22 @@ export async function mergeCoreSharingActions(
       "create-agent-resource-link",
       () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
+    [
+      "list-app-member-roles",
+      () => import("../org/actions/list-app-member-roles.js"),
+    ],
+    [
+      "set-app-member-roles",
+      () => import("../org/actions/set-app-member-roles.js"),
+    ],
+    [
+      "list-app-permissions",
+      () => import("../org/actions/list-app-permissions.js"),
+    ],
+    [
+      "set-app-permission-roles",
+      () => import("../org/actions/set-app-permission-roles.js"),
+    ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "list-workspace-user-groups",

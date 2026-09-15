@@ -39,4 +39,25 @@ describe("desktop navigation shortcut forwarding", () => {
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
+
+  it("leaves shifted bracket history shortcuts for the guest app", () => {
+    const event = { preventDefault: vi.fn() };
+    const send = vi.fn();
+
+    expect(
+      forwardDesktopNavigationShortcutInput(
+        event,
+        {
+          type: "keyDown",
+          key: "{",
+          code: "BracketLeft",
+          meta: true,
+          shift: true,
+        },
+        send,
+      ),
+    ).toBe(false);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
 });

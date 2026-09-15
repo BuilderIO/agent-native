@@ -392,10 +392,14 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "unwrapTextOverlay",
   );
+  const nativeTextPrimitive = extractFunction(
+    editorChromeBridgeScript,
+    "nativeTextPrimitiveForHit",
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${svgAncestor}\n${textOverlay}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    `${rootCheck}\n${svgAncestor}\n${textOverlay}\n${nativeTextPrimitive}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }

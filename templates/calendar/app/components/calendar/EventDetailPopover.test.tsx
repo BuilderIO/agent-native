@@ -280,6 +280,30 @@ describe("EventDetailPopover characterization", () => {
     expect(content?.innerHTML).toContain("text-[13px] font-medium");
   });
 
+  it("passes the selected calendar event through to delete", () => {
+    const event = baseEvent({
+      accountEmail: "steve@builder.io",
+      calendarSourceKey: "calendar-two",
+      calendarId: "calendar-two-id",
+    });
+    const onDelete = vi.fn();
+
+    act(() => {
+      root.render(
+        <EventDetailPopover event={event} defaultOpen onDelete={onDelete}>
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const deleteButton = findByExactText("button", "eventForm.delete");
+    expect(deleteButton).toBeTruthy();
+    act(() => (deleteButton as HTMLElement).click());
+
+    expect(onDelete).toHaveBeenCalledOnce();
+    expect(onDelete).toHaveBeenCalledWith(event);
+  });
+
   it("shows shared-calendar provenance without edit controls", () => {
     act(() => {
       root.render(
@@ -373,10 +397,11 @@ describe("EventDetailPopover characterization", () => {
 
   it("preserves a literal fallback label typed by the user", () => {
     const onTitleSave = vi.fn();
+    const event = baseEvent({ title: "(No title)" });
     act(() => {
       root.render(
         <EventDetailPopover
-          event={baseEvent({ title: "(No title)" })}
+          event={event}
           defaultOpen
           onDelete={() => undefined}
           onTitleSave={onTitleSave}
@@ -398,24 +423,21 @@ describe("EventDetailPopover characterization", () => {
       );
     });
 
-    expect(onTitleSave).toHaveBeenCalledWith(
-      "event-1",
-      "(No title)",
-      undefined,
-    );
+    expect(onTitleSave).toHaveBeenCalledWith(event, "(No title)");
   });
 
   it("dismisses a blank out-of-office draft without saving its generated title", () => {
     const onTitleSave = vi.fn();
     const onDismissNew = vi.fn();
+    const event = baseEvent({
+      title: "Out of office",
+      titleIsGenerated: true,
+      eventType: "outOfOffice",
+    });
     act(() => {
       root.render(
         <EventDetailPopover
-          event={baseEvent({
-            title: "Out of office",
-            titleIsGenerated: true,
-            eventType: "outOfOffice",
-          })}
+          event={event}
           isDraft
           defaultOpen
           onDelete={() => undefined}
@@ -439,7 +461,7 @@ describe("EventDetailPopover characterization", () => {
     });
 
     expect(onTitleSave).not.toHaveBeenCalled();
-    expect(onDismissNew).toHaveBeenCalledWith("event-1", undefined);
+    expect(onDismissNew).toHaveBeenCalledWith(event);
   });
 
   it("preserves an explicit Out of office title on a draft", () => {

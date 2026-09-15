@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import {
   getClients,
-  getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
@@ -435,9 +435,18 @@ export default defineAction({
       );
     }
 
-    const connectedAccounts = inventory
-      ? await getConnectedAccounts(ownerEmail)
-      : [];
+    const accountResult = inventory
+      ? await getConnectedAccountsWithErrors(ownerEmail)
+      : { accounts: [], errors: [] };
+    const connectedAccounts = accountResult.accounts;
+    const requestedAccountsAreKnown =
+      requestedAccounts !== undefined &&
+      requestedAccounts.every((requested) =>
+        connectedAccounts.some(
+          (account) => account.toLowerCase() === requested.toLowerCase(),
+        ),
+      );
+    const accountErrors = requestedAccountsAreKnown ? [] : accountResult.errors;
     const connectedByLower = new Map(
       connectedAccounts.map((email) => [email.toLowerCase(), email]),
     );
@@ -451,6 +460,11 @@ export default defineAction({
             ),
           ).map((email) => {
             const owned = connectedByLower.get(email);
+            if (!owned && accountErrors.length > 0) {
+              throw new Error(
+                accountErrors.map(({ error }) => error).join("; "),
+              );
+            }
             if (!owned)
               throw new Error(
                 `Account ${email} is not connected for this user.`,
@@ -458,6 +472,26 @@ export default defineAction({
             return owned;
           })
         : undefined;
+
+    if (
+      inventory &&
+      connectedAccounts.length === 0 &&
+      accountErrors.length > 0
+    ) {
+      return JSON.stringify(
+        {
+          error: accountErrors.map(({ error }) => error).join("; "),
+          accountErrors: accountErrors.map(({ email, error }) => ({
+            accountEmail: email,
+            error: inventoryError(error),
+          })),
+          coverageComplete: false,
+          complete: false,
+        },
+        null,
+        2,
+      );
+    }
 
     if (
       (inventory && selectedAccounts && selectedAccounts.length > 0) ||
@@ -587,9 +621,9 @@ export default defineAction({
             : hasMore
               ? await createInventoryCursor(ownerEmail, cursorState)
               : undefined;
-          const coverageComplete = cursorState.accounts.every(
-            (account) => account.status === "ok",
-          );
+          const coverageComplete =
+            accountErrors.length === 0 &&
+            cursorState.accounts.every((account) => account.status === "ok");
           return {
             version: 1,
             query: { view, ...(query ? { q: query } : {}) },
@@ -600,17 +634,27 @@ export default defineAction({
             queriedAccounts: cursorState.accounts.map(
               (account) => account.accountEmail,
             ),
-            accounts: cursorState.accounts.map((account) => ({
-              accountEmail: account.accountEmail,
-              status: account.status,
-              count: account.knownCount ?? account.emittedCount,
-              emittedCount: account.emittedCount,
-              exhausted:
-                account.status === "ok" &&
-                account.exhausted &&
-                account.pending.length === 0,
-              ...(account.error ? { error: account.error } : {}),
-            })),
+            accounts: [
+              ...cursorState.accounts.map((account) => ({
+                accountEmail: account.accountEmail,
+                status: account.status,
+                count: account.knownCount ?? account.emittedCount,
+                emittedCount: account.emittedCount,
+                exhausted:
+                  account.status === "ok" &&
+                  account.exhausted &&
+                  account.pending.length === 0,
+                ...(account.error ? { error: account.error } : {}),
+              })),
+              ...accountErrors.map(({ email, error }) => ({
+                accountEmail: email,
+                status: "error" as const,
+                count: 0,
+                emittedCount: 0,
+                exhausted: false,
+                error: inventoryError(error),
+              })),
+            ],
             coverageComplete,
             complete: coverageComplete && !hasMore,
             items,

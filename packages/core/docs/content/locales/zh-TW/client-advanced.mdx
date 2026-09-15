@@ -98,6 +98,32 @@ const { values, missing } = await readClientAppStateMany([
 
 `requestSource` 通常設為 `TAB_ID`，這是每個範本都會從 `app/lib/tab-id.ts` 匯出的一個純常數：一個在分頁的生命週期內保持不變、且在不同分頁之間不同的短隨機字串。在寫入端配對 `requestSource: TAB_ID`，並在讀取端配對 `useDbSync({ ignoreSource: TAB_ID })`，就是分頁避免重新取得自己的寫入、同時仍對其他所有人的變化有反應的方式。完整走過此流程請參閱[脈絡感知](/docs/context-awareness#jitter-prevention)。
 
+## 隔離的背景 Agent 工作階段 {#isolated-background-agent-sessions}
+
+當每次呼叫都需要全新且穩定的對話串，而且不能新增前景或隱藏分頁、側邊欄狀態或
+執行匣項目時，請使用 `startBackgroundAgentSession()`。它使用一般的已驗證 Agent
+聊天路由，因此持久化、工具、重試及託管的持久執行仍由共用 Run Manager 管理。
+
+```ts
+import { startBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
+
+const session = startBackgroundAgentSession({
+  message: "Analyze this import and create any missing records",
+  instructions: `Import batch id: ${batchId}`,
+  scope: { type: "import-batch", id: batchId },
+  model: "gpt-5.6-sol",
+  effort: "medium",
+});
+
+await session.accepted;
+const latest = await session.status();
+session.open({ prefill: "Show me what changed" });
+```
+
+此控制代碼會立即提供 `operationId`、`threadId` 與 `turnId`。`accepted` 等待執行被接受，
+`completion` 會跟隨回應串流，而 `status()` 會分別讀取持久執行狀態。`cancel()` 可停止
+該回合。若因遺失確認而重試，請同時傳入原始的 `operationId` 與 `threadId`。
+
 ## sendToAgentChat：背景傳送 {#background-send}
 
 當 UI 動作應該啟動真正的代理工作，卻不開啟或聚焦側邊欄時，使用

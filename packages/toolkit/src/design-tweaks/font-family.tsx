@@ -1,5 +1,15 @@
+import { IconChevronDown } from "@tabler/icons-react";
 import type { ComponentPropsWithoutRef } from "react";
+import { useState } from "react";
 
+import {
+  Command,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "../ui/command.js";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
 import {
   Select,
   SelectContent,
@@ -115,6 +125,9 @@ export interface VisualFontFamilyPickerProps {
     Partial<Record<`data-${string}`, string | undefined>>;
   mixed?: boolean;
   mixedLabel: string;
+  /** Use a searchable font list and accept typed family names. */
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }
 
 export function VisualFontFamilyPicker({
@@ -126,12 +139,120 @@ export function VisualFontFamilyPicker({
   contentProps,
   mixed = false,
   mixedLabel,
+  searchable = false,
+  searchPlaceholder = "Search",
 }: VisualFontFamilyPickerProps) {
   const selectValue = mixed ? "__mixed_font_family__" : value;
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const unknown =
     !mixed && !options.some((option) => option.value === value)
       ? { value, label: displayFontFamilyName(value) }
       : null;
+  const selectedLabel = mixed
+    ? mixedLabel
+    : (options.find((option) => option.value === value)?.label ??
+      unknown?.label ??
+      displayFontFamilyName(value));
+  if (searchable) {
+    const {
+      className: contentClassName,
+      position: selectPosition,
+      ...popoverContentProps
+    } = contentProps ?? {};
+    void selectPosition;
+    const trimmedSearch = search.trim();
+    const normalizedSearch = trimmedSearch.toLocaleLowerCase();
+    const exactOptionExists = options.some(
+      (option) => option.label.trim().toLocaleLowerCase() === normalizedSearch,
+    );
+    const customFontName = trimmedSearch
+      .replace(/[\\\"\u0000-\u001f\u007f]/g, "")
+      .trim();
+    const customFontValue = customFontName
+      ? '"' + customFontName + '", sans-serif'
+      : "";
+    const choose = (nextValue: string) => {
+      onChange(nextValue);
+      setSearch("");
+      setOpen(false);
+    };
+    return (
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setSearch("");
+        }}
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={label}
+            aria-expanded={open}
+            data-font-family-picker
+            className={cn(
+              "flex h-6 w-full items-center justify-between gap-1 text-left",
+              className,
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate">{selectedLabel}</span>
+            <IconChevronDown className="size-3 shrink-0 opacity-60" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          {...(popoverContentProps as ComponentPropsWithoutRef<
+            typeof PopoverContent
+          >)}
+          align={
+            (
+              popoverContentProps as ComponentPropsWithoutRef<
+                typeof PopoverContent
+              >
+            ).align ?? "start"
+          }
+          className={cn(
+            "w-[var(--radix-popover-trigger-width)] min-w-48 p-0",
+            contentClassName,
+          )}
+        >
+          <Command>
+            <CommandInput
+              aria-label={searchPlaceholder}
+              placeholder={searchPlaceholder}
+              value={search}
+              onValueChange={setSearch}
+              className="h-8 py-1.5 text-xs"
+            />
+            <CommandList className="max-h-56">
+              <CommandGroup>
+                {options.map((option) => (
+                  <CommandItem
+                    key={option.value}
+                    value={option.label}
+                    onSelect={() => choose(option.value)}
+                    className="cursor-pointer text-[11px]"
+                  >
+                    {option.label}
+                  </CommandItem>
+                ))}
+                {customFontValue && !exactOptionExists ? (
+                  <CommandItem
+                    value={customFontName}
+                    onSelect={() => choose(customFontValue)}
+                    data-custom-font-option
+                    className="cursor-pointer text-[11px]"
+                  >
+                    {customFontName}
+                  </CommandItem>
+                ) : null}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    );
+  }
   return (
     <Select value={selectValue} onValueChange={onChange}>
       <SelectTrigger

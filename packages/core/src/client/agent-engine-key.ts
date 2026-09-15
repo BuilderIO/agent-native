@@ -56,6 +56,14 @@ export interface SavedAgentEngineSelection {
   model: string;
 }
 
+export interface AgentEngineProviderKeyStatus {
+  status: "set" | "unset" | "invalid" | "unknown";
+  effectiveScope?: "user" | "org" | "workspace" | "env";
+  overriddenScope?: "org" | "workspace";
+  personalKeyPresent: boolean;
+  organizationKeyPresent: boolean;
+}
+
 function resolveProviderEnvVar(
   provider: AgentEngineProvider | undefined,
   key: string | undefined,
@@ -71,6 +79,79 @@ function dispatchConfiguredChanged(): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(CONFIGURED_CHANGED_EVENT));
   }
+}
+
+export async function getAgentEngineProviderKeyStatus(
+  provider: AgentEngineProvider,
+): Promise<AgentEngineProviderKeyStatus> {
+  const option = getAgentProviderOption(provider);
+  const key = option.key ?? option.endpointKey;
+  if (!key) {
+    throw new Error("This provider does not use a stored key.");
+  }
+  const response = await fetch(agentNativePath("/_agent-native/secrets"), {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(`Could not load key status (HTTP ${response.status}).`);
+  }
+  const payload: unknown = await response.json();
+  if (!Array.isArray(payload)) {
+    throw new Error("Could not read provider key status.");
+  }
+  const secret = payload.find(
+    (item): item is Record<string, unknown> =>
+      item !== null &&
+      typeof item === "object" &&
+      !Array.isArray(item) &&
+      (item as Record<string, unknown>).key === key,
+  );
+  if (
+    !secret ||
+    !["set", "unset", "invalid", "unknown"].includes(String(secret.status))
+  ) {
+    throw new Error("Could not read this provider's key status.");
+  }
+  const effectiveScope = ["user", "org", "workspace", "env"].includes(
+    String(secret.effectiveScope),
+  )
+    ? (secret.effectiveScope as AgentEngineProviderKeyStatus["effectiveScope"])
+    : undefined;
+  const overriddenScope = ["org", "workspace"].includes(
+    String(secret.overriddenScope),
+  )
+    ? (secret.overriddenScope as AgentEngineProviderKeyStatus["overriddenScope"])
+    : undefined;
+  return {
+    status: secret.status as AgentEngineProviderKeyStatus["status"],
+    ...(effectiveScope ? { effectiveScope } : {}),
+    ...(overriddenScope ? { overriddenScope } : {}),
+    personalKeyPresent: effectiveScope === "user",
+    organizationKeyPresent:
+      effectiveScope === "org" || overriddenScope === "org",
+  };
+}
+
+export async function deleteAgentEnginePersonalProviderSettings(
+  provider: AgentEngineProvider,
+): Promise<void> {
+  const response = await fetch(
+    agentNativePath("/_agent-native/agent-engine/api-key"),
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ provider }),
+    },
+  );
+  if (!response.ok) {
+    const message = await readProviderSettingsError(response);
+    throw new Error(
+      message ??
+        `Could not remove your personal key (HTTP ${response.status}).`,
+    );
+  }
+  dispatchConfiguredChanged();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -26,18 +26,21 @@ export function geometrySnapshotsEqual(
 }
 
 /** Separate from the sanity check below on purpose: an out-of-range frame is
- *  refused, a fractional one is repaired. Rewrites only what changes, so a
- *  whole-pixel board stays reference-equal and never dirties a save. */
+ *  refused and changed fractional fields are repaired. A reference map keeps
+ *  existing fractional fields stable across later unrelated gestures. */
 export function quantizeCanvasFrameGeometryForPersist(
   geometryById: CanvasFrameGeometryById,
+  referenceGeometryById?: CanvasFrameGeometryById,
 ): CanvasFrameGeometryById {
   let quantized: CanvasFrameGeometryById | null = null;
   for (const [frameId, geometry] of Object.entries(geometryById)) {
     const next: CanvasFrameGeometry = { ...geometry };
     let changed = false;
+    const reference = referenceGeometryById?.[frameId];
     for (const key of ["x", "y", "width", "height"] as const) {
       const value = geometry[key];
       if (value === undefined) continue;
+      if (value === reference?.[key]) continue;
       const rounded = quantizeToStep(value);
       if (rounded === value) continue;
       next[key] = rounded;

@@ -48,18 +48,27 @@ vi.mock("./ShaderControls", () => ({
     descriptor: { preset: string; params: Record<string, number> };
     onChange: (next: unknown) => void;
   }) => (
-    <button
-      type="button"
-      data-testid="tick"
-      onClick={() =>
+    <div
+      onPointerCancel={() =>
         onChange({
           ...descriptor,
-          params: { ...descriptor.params, intensity: 0.5 },
+          params: { ...descriptor.params, intensity: 0.1 },
         })
       }
     >
-      tick
-    </button>
+      <button
+        type="button"
+        data-testid="tick"
+        onClick={() =>
+          onChange({
+            ...descriptor,
+            params: { ...descriptor.params, intensity: 0.5 },
+          })
+        }
+      >
+        tick
+      </button>
+    </div>
   ),
 }));
 
@@ -235,6 +244,66 @@ describe("ShaderFillsPanel preview/commit split", () => {
     expect(onApply).not.toHaveBeenCalled();
     expect(onCommit).not.toHaveBeenCalled();
     expect(mutateCalls).toHaveLength(0);
+  });
+
+  it("restores a canceled preview without committing it on a later unrelated pointerup or blur", () => {
+    const onApply = vi.fn();
+    const onCommit = vi.fn();
+
+    act(() => {
+      root.render(
+        <ShaderFillsPanel
+          descriptor={baseDescriptor}
+          onApply={onApply}
+          onCommit={onCommit}
+          onBack={() => undefined}
+        />,
+      );
+    });
+
+    const tick = container.querySelector<HTMLButtonElement>(
+      '[data-testid="tick"]',
+    );
+    expect(tick).not.toBeNull();
+
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, pointerId: 7 }),
+      );
+      tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onApply).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointercancel", { bubbles: true, pointerId: 7 }),
+      );
+    });
+    expect(onApply).toHaveBeenCalledTimes(2);
+    expect(onApply.mock.calls[1]?.[0]).toEqual(baseDescriptor);
+
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, pointerId: 7 }),
+      );
+      tick?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(mutateCalls).toHaveLength(0);
+
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, pointerId: 8 }),
+      );
+      tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      tick?.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, pointerId: 8 }),
+      );
+    });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(mutateCalls).toHaveLength(1);
   });
 
   it("still commits via the apply-shader mutation when onCommit is omitted, but only after a preview tick", () => {
