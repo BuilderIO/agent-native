@@ -61,6 +61,16 @@ describe("devLoopbackAuthHint", () => {
     expect(hint).not.toContain("http://localhost:8082");
   });
 
+  it("uses the canonical HTTPS protocol for a direct request without proxy headers", () => {
+    const hint = devLoopbackAuthHint(
+      event({ host: "localhost:8083" }),
+      "https://localhost:8083",
+    );
+    expect(hint).toContain("https://localhost:8083");
+    expect(hint).not.toContain("http://localhost:8083");
+    expect(hint).toContain("sign in again on this origin");
+  });
+
   it("carries no session token or user data", () => {
     const hint = devLoopbackAuthHint(
       event({

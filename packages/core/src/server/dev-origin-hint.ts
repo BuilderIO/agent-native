@@ -19,20 +19,6 @@ export function devLoopbackAuthHint(
   canonicalOrigin: string | undefined,
 ): string {
   const hostHeader = getHeader(event, "host") ?? "";
-  const proto =
-    getHeader(event, "x-forwarded-proto")
-      ?.split(",")[0]
-      ?.trim()
-      .toLowerCase() === "https"
-      ? "https"
-      : "http";
-
-  let visitingOrigin: string | null = null;
-  try {
-    visitingOrigin = new URL(`${proto}://${hostHeader}`).origin;
-  } catch {
-    visitingOrigin = null;
-  }
   let resolvedCanonicalOrigin: string | null = null;
   try {
     const candidate = new URL(canonicalOrigin ?? "");
@@ -50,6 +36,24 @@ export function devLoopbackAuthHint(
   } catch {
     resolvedCanonicalOrigin = null;
   }
+
+  const forwardedProto = getHeader(event, "x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    .toLowerCase();
+  const proto =
+    forwardedProto === "http" || forwardedProto === "https"
+      ? forwardedProto
+      : resolvedCanonicalOrigin
+        ? new URL(resolvedCanonicalOrigin).protocol.slice(0, -1)
+        : "http";
+  let visitingOrigin: string | null = null;
+  try {
+    visitingOrigin = new URL(`${proto}://${hostHeader}`).origin;
+  } catch {
+    visitingOrigin = null;
+  }
+
   if (!visitingOrigin || !resolvedCanonicalOrigin) {
     return "No valid session cookie reached this dev server; sign in again on the origin the dev server printed.";
   }
