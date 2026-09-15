@@ -9,6 +9,11 @@ description: "Magic-link-first Better Auth integration with password fallback, s
 
 Agent-Native apps use [Better Auth](https://better-auth.com) for authentication with an account-first design. Users create an account on first visit and get real identity from day one.
 
+For an administered, invite-only deployment, set the signup and organization
+creation policies in [Administered Deployments](/docs/administered-deployments).
+This is separate from domain auto-join. A verified allowed domain can admit a
+person to an organization, while an invitation is an explicit membership offer.
+
 ## Overview {#overview}
 
 Auth is configured automatically via `autoMountAuth(app)` in the auth server plugin. There are three modes:
@@ -135,6 +140,11 @@ provides:
 - Bearer token support for programmatic clients
 
 Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also provides backward-compatible endpoints:
+
+In an invite-only deployment, admission is checked before a Better Auth user
+is created. The policy covers email/password, magic-link, and social sign-up.
+See [Administered Deployments](/docs/administered-deployments#close-signup-and-organization-creation)
+for the bootstrap-admin and allowed-domain rules.
 
 - `GET /_agent-native/auth/session` — get current session
 - `POST /_agent-native/auth/magic-link` — request a magic-link email

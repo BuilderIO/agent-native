@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  deleteAgentEnginePersonalProviderSettings,
+  getAgentEngineProviderKeyStatus,
   saveAgentEngineApiKey,
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
@@ -12,6 +14,48 @@ afterEach(() => {
 });
 
 describe("saveAgentEngineApiKey", () => {
+  it("reads personal and overridden organization key status from the secrets endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              key: "OPENAI_API_KEY",
+              status: "set",
+              effectiveScope: "user",
+              overriddenScope: "org",
+            },
+          ]),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(getAgentEngineProviderKeyStatus("openai")).resolves.toEqual({
+      status: "set",
+      effectiveScope: "user",
+      overriddenScope: "org",
+      personalKeyPresent: true,
+      organizationKeyPresent: true,
+    });
+  });
+
+  it("removes the current user's personal provider settings", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteAgentEnginePersonalProviderSettings("anthropic");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/agent-engine/api-key",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ provider: "anthropic" }),
+      }),
+    );
+  });
+
   it("stores provider keys through the scoped agent-engine API key route", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

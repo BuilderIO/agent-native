@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hashSlideContent } from "../shared/slide-fit";
 
 let mockRows: unknown[] = [];
+let mockCommentRows: unknown[] = [];
 let navigationState: Record<string, unknown> | null = null;
 let slidesSelectionState: Record<string, unknown> | null = null;
 let slideFitState: Record<string, unknown> | null = null;
@@ -11,7 +12,18 @@ let deckFitState: Record<string, unknown> | null = null;
 const limitFn = vi.fn(async () => mockRows);
 const orderByFn = vi.fn(async () => mockRows);
 const whereFn = vi.fn(() => ({ limit: limitFn, orderBy: orderByFn }));
-const fromFn = vi.fn(() => ({ where: whereFn }));
+const fromFn = vi.fn((table: unknown) => ({
+  where: (condition: unknown) =>
+    typeof table === "object" &&
+    table !== null &&
+    Object.values(table).includes("comment_id_col")
+      ? {
+          orderBy: () => ({
+            limit: async () => mockCommentRows,
+          }),
+        }
+      : whereFn(condition),
+}));
 const selectFn = vi.fn((..._args: unknown[]) => ({ from: fromFn }));
 const mockDb = { select: selectFn };
 
@@ -23,6 +35,20 @@ vi.mock("../server/db/index.js", () => ({
       title: "title_col",
       ownerEmail: "owner_email_col",
       updatedAt: "updated_at_col",
+    },
+    slideComments: {
+      id: "comment_id_col",
+      slideId: "comment_slide_id_col",
+      deckId: "comment_deck_id_col",
+      threadId: "comment_thread_id_col",
+      parentId: "comment_parent_id_col",
+      content: "comment_content_col",
+      quotedText: "comment_quoted_text_col",
+      anchor: "comment_anchor_col",
+      emojiReactionsJson: "comment_reactions_col",
+      authorEmail: "comment_author_email_col",
+      resolved: "comment_resolved_col",
+      createdAt: "comment_created_at_col",
     },
     deckShares: {},
   },
@@ -49,6 +75,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => ({ and: values }),
+  asc: (value: unknown) => ({ asc: value }),
   desc: (value: unknown) => ({ desc: value }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
   sql: vi.fn((strings: unknown, ...values: unknown[]) => ({ strings, values })),
@@ -69,6 +96,7 @@ import action from "./view-screen";
 beforeEach(() => {
   vi.clearAllMocks();
   mockRows = [];
+  mockCommentRows = [];
   navigationState = null;
   slidesSelectionState = null;
   slideFitState = null;
@@ -470,5 +498,42 @@ describe("view-screen", () => {
     expect(result).not.toContain(
       "All 2 slides fit their measured content area.",
     );
+  });
+
+  it("marks current-slide comments as truncated when more are available", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Comment-heavy deck",
+        data: JSON.stringify({
+          slides: [{ id: "slide-a", content: "<p>Slide</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    mockCommentRows = Array.from({ length: 101 }, (_, index) => ({
+      id: `comment-${index}`,
+      slideId: "slide-a",
+      threadId: `thread-${index}`,
+      parentId: null,
+      content: `Comment ${index}`,
+      quotedText: null,
+      anchor: null,
+      emojiReactionsJson: "{}",
+      authorEmail: "alice@example.com",
+      resolved: false,
+      createdAt: `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`,
+    }));
+
+    const result = await action.run({});
+
+    expect(result).toContain(
+      "### Comments on current slide (100; more available)",
+    );
+    expect(result).toContain(
+      'commentsStatus: truncated; showing the first 100. Use list-slide-comments with { deckId: "deck-1", slideId: "slide-a", limit: 100, offset: 100 } to continue.',
+    );
+    expect(result).toContain("commentId: comment-0");
+    expect(result).not.toContain("commentId: comment-100");
   });
 });

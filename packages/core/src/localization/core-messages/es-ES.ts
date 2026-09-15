@@ -114,6 +114,16 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agente",
   "agentPanel.mode": "Modo",
   "agentPanel.uiMode": "Interfaz de usuario",
+  "agentPanel.keyScope": "Ámbito de la clave",
+  "agentPanel.personalKeyScope": "Personal",
+  "agentPanel.organizationKeyScope": "Organización",
+  "agentPanel.personalKeyInEffect": "Se está usando tu clave personal.",
+  "agentPanel.organizationKeyInEffect":
+    "Se está usando la clave de la organización.",
+  "agentPanel.sharedKeyInEffect": "Se está usando una clave compartida.",
+  "agentPanel.useOrganizationKey": "Usar clave de la organización",
+  "agentPanel.keyStatusUnavailable":
+    "No se pudo consultar el estado de la clave.",
   "agentHostNudge.sidebarTitle": "Usa el chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Ya estás chateando con {{agent}}. Pídele que trabaje directamente con esta app.",
@@ -136,6 +146,25 @@ const messages: AgentChatTranslation = {
   "common.no": "No",
   "common.retry": "Reintentar",
   "common.save": "Guardar",
+  "agents.hostedAgent": "Agente alojado",
+  "agents.cardUrl": "URL de la tarjeta del agente",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Autenticación",
+  "agents.authNone": "Sin autenticación",
+  "agents.authBearer": "Token Bearer",
+  "agents.authClientCredentials": "Credenciales de cliente OAuth",
+  "agents.chooseCredential": "Elegir credencial",
+  "agents.vault": "Bóveda",
+  "agents.tokenUrl": "URL del token",
+  "agents.clientId": "ID de cliente",
+  "agents.scope": "Ámbito",
+  "agents.authIncomplete":
+    "Completa los campos de autenticación del agente alojado.",
+  "agents.invalidUrl":
+    "Las URL de los agentes deben usar HTTPS, salvo las URL de desarrollo localhost o de bucle local.",
+  "agents.statusReachable": "Accesible",
+  "agents.statusAuthRejected": "Autenticación rechazada",
+  "agents.statusNoJsonRpc": "Sin JSON-RPC",
   "common.saveFailed": "Error al guardar",
   "common.saveFailedStatus": "Error al guardar ({{status}})",
   "common.saving": "Guardando...",
@@ -758,6 +787,13 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Lector",
   "share.viewerDescription": "Puede ver",
   "share.userGroup": "Grupo de usuarios",
+  "settings.emailTitle": "Correo electrónico",
+  "settings.emailChange": "Cambiar correo electrónico",
+  "settings.emailChanging": "Enviando...",
+  "settings.emailChangeSent": "Revisa tu correo para confirmar este cambio.",
+  "settings.emailChangeError": "No se pudo enviar la confirmación.",
+  "settings.emailNewLabel": "Correo electrónico nuevo",
+  "settings.emailNewPlaceholder": "Introduce un correo nuevo",
 };
 
 export default messages;

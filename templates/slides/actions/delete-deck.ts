@@ -57,18 +57,32 @@ export default defineAction({
           if (recipient) orgRecipients.add(recipient);
         }
       }
-      await db
-        .delete(schema.deckVersions)
-        .where(
-          and(
-            eq(schema.deckVersions.deckId, id),
-            eq(schema.deckVersions.ownerEmail, owner),
-          ),
-        );
-      const result = await db
-        .delete(schema.decks)
-        .where(eq(schema.decks.id, id))
-        .returning();
+      const result = await db.transaction(async (tx) => {
+        // Comment creation takes this same lock before validating the slide,
+        // so deck removal cannot race an insert of an orphaned comment.
+        const [lockedDeck] = await tx
+          .select({ id: schema.decks.id })
+          .from(schema.decks)
+          .where(eq(schema.decks.id, id))
+          .for("update");
+        if (!lockedDeck) return [];
+
+        await tx
+          .delete(schema.deckVersions)
+          .where(
+            and(
+              eq(schema.deckVersions.deckId, id),
+              eq(schema.deckVersions.ownerEmail, owner),
+            ),
+          );
+        await tx
+          .delete(schema.slideComments)
+          .where(eq(schema.slideComments.deckId, id));
+        return tx
+          .delete(schema.decks)
+          .where(eq(schema.decks.id, id))
+          .returning();
+      });
 
       if (result.length === 0) {
         throw deckHttpError(404, "Deck not found");

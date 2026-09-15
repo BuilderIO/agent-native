@@ -1,15 +1,17 @@
 ---
 title: "앱 간 SSO"
-description: "Desktop 워크스페이스 SSO와 서버 측 조직 페더레이션의 남은 계약을 설명합니다. 브라우저의 Agent-Native 로그인은 제거되었습니다."
+description: "조직 OIDC 또는 SAML 로그인과 앱 간 identity federation의 차이를 설명합니다."
 ---
 
-# 앱 간 SSO
+# 조직 SSO 및 앱 간 페더레이션
+
+조직 SSO는 하나의 Agent-Native 배포에 회사의 OIDC 또는 SAML 제공자로 로그인하게 합니다. 앱 간 페더레이션은 별도의 배포 사이에 확인된 ID 또는 조직 컨텍스트를 전달합니다. 설정과 신뢰 경계가 다릅니다.
 
 브라우저용 "Sign in with Agent-Native" 옵션과 자동 브라우저 전환은 제거되었습니다.
 웹 사용자의 기본 동작은 계속 앱별 일반 로그인입니다. 이 페이지는 남아 있는
 Desktop 및 서버 측 페더레이션 계약만 설명합니다.
 
-## 남아 있는 기능
+## 앱 간 페더레이션
 
 ### Desktop 워크스페이스
 
@@ -114,3 +116,5 @@ ID 및 조직 기록은 일반 로컬 인증에 계속 사용할 수 있습니�
 - [Dispatch](/docs/dispatch)
 - [보안 및 데이터 범위](/docs/security)
 - [멀티 앱 워크스페이스](/docs/multi-app-workspace)
+
+OIDC 또는 SAML을 통한 기업 로그인은 앱 간 ID 페더레이션과 다릅니다. [관리 배포 가이드](/docs/administered-deployments)에서 기업 모델을 확인하세요. 브라우저의 Agent-Native 로그인은 계속 제거된 상태입니다.

@@ -1,16 +1,18 @@
 ---
 title: "SSO inter-applications"
-description: "Documente le SSO d'espace de travail dans Desktop et la fédération d'organisations côté serveur. La connexion navigateur avec Agent-Native a été supprimée."
+description: "Distingue la connexion OIDC ou SAML d’une organisation de la fédération d’identité entre applications."
 ---
 
-# SSO inter-applications
+# SSO d’organisation et fédération entre applications
+
+Le SSO d’organisation utilise le fournisseur OIDC ou SAML de l’entreprise pour se connecter à un déploiement Agent-Native. La fédération entre applications transmet une identité vérifiée ou le contexte d’une organisation entre des déploiements distincts. La configuration et les limites de confiance diffèrent.
 
 L'option navigateur "Sign in with Agent-Native" et le transfert automatique du
 navigateur ont été supprimés. La connexion propre à chaque application reste le
 comportement par défaut pour les utilisateurs web. Cette page décrit les contrats
 restants de Desktop et de la fédération côté serveur.
 
-## Ce qui reste
+## Fédération entre applications
 
 ### Espace de travail Desktop
 
@@ -130,3 +132,5 @@ l'authentification locale normale.
 - [Dispatch](/docs/dispatch)
 - [Sécurité et portée des données](/docs/security)
 - [Espaces de travail multi-applications](/docs/multi-app-workspace)
+
+La connexion d’entreprise avec OIDC ou SAML est différente de la fédération d’identité entre applications. Le [guide des déploiements administrés](/docs/administered-deployments) décrit le modèle d’entreprise. La connexion navigateur avec Agent-Native reste supprimée.
