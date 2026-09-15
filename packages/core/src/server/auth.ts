@@ -2792,9 +2792,9 @@ function previewGoogleOAuthRelayError(status: number): Response {
   });
 }
 
-async function netlifyPreviewGoogleOAuthCallbackRelayResponse(
+function netlifyPreviewGoogleOAuthCallbackRelayResponse(
   event: H3Event,
-): Promise<Response | undefined> {
+): Response | undefined {
   const { rawPath, search } = getRequestPathAndSearch(event);
   const normalizedPath = stripAppBasePath(rawPath);
   if (
@@ -2825,44 +2825,13 @@ async function netlifyPreviewGoogleOAuthCallbackRelayResponse(
   const target = new URL(relay.callbackUri);
   target.search = params.toString();
 
-  let response: Response;
-  try {
-    response = await fetch(target, {
-      redirect: "manual",
-      headers: { accept: "text/html, application/xhtml+xml" },
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch {
-    return previewGoogleOAuthRelayError(502);
-  }
-
-  const headers = new Headers();
-  for (const name of ["cache-control", "content-type", "referrer-policy"]) {
-    const value = response.headers.get(name);
-    if (value) headers.set(name, value);
-  }
-  for (const cookie of getSetCookieHeaders(response.headers)) {
-    headers.append("set-cookie", cookie);
-  }
-
-  const location = response.headers.get("location");
-  if (location) {
-    let resolvedLocation: URL;
-    try {
-      resolvedLocation = new URL(location, target.origin);
-    } catch {
-      return previewGoogleOAuthRelayError(502);
-    }
-    if (resolvedLocation.origin !== target.origin) {
-      return previewGoogleOAuthRelayError(502);
-    }
-    headers.set("location", resolvedLocation.href);
-  }
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "cache-control": "no-store",
+      location: target.href,
+      "referrer-policy": "no-referrer",
+    },
   });
 }
 

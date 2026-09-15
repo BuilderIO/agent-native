@@ -2549,7 +2549,7 @@ describe("server/auth", () => {
       );
     });
 
-    it("relays preview Google callbacks server-side and forwards the session cookie", async () => {
+    it("redirects preview Google callbacks to the preview origin for cookie scoping", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("APP_NAME", "dispatch");
@@ -2568,16 +2568,6 @@ describe("server/auth", () => {
         innerState,
         callbackUri,
       );
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, {
-          status: 302,
-          headers: {
-            location: "/home",
-            "set-cookie": "an_session=preview-session; Path=/; Secure",
-          },
-        }),
-      );
-
       const app = createMockApp();
       await autoMountAuth(app);
       const guard = app.use.mock.calls
@@ -2594,16 +2584,18 @@ describe("server/auth", () => {
         }),
       );
 
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-      const requestedUrl = String(fetchSpy.mock.calls[0]?.[0]);
-      expect(requestedUrl).toContain(`${callbackUri}?code=google-code`);
-      expect(requestedUrl).toContain(`state=${encodeURIComponent(innerState)}`);
       expect(result).toBeInstanceOf(Response);
-      expect((result as Response).headers.get("location")).toBe(
-        `${new URL(callbackUri).origin}/home`,
+      expect((result as Response).status).toBe(302);
+      const location = new URL(
+        (result as Response).headers.get("location") ?? "",
       );
-      expect((result as Response).headers.get("set-cookie")).toContain(
-        "an_session=preview-session",
+      expect(location.origin).toBe(new URL(callbackUri).origin);
+      expect(location.pathname).toBe("/_agent-native/google/callback");
+      expect(location.searchParams.get("code")).toBe("google-code");
+      expect(location.searchParams.get("state")).toBe(innerState);
+      expect((result as Response).headers.get("set-cookie")).toBeNull();
+      expect((result as Response).headers.get("cache-control")).toBe(
+        "no-store",
       );
     });
 
