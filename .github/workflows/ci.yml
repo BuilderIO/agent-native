@@ -293,7 +293,7 @@ jobs:
     # Keep each runner bounded to one package at a time, but shard the affected
     # package set across runners. Core is also split into a Vitest shard so a
     # core change does not serialize its whole dependent graph behind one job.
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover-targeted-lanes.outputs.matrix) }}

@@ -1746,6 +1746,28 @@ export function matchesSavedHostedAgentProbe(
   );
 }
 
+type PublicAgentDiscovery = (
+  selfAppId?: string,
+) => Promise<import("./agent-discovery.js").DiscoveredAgent[]>;
+
+export function createPublicRemoteAgentsHandler(
+  discover: PublicAgentDiscovery = async (selfAppId) => {
+    const { discoverAgents } = await import("./agent-discovery.js");
+    return discoverAgents(selfAppId);
+  },
+) {
+  return defineEventHandler(async (event) => {
+    if (getMethod(event) !== "GET") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const selfAppId =
+      getRequestURL(event).searchParams.get("selfAppId") ?? undefined;
+    const agents = await discover(selfAppId);
+    return { agents: agents.map(stripRemoteAgentAuth) };
+  });
+}
+
 export function getBuilderConnectErrorDisposition(
   error: unknown,
   connectAttemptId: string | null,
@@ -2674,21 +2696,7 @@ export function createCoreRoutesPlugin(
       // Agent discovery primitive — shared by headless CLI/A2A surfaces and
       // UI shells that need to show connected peer apps without depending on
       // the chat route namespace.
-      getH3App(nitroApp).use(
-        `${P}/agents`,
-        defineEventHandler(async (event) => {
-          const method = getMethod(event);
-          if (method !== "GET") {
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }
-          const query = getRequestURL(event).searchParams;
-          const selfAppId = query.get("selfAppId") ?? undefined;
-          const { discoverAgents } = await import("./agent-discovery.js");
-          const agents = await discoverAgents(selfAppId);
-          return { agents: agents.map(stripRemoteAgentAuth) };
-        }),
-      );
+      getH3App(nitroApp).use(`${P}/agents`, createPublicRemoteAgentsHandler());
 
       // Polling
       getH3App(nitroApp).use(`${P}/poll`, createPollHandler());

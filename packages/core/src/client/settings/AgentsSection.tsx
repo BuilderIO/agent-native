@@ -252,7 +252,11 @@ function HostedAgentFields({
   credentialOptions: NewKeyOption[];
 }) {
   const t = useT();
-  const [open, setOpen] = useState(Boolean(cardUrl.trim() || auth || kind));
+  const [open, setOpen] = useState(() =>
+    Boolean(cardUrl.trim() || auth || kind),
+  );
+  const shouldOpen = Boolean(cardUrl.trim() || auth || kind);
+  useEffect(() => setOpen(shouldOpen), [shouldOpen]);
   const provider: HostedAgentProvider =
     kind?.provider === "anthropic-managed-agents"
       ? "anthropic-managed-agents"
