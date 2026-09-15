@@ -60,12 +60,19 @@ describe("TranscriptPanel no-audio failures", () => {
           failureReason={
             "Transcript unavailable: This recording has no audio track, so there was nothing to transcribe."
           }
+          audience="viewer"
           onRetry={vi.fn()}
         />,
       );
     });
 
     expect(container.textContent).toContain("transcriptPanel.noSpeechDetected");
+    expect(container.textContent).toContain(
+      "transcriptPanel.noTranscriptCaptured",
+    );
+    expect(container.textContent).not.toContain(
+      "transcriptPanel.noSpeechDescription",
+    );
     expect(container.querySelector(".text-destructive")).toBeNull();
   });
 

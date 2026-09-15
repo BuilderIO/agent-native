@@ -53,6 +53,7 @@ export interface TranscriptPanelProps {
   status?: "pending" | "ready" | "failed";
   failureReason?: string | null;
   recordingTitle?: string;
+  audience?: "creator" | "viewer";
   /** Called when the user asks us to retry transcription after fixing an error. */
   onRetry?: () => void;
   /** Called when the user asks for a fresh transcript from the recording media. */
@@ -153,6 +154,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     status,
     failureReason,
     recordingTitle,
+    audience = "creator",
     onRetry,
     onRegenerate,
     isRegenerating = false,
@@ -266,7 +268,9 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             {t("transcriptPanel.noSpeechDetected")}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {t("transcriptPanel.noSpeechDescription")}
+            {audience === "viewer"
+              ? t("transcriptPanel.noTranscriptCaptured")
+              : t("transcriptPanel.noSpeechDescription")}
           </p>
         </div>
         {onRetry ? (
