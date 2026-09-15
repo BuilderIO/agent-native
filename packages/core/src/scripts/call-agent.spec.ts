@@ -194,11 +194,6 @@ describe("call-agent action", () => {
       message: {
         role: "agent" as const,
         parts: [{ type: "text" as const, text: "managed answer" }],
-        metadata: {
-          "agent-native/anthropic-managed-agents": {
-            sessionId: "ses_fixture",
-          },
-        },
       },
     }));
     managedHandlerMock.mockReturnValueOnce(handler);
@@ -253,9 +248,46 @@ describe("call-agent action", () => {
         type: "agent_call",
         agent: "Anthropic Research",
         status: "done",
-        taskId: "ses_fixture",
       }),
     );
+  });
+
+  it("passes a managed continuation token without exposing the session ID", async () => {
+    const handler = vi.fn(async () => ({
+      message: {
+        role: "agent" as const,
+        parts: [{ type: "text" as const, text: "Approval required" }],
+        metadata: {
+          "agent-native/anthropic-managed-agents": {
+            continuationToken: "opaque-fixture-token",
+            pendingToolUseIds: ["tool_fixture"],
+          },
+        },
+      },
+      taskState: "input-required" as const,
+    }));
+    managedHandlerMock.mockReturnValueOnce(handler);
+    findAgentMock.mockResolvedValueOnce({
+      id: "anthropic-research",
+      name: "Anthropic Research",
+      url: "https://api.anthropic.com",
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    });
+
+    const { run } = await import("./call-agent.js");
+    const result = await run({
+      agent: "anthropic-research",
+      message: "Inspect the working tree.",
+    });
+
+    expect(result).toContain('taskId="opaque-fixture-token"');
+    expect(result).not.toContain("ses_fixture");
+    expect(result).not.toContain("in session");
   });
 
   it("forwards the user's exact downstream action authorization", async () => {

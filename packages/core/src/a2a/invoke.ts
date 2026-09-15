@@ -10,8 +10,10 @@ import {
   type DiscoveredAgent,
 } from "../server/agent-discovery.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
+  runWithRequestContext,
 } from "../server/request-context.js";
 import {
   ANTHROPIC_MANAGED_AGENTS_METADATA_KEY,
@@ -110,6 +112,7 @@ export interface InvokeAgentOptions extends ResolveAgentInvocationTargetOptions 
   apiKey?: string;
   contextId?: string;
   userEmail?: string;
+  orgId?: string;
   orgDomain?: string;
   orgSecret?: string;
   async?: boolean;
@@ -244,21 +247,37 @@ export async function invokeAgent(
           { type: "bearer", credentialRef },
           {
             userEmail: options.userEmail ?? context.userEmail,
-            orgId: getRequestOrgId(),
+            orgId: options.orgId ?? getRequestOrgId(),
           },
         ),
     });
-    const result = (await handler(
-      {
-        role: "user",
-        parts: [{ type: "text", text: prompt }],
-      },
-      {
-        taskId: options.contextId ?? randomUUID(),
-        contextId: options.contextId,
-        writeArtifact: (name) => name,
-      },
-    )) as A2AHandlerResult;
+    const invokeHandler = async (): Promise<A2AHandlerResult> =>
+      (await handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: prompt }],
+        },
+        {
+          taskId: options.contextId ?? randomUUID(),
+          contextId: options.contextId,
+          writeArtifact: (name) => name,
+        },
+      )) as A2AHandlerResult;
+    const requestContext = getRequestContext();
+    const result = (await (requestContext ||
+    options.userEmail !== undefined ||
+    options.orgId !== undefined
+      ? runWithRequestContext(
+          {
+            ...(requestContext ?? {}),
+            ...(options.userEmail !== undefined
+              ? { userEmail: options.userEmail }
+              : {}),
+            ...(options.orgId !== undefined ? { orgId: options.orgId } : {}),
+          },
+          invokeHandler,
+        )
+      : invokeHandler())) as A2AHandlerResult;
     const responseText = result.message.parts
       .filter((part): part is { type: "text"; text: string } => {
         return part.type === "text";
@@ -486,9 +505,11 @@ function readManagedAgentContinuation(
     return undefined;
   }
   const candidate = value as Record<string, unknown>;
-  const sessionId =
-    typeof candidate.sessionId === "string" ? candidate.sessionId.trim() : "";
-  if (!sessionId) return undefined;
+  const continuationToken =
+    typeof candidate.continuationToken === "string"
+      ? candidate.continuationToken.trim()
+      : "";
+  if (!continuationToken) return undefined;
   const pendingToolUseIds = Array.isArray(candidate.pendingToolUseIds)
     ? candidate.pendingToolUseIds.filter(
         (item): item is string =>
@@ -496,7 +517,7 @@ function readManagedAgentContinuation(
       )
     : [];
   return {
-    sessionId,
+    continuationToken,
     ...(pendingToolUseIds.length ? { pendingToolUseIds } : {}),
   };
 }

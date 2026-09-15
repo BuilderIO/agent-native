@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   ANTHROPIC_MANAGED_AGENTS_BETA_HEADER,
   ANTHROPIC_MANAGED_AGENTS_METADATA_KEY,
@@ -44,8 +45,14 @@ function context() {
 describe("Anthropic Managed Agents A2A handler", () => {
   let server: Server;
   let origin = "";
-  let mode: "complete" | "approval" | "terminated" | "race" = "complete";
+  let mode:
+    | "complete"
+    | "approval"
+    | "terminated"
+    | "race"
+    | "connect-timeout" = "complete";
   let streamConnected = false;
+  const previousA2ASecret = process.env.A2A_SECRET;
   const requests: Array<{
     method: string;
     path: string;
@@ -54,6 +61,7 @@ describe("Anthropic Managed Agents A2A handler", () => {
   }> = [];
 
   beforeAll(async () => {
+    process.env.A2A_SECRET = "anthropic-managed-fixture-secret";
     server = createServer(async (request, response) => {
       const bodyText = request.method === "POST" ? await readBody(request) : "";
       const body = bodyText
@@ -95,6 +103,7 @@ describe("Anthropic Managed Agents A2A handler", () => {
         request.url === "/v1/sessions/ses_fixture/events/stream" &&
         request.method === "GET"
       ) {
+        if (mode === "connect-timeout") return;
         if (mode === "race") {
           await new Promise((resolve) => setTimeout(resolve, 25));
           streamConnected = true;
@@ -175,6 +184,8 @@ describe("Anthropic Managed Agents A2A handler", () => {
   });
 
   afterAll(async () => {
+    if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+    else process.env.A2A_SECRET = previousA2ASecret;
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
@@ -186,7 +197,13 @@ describe("Anthropic Managed Agents A2A handler", () => {
     requests.length = 0;
   });
 
-  function makeHandler(events: AnthropicManagedAgentRuntimeEvent[]) {
+  function makeHandler(
+    events: AnthropicManagedAgentRuntimeEvent[],
+    options: {
+      requestTimeoutMs?: number;
+      streamConnectTimeoutMs?: number;
+    } = {},
+  ) {
     return createAnthropicManagedAgentsHandler({
       agentId: "agt_fixture",
       environmentId: "env_fixture",
@@ -198,8 +215,19 @@ describe("Anthropic Managed Agents A2A handler", () => {
         return "fixture-key";
       },
       onRuntimeEvent: (event) => events.push(event),
-      requestTimeoutMs: 5_000,
+      requestTimeoutMs: options.requestTimeoutMs ?? 5_000,
+      ...(options.streamConnectTimeoutMs === undefined
+        ? {}
+        : { streamConnectTimeoutMs: options.streamConnectTimeoutMs }),
     });
+  }
+
+  function withCaller<T>(
+    fn: () => Promise<T>,
+    email = "alice@example.test",
+    orgId = "org_fixture",
+  ) {
+    return runWithRequestContext({ userEmail: email, orgId }, fn);
   }
 
   it("creates a session, sends a text event, and maps the streamed reply", async () => {
@@ -217,9 +245,6 @@ describe("Anthropic Managed Agents A2A handler", () => {
       message: {
         role: "agent",
         parts: [{ type: "text", text: "managed answer" }],
-        metadata: {
-          [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: { sessionId: "ses_fixture" },
-        },
       },
     });
     expect(runtimeEvents).toEqual([]);
@@ -252,12 +277,14 @@ describe("Anthropic Managed Agents A2A handler", () => {
     mode = "approval";
     const runtimeEvents: AnthropicManagedAgentRuntimeEvent[] = [];
     const handler = makeHandler(runtimeEvents);
-    const result = await handler(
-      {
-        role: "user",
-        parts: [{ type: "text", text: "Inspect the working tree." }],
-      },
-      context(),
+    const result = await withCaller(() =>
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Inspect the working tree." }],
+        },
+        context(),
+      ),
     );
 
     expect(result).toMatchObject({
@@ -266,7 +293,7 @@ describe("Anthropic Managed Agents A2A handler", () => {
         metadata: {
           agentNativeTaskState: "input-required",
           [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
-            sessionId: "ses_fixture",
+            continuationToken: expect.any(String),
             pendingToolUseIds: ["sevt_tool"],
           },
         },
@@ -289,30 +316,34 @@ describe("Anthropic Managed Agents A2A handler", () => {
     mode = "approval";
     const runtimeEvents: AnthropicManagedAgentRuntimeEvent[] = [];
     const handler = makeHandler(runtimeEvents);
-    const first = await handler(
-      {
-        role: "user",
-        parts: [{ type: "text", text: "Inspect the working tree." }],
-      },
-      context(),
+    const first = await withCaller(() =>
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Inspect the working tree." }],
+        },
+        context(),
+      ),
     );
     const firstMetadata = (first as A2AHandlerResult).message.metadata?.[
       ANTHROPIC_MANAGED_AGENTS_METADATA_KEY
     ] as Record<string, unknown>;
     mode = "complete";
 
-    const resumed = await handler(
-      {
-        role: "user",
-        parts: [{ type: "text", text: "Approve it." }],
-        metadata: {
-          [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
-            ...firstMetadata,
-            confirmations: [{ toolUseId: "sevt_tool", result: "allow" }],
+    const resumed = await withCaller(() =>
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Approve it." }],
+          metadata: {
+            [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+              ...firstMetadata,
+              confirmations: [{ toolUseId: "sevt_tool", result: "allow" }],
+            },
           },
         },
-      },
-      context(),
+        context(),
+      ),
     );
 
     expect(resumed.message.parts).toEqual([
@@ -355,6 +386,32 @@ describe("Anthropic Managed Agents A2A handler", () => {
     ]);
   });
 
+  it("fails loudly when stream headers never arrive", async () => {
+    mode = "connect-timeout";
+    const handler = makeHandler([], {
+      requestTimeoutMs: 5_000,
+      streamConnectTimeoutMs: 25,
+    });
+
+    await expect(
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Wait for the stream." }],
+        },
+        context(),
+      ),
+    ).rejects.toMatchObject({
+      name: "AnthropicManagedAgentsError",
+      code: "stream_error",
+      message: expect.stringContaining("timed out"),
+    });
+    expect(requests.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      "POST /v1/sessions",
+      "GET /v1/sessions/ses_fixture/events/stream",
+    ]);
+  });
+
   it("treats termination after partial text as a failed state", async () => {
     mode = "terminated";
     const handler = makeHandler([]);
@@ -372,5 +429,159 @@ describe("Anthropic Managed Agents A2A handler", () => {
       code: "failed_state",
       message: "sandbox crashed",
     });
+  });
+
+  it("rejects raw session IDs instead of treating them as continuations", async () => {
+    const handler = makeHandler([]);
+
+    await expect(
+      withCaller(() =>
+        handler(
+          {
+            role: "user",
+            parts: [{ type: "text", text: "Approve it." }],
+            metadata: {
+              [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+                sessionId: "ses_fixture",
+                confirmations: [{ toolUseId: "sevt_tool", result: "allow" }],
+              },
+            },
+          },
+          context(),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "continuation_invalid" });
+  });
+
+  it("binds a continuation token to its caller and organization", async () => {
+    mode = "approval";
+    const handler = makeHandler([]);
+    const first = await withCaller(() =>
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Inspect the working tree." }],
+        },
+        context(),
+      ),
+    );
+    const metadata = (first as A2AHandlerResult).message.metadata?.[
+      ANTHROPIC_MANAGED_AGENTS_METADATA_KEY
+    ];
+
+    await expect(
+      withCaller(
+        () =>
+          handler(
+            {
+              role: "user",
+              parts: [{ type: "text", text: "Approve it." }],
+              metadata: {
+                [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+                  ...metadata,
+                  confirmations: [{ toolUseId: "sevt_tool", result: "allow" }],
+                },
+              },
+            },
+            context(),
+          ),
+        "bob@example.test",
+        "org_fixture",
+      ),
+    ).rejects.toMatchObject({ code: "continuation_invalid" });
+
+    await expect(
+      withCaller(
+        () =>
+          handler(
+            {
+              role: "user",
+              parts: [{ type: "text", text: "Approve it." }],
+              metadata: {
+                [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+                  ...metadata,
+                  confirmations: [{ toolUseId: "sevt_tool", result: "allow" }],
+                },
+              },
+            },
+            context(),
+          ),
+        "alice@example.test",
+        "different_org",
+      ),
+    ).rejects.toMatchObject({ code: "continuation_invalid" });
+  });
+
+  it("rejects confirmations outside the signed pending tool set", async () => {
+    mode = "approval";
+    const handler = makeHandler([]);
+    const first = await withCaller(() =>
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Inspect the working tree." }],
+        },
+        context(),
+      ),
+    );
+    const metadata = (first as A2AHandlerResult).message.metadata?.[
+      ANTHROPIC_MANAGED_AGENTS_METADATA_KEY
+    ];
+
+    await expect(
+      withCaller(() =>
+        handler(
+          {
+            role: "user",
+            parts: [{ type: "text", text: "Approve it." }],
+            metadata: {
+              [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+                ...metadata,
+                confirmations: [{ toolUseId: "forged_tool", result: "allow" }],
+              },
+            },
+          },
+          context(),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "continuation_invalid" });
+  });
+
+  it("rejects tampered continuation tokens", async () => {
+    mode = "approval";
+    const handler = makeHandler([]);
+    const first = await withCaller(() =>
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Inspect the working tree." }],
+        },
+        context(),
+      ),
+    );
+    const metadata = (first as A2AHandlerResult).message.metadata?.[
+      ANTHROPIC_MANAGED_AGENTS_METADATA_KEY
+    ] as Record<string, unknown>;
+    const token = String(metadata.continuationToken);
+    const tamperedToken = `${token.slice(0, -1)}${token.endsWith("a") ? "b" : "a"}`;
+
+    await expect(
+      withCaller(() =>
+        handler(
+          {
+            role: "user",
+            parts: [{ type: "text", text: "Approve it." }],
+            metadata: {
+              [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+                ...metadata,
+                continuationToken: tamperedToken,
+                confirmations: [{ toolUseId: "sevt_tool", result: "allow" }],
+              },
+            },
+          },
+          context(),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "continuation_invalid" });
   });
 });

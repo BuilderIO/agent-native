@@ -196,6 +196,18 @@ function normalizeHostedAuth(
   };
 }
 
+export function normalizeHostedAgentCardUrl(
+  value: string,
+  kind?: RemoteAgentKind,
+  auth?: HostedAgentAuth,
+): string | undefined {
+  if (kind?.provider === "anthropic-managed-agents") return undefined;
+  const trimmed = value.trim();
+  return trimmed
+    ? normalizeHostedAgentUrl(trimmed, { requireHttps: Boolean(auth) })
+    : undefined;
+}
+
 export function parseHostedAuth(value: unknown): HostedAgentAuth | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -764,12 +776,15 @@ function AgentAddPopover({
       });
       return;
     }
-    const trimmedCardUrl = normalizedKind ? "" : cardUrl.trim();
+    const trimmedCardUrl = cardUrl.trim();
     if (
+      !normalizedKind &&
       trimmedCardUrl &&
-      !normalizeHostedAgentUrl(trimmedCardUrl, {
-        requireHttps: Boolean(normalizedAuth),
-      })
+      !normalizeHostedAgentCardUrl(
+        trimmedCardUrl,
+        normalizedKind,
+        normalizedAuth,
+      )
     ) {
       setCheck({
         status: "error",
@@ -1342,12 +1357,13 @@ export function AgentsSection() {
             if (!url) return null;
             const rawCardUrl =
               typeof config.cardUrl === "string" ? config.cardUrl.trim() : "";
-            const cardUrl = rawCardUrl
-              ? normalizeHostedAgentUrl(rawCardUrl, {
-                  requireHttps: hostedCredential,
-                })
-              : undefined;
-            if (rawCardUrl && !cardUrl) return null;
+            const cardUrl = normalizeHostedAgentCardUrl(rawCardUrl, kind, auth);
+            if (
+              rawCardUrl &&
+              kind?.provider !== "anthropic-managed-agents" &&
+              !cardUrl
+            )
+              return null;
             return {
               id: r.id,
               path: r.path,
@@ -1402,14 +1418,12 @@ export function AgentsSection() {
       },
     );
     if (!normalizedUrl) throw new Error(t("agentChat.agents.invalidUrl"));
-    const normalizedCardUrl = normalizedKind
-      ? undefined
-      : cardUrl.trim()
-        ? normalizeHostedAgentUrl(cardUrl.trim(), {
-            requireHttps: Boolean(normalizedAuth),
-          })
-        : undefined;
-    if (cardUrl.trim() && !normalizedCardUrl) {
+    const normalizedCardUrl = normalizeHostedAgentCardUrl(
+      cardUrl,
+      normalizedKind,
+      normalizedAuth,
+    );
+    if (!normalizedKind && cardUrl.trim() && !normalizedCardUrl) {
       throw new Error(t("agentChat.agents.invalidUrl"));
     }
     const id = name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -1500,14 +1514,12 @@ export function AgentsSection() {
     );
     if (!normalizedUrl) throw new Error(t("agentChat.agents.invalidUrl"));
     const trimmedCardUrl = agent.cardUrl?.trim() ?? "";
-    const normalizedCardUrl = normalizedKind
-      ? undefined
-      : trimmedCardUrl
-        ? normalizeHostedAgentUrl(trimmedCardUrl, {
-            requireHttps: Boolean(normalizedAuth),
-          })
-        : undefined;
-    if (trimmedCardUrl && !normalizedCardUrl)
+    const normalizedCardUrl = normalizeHostedAgentCardUrl(
+      trimmedCardUrl,
+      normalizedKind,
+      normalizedAuth,
+    );
+    if (!normalizedKind && trimmedCardUrl && !normalizedCardUrl)
       throw new Error(t("agentChat.agents.invalidUrl"));
     const previousAgents = agents;
     setAgents((current) =>

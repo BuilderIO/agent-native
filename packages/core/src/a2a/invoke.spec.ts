@@ -215,7 +215,7 @@ describe("invokeAgent", () => {
         parts: [{ type: "text" as const, text: "Approval required" }],
         metadata: {
           [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
-            sessionId: "ses_fixture",
+            continuationToken: "opaque-fixture-token",
             pendingToolUseIds: ["tool_fixture"],
           },
         },
@@ -250,7 +250,7 @@ describe("invokeAgent", () => {
       responseText: "Approval required",
       taskState: "input-required",
       continuation: {
-        sessionId: "ses_fixture",
+        continuationToken: "opaque-fixture-token",
         pendingToolUseIds: ["tool_fixture"],
       },
     });

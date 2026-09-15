@@ -4,11 +4,14 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { resolveA2ACallerAuth } from "./caller-auth.js";
+import { shouldPreferGlobalA2ASecret, signA2AToken } from "./client.js";
 import {
   RemoteAgentCredentialRejectedError,
   resolveRemoteAgentToken,
   type RemoteAgentCredentialContext,
 } from "./remote-agent-auth.js";
+import { verifyA2AToken } from "./server.js";
 import type {
   A2AHandler,
   A2AHandlerContext,
@@ -24,10 +27,13 @@ export const ANTHROPIC_MANAGED_AGENTS_METADATA_KEY =
 
 const ANTHROPIC_VERSION = "2023-06-01";
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+const DEFAULT_STREAM_CONNECT_TIMEOUT_MS = 15_000;
 const MAX_ERROR_BODY_CHARS = 500;
+const MANAGED_CONTINUATION_TOKEN_TYPE = "anthropic-managed-continuation";
+const MANAGED_CONTINUATION_TOKEN_TTL = "10m";
 
 export interface AnthropicManagedAgentContinuation {
-  sessionId: string;
+  continuationToken: string;
   pendingToolUseIds?: string[];
 }
 
@@ -62,6 +68,7 @@ export interface AnthropicManagedAgentHandlerOptions {
     event: AnthropicManagedAgentRuntimeEvent,
   ) => void | Promise<void>;
   requestTimeoutMs?: number;
+  streamConnectTimeoutMs?: number;
 }
 
 /** Plural alias matching the provider name used in configuration. */
@@ -78,7 +85,8 @@ export type AnthropicManagedAgentsErrorCode =
   | "stream_error"
   | "failed_state"
   | "approval_required"
-  | "unsupported_action";
+  | "unsupported_action"
+  | "continuation_invalid";
 
 export class AnthropicManagedAgentsError extends Error {
   readonly code: AnthropicManagedAgentsErrorCode;
@@ -98,6 +106,7 @@ export class AnthropicManagedAgentsError extends Error {
 }
 
 interface ManagedAgentMetadata extends AnthropicManagedAgentContinuation {
+  sessionId: string;
   confirmations?: AnthropicManagedAgentConfirmation[];
 }
 
@@ -124,7 +133,7 @@ export function createAnthropicManagedAgentsHandler(
     context: A2AHandlerContext,
   ): Promise<A2AHandlerResult> {
     const apiKey = await resolveApiKey(options);
-    const metadata = readManagedAgentMetadata(message, context);
+    const metadata = await readManagedAgentMetadata(message, context, options);
     const sessionId =
       metadata?.sessionId ??
       (await createSession({
@@ -229,6 +238,121 @@ async function resolveApiKey(
   return value.trim();
 }
 
+interface ManagedContinuationTokenClaims {
+  sessionId: string;
+  pendingToolUseIds: string[];
+}
+
+function invalidContinuation(message?: string): AnthropicManagedAgentsError {
+  return new AnthropicManagedAgentsError({
+    code: "continuation_invalid",
+    message:
+      message ??
+      "The Anthropic Managed Agents continuation token is invalid or expired.",
+  });
+}
+
+async function mintContinuationToken(
+  sessionId: string,
+  pendingToolUseIds: string[],
+  options: AnthropicManagedAgentHandlerOptions,
+): Promise<string> {
+  const caller = await resolveA2ACallerAuth({
+    expiresIn: MANAGED_CONTINUATION_TOKEN_TTL,
+  });
+  if (!caller.userEmail) {
+    throw invalidContinuation(
+      "Anthropic Managed Agents approvals require an authenticated caller.",
+    );
+  }
+  try {
+    return await signA2AToken(
+      caller.userEmail,
+      caller.orgDomain,
+      caller.orgSecret,
+      {
+        expiresIn: MANAGED_CONTINUATION_TOKEN_TTL,
+        preferGlobalSecret: shouldPreferGlobalA2ASecret(caller.orgSecret),
+        extraClaims: {
+          typ: MANAGED_CONTINUATION_TOKEN_TYPE,
+          managed_session_id: sessionId,
+          managed_pending_tool_use_ids: pendingToolUseIds,
+          managed_agent_id: options.agentId.trim(),
+          managed_environment_id: options.environmentId.trim(),
+          managed_agent_url: normalizeApiBaseUrl(options.apiBaseUrl),
+          ...(caller.orgId ? { org_id: caller.orgId } : {}),
+        },
+      },
+    );
+  } catch (cause) {
+    throw new AnthropicManagedAgentsError({
+      code: "continuation_invalid",
+      message:
+        "Anthropic Managed Agents could not create a secure continuation token.",
+      cause,
+    });
+  }
+}
+
+async function verifyContinuationToken(
+  token: string,
+  context: A2AHandlerContext,
+  options: AnthropicManagedAgentHandlerOptions,
+): Promise<ManagedContinuationTokenClaims> {
+  const caller = await resolveA2ACallerAuth();
+  if (!caller.userEmail) throw invalidContinuation();
+
+  let verified;
+  try {
+    verified = await verifyA2AToken(token, context.event, {
+      includeClaims: true,
+    });
+    if (verified.email === null && caller.orgSecret) {
+      verified = await verifyA2AToken(token, context.event, {
+        includeClaims: true,
+        verificationSecret: caller.orgSecret,
+      });
+    }
+  } catch (cause) {
+    throw new AnthropicManagedAgentsError({
+      code: "continuation_invalid",
+      message:
+        "The Anthropic Managed Agents continuation token is invalid or expired.",
+      cause,
+    });
+  }
+  const claims = verified.claims;
+  if (
+    !claims ||
+    verified.email?.trim().toLowerCase() !==
+      caller.userEmail.trim().toLowerCase() ||
+    (verified.orgId ?? undefined) !== (caller.orgId ?? undefined) ||
+    claims.typ !== MANAGED_CONTINUATION_TOKEN_TYPE ||
+    readString(claims.managed_agent_id) !== options.agentId.trim() ||
+    readString(claims.managed_environment_id) !==
+      options.environmentId.trim() ||
+    readString(claims.managed_agent_url) !==
+      normalizeApiBaseUrl(options.apiBaseUrl)
+  ) {
+    throw invalidContinuation();
+  }
+
+  const sessionId = readString(claims.managed_session_id);
+  const pendingToolUseIds = readTokenStringArray(
+    claims.managed_pending_tool_use_ids,
+  );
+  if (!sessionId || !pendingToolUseIds) throw invalidContinuation();
+  return { sessionId, pendingToolUseIds };
+}
+
+function readTokenStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const values = value.map(readString);
+  return values.every((value): value is string => Boolean(value))
+    ? values
+    : undefined;
+}
+
 function requestHeaders(apiKey: string, accept = "application/json") {
   return {
     Accept: accept,
@@ -311,6 +435,17 @@ async function runSessionTurn(args: {
   options: AnthropicManagedAgentHandlerOptions;
 }): Promise<AnthropicManagedAgentEvent[]> {
   const controller = new AbortController();
+  let connectTimedOut = false;
+  const connectTimeout = setTimeout(
+    () => {
+      connectTimedOut = true;
+      controller.abort();
+    },
+    Math.min(
+      args.options.streamConnectTimeoutMs ?? DEFAULT_STREAM_CONNECT_TIMEOUT_MS,
+      args.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+    ),
+  );
   const timeout = setTimeout(
     () => controller.abort(),
     args.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
@@ -318,12 +453,22 @@ async function runSessionTurn(args: {
   let streamPromise: Promise<AnthropicManagedAgentEvent[]> | undefined;
   try {
     const streamBody = await openEventStream({ ...args, controller });
+    clearTimeout(connectTimeout);
     streamPromise = readEventStream(streamBody, controller.signal);
     await sendEvents({ ...args, controller });
     return await streamPromise;
   } catch (cause) {
+    clearTimeout(connectTimeout);
     controller.abort();
     await streamPromise?.catch(() => undefined);
+    if (connectTimedOut) {
+      throw new AnthropicManagedAgentsError({
+        code: "stream_error",
+        message:
+          "Anthropic Managed Agents stream connection timed out before response headers arrived.",
+        cause,
+      });
+    }
     if (cause instanceof AnthropicManagedAgentsError) throw cause;
     throw new AnthropicManagedAgentsError({
       code: "stream_error",
@@ -573,6 +718,11 @@ async function mapSessionEvents(
       : [];
 
   if (pendingToolUseIds.length) {
+    const continuationToken = await mintContinuationToken(
+      sessionId,
+      pendingToolUseIds,
+      options,
+    );
     const approvals = pendingToolUseIds.map((id) => {
       const toolEvent = events.find(
         (event) =>
@@ -626,7 +776,7 @@ async function mapSessionEvents(
         metadata: {
           agentNativeTaskState: "input-required",
           [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
-            sessionId,
+            continuationToken,
             pendingToolUseIds,
           } satisfies AnthropicManagedAgentContinuation,
         },
@@ -654,17 +804,15 @@ async function mapSessionEvents(
     message: {
       role: "agent",
       parts: [{ type: "text", text }],
-      metadata: {
-        [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: { sessionId },
-      },
     },
   };
 }
 
-function readManagedAgentMetadata(
+async function readManagedAgentMetadata(
   message: Message,
   context: A2AHandlerContext,
-): ManagedAgentMetadata | undefined {
+  options: AnthropicManagedAgentHandlerOptions,
+): Promise<ManagedAgentMetadata | undefined> {
   const raw =
     message.metadata?.[ANTHROPIC_MANAGED_AGENTS_METADATA_KEY] ??
     context.metadata?.[ANTHROPIC_MANAGED_AGENTS_METADATA_KEY];
@@ -676,22 +824,38 @@ function readManagedAgentMetadata(
     });
   }
   const value = raw as Record<string, unknown>;
-  const sessionId = readString(value.sessionId);
-  if (!sessionId) {
-    throw new AnthropicManagedAgentsError({
-      code: "invalid_response",
-      message:
-        "Anthropic Managed Agents continuation metadata is missing a session ID.",
-    });
-  }
+  const continuationToken = readString(value.continuationToken);
+  if (!continuationToken) throw invalidContinuation();
+  const continuation = await verifyContinuationToken(
+    continuationToken,
+    context,
+    options,
+  );
   const pendingToolUseIds = readOptionalStringArray(
     value.pendingToolUseIds,
     "pendingToolUseIds",
   );
+  if (
+    pendingToolUseIds.length > 0 &&
+    (pendingToolUseIds.length !== continuation.pendingToolUseIds.length ||
+      pendingToolUseIds.some(
+        (id, index) => id !== continuation.pendingToolUseIds[index],
+      ))
+  ) {
+    throw invalidContinuation();
+  }
   const confirmations = readOptionalConfirmations(value.confirmations);
+  if (
+    confirmations?.some(
+      ({ toolUseId }) => !continuation.pendingToolUseIds.includes(toolUseId),
+    )
+  ) {
+    throw invalidContinuation();
+  }
   return {
-    sessionId,
-    ...(pendingToolUseIds.length ? { pendingToolUseIds } : {}),
+    sessionId: continuation.sessionId,
+    continuationToken,
+    pendingToolUseIds: continuation.pendingToolUseIds,
     ...(confirmations?.length ? { confirmations } : {}),
   };
 }

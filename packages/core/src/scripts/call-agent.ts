@@ -414,7 +414,7 @@ function parseManagedAgentConfirmations(
 
 interface ManagedAgentRunResult {
   responseText: string;
-  sessionId: string;
+  continuationToken?: string;
   taskState?: "input-required";
 }
 
@@ -447,7 +447,7 @@ async function runAnthropicManagedAgent(args: {
   });
 
   let status: "done" | "pending" | "error" = "error";
-  let sessionId = args.taskId;
+  let continuationToken = args.taskId || undefined;
   try {
     const handler = createAnthropicManagedAgentsHandler({
       agentId: kind.agentId,
@@ -460,7 +460,7 @@ async function runAnthropicManagedAgent(args: {
           type: "approval_required",
           tool: event.toolName ?? "managed-agent-tool",
           input: stringifyManagedAgentApprovalInput(event.input),
-          approvalKey: `anthropic-managed-agents:${event.sessionId ?? sessionId}:${toolCallId}`,
+          approvalKey: `anthropic-managed-agents:${event.sessionId ?? continuationToken ?? toolCallId}:${toolCallId}`,
           allowPersistentApproval: false,
           ...(toolCallId ? { toolCallId } : {}),
         });
@@ -469,7 +469,7 @@ async function runAnthropicManagedAgent(args: {
     const metadata = args.taskId
       ? {
           [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
-            sessionId: args.taskId,
+            continuationToken: args.taskId,
             ...(args.confirmations?.length
               ? { confirmations: args.confirmations }
               : {}),
@@ -493,7 +493,7 @@ async function runAnthropicManagedAgent(args: {
     const resultMetadata =
       result.message.metadata?.[ANTHROPIC_MANAGED_AGENTS_METADATA_KEY];
     const continuation = readManagedAgentContinuation(resultMetadata);
-    sessionId = continuation?.sessionId ?? args.taskId;
+    continuationToken = continuation?.continuationToken ?? args.taskId;
     const responseText = result.message.parts
       .filter((part): part is { type: "text"; text: string } => {
         return part.type === "text";
@@ -505,7 +505,7 @@ async function runAnthropicManagedAgent(args: {
     status = taskState === "input-required" ? "pending" : "done";
     const continuationHint =
       taskState === "input-required" && continuation?.pendingToolUseIds?.length
-        ? `\n\nThe ${args.agent.name} agent is waiting for approval in session "${sessionId}" for tool event IDs ${continuation.pendingToolUseIds.map((id) => `"${id}"`).join(", ")}. After the user decides, call call-agent with agent="${args.agentIdOrName}", taskId="${sessionId}", and managedAgentConfirmations containing the exact IDs with result "allow" or "deny".`
+        ? `\n\nThe ${args.agent.name} agent is waiting for approval. After the user decides, call call-agent with agent="${args.agentIdOrName}", taskId="${continuation.continuationToken}", and managedAgentConfirmations containing the exact IDs ${continuation.pendingToolUseIds.map((id) => `"${id}"`).join(", ")} with result "allow" or "deny".`
         : "";
     const output = responseText + continuationHint;
     if (output) {
@@ -518,7 +518,7 @@ async function runAnthropicManagedAgent(args: {
     }
     return {
       responseText: output,
-      sessionId,
+      continuationToken,
       ...(taskState ? { taskState } : {}),
     };
   } catch (error) {
@@ -530,7 +530,7 @@ async function runAnthropicManagedAgent(args: {
       agent: args.agent.name,
       status,
       agentCallId,
-      ...(sessionId ? { taskId: sessionId } : {}),
+      ...(continuationToken ? { taskId: continuationToken } : {}),
       durationMs: Date.now() - startedAt,
       ...(status === "pending" ? { terminalCode: "input_required" } : {}),
     });
@@ -544,15 +544,15 @@ function readManagedAgentContinuation(
     return undefined;
   }
   const candidate = value as Record<string, unknown>;
-  const sessionId = stringifyValue(candidate.sessionId).trim();
-  if (!sessionId) return undefined;
+  const continuationToken = stringifyValue(candidate.continuationToken).trim();
+  if (!continuationToken) return undefined;
   const pendingToolUseIds = Array.isArray(candidate.pendingToolUseIds)
     ? candidate.pendingToolUseIds
         .map((item) => stringifyValue(item).trim())
         .filter(Boolean)
     : [];
   return {
-    sessionId,
+    continuationToken,
     ...(pendingToolUseIds.length ? { pendingToolUseIds } : {}),
   };
 }
@@ -579,7 +579,7 @@ export const tool: ActionTool = {
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
     '(b) If it does NOT contain a URL/ID and the user asked for one, say so explicitly (e.g. "the agent created the deck/image but didn\'t return a link — open the app directly to view it"). NEVER invent a URL, slug, or path — guessing produces broken links that look real. ' +
     "(c) If the downstream response reports missing credentials, never repeat raw env var names, Vault key names, token names, secret names, or other credential identifiers. Tell the user the target app needs its LLM/provider connection configured. " +
-    "(d) A bounded wait can expire while the remote task is still healthy. The result will include its taskId and exact retry instructions. Continue polling that SAME task with taskId; NEVER send a new check-in/follow-up message, because that starts duplicate downstream work.",
+    "(d) A bounded wait can expire while the remote task is still healthy. The result will include its taskId and exact retry instructions. Continue polling that SAME task with taskId; NEVER send a new check-in/follow-up message, because that starts duplicate downstream work. For Anthropic Managed Agents, taskId is an opaque signed continuation token returned after approval is required; pass it back exactly as shown and never substitute a session ID.",
   parameters: {
     type: "object",
     properties: {
@@ -596,7 +596,7 @@ export const tool: ActionTool = {
       taskId: {
         type: "string",
         description:
-          "Existing A2A task ID returned by a timed-out call. Polls that exact task without sending a new message. Never create a fresh check-in message for work that already has a taskId.",
+          "Existing A2A task ID returned by a timed-out call, or the opaque signed continuation token returned by an Anthropic Managed Agents approval. Pass it back exactly without sending a fresh check-in message.",
       },
       action: {
         type: "string",
@@ -854,7 +854,7 @@ export async function run(
       });
       invocationStatus =
         managed.taskState === "input-required" ? "pending" : "success";
-      invocationTaskId = managed.sessionId;
+      invocationTaskId = managed.continuationToken;
       invocationTerminalCode =
         managed.taskState === "input-required" ? "input_required" : undefined;
       return managed.responseText;
