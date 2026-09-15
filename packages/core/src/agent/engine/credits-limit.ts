@@ -38,17 +38,6 @@ export interface CreditsLimitInfo {
   resetsInMs?: number;
 }
 
-/**
- * Mirrors the server rule exactly: a `credits-limit-*` code, or a bare 402 the
- * gateway sent no structured code for. `emitHttpError` treats both as quota, so
- * a client predicate that only accepted the former would drop the Agent Credits
- * CTA on precisely the rejection that explains itself least.
- */
-export function isCreditsRejectionCode(code: string | undefined): boolean {
-  if (typeof code !== "string") return false;
-  return code.startsWith("credits-limit") || code === "http_402";
-}
-
 export function creditsLimitWindowFromCode(
   code: string | undefined,
 ): CreditsLimitWindow {
@@ -132,6 +121,15 @@ export function normalizeAgentCreditsTerminology(text: string): string {
     .replace(/\bAI(\s+)credit\b/gi, (_m, gap: string) => `Agent${gap}Credit`);
 }
 
+/**
+ * A bare status phrase ("Payment Required", "402") is not credits information,
+ * and echoing it tells the reader less than the generic line does. Only prose
+ * that actually names the balance is worth carrying over.
+ */
+export function mentionsCredits(text: string | undefined): text is string {
+  return typeof text === "string" && /\bcredits?\b/i.test(text);
+}
+
 /** Gateway sentences arrive with and without terminal punctuation. */
 function endWithStop(text: string): string {
   return /[.!?]$/.test(text) ? text : `${text}.`;
@@ -198,7 +196,7 @@ export function formatCreditsLimitMessage(
   const windowWord = info.window === "unknown" ? "" : `${info.window} `;
   if (info.limit === undefined) {
     if (info.window === "unknown") {
-      const carried = gatewayMessage?.trim()
+      const carried = mentionsCredits(gatewayMessage)
         ? endWithStop(normalizeAgentCreditsTerminology(gatewayMessage.trim()))
         : CREDITS_LIMIT_GENERIC_MESSAGE;
       return reset ? `${carried} ${reset}` : carried;

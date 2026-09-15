@@ -64,6 +64,7 @@ import {
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
   isContextOverflowMessage,
+  isCreditsLimitErrorCode,
   isProviderConnectionErrorMessage,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
@@ -620,7 +621,12 @@ function gatewayErrorStop(
     type: "stop",
     reason: "error",
     ...(creditsLane
-      ? gatewayVisitorFacingError(errorCode)
+      ? {
+          ...gatewayVisitorFacingError(errorCode),
+          ...(isCreditsLimitErrorCode(errorCode) && upgradeUrl
+            ? { upgradeUrl }
+            : {}),
+        }
       : {
           error,
           ...(errorCode ? { errorCode } : {}),
@@ -706,25 +712,28 @@ async function* emitHttpError(
       opts.requestShape,
     );
 
-  // Belt-and-suspenders: 402 without a structured `credits-limit` code
-  // (e.g. bare proxy response) still means quota → show upgrade CTA.
-  if (code.startsWith("credits-limit") || status === 402) {
-    // The gateway's own sentence names neither the allowance nor the reset,
-    // and calls the balance "AI credits" while the page the CTA opens calls it
-    // "Agent Credits". Both are decided in one place (`credits-limit.ts`) so
-    // every lane that surfaces this rejection says the same thing.
+  // Belt-and-suspenders: a bare or otherwise uncoded 402 still means quota on
+  // the Builder gateway.
+  const quotaErrorCode =
+    status === 402 && !isCreditsLimitErrorCode(code) ? "http_402" : code;
+  if (isCreditsLimitErrorCode(code) || status === 402) {
+    // The gateway's own sentence names neither the allowance nor the reset, and
+    // calls the balance "AI credits" while the page the CTA opens calls it
+    // "Agent Credits". Both are decided in `credits-limit.ts` so every lane
+    // that surfaces this rejection says the same thing.
+    //
     // NOT `retryAfterMs`: that one is clamped to 60s so a single retry cannot
-    // eat the run budget, and a daily cap that clears at midnight would be
-    // announced as "resets in about 1 minute".
+    // eat the run budget, and a daily cap clearing at midnight would otherwise
+    // be announced as "resets in about 1 minute".
     const resetInMs =
       parseRetryAfterMs(Object.fromEntries(response.headers.entries())) ??
       undefined;
     yield stop({
       error: formatCreditsLimitMessage(
-        parseCreditsLimitInfo(errBody, code, resetInMs),
+        parseCreditsLimitInfo(errBody, quotaErrorCode, resetInMs),
         message,
       ),
-      errorCode: code,
+      errorCode: quotaErrorCode,
       upgradeUrl: await buildUpgradeUrl(),
     });
     return;
@@ -1061,7 +1070,13 @@ async function* parseJsonlStream(
             console.warn(
               `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} error=${errMsg}`,
             );
-            yield stop({ error: errMsg, errorCode: errCode });
+            yield stop({
+              error: errMsg,
+              errorCode: errCode,
+              ...(isCreditsLimitErrorCode(errCode)
+                ? { upgradeUrl: await buildUpgradeUrl() }
+                : {}),
+            });
           } else if (reason === "error") {
             // Surface every diagnostic the gateway gave us so the user (and
             // our logs) get more than a bare "Gateway error". The gateway
@@ -1152,6 +1167,9 @@ async function* parseJsonlStream(
                 ? "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying."
                 : String(errMsg),
               ...(errCode ? { errorCode: errCode } : {}),
+              ...(isCreditsLimitErrorCode(errCode)
+                ? { upgradeUrl: await buildUpgradeUrl() }
+                : {}),
               ...(isBareRejection ? { statusCode: 403 } : {}),
               // The upstream provider giving up ("Overloaded", a bare 529) is
               // retryable, and the raw text is the only place it says so — a

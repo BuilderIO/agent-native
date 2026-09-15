@@ -1,16 +1,19 @@
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import {
   BUILDER_AGENT_CREDITS_DOCS_URL,
+  mentionsCredits,
   CREDITS_LIMIT_DAILY_MESSAGE,
   CREDITS_LIMIT_GENERIC_MESSAGE,
   CREDITS_LIMIT_MONTHLY_MESSAGE,
-  isCreditsRejectionCode,
   normalizeAgentCreditsTerminology,
 } from "../agent/engine/credits-limit.js";
 import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isCreditsLimitErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
+
+export { isCreditsLimitErrorCode } from "../agent/engine/error-detail.js";
 
 /**
  * Append a Builder CTA markdown link to gateway errors that users can fix
@@ -79,6 +82,8 @@ const GATEWAY_INTERNAL_ERROR_MESSAGE =
  */
 const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
   "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
+const CREDITS_LIMIT_REACHED_MESSAGE =
+  "You've reached your Agent Credits limit.";
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -96,6 +101,18 @@ export function formatChatErrorText(
   errorCode?: string,
 ): string {
   const normalized = normalizeChatError(errorMessage, errorCode);
+  // Quota is a state, not a fault, so it keeps the calm no-"Error:" treatment
+  // for both the fixed visitor line and the engine's detailed sentence. Two
+  // shapes of the same notice would only invite them to drift apart.
+  if (isCreditsLimitErrorCode(errorCode)) {
+    const ctas = [
+      ...(upgradeUrl && isSafeUpgradeUrl(upgradeUrl)
+        ? [`[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`]
+        : []),
+      `[${SEE_AGENT_CREDITS_LIMIT_LABEL}](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
+    ];
+    return [normalized.message, ...ctas].join("\n\n");
+  }
   if (
     !isServerChosenVisitorMessage(normalized.message) &&
     (errorCode === "gateway_not_enabled" ||
@@ -115,11 +132,7 @@ export function formatChatErrorText(
   if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
     return `Error: ${normalized.message}`;
   }
-  const upgradeCta = `[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`;
-  if (isCreditsRejectionCode(errorCode)) {
-    return `Error: ${normalized.message}\n\n${upgradeCta}\n\n[${SEE_AGENT_CREDITS_LIMIT_LABEL}](${BUILDER_AGENT_CREDITS_DOCS_URL})`;
-  }
-  return `Error: ${normalized.message}\n\n${upgradeCta}`;
+  return `Error: ${normalized.message}\n\n[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`;
 }
 
 export interface NormalizedChatError {
@@ -137,8 +150,8 @@ export interface NormalizedChatError {
  * Settings" to someone with no account. This is an identity check against the
  * exported constant, not a keyword match: the rewrite is the whole message.
  *
- * Deliberately not a `KNOWN_CHAT_ERROR_KEYS` entry: that map localizes copy,
- * while this returns before any mapping runs at all.
+ * Quota copy is resolved by its safe code before this message guard. Other
+ * visitor messages return unchanged before any copy mapping runs.
  */
 function isServerChosenVisitorMessage(text: string): boolean {
   return text === GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
@@ -150,6 +163,10 @@ type ErrorTranslate = (
 ) => string;
 
 const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
+  [
+    CREDITS_LIMIT_REACHED_MESSAGE,
+    "agentChat.errorMessages.creditsLimitReached",
+  ],
   [
     "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
@@ -377,29 +394,33 @@ export function normalizeChatError(
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
+  const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
 
-  // Ahead of every mapping below, including the provider-payload fallback: the
-  // server already chose this reader's message, and any re-derivation from a
-  // code hands a visitor the owner instruction it deliberately removed.
+  // Quota is the one safe recovery detail exposed by the Builder-credits lane;
+  // other server-selected visitor messages stay opaque below.
+  if (isCreditsLimitErrorCode(code)) {
+    // The credits lane replaces the gateway's text before it reaches the
+    // client, so the fact of the limit is all that is left, and quota is the
+    // one recovery detail safe to name for a visitor who does not own the
+    // account. Every other lane carries the engine's composed sentence, which
+    // names the window, the reset, and the allowance; flattening that to the
+    // fixed line would discard the answer this notice exists to give.
+    const carried = text.trim();
+    if (!mentionsCredits(carried) || isServerChosenVisitorMessage(carried)) {
+      return { message: CREDITS_LIMIT_REACHED_MESSAGE };
+    }
+    const renamed = normalizeAgentCreditsTerminology(carried);
+    return renamed === carried
+      ? { message: carried }
+      : { message: renamed, details: carried };
+  }
+  // The server-selected visitor message must not reveal owner-only details.
   if (isServerChosenVisitorMessage(text)) return { message: text };
 
-  const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const providerMessage =
     providerPayload?.errorCode === "overloaded_error"
       ? "The model provider is overloaded right now. Wait a moment, then retry."
       : providerPayload?.message;
-
-  // The Builder engine already composes this copy for rejections it handled.
-  // The same balance also surfaces through transcription, realtime voice, and
-  // complete-text, and through threads persisted before that change, all of
-  // which still carry the gateway's "AI credits" wording for a balance every
-  // Builder.io billing page calls Agent Credits.
-  if (isCreditsRejectionCode(code)) {
-    const renamed = normalizeAgentCreditsTerminology(text);
-    return renamed === text
-      ? { message: text }
-      : { message: renamed, details: text };
-  }
 
   if (code === "builder_model_unauthorized") {
     return {

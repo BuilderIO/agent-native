@@ -121,9 +121,12 @@ export function buildTimeOptions({
 }
 
 /**
- * Keeps the range valid when the start moves. An end that would land on or
- * before the new start is pushed forward by the duration the draft already
- * had, so the user never holds an end-before-start event.
+ * Preserves duration when the start moves, in either direction. The end is
+ * shifted by exactly the amount the start moved, so a 45-minute block stays a
+ * 45-minute block whether the start moves later (past the old end) or earlier
+ * (while the old end is still technically valid) - matching what Google
+ * Calendar does and what a picker that only fixed invalid ranges could not:
+ * an earlier start left the end untouched and silently lengthened the event.
  *
  * Duration here is deliberately wall-clock, not elapsed: these are the picker's
  * own `YYYY-MM-DD` + `HH:mm` values, and the timezone is applied later at
@@ -137,19 +140,29 @@ export function shiftEndForStartChange(
   nextStartTime: string,
 ): EventTimeRange {
   const next = { ...range, startTime: nextStartTime };
+  const currentStart = rangeToAbsoluteMinutes(range.date, range.startTime);
   const nextStart = rangeToAbsoluteMinutes(next.date, nextStartTime);
-  const currentEnd = rangeToAbsoluteMinutes(range.endDate, range.endTime);
-  if (nextStart === null || currentEnd === null) return next;
-  if (currentEnd > nextStart) return next;
+  if (currentStart === null || nextStart === null) return next;
 
-  const previousDuration = eventDurationMinutes(range);
-  const duration = Math.max(
-    TIME_SLOT_MINUTES,
-    previousDuration ?? TIME_SLOT_MINUTES,
-  );
-  const shifted = addMinutesToTimeValue(next.date, nextStartTime, duration);
+  const delta = nextStart - currentStart;
+  const shifted = addMinutesToTimeValue(range.endDate, range.endTime, delta);
   if (!shifted) return next;
-  return { ...next, endDate: shifted.date, endTime: shifted.time };
+  const shiftedEnd = rangeToAbsoluteMinutes(shifted.date, shifted.time);
+  if (shiftedEnd !== null && shiftedEnd > nextStart) {
+    return { ...next, endDate: shifted.date, endTime: shifted.time };
+  }
+
+  // The stored range already had end <= start (corrupt data, since a valid
+  // duration always stays positive under an equal shift). Repair it to a
+  // minimum-duration range instead of preserving the invalid gap, which
+  // would otherwise get rejected at save time with no way to fix it here.
+  const repaired = addMinutesToTimeValue(
+    next.date,
+    nextStartTime,
+    TIME_SLOT_MINUTES,
+  );
+  if (!repaired) return next;
+  return { ...next, endDate: repaired.date, endTime: repaired.time };
 }
 
 /**

@@ -378,6 +378,8 @@ const messages: AgentChatTranslation = {
     "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
   "errorMessages.gatewayNoDetails":
     "لم تُرجع بوابة النموذج أي تفاصيل عن الخطأ وتعذّر على المحادثة الاسترداد. انتظر قليلًا ثم أعد المحاولة، أو ابدأ محادثة جديدة إذا استمرت المشكلة.",
+  "errorMessages.creditsLimitReached":
+    "لقد وصلت إلى حد Agent Credits الخاص بك.",
   "errorMessages.inactivityTimeout":
     "انتهت مهلة اتصال الوكيل قبل أن يتمكن من الإكمال. يمكنك المتابعة من العمل الجزئي أو إعادة المحاولة.",
   "errorMessages.invalidToolSchema":
@@ -404,6 +406,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "غير مفيد",
   "feedback.placeholder": "أخبرنا بما حدث من خطأ...",
   "feedback.submit": "إرسال",
+  "feedback.submitted": "تم إرسال الملاحظات",
   "feedback.thumbsDown": "عدم إعجاب",
   "feedback.thumbsUp": "إعجاب",
   "feedback.tooSlow": "بطيء جدًا",

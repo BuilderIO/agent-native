@@ -6,10 +6,10 @@ import {
   CREDITS_LIMIT_MONTHLY_MESSAGE,
   creditsLimitWindowFromCode,
   formatCreditsLimitMessage,
-  isCreditsRejectionCode,
   normalizeAgentCreditsTerminology,
   parseCreditsLimitInfo,
 } from "./credits-limit.js";
+import { isCreditsLimitErrorCode } from "./error-detail.js";
 
 describe("parseCreditsLimitInfo", () => {
   it("reads the window from usageInfo ahead of the code", () => {
@@ -161,18 +161,18 @@ describe("normalizeAgentCreditsTerminology", () => {
 
 describe("code helpers", () => {
   it("recognizes every credits-limit variant", () => {
-    expect(isCreditsRejectionCode("credits-limit-daily")).toBe(true);
-    expect(isCreditsRejectionCode("credits-limit-monthly")).toBe(true);
-    expect(isCreditsRejectionCode("credits-limit-reached")).toBe(true);
-    expect(isCreditsRejectionCode("rate_limit_exceeded")).toBe(false);
-    expect(isCreditsRejectionCode(undefined)).toBe(false);
+    expect(isCreditsLimitErrorCode("credits-limit-daily")).toBe(true);
+    expect(isCreditsLimitErrorCode("credits-limit-monthly")).toBe(true);
+    expect(isCreditsLimitErrorCode("credits-limit-reached")).toBe(true);
+    expect(isCreditsLimitErrorCode("rate_limit_exceeded")).toBe(false);
+    expect(isCreditsLimitErrorCode(undefined)).toBe(false);
   });
 
   // The server treats a bare 402 as quota too, so the client must agree or the
   // rejection that explains itself least is the one that loses the docs CTA.
   it("matches the bare 402 the server also treats as quota", () => {
-    expect(isCreditsRejectionCode("http_402")).toBe(true);
-    expect(isCreditsRejectionCode("http_403")).toBe(false);
+    expect(isCreditsLimitErrorCode("http_402")).toBe(true);
+    expect(isCreditsLimitErrorCode("http_403")).toBe(false);
   });
 
   it("maps codes to their window", () => {

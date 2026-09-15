@@ -20,6 +20,8 @@ function interpolate(
     "agentChat.errorMessages.providerAuthentication":
       "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
     "agentChat.errorMessages.errorPrefix": "Fehler: {{message}}",
+    "agentChat.errorMessages.creditsLimitReached":
+      "Du hast dein KI-Credit-Limit erreicht.",
     "agentChat.errorMessages.openBuilderSpaceSettings":
       "Builder-Space-Einstellungen öffnen",
     "agentChat.errorMessages.startNewChat": "Neuen Chat starten",
@@ -55,15 +57,42 @@ describe("formatChatErrorText", () => {
     ).toContain(`[Open Builder space settings](${BUILDER_SPACE_SETTINGS_URL})`);
   });
 
-  it("keeps quota errors on the billing CTA and names where the limit is published", () => {
+  // Carries #5004's calm treatment (no "Error:" language) while keeping the
+  // engine's composed sentence, which is the whole point of surfacing a limit.
+  it("shows quota copy and both CTAs without error language", () => {
+    const text = formatChatErrorText(
+      "You've reached the monthly Agent Credits limit for your current plan. Monthly credits reset on the first of the month.",
+      agentNativeUpgradeUrl,
+      "credits-limit-monthly",
+    );
+
+    expect(text).toBe(
+      `You've reached the monthly Agent Credits limit for your current plan. Monthly credits reset on the first of the month.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})\n\n[See your Agent Credits limit](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
+    );
+    expect(text).not.toMatch(/error|!/i);
+  });
+
+  // The credits lane strips the gateway's text, so the fixed line is all that
+  // is safe to show a visitor who does not own the account.
+  it("falls back to the fixed line when the server stripped the message", () => {
     expect(
       formatChatErrorText(
-        "Monthly credits limit reached.",
+        GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
         agentNativeUpgradeUrl,
         "credits-limit-monthly",
       ),
+    ).toContain("You've reached your Agent Credits limit.");
+  });
+
+  it("treats a bare HTTP 402 as a credit limit", () => {
+    expect(
+      formatChatErrorText(
+        "Payment Required",
+        agentNativeUpgradeUrl,
+        "http_402",
+      ),
     ).toBe(
-      `Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})\n\n[See your Agent Credits limit](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
+      `You've reached your Agent Credits limit.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})\n\n[See your Agent Credits limit](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
     );
   });
 
@@ -252,7 +281,6 @@ describe("formatChatErrorText", () => {
       "builder_model_unauthorized",
       "email_verification_required",
       "provider_config_error",
-      "credits-limit-reached",
       "rate_limit_exceeded",
       "gateway_not_enabled",
       "too_many_concurrent_requests",
@@ -282,6 +310,24 @@ describe("formatChatErrorText", () => {
         ).toBe(`Error: ${GATEWAY_UNAVAILABLE_VISITOR_MESSAGE}`);
       });
     }
+
+    it("shows the safe quota recovery for a visitor", () => {
+      expect(
+        normalizeChatError(
+          GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+          "credits-limit-monthly",
+        ),
+      ).toEqual({ message: "You've reached your Agent Credits limit." });
+      expect(
+        formatChatErrorText(
+          GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+          agentNativeUpgradeUrl,
+          "credits-limit-monthly",
+        ),
+      ).toBe(
+        `You've reached your Agent Credits limit.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})\n\n[See your Agent Credits limit](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
+      );
+    });
 
     it("still maps the same codes for an owner-facing message", () => {
       expect(

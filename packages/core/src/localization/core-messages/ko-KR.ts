@@ -370,6 +370,7 @@ const messages: AgentChatTranslation = {
     "에이전트가 답변하기 전에 모델 게이트웨이에서 내부 오류가 발생했습니다. 잠시 후 다시 시도하고, 계속 발생하면 아래 오류 ID를 알려 주세요.",
   "errorMessages.gatewayNoDetails":
     "모델 게이트웨이가 오류 세부 정보를 반환하지 않아 채팅을 복구할 수 없습니다. 잠시 후 다시 시도하고, 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.creditsLimitReached": "Agent Credits 한도에 도달했습니다.",
   "errorMessages.inactivityTimeout":
     "에이전트 연결이 완료 전에 시간 초과되었습니다. 부분적으로 완료된 작업에서 계속하거나 다시 시도할 수 있습니다.",
   "errorMessages.invalidToolSchema":
@@ -396,6 +397,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "도움이 되지 않음",
   "feedback.placeholder": "무엇이 문제였는지 알려주세요…",
   "feedback.submit": "제출",
+  "feedback.submitted": "피드백이 제출되었습니다",
   "feedback.thumbsDown": "싫어요",
   "feedback.thumbsUp": "좋아요",
   "feedback.tooSlow": "너무 느림",
