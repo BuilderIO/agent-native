@@ -20,8 +20,6 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { scim } from "@better-auth/scim";
-import { sso } from "@better-auth/sso";
 import {
   betterAuth,
   type BetterAuthOptions,
@@ -1963,6 +1961,7 @@ async function createBetterAuthInstance(
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
   if (access.sso.enabled) {
+    const { sso } = await import("@better-auth/sso");
     enterprisePlugins.push(
       sso({
         domainVerification: { enabled: true },
@@ -1994,6 +1993,7 @@ async function createBetterAuthInstance(
     );
   }
   if (access.scim.enabled) {
+    const { scim } = await import("@better-auth/scim");
     // Better Auth intentionally requires a separate 32-character HMAC secret
     // for managed SCIM credentials. Falling back to the deployment auth secret
     // keeps the opt-in feature usable for existing deployments while allowing
