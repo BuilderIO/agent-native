@@ -149,12 +149,22 @@ export async function acceptPendingInvitationsForEmail(
     // Keep the invitation pending when a pre-assigned role cannot be applied.
     // The auth hook logs the retryable failure while membership remains safe
     // to reuse on the next reconciliation attempt.
-    await applyInvitationAppRoles({
-      appRolesJson: inv.appRolesJson,
-      orgId: inv.orgId,
-      email,
-      updatedBy: inv.invitedBy,
-    });
+    try {
+      await applyInvitationAppRoles({
+        appRolesJson: inv.appRolesJson,
+        orgId: inv.orgId,
+        email,
+        updatedBy: inv.invitedBy,
+      });
+    } catch (error) {
+      // Keep this invitation pending so a corrected assignment can be retried
+      // without preventing unrelated invitations from being accepted.
+      console.warn(
+        `[org] Could not apply app roles for invitation ${inv.id}; leaving it pending`,
+        error,
+      );
+      continue;
+    }
     await db.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
       args: [inv.id],

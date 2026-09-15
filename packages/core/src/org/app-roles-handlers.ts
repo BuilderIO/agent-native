@@ -74,13 +74,24 @@ export const listAppRolesHandler = defineEventHandler(
       permissions: descriptor.permissions ?? {},
       canManage: canManageOrg(ctx.role),
     };
-    if (!ctx.orgId) return { ...base, assignments: [], myRoles: [] };
+    if (!ctx.orgId)
+      return {
+        ...base,
+        assignments: [],
+        myRoles: [],
+        // Compatibility fields for clients upgrading from the single-role API.
+        myRole: null,
+      };
 
     const assignments = (
       await listAppMemberRoles(descriptor.appId, ctx.orgId)
     ).map((assignment) => ({
       ...assignment,
       roles: assignment.roles.filter((role) => descriptor.roles.includes(role)),
+      // Compatibility field: the old API exposed only its first role.
+      role:
+        assignment.roles.find((role) => descriptor.roles.includes(role)) ??
+        null,
     }));
     const mine = assignments.find(
       (a) => a.email.toLowerCase() === ctx.email.toLowerCase(),
@@ -94,6 +105,8 @@ export const listAppRolesHandler = defineEventHandler(
       myRoles: mine
         ? mine.roles.filter((role) => descriptor.roles.includes(role))
         : [],
+      myRole:
+        mine?.roles.find((role) => descriptor.roles.includes(role)) ?? null,
     };
   },
 );

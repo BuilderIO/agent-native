@@ -31,6 +31,6 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 ## 组织 SSO 与目录配置
 
-组织 SSO 和 SCIM 是可选功能。设置 `AUTH_SSO=1` 和 `AUTH_SCIM=1` 后，Team settings 会显示相应管理控件。先配置组织的邮箱域名。OIDC 需要 issuer、client ID 和 client secret。SAML 需要 IdP entry point、entity ID，并粘贴 metadata XML。设置页面会显示 redirect URI 和 SP metadata。按页面显示的值创建 `_better-auth-token-<provider-id>.<organization-domain>` DNS TXT 记录，等待 DNS 传播后验证域名。验证后，管理员可以要求成员使用 Google 或已验证的 SSO 提供方登录。创建 SCIM 连接后，将仅显示一次的 token 和 endpoint 配置到身份提供方。在 Okta 或 Microsoft Entra ID 中创建 OIDC 或 SAML 企业应用，并配置 SCIM client。先用小范围用户组测试创建、更新和停用，再扩大范围。这与应用间身份联邦是不同功能。
+组织 SSO 和 SCIM 是可选功能。设置 `AUTH_SSO=1` 和 `AUTH_SCIM=1` 后，Team settings 会显示相应管理控件。请在构建环境和运行时环境中同时设置这些变量；部署后更改需要重新构建。先配置组织的邮箱域名。OIDC 需要 issuer、client ID 和 client secret。SAML 需要 IdP entry point、entity ID，并粘贴 metadata XML。设置页面会显示 redirect URI 和 SP metadata。按页面显示的值创建 `_better-auth-token-<provider-id>.<organization-domain>` DNS TXT 记录，等待 DNS 传播后验证域名。验证后，管理员可以要求成员使用 Google 或已验证的 SSO 提供方登录。创建 SCIM 连接后，将仅显示一次的 token 和 endpoint 配置到身份提供方。在 Okta 或 Microsoft Entra ID 中创建 OIDC 或 SAML 企业应用，并配置 SCIM client。先用小范围用户组测试创建、更新和停用，再扩大范围。这与应用间身份联邦是不同功能。
 
 服务端操作应使用 `accessFilter()` 和 `assertAccess()`。Agent SQL 使用临时过滤视图。`pnpm guards` 包含无范围查询检查。RLS 当前不是生效层，计划作为 1.0 之后的强化措施。多个内部应用适合使用工作区，独立工具或原型适合使用独立应用。请参阅[独立应用还是工作区](/docs/multi-app-workspace#standalone-or-workspace)和[版本与稳定性](/docs/versioning-and-stability)。

@@ -556,6 +556,8 @@ export function useDeleteOrgScimConnection() {
 export interface AppRoleAssignment {
   email: string;
   roles: string[];
+  /** @deprecated Read `roles`; retained for one minor release for clients upgrading from the single-role API. */
+  role: string | null;
 }
 
 export interface AppRolesInfo {
@@ -569,6 +571,8 @@ export interface AppRolesInfo {
   canManage: boolean;
   assignments: AppRoleAssignment[];
   myRoles: string[];
+  /** @deprecated Read `myRoles`; retained for one minor release. */
+  myRole: string | null;
 }
 
 /**
@@ -592,12 +596,15 @@ export function useAppRoles(appId: string | undefined) {
 /** The current user's roles in one app. */
 export function useAppRole(appId: string | undefined): {
   roles: string[];
+  /** @deprecated Read `roles`; retained for one minor release. */
+  role: string | null;
   isLoading: boolean;
   error: Error | null;
 } {
   const query = useAppRoles(appId);
   return {
     roles: query.data?.myRoles ?? [],
+    role: query.data?.myRole ?? null,
     isLoading: query.isLoading,
     error: query.error,
   };
@@ -608,6 +615,28 @@ export function useSetAppMemberRoles() {
   return useActionMutation("set-app-member-roles", {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-app-roles"] });
+    },
+  });
+}
+
+/**
+ * @deprecated Use `useSetAppMemberRoles`. This adapter keeps existing generated
+ * apps source-compatible while they migrate from one role to an array.
+ */
+export function useSetAppMemberRole(appId: string) {
+  const modern = useSetAppMemberRoles();
+  return useMutation<
+    { appId: string; email: string; role: string | null },
+    Error,
+    { email: string; role: string | null }
+  >({
+    mutationFn: async ({ email, role }) => {
+      await modern.mutateAsync({
+        appId,
+        email,
+        roles: role ? [role] : [],
+      });
+      return { appId, email, role };
     },
   });
 }

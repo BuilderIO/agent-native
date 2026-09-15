@@ -88,6 +88,9 @@ directory-connection management. It does not enable cross-app identity
 federation. That is a separate protocol described in
 [Cross-App SSO](/docs/cross-app-sso).
 
+Set these flags in the build environment as well as the runtime environment;
+changing them after deployment requires a rebuild.
+
 Before configuring organization SSO, set the organization's allowed email
 domain to a domain it controls. In **Team settings → Single sign-on**, add an
 OIDC or SAML provider. OIDC setup uses the issuer, client ID, client secret,

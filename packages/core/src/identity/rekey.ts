@@ -195,6 +195,7 @@ async function assertIdentityColumnsRegistered(
     `SELECT table_name, column_name FROM information_schema.columns
      WHERE table_schema = 'public'
        AND (column_name = 'email' OR column_name LIKE '%\\_email' ESCAPE '\\'
+            OR column_name = 'scope_id'
             OR column_name LIKE '%\\_scope\\_id' ESCAPE '\\'
             OR column_name IN ('updated_by', 'invited_by', 'created_by', 'owner', 'principal_id', 'session_id', 'user_id'))
      ORDER BY table_name, column_name`,

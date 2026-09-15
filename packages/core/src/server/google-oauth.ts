@@ -746,7 +746,7 @@ export async function createOAuthSession(
     hasProductionSession: boolean;
     desktop?: boolean;
     mobile?: boolean;
-    authProvider?: "google" | null;
+    authProvider?: "google" | `sso:${string}` | null;
     trackSignup?: {
       authProvider: string;
       authUserId?: string;

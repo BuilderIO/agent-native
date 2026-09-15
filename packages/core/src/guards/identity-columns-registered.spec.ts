@@ -64,6 +64,17 @@ describe("scanIdentityColumnsRegistered", () => {
     );
   });
 
+  it("recognizes bare scope_id as an identity column", () => {
+    const root = makeRepo(
+      `export const custom = table("custom_scopes", { scope: text("scope_id") });`,
+    );
+    expect(scanIdentityColumnsRegistered({ root }).findings).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("custom_scopes.scope_id"),
+      }),
+    ]);
+  });
+
   it("does not apply to generated apps that do not contain the framework source tree", () => {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "identity-columns-app-"),

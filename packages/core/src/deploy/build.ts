@@ -5306,6 +5306,8 @@ export function resolveNitroBuildReplacements(
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
 ): Record<string, string> {
+  const isEnabled = (value: string | undefined) =>
+    ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
@@ -5352,6 +5354,12 @@ export function resolveNitroBuildReplacements(
       JSON.stringify(
         JSON.stringify(resolveDeclaredRuntimePackageNames(projectCwd)),
       ),
+    // Enterprise auth adapters are optional at runtime, but must be present in
+    // the server bundle when an operator enables either feature. Baking this
+    // marker lets dead-code elimination keep them out of default deployments.
+    "process.env.AGENT_NATIVE_BUILD_ENTERPRISE_AUTH": JSON.stringify(
+      isEnabled(env.AUTH_SSO) || isEnabled(env.AUTH_SCIM) ? "true" : "false",
+    ),
     // Whether the recurring-jobs scheduled function exists is decided HERE, by
     // the build env. `scheduledTriggerAvailability` cannot re-derive it later —
     // a pipeline that sets the kill switch only for the build leaves no runtime
@@ -5500,7 +5508,7 @@ export default bundle;
     },
     virtual: nitroVirtual,
     replace: resolveNitroBuildReplacements(
-      process.env,
+      nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in

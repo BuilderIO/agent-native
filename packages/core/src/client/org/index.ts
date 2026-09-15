@@ -24,6 +24,7 @@ export {
   useAppRoles,
   useAppRole,
   useSetAppMemberRoles,
+  useSetAppMemberRole,
   useOrgSsoProviders,
   useCreateOrgSsoProvider,
   useVerifyOrgSsoProvider,

@@ -137,16 +137,17 @@ async function findFrameworkOrg(
 }
 
 async function findMember(
-  database: Pick<DBTransactionAdapter, "findMany">,
+  database: Pick<DBTransactionAdapter, "findOne">,
   orgId: string,
   email: string,
 ): Promise<MemberRow | null> {
-  const rows = await database.findMany<MemberRow>({
+  return database.findOne<MemberRow>({
     model: "orgMember",
-    where: [{ field: "orgId", value: orgId }],
+    where: [
+      { field: "orgId", value: orgId },
+      { field: "email", value: normalizeEmail(email), mode: "insensitive" },
+    ],
   });
-  const normalized = normalizeEmail(email);
-  return rows.find((row) => normalizeEmail(row.email) === normalized) ?? null;
 }
 
 async function findUserById(

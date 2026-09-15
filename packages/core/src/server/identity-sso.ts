@@ -418,7 +418,7 @@ interface VerifiedIdentity {
   orgId?: string;
   orgName?: string;
   orgRole?: "owner" | "admin" | "member";
-  authProvider?: "google";
+  authProvider?: "google" | `sso:${string}`;
   sub: string;
   jti: string;
 }
@@ -475,6 +475,14 @@ async function verifyIdentityAssertion(
     if ((orgId || orgName || orgRole) && (!orgId || !orgName || !orgRole)) {
       return null;
     }
+    const identityAuthProvider = payload.identity_auth_provider;
+    const authProvider =
+      identityAuthProvider === "google"
+        ? ("google" as const)
+        : typeof identityAuthProvider === "string" &&
+            /^sso:[^:]+$/.test(identityAuthProvider)
+          ? (identityAuthProvider as `sso:${string}`)
+          : undefined;
     return {
       email,
       name:
@@ -488,8 +496,7 @@ async function verifyIdentityAssertion(
       ...(orgId ? { orgId } : {}),
       ...(orgName ? { orgName } : {}),
       ...(orgRole ? { orgRole } : {}),
-      authProvider:
-        payload.identity_auth_provider === "google" ? "google" : undefined,
+      ...(authProvider ? { authProvider } : {}),
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
       jti,
     };
@@ -1026,8 +1033,7 @@ export async function handleIdentitySso(
           ? "google"
           : null;
     if (requiredAuthProvider) {
-      const identityProvider =
-        identity.authProvider === "google" ? "google" : null;
+      const identityProvider = identity.authProvider ?? null;
       if (identityProvider !== requiredAuthProvider) {
         return errorPage(
           authProviderRequiredMessage

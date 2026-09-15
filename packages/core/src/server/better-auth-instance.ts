@@ -38,7 +38,10 @@ import {
 import { setCookie } from "h3";
 import type { H3Event } from "h3";
 
-import { getAppConfig } from "../app-config/index.js";
+import {
+  enterpriseAuthAdaptersBuilt,
+  getAppConfig,
+} from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec } from "../db/client.js";
 import {
@@ -1960,7 +1963,7 @@ async function createBetterAuthInstance(
     (config?.googleScopes?.length ?? 0) > 0;
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
-  if (access.sso.enabled) {
+  if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
     const { sso } = await import("@better-auth/sso");
     enterprisePlugins.push(
       sso({
@@ -1992,7 +1995,12 @@ async function createBetterAuthInstance(
       }),
     );
   }
-  if (access.scim.enabled) {
+  if (!enterpriseAuthAdaptersBuilt && access.sso.enabled) {
+    throw new Error(
+      "Organization SSO is enabled, but this deployment was built without enterprise auth adapters. Rebuild with AUTH_SSO=true.",
+    );
+  }
+  if (enterpriseAuthAdaptersBuilt && access.scim.enabled) {
     const { scim } = await import("@better-auth/scim");
     // Better Auth intentionally requires a separate 32-character HMAC secret
     // for managed SCIM credentials. Falling back to the deployment auth secret
@@ -2013,6 +2021,11 @@ async function createBetterAuthInstance(
         managedConnections: { credentialHashSecret },
         identity: createFrameworkSCIMIdentity(),
       }),
+    );
+  }
+  if (!enterpriseAuthAdaptersBuilt && access.scim.enabled) {
+    throw new Error(
+      "Organization SCIM is enabled, but this deployment was built without enterprise auth adapters. Rebuild with AUTH_SCIM=true.",
     );
   }
 

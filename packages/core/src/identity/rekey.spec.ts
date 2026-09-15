@@ -390,6 +390,21 @@ describe("rekeyIdentity", () => {
     }
   });
 
+  it("fails closed when an unregistered bare scope_id column exists", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      await pg.exec(
+        `CREATE TABLE unregistered_scopes (id TEXT PRIMARY KEY, scope_id TEXT)`,
+      );
+      await expect(
+        rekeyIdentity(dbAdapter(pg.db), "old@example.test", "new@example.test"),
+      ).rejects.toThrow(/unregistered_scopes\.scope_id/);
+    } finally {
+      await pg.close();
+    }
+  });
+
   it("rekeys raw and user-scoped OAuth owners while preserving encrypted lifecycle metadata", async () => {
     const pg = await createTestPglite();
     const previousKey = process.env.SECRETS_ENCRYPTION_KEY;
