@@ -347,7 +347,7 @@ describe("ConnectionsSettingsContent", () => {
     await act(async () => {
       root.render(
         <MemoryRouter>
-          <AgentSettingsContent sections={WORKSPACE_SETTINGS_SECTIONS} />
+          <AgentSettingsContent sections={["llm"]} />
         </MemoryRouter>,
       );
       await Promise.resolve();

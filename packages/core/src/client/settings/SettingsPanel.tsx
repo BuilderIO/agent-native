@@ -3224,7 +3224,7 @@ function SettingsPanelContent({
             </SettingsGroup>
           )}
 
-        {isWorkspacePage && (
+        {isPage && (isWorkspace || isWorkspacePage) && (
           <SettingsGroup title="Workspace">
             {isWorkspace && (
               <SettingsRow
@@ -3240,7 +3240,7 @@ function SettingsPanelContent({
                 }
               />
             )}
-            {shouldShowSection("demo-mode") && (
+            {isWorkspacePage && shouldShowSection("demo-mode") && (
               <SettingsRow
                 id={settingsSectionDomId("demo-mode")}
                 label="Demo mode"
@@ -3248,7 +3248,7 @@ function SettingsPanelContent({
                 control={<DemoModeSection compact />}
               />
             )}
-            {shouldShowSection("hosting") && (
+            {isWorkspacePage && shouldShowSection("hosting") && (
               <SettingsRow
                 id={settingsSectionDomId("hosting")}
                 label="Hosting"
