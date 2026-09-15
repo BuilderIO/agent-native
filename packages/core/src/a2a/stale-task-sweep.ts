@@ -28,7 +28,12 @@ import {
  * dispatch needs the inbound request's origin and the app's A2A config.
  */
 
-const STALE_A2A_TASK_BATCH_LIMIT = 200;
+const STALE_A2A_TASK_PAGE_SIZE = 200;
+/**
+ * Bounds the work one tick may do. The scan pages forward past rows it cannot
+ * act on, so unactionable rows cost scan budget instead of blocking the pass.
+ */
+const STALE_A2A_TASK_MAX_PAGES = 5;
 
 export interface StaleA2ATaskSweepResult {
   /** Rows moved to `failed` by this pass. */
@@ -38,15 +43,9 @@ export interface StaleA2ATaskSweepResult {
    * read as "nothing was stuck" — those are the same number otherwise.
    */
   failed: number;
-  /** More stuck rows remain than the batch cap; the next tick continues. */
+  /** The scan budget ran out with candidates left; the next tick continues. */
   truncated: boolean;
 }
-
-const NOTHING_STUCK: StaleA2ATaskSweepResult = {
-  reaped: 0,
-  failed: 0,
-  truncated: false,
-};
 
 /**
  * Narrow to rows a terminal verdict could possibly apply to. The classifier
@@ -54,13 +53,13 @@ const NOTHING_STUCK: StaleA2ATaskSweepResult = {
  * predicate only keeps the scan off the healthy majority, and mirrors the
  * cutoffs the classifier will recompute.
  *
- * The processor check is duplicated here as a substring probe rather than left
- * to the JS gate alone, because the batch cap is applied by this query. A row
- * the JS gate always skips never changes state, always matches again, and
- * sorts oldest-first — so enough of them would fill every batch forever and
- * silently stop the sweep, which is the original bug wearing a different hat.
- * Substring rather than a `jsonb` cast so one malformed row cannot throw the
- * whole sweep; it can only over-match, and the JS gate rejects the extras.
+ * The processor check is a substring probe rather than a `jsonb` cast so one
+ * malformed row cannot throw the whole sweep; it can only over-match, and the
+ * JS gate rejects the extras. Rows the JS gate rejects are why the scan pages
+ * by keyset instead of taking one capped batch: such a row never changes
+ * state, matches again on the next tick, and sorts oldest-first, so a fixed
+ * head-of-queue batch would eventually contain nothing else and the sweep
+ * would silently stop — the original bug wearing a different hat.
  */
 const STUCK_CANDIDATE_SQL = `
   strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0
@@ -130,34 +129,80 @@ export async function reapAllStaleA2ATasks(): Promise<StaleA2ATaskSweepResult> {
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
-  const args = stuckCandidateArgs(now);
-
-  // One row over the cap is how a truncated pass is detected without a second
-  // COUNT against the same predicate.
-  const scanned = await client.execute({
-    sql: `SELECT id, status_state, created_at, updated_at, metadata
-          FROM a2a_tasks
-          WHERE ${STUCK_CANDIDATE_SQL}
-          ORDER BY created_at ASC
-          LIMIT ${STALE_A2A_TASK_BATCH_LIMIT + 1}`,
-    args,
-  });
-
-  const rows = Array.from(scanned.rows ?? []);
-  if (rows.length === 0) return NOTHING_STUCK;
-  const truncated = rows.length > STALE_A2A_TASK_BATCH_LIMIT;
-  const batch = truncated ? rows.slice(0, STALE_A2A_TASK_BATCH_LIMIT) : rows;
+  const cutoffs = stuckCandidateArgs(now);
 
   let reaped = 0;
   let failed = 0;
-  for (const raw of batch) {
+  let unevaluatable = 0;
+  let truncated = false;
+  // `(created_at, id)` because `created_at` alone is not unique: two rows
+  // sharing a millisecond would make the cursor either skip or repeat one.
+  let cursor: { createdAt: number; id: string } | null = null;
+
+  for (let page = 0; page < STALE_A2A_TASK_MAX_PAGES; page++) {
+    const scanned = await client.execute({
+      sql: `SELECT id, status_state, created_at, updated_at, metadata
+            FROM a2a_tasks
+            WHERE ${STUCK_CANDIDATE_SQL}
+            ${cursor ? "AND (created_at, id) > (?, ?)" : ""}
+            ORDER BY created_at ASC, id ASC
+            LIMIT ${STALE_A2A_TASK_PAGE_SIZE}`,
+      args: cursor ? [...cutoffs, cursor.createdAt, cursor.id] : cutoffs,
+    });
+
+    const rows = Array.from(scanned.rows ?? []);
+    if (rows.length === 0) break;
+
+    const outcome = await sweepPage(rows, now);
+    reaped += outcome.reaped;
+    failed += outcome.failed;
+    unevaluatable += outcome.unevaluatable;
+    cursor = outcome.cursor ?? cursor;
+
+    // A short page means the predicate is exhausted for this tick.
+    if (rows.length < STALE_A2A_TASK_PAGE_SIZE) break;
+    if (page === STALE_A2A_TASK_MAX_PAGES - 1) truncated = true;
+  }
+
+  if (unevaluatable > 0) {
+    console.error(
+      `[a2a] stale task sweep skipped ${unevaluatable} row(s) it could not ` +
+        `read; they are counted as failed, not swept.`,
+    );
+  }
+
+  return { reaped, failed, truncated };
+}
+
+interface SweepPageOutcome {
+  reaped: number;
+  failed: number;
+  unevaluatable: number;
+  cursor: { createdAt: number; id: string } | null;
+}
+
+async function sweepPage(
+  rows: unknown[],
+  now: number,
+): Promise<SweepPageOutcome> {
+  let reaped = 0;
+  let failed = 0;
+  let unevaluatable = 0;
+  let cursor: { createdAt: number; id: string } | null = null;
+
+  for (const raw of rows) {
     const row = readRow(raw);
     if (!row) {
       // An unreadable row is not a healthy row. Count it so a pass over
-      // garbage cannot report itself clean.
+      // garbage cannot report itself clean. The scan still advances past it,
+      // via the raw column values, so it cannot wedge the sweep.
       failed += 1;
+      unevaluatable += 1;
+      const fallback = readCursor(raw);
+      if (fallback) cursor = fallback;
       continue;
     }
+    cursor = { createdAt: row.createdAt, id: row.id };
     // A synchronous A2A request sits in `working` for the whole inline handler
     // call and carries no processor metadata. Failing one would terminalize
     // live work, so the sweep only ever touches rows the pull path would.
@@ -192,5 +237,18 @@ export async function reapAllStaleA2ATasks(): Promise<StaleA2ATaskSweepResult> {
     }
   }
 
-  return { reaped, failed, truncated };
+  return { reaped, failed, unevaluatable, cursor };
+}
+
+/**
+ * Cursor values for a row `readRow` rejected. Without this the scan could not
+ * step over an unreadable row and would re-read it on every page.
+ */
+function readCursor(row: unknown): { createdAt: number; id: string } | null {
+  if (!row || typeof row !== "object") return null;
+  const record = row as Record<string, unknown>;
+  const id = record.id;
+  const createdAt = Number(record.created_at);
+  if (typeof id !== "string" || !Number.isFinite(createdAt)) return null;
+  return { createdAt, id };
 }

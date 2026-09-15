@@ -274,6 +274,35 @@ describe("reapAllStaleA2ATasks", () => {
     expect(await stateOf("ineligible-1")).toBe("working");
   });
 
+  it("pages past malformed rows instead of letting them wedge the scan", async () => {
+    // Metadata that carries the marker but will not parse passes the SQL probe
+    // and is then rejected in JS, so it never changes state and matches again
+    // forever. More than one page of them must not bury a real stuck task.
+    const now = Date.now();
+    await pglite.query(
+      `INSERT INTO a2a_tasks
+         (id, context_id, status_state, status_timestamp, history, artifacts,
+          metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at)
+       SELECT 'malformed-' || lpad(i::text, 4, '0'), NULL, 'processing', ?,
+              '[]', '[]', '{"__a2a_processor":{"verifiedEmail"',
+              'a@example.com', '', NULL, ?, ?
+       FROM generate_series(1, 300) AS i`,
+      [new Date(now).toISOString(), now - 90 * MINUTE, now - 90 * MINUTE],
+    );
+    await insertTask({
+      id: "zzz-real-stuck-task",
+      state: "processing",
+      ageMs: 20 * MINUTE,
+      sinceTouchMs: 10 * MINUTE,
+    });
+
+    const result = await reapAllStaleA2ATasks();
+
+    expect(result.reaped).toBe(1);
+    expect(result.failed).toBe(300);
+    expect(await stateOf("zzz-real-stuck-task")).toBe("failed");
+  });
+
   it("counts a row that threw instead of reporting a clean pass", async () => {
     await insertTask({
       id: "write-explodes",
@@ -291,23 +320,27 @@ describe("reapAllStaleA2ATasks", () => {
     expect(await stateOf("write-explodes")).toBe("processing");
   });
 
-  it("reports truncation when more stuck rows remain than the batch cap", async () => {
+  it("reports truncation when stuck rows outlast the per-tick scan budget", async () => {
+    // Budget is 5 pages of 200. A tick drains up to 1000 and says so when more
+    // remain, rather than silently stopping at one page.
     const now = Date.now();
     await pglite.query(
       `INSERT INTO a2a_tasks
          (id, context_id, status_state, status_timestamp, history, artifacts,
           metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at)
-       SELECT 'stuck-' || i, NULL, 'processing', ?, '[]', '[]',
+       SELECT 'stuck-' || lpad(i::text, 5, '0'), NULL, 'processing', ?, '[]', '[]',
               '{"__a2a_processor":{}}', 'a@example.com', '', NULL, ?, ?
-       FROM generate_series(1, 201) AS i`,
+       FROM generate_series(1, 1050) AS i`,
       [new Date(now).toISOString(), now - 20 * MINUTE, now - 10 * MINUTE],
     );
 
-    const result = await reapAllStaleA2ATasks();
+    const first = await reapAllStaleA2ATasks();
+    expect(first.reaped).toBe(1000);
+    expect(first.truncated).toBe(true);
 
-    expect(result.truncated).toBe(true);
-    expect(result.reaped).toBe(200);
-    expect((await reapAllStaleA2ATasks()).truncated).toBe(false);
+    const second = await reapAllStaleA2ATasks();
+    expect(second.reaped).toBe(50);
+    expect(second.truncated).toBe(false);
   });
 
   it("is a no-op on an app with no stuck tasks", async () => {
