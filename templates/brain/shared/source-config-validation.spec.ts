@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   describeSourceConfigIssues,
+  isSlackDirectMessageRef,
   isValidGitHubRepoRef,
   isValidSlackChannelRef,
   normalizeGitHubRepoRef,
@@ -22,7 +23,6 @@ describe("slack channel refs", () => {
     for (const value of [
       "C0123456789",
       "G01ABCDEFGH",
-      "D0123456789",
       "#product",
       "product",
       "eng-team_2",
@@ -49,6 +49,27 @@ describe("slack channel refs", () => {
       "#",
       "@someone",
     ]) {
+      expect(isValidSlackChannelRef(value), value).toBe(false);
+    }
+  });
+
+  it("rejects direct-message IDs, which the connector drops as unusable", () => {
+    // resolveSlackChannel() resolves a D-ref to an IM and isUsableSlackChannel()
+    // then filters it out, so a D-only source syncs against zero channels.
+    expect(isValidSlackChannelRef("D0123456789")).toBe(false);
+    expect(isSlackDirectMessageRef("D0123456789")).toBe(true);
+    expect(isSlackDirectMessageRef("#d0123456789")).toBe(true);
+    expect(isSlackDirectMessageRef("C0123456789")).toBe(false);
+
+    const issues = validateSourceConfig("slack", {
+      channelIds: ["D0123456789"],
+    });
+    expect(issues[0]?.code).toBe("slack_direct_message");
+    expect(describeSourceConfigIssues(issues)).toContain("not DMs");
+  });
+
+  it("rejects emoji and symbols, which no Slack channel name can contain", () => {
+    for (const value of ["🚀-launches", "team✅", "a+b", "price$"]) {
       expect(isValidSlackChannelRef(value), value).toBe(false);
     }
   });
@@ -104,6 +125,23 @@ describe("github repo refs", () => {
     ]) {
       expect(isValidGitHubRepoRef(value), value).toBe(false);
     }
+  });
+
+  it("normalizes the bare-host form instead of reading the host as the owner", () => {
+    // Without stripping the host, "github.com/BuilderIO/agent-native" splits into
+    // owner "github.com" and repo "BuilderIO" - a different repository, accepted
+    // silently.
+    expect(normalizeGitHubRepoRef("github.com/BuilderIO/agent-native")).toBe(
+      "BuilderIO/agent-native",
+    );
+    expect(
+      normalizeGitHubRepoRef("www.github.com/BuilderIO/agent-native"),
+    ).toBe("BuilderIO/agent-native");
+  });
+
+  it("rejects a non-GitHub host rather than reading it as the owner", () => {
+    expect(normalizeGitHubRepoRef("example.com/owner/repo")).toBeNull();
+    expect(normalizeGitHubRepoRef("https://example.com/owner/repo")).toBeNull();
   });
 
   it("keeps the connector's tolerance for deep-linked repository paths", () => {
@@ -187,6 +225,79 @@ describe("validateSourceConfig", () => {
         pollMinutes: 60,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("action and drawer parity", () => {
+  // Three review findings share one cause: the storage-side readers drop blanks
+  // and non-strings before the validator runs, so an action caller could persist
+  // exactly what the drawer refuses. Every case below must agree.
+  const cases: Array<[string, unknown[], string]> = [
+    ["blank string entry", [""], ""],
+    ["whitespace-only entry", ["   "], "   "],
+    ["hash-only entry", ["#"], "#"],
+    ["bracket artifact", ["]"], "]"],
+    // Typing 123 in the textarea is a legal Slack channel name; the JSON number
+    // 123 is not a channel reference at all, so only the action path rejects it.
+    ["number entry", [123], ""],
+    ["null entry", [null], ""],
+    ["object entry", [{ id: "C0123456789" }], ""],
+  ];
+
+  for (const [label, values, drawerText] of cases) {
+    it(`rejects a ${label} on both paths`, () => {
+      expect(
+        validateSourceConfig("slack", { channelIds: values }),
+        "action path",
+      ).toHaveLength(1);
+      expect(
+        validateSourceConfig("github", { repositories: values }),
+        "action path",
+      ).toHaveLength(1);
+      if (drawerText.trim()) {
+        expect(
+          validateSlackChannelInput(drawerText),
+          "drawer path",
+        ).toHaveLength(1);
+      }
+    });
+  }
+
+  it("flags a non-string entry with its own code, not a format error", () => {
+    const issues = validateSourceConfig("github", { repositories: [123] });
+    expect(issues[0]?.code).toBe("not_a_string");
+  });
+
+  it("does not drop a valid entry sitting beside an invalid one", () => {
+    expect(
+      validateSourceConfig("slack", { channelIds: ["C0123456789", ""] }),
+    ).toHaveLength(1);
+    expect(
+      validateSourceConfig("github", {
+        repositories: ["BuilderIO/agent-native", 7],
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("still treats a delimited string like the textarea", () => {
+    // "a,,b" is a typo a person makes while typing a list; it is not a distinct
+    // empty entry the way [""] is.
+    expect(
+      validateSourceConfig("slack", { channelIds: "product,,launches" }),
+    ).toEqual([]);
+    expect(validateSlackChannelInput("product,,launches")).toEqual([]);
+  });
+
+  it("checks aliased and nested keys the same way", () => {
+    expect(
+      validateSourceConfig("slack", { allowedChannels: ["#"] }),
+    ).toHaveLength(1);
+    expect(
+      validateSourceConfig("slack", { slack: { channels: [42] } }),
+    ).toHaveLength(1);
+    expect(
+      validateSourceConfig("github", { github: { repos: [""] } }),
+    ).toHaveLength(1);
   });
 });
 

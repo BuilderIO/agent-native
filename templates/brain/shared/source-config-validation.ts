@@ -1,13 +1,15 @@
 import {
+  SLACK_CHANNEL_CONFIG_KEYS,
   hasSlackChannelPatch,
-  slackChannelRefsFromConfig,
 } from "./slack-source-config.js";
 
 export type SourceListField = "slackChannels" | "githubRepositories";
 
 export type SourceConfigIssueCode =
   | "invalid_slack_channel"
-  | "invalid_github_repository";
+  | "slack_direct_message"
+  | "invalid_github_repository"
+  | "not_a_string";
 
 export interface SourceConfigIssue {
   field: SourceListField;
@@ -23,27 +25,44 @@ export interface ParsedSourceListEntry {
   line: number;
 }
 
+interface RawListEntry {
+  raw: unknown;
+  line: number;
+}
+
 /**
- * Slack conversation IDs are uppercase and prefixed by conversation kind:
- * C (public channel), G (private channel), D (DM). Enterprise Grid can widen
- * the suffix, so the length bound stays loose on purpose.
+ * Slack conversation IDs are uppercase and prefixed by conversation kind.
+ * Only C (public channel) and G (private channel) are accepted: `resolveSlackChannel`
+ * resolves a D-prefixed ref to an IM, and `isUsableSlackChannel` then drops it, so a
+ * D-only source syncs successfully against zero channels.
  */
-const SLACK_CHANNEL_ID = /^[CGD][A-Z0-9]{6,20}$/;
+const SLACK_CHANNEL_ID = /^[CG][A-Z0-9]{6,20}$/;
+
+const SLACK_DIRECT_MESSAGE_ID = /^D[A-Z0-9]{6,20}$/i;
 
 /**
  * Slack channel names allow non-Latin letters, so this rejects the characters
  * Slack forbids instead of allow-listing ASCII and locking out those names.
+ * Symbols and emoji are forbidden too: Slack permits letters, numbers, hyphens
+ * and underscores only, so an emoji can never match a real channel name.
  */
-const SLACK_NAME_FORBIDDEN = /[\s!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~]/u;
+const SLACK_NAME_FORBIDDEN =
+  /[\s!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~]|\p{S}|\p{Extended_Pictographic}/u;
 
 const SLACK_NAME_MAX_LENGTH = 80;
 
-const GITHUB_SEGMENT = /^[A-Za-z0-9_.-]+$/;
+/** Repository names may contain dots; GitHub owners may not. */
+const GITHUB_OWNER = /^[A-Za-z0-9_-]+$/;
+const GITHUB_REPO = /^[A-Za-z0-9_.-]+$/;
 
 const GITHUB_REPOSITORY_CONFIG_KEYS = ["repositories", "repos"] as const;
 
 export function normalizeSlackChannelRef(value: string) {
   return value.trim().replace(/^#/, "");
+}
+
+export function isSlackDirectMessageRef(value: string) {
+  return SLACK_DIRECT_MESSAGE_ID.test(normalizeSlackChannelRef(value));
 }
 
 export function isValidSlackChannelRef(value: string) {
@@ -58,17 +77,23 @@ export function isValidSlackChannelRef(value: string) {
  * Returns the canonical `owner/repo` form, or null when the value is not a
  * repository reference at all. Callers must treat null as invalid input rather
  * than filtering it away.
+ *
+ * The bare-host form (`github.com/owner/repo`) has to be stripped before the
+ * split, or the host becomes the owner and a different repository is addressed
+ * silently. Rejecting a dotted owner is what stops the same confusion for any
+ * other host.
  */
 export function normalizeGitHubRepoRef(value: string): string | null {
   const trimmed = value.trim().replace(/\.git$/, "");
   if (!trimmed) return null;
-  const withoutProtocol = trimmed
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/^git@github\.com:/i, "");
-  const [owner, repo] = withoutProtocol.split("/");
+  const withoutHost = trimmed
+    .replace(/^https?:\/\//i, "")
+    .replace(/^git@github\.com:/i, "")
+    .replace(/^(?:www\.)?github\.com\//i, "");
+  const [owner, repo] = withoutHost.split("/");
   if (!owner || !repo) return null;
   const cleanRepo = repo.split(/[?#]/)[0];
-  if (!GITHUB_SEGMENT.test(owner) || !GITHUB_SEGMENT.test(cleanRepo)) {
+  if (!GITHUB_OWNER.test(owner) || !GITHUB_REPO.test(cleanRepo)) {
     return null;
   }
   return `${owner}/${cleanRepo}`;
@@ -102,53 +127,80 @@ export function sourceListValues(raw: string) {
 }
 
 function issuesForEntries(
-  entries: readonly ParsedSourceListEntry[],
+  entries: readonly RawListEntry[],
   field: SourceListField,
-  code: SourceConfigIssueCode,
-  isValid: (value: string) => boolean,
+  invalidCode: SourceConfigIssueCode,
 ): SourceConfigIssue[] {
-  return entries
-    .filter((entry) => !isValid(entry.value))
-    .map((entry) => ({ field, code, value: entry.value, line: entry.line }));
+  const issues: SourceConfigIssue[] = [];
+  for (const entry of entries) {
+    const code = classifyEntry(entry.raw, field, invalidCode);
+    if (!code) continue;
+    issues.push({
+      field,
+      code,
+      value: displayValue(entry.raw),
+      line: entry.line,
+    });
+  }
+  return issues;
 }
 
-function entriesFromValues(values: readonly string[]) {
-  return values.map((value, index) => ({ value, line: index + 1 }));
+function classifyEntry(
+  raw: unknown,
+  field: SourceListField,
+  invalidCode: SourceConfigIssueCode,
+): SourceConfigIssueCode | null {
+  if (typeof raw !== "string") return "not_a_string";
+  if (field === "slackChannels") {
+    if (isSlackDirectMessageRef(raw)) return "slack_direct_message";
+    return isValidSlackChannelRef(raw) ? null : invalidCode;
+  }
+  return isValidGitHubRepoRef(raw) ? null : invalidCode;
 }
 
-export function validateSlackChannelRefs(values: readonly string[]) {
+function displayValue(raw: unknown) {
+  return typeof raw === "string" ? raw : (JSON.stringify(raw) ?? String(raw));
+}
+
+function entriesFromValues(values: readonly unknown[]): RawListEntry[] {
+  return values.map((raw, index) => ({ raw, line: index + 1 }));
+}
+
+export function validateSlackChannelRefs(values: readonly unknown[]) {
   return issuesForEntries(
     entriesFromValues(values),
     "slackChannels",
     "invalid_slack_channel",
-    isValidSlackChannelRef,
   );
 }
 
-export function validateGitHubRepoRefs(values: readonly string[]) {
+export function validateGitHubRepoRefs(values: readonly unknown[]) {
   return issuesForEntries(
     entriesFromValues(values),
     "githubRepositories",
     "invalid_github_repository",
-    isValidGitHubRepoRef,
   );
 }
 
 export function validateSlackChannelInput(raw: string) {
   return issuesForEntries(
-    parseSourceListInput(raw),
+    parseSourceListInput(raw).map((entry) => ({
+      raw: entry.value,
+      line: entry.line,
+    })),
     "slackChannels",
     "invalid_slack_channel",
-    isValidSlackChannelRef,
   );
 }
 
 export function validateGitHubRepoInput(raw: string) {
   return issuesForEntries(
-    parseSourceListInput(raw),
+    parseSourceListInput(raw).map((entry) => ({
+      raw: entry.value,
+      line: entry.line,
+    })),
     "githubRepositories",
     "invalid_github_repository",
-    isValidGitHubRepoRef,
   );
 }
 
@@ -158,21 +210,47 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function githubRepoRefsFromConfig(config: Record<string, unknown>) {
-  const nested = objectValue(config.github);
-  const values: string[] = [];
-  for (const itemConfig of [config, nested]) {
-    for (const key of GITHUB_REPOSITORY_CONFIG_KEYS) {
+/**
+ * Collects list entries exactly as the caller supplied them.
+ *
+ * The storage-side readers (`slackChannelRefsFromConfig`, `githubReposFromConfig`)
+ * drop blanks and non-strings before returning, which would hide precisely the
+ * malformed entries this validator exists to catch and let an action caller
+ * persist what the drawer refuses. A delimited string is split like the textarea,
+ * so blank segments around separators are skipped; an array element is a discrete
+ * value and is always inspected, blank or not.
+ */
+function rawListEntriesFromConfig(
+  config: Record<string, unknown>,
+  keys: readonly string[],
+  nestedKey: string,
+): RawListEntry[] {
+  const entries: RawListEntry[] = [];
+  let line = 0;
+  for (const itemConfig of [config, objectValue(config[nestedKey])]) {
+    for (const key of keys) {
+      if (!Object.prototype.hasOwnProperty.call(itemConfig, key)) continue;
       const value = itemConfig[key];
-      if (typeof value === "string") values.push(...value.split(","));
+      if (typeof value === "string") {
+        for (const part of value.split(",")) {
+          if (!part.trim()) continue;
+          line += 1;
+          entries.push({ raw: part.trim(), line });
+        }
+        continue;
+      }
       if (Array.isArray(value)) {
         for (const item of value) {
-          if (typeof item === "string") values.push(item);
+          line += 1;
+          entries.push({ raw: item, line });
         }
+        continue;
       }
+      line += 1;
+      entries.push({ raw: value, line });
     }
   }
-  return values.map((value) => value.trim()).filter(Boolean);
+  return entries;
 }
 
 function hasGitHubRepositoryPatch(config: Record<string, unknown>) {
@@ -194,10 +272,20 @@ export function validateSourceConfig(
   config: Record<string, unknown>,
 ): SourceConfigIssue[] {
   if (provider === "slack" && hasSlackChannelPatch(config)) {
-    return validateSlackChannelRefs(slackChannelRefsFromConfig(config));
+    return validateSlackChannelRefs(
+      rawListEntriesFromConfig(config, SLACK_CHANNEL_CONFIG_KEYS, "slack").map(
+        (entry) => entry.raw,
+      ),
+    );
   }
   if (provider === "github" && hasGitHubRepositoryPatch(config)) {
-    return validateGitHubRepoRefs(githubRepoRefsFromConfig(config));
+    return validateGitHubRepoRefs(
+      rawListEntriesFromConfig(
+        config,
+        GITHUB_REPOSITORY_CONFIG_KEYS,
+        "github",
+      ).map((entry) => entry.raw),
+    );
   }
   return [];
 }
@@ -205,24 +293,35 @@ export function validateSourceConfig(
 export function describeSourceConfigIssues(
   issues: readonly SourceConfigIssue[],
 ) {
-  const slack = issues.filter((issue) => issue.field === "slackChannels");
-  const github = issues.filter((issue) => issue.field === "githubRepositories");
   const parts: string[] = [];
+  const dms = issues.filter((issue) => issue.code === "slack_direct_message");
+  const slack = issues.filter(
+    (issue) =>
+      issue.field === "slackChannels" && issue.code !== "slack_direct_message",
+  );
+  const github = issues.filter((issue) => issue.field === "githubRepositories");
+  if (dms.length) {
+    parts.push(
+      `Slack direct-message ${listLabel(dms)}: ${entryList(dms)}. Brain only syncs public and private channels, not DMs or group DMs.`,
+    );
+  }
   if (slack.length) {
     parts.push(
-      `Invalid Slack channel ${slack.length === 1 ? "entry" : "entries"}: ${slack
-        .map((issue) => JSON.stringify(issue.value))
-        .join(", ")}. Use a channel ID like C0123456789 or a #channel-name.`,
+      `Invalid Slack channel ${listLabel(slack)}: ${entryList(slack)}. Use a channel ID like C0123456789 or a #channel-name.`,
     );
   }
   if (github.length) {
     parts.push(
-      `Invalid GitHub repository ${
-        github.length === 1 ? "entry" : "entries"
-      }: ${github
-        .map((issue) => JSON.stringify(issue.value))
-        .join(", ")}. Use owner/repo or a github.com repository URL.`,
+      `Invalid GitHub repository ${listLabel(github)}: ${entryList(github)}. Use owner/repo or a github.com repository URL.`,
     );
   }
   return parts.join(" ");
+}
+
+function listLabel(issues: readonly SourceConfigIssue[]) {
+  return issues.length === 1 ? "entry" : "entries";
+}
+
+function entryList(issues: readonly SourceConfigIssue[]) {
+  return issues.map((issue) => JSON.stringify(issue.value)).join(", ");
 }

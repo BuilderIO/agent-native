@@ -114,6 +114,40 @@ describe("create-source config validation", () => {
     expect(mocks.createSource).not.toHaveBeenCalled();
   });
 
+  it("refuses entries the storage readers would have silently dropped", async () => {
+    for (const config of [
+      { channelIds: [""] },
+      { channelIds: ["#"] },
+      { channelIds: ["   "] },
+      { channelIds: [123] },
+    ]) {
+      await expect(
+        createSource.run({
+          title: "Slack knowledge channels",
+          provider: "slack",
+          visibility: "private",
+          config,
+        }),
+        JSON.stringify(config),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("refuses a Slack DM id, which can never yield an eligible channel", async () => {
+    await expect(
+      createSource.run({
+        title: "Slack knowledge channels",
+        provider: "slack",
+        visibility: "private",
+        config: { channelIds: ["D0123456789"] },
+      }),
+    ).rejects.toThrow(/DMs/);
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
   it("still creates a source from valid input", async () => {
     await expect(
       createSource.run({

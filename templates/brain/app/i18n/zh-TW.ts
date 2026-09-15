@@ -401,6 +401,8 @@ const messages = {
     allowedChannels: "允許的頻道",
     invalidAllowedChannels:
       "不是有效的 Slack 頻道：{{entries}}。請使用類似 C0123456789 的頻道 ID 或 #channel-name。",
+    invalidSlackDirectMessages:
+      "不支援 Slack 私訊：{{entries}}。Brain 僅同步公開和私人頻道。",
     invalidGithubRepositories:
       "不是有效的存放庫：{{entries}}。請使用 owner/repo 或 github.com 存放庫 URL。",
     missingProviderCredential:

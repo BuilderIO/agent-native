@@ -438,6 +438,8 @@ const enUS = {
     allowedChannels: "Allowed channels",
     invalidAllowedChannels:
       "Not valid Slack channels: {{entries}}. Use a channel ID like C0123456789 or #channel-name.",
+    invalidSlackDirectMessages:
+      "Slack direct messages are not supported: {{entries}}. Brain only syncs public and private channels.",
     invalidGithubRepositories:
       "Not valid repositories: {{entries}}. Use owner/repo or a github.com repository URL.",
     missingProviderCredential:
@@ -3034,6 +3036,8 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannels: "القنوات المسموح بها",
       invalidAllowedChannels:
         "قنوات Slack غير صالحة: {{entries}}. استخدم معرف قناة مثل C0123456789 أو ‎#channel-name.",
+      invalidSlackDirectMessages:
+        "الرسائل المباشرة في Slack غير مدعومة: {{entries}}. يزامن Brain القنوات العامة والخاصة فقط.",
       invalidGithubRepositories:
         "مستودعات غير صالحة: {{entries}}. استخدم owner/repo أو عنوان URL لمستودع على github.com.",
       missingProviderCredential:
@@ -3473,6 +3477,8 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannels: "Zulässige Kanäle",
       invalidAllowedChannels:
         "Keine gültigen Slack-Kanäle: {{entries}}. Verwenden Sie eine Kanal-ID wie C0123456789 oder #kanalname.",
+      invalidSlackDirectMessages:
+        "Slack-Direktnachrichten werden nicht unterstützt: {{entries}}. Brain synchronisiert nur öffentliche und private Kanäle.",
       invalidGithubRepositories:
         "Keine gültigen Repositorys: {{entries}}. Verwenden Sie owner/repo oder eine github.com-Repository-URL.",
       missingProviderCredential:
@@ -3927,6 +3933,8 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannels: "Canales permitidos",
       invalidAllowedChannels:
         "Canales de Slack no válidos: {{entries}}. Usa un ID de canal como C0123456789 o #nombre-de-canal.",
+      invalidSlackDirectMessages:
+        "Los mensajes directos de Slack no son compatibles: {{entries}}. Brain solo sincroniza canales públicos y privados.",
       invalidGithubRepositories:
         "Repositorios no válidos: {{entries}}. Usa owner/repo o una URL de repositorio de github.com.",
       missingProviderCredential:
@@ -4379,6 +4387,8 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannels: "Chaînes autorisées",
       invalidAllowedChannels:
         "Canaux Slack non valides : {{entries}}. Utilisez un ID de canal comme C0123456789 ou #nom-de-canal.",
+      invalidSlackDirectMessages:
+        "Les messages directs Slack ne sont pas pris en charge : {{entries}}. Brain ne synchronise que les canaux publics et privés.",
       invalidGithubRepositories:
         "Dépôts non valides : {{entries}}. Utilisez owner/repo ou une URL de dépôt github.com.",
       missingProviderCredential:
@@ -4809,6 +4819,8 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannels: "अनुमत चैनल",
       invalidAllowedChannels:
         "मान्य Slack चैनल नहीं: {{entries}}. C0123456789 जैसी चैनल ID या #channel-name का उपयोग करें।",
+      invalidSlackDirectMessages:
+        "Slack डायरेक्ट मैसेज समर्थित नहीं हैं: {{entries}}. Brain केवल सार्वजनिक और निजी चैनल सिंक करता है।",
       invalidGithubRepositories:
         "मान्य रिपॉज़िटरी नहीं: {{entries}}. owner/repo या github.com रिपॉज़िटरी URL का उपयोग करें।",
       missingProviderCredential:
@@ -5232,6 +5244,8 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannels: "許可されたチャネル",
       invalidAllowedChannels:
         "有効な Slack チャネルではありません: {{entries}}。C0123456789 のようなチャネル ID または #channel-name を使用してください。",
+      invalidSlackDirectMessages:
+        "Slack のダイレクトメッセージはサポートされていません: {{entries}}。Brain はパブリックおよびプライベートチャネルのみを同期します。",
       invalidGithubRepositories:
         "有効なリポジトリではありません: {{entries}}。owner/repo または github.com のリポジトリ URL を使用してください。",
       missingProviderCredential:
@@ -5662,6 +5676,8 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannels: "허용된 채널",
       invalidAllowedChannels:
         "유효한 Slack 채널이 아닙니다: {{entries}}. C0123456789 같은 채널 ID 또는 #channel-name을 사용하세요.",
+      invalidSlackDirectMessages:
+        "Slack 다이렉트 메시지는 지원되지 않습니다: {{entries}}. Brain은 공개 및 비공개 채널만 동기화합니다.",
       invalidGithubRepositories:
         "유효한 리포지토리가 아닙니다: {{entries}}. owner/repo 또는 github.com 리포지토리 URL을 사용하세요.",
       missingProviderCredential:
@@ -6099,6 +6115,8 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannels: "Canais permitidos",
       invalidAllowedChannels:
         "Canais do Slack inválidos: {{entries}}. Use um ID de canal como C0123456789 ou #nome-do-canal.",
+      invalidSlackDirectMessages:
+        "Mensagens diretas do Slack não são compatíveis: {{entries}}. O Brain sincroniza apenas canais públicos e privados.",
       invalidGithubRepositories:
         "Repositórios inválidos: {{entries}}. Use owner/repo ou uma URL de repositório do github.com.",
       missingProviderCredential:
@@ -6510,6 +6528,8 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannels: "允许的频道",
       invalidAllowedChannels:
         "不是有效的 Slack 频道：{{entries}}。请使用类似 C0123456789 的频道 ID 或 #channel-name。",
+      invalidSlackDirectMessages:
+        "不支持 Slack 私信：{{entries}}。Brain 仅同步公开和私有频道。",
       invalidGithubRepositories:
         "不是有效的仓库：{{entries}}。请使用 owner/repo 或 github.com 仓库 URL。",
       missingProviderCredential:

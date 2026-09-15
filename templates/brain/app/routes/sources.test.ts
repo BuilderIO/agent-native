@@ -105,6 +105,15 @@ describe("add source drawer config validation", () => {
     expect(source).toContain("aria-invalid={githubRepoIssues.length > 0}");
   });
 
+  it("explains a Slack DM separately from a malformed channel", () => {
+    const source = readRouteSource("./sources.tsx");
+
+    // "use a channel ID like C0123456789" is actively wrong advice for someone
+    // who typed D0123456789, which already is an ID.
+    expect(source).toContain('issue.code === "slack_direct_message"');
+    expect(source).toContain('t("sources.invalidSlackDirectMessages"');
+  });
+
   it("warns up front when the provider credential is not configured", () => {
     const source = readRouteSource("./sources.tsx");
 

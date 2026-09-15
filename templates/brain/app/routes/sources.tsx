@@ -2143,6 +2143,12 @@ export default function SourcesRoute() {
     form.provider === "slack"
       ? validateSlackChannelInput(form.channelRefs)
       : [];
+  const slackDirectMessageIssues = slackChannelIssues.filter(
+    (issue) => issue.code === "slack_direct_message",
+  );
+  const slackFormatIssues = slackChannelIssues.filter(
+    (issue) => issue.code !== "slack_direct_message",
+  );
   const githubRepoIssues =
     form.provider === "github" ? validateGitHubRepoInput(form.githubRepos) : [];
   const formConfigInvalid =
@@ -3054,14 +3060,25 @@ export default function SourcesRoute() {
                     placeholder={"C0123456789\n#product\n#launches"}
                   />
                   {slackChannelIssues.length > 0 ? (
-                    <p
+                    <div
                       id="slack-channels-error"
-                      className="text-xs leading-5 text-destructive"
+                      className="grid gap-1 text-xs leading-5 text-destructive"
                     >
-                      {t("sources.invalidAllowedChannels", {
-                        entries: issueEntryList(slackChannelIssues),
-                      })}
-                    </p>
+                      {slackDirectMessageIssues.length > 0 ? (
+                        <p>
+                          {t("sources.invalidSlackDirectMessages", {
+                            entries: issueEntryList(slackDirectMessageIssues),
+                          })}
+                        </p>
+                      ) : null}
+                      {slackFormatIssues.length > 0 ? (
+                        <p>
+                          {t("sources.invalidAllowedChannels", {
+                            entries: issueEntryList(slackFormatIssues),
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
                   ) : null}
                   <p className="text-xs leading-5 text-muted-foreground">
                     {t("sources.allowedChannelsDescription")}
