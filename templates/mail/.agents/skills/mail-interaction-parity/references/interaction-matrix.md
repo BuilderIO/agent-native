@@ -793,8 +793,12 @@ traffic to any one path.
   verify Spam moves to the Spam/Junk partition and is not silently equivalent
   to blocking. Cover mute/unmute and reply notification behavior, Undo,
   future-message handling, restore from Trash/Spam, missing/duplicate targets,
-  and account scope. Use mocked unsubscribe and provider effects; never
-  unsubscribe, block, or report a real personal message.
+  and account scope. Mail's global Spam, Block, and Mute handlers now forward
+  the focused message's account into their provider requests, and the server
+  validates that requested account before Gmail mutation; source and handler
+  regression coverage passed on 2026-09-15. Use mocked unsubscribe and
+  provider effects; never unsubscribe, block, or report a real personal
+  message.
 - ORGANIZE-004 — Snooze presets, weekday prefixes, natural-language date/time,
   timezone, multi-select, swipe, modal keyboard navigation, cancel, failure,
   resurface, and reminder list.
@@ -1036,7 +1040,7 @@ traffic to any one path.
   listener, reads the latest sequence list through a ref, and clears pending
   keys when disabled or unmounted. Regression coverage checks successful
   one-shot dispatch, input exclusion, timeout across rerender, and disable
-  cleanup; a fresh full Mail suite run on 2026-09-14 passes 952 tests across
+  cleanup; a fresh full Mail suite run on 2026-09-14 passes 959 tests across
   111 files.
   An earlier disconnected browser pass searched the Mail command palette for
   `shortcut` and found no shortcut-reference entry. A local browser replay on
@@ -1060,7 +1064,7 @@ traffic to any one path.
   contexts, including either Shift state for the browser key event; the
   Command → Shortcuts reference displays both. Focused list mutation coverage,
   conversation source coverage, and the full Mail suite passed on 2026-09-14
-  (955 tests across 111 files before this alias regression was added; 956 after).
+  (959 tests across 111 files).
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

@@ -125,6 +125,20 @@ describe("emails handler connected-account mutation errors", () => {
   });
 });
 
+describe("emails handler triage account selection", () => {
+  it("passes the requested account into every connected-mailbox triage path", () => {
+    const source = emailsHandlerSource();
+
+    for (const handlerName of ["reportSpam", "blockSender", "muteThread"]) {
+      const section = handlerSection(source, handlerName);
+      expect(section, handlerName).toContain("accountEmail?: string");
+      expect(section, handlerName).toContain(
+        "resolveGmailAccess(event, email, accountEmail)",
+      );
+    }
+  });
+});
+
 describe("emails handler Gmail quota cooldown classification", () => {
   it("classifies typed Gmail cooldowns as 429 with Retry-After on thread and message fetches", () => {
     const source = emailsHandlerSource();

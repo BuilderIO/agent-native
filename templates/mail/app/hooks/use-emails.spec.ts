@@ -133,6 +133,38 @@ describe("useLabels", () => {
   });
 });
 
+describe("account-scoped triage mutations", () => {
+  it("forwards the selected account through spam, block, and mute requests", () => {
+    const source = emailsHookSource();
+    const reportSpam = source.slice(
+      source.indexOf("export function useReportSpam()"),
+      source.indexOf("export function useBlockSender()"),
+    );
+    const blockSender = source.slice(
+      source.indexOf("export function useBlockSender()"),
+      source.indexOf("export function useMuteThread()"),
+    );
+    const muteThread = source.slice(
+      source.indexOf("export function useMuteThread()"),
+      source.indexOf(
+        "// ─── Contacts",
+        source.indexOf("export function useMuteThread()"),
+      ),
+    );
+
+    expect(reportSpam).toContain("accountEmail?: string");
+    expect(reportSpam).toContain(
+      "body: JSON.stringify({ accountEmail, threadId })",
+    );
+    expect(blockSender).toContain("accountEmail?: string");
+    expect(blockSender).toContain(
+      "body: JSON.stringify({ senderEmail, accountEmail })",
+    );
+    expect(muteThread).toContain("accountEmail?: string");
+    expect(muteThread).toContain("body: JSON.stringify({ accountEmail })");
+  });
+});
+
 describe("useEmails query warming", () => {
   it("shares the infinite-query fetcher with tab prefetches", () => {
     const source = emailsHookSource();

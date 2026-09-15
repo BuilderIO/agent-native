@@ -1945,8 +1945,19 @@ export function useDeleteEmail() {
 export function useReportSpam() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, threadId }: { id: string; threadId: string }) =>
-      apiFetch(`/api/emails/${id}/spam`, { method: "POST" }),
+    mutationFn: ({
+      id,
+      threadId,
+      accountEmail,
+    }: {
+      id: string;
+      threadId: string;
+      accountEmail?: string;
+    }) =>
+      apiFetch(`/api/emails/${id}/spam`, {
+        method: "POST",
+        body: JSON.stringify({ accountEmail, threadId }),
+      }),
     onMutate: async ({ threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -1981,14 +1992,16 @@ export function useBlockSender() {
       id,
       threadId,
       senderEmail,
+      accountEmail,
     }: {
       id: string;
       threadId: string;
       senderEmail: string;
+      accountEmail?: string;
     }) =>
       apiFetch(`/api/emails/${id}/block-sender`, {
         method: "POST",
-        body: JSON.stringify({ senderEmail }),
+        body: JSON.stringify({ senderEmail, accountEmail }),
       }),
     onMutate: async ({ threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
@@ -2020,9 +2033,23 @@ export function useBlockSender() {
 export function useMuteThread() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (threadId: string) =>
-      apiFetch(`/api/threads/${threadId}/mute`, { method: "POST" }),
-    onMutate: async (threadId: string) => {
+    mutationFn: ({
+      threadId,
+      accountEmail,
+    }: {
+      threadId: string;
+      accountEmail?: string;
+    }) =>
+      apiFetch(`/api/threads/${threadId}/mute`, {
+        method: "POST",
+        body: JSON.stringify({ accountEmail }),
+      }),
+    onMutate: async ({
+      threadId,
+    }: {
+      threadId: string;
+      accountEmail?: string;
+    }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],

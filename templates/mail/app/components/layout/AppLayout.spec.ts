@@ -111,6 +111,20 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain('key: "/",\n      shift: "either",');
   });
 
+  it("keeps global triage mutations scoped to the focused mailbox account", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'accountEmail: targetEmail.accountEmail,\n    });\n    toast(t("mail.toasts.reportedSpam"))',
+    );
+    expect(source).toContain(
+      "senderEmail: targetEmail.from.email,\n      accountEmail: targetEmail.accountEmail,",
+    );
+    expect(source).toContain(
+      "muteThread.mutate({\n      threadId: tid,\n      accountEmail: targetEmail?.accountEmail,\n    });",
+    );
+  });
+
   it("labels the hidden keyboard-shortcut target for Search", () => {
     const source = appLayoutSource();
 
