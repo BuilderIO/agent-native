@@ -520,7 +520,11 @@ export interface UndoArgs {
   viewModeRef: RefObject<"single" | "overview">;
   writeFrameGeometrySnapshot: (
     geometryById: CanvasFrameGeometryById,
-    options?: { syncViewportFrameIds?: string[]; pinHeightFrameIds?: string[] },
+    options?: {
+      replacePendingGeometrySave?: boolean;
+      syncViewportFrameIds?: string[];
+      pinHeightFrameIds?: string[];
+    },
   ) => void;
   ydoc: Y.Doc | null;
 }
@@ -1250,6 +1254,7 @@ export function runUndo({
         "undo",
       ),
       {
+        replacePendingGeometrySave: true,
         syncViewportFrameIds: viewportChangedFrameIds(
           entry.after,
           entry.before,

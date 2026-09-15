@@ -5045,6 +5045,7 @@ function DesignEditor() {
     (
       geometryById: CanvasFrameGeometryById,
       options?: {
+        replacePendingGeometrySave?: boolean;
         syncViewportFrameIds?: string[];
         pinHeightFrameIds?: string[];
       },

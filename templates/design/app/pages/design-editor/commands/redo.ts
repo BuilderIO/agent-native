@@ -301,7 +301,11 @@ export interface RedoArgs {
   viewModeRef: RefObject<"single" | "overview">;
   writeFrameGeometrySnapshot: (
     geometryById: CanvasFrameGeometryById,
-    options?: { syncViewportFrameIds?: string[]; pinHeightFrameIds?: string[] },
+    options?: {
+      replacePendingGeometrySave?: boolean;
+      syncViewportFrameIds?: string[];
+      pinHeightFrameIds?: string[];
+    },
   ) => void;
   ydoc: Y.Doc | null;
 }
@@ -1093,6 +1097,7 @@ export function runRedo({
         "redo",
       ),
       {
+        replacePendingGeometrySave: true,
         syncViewportFrameIds: viewportChangedFrameIds(
           entry.before,
           entry.after,

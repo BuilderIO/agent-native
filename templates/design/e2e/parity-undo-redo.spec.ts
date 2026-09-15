@@ -75,14 +75,26 @@ async function readIndexFrame(page: Page, designId: string) {
     typeof record.data === "string"
       ? JSON.parse(record.data || "{}")
       : record.data
-  ) as { canvasFrames?: Record<string, { rotation?: number }> } | undefined;
+  ) as
+    | {
+        canvasFrames?: Record<
+          string,
+          { rotation?: number; x?: number; y?: number }
+        >;
+      }
+    | undefined;
   const file = record.files?.find(
     (candidate) => candidate.filename === "index.html",
   );
   const frame = file?.id ? data?.canvasFrames?.[file.id] : undefined;
   if (!file?.id || !frame)
     throw new Error("index.html frame geometry is missing");
-  return { id: file.id, rotation: frame.rotation ?? 0 };
+  return {
+    id: file.id,
+    rotation: frame.rotation ?? 0,
+    x: frame.x ?? 0,
+    y: frame.y ?? 0,
+  };
 }
 
 async function box(page: Page, id: string) {
@@ -291,6 +303,48 @@ test("rotating a screen then undoing immediately restores persisted geometry", a
       message: "immediate undo must persist the pre-rotation frame geometry",
     })
     .toBe(before.rotation);
+});
+
+test("nudging a screen then undoing immediately restores persisted geometry", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+  await page.goto(appPath(`/design/${id}?view=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.locator("[data-screen-card]").first()).toBeVisible({
+    timeout: 30_000,
+  });
+
+  const before = await readIndexFrame(page, id);
+  const screen = page.locator(`[data-frame-id="${before.id}"]`);
+  await screen.locator("[data-frame-label]").click();
+  const beforeBox = await screen.boundingBox();
+  if (!beforeBox) throw new Error("screen frame has no bounding box");
+
+  await page.keyboard.down("ArrowRight");
+  await page.keyboard.down("ArrowRight");
+  await page.keyboard.up("ArrowRight");
+  await page.keyboard.up("ArrowRight");
+  const afterBox = await screen.boundingBox();
+  expect(afterBox?.x).not.toBe(beforeBox.x);
+
+  // Keep this keypress adjacent to the nudge: the regression only appears
+  // while the second keyboard commit is still in the debounced save queue.
+  await page.keyboard.press(UNDO);
+  await expect
+    .poll(
+      async () => {
+        const frame = await readIndexFrame(page, id);
+        return [frame.x, frame.y];
+      },
+      {
+        timeout: 15_000,
+        message: "immediate undo must persist the pre-nudge frame geometry",
+      },
+    )
+    .toEqual([before.x, before.y]);
 });
 
 test("a fresh edit after undo clears the redo stack", async ({ page }) => {
