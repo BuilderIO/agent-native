@@ -9,7 +9,7 @@ export const ORG_MIGRATIONS = [
     sql: `CREATE TABLE IF NOT EXISTS organizations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      created_by TEXT NOT NULL,
+      created_by TEXT NOT NULL, -- guard:allow-identity-column — immutable organization creation provenance
       created_at BIGINT NOT NULL
     )`,
   },
@@ -240,5 +240,53 @@ export const ORG_MIGRATIONS = [
     version: 1024,
     name: "suggestion-creations-receipt-version",
     sql: `ALTER TABLE IF EXISTS agent_review_suggestion_creations ADD COLUMN IF NOT EXISTS receipt_version INTEGER NOT NULL DEFAULT 1`,
+  },
+  {
+    version: 1025,
+    name: "app-member-roles-drop-single-role-unique-index",
+    sql: `DROP INDEX IF EXISTS app_member_roles_org_app_lower_email_uidx`,
+  },
+  {
+    version: 1026,
+    name: "app-member-roles-unique-org-app-email-role-idx",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS app_member_roles_org_app_lower_email_role_uidx
+          ON app_member_roles (org_id, app_id, LOWER(email), role)`,
+  },
+  {
+    version: 1027,
+    name: "app-permission-overrides-and-invitation-roles",
+    sql: `ALTER TABLE org_invitations ADD COLUMN IF NOT EXISTS app_roles_json TEXT`,
+  },
+  {
+    version: 1028,
+    name: "app-permission-overrides-table",
+    sql: `CREATE TABLE IF NOT EXISTS app_permission_overrides (
+      org_id TEXT NOT NULL,
+      app_id TEXT NOT NULL,
+      permission TEXT NOT NULL,
+      roles_json TEXT NOT NULL,
+      updated_by TEXT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      UNIQUE (org_id, app_id, permission)
+    )`,
+  },
+  {
+    version: 1029,
+    name: "org-scim-membership-ownership",
+    sql: `CREATE TABLE IF NOT EXISTS org_scim_memberships (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      -- guard:allow-identity-column — immutable Better Auth user id, not an email identity.
+      user_id TEXT NOT NULL,
+      created_membership BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at BIGINT NOT NULL,
+      UNIQUE (org_id, user_id)
+    )`,
+  },
+  {
+    version: 1030,
+    name: "org-scim-membership-member-id",
+    sql: `ALTER TABLE org_scim_memberships
+          ADD COLUMN IF NOT EXISTS member_id TEXT`,
   },
 ];

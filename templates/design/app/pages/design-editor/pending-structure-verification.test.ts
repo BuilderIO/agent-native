@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PendingLiveStructureEdit } from "./pending-edits";
 import {
+  partitionPendingStructuresRuntime,
   verifyPendingStructureRuntime,
   verifyPendingStructuresRuntime,
 } from "./pending-structure-verification";
@@ -108,5 +109,14 @@ describe("verifyPendingStructureRuntime", () => {
         [edit(), edit({ screenId: "settings" })],
       ),
     ).toEqual({ ok: false, failure: "missing-subject" });
+  });
+
+  it("drains each edit as soon as its screen proves the relationship", () => {
+    const html = `<!doctype html><body><section data-agent-native-node-id="anchor"><div data-agent-native-node-id="subject">Subject</div></section></body>`;
+    const first = edit({ screenId: "home" });
+    const second = edit({ screenId: "settings" });
+    expect(
+      partitionPendingStructuresRuntime({ home: { html } }, [first, second]),
+    ).toEqual({ verified: [first], remaining: [second] });
   });
 });

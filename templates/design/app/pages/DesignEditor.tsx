@@ -347,7 +347,10 @@ import { isWheelCameraGestureActive } from "@/components/design/multi-screen/whe
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
-import { ResponsiveInteractBar } from "@/components/design/ResponsiveInteractBar";
+import {
+  ResponsiveInteractBar,
+  ResponsiveInteractExitButton,
+} from "@/components/design/ResponsiveInteractBar";
 import { type ReviewCommentsPanelProps } from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
@@ -986,6 +989,7 @@ import {
 } from "./design-editor/types";
 import {
   VisualEditWebMcp,
+  hasNativeWebMcpHost,
   type VisualEditPromptResult,
 } from "./design-editor/VisualEditWebMcp";
 
@@ -1012,18 +1016,7 @@ type UpdateScreenSourceActionResult = {
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
 
 function pageHasWebMcpHost(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const navigatorWithModelContext = navigator as Navigator & {
-    modelContext?: unknown;
-  };
-  // The app installs the WebMCP polyfill on both document and navigator so
-  // ordinary browser copy still receives the detailed prompt. A native host
-  // owns the Navigator property through its prototype; an app-installed
-  // polyfill creates an own property.
-  return Boolean(
-    navigatorWithModelContext.modelContext &&
-    !Object.prototype.hasOwnProperty.call(navigator, "modelContext"),
-  );
+  return hasNativeWebMcpHost();
 }
 
 // ── Route wrapper — remounts editor state per design id ──────────────────────
@@ -1423,7 +1416,10 @@ function DesignEditor() {
     (nextStatus: PendingStructureVerificationStatus = "idle") => {
       const session = pendingStructureVerificationSessionRef.current;
       if (!session && nextStatus !== "idle") return;
-      if (session) session.cancelled = true;
+      if (session) {
+        session.cancelled = true;
+        session.abortController.abort();
+      }
       pendingStructureVerificationSessionRef.current = undefined;
       pendingStructureVerificationSnapshotsRef.current.clear();
       setRuntimeStructureVerificationRequest(null);
@@ -1436,7 +1432,10 @@ function DesignEditor() {
     setRuntimeStructureVerificationRequest(null);
     return () => {
       const session = pendingStructureVerificationSessionRef.current;
-      if (session) session.cancelled = true;
+      if (session) {
+        session.cancelled = true;
+        session.abortController.abort();
+      }
       pendingStructureVerificationSessionRef.current = undefined;
       pendingStructureVerificationSnapshotsRef.current.clear();
     };
@@ -15413,11 +15412,6 @@ function DesignEditor() {
       runEditorViewTransition,
     ],
   );
-  const enterSingleScreenInteract = useCallback(
-    (fileId?: string | null) => enterSingleScreen(fileId),
-    [enterSingleScreen],
-  );
-
   // Interact presents the screen in a responsive device box with its own
   // chrome bar inside the center canvas. The rails stay mounted, while
   // embedded hosts keep their own chrome and are left alone.
@@ -15530,13 +15524,9 @@ function DesignEditor() {
   );
   const handleOverviewFrameAction = useCallback(
     (screenId: string) => {
-      if (mode === "interact") {
-        enterSingleScreenInteract(screenId);
-        return;
-      }
       handleModeChange("interact", { targetFileId: screenId });
     },
-    [enterSingleScreenInteract, handleModeChange, mode],
+    [handleModeChange],
   );
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
@@ -15545,6 +15535,24 @@ function DesignEditor() {
     () => enterOverviewFromZoom(),
     [enterOverviewFromZoom],
   );
+  // Escape is the standard "leave this mode" convention users try first, and
+  // Interact had no keyboard path back to Edit at all — only the bar's Close
+  // button. This listens on `window` in the default bubble phase, same as
+  // useDesignHotkeys elsewhere, so a Radix layer (the device Select, zoom
+  // Popover) still gets first refusal: its own document-level Escape
+  // handling stops the event before it reaches here, matching
+  // DesignColorPicker.escape.test.tsx's documented ordering. It intentionally
+  // does not reuse useDesignHotkeys, which stays disabled in Interact so the
+  // running prototype keeps owning every other shortcut.
+  useEffect(() => {
+    if (!responsiveInteractActive) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      handleExitResponsiveInteract();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [responsiveInteractActive, handleExitResponsiveInteract]);
   // Fit against the actual center canvas, not window.innerWidth: both rails
   // remain mounted in Interact, so window-level math can place a wide device
   // partly behind them. ResizeObserver also refits after either rail moves.
@@ -15595,11 +15603,11 @@ function DesignEditor() {
     if (viewModeRef.current === "overview") {
       // The toggle swaps between the only two views there are: the infinite
       // canvas (editing) and the responsive interactive view.
-      enterSingleScreen(activeFileId);
+      handleModeChange("interact");
       return;
     }
     enterOverviewFromZoom();
-  }, [activeFileId, enterOverviewFromZoom, enterSingleScreen]);
+  }, [enterOverviewFromZoom, handleModeChange]);
 
   const handleSidebarScreenSelect = useCallback(
     (screenId: string) => {
@@ -15622,11 +15630,16 @@ function DesignEditor() {
       // at this running screen", so it lands in the responsive view — except
       // for a host-embedded editor, where switching screens must not silently
       // drop the user out of editing.
-      enterSingleScreen(screenId, hostEmbeddedEditor ? { mode } : undefined);
+      if (hostEmbeddedEditor) {
+        enterSingleScreen(screenId, { mode });
+        return;
+      }
+      handleModeChange("interact", { targetFileId: screenId });
     },
     [
       clearPendingOverviewLayerSelectionTimer,
       enterSingleScreen,
+      handleModeChange,
       hostEmbeddedEditor,
       mode,
       overviewSelectedScreenIds,
@@ -16388,8 +16401,11 @@ function DesignEditor() {
     onSendToBack: canEditDesign
       ? () => changeSelectedZIndex("back")
       : undefined,
-    // Interact owns the running app's keyboard behavior. The editor shell must
-    // not consume Escape or use it to change view/selection underneath it.
+    // Interact owns the running app's keyboard behavior. The editor shell's
+    // canvas Escape handling (selection clearing, drawing/pin-mode exit,
+    // breakpoint targeting) must not fire underneath it — the separate
+    // Escape listener next to handleExitResponsiveInteract covers leaving
+    // Interact itself.
     onEscape: responsiveInteractActive ? undefined : handleEscapeHotkey,
     onEnter: handleEnterHotkey,
     onSelectParent: handleSelectParentLayer,
@@ -16743,12 +16759,14 @@ function DesignEditor() {
         pendingStructureVerificationRevisionRef,
         pendingStructureVerificationSessionRef,
         pendingStructureVerificationSnapshotsRef,
+        pendingLiveNonStyleEditsRef,
         pendingStructureVerificationStatus,
         pendingVisualStyleEdits,
         pendingVisualStylePrompt,
         setActiveLeftPanel,
         setApplyingViaHost,
         setPendingAgentHandoffBusy,
+        setPendingLiveNonStyleEdits,
         setPendingStructureAckRequest,
         setPendingStructureVerificationStatus,
         setPendingVisualStyleBaselineResetRequest,
@@ -23083,6 +23101,13 @@ function DesignEditor() {
       onModeChange={handleModeChange}
       canAnnotate={canEditDesign}
       onClose={handleExitResponsiveInteract}
+      // The docked bar sits in the canvas column, inset by the left rail's
+      // width — a wide rail plus a narrow window can squeeze that column
+      // enough to clip Close before anything else in the bar (see the
+      // pinned ResponsiveInteractExitButton rendered alongside the left
+      // rail below). The floating bar has no rail competing for width, so
+      // it keeps Close inline.
+      showClose={floating}
       className={
         floating
           ? "pointer-events-auto w-full max-w-[680px] rounded-lg border shadow-xl"
@@ -23603,6 +23628,27 @@ function DesignEditor() {
                 onPointerDown={(event) => startSidebarResize("left", event)}
               />
             ) : null}
+          </div>
+        ) : null}
+
+        {/* The docked bar's Close used to live inside a canvas column inset
+            by the left rail's width (`leftChromeOverlayInset`). A wide rail
+            (the Code panel is 640px) plus a modest window can squeeze that
+            column until the bar's own `overflow-hidden` clips Close before
+            it clips anything else in the row — the rail sits at z-[70], so a
+            squeeze this severe doesn't just crowd Close, it makes it
+            unreachable. Anchoring it here instead, to the canvas area's own
+            right edge rather than the bar's shrunken one, guarantees a way
+            out no matter how little room the rail has left the bar. Height-
+            and edge-matched to the bar (h-12, pr-3) so it reads as the same
+            row rather than a second floating control. Not needed for the
+            floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
+        {responsiveInteractActive && !minimalUi ? (
+          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center pr-3">
+            <ResponsiveInteractExitButton
+              onClose={handleExitResponsiveInteract}
+              className="pointer-events-auto"
+            />
           </div>
         ) : null}
 
@@ -24611,7 +24657,9 @@ function DesignEditor() {
                             (f) => norm(f.filename) === target,
                           );
                           if (match) {
-                            enterSingleScreenInteract(match.id);
+                            handleModeChange("interact", {
+                              targetFileId: match.id,
+                            });
                           }
                         }}
                       />

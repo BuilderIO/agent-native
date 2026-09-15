@@ -7,9 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CommandMenu,
   openAgentSettings,
+  useCommandMenuNestedDialog,
   useCommandMenuShortcut,
   type CommandMenuDoc,
 } from "./CommandMenu.js";
+import { SIGN_OUT_SEARCH_TERMS } from "./sign-out.js";
 
 const DOCS: CommandMenuDoc[] = [
   {
@@ -116,6 +118,15 @@ describe("CommandMenu docs group", () => {
     expect(document.body.textContent).not.toContain(
       "Use the Chrome extension for browser logs",
     );
+  });
+
+  it("matches every sign-out search alias", () => {
+    renderMenu();
+
+    for (const term of SIGN_OUT_SEARCH_TERMS) {
+      search(term);
+      expect(document.body.textContent).toContain("Log out");
+    }
   });
 
   it("filters command items nested in fragments", () => {
@@ -319,6 +330,107 @@ describe("CommandMenu docs group", () => {
     expect(dialog?.querySelector("button")).toBeNull();
   });
 
+  it("labels the input", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          inputLabel="Search content"
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Results">
+            <CommandMenu.Item onSelect={() => undefined}>Page</CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+
+    expect(input?.getAttribute("aria-label")).toBe("Search content");
+    expect(list?.querySelector("[cmdk-item]")?.textContent).toBe("Page");
+  });
+
+  it("lets one custom layout owner compose around the shared listbox", () => {
+    let renderContentCalls = 0;
+    let renderListCalls = 0;
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          renderContent={({ renderList }) => {
+            renderContentCalls += 1;
+            const list = renderList(
+              <CommandMenu.Group heading="Results">
+                <CommandMenu.Item onSelect={() => undefined}>
+                  Result
+                </CommandMenu.Item>
+              </CommandMenu.Group>,
+            );
+            renderListCalls += 1;
+            return (
+              <section data-testid="owner">
+                <button>Toolbar</button>
+                {list}
+                <button>Pagination</button>
+              </section>
+            );
+          }}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    expect(document.querySelectorAll('[data-testid="owner"]')).toHaveLength(1);
+    expect(renderListCalls).toBe(renderContentCalls);
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+    expect(list?.textContent).toContain("Result");
+    expect(list?.textContent).toContain("Action");
+    expect(list?.textContent).not.toContain("Toolbar");
+    expect(list?.textContent).not.toContain("Pagination");
+  });
+
+  it("uses legacy renderResults when custom content renders the default list", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          renderResults={(query) => (
+            <CommandMenu.Group heading="Dynamic">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Result for {query || "empty search"}
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          )}
+          renderContent={({ renderList }) => (
+            <section data-testid="owner">{renderList()}</section>
+          )}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+    expect(list?.textContent).toContain("Result for empty search");
+    expect(list?.textContent).toContain("Static action");
+  });
+
   it("keeps arrow-key selection and Enter activation on shared command items", () => {
     const selectFirst = vi.fn();
     const selectSecond = vi.fn();
@@ -380,6 +492,145 @@ describe("CommandMenu docs group", () => {
 
     expect(onOpenChange).toHaveBeenCalledOnce();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("clears a nonempty command query on Escape before dismissing when enabled", () => {
+    const onOpenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={onOpenChange}
+          clearSearchOnEscape
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    search("launch");
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(input?.value).toBe("");
+    expect(document.querySelector("[role=dialog]")).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onOpenChange).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("runs the close-focus callback when Escape dismisses the menu", async () => {
+    const returnFocusTarget = document.createElement("button");
+    document.body.appendChild(returnFocusTarget);
+    returnFocusTarget.focus();
+    const onCloseAutoFocus = vi.fn((event: Event) => {
+      event.preventDefault();
+      returnFocusTarget.focus();
+    });
+
+    function Harness() {
+      const [open, setOpen] = React.useState(true);
+      return (
+        <CommandMenu
+          open={open}
+          onOpenChange={setOpen}
+          onCloseAutoFocus={onCloseAutoFocus}
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>
+      );
+    }
+
+    act(() => root.render(<Harness />));
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(document.querySelector("[role=dialog]")).toBeNull();
+    expect(onCloseAutoFocus).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(returnFocusTarget);
+    returnFocusTarget.remove();
+  });
+
+  it("dismisses a nested dialog before the command dialog", async () => {
+    const dismissNested = vi.fn();
+    const onOpenChange = vi.fn();
+    function NestedDialog() {
+      useCommandMenuNestedDialog(dismissNested);
+      return <div role="dialog" aria-label="Date picker" />;
+    }
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={onOpenChange}
+          showAgentFallback={false}
+          renderContent={() => <NestedDialog />}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await act(async () => Promise.resolve());
+
+    expect(dismissNested).toHaveBeenCalledOnce();
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it("can opt into opening from a contenteditable target", () => {

@@ -14,6 +14,7 @@ import { useLabState } from "@agent-native/core/client/labs";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { SLIDES_LAYOUT_OVERFLOW_WARNING } from "@shared/labs";
+import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
@@ -77,6 +78,7 @@ import {
   getPersistedElementPath,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
+import { slideCommentAnchorAtPoint } from "@/lib/slide-comment-anchor";
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
@@ -145,12 +147,14 @@ import {
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
+  clampSlideObjectPlacementPosition,
   clientPointToSlideCoordinates,
   cloneSlideObject,
   collectMovableSlideObjects,
   copySlideObjects,
   computeSlideObjectZOrder,
   computeSlideObjectZOrderForSelection,
+  createSlideLinePlacementGeometry,
   createSlideObjectId,
   createSlideObjectPlacementGeometry,
   createSlidesSelectionState,
@@ -189,6 +193,7 @@ import {
   resolveSlideClipboardElement,
   restoreSlideObjectStyle,
   setSlideObjectDimension,
+  setSlideObjectRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -901,7 +906,7 @@ interface SlideEditorProps {
    *  when they target the currently-active slide. */
   recentEdits?: AttributedRecentEdit[];
   /** Called when the user selects text and clicks the comment button */
-  onComment?: (quotedText: string) => void;
+  onComment?: (quotedText: string, anchor?: SlideCommentAnchor) => void;
   /** Existing persisted threads used to render slide-positioned markers. */
   comments?: CommentThread[];
   /** Zero-based index of the current slide */
@@ -918,6 +923,8 @@ interface SlideEditorProps {
   pinMode?: boolean;
   /** Whether the current viewer can create and reply to comments. */
   canComment?: boolean;
+  /** Current authenticated user email used to scope comment actions. */
+  currentUserEmail?: string | null;
   /** Called when pin mode should exit */
   onExitPinMode?: () => void;
   /** Whether the "add text box" tool is active — drag on the slide to size a
@@ -1403,6 +1410,7 @@ export default function SlideEditor({
   onExitDrawMode,
   pinMode,
   canComment = false,
+  currentUserEmail,
   onExitPinMode,
   textBoxMode,
   onExitTextBoxMode,
@@ -1422,6 +1430,7 @@ export default function SlideEditor({
   flushInlineEditRef,
   presentUsers = [],
   recentEdits = [],
+  onComment,
 }: SlideEditorProps) {
   const t = useT();
   const layoutOverflowWarningEnabled = useLabState(
@@ -2323,6 +2332,23 @@ export default function SlideEditor({
     return resolveElementPath(slideContent, selectedElementPath);
   }, [getSlideContent, selectedElementPath, selectedObjectId]);
 
+  const ensureCommentObjectId = useCallback(
+    (target: HTMLElement) => {
+      const hadObjectId = target.hasAttribute("data-slide-object-id");
+      const objectId = ensureSlideObjectId(target);
+      if (!hadObjectId) {
+        const html = readCurrentSlideContentHtml();
+        if (html !== null) {
+          onUpdateSlideRef.current({ content: html }, undefined, {
+            persistence: "immediate",
+          });
+        }
+      }
+      return objectId;
+    },
+    [readCurrentSlideContentHtml],
+  );
+
   const getSelectedAnimationTarget =
     useCallback((): SelectedAnimationTarget | null => {
       const element = selectedImg ?? resolveSelectedElement();
@@ -2337,6 +2363,27 @@ export default function SlideEditor({
         preview: getElementPreview(element, `Element ${elementIndex + 1}`),
       };
     }, [resolveSelectedElement, selectedImg]);
+
+  const commentOnSelectedElement = useCallback(() => {
+    const target = selectedImg ?? resolveSelectedElement();
+    const canvas =
+      slideCanvasRef.current?.closest<HTMLElement>(
+        "[data-main-slide-canvas='true']",
+      ) ?? null;
+    if (!target || !canvas || !onComment) return;
+
+    const objectId = ensureCommentObjectId(target);
+    const rect = target.getBoundingClientRect();
+    const anchor = slideCommentAnchorAtPoint({
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+      slideRect: canvas.getBoundingClientRect(),
+      objectId,
+      objectRect: rect,
+      targetText: target.textContent?.replace(/\s+/g, " ").trim(),
+    });
+    onComment("", anchor);
+  }, [ensureCommentObjectId, onComment, resolveSelectedElement, selectedImg]);
 
   useEffect(() => {
     onSelectedAnimationTargetChange?.(getSelectedAnimationTarget());
@@ -3011,6 +3058,15 @@ export default function SlideEditor({
     ],
   );
 
+  // Reconciliation is keyed to the persisted slide content, not to the
+  // selection callback's closure. Keep the latest callback available without
+  // making the content effect interpret a selection-only rerender as a DOM
+  // replacement.
+  const applyMultiSelectionRef = useRef(applyMultiSelection);
+  useEffect(() => {
+    applyMultiSelectionRef.current = applyMultiSelection;
+  }, [applyMultiSelection]);
+
   const clearMultiSelection = useCallback(() => {
     if (multiSelection.size === 0) return;
     applyMultiSelection(new Set());
@@ -3260,7 +3316,7 @@ export default function SlideEditor({
       // Undo/redo, agent reconciliation, and external updates replace the DOM
       // without preserving transient builder ids. Never leave stale ids in a
       // multi-selection that could later target unrelated newly-stamped nodes.
-      applyMultiSelection(new Set());
+      applyMultiSelectionRef.current(new Set());
       return;
     }
     const slideContent = getSlideContent();
@@ -3274,8 +3330,8 @@ export default function SlideEditor({
       const builderId = element?.getAttribute("data-builder-id");
       if (builderId) ids.add(builderId);
     }
-    applyMultiSelection(ids);
-  }, [slide.content, getSlideContent, applyMultiSelection]);
+    applyMultiSelectionRef.current(ids);
+  }, [slide.content, getSlideContent]);
 
   // One Escape owner for the HTML editor. Radix dialogs/popovers and native
   // form controls retain their own Escape behavior before we arbitrate canvas
@@ -4399,6 +4455,7 @@ export default function SlideEditor({
       if (key !== "c" && key !== "v" && key !== "x" && key !== "d") return;
 
       const active = document.activeElement;
+      if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
       const isTextSurface =
         active instanceof HTMLInputElement ||
         active instanceof HTMLTextAreaElement ||
@@ -4450,6 +4507,7 @@ export default function SlideEditor({
     const onPaste = (e: ClipboardEvent) => {
       if (e.defaultPrevented) return;
       const active = document.activeElement;
+      if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
       if (
         active instanceof HTMLInputElement ||
         active instanceof HTMLTextAreaElement ||
@@ -4529,6 +4587,7 @@ export default function SlideEditor({
       if (key !== "c" && key !== "v") return;
 
       const active = document.activeElement;
+      if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
       if (
         active instanceof HTMLInputElement ||
         active instanceof HTMLTextAreaElement ||
@@ -4720,6 +4779,7 @@ export default function SlideEditor({
       geometry: SlideObjectGeometry,
       type: SlideShapeType,
       target: HTMLElement | null,
+      lineRotationDeg?: number,
     ) => {
       const canvas = containerRef.current
         ? ensureSlideTextBoxCanvas(containerRef.current)
@@ -4741,8 +4801,14 @@ export default function SlideEditor({
       ensureSlideObjectId(shape);
       ensureBuilderId(shape);
       shape.style.position = "absolute";
-      shape.style.left = `${Math.max(0, Math.min(geometry.x, containingBlock.offsetWidth - geometry.width))}px`;
-      shape.style.top = `${Math.max(0, Math.min(geometry.y, containingBlock.offsetHeight - geometry.height))}px`;
+      const clampedPosition = clampSlideObjectPlacementPosition(
+        geometry,
+        containingBlock.offsetWidth,
+        containingBlock.offsetHeight,
+        lineRotationDeg,
+      );
+      shape.style.left = `${clampedPosition.x}px`;
+      shape.style.top = `${clampedPosition.y}px`;
       shape.style.width = `${geometry.width}px`;
       shape.style.height = `${geometry.height}px`;
       shape.style.boxSizing = "border-box";
@@ -4758,6 +4824,7 @@ export default function SlideEditor({
         shape.style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
       }
       shape.style.opacity = "0.85";
+      if (lineRotationDeg) setSlideObjectRotation(shape, lineRotationDeg);
       positioningLayer.appendChild(shape);
 
       const selector = getBuilderSelector(shape);
@@ -6623,16 +6690,23 @@ export default function SlideEditor({
       const defaultSize = placement.shapeType
         ? SLIDE_SHAPE_DEFAULT_SIZES[placement.shapeType]
         : { width: 320, height: 24 };
-      const geometry = dragSized
-        ? createSlideObjectPlacementGeometry(
-            start,
-            end,
-            placement.shapeType === "line" ? 4 : undefined,
-          )
-        : { x: start.x, y: start.y, ...defaultSize };
+      const isLineDrag = dragSized && placement.shapeType === "line";
+      const lineGeometry = isLineDrag
+        ? createSlideLinePlacementGeometry(start, end)
+        : null;
+      const geometry = lineGeometry
+        ? lineGeometry
+        : dragSized
+          ? createSlideObjectPlacementGeometry(start, end)
+          : { x: start.x, y: start.y, ...defaultSize };
 
       if (placement.shapeType) {
-        placeShapeAt(geometry, placement.shapeType, placement.target);
+        placeShapeAt(
+          geometry,
+          placement.shapeType,
+          placement.target,
+          lineGeometry?.rotation,
+        );
         onExitShapeMode?.();
       } else {
         placeTextBoxAt(geometry, placement.target, dragSized);
@@ -8050,6 +8124,8 @@ export default function SlideEditor({
         leading={contextToolbarLeading}
         hasSelectedElement={slideElementSelected}
         animationsOpen={animationsOpen}
+        canComment={canComment}
+        onComment={commentOnSelectedElement}
         onOpenAnimations={
           onOpenAnimations
             ? () => {
@@ -8088,6 +8164,8 @@ export default function SlideEditor({
         leading={contextToolbarLeading}
         hasSelectedElement={slideElementSelected}
         animationsOpen={animationsOpen}
+        canComment={canComment}
+        onComment={commentOnSelectedElement}
         onOpenAnimations={
           onOpenAnimations
             ? () => {
@@ -8445,6 +8523,27 @@ export default function SlideEditor({
         deckId={deckId}
         slideContentHash={hashSlideContent(slide.content)}
         onCommitInlineEdit={commitInlineEditForAgent}
+        onComment={(quotedText, range, editingEl) => {
+          const canvas = document.querySelector<HTMLElement>(
+            "[data-main-slide-canvas='true']",
+          );
+          const selectionRect = range.getBoundingClientRect();
+          const target =
+            editingEl.closest<HTMLElement>("[data-slide-object-id]") ??
+            editingEl;
+          const objectId = ensureCommentObjectId(target);
+          const anchor = canvas
+            ? slideCommentAnchorAtPoint({
+                clientX: selectionRect.left + selectionRect.width / 2,
+                clientY: selectionRect.top + selectionRect.height / 2,
+                slideRect: canvas.getBoundingClientRect(),
+                objectId,
+                objectRect: target.getBoundingClientRect(),
+                targetText: quotedText,
+              })
+            : undefined;
+          onComment?.(quotedText, anchor);
+        }}
       />
 
       {pendingUpdateCount > 0 && (
@@ -8522,10 +8621,14 @@ export default function SlideEditor({
         key={slideId || slide.id}
         active={!!pinMode}
         canComment={canComment}
+        canEdit={!readOnly}
         comments={comments}
         deckId={deckId ?? null}
         slideId={slideId || slide.id}
         canvasSelector="[data-main-slide-canvas='true']"
+        currentUserEmail={currentUserEmail ?? null}
+        onBeforeCommentSubmit={onFlushInlineEdit}
+        onEnsureObjectId={ensureCommentObjectId}
       />
     </div>
   );

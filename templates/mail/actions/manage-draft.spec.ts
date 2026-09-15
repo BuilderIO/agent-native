@@ -463,8 +463,85 @@ describe("manage-draft deep link", () => {
     const body = match![1];
     expect(body).toContain('app: "mail"');
     expect(body).toContain('view: "inbox"');
+    expect(body).toContain('to: "/inbox"');
+    expect(body).not.toContain("composeFullscreen");
     expect(body).toContain("composeDraftId: draft.id");
     expect(body).not.toContain("compose:");
     expect(body).not.toContain("encode");
+  });
+
+  it("creates an ordinary draft deep link without fullscreen mode", async () => {
+    await action.run({
+      action: "create",
+      id: "compact-draft",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+    });
+
+    expect(mocks.buildDeepLink).toHaveBeenCalledWith({
+      app: "mail",
+      view: "inbox",
+      to: "/inbox",
+      params: { composeDraftId: "compact-draft" },
+    });
+  });
+});
+
+describe("manage-draft call-shape guidance", () => {
+  // Regression for a reported failure cluster: the agent repeatedly called
+  // manage-draft with no action/id at all (schema validation failed 3x
+  // identically, halting with repeated_identical_tool_error) because the
+  // tool description didn't spell out that action is always required and
+  // that update/delete need the id returned by a prior create.
+  it("describes the required action field and the create-before-update contract", () => {
+    expect(action.description).toContain("action");
+    expect(action.description).toMatch(/create.*update.*delete/i);
+    expect(action.description).toContain("id returned by a prior create");
+  });
+
+  it("rejects a call with no action at all", () => {
+    expect(action.schema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects update/delete without an id", () => {
+    expect(action.schema.safeParse({ action: "update" }).success).toBe(false);
+    expect(action.schema.safeParse({ action: "delete" }).success).toBe(false);
+  });
+
+  it("accepts a create call with only action set", () => {
+    expect(action.schema.safeParse({ action: "create" }).success).toBe(true);
+  });
+});
+
+describe("manage-draft create-then-reply flow", () => {
+  // End-to-end regression for the reported user request: find an email and
+  // save a draft reply, then keep editing that same draft. This exercises
+  // the create-first-then-update-with-the-returned-id flow the tool
+  // description now calls out explicitly.
+  it("creates a reply draft, then updates it using the id create returned", async () => {
+    const created = await action.run({
+      action: "create",
+      to: "attendee@example.com",
+      subject: "Re: Event Registration",
+      body: "Hi,\n\nCould you confirm your check-in date?",
+      mode: "reply",
+      replyToId: "msg-123",
+    });
+
+    expect(created.id).toBeTruthy();
+    expect(created.draft).toMatchObject({
+      mode: "reply",
+      replyToId: "msg-123",
+    });
+
+    const updated = await action.run({
+      action: "update",
+      id: created.id,
+      body: "Hi,\n\nQuick follow-up: could you confirm your check-in date?",
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.draft.body).toContain("Quick follow-up");
   });
 });

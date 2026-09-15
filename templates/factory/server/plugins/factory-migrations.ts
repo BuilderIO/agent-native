@@ -544,6 +544,11 @@ const migrations = [
         ON factory_poll_cursors (org_id, factory_id, source, destination_key);
     `,
   },
+  {
+    version: 28,
+    name: "factory-poll-cursors-babysit-queue",
+    sql: "ALTER TABLE factory_poll_cursors ADD COLUMN babysit_queue_cursor TEXT",
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

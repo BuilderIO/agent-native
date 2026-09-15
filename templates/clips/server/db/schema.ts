@@ -305,6 +305,9 @@ export const recordingBrowserDiagnostics = table(
     endedAt: text("ended_at").notNull(),
     consoleLogsJson: text("console_logs_json").notNull().default("[]"),
     networkRequestsJson: text("network_requests_json").notNull().default("[]"),
+    interactionEventsJson: text("interaction_events_json")
+      .notNull()
+      .default("[]"),
     redactionVersion: integer("redaction_version").notNull().default(1),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),

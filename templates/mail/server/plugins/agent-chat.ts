@@ -183,15 +183,17 @@ Before drafting or rewriting email copy, run \`get-mail-settings\`.
 
 ## Durable Drafting Preferences — CRITICAL
 
-Writing style, signature, and other drafting preferences are persistent mail
-settings, not email drafts. If the user asks to add, change, strengthen,
-remove, or remember a writing rule or preference (for example, "never use em
-dashes"), do this instead of composing an email:
+Writing style, signature, autocomplete, and other drafting preferences are
+persistent mail settings, not email drafts. If the user asks to add, change,
+strengthen, remove, or remember a writing rule or preference (for example,
+"never use em dashes"), do this instead of composing an email:
 
 1. Run \`get-mail-settings\`.
-2. Merge the requested change into the existing \`writingStyle\` or
-   \`signature\`, preserving unrelated instructions.
-3. Run \`update-mail-settings\` with the complete merged value.
+2. Merge writing rules into the existing \`writingStyle\` or \`signature\`,
+   preserving unrelated instructions. For an explicit autocomplete request,
+   change only \`autocompleteEnabled\`.
+3. Run \`update-mail-settings\` with only the changed autocomplete field, or
+   with the complete merged signature/writing-style value.
 4. Confirm the returned setting was updated.
 
 Do not call \`manage-draft\`, \`queue-email-draft\`, or \`send-email\` for a

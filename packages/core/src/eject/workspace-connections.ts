@@ -28,6 +28,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS: WorkspaceConnectionProvider[] = [
   "sentry",
   "granola",
   "clips",
+  "anthropic-managed-agents",
   "generic",
 ].map((id) => ({
   ...RUNTIME_WORKSPACE_CONNECTION_PROVIDERS.find(

@@ -30,9 +30,12 @@ or Builder connector does not make a coding host an online host:
   create artifacts, or start a local dev server. After writing the bounded
   source brief, call the connected Dispatch action
   `start-workspace-app-creation`. Pass the brief and repeatable workflow in
-  `prompt`, plus the inferred `appId`, `description`, `template`, and selected
-  `resourceIds` when available — reference resources by ID rather than pasting
-  whole knowledge files into the prompt. Then report what Dispatch actually
+  `prompt`, plus the inferred `appId`, `description`, `template`, selected
+  `resourceIds`, and relevant source attachments when available. Pass supported
+  attachments as message context; do not paste binary data into `prompt`, and do
+  not assume an attachment becomes a file in the generated workspace. Reference
+  resources by ID rather than pasting whole knowledge files into the prompt. Then
+  report what Dispatch actually
   returned — the branch, the path, and the status it gave. This host cannot run
   or inspect the app, and the returned path can 404 until the branch merges and
   deploys, so the handoff ends at a pending or unverified status unless a status
@@ -111,6 +114,12 @@ project chats, private URLs, account settings, or credentials. Do not claim
 private web access, invent an importer, add fake OAuth, or scrape a logged-in
 page. If the needed context is not visible, ask for an export, transcript, or
 attachment and treat that artifact as imported source material.
+
+### Dispatch handoff attachments
+
+Read [the attachment handoff reference](references/attachments.md) when calling
+`start-workspace-app-creation` with source files. It defines the supported upload
+and public URL shapes, encoding rules, and handoff behavior.
 
 ### Spreadsheet sources
 
@@ -316,12 +325,9 @@ against a half-created directory. An app that is not the real Agent-Native
 scaffold is a different product, not a smaller version of this one, and a
 handoff that reports success for it is worse than no app at all.
 
-Do not decide for yourself that a workaround is the only path forward. That
-judgment is what produced every case above — each of those runs had a reason
-that looked sufficient at the time. Report the blocker and let the user choose.
-If they ask for a workaround, it becomes a finding rather than a detail: name it
-in the handoff as a pending item, with what you changed and why, so the next
-person sees the problem instead of inheriting it silently.
+Do not choose a workaround yourself. Report the blocker and let the user choose.
+If they request one, name it in the handoff as a pending finding with what changed
+and why, so the next person does not inherit it silently.
 
 ## 3. Turn the workflow into buttons and agent work
 

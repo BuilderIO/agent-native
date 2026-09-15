@@ -57,6 +57,44 @@ describe("acceptPendingInvitationsForEmail", () => {
     );
   });
 
+  it("leaves an invitation pending when its app-role assignment fails", async () => {
+    queueSelect(
+      [{ id: "inv1", orgId: "org1", appRolesJson: "{invalid" }],
+      [], // existing membership check
+    );
+
+    await expect(acceptPendingInvitationsForEmail("a@b.com")).resolves.toEqual({
+      accepted: [],
+      activeOrgId: null,
+    });
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("UPDATE org_invitations SET status = 'accepted'"),
+      ),
+    ).toBe(false);
+  });
+
+  it("continues accepting later invitations when one app-role assignment fails", async () => {
+    queueSelect(
+      [
+        { id: "inv1", orgId: "org1", appRolesJson: "{invalid" },
+        { id: "inv2", orgId: "org2" },
+      ],
+      [], // inv1 membership check
+      [], // inv2 membership check
+    );
+
+    const out = await acceptPendingInvitationsForEmail("a@b.com");
+
+    expect(out.accepted).toEqual([{ invitationId: "inv2", orgId: "org2" }]);
+    expect(out.activeOrgId).toBe("org2");
+    const updates = mockExecute.mock.calls.filter(([input]) =>
+      input.sql.includes("UPDATE org_invitations SET status = 'accepted'"),
+    );
+    expect(updates).toHaveLength(1);
+    expect(updates[0][0].args).toEqual(["inv2"]);
+  });
+
   it("skips insert when already a member but still flips invitation", async () => {
     queueSelect(
       [{ id: "inv1", orgId: "org1" }],
