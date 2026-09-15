@@ -168,11 +168,11 @@ function compareBabysitTier0RoundRobinRows(
   return compareBabysitQueueRows(left, right);
 }
 
-export function sortBabysitQueueRows(
-  rows: readonly BabysitQueueRow[],
+export function sortBabysitQueueRows<T extends BabysitQueueRow>(
+  rows: readonly T[],
   cursor: BabysitQueueCursor | null,
   nowMs: number = Date.now(),
-): BabysitQueueRow[] {
+): T[] {
   return [...rows].sort((left, right) => {
     const leftTier = babysitQueueTier(left.metadataJson, nowMs);
     const rightTier = babysitQueueTier(right.metadataJson, nowMs);

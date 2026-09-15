@@ -326,6 +326,7 @@ describe("buildPullRequestPollMetadataJson", () => {
     userId: 1,
     headRef: "head",
     baseRef: "main",
+    state: "open",
     draft: false,
     updatedAt: "2026-09-10T12:00:00.000Z",
     htmlUrl: "https://github.com/acme/repo/pull/42",
@@ -359,6 +360,28 @@ describe("buildPullRequestPollMetadataJson", () => {
         "https://github.com/acme/repo/pull/42#issuecomment-1",
       author: "builder-io-bot",
     });
+  });
+
+  it("clears terminal babysit metadata when a merged pull request reopens", async () => {
+    const { buildPullRequestPollMetadataJson } =
+      await import("./poll-github-sources.js");
+    const current = JSON.stringify({
+      prBabysitState: "merged",
+      prBabysitMergedAt: "2026-09-14T19:47:10Z",
+      prBabysitPendingReopen: false,
+    });
+    const merged = JSON.parse(
+      buildPullRequestPollMetadataJson(
+        current,
+        pullRequest,
+        undefined,
+        false,
+        "2026-09-10T12:00:00.000Z",
+      ),
+    );
+    expect(merged.prBabysitState).toBeNull();
+    expect(merged.prBabysitMergedAt).toBeNull();
+    expect(merged.prBabysitPendingReopen).toBe(false);
   });
 });
 

@@ -6,6 +6,8 @@ import {
   closedPullRequestKind,
   closedPullRequestTerminalMetadataPatch,
   isTerminalBabysitMetadata,
+  pullRequestReopenedFromTerminal,
+  reopenedFromTerminalBabysitMetadataPatch,
   readGitHubTerminalFromAuditDetails,
   terminalItemStatusForClosedPullRequest,
 } from "./babysit-pr-terminal.js";
@@ -95,6 +97,41 @@ describe("review window helpers", () => {
         "pr_observed",
       ),
     ).toBe(false);
+  });
+});
+
+describe("pullRequestReopenedFromTerminal", () => {
+  it("detects open non-draft transitions away from terminal babysit state", () => {
+    expect(
+      pullRequestReopenedFromTerminal({
+        existingBabysitState: "merged",
+        nextState: "open",
+        nextDraft: false,
+      }),
+    ).toBe(true);
+    expect(
+      pullRequestReopenedFromTerminal({
+        existingBabysitState: "closed-or-draft",
+        nextState: "open",
+        nextDraft: false,
+      }),
+    ).toBe(true);
+    expect(
+      pullRequestReopenedFromTerminal({
+        existingBabysitState: "merged",
+        nextState: "closed",
+        nextDraft: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("clears terminal-only metadata on reopen", () => {
+    expect(reopenedFromTerminalBabysitMetadataPatch()).toEqual({
+      prBabysitState: null,
+      prBabysitPendingReopen: false,
+      prBabysitMergedAt: null,
+      prBabysitBuilderActiveUntil: null,
+    });
   });
 });
 

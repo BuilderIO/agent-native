@@ -950,7 +950,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       }
       return {
         comments,
-        commentsTruncated: comments.length >= MAX_PAGE_SIZE,
+        commentsTruncated,
         reviews,
         reviewsTruncated,
         checks,

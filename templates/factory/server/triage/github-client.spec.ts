@@ -504,6 +504,66 @@ describe("GitHub triage client", () => {
     expect(evidence.reviewsTruncated).toBe(false);
   });
 
+  it("preserves GraphQL completeness when a full page has exactly 100 comments", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/graphql") {
+        return response({
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: {
+                  pageInfo: { hasNextPage: false },
+                  nodes: Array.from({ length: 100 }, (_, index) => ({
+                    id: `PRRT_${index}`,
+                    isResolved: false,
+                    isOutdated: false,
+                    comments: {
+                      pageInfo: { hasNextPage: false },
+                      nodes: [
+                        {
+                          databaseId: index + 1,
+                          body: `comment ${index}`,
+                          createdAt: "2026-08-28T12:00:00Z",
+                          author: { login: "reviewer" },
+                        },
+                      ],
+                    },
+                  })),
+                },
+              },
+            },
+          },
+        });
+      }
+      if (path.endsWith("/reviews") || path.endsWith("/comments")) {
+        return response([]);
+      }
+      if (path.endsWith("/check-runs")) {
+        return response({
+          total_count: 1,
+          check_runs: [
+            {
+              name: "ci",
+              status: "completed",
+              conclusion: "success",
+              completed_at: "2026-08-28T12:02:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+
+    const evidence = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).getPullRequestEvidence(repository, 7, "sha-7");
+
+    expect(evidence.comments).toHaveLength(100);
+    expect(evidence.commentsTruncated).toBe(false);
+  });
+
   it("falls back to Actions workflow runs when Checks permission is unavailable", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
       const path = new URL(String(input)).pathname;

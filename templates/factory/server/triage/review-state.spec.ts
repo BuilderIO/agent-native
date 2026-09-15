@@ -95,6 +95,20 @@ describe("triage review state", () => {
     ).toBe("merged");
   });
 
+  it("returns a merged pull request to the review status when GitHub reopens it", () => {
+    expect(
+      statusAfterPullRequestPoll({
+        existingStatus: "merged",
+        existingAuthor: "builder-io-bot",
+        nextAuthor: "builder-io-bot",
+        existingBabysitState: "merged",
+        nextState: "open",
+        nextDraft: false,
+        sourceChanged: true,
+      }),
+    ).toBe("pr_observed");
+  });
+
   it("does not treat a closed pull request as reopened", () => {
     expect(
       statusAfterPullRequestPoll({

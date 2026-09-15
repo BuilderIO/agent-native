@@ -64,6 +64,36 @@ export function closedPullRequestTerminalMetadataPatch(
   };
 }
 
+export function isTerminalBabysitState(
+  state: string | null | undefined,
+): boolean {
+  return state === "merged" || state === "closed-or-draft";
+}
+
+export function pullRequestReopenedFromTerminal(input: {
+  existingBabysitState?: string | null;
+  nextState: string;
+  nextDraft: boolean;
+}): boolean {
+  return (
+    input.nextState === "open" &&
+    !input.nextDraft &&
+    isTerminalBabysitState(input.existingBabysitState)
+  );
+}
+
+export function reopenedFromTerminalBabysitMetadataPatch(): Record<
+  string,
+  unknown
+> {
+  return {
+    prBabysitState: null,
+    prBabysitPendingReopen: false,
+    prBabysitMergedAt: null,
+    prBabysitBuilderActiveUntil: null,
+  };
+}
+
 export function isTerminalBabysitMetadata(
   metadataJson: string,
   status?: string | null,
@@ -73,14 +103,14 @@ export function isTerminalBabysitMetadata(
     parseTriageMetadata(metadataJson),
     "prBabysitState",
   );
-  return babysitState === "merged" || babysitState === "closed-or-draft";
+  return isTerminalBabysitState(babysitState);
 }
 
 export function babysitStateLeavesReviewWindow(
   state: string | null | undefined,
 ): boolean {
   if (!state) return babysitLeavesReviewWindow(state);
-  if (state === "merged" || state === "closed-or-draft") return true;
+  if (isTerminalBabysitState(state)) return true;
   return babysitLeavesReviewWindow(state);
 }
 

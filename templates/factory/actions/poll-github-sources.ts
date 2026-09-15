@@ -26,6 +26,8 @@ import { recordFactoryAudit } from "../server/triage/audit.js";
 import {
   closedPullRequestKind,
   closedPullRequestTerminalMetadataPatch,
+  pullRequestReopenedFromTerminal,
+  reopenedFromTerminalBabysitMetadataPatch,
   terminalItemStatusForClosedPullRequest,
 } from "../server/triage/babysit-pr-terminal.js";
 import {
@@ -317,6 +319,18 @@ export function buildPullRequestPollMetadataJson(
   }
   if (reopenParked) {
     return mergeTriageMetadata(metadata, { prBabysitState: "queued" });
+  }
+  if (
+    pullRequestReopenedFromTerminal({
+      existingBabysitState: metadataString(currentMetadata, "prBabysitState"),
+      nextState: pullRequest.state,
+      nextDraft: pullRequest.draft,
+    })
+  ) {
+    return mergeTriageMetadata(
+      metadata,
+      reopenedFromTerminalBabysitMetadataPatch(),
+    );
   }
   return metadata;
 }
