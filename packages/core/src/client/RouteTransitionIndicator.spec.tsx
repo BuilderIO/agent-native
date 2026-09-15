@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ROUTE_TRANSITION_INDICATOR_DELAY_MS,
+  ROUTE_TRANSITION_INDICATOR_MAX_DURATION_MS,
   RouteTransitionIndicator,
 } from "./RouteTransitionIndicator.js";
 
@@ -89,6 +90,14 @@ describe("RouteTransitionIndicator", () => {
     // top progress bar with an accessible loading message, not routing chrome.
     expect(indicator?.textContent).toBe("");
     expect(indicator?.className).toContain("top-0");
+
+    act(() => {
+      vi.advanceTimersByTime(ROUTE_TRANSITION_INDICATOR_MAX_DURATION_MS);
+    });
+
+    expect(
+      container.querySelector('[data-route-transition-indicator="true"]'),
+    ).toBeNull();
 
     act(() => {
       resolveLoader();
