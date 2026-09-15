@@ -7,6 +7,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
   SSR_QUERY_CACHE_KEY_HEADER,
+  MAX_USER_REGEX_INPUT_LENGTH,
   compileUserRegex,
   withAgentNativeSocialImageCacheBuster,
 } from "@agent-native/core/shared";
@@ -729,8 +730,12 @@ function renderFormPage(
           return (f.validation.message || f.label + " must be at most " + f.validation.max);
         if (f.validation.unsafePattern)
           return f.label + " has a validation rule that cannot be checked. Ask the form owner to fix it.";
-        if (f.validation.pattern && typeof v === "string" && v.length <= 4096 && !new RegExp(f.validation.pattern).test(v))
-          return (f.validation.message || f.label + " is invalid");
+        if (f.validation.pattern && typeof v === "string") {
+          if (v.length > ${MAX_USER_REGEX_INPUT_LENGTH})
+            return f.label + " is too long to check against this form's rule.";
+          if (!new RegExp(f.validation.pattern).test(v))
+            return (f.validation.message || f.label + " is invalid");
+        }
       }
     }
     return null;

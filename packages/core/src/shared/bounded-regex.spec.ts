@@ -22,6 +22,19 @@ const CATASTROPHIC = [
   "^(a|a)*$",
   "^(\\d|\\w)+$",
   "^(\\s*\\S+)*$",
+  // Letters outside the baseline probe alphabet. These read as unambiguous
+  // while the analyzer only probed a fixed character list, so the corpus above
+  // passed while `^(A+)+$` still hung.
+  "^(A+)+$",
+  "^(Q+)+$",
+  "^(x|x)+$",
+  // Overlapping alternatives of differing length.
+  "^(a|aa)+$",
+  // Finite inner quantifier: bounded is not the same as unambiguous.
+  "^(a{1,10})+$",
+  // Three chained repetitions over the same characters: cubic, and over 20
+  // seconds at the input cap even though no single group is ambiguous.
+  "^(a+)(a+)(a+)$",
 ];
 
 /** Patterns that must keep working — including correct "two words" rules. */
@@ -38,6 +51,11 @@ const LINEAR = [
   "^https?://\\S+$",
   "^.{8,64}$",
   "^(?:Mr|Mrs|Ms|Dr)\\.? [A-Za-z]+$",
+  // Disjoint case-sensitively, and only dangerous once `i` is applied.
+  "^(a|A)+$",
+  "^#[0-9a-fA-F]{6}$",
+  "^[A-Z]{3}-[0-9]{4}$",
+  "^\\S+@\\S+\\.\\S+$",
 ];
 
 /** Long enough that an exponential pattern would not return this decade. */
@@ -53,6 +71,28 @@ describe("analyzeRegexSource", () => {
 
   it.each(LINEAR)("accepts the linear pattern %s", (source) => {
     expect(analyzeRegexSource(source)).toEqual({ safe: true });
+  });
+
+  it("folds case when the pattern will run with the i flag", () => {
+    // Same source, opposite verdicts. Analyzing without the caller's flags
+    // answers a different question than the one that gets executed.
+    expect(analyzeRegexSource("^(a|A)+$", "").safe).toBe(true);
+    expect(analyzeRegexSource("^(a|A)+$", "i").safe).toBe(false);
+    expect(analyzeRegexSource("^([a-z]|[A-Z])+$", "i").safe).toBe(false);
+  });
+
+  it("fails closed on a construct it cannot characterize", () => {
+    // A backreference cannot be reduced to a character set, so it must not be
+    // reported as provably disjoint from its neighbour.
+    expect(analyzeRegexSource("^(\\w)(\\1+)+$").safe).toBe(false);
+  });
+
+  it("keeps a single overlapping pair, which is only quadratic", () => {
+    // Two chained repetitions stay inside the input cap; only three or more
+    // exceed it. Rejecting pairs would take the standard email pattern with it.
+    expect(analyzeRegexSource("^[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$").safe).toBe(
+      true,
+    );
   });
 
   it("refuses to clear a pattern it cannot parse", () => {
