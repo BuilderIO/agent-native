@@ -1026,8 +1026,11 @@ export default defineAction({
       // are supposed to follow.
       const signaturesAfterOperations = slideSignatures(deck);
       const contentsAfterOperations = slideContents(deck);
-      // A slide the same batch also deleted is reported as deleted and nothing
-      // else; it has no "updated" or "unchanged" state left to describe.
+      // Each requested slide id lands in exactly one bucket, decided by
+      // whether it survives the batch. A slide the batch also deleted is only
+      // deleted, and a slide deleted then re-added under the same id is only
+      // updated — reporting one id as both is a contradiction the agent then
+      // relays to the user.
       const requestedSlideIds = [
         ...new Set(
           operations.flatMap((operation) =>
@@ -1336,7 +1339,9 @@ export default defineAction({
         deckId,
         updatedAt: now,
         updatedSlideIds,
-        deletedSlideIds: [...deletedSlideIds],
+        deletedSlideIds: [...deletedSlideIds].filter(
+          (slideId) => !signaturesAfterOperations.has(slideId),
+        ),
         ...(unchangedSlideIds.length
           ? {
               unchangedSlideIds,

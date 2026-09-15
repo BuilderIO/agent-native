@@ -2079,3 +2079,49 @@ describe("run() — the no-op gate spares real deck-level mutations", () => {
     expect(mockRecordGenerationCreativeContext).toHaveBeenCalled();
   });
 });
+
+describe("run() — a deleted-then-readded slide is not reported deleted", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("reports a replaced slide as updated only", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          { op: "delete-slide", slideId: "slide-1" },
+          {
+            op: "add-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One replaced</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    expect(result.deletedSlideIds).toEqual([]);
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(
+      persisted.slides.find((s: { id: string }) => s.id === "slide-1").content,
+    ).toBe("<div>One replaced</div>");
+  });
+});
