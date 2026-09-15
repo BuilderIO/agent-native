@@ -250,6 +250,67 @@ describe("SlideCommentPins", () => {
     );
   });
 
+  it("assigns an id before anchoring a first comment on an unpersisted object", async () => {
+    const ensureObjectId = vi.fn(() => "new-object");
+    renderWithCanvas({ active: true, onEnsureObjectId: ensureObjectId });
+    const object = document.createElement("div");
+    object.className = "fmd-freeform-object";
+    object.style.position = "absolute";
+    object.textContent = "New shape";
+    Object.defineProperty(object, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 180,
+        height: 80,
+        left: 200,
+        right: 300,
+        top: 100,
+        width: 100,
+        x: 200,
+        y: 100,
+      }),
+    });
+    document.querySelector(".slide-content")?.append(object);
+    const target = document.createElement("span");
+    target.textContent = "New shape";
+    object.append(target);
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: () => [target, object],
+    });
+
+    const plane = await waitFor(() => {
+      const element = document.querySelector(
+        "[data-slide-comment-click-plane]",
+      );
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    fireEvent.click(plane, { clientX: 300, clientY: 150 });
+    fireEvent.change(screen.getByPlaceholderText("Add a comment..."), {
+      target: { value: "Check this new shape" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        content: "Check this new shape",
+        anchor: {
+          x: 50,
+          y: 50,
+          objectId: "new-object",
+          objectX: 100,
+          objectY: 62.5,
+          targetText: "New shape",
+        },
+      }),
+    );
+    expect(ensureObjectId).toHaveBeenCalledWith(object);
+  });
+
   it("opens the full thread when an avatar marker is clicked", async () => {
     renderWithCanvas({
       comments: [

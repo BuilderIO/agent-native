@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { createContext, useContext, useState, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SlideCommentsPanel } from "./SlideCommentsPanel";
 
@@ -128,6 +134,10 @@ vi.mock("@/hooks/use-slide-comments", () => ({
   emailToColor: () => "#000",
   formatRelativeTime: () => "just now",
 }));
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("SlideCommentsPanel", () => {
   it("saves a selected-text comment with its object anchor", async () => {
@@ -265,7 +275,7 @@ describe("SlideCommentsPanel", () => {
     deleteComment.mockReset();
     resolveComment.mockReset();
 
-    const { container } = render(
+    render(
       <SlideCommentsPanel
         deckId="deck-1"
         slideId="slide-1"
@@ -280,9 +290,6 @@ describe("SlideCommentsPanel", () => {
 
     fireEvent.click(
       screen.getByRole("button", { name: "Show resolved comments" }),
-    );
-    fireEvent.mouseEnter(
-      container.querySelector("[data-slide-comment-thread]")!,
     );
     fireEvent.click(screen.getByRole("button", { name: "Reopen thread" }));
 
@@ -320,7 +327,7 @@ describe("SlideCommentsPanel", () => {
     };
     updateComment.mockReset().mockResolvedValue({ ok: true });
 
-    const { container } = render(
+    render(
       <SlideCommentsPanel
         deckId="deck-1"
         slideId="slide-1"
@@ -333,9 +340,6 @@ describe("SlideCommentsPanel", () => {
       />,
     );
 
-    fireEvent.mouseEnter(
-      container.querySelector("[data-slide-comment-thread] .group")!,
-    );
     fireEvent.click(screen.getByRole("button", { name: "Edit comment" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Edit comment" }), {
       target: { value: "Updated wording" },

@@ -197,6 +197,22 @@ describe("list-slide-comments", () => {
     });
   });
 
+  it("does not truncate the complete result when no page size is requested", async () => {
+    state.rows = Array.from({ length: 201 }, (_, index) => ({
+      ...state.rows[0]!,
+      id: `comment-${index}`,
+      slideId: `slide-${index}`,
+      threadId: `thread-${index}`,
+      createdAt: `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`,
+    }));
+
+    const result = await (action as any).run({ deckId: "deck-1" });
+
+    expect(result.comments).toHaveLength(201);
+    expect(result.has_more).toBe(false);
+    expect(result.next_offset).toBeNull();
+  });
+
   it("paginates when a bounded page size is requested", async () => {
     const result = await (action as any).run({
       deckId: "deck-1",

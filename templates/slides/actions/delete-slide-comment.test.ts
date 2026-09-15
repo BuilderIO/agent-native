@@ -148,6 +148,15 @@ describe("delete-slide-comment", () => {
     expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-3"]);
   });
 
+  it("deletes a root thread by parentage when its id differs from threadId", async () => {
+    state.rows[0]!.threadId = "thread-root";
+    state.rows[1]!.threadId = "thread-root";
+
+    await run({ id: "c-1", deckId: "deck-1" });
+
+    expect(state.rows.map((r) => r.id)).toEqual(["c-3"]);
+  });
+
   it("propagates a Forbidden failure when the caller lacks the required role", async () => {
     mockGetUserEmail.mockReturnValue("outsider@example.com");
     mockAssertAccess.mockImplementation(() => {

@@ -73,6 +73,29 @@ function initials(name: string | null | undefined, email: string) {
     .slice(0, 2);
 }
 
+function findCommentObject(
+  target: Element | null,
+  canvasSelector: string,
+): HTMLElement | null {
+  const canvas = target?.closest<HTMLElement>(canvasSelector);
+  let current = target instanceof HTMLElement ? target : target?.parentElement;
+  while (current && current !== canvas) {
+    const position =
+      current.style.position || window.getComputedStyle(current).position;
+    if (
+      current.classList.contains("fmd-freeform-object") ||
+      current.classList.contains("fmd-text-box") ||
+      current.hasAttribute("data-slide-object-id") ||
+      position === "absolute" ||
+      position === "fixed"
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
 function CommentAvatar({
   email,
   name,
@@ -364,17 +387,18 @@ export function SlideCommentPins({
       if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) {
         return null;
       }
-      const target = (
-        document.elementsFromPoint?.(clientX, clientY) ?? []
-      ).find(
-        (element) =>
-          !element.closest("[data-slide-comment-overlay]") &&
-          element.closest(canvasSelector),
-      );
-      const object = target?.closest<HTMLElement>("[data-slide-object-id]");
+      const target =
+        (document.elementsFromPoint?.(clientX, clientY) ?? []).find(
+          (element) =>
+            !element.closest("[data-slide-comment-overlay]") &&
+            element.closest(canvasSelector),
+        ) ?? null;
+      const object = findCommentObject(target, canvasSelector);
+      const existingObjectId = object
+        ?.getAttribute("data-slide-object-id")
+        ?.trim();
       const objectId = object
-        ? (object.getAttribute("data-slide-object-id") ??
-          onEnsureObjectId?.(object))
+        ? existingObjectId || onEnsureObjectId?.(object)
         : undefined;
       const objectRect = object?.getBoundingClientRect();
       const targetText = target?.textContent?.replace(/\s+/g, " ").trim();

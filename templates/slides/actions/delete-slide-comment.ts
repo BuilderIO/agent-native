@@ -22,6 +22,7 @@ export default defineAction({
         deckId: schema.slideComments.deckId,
         slideId: schema.slideComments.slideId,
         threadId: schema.slideComments.threadId,
+        parentId: schema.slideComments.parentId,
         authorEmail: schema.slideComments.authorEmail,
       })
       .from(schema.slideComments)
@@ -50,7 +51,7 @@ export default defineAction({
     await db
       .delete(schema.slideComments)
       .where(
-        comment.id !== comment.threadId
+        comment.parentId !== null
           ? and(
               eq(schema.slideComments.id, args.id),
               eq(schema.slideComments.deckId, comment.deckId),

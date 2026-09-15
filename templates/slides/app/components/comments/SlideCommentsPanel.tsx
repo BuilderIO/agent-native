@@ -106,7 +106,6 @@ export function CommentItem({
   canManage: boolean;
 }) {
   const t = useT();
-  const [hovered, setHovered] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useReconciledState(comment.content, {
     active: editing,
@@ -142,11 +141,7 @@ export function CommentItem({
   };
 
   return (
-    <div
-      className="group flex gap-2"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
+    <div className="group flex gap-2">
       <Avatar email={comment.author_email} name={comment.author_name} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-1">
@@ -157,8 +152,8 @@ export function CommentItem({
             <span className="text-[10px] text-muted-foreground">
               {formatRelativeTime(comment.created_at)}
             </span>
-            {hovered && canManage && !editing && (
-              <>
+            {canManage && !editing && (
+              <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -189,7 +184,7 @@ export function CommentItem({
                   </TooltipTrigger>
                   <TooltipContent>{t("comments.deleteComment")}</TooltipContent>
                 </Tooltip>
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -502,7 +497,6 @@ function ThreadCard({
   const t = useT();
   const [replyOpen, setReplyOpen] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
-  const [hovered, setHovered] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const resolveComment = useResolveSlideComment();
   const deleteComment = useDeleteSlideComment();
@@ -540,9 +534,7 @@ function ThreadCard({
   return (
     <div
       data-slide-comment-thread={thread.threadId}
-      className={`border rounded-lg px-3 py-2.5 ${thread.resolved ? "border-border/60 opacity-50" : "border-border bg-card"}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className={`group border rounded-lg px-3 py-2.5 ${thread.resolved ? "border-border/60 opacity-50" : "border-border bg-card"}`}
     >
       {/* Quoted text */}
       {thread.quotedText && (
@@ -620,7 +612,7 @@ function ThreadCard({
               {t("comments.reply")}
             </button>
           )}
-          {hovered && (
+          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -646,7 +638,7 @@ function ThreadCard({
                   : t("comments.resolveThread")}
               </TooltipContent>
             </Tooltip>
-          )}
+          </div>
         </div>
       )}
 
