@@ -16,7 +16,10 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
-import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
@@ -891,13 +894,29 @@ async function readWorkspaceAppsFromFilesystem(
       continue;
     }
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    let configuredHomePath: string | undefined;
+    let inferredHomePath: "/" | undefined;
+    try {
+      configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+      if (configuredHomePath === undefined) {
+        inferredHomePath = inferWorkspaceAppRootHomePath(appDir);
+      }
+    } catch (error) {
+      if (strict) throw error;
+      // A broken app or route tree must not hide healthy sibling agents.
+      console.warn(
+        `[agent-discovery] Could not discover workspace app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
     apps.push({
       id: normalizeAgentId(entry.name),
       name: pkg.displayName || titleCase(entry.name),
       description: pkg.description || "",
       path: `/${entry.name}`,
       homePath: normalizeWorkspaceAppHomePath(
-        await readConfiguredWorkspaceAppHomePath(appDir),
+        configuredHomePath ?? inferredHomePath,
       ),
       isDispatch: normalizeAgentId(entry.name) === "dispatch",
       audience:
