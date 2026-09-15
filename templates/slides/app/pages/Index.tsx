@@ -1402,14 +1402,18 @@ export default function Index() {
       // the retry re-reads that file, duplicating it alongside the reference
       // deck and turning any read hiccup into a second hard stop.
       const carriedImportedReference = pending.importedReference;
+      const carriedDeckSelected =
+        carriedImportedReference !== undefined &&
+        selection.referenceDeckId === carriedImportedReference.deckId;
+      // The reference deck can be deleted between the failed attempt and the
+      // retry. Its id then loads nothing while still reading as a reference,
+      // and its source would stay excluded — leaving the run with neither.
+      const carriedDeckMissing =
+        carriedDeckSelected &&
+        !decks.some((deck) => deck.id === carriedImportedReference.deckId);
       const importedReferenceFilePath =
         selection.importedReferenceFilePath ??
-        (carriedImportedReference &&
-        selection.referenceDeckId === carriedImportedReference.deckId &&
-        // The reference deck can be deleted between the failed attempt and
-        // the retry. Excluding its source then leaves the run with neither
-        // the deck nor the file it was built from.
-        decks.some((deck) => deck.id === carriedImportedReference.deckId)
+        (carriedDeckSelected && !carriedDeckMissing
           ? carriedImportedReference.filePath
           : undefined);
       const generation = runPendingDeckGeneration(
@@ -1419,6 +1423,7 @@ export default function Index() {
           ...selection,
           ...(referenceFilePaths.length > 0 ? { referenceFilePaths } : {}),
           ...(importedReferenceFilePath ? { importedReferenceFilePath } : {}),
+          ...(carriedDeckMissing ? { referenceDeckId: null } : {}),
         },
         pending.context,
         pending.attachments,

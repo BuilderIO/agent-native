@@ -58,7 +58,12 @@ describe("new deck generation flow", () => {
     // A deleted reference deck must not keep its source excluded, or the run
     // has neither the deck nor the file it was built from.
     expect(source).toContain(
-      "decks.some((deck) => deck.id === carriedImportedReference.deckId)",
+      "!decks.some((deck) => deck.id === carriedImportedReference.deckId)",
+    );
+    // A deck that is gone must also stop being passed as the reference, or it
+    // reads as one while loading nothing.
+    expect(source).toContain(
+      "...(carriedDeckMissing ? { referenceDeckId: null } : {})",
     );
   });
 
