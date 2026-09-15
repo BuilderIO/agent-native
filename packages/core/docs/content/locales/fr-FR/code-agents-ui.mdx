@@ -158,9 +158,9 @@ codex login status
 Desktop et CLI lisent `codex login status` et exécutent `codex exec`, ils
 réutilisez n'importe quel abonnement ChatGPT ou clé API authentifiant votre Codex CLI installé
 rapports. Ceci est distinct du package `@ai-sdk/harness-codex` utilisé par
-[Harness Agents](/docs/harness-agents) ; l'adaptateur de faisceau peut copier local
-Codex CLI s'authentifie dans un bac à sable approuvé uniquement lorsque `codexCliAuth: true` est
-explicitement activé.
+[Harness Agents](/docs/harness-agents) ; cet adaptateur résout désormais sur l'hôte les
+identifiants d'abonnement natifs pris en charge sans copier le fichier d'authentification
+local dans le bac à sable.
 
 ## Hôte du navigateur
 
