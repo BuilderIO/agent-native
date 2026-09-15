@@ -52,7 +52,7 @@ export function RouteTransitionIndicator() {
       window.clearTimeout(timer);
       window.clearTimeout(maxDurationTimer);
     };
-  }, [destination, navigationKey]);
+  }, [destination, navigation, navigationKey]);
 
   if (!destination || visibleDestination !== destination) return null;
 

@@ -111,4 +111,81 @@ describe("RouteTransitionIndicator", () => {
       container.querySelector('[data-route-transition-indicator="true"]'),
     ).toBeNull();
   });
+
+  it("restarts its timeout when revalidation restarts the same navigation", async () => {
+    let resolveFirstLoader!: () => void;
+    let resolveSecondLoader!: () => void;
+    const firstLoader = new Promise<void>((resolve) => {
+      resolveFirstLoader = resolve;
+    });
+    const secondLoader = new Promise<void>((resolve) => {
+      resolveSecondLoader = resolve;
+    });
+    let loaderCall = 0;
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <Shell />,
+          children: [
+            { index: true, element: <div>Home</div> },
+            {
+              path: "slow",
+              loader: () => {
+                loaderCall += 1;
+                return loaderCall === 1 ? firstLoader : secondLoader;
+              },
+              element: <div>Slow route</div>,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ["/"] },
+    );
+
+    act(() => {
+      root.render(<RouterProvider router={router} />);
+    });
+
+    act(() => {
+      void router.navigate("/slow");
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(ROUTE_TRANSITION_INDICATOR_DELAY_MS);
+      vi.advanceTimersByTime(
+        ROUTE_TRANSITION_INDICATOR_MAX_DURATION_MS - 1_000,
+      );
+    });
+    expect(
+      container.querySelector('[data-route-transition-indicator="true"]'),
+    ).not.toBeNull();
+
+    act(() => {
+      void router.revalidate();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1_001);
+    });
+    expect(
+      container.querySelector('[data-route-transition-indicator="true"]'),
+    ).not.toBeNull();
+
+    act(() => {
+      resolveFirstLoader();
+      resolveSecondLoader();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
 });
