@@ -27,7 +27,7 @@ new commit, review, comment, or check result; otherwise do not create duplicate
 review noise.
 
 Before selecting a PR for review, read only enough metadata to determine its
-author, draft state, and current review summary:
+author and draft state:
 
  - Ignore every bot-authored PR, including Dependabot and
    `builder-io-integration[bot]`, and ignore every PR authored by the exact
@@ -38,6 +38,10 @@ author, draft state, and current review summary:
  - Ignore draft PRs completely. Do not inspect their diff, checks, reviews,
    membership, or source links; do not take any review action; and do not add
    them to the end-of-run recap.
+
+ - For remaining human PRs, read the current review summary to determine
+   whether the PR already has a current, non-dismissed `APPROVED` review.
+
  - Ignore human PRs that already have a current, non-dismissed `APPROVED`
    review. This exclusion applies even when the PR has newer commits,
    comments, reviews, or check results; do not re-review it or add it to the
