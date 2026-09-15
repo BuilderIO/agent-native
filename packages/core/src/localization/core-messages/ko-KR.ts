@@ -140,6 +140,8 @@ const messages: AgentChatTranslation = {
   "agents.clientId": "클라이언트 ID",
   "agents.scope": "범위",
   "agents.authIncomplete": "호스팅된 에이전트 인증 필드를 완료하세요.",
+  "agents.invalidUrl":
+    "에이전트 URL은 HTTPS를 사용해야 하며 localhost 또는 루프백 개발 URL은 예외입니다.",
   "agents.statusReachable": "연결 가능",
   "agents.statusAuthRejected": "인증 거부됨",
   "agents.statusNoJsonRpc": "JSON-RPC 없음",

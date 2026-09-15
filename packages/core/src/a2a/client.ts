@@ -115,7 +115,8 @@ export type A2AProtocolErrorCode =
   | "a2a_invalid_json"
   | "a2a_missing_jsonrpc"
   | "a2a_invalid_jsonrpc"
-  | "a2a_no_jsonrpc_interface";
+  | "a2a_no_jsonrpc_interface"
+  | "a2a_insecure_endpoint";
 
 /** A response that violates the JSON-RPC envelope required by A2A. */
 export class A2AProtocolError extends Error {
@@ -174,6 +175,18 @@ export class A2ANoJsonRpcInterfaceError extends A2AProtocolError {
     );
     this.name = "A2ANoJsonRpcInterfaceError";
     this.interfaces = interfaces;
+  }
+}
+
+/** A credentialed A2A request cannot be sent over cleartext HTTP. */
+export class A2AInsecureEndpointError extends A2AProtocolError {
+  constructor(url: string) {
+    super(
+      `A2A credentialed requests require HTTPS (or loopback HTTP): ${url}`,
+      "a2a_insecure_endpoint",
+      { url },
+    );
+    this.name = "A2AInsecureEndpointError";
   }
 }
 
@@ -323,8 +336,14 @@ export class A2AClient {
     const normalized = baseUrl.replace(/\/$/, "");
     const explicitEndpoint = splitExplicitA2AEndpoint(normalized);
     this.baseUrl = explicitEndpoint?.baseUrl ?? normalized;
+    this.protocolVersion = options?.protocolVersion ?? options?.a2aVersion;
     if (explicitEndpoint) {
-      this.endpointCandidates = [{ url: explicitEndpoint.endpointUrl }];
+      this.endpointCandidates = [
+        {
+          url: explicitEndpoint.endpointUrl,
+          protocolVersion: this.protocolVersion,
+        },
+      ];
     }
     this.apiKey = apiKey;
     this.apiKeyAttempts = uniqueAuthTokens([
@@ -343,7 +362,6 @@ export class A2AClient {
       ? (normalizeUrl(configuredCardUrl, this.baseUrl) ?? configuredCardUrl)
       : undefined;
     this.endpointResolved = Boolean(explicitEndpoint && !this.cardUrl);
-    this.protocolVersion = options?.protocolVersion ?? options?.a2aVersion;
   }
 
   /**
@@ -615,6 +633,7 @@ export class A2AClient {
     cardUrl: string,
     options?: { timeoutMs?: number; token?: string },
   ): Promise<AgentCard> {
+    assertCredentialedA2AUrl(cardUrl, Boolean(options?.token));
     const headers: Record<string, string> = {
       ...this.transportHeadersFor(cardUrl),
       ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
@@ -927,7 +946,10 @@ export class A2AClient {
           );
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
-          continue;
+          // A streaming POST may have reached the receiver before the
+          // connection failed. Retrying another candidate would submit the
+          // same message twice without an idempotency key.
+          throw lastError;
         }
         if (res.ok) {
           this.endpointCandidates = [candidate];
@@ -994,11 +1016,7 @@ export class A2AClient {
 
     const reader = res.body?.getReader();
     if (!reader) {
-      yield await this.send(message, {
-        contextId: opts?.contextId,
-        metadata: opts?.metadata,
-      });
-      return;
+      throw new Error("A2A stream response did not include a readable body");
     }
 
     const decoder = new TextDecoder();
@@ -1074,15 +1092,20 @@ export class A2AClient {
     try {
       const card = await this.getAgentCard({
         timeoutMs,
-        ...(this.cardUrl && this.apiKey ? { token: this.apiKey } : {}),
+        ...(this.apiKey ? { token: this.apiKey } : {}),
       });
       this.streaming = card.capabilities?.streaming;
-      const interfaceHint = selectJsonRpcInterface(card, this.baseUrl);
+      const interfaceHint = selectJsonRpcInterface(
+        card,
+        this.baseUrl,
+        this.protocolVersion,
+      );
       const advertisedV1Interfaces = Array.isArray(card.supportedInterfaces)
         ? card.supportedInterfaces
         : [];
       const isV1Card =
         card.protocolVersion?.startsWith("1.") ||
+        this.protocolVersion?.startsWith("1.") ||
         advertisedV1Interfaces.some((entry) =>
           entry.protocolVersion?.startsWith("1."),
         );
@@ -1102,6 +1125,10 @@ export class A2AClient {
         );
       }
       if (interfaceHint) {
+        assertCredentialedA2AUrl(
+          interfaceHint.url,
+          hasA2ACredentials(this.apiKeyAttempts, this.transportHeaders),
+        );
         this.protocolVersion ??= interfaceHint.protocolVersion;
         candidates.unshift({
           url: interfaceHint.url,
@@ -1156,6 +1183,8 @@ export class A2AClient {
         : undefined;
     try {
       const headers = this.headers(apiKey, url, protocolVersion);
+      const credentialed = hasA2ACredentials(apiKey ? [apiKey] : [], headers);
+      assertCredentialedA2AUrl(url, credentialed);
       return await ssrfSafeFetch(
         url,
         {
@@ -1165,9 +1194,9 @@ export class A2AClient {
           signal: controller?.signal,
         },
         {
-          maxRedirects: 3,
+          maxRedirects: credentialed ? 0 : 3,
           allowedPrivateOrigins: workspacePrivateOrigins(),
-          ...(headers["x-vercel-protection-bypass"]
+          ...(credentialed || headers["x-vercel-protection-bypass"]
             ? { followRedirects: false }
             : {}),
         },
@@ -1246,9 +1275,46 @@ function normalizeUrl(
   }
 }
 
+function hasA2ACredentials(
+  apiKeys: Array<string | undefined>,
+  headers?: Record<string, string>,
+): boolean {
+  if (apiKeys.some((value) => typeof value === "string" && value.length > 0)) {
+    return true;
+  }
+  return Object.keys(headers ?? {}).some((name) =>
+    /^(authorization|api[-_]key|x-api[-_]key|x-api[-_]token)$/i.test(name),
+  );
+}
+
+function assertCredentialedA2AUrl(url: string, credentialed: boolean): void {
+  if (!credentialed) return;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  if (parsed.protocol === "https:") return;
+  if (parsed.protocol === "http:" && isLoopbackHostname(parsed.hostname)) {
+    return;
+  }
+  throw new A2AInsecureEndpointError(url);
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1"
+  );
+}
+
 function selectJsonRpcInterface(
   card: AgentCard,
   baseUrl: string,
+  configuredProtocolVersion?: A2AProtocolVersion,
 ): {
   url: string;
   protocolVersion: A2AProtocolVersion;
@@ -1259,6 +1325,7 @@ function selectJsonRpcInterface(
     : [];
   const cardIsV1 =
     card.protocolVersion?.startsWith("1.") ||
+    configuredProtocolVersion?.startsWith("1.") ||
     supportedInterfaces.some((entry) =>
       entry.protocolVersion?.startsWith("1."),
     );
@@ -1278,7 +1345,7 @@ function selectJsonRpcInterface(
         ? entry.protocolVersion
         : typeof entry.protocol_version === "string"
           ? entry.protocol_version
-          : card.protocolVersion;
+          : (card.protocolVersion ?? configuredProtocolVersion);
     if (!protocolVersion) continue;
     return {
       url,
@@ -1308,7 +1375,7 @@ function selectJsonRpcInterface(
         ? entry.protocolVersion
         : typeof entry.protocol_version === "string"
           ? entry.protocol_version
-          : (card.protocolVersion ?? "0.3");
+          : (card.protocolVersion ?? configuredProtocolVersion ?? "0.3");
     return {
       url,
       protocolVersion,
@@ -1326,7 +1393,8 @@ function selectJsonRpcInterface(
     if (url) {
       return {
         url,
-        protocolVersion: card.protocolVersion ?? "0.3",
+        protocolVersion:
+          card.protocolVersion ?? configuredProtocolVersion ?? "0.3",
       };
     }
   }
@@ -1512,6 +1580,20 @@ function normalizeA2ATaskResult(
       },
     };
   }
+  if (isRecord(value) && value.kind === "status-update") {
+    if (typeof value.taskId !== "string" || !isRecord(value.status)) {
+      throw new A2AJsonRpcResponseError(
+        "A2A status update is missing a task id or status",
+      );
+    }
+    return normalizeA2ATask({
+      id: value.taskId,
+      ...(typeof value.contextId === "string"
+        ? { contextId: value.contextId }
+        : {}),
+      status: value.status,
+    });
+  }
   if (isRecord(value) && isRecord(value.statusUpdate)) {
     const update = value.statusUpdate;
     if (typeof update.taskId !== "string" || !isRecord(update.status)) {
@@ -1521,6 +1603,9 @@ function normalizeA2ATaskResult(
     }
     return normalizeA2ATask({
       id: update.taskId,
+      ...(typeof update.contextId === "string"
+        ? { contextId: update.contextId }
+        : {}),
       status: update.status,
     });
   }
@@ -1537,11 +1622,36 @@ function normalizeA2ATaskResult(
     }
     return {
       id: update.taskId,
+      ...(typeof update.contextId === "string"
+        ? { contextId: update.contextId }
+        : {}),
       status: {
         state: "working",
         timestamp: new Date().toISOString(),
       },
       artifacts: [normalizeA2AArtifact(update.artifact)],
+    };
+  }
+  if (isRecord(value) && value.kind === "artifact-update") {
+    if (
+      typeof value.taskId !== "string" ||
+      !isRecord(value.artifact) ||
+      !Array.isArray(value.artifact.parts)
+    ) {
+      throw new A2AJsonRpcResponseError(
+        "A2A artifact update is missing a task id or artifact",
+      );
+    }
+    return {
+      id: value.taskId,
+      ...(typeof value.contextId === "string"
+        ? { contextId: value.contextId }
+        : {}),
+      status: {
+        state: "working",
+        timestamp: new Date().toISOString(),
+      },
+      artifacts: [normalizeA2AArtifact(value.artifact)],
     };
   }
   throw new A2AJsonRpcResponseError(
@@ -1826,7 +1936,15 @@ function uniqueEndpointCandidates(
     const existing = byUrl.get(candidate.url);
     byUrl.set(
       candidate.url,
-      existing ? { ...existing, ...candidate } : candidate,
+      existing
+        ? {
+            url: existing.url,
+            protocolVersion:
+              existing.protocolVersion ?? candidate.protocolVersion,
+            streaming: existing.streaming ?? candidate.streaming,
+            tenant: existing.tenant ?? candidate.tenant,
+          }
+        : candidate,
     );
   }
   return [...byUrl.values()];

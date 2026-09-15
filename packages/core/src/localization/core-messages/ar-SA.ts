@@ -141,6 +141,8 @@ const messages: AgentChatTranslation = {
   "agents.clientId": "معرّف العميل",
   "agents.scope": "النطاق",
   "agents.authIncomplete": "أكمل حقول مصادقة الوكيل المستضاف.",
+  "agents.invalidUrl":
+    "يجب استخدام HTTPS لعناوين URL الخاصة بالوكيل، باستثناء localhost أو عناوين الاسترجاع المحلية.",
   "agents.statusReachable": "يمكن الوصول إليه",
   "agents.statusAuthRejected": "رُفضت المصادقة",
   "agents.statusNoJsonRpc": "لا يوجد JSON-RPC",

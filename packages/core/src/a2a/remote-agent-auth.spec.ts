@@ -117,6 +117,39 @@ describe("remote hosted-agent auth", () => {
     expect(ssrfSafeFetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("invalidates a cached token when the vault secret rotates", async () => {
+    resolveCredentialMock
+      .mockResolvedValueOnce("old-secret")
+      .mockResolvedValueOnce("new-secret");
+    ssrfSafeFetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: "old-token", expires_in: 3_600 }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: "new-token", expires_in: 3_600 }),
+          { status: 200 },
+        ),
+      );
+    const auth = {
+      type: "oauth-client-credentials" as const,
+      tokenUrl: "https://login.example.test/oauth/token",
+      clientId: "client-id",
+      clientSecretRef: "FOUNDRY_CLIENT_SECRET",
+    };
+
+    await expect(
+      resolveRemoteAgentToken(auth, { userEmail: "alice@example.test" }),
+    ).resolves.toBe("old-token");
+    await expect(
+      resolveRemoteAgentToken(auth, { userEmail: "alice@example.test" }),
+    ).resolves.toBe("new-token");
+    expect(ssrfSafeFetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it.each([401, 403] as const)(
     "surfaces HTTP %s as a typed credential rejection",
     async (status) => {

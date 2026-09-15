@@ -1,12 +1,18 @@
+import type { RemoteAgentAuth } from "../resources/metadata.js";
 import {
   discoverAgents as defaultDiscoverAgents,
   findAgent as defaultFindAgent,
   type DiscoveredAgent,
 } from "../server/agent-discovery.js";
 import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
+import {
   callAction as defaultCallAction,
   callAgent as defaultCallAgent,
 } from "./client.js";
+import { resolveRemoteAgentToken } from "./remote-agent-auth.js";
 import type {
   A2ACorrelationMetadata,
   A2AReadOnlyActionResult,
@@ -48,6 +54,11 @@ export interface ResolvedAgentInvocationTarget {
   color?: string;
   cardUrl?: string;
 }
+
+const invocationAuthByTarget = new WeakMap<
+  ResolvedAgentInvocationTarget,
+  RemoteAgentAuth
+>();
 
 export interface AgentInvocationResult {
   target: ResolvedAgentInvocationTarget;
@@ -159,7 +170,7 @@ export async function resolveAgentInvocationTarget(
     );
   }
 
-  return {
+  const resolvedTarget: ResolvedAgentInvocationTarget = {
     kind: "discovered",
     id: agent.id,
     name: agent.name,
@@ -168,6 +179,8 @@ export async function resolveAgentInvocationTarget(
     color: agent.color,
     ...(agent.cardUrl ? { cardUrl: agent.cardUrl } : {}),
   };
+  if (agent.auth) invocationAuthByTarget.set(resolvedTarget, agent.auth);
+  return resolvedTarget;
 }
 
 /**
@@ -197,13 +210,19 @@ export async function invokeAgent(
       ? prompt
       : buildAgentInvocationPrompt(prompt, target.url);
 
+  const auth = invocationAuthByTarget.get(target);
+  const authOptions = await resolveInvocationAuth(target, options.userEmail);
   const callAgent = options.runtime?.callAgent ?? defaultCallAgent;
   const responseText = await callAgent(target.url, promptToSend, {
-    apiKey: options.apiKey,
+    ...(auth
+      ? { apiKey: authOptions.token }
+      : {
+          apiKey: options.apiKey,
+          userEmail: options.userEmail,
+          orgDomain: options.orgDomain,
+          orgSecret: options.orgSecret,
+        }),
     contextId: options.contextId,
-    userEmail: options.userEmail,
-    orgDomain: options.orgDomain,
-    orgSecret: options.orgSecret,
     async: options.async,
     timeoutMs: options.timeoutMs,
     pollIntervalMs: options.pollIntervalMs,
@@ -252,11 +271,17 @@ export async function invokeAgentAction(
     runtime: options.runtime,
   });
   const callAction = options.runtime?.callAction ?? defaultCallAction;
+  const auth = invocationAuthByTarget.get(target);
+  const authOptions = await resolveInvocationAuth(target, options.userEmail);
   const result = await callAction(target.url, action, input, {
-    apiKey: options.apiKey,
-    userEmail: options.userEmail,
-    orgDomain: options.orgDomain,
-    orgSecret: options.orgSecret,
+    ...(auth
+      ? { apiKey: authOptions.token }
+      : {
+          apiKey: options.apiKey,
+          userEmail: options.userEmail,
+          orgDomain: options.orgDomain,
+          orgSecret: options.orgSecret,
+        }),
     requestTimeoutMs: options.requestTimeoutMs,
     correlation: options.correlation,
     ...((options.cardUrl ?? target.cardUrl)
@@ -265,6 +290,19 @@ export async function invokeAgentAction(
   });
 
   return { target, action, result };
+}
+
+async function resolveInvocationAuth(
+  target: ResolvedAgentInvocationTarget,
+  userEmail?: string,
+): Promise<{ token?: string }> {
+  const auth = invocationAuthByTarget.get(target);
+  if (!auth) return {};
+  const token = await resolveRemoteAgentToken(auth, {
+    userEmail: userEmail || getRequestUserEmail(),
+    orgId: getRequestOrgId(),
+  });
+  return { token };
 }
 
 export function buildAgentInvocationPrompt(

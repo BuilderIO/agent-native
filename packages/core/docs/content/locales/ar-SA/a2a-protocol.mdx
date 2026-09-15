@@ -371,8 +371,8 @@ console.log(response); // "There were 1,247 signups last week..."
 {
   "id": "foundry-research",
   "name": "Foundry Research",
-  "url": "https://example.services.ai.azure.com/a2a",
-  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "url": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a/agentCard/v1.0",
   "auth": {
     "type": "bearer",
     "credentialRef": "FOUNDRY_A2A_TOKEN"
@@ -415,9 +415,11 @@ const client = new A2AClient(endpoint, token, {
 
 يمكن لـ Foundry كشف نقطة نهاية A2A من خلال [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
 يتطلب ذلك مصادقة Microsoft Entra، ويحتاج المتصل إلى إذن Foundry Agent
-Consumer. استخدم بطاقة وإصدار v0.3 الخاصين بالموفّر مع `cardUrl` و
-`protocolVersion` عندما تتحدث نقطة النهاية باستخدام JSON-RPC الخاص بـ
-Agent-Native. يجب على موفّر الرموز الحصول على رمز وصول Entra وتجديده. لا
+Consumer. الإصدار 1.0 هو نقطة نهاية JSON-RPC العامة؛ استخدم عنوان بطاقة
+`.../agents/{agent}/endpoint/protocols/a2a/agentCard/v1.0` عند توفره. الإصدار 0.3 هو نقطة النهاية التجريبية التي
+تُعاد عند عدم تحديد إصدار. مرّر `protocolVersion` إلى `A2AClient` فقط عندما
+تغفل البطاقة الإصدار. لا يوفّر Foundry v1 بث SSE، لذلك يستخدم العميل
+`message/send`. يجب على موفّر الرموز الحصول على رمز وصول Entra وتجديده. لا
 يكفي `A2A_SECRET` أو مفتاح API ثابت لمصادقة Foundry.
 
 لمصادقة بيانات اعتماد كيان الخدمة، اطلب رمز Entra بالنطاق
@@ -439,19 +441,21 @@ Agent-Native. يجب على موفّر الرموز الحصول على رمز �
 ### Gemini Enterprise {#gemini-enterprise}
 
 يمكن لـ [Gemini Enterprise تسجيل وكلاء A2A خارجيين](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent)،
-كما يمكن لسجل الوكلاء نشر نقطة نهاية وسيطة. تستخدم روابط HTTP+JSON الخاصة به
-مسارات يحددها الموفّر: يَستخدم الاكتشاف `GET {url}/v1/card`، والاستدعاء
-`POST {url}/v1/message:send`، والبث `POST {url}/v1/message:stream`. تستخدم
-الطلبات رموز حامل Google OAuth أو ADC وصلاحيات Google Cloud IAM. راجع
-[استدعاء وكيل عبر نقطة نهاية A2A في السجل](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
-لمتطلبات نقطة النهاية والصلاحيات.
+كما تعرض المساعدات المُدارة نقطة نهاية JSON-RPC قياسية لـ A2A. توجد نقطة النهاية
+تحت مورد المساعد، مثل `.../assistants/default_assistant/agents/{id}/a2a`، بينما
+يمكن نشر بطاقة الوكيل في عنوان مخصص. استخدم عميل الحامل العام ومرّر عنوان البطاقة
+المخصص:
 
-تختلف هذه المسارات عن مسارات JSON-RPC الخاصة بـ Agent-Native
-(`/.well-known/agent-card.json` و`/_agent-native/a2a`). سجّل نقطة النهاية بعد
-إضافة محوّل يترجم تنسيق السلك ويحصل على بيانات اعتماد Google ويجددها. إذا كان
-الهدف يوفّر نقطة نهاية A2A قياسية منفصلة، فاستخدمها مع إرشادات رمز الحامل
-العام. لا تمر حركة التسجيل في Gemini Enterprise عبر سياسات Agent Gateway،
-لذلك طبّق سياسة المصادقة والتفويض الخاصة بالهدف.
+```ts
+const client = new A2AClient(geminiEndpoint, googleBearerToken, {
+  cardUrl: geminiCardUrl,
+});
+```
+
+يحتاج المتصل إلى رمز حامل Google OAuth مع إذن `discoveryengine.assist`. تسجيل
+وكلاء A2A المخصصين في مرحلة ما قبل التوافر العام، لذا تحقّق من توفره في المشروع
+المستهدف قبل عرضه في منتقي مساحة العمل. راجع [استدعاء وكيل Gemini Enterprise](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+لعنوان المورد ومتطلبات IAM.
 
 ## استدعاء مساحة العمل الآلية {#programmatic-invoke}
 

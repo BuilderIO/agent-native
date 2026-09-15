@@ -2,7 +2,10 @@ import crypto from "node:crypto";
 
 import { resolveA2ACallerAuth } from "../a2a/caller-auth.js";
 import { A2AClient } from "../a2a/client.js";
-import { resolveRemoteAgentToken } from "../a2a/remote-agent-auth.js";
+import {
+  RemoteAgentCredentialRejectedError,
+  resolveRemoteAgentToken,
+} from "../a2a/remote-agent-auth.js";
 import {
   loadCapabilities,
   type PeerCapabilities,
@@ -123,11 +126,7 @@ export async function probePeerAgent(
   const client = deps.createClient(agent.url, apiKey, {
     requestTimeoutMs: AUTH_PROBE_TIMEOUT_MS,
     ...(auth?.apiKeyFallbacks ? { fallbackApiKeys: auth.apiKeyFallbacks } : {}),
-    cardUrl:
-      agent.cardUrl ??
-      (agent.auth
-        ? `${agent.url.replace(/\/$/, "")}/.well-known/agent-card.json`
-        : undefined),
+    ...(agent.cardUrl ? { cardUrl: agent.cardUrl } : {}),
   });
 
   try {
@@ -140,7 +139,11 @@ export async function probePeerAgent(
     result.authorized = true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (/A2A request failed \((401|403)\)/.test(message)) {
+    if (err instanceof RemoteAgentCredentialRejectedError) {
+      result.authorized = false;
+      result.cardStatus = "auth-rejected";
+      result.authError = String(err.status);
+    } else if (/A2A request failed \((401|403)\)/.test(message)) {
       result.authorized = false;
       result.authError = /403/.test(message) ? "403" : "401";
     } else if (/A2A error \(-?\d+\): task not found/i.test(message)) {

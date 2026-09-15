@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { resolveCredential } from "../credentials/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import type {
@@ -144,10 +146,18 @@ async function resolveClientCredentialsToken(
         "Hosted agent OAuth auth is missing its client ID or client-secret reference.",
     });
   }
+  const clientSecret = await resolveVaultCredential(clientSecretRef, context);
+  // Vault references are stable across rotations. Include a one-way
+  // fingerprint of the resolved secret so replacing a value invalidates the
+  // old access token without retaining the secret itself.
+  const secretFingerprint = createHash("sha256")
+    .update(clientSecret)
+    .digest("hex");
   const cacheKey = [
     tokenUrl,
     clientId,
     clientSecretRef,
+    secretFingerprint,
     scope ?? "",
     context.userEmail?.trim().toLowerCase() ?? "",
     context.orgId?.trim() ?? "",
@@ -155,7 +165,6 @@ async function resolveClientCredentialsToken(
   const cached = clientCredentialsTokenCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.token;
 
-  const clientSecret = await resolveVaultCredential(clientSecretRef, context);
   const body = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: clientId,

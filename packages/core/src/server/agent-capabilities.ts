@@ -154,11 +154,7 @@ async function fetchCapabilities(
         // anonymous card rather than failing discovery outright.
       }
     }
-    const cardUrl =
-      agent.cardUrl ??
-      (agent.auth
-        ? `${agent.url.replace(/\/$/, "")}/.well-known/agent-card.json`
-        : undefined);
+    const cardUrl = agent.cardUrl;
     const client = new A2AClient(agent.url, token, {
       ...(cardUrl ? { cardUrl } : {}),
       requestTimeoutMs: CARD_TIMEOUT_MS,

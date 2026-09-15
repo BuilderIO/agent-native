@@ -320,8 +320,12 @@ function formatDownstreamLlmCredentialFailure(
 function remoteAgentAuthFailure(
   agentName: string,
   value: unknown,
+  hostedAuthConfigured = false,
 ): { message: string; errorCode: string } | null {
   if (value instanceof RemoteAgentCredentialRejectedError) {
+    if (!hostedAuthConfigured) {
+      return ordinaryPeerAuthFailure(agentName, value.status);
+    }
     return {
       message:
         `Error: The ${agentName} hosted-agent credential was rejected (HTTP ${value.statusCode}). ` +
@@ -330,6 +334,7 @@ function remoteAgentAuthFailure(
     };
   }
   if (value instanceof RemoteAgentAuthError) {
+    if (!hostedAuthConfigured) return null;
     return {
       message: `Error: The ${agentName} hosted-agent authentication failed. ${value.message}`,
       errorCode: value.code,
@@ -338,15 +343,20 @@ function remoteAgentAuthFailure(
   return null;
 }
 
-function hostedAgentCardUrl(agent: {
-  url: string;
-  cardUrl?: string;
-  auth?: unknown;
-}): string | undefined {
-  if (agent.cardUrl) return agent.cardUrl;
-  return agent.auth
-    ? `${agent.url.replace(/\/$/, "")}/.well-known/agent-card.json`
-    : undefined;
+function hostedAgentCardUrl(agent: { cardUrl?: string }): string | undefined {
+  return agent.cardUrl;
+}
+
+function ordinaryPeerAuthFailure(
+  agentName: string,
+  statusCode: 401 | 403,
+): { message: string; errorCode: string } {
+  return {
+    message:
+      `Error: The ${agentName} agent rejected the caller's A2A authentication (HTTP ${statusCode}). ` +
+      "Check the receiving app's A2A authentication configuration and try again.",
+    errorCode: "a2a_auth_rejected",
+  };
 }
 
 export const tool: ActionTool = {
@@ -516,6 +526,7 @@ export async function run(
         buildDelegationCorrelation(context, selfAppId, randomUUID()),
         hostedAgentToken,
         hostedAgentCardUrl(agent),
+        Boolean(agent.auth),
       );
       if (/^Error\b/i.test(output)) {
         terminalStatus = "error";
@@ -532,7 +543,17 @@ export async function run(
       return output;
     } catch (error) {
       terminalStatus = "error";
-      terminalCode = "direct_action_failed";
+      const authFailure = remoteAgentAuthFailure(
+        agent.name,
+        error,
+        Boolean(agent.auth),
+      );
+      terminalCode = authFailure?.errorCode ?? "direct_action_failed";
+      if (authFailure) {
+        throw new A2AInvocationError(authFailure.message, {
+          errorCode: authFailure.errorCode,
+        });
+      }
       throw error;
     } finally {
       trackA2AInvocation({
@@ -895,7 +916,11 @@ export async function run(
             (detail ? `: ${detail}` : "");
         } else {
           terminalStatus = "error";
-          const authFailure = remoteAgentAuthFailure(agent.name, pollErr);
+          const authFailure = remoteAgentAuthFailure(
+            agent.name,
+            pollErr,
+            Boolean(agent.auth),
+          );
           invocationTerminalCode = authFailure?.errorCode ?? "call_failed";
           const reason = pollErr?.message ?? "unknown error";
           responseText =
@@ -1004,7 +1029,11 @@ export async function run(
     return expanded;
   } catch (err: any) {
     if (err instanceof A2AInvocationError) throw err;
-    const authFailure = remoteAgentAuthFailure(agent.name, err);
+    const authFailure = remoteAgentAuthFailure(
+      agent.name,
+      err,
+      Boolean(agent.auth),
+    );
     if (authFailure) {
       invocationStatus = "error";
       invocationTerminalCode = authFailure.errorCode;
@@ -1092,6 +1121,7 @@ async function invokeReadOnlyAppAction(
   correlation: A2ACorrelationMetadata,
   hostedAgentToken?: string,
   cardUrl?: string,
+  hostedAuthConfigured = false,
 ): Promise<string> {
   const callerEmail = getRequestUserEmail();
   if (!callerEmail) {
@@ -1133,7 +1163,11 @@ async function invokeReadOnlyAppAction(
       ? invocation.result.output
       : `Error calling ${agent.name} action ${action}: ${invocation.result.output}`;
   } catch (error) {
-    const authFailure = remoteAgentAuthFailure(agent.name, error);
+    const authFailure = remoteAgentAuthFailure(
+      agent.name,
+      error,
+      hostedAuthConfigured,
+    );
     if (authFailure) {
       throw new A2AInvocationError(authFailure.message, {
         errorCode: authFailure.errorCode,

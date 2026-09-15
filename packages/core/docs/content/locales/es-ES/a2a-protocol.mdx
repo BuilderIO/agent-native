@@ -375,8 +375,8 @@ manifiesto:
 {
   "id": "foundry-research",
   "name": "Foundry Research",
-  "url": "https://example.services.ai.azure.com/a2a",
-  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "url": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a/agentCard/v1.0",
   "auth": {
     "type": "bearer",
     "credentialRef": "FOUNDRY_A2A_TOKEN"
@@ -423,11 +423,14 @@ y llame al punto de conexión de Foundry desde código del servidor.
 
 Foundry puede exponer un punto de conexión A2A mediante [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
 Requiere autenticación de Microsoft Entra y el llamador necesita permiso
-Foundry Agent Consumer. Use la tarjeta y el punto de conexión v0.3 del proveedor
-con `cardUrl` y `protocolVersion` cuando el punto de conexión hable JSON-RPC de
-Agent-Native. El proveedor de tokens debe obtener y renovar un token de acceso
-de Entra. `A2A_SECRET` y una clave API estática no satisfacen la autenticación de
-Foundry.
+Foundry Agent Consumer. La versión 1.0 es el punto de conexión JSON-RPC de GA;
+use la URL de tarjeta `.../agents/{agent}/endpoint/protocols/a2a/agentCard/v1.0` cuando esté disponible. La versión
+0.3 es el punto de conexión de vista previa que se obtiene cuando no se
+selecciona una versión. Pase `protocolVersion` a `A2AClient` solo cuando la
+tarjeta omita la versión. Foundry v1 no ofrece transmisión SSE, por lo que el
+cliente usa `message/send`. El proveedor de tokens debe obtener y renovar un
+token de acceso de Entra. `A2A_SECRET` y una clave API estática no satisfacen la
+autenticación de Foundry.
 
 Para las credenciales de cliente de una entidad de servicio, solicita un token
 de Entra con el ámbito `https://ai.azure.com/.default` y asigna al llamador el
@@ -449,21 +452,23 @@ secreto de cliente en el vault y haz referencia a él en el manifiesto:
 ### Gemini Enterprise {#gemini-enterprise}
 
 [Gemini Enterprise puede registrar agentes A2A externos](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
-y Agent Registry puede publicar un punto de conexión proxy. Su enlace HTTP+JSON
-usa rutas específicas del proveedor: el descubrimiento usa `GET {url}/v1/card`,
-la invocación usa `POST {url}/v1/message:send` y la transmisión usa
-`POST {url}/v1/message:stream`. Las solicitudes usan tokens de portador de
-Google OAuth o ADC y permisos de Google Cloud IAM. Consulte [Llamar a un agente mediante su punto de conexión A2A de registro](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
-para conocer los requisitos del punto de conexión y los permisos.
+y sus asistentes gestionados exponen un punto de conexión JSON-RPC estándar de
+A2A. El punto de conexión está bajo el recurso del asistente, por ejemplo
+`.../assistants/default_assistant/agents/{id}/a2a`, mientras que la tarjeta del
+agente puede publicarse en una URL personalizada. Use el cliente de portador
+genérico y pase esa URL de tarjeta:
 
-Estas rutas son distintas de las rutas JSON-RPC de Agent-Native
-(`/.well-known/agent-card.json` y `/_agent-native/a2a`). Registre el punto de
-conexión solo después de añadir un adaptador que traduzca el formato del cable y
-obtenga y renueve las credenciales de Google. Si el destino expone por separado
-un punto de conexión A2A estándar, úselo con la guía de portador genérico. El
-tráfico de registro de Gemini Enterprise no pasa por las políticas de Agent
-Gateway, así que aplique la política de autenticación y autorización propia del
-destino.
+```ts
+const client = new A2AClient(geminiEndpoint, googleBearerToken, {
+  cardUrl: geminiCardUrl,
+});
+```
+
+El llamador necesita un token de portador OAuth de Google con el permiso
+`discoveryengine.assist`. El registro personalizado de agentes A2A es Pre-GA,
+así que confirme que está disponible en el proyecto de destino antes de
+mostrarlo en el selector del espacio de trabajo. Consulte [invocar un agente de Gemini Enterprise](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+para conocer la URL del recurso y los requisitos de IAM.
 
 ## Invocación programática del espacio de trabajo {#programmatic-invoke}
 

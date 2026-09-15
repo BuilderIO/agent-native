@@ -379,8 +379,8 @@ or client secret in the manifest:
 {
   "id": "foundry-research",
   "name": "Foundry Research",
-  "url": "https://example.services.ai.azure.com/a2a",
-  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "url": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a/agentCard/v1.0",
   "auth": {
     "type": "bearer",
     "credentialRef": "FOUNDRY_A2A_TOKEN"
@@ -425,11 +425,13 @@ and call the Foundry endpoint from server-side code.
 
 Foundry can expose an A2A endpoint through [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
 It requires Microsoft Entra authentication, and the caller needs Foundry Agent
-Consumer permission. Use the provider's v0.3 card and endpoint with `cardUrl`
-when that endpoint speaks Agent-Native JSON-RPC. Pass `protocolVersion` to
-`A2AClient` only when the card omits it. The token provider must obtain and
-refresh an Entra access token. `A2A_SECRET` and a static API key do not satisfy
-Foundry authentication.
+Consumer permission. Version 1.0 is the GA JSON-RPC endpoint; use its
+`.../agents/{agent}/endpoint/protocols/a2a/agentCard/v1.0` card URL when available. Version 0.3 is the preview
+endpoint returned when no version is selected. Pass `protocolVersion` to
+`A2AClient` only when the card omits it. Foundry v1 does not provide SSE
+streaming, so the client uses `message/send`. The token provider must obtain
+and refresh an Entra access token. `A2A_SECRET` and a static API key do not
+satisfy Foundry authentication.
 
 For service-principal client credentials, request the Entra scope
 `https://ai.azure.com/.default` and grant the caller the **Foundry Agent
@@ -451,20 +453,22 @@ vault and reference it from the manifest:
 ### Gemini Enterprise {#gemini-enterprise}
 
 [Gemini Enterprise can register external A2A agents](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
-and its Agent Registry can publish a proxy endpoint. Its HTTP+JSON binding is
-provider-specific: discovery uses `GET {url}/v1/card`, invocation uses
-`POST {url}/v1/message:send`, and streaming uses `POST {url}/v1/message:stream`.
-Requests use Google OAuth or ADC bearer tokens and Google Cloud IAM. See
-[Call an agent using its registry A2A endpoint](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
-for the endpoint and permission requirements.
+and its managed assistants expose a standard A2A JSON-RPC endpoint. The
+endpoint is under the assistant resource, for example
+`.../assistants/default_assistant/agents/{id}/a2a`, while the agent card can be
+published at a custom URL. Use the generic bearer client and pass that card URL:
 
-Those paths are different from the Agent-Native JSON-RPC paths
-(`/.well-known/agent-card.json` and `/_agent-native/a2a`). Register the
-endpoint only after an adapter translates the wire format and obtains and
-refreshes Google credentials. If the target exposes a standard A2A endpoint
-separately, use that endpoint with the generic bearer guidance. Gemini
-Enterprise registration traffic does not go through Agent Gateway policies, so
-apply the target's own auth and authorization policy.
+```ts
+const client = new A2AClient(geminiEndpoint, googleBearerToken, {
+  cardUrl: geminiCardUrl,
+});
+```
+
+The caller needs a Google OAuth bearer with the `discoveryengine.assist`
+permission. Custom A2A-agent registration is Pre-GA, so confirm availability in
+the target project before exposing it in a workspace picker. See [invoke a
+Gemini Enterprise agent](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+for the resource URL and IAM requirements.
 
 ## Programmatic workspace invoke {#programmatic-invoke}
 

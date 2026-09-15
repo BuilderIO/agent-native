@@ -1723,15 +1723,10 @@ export function matchesSavedHostedAgentProbe(
   if (!agent.auth) return false;
   const normalize = (value: string) =>
     parseRemoteAgentUrl(value, { allowLoopbackHttp: true }) ?? value.trim();
-  const savedCardUrl =
-    agent.cardUrl ??
-    `${agent.url.replace(/\/$/, "")}/.well-known/agent-card.json`;
-  const requestedCardUrl =
-    requested.cardUrl ??
-    `${requested.url.replace(/\/$/, "")}/.well-known/agent-card.json`;
   if (
     normalize(agent.url) !== normalize(requested.url) ||
-    normalize(savedCardUrl) !== normalize(requestedCardUrl) ||
+    (agent.cardUrl ? normalize(agent.cardUrl) : undefined) !==
+      (requested.cardUrl ? normalize(requested.cardUrl) : undefined) ||
     agent.auth.type !== requested.auth.type
   ) {
     return false;

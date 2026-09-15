@@ -145,6 +145,8 @@ const messages: AgentChatTranslation = {
   "agents.scope": "スコープ",
   "agents.authIncomplete":
     "ホスト型エージェントの認証フィールドをすべて入力してください。",
+  "agents.invalidUrl":
+    "エージェント URL には HTTPS を使用してください。localhost またはループバックの開発 URL は例外です。",
   "agents.statusReachable": "接続可能",
   "agents.statusAuthRejected": "認証拒否",
   "agents.statusNoJsonRpc": "JSON-RPC なし",

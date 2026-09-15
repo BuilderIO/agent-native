@@ -138,6 +138,8 @@ const messages: AgentChatTranslation = {
   "agents.clientId": "क्लाइंट ID",
   "agents.scope": "स्कोप",
   "agents.authIncomplete": "होस्ट किए गए एजेंट के प्रमाणीकरण फ़ील्ड पूरे करें।",
+  "agents.invalidUrl":
+    "एजेंट URL में HTTPS होना चाहिए; localhost या loopback विकास URL इसके अपवाद हैं।",
   "agents.statusReachable": "पहुंच योग्य",
   "agents.statusAuthRejected": "प्रमाणीकरण अस्वीकार",
   "agents.statusNoJsonRpc": "कोई JSON-RPC नहीं",

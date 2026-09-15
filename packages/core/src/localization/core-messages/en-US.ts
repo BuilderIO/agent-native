@@ -140,6 +140,8 @@ const messages = {
   "agents.clientId": "Client ID",
   "agents.scope": "Scope",
   "agents.authIncomplete": "Complete the hosted agent authentication fields.",
+  "agents.invalidUrl":
+    "Use HTTPS for agent URLs, except for localhost or loopback development URLs.",
   "agents.statusReachable": "Reachable",
   "agents.statusAuthRejected": "Auth rejected",
   "agents.statusNoJsonRpc": "No JSON-RPC",

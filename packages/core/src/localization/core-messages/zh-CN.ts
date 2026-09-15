@@ -135,6 +135,8 @@ const messages: AgentChatTranslation = {
   "agents.clientId": "客户端 ID",
   "agents.scope": "范围",
   "agents.authIncomplete": "请完成托管代理的身份验证字段。",
+  "agents.invalidUrl":
+    "代理 URL 必须使用 HTTPS，localhost 或回环开发 URL 除外。",
   "agents.statusReachable": "可访问",
   "agents.statusAuthRejected": "身份验证被拒",
   "agents.statusNoJsonRpc": "无 JSON-RPC",

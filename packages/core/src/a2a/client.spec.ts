@@ -8,6 +8,7 @@ import {
 } from "../shared/test-traffic.js";
 import {
   A2AClient,
+  A2AInsecureEndpointError,
   A2AMissingJsonRpcResponseError,
   A2ATaskTerminalError,
   A2ATaskTimeoutError,
@@ -1935,6 +1936,292 @@ describe("A2AClient", () => {
     ).resolves.toMatchObject({
       status: { message: { parts: [{ text: "v1 response" }] } },
     });
+  });
+
+  it("keeps configured v1 metadata when a card repeats an explicit endpoint", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        expect(url).toBe("https://agent.test/discovery/card.json");
+        return new Response(
+          JSON.stringify({
+            name: "Foundry Agent",
+            description: "A v1 agent",
+            version: "2026.09",
+            capabilities: {},
+            skills: [],
+            supportedInterfaces: [
+              {
+                url: "https://agent.test/a2a",
+                protocolBinding: "JSONRPC",
+                tenant: "foundry-tenant",
+              },
+            ],
+          }),
+        );
+      }
+
+      expect(url).toBe("https://agent.test/a2a");
+      expect(new Headers(init.headers).get("A2A-Version")).toBe("1.0");
+      const body = JSON.parse(String(init.body));
+      expect(body.method).toBe("SendMessage");
+      expect(body.params.tenant).toBe("foundry-tenant");
+      expect(body.params.message.parts[0]).toEqual({ text: "hello" });
+      return completedResponse(body, "v1 response");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new A2AClient("https://agent.test/a2a", undefined, {
+        cardUrl: "https://agent.test/discovery/card.json",
+        protocolVersion: "1.0",
+      }).send({
+        role: "user",
+        parts: [{ type: "text", text: "hello" }],
+      }),
+    ).resolves.toMatchObject({
+      status: { message: { parts: [{ text: "v1 response" }] } },
+    });
+  });
+
+  it("uses an explicit v1 protocol version without card discovery", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("https://agent.test/a2a");
+      expect(new Headers(init?.headers).get("A2A-Version")).toBe("1.0");
+      const body = JSON.parse(String(init?.body));
+      expect(body.method).toBe("SendMessage");
+      return completedResponse(body, "direct v1");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new A2AClient("https://agent.test/a2a", undefined, {
+        protocolVersion: "1.0",
+      }).send({
+        role: "user",
+        parts: [{ type: "text", text: "hello" }],
+      }),
+    ).resolves.toMatchObject({
+      status: { message: { parts: [{ text: "direct v1" }] } },
+    });
+  });
+
+  it("uses the configured protocol version when a card interface omits it", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        expect(url).toBe("https://agent.test/.well-known/agent-card.json");
+        return new Response(
+          JSON.stringify({
+            name: "Foundry Agent",
+            description: "A v1 agent",
+            version: "2026.09",
+            capabilities: {},
+            skills: [],
+            supportedInterfaces: [
+              {
+                url: "https://agent.test/a2a",
+                protocolBinding: "JSONRPC",
+              },
+            ],
+          }),
+        );
+      }
+
+      expect(url).toBe("https://agent.test/a2a");
+      expect(new Headers(init.headers).get("A2A-Version")).toBe("1.0");
+      const body = JSON.parse(String(init.body));
+      expect(body.method).toBe("SendMessage");
+      return completedResponse(body, "configured v1");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new A2AClient("https://agent.test", undefined, {
+        protocolVersion: "1.0",
+      }).send({
+        role: "user",
+        parts: [{ type: "text", text: "hello" }],
+      }),
+    ).resolves.toMatchObject({
+      status: { message: { parts: [{ text: "configured v1" }] } },
+    });
+  });
+
+  it("preserves the v1 async returnImmediately configuration", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        expect(url).toBe("https://agent.test/.well-known/agent-card.json");
+        return new Response(
+          JSON.stringify({
+            name: "Foundry Agent",
+            description: "A v1 agent",
+            version: "2026.09",
+            protocolVersion: "1.0",
+            capabilities: {},
+            skills: [],
+            supportedInterfaces: [
+              {
+                url: "https://agent.test/a2a",
+                protocolBinding: "JSONRPC",
+                protocolVersion: "1.0",
+              },
+            ],
+          }),
+        );
+      }
+
+      const body = JSON.parse(String(init.body));
+      expect(body.method).toBe("SendMessage");
+      expect(body.params.async).toBeUndefined();
+      expect(body.params.configuration).toEqual({ returnImmediately: true });
+      return completedResponse(body, "queued");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new A2AClient("https://agent.test", undefined, {
+      protocolVersion: "1.0",
+    }).send(
+      { role: "user", parts: [{ type: "text", text: "hello" }] },
+      { async: true },
+    );
+  });
+
+  it("normalizes direct v1 status and artifact stream events", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return new Response(
+          JSON.stringify({
+            name: "Foundry Agent",
+            description: "A v1 agent",
+            version: "2026.09",
+            protocolVersion: "1.0",
+            capabilities: { streaming: true },
+            skills: [],
+            supportedInterfaces: [
+              {
+                url: "https://agent.test/a2a",
+                protocolBinding: "JSONRPC",
+                protocolVersion: "1.0",
+              },
+            ],
+          }),
+        );
+      }
+
+      const body = JSON.parse(String(init.body));
+      const events = [
+        {
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            statusUpdate: {
+              taskId: "v1-task",
+              contextId: "v1-context",
+              status: { state: "TASK_STATE_WORKING" },
+            },
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            artifactUpdate: {
+              taskId: "v1-task",
+              contextId: "v1-context",
+              artifact: {
+                name: "answer",
+                parts: [{ text: "streamed artifact" }],
+              },
+            },
+          },
+        },
+      ];
+      return new Response(
+        events
+          .map((event) => "data: " + JSON.stringify(event) + "\n\n")
+          .join(""),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tasks = [];
+    for await (const task of new A2AClient("https://agent.test").stream({
+      role: "user",
+      parts: [{ type: "text", text: "hello" }],
+    })) {
+      tasks.push(task);
+    }
+
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0]).toMatchObject({
+      id: "v1-task",
+      contextId: "v1-context",
+      status: { state: "working" },
+    });
+    expect(tasks[1]).toMatchObject({
+      id: "v1-task",
+      artifacts: [{ parts: [{ type: "text", text: "streamed artifact" }] }],
+    });
+  });
+
+  it("rejects card-advertised cleartext interfaces for credentialed calls", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        expect(url).toBe("https://agent.test/discovery/card.json");
+        return new Response(
+          JSON.stringify({
+            name: "Insecure Agent",
+            description: "",
+            version: "2026.09",
+            protocolVersion: "1.0",
+            capabilities: {},
+            skills: [],
+            supportedInterfaces: [
+              {
+                url: "http://agent.test/a2a",
+                protocolBinding: "JSONRPC",
+                protocolVersion: "1.0",
+              },
+            ],
+          }),
+        );
+      }
+      return completedResponse(JSON.parse(String(init.body)), "unexpected");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new A2AClient("https://agent.test", "hosted-token", {
+        cardUrl: "https://agent.test/discovery/card.json",
+      }).send({
+        role: "user",
+        parts: [{ type: "text", text: "hello" }],
+      }),
+    ).rejects.toBeInstanceOf(A2AInsecureEndpointError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a streaming transport failure", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("socket closed after acceptance");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      (async () => {
+        for await (const _task of new A2AClient(
+          "https://agent.test/a2a",
+          "first-token",
+          { fallbackApiKeys: ["second-token"] },
+        ).stream({
+          role: "user",
+          parts: [{ type: "text", text: "hello" }],
+        })) {
+          // The request should fail before yielding an event.
+        }
+      })(),
+    ).rejects.toThrow("socket closed after acceptance");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to message/send when the card does not advertise streaming", async () => {

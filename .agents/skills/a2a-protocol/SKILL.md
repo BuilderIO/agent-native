@@ -171,18 +171,22 @@ agent code in managed containers and can expose A2A through Agent Service. Keep
 the Agent-Native UI, actions, and PostgreSQL app on its normal host. Foundry
 callers use Microsoft Entra bearer tokens with Foundry Agent Consumer access,
 so configure `cardUrl` and obtain the token through the workspace credential
-provider. Pass `protocolVersion` to `A2AClient` only when the card omits it. See
-the [Foundry hosted agent overview](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+provider. Foundry v1.0 is the GA JSON-RPC endpoint; v0.3 is the preview
+endpoint used when no version is selected. Use the v1 card URL
+`.../agents/{agent}/endpoint/protocols/a2a/agentCard/v1.0` when available,
+and pass `protocolVersion` only when the card omits it. Foundry v1 does not
+provide SSE streaming. See the [Foundry hosted agent overview](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
 and [A2A endpoint guidance](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
 
-Gemini Enterprise can register external A2A agents. Its Agent Registry
-HTTP+JSON proxy uses `{url}/v1/card`, `{url}/v1/message:send`, and
-`{url}/v1/message:stream` with Google OAuth or ADC bearer credentials. These
-paths are different from this skill's JSON-RPC paths, so use a server-side
-adapter that translates the request and refreshes Google credentials. If a
-provider exposes standard A2A JSON-RPC separately, use the generic bearer
-path. A model provider or SDK without an A2A endpoint needs such an adapter
-before an Agent-Native app can call it.
+Gemini Enterprise managed assistants expose a standard A2A JSON-RPC endpoint
+under the assistant resource, such as
+`.../assistants/default_assistant/agents/{id}/a2a`, and can publish the card at
+a custom URL. Use the generic bearer client with that `cardUrl`; the caller's
+Google OAuth bearer needs the `discoveryengine.assist` permission. Custom A2A
+agent registration is Pre-GA, so verify that it is enabled in the target
+project before exposing it in the workspace picker. A model provider or SDK
+without an A2A endpoint still needs a server-side adapter before an
+Agent-Native app can call it.
 
 Never hardcode either secret in source, docs, prompts, app state, action
 descriptions, client bundles, or examples. Read them from runtime config; never

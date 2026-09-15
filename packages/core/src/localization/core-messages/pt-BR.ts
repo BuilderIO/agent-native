@@ -147,6 +147,8 @@ const messages: AgentChatTranslation = {
   "agents.scope": "Escopo",
   "agents.authIncomplete":
     "Preencha os campos de autenticação do agente hospedado.",
+  "agents.invalidUrl":
+    "As URLs do agente devem usar HTTPS, exceto URLs de desenvolvimento localhost ou loopback.",
   "agents.statusReachable": "Acessível",
   "agents.statusAuthRejected": "Autenticação rejeitada",
   "agents.statusNoJsonRpc": "Sem JSON-RPC",
