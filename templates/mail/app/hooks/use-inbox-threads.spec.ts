@@ -505,6 +505,22 @@ describe("synced inbox mutation consistency", () => {
     ).not.toContainEqual(expect.objectContaining({ threadId: "t1" }));
   });
 
+  it("does not keep cleared undo targets in removal evidence", () => {
+    const qc = makeClient(seedResult());
+    const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1", "t2"]));
+    clearInboxThreadRemoval(qc, "t1");
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult({ items: [] }),
+    );
+    settleInboxMutationIfObserved(qc, mutationId);
+
+    expect(applyInboxMutationOverlay(qc, seedResult() as any).items).toEqual(
+      seedResult().items,
+    );
+  });
+
   it("keeps a removal journal through a stale refetch and retires it after evidence", () => {
     const qc = makeClient(seedResult());
     const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));

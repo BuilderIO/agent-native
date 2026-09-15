@@ -352,7 +352,14 @@ export function clearInboxThreadRemoval(
     snapshot.push({ id, mutation, threadId });
     const threadIds = mutation.threadIds.filter((value) => value !== threadId);
     if (threadIds.length === 0) journal.delete(id);
-    else journal.set(id, { ...mutation, threadIds });
+    else
+      journal.set(id, {
+        ...mutation,
+        observedThreadIds: mutation.observedThreadIds.filter(
+          (value) => value !== threadId,
+        ),
+        threadIds,
+      });
   }
   return snapshot;
 }
