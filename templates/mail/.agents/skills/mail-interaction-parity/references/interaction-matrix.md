@@ -1036,7 +1036,8 @@ traffic to any one path.
   listener, reads the latest sequence list through a ref, and clears pending
   keys when disabled or unmounted. Regression coverage checks successful
   one-shot dispatch, input exclusion, timeout across rerender, and disable
-  cleanup; the full Mail suite now passes 914 tests across 110 files.
+  cleanup; a fresh full Mail suite run on 2026-09-14 passes 952 tests across
+  111 files.
   An earlier disconnected browser pass searched the Mail command palette for
   `shortcut` and found no shortcut-reference entry. A local browser replay on
   2026-09-14 now opens Command with Cmd+K, finds `Shortcuts`, and displays the
