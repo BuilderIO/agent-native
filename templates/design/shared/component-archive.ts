@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { BOARD_FILENAME, emptyBoardHtml } from "./board-file";
 import {
   buildCodeLayerProjection,
   patchCodeLayerNodeAttributes,
@@ -729,6 +730,71 @@ function rootRestoreParent(value: ProjectedDocument): CodeLayerNode | null {
   return rootNodes.length === 1 ? rootNodes[0]! : null;
 }
 
+function normalizedCssValue(value: string | undefined): string {
+  return (
+    value
+      ?.replace(/\s*!important\s*$/i, "")
+      .trim()
+      .toLowerCase() ?? ""
+  );
+}
+
+function isZeroCssValue(value: string): boolean {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((token) => /^0(?:[a-z%]+)?$/i.test(token));
+}
+
+function hasUnsupportedTransformValue(node: CodeLayerNode): boolean {
+  const transform = normalizedCssValue(node.style.transform);
+  const attributeTransform = normalizedCssValue(
+    typeof node.attributes.transform === "string"
+      ? node.attributes.transform
+      : undefined,
+  );
+  const rotate = normalizedCssValue(node.style.rotate);
+  const scale = normalizedCssValue(node.style.scale);
+  const translate = normalizedCssValue(node.style.translate);
+  const zoom = normalizedCssValue(node.style.zoom);
+  if (
+    (transform && transform !== "none") ||
+    (attributeTransform && attributeTransform !== "none")
+  ) {
+    return true;
+  }
+  if (
+    rotate &&
+    rotate !== "none" &&
+    !/^[+-]?0(?:\.0+)?(?:deg|rad|turn|grad)?$/i.test(rotate)
+  ) {
+    return true;
+  }
+  if (scale && scale !== "none") {
+    const scaleValues = scale.split(/\s+/);
+    if (
+      scaleValues.length === 0 ||
+      scaleValues.length > 2 ||
+      scaleValues.some((value) => Number(value) !== 1)
+    ) {
+      return true;
+    }
+  }
+  if (translate && translate !== "none" && !isZeroCssValue(translate)) {
+    return true;
+  }
+  if (zoom && zoom !== "normal" && zoom !== "100%" && Number(zoom) !== 1) {
+    return true;
+  }
+  return node.classes.some((className) => {
+    const parts = className.split(":");
+    const utility = (parts[parts.length - 1] ?? className).replace(/^!/, "");
+    return /^(?:-?(?:rotate|scale|skew|translate)(?:-[xy])?-.+|transform-(?:gpu|cpu)|-?zoom-.+)$/.test(
+      utility,
+    );
+  });
+}
+
 function hasUnsupportedTransformAncestry(
   projection: CodeLayerProjection,
   node: CodeLayerNode,
@@ -739,12 +805,45 @@ function hasUnsupportedTransformAncestry(
   const visited = new Set<string>();
   let current: CodeLayerNode | undefined = node;
   while (current && !visited.has(current.id)) {
-    const transform = current.style.transform?.trim().toLowerCase();
-    if (transform && transform !== "none") return true;
+    if (hasUnsupportedTransformValue(current)) return true;
     visited.add(current.id);
     current = current.parentId ? nodesById.get(current.parentId) : undefined;
   }
   return false;
+}
+
+/**
+ * The fallback coordinates are world coordinates, not arbitrary document
+ * coordinates. Keep the supported root to the generated board shell, whose
+ * body has a fixed zero-margin, zero-padding, zero-border origin.
+ *
+ * ponytail: screen roots stay refused until deletion geometry carries the
+ * current containing-block origin and can be rebased against it.
+ */
+function isCanonicalBoardRestoreRoot(
+  value: ProjectedDocument,
+  root: CodeLayerNode,
+): boolean {
+  if (
+    value.document.source.filename !== BOARD_FILENAME ||
+    root.tag.toLowerCase() !== "body" ||
+    Object.keys(root.attributes).length !== 0
+  ) {
+    return false;
+  }
+  const parent = root.parentId
+    ? value.projection.nodes.find((node) => node.id === root.parentId)
+    : undefined;
+  if (parent?.tag.toLowerCase() !== "html") return false;
+
+  const canonicalBoard = emptyBoardHtml();
+  const headEnd = canonicalBoard.indexOf("</head>");
+  const canonicalHead =
+    headEnd < 0 ? "" : canonicalBoard.slice(0, headEnd + "</head>".length);
+  if (!canonicalHead || !value.document.content.startsWith(canonicalHead)) {
+    return false;
+  }
+  return true;
 }
 
 function positionedArchivedMarkup(args: {
@@ -754,37 +853,33 @@ function positionedArchivedMarkup(args: {
 }): string | null {
   const source = args.main.source;
   if (!source) return null;
-  const openStart = source.openStart - source.start;
-  const openEnd = source.openEnd - source.start;
-  const openTag = args.markup.slice(openStart, openEnd);
-  if (!openTag || !openTag.endsWith(">")) return null;
   const layoutStyle =
-    `position:absolute;left:${args.bounds.left}px;top:${args.bounds.top}px;` +
-    `width:${args.bounds.width}px;height:${args.bounds.height}px;`;
-  const styleAttribute = /\sstyle\s*=\s*(["'])([\s\S]*?)\1/i.exec(openTag);
-  let nextOpenTag: string;
-  if (styleAttribute?.index !== undefined) {
-    const quote = styleAttribute[1]!;
-    const match = styleAttribute[0];
-    const valueStart = styleAttribute.index + match.indexOf(quote) + 1;
-    const valueEnd = styleAttribute.index + match.lastIndexOf(quote);
-    const existing = styleAttribute[2]!.trim().replace(/;\s*$/, "");
-    nextOpenTag =
-      openTag.slice(0, valueStart) +
-      `${existing ? `${existing};` : ""}${layoutStyle}` +
-      openTag.slice(valueEnd);
-  } else {
-    const closeStart = openTag.endsWith("/>")
-      ? openTag.length - 2
-      : openTag.length - 1;
-    nextOpenTag =
-      openTag.slice(0, closeStart) +
-      ` style="${layoutStyle}"` +
-      openTag.slice(closeStart);
-  }
-  return (
-    args.markup.slice(0, openStart) + nextOpenTag + args.markup.slice(openEnd)
-  );
+    `position:absolute!important;inset:auto!important;right:auto!important;bottom:auto!important;` +
+    `left:${args.bounds.left}px!important;top:${args.bounds.top}px!important;` +
+    `width:${args.bounds.width}px!important;height:${args.bounds.height}px!important;` +
+    `box-sizing:border-box!important;margin:0!important;` +
+    `min-width:0!important;max-width:none!important;min-height:0!important;max-height:none!important;`;
+  const fragmentMain = {
+    ...args.main,
+    source: {
+      start: 0,
+      end: source.end - source.start,
+      openStart: source.openStart - source.start,
+      openEnd: source.openEnd - source.start,
+    },
+  };
+  const existingStyle =
+    typeof args.main.attributes.style === "string"
+      ? args.main.attributes.style.trim().replace(/;\s*$/, "")
+      : "";
+  return patchCodeLayerNodeAttributes(args.markup, [
+    {
+      node: fragmentMain,
+      attributes: {
+        style: `${existingStyle ? `${existingStyle};` : ""}${layoutStyle}`,
+      },
+    },
+  ]);
 }
 
 function archiveAttributeRange(
@@ -1061,6 +1156,18 @@ export function restoreComponentMain(args: {
         "The current source has no unique root restore anchor.",
       );
     }
+    if (!isCanonicalBoardRestoreRoot(currentMainDocument, rootParent)) {
+      return fail(
+        "missing-restore-anchor",
+        "Missing-parent restore is supported only for the canonical board root.",
+      );
+    }
+    if (!geometry.data.worldBounds) {
+      return fail(
+        "missing-restore-anchor",
+        "Missing-parent board restore requires world bounds.",
+      );
+    }
     if (
       hasUnsupportedTransformAncestry(
         currentMainDocument.projection,
@@ -1073,19 +1180,12 @@ export function restoreComponentMain(args: {
       );
     }
     restoreParent = rootParent;
-    const bounds = geometry.data.worldBounds
-      ? {
-          left: geometry.data.worldBounds.left,
-          top: geometry.data.worldBounds.top,
-          width: geometry.data.worldBounds.width,
-          height: geometry.data.worldBounds.height,
-        }
-      : {
-          left: geometry.data.boundingRect.x,
-          top: geometry.data.boundingRect.y,
-          width: geometry.data.boundingRect.width,
-          height: geometry.data.boundingRect.height,
-        };
+    const bounds = {
+      left: geometry.data.worldBounds.left,
+      top: geometry.data.worldBounds.top,
+      width: geometry.data.worldBounds.width,
+      height: geometry.data.worldBounds.height,
+    };
     insertedMarkup = positionedArchivedMarkup({
       main: archivedMain,
       markup: exactArchivedMarkup,
