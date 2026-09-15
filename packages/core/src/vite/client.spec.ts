@@ -316,9 +316,12 @@ describe("dev action bridge origin", () => {
     expect(_devActionBridgeOrigin({ local: [], network: [] })).toBeUndefined();
   });
 
-  function listeningHandlerFor(server: unknown): () => void {
+  function listeningHandlerFor(server: unknown): {
+    configuredServer: any;
+    listening: () => void;
+  } {
     const listening: Array<() => void> = [];
-    _devActionBridgePlugin().configureServer?.({
+    const configuredServer = {
       httpServer: {
         once: (event: string, handler: () => void) => {
           if (event === "listening") listening.push(handler);
@@ -326,16 +329,25 @@ describe("dev action bridge origin", () => {
         address: () => ({ address: "::", port: 8082 }),
       },
       ...server,
-    } as any);
+    } as any;
+    _devActionBridgePlugin().configureServer?.(configuredServer);
     expect(listening).toHaveLength(1);
-    return listening[0]!;
+    return { configuredServer, listening: listening[0]! };
   }
 
   it("records the printed origin in the discovery file when the server listens", () => {
-    listeningHandlerFor({
-      resolvedUrls: { local: ["http://localhost:8082/"], network: [] },
+    const server = {
+      resolvedUrls: null as null | { local: string[]; network: string[] },
       config: { logger: { warn: vi.fn() } },
-    })();
+    };
+    const { configuredServer, listening } = listeningHandlerFor(server);
+    // Vite prepends its own listening handler, which resolves the URLs before
+    // plugin listeners run. Read the value at callback time, not registration.
+    configuredServer.resolvedUrls = {
+      local: ["http://localhost:8082/"],
+      network: [],
+    };
+    listening();
     expect(mockWriteDevActionDiscoveryFile).toHaveBeenCalledWith(
       expect.any(String),
       "http://localhost:8082",
@@ -348,7 +360,7 @@ describe("dev action bridge origin", () => {
     listeningHandlerFor({
       resolvedUrls: null,
       config: { logger: { warn } },
-    })();
+    }).listening();
     expect(mockWriteDevActionDiscoveryFile).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
   });

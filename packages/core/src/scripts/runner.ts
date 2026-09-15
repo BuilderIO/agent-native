@@ -427,8 +427,10 @@ function isLoopbackDevActionOrigin(origin: string): boolean {
     // wildcard bind; older dev servers recorded the 127.0.0.1 literal. Both
     // are loopback labels for the same local server.
     return (
-      url.protocol === "http:" &&
-      (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      (url.hostname === "127.0.0.1" ||
+        url.hostname === "localhost" ||
+        url.hostname === "[::1]") &&
       url.pathname === "/" &&
       !url.search &&
       !url.hash

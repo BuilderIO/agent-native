@@ -9,13 +9,15 @@ import type { H3Event } from "h3";
  * reaches the other loopback label and every framework call 401s silently.
  *
  * The hint names the label the visitor actually used versus the canonical
- * origin (same port, `localhost` label — the one Vite prints and the
- * discovery file records). It must stay one line, and must never carry
+ * origin recorded from Vite's printed URL. It must stay one line and never carry
  * session tokens or user data: the caller gates it on `isDevEnvironment()`
  * and `isLoopbackRequest(event)`, so production and remote hosts keep the
  * bare 401.
  */
-export function devLoopbackAuthHint(event: H3Event): string {
+export function devLoopbackAuthHint(
+  event: H3Event,
+  canonicalOrigin: string | undefined,
+): string {
   const hostHeader = getHeader(event, "host") ?? "";
   const proto =
     getHeader(event, "x-forwarded-proto")
@@ -31,15 +33,30 @@ export function devLoopbackAuthHint(event: H3Event): string {
   } catch {
     visitingOrigin = null;
   }
-  if (!visitingOrigin) {
+  let resolvedCanonicalOrigin: string | null = null;
+  try {
+    const candidate = new URL(canonicalOrigin ?? "");
+    if (
+      (candidate.protocol === "http:" || candidate.protocol === "https:") &&
+      (candidate.hostname === "localhost" ||
+        candidate.hostname === "127.0.0.1" ||
+        candidate.hostname === "[::1]") &&
+      candidate.pathname === "/" &&
+      !candidate.search &&
+      !candidate.hash
+    ) {
+      resolvedCanonicalOrigin = candidate.origin;
+    }
+  } catch {
+    resolvedCanonicalOrigin = null;
+  }
+  if (!visitingOrigin || !resolvedCanonicalOrigin) {
     return "No valid session cookie reached this dev server; sign in again on the origin the dev server printed.";
   }
 
-  if (new URL(visitingOrigin).hostname === "localhost") {
+  if (visitingOrigin === resolvedCanonicalOrigin) {
     return `No valid session cookie reached the dev server at ${visitingOrigin}; sign in again on this origin.`;
   }
 
-  const canonical = new URL(visitingOrigin);
-  canonical.hostname = "localhost";
-  return `You are visiting ${visitingOrigin}, which has its own cookie jar; this dev server's canonical origin is ${canonical.origin}, so sign in or re-open the app there.`;
+  return `You are visiting ${visitingOrigin}, which has its own cookie jar; this dev server's canonical origin is ${resolvedCanonicalOrigin}, so sign in or re-open the app there.`;
 }

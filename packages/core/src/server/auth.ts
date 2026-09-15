@@ -30,6 +30,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { readDevActionDiscoveryFile } from "./dev-action-bridge.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
   isEmbedCapabilityScope,
@@ -3931,7 +3932,10 @@ function createAuthGuardFn(
         isDevEnvironment() &&
         isLoopbackRequest(event)
       ) {
-        const hint = devLoopbackAuthHint(event);
+        const hint = devLoopbackAuthHint(
+          event,
+          readDevActionDiscoveryFile(process.cwd())?.origin,
+        );
         setResponseHeader(event, "x-agent-native-dev-auth-hint", hint);
         return { error: "Unauthorized", hint };
       }
