@@ -30,6 +30,8 @@ import listBuilderModels from "./list-builder-cms-models";
 import prepareExecution from "./prepare-builder-source-execution";
 import prepareReview, {
   BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
+  builderPublicationReviewChanges,
+  builderPublishPayloadReviewChanges,
   buildBuilderSourceReviewPayload,
   reviewPreparePriority,
 } from "./prepare-builder-source-review";
@@ -43,6 +45,201 @@ import stageBulkUpdate from "./stage-builder-source-bulk-update";
 import validateExecution from "./validate-builder-source-execution";
 
 describe("content database source actions", () => {
+  it("exposes every raw publish payload difference by path without leaking the write guard", () => {
+    const changes = builderPublishPayloadReviewChanges({
+      canonical: {
+        id: "entry-1",
+        ownerId: "space-1",
+        modelId: "model-1",
+        data: {
+          title: "Canonical",
+          nested: { retained: true, removed: "old" },
+        },
+      },
+      publishedBody: {
+        id: "entry-1",
+        ownerId: "space-1",
+        modelId: "model-1",
+        published: "published",
+        data: {
+          title: "Reviewed pending",
+          nested: { retained: true, added: { deep: "visible" } },
+          pendingOnly: ["one", { variant: "two" }],
+          __write: "legitimate nested content",
+        },
+        __write: { version: "secret-guard", publishDraft: true },
+      },
+    });
+
+    expect(
+      changes.map(({ sourceFieldKey, currentValue, proposedValue }) => ({
+        sourceFieldKey,
+        currentValue,
+        proposedValue,
+      })),
+    ).toEqual([
+      {
+        sourceFieldKey: "/data/__write",
+        currentValue: "(absent)",
+        proposedValue: '"legitimate nested content"',
+      },
+      {
+        sourceFieldKey: "/data/nested/added",
+        currentValue: "(absent)",
+        proposedValue: '{"deep":"visible"}',
+      },
+      {
+        sourceFieldKey: "/data/nested/removed",
+        currentValue: '"old"',
+        proposedValue: "(absent)",
+      },
+      {
+        sourceFieldKey: "/data/pendingOnly",
+        currentValue: "(absent)",
+        proposedValue: '["one",{"variant":"two"}]',
+      },
+      {
+        sourceFieldKey: "/data/title",
+        currentValue: '"Canonical"',
+        proposedValue: '"Reviewed pending"',
+      },
+      {
+        sourceFieldKey: "/published",
+        currentValue: "(absent)",
+        proposedValue: '"published"',
+      },
+    ]);
+    expect(changes.some((change) => change.sourceFieldKey === "/__write")).toBe(
+      false,
+    );
+  });
+
+  it("discloses mixed payload types, empty objects, null, and literal absence text without ambiguity", () => {
+    expect(
+      builderPublishPayloadReviewChanges({
+        canonical: {
+          data: {
+            objectToScalar: { old: "value" },
+            emptyToAbsent: {},
+            literal: "(absent)",
+            nullable: null,
+          },
+        },
+        publishedBody: {
+          data: {
+            objectToScalar: "new value",
+            absentToEmpty: {},
+            literal: "changed",
+            nullable: "",
+          },
+        },
+      }).map(({ sourceFieldKey, currentValue, proposedValue }) => ({
+        sourceFieldKey,
+        currentValue,
+        proposedValue,
+      })),
+    ).toEqual([
+      {
+        sourceFieldKey: "/data/absentToEmpty",
+        currentValue: "(absent)",
+        proposedValue: "{}",
+      },
+      {
+        sourceFieldKey: "/data/emptyToAbsent",
+        currentValue: "{}",
+        proposedValue: "(absent)",
+      },
+      {
+        sourceFieldKey: "/data/literal",
+        currentValue: '"(absent)"',
+        proposedValue: '"changed"',
+      },
+      {
+        sourceFieldKey: "/data/nullable",
+        currentValue: "null",
+        proposedValue: '""',
+      },
+      {
+        sourceFieldKey: "/data/objectToScalar",
+        currentValue: '{"old":"value"}',
+        proposedValue: '"new value"',
+      },
+    ]);
+  });
+
+  it("fails a guarded publish review when its canonical raw base is unavailable", () => {
+    const guardedPublish = {
+      payload: {
+        effect: "publish",
+        request: {
+          body: {
+            id: "entry-1",
+            data: { title: "Reviewed" },
+            __write: { version: "opaque-version", publishDraft: true },
+          },
+        },
+      },
+    } as never;
+
+    expect(() =>
+      builderPublicationReviewChanges({ row: null, execution: guardedPublish }),
+    ).toThrowError(
+      expect.objectContaining({
+        errorCode: "BUILDER_PUBLISH_REVIEW_BASE_UNAVAILABLE",
+      }),
+    );
+    expect(() =>
+      builderPublicationReviewChanges({
+        row: {
+          sourceValues: {
+            "__builder.write.canonicalJson": "not-json",
+          },
+        } as ContentDatabaseSource["rows"][number],
+        execution: guardedPublish,
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        errorCode: "BUILDER_PUBLISH_REVIEW_BASE_UNAVAILABLE",
+      }),
+    );
+  });
+
+  it("does not imply publication review rows for stage or live companion writes", () => {
+    const row = {
+      sourceValues: {
+        "__builder.write.canonicalJson": JSON.stringify({
+          id: "entry-1",
+          data: { title: "Canonical" },
+        }),
+      },
+    } as ContentDatabaseSource["rows"][number];
+    for (const effect of ["autosave", "update_in_place"] as const) {
+      expect(
+        builderPublicationReviewChanges({
+          row,
+          execution: {
+            payload: {
+              effect,
+              request: {
+                body: {
+                  id: "entry-1",
+                  data: { title: "Local" },
+                  __write: {
+                    version: "opaque-version",
+                    companionDraft: {
+                      id: "entry-1",
+                      data: { pendingOnly: "not published" },
+                    },
+                  },
+                },
+              },
+            },
+          } as never,
+        }),
+      ).toEqual([]);
+    }
+  });
+
   it("bounds Builder attachment previews to one database and safe field paths", () => {
     expect(
       previewSourceAttach.schema.parse({
@@ -1035,5 +1232,59 @@ describe("content database source actions", () => {
     expect(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT).toBe(100);
     expect(review.totalRowCount).toBe(1);
     expect(review.preparedRowLimit).toBe(1);
+
+    source.rows[0]!.sourceValues = {
+      "__builder.write.canonicalJson": JSON.stringify({
+        id: "builder-row",
+        data: { title: "Canonical", nested: { retained: true } },
+      }),
+    };
+    const publishReview = buildBuilderSourceReviewPayload({
+      source,
+      changeSets: [
+        {
+          id: "publish-change",
+          databaseItemId: "item",
+          documentId: "doc",
+          fieldChanges: [],
+          bodyChange: null,
+          riskLevel: "low",
+          riskReasons: [],
+          conflictState: "none",
+          executions: [
+            {
+              payload: {
+                effect: "publish",
+                request: {
+                  body: {
+                    id: "builder-row",
+                    published: "published",
+                    data: {
+                      title: "Reviewed pending",
+                      nested: { retained: true },
+                      pendingOnly: "visible",
+                    },
+                    __write: {
+                      version: "opaque-version",
+                      publishDraft: true,
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        } as never,
+      ],
+    });
+    expect(publishReview.rows[0]).toMatchObject({
+      effect: "publish",
+      fieldChanges: expect.arrayContaining([
+        expect.objectContaining({
+          sourceFieldKey: "/data/pendingOnly",
+          currentValue: "(absent)",
+          proposedValue: '"visible"',
+        }),
+      ]),
+    });
   });
 });

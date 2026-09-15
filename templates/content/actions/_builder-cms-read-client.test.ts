@@ -14,6 +14,7 @@ import {
   readBuilderCmsContentEntries,
   readBuilderCmsEntryLiveState,
   readBuilderCmsModelFields,
+  readBuilderCmsWriteSnapshot,
   summarizeBuilderCmsEntryFidelity,
 } from "./_builder-cms-read-client";
 
@@ -2032,6 +2033,138 @@ describe("Builder CMS read client", () => {
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+
+  it("reads an exact guarded write snapshot without paging or projection params", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+      oauthConnectionId: "connection-1",
+    });
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    const canonical = {
+      id: "builder-entry-1",
+      ownerId: "selected-space-key",
+      modelId: "model-uuid",
+      data: { title: "Canonical", unmapped: { nested: true } },
+    };
+    const editable = {
+      ...canonical,
+      data: { ...canonical.data, pendingOnly: "preserve me" },
+    };
+    const fetchImpl = vi.fn(async (input: URL) => {
+      if (input.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+          }),
+          { status: 200 },
+        );
+      }
+      expect(input.pathname).toBe("/api/v1/query-data");
+      expect(Object.fromEntries(input.searchParams)).toEqual({
+        apiKey: "selected-space-key",
+        writeSnapshot: "true",
+        "query.id": "builder-entry-1",
+        "query.modelId": "model-uuid",
+      });
+      return new Response(
+        JSON.stringify({
+          results: [canonical],
+          writeSnapshot: {
+            version: "opaque-version-1",
+            content: canonical,
+            editableContent: editable,
+            autosaveId: "autosave-1",
+            autosaveCreatedDate: 1782328870774,
+            hasPendingAutosave: true,
+          },
+        }),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      readBuilderCmsWriteSnapshot({
+        model: "blog_article",
+        entryId: "builder-entry-1",
+        expectedSourceSpace: "selected-space-key",
+        expectedSourceConnectionId: "connection-1",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      canonicalEntry: { id: "builder-entry-1" },
+      editableEntry: { id: "builder-entry-1" },
+      writeSnapshot: {
+        version: "opaque-version-1",
+        content: canonical,
+        editableContent: editable,
+        hasPendingAutosave: true,
+      },
+    });
+  });
+
+  it.each([
+    { field: "ownerId", value: "other-space" },
+    { field: "modelId", value: "other-model" },
+  ])(
+    "rejects a write snapshot with the wrong $field",
+    async ({ field, value }) => {
+      resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+        token: "general-oauth-token",
+        authorization: "Bearer general-oauth-token",
+        source: "oauth",
+        oauthResource: "general",
+        oauthSelectedPublicKey: "selected-space-key",
+        oauthConnectionId: "connection-1",
+      });
+      const expectedEntry = {
+        id: "builder-entry-1",
+        ownerId: "selected-space-key",
+        modelId: "model-uuid",
+        data: { title: "Canonical" },
+      };
+      const mismatchedEntry = { ...expectedEntry, [field]: value };
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [mismatchedEntry],
+              writeSnapshot: {
+                version: "opaque-version-1",
+                content: expectedEntry,
+                editableContent: expectedEntry,
+                autosaveId: null,
+                autosaveCreatedDate: null,
+                hasPendingAutosave: false,
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+
+      await expect(
+        readBuilderCmsWriteSnapshot({
+          model: "blog_article",
+          entryId: "builder-entry-1",
+          expectedSourceSpace: "selected-space-key",
+          expectedSourceConnectionId: "connection-1",
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).rejects.toThrow(/unexpected entry payload/);
+    },
+  );
 
   it("reports an empty general exact query as a 200 not-found result", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({

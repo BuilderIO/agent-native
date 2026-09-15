@@ -149,6 +149,254 @@ describe("Builder CMS write client", () => {
     expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledTimes(1);
   });
 
+  it("requires the guarded committed response contract", async () => {
+    useLegacyWriteAuthorization();
+    const request = {
+      method: "PATCH" as const,
+      path: "/api/v1/write/blog-article/entry-1",
+      body: {
+        id: "entry-1",
+        ownerId: "selected-space",
+        modelId: "model-uuid",
+        data: { title: "Reviewed title" },
+        __write: { version: "opaque-version-1" },
+      },
+    };
+
+    await expect(
+      executeBuilderCmsWrite({
+        request,
+        fetchImpl: vi.fn(
+          async () =>
+            new Response(JSON.stringify({ id: "entry-1" }), { status: 200 }),
+        ) as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      ambiguity: "provider",
+      responseBody: null,
+      error:
+        "Builder guarded write returned a malformed response after dispatch; remote outcome is unknown.",
+    });
+
+    await expect(
+      executeBuilderCmsWrite({
+        request,
+        fetchImpl: vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                committed: true,
+                content: {
+                  id: "entry-1",
+                  ownerId: "selected-space",
+                  modelId: "model-uuid",
+                  data: { title: "Reviewed title" },
+                },
+                editableContent: {
+                  id: "entry-1",
+                  ownerId: "selected-space",
+                  modelId: "model-uuid",
+                  data: { title: "Reviewed title", pendingOnly: "preserved" },
+                },
+                autosaveIds: ["autosave-2"],
+                writeSnapshot: null,
+                superseded: false,
+                readback: "unavailable",
+              }),
+              { status: 200 },
+            ),
+        ) as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      committed: true,
+      entryId: "entry-1",
+      writeSnapshot: null,
+      superseded: false,
+      readback: "unavailable",
+    });
+
+    const matchedContent = {
+      id: "entry-1",
+      ownerId: "selected-space",
+      modelId: "model-uuid",
+      data: { title: "Reviewed title" },
+    };
+    const matchedEditable = {
+      ...matchedContent,
+      data: { ...matchedContent.data, pendingOnly: "preserved" },
+    };
+    await expect(
+      executeBuilderCmsWrite({
+        request,
+        fetchImpl: vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                committed: true,
+                content: matchedContent,
+                editableContent: matchedEditable,
+                autosaveIds: [],
+                writeSnapshot: {
+                  version: "opaque-version-2",
+                  content: matchedContent,
+                  editableContent: matchedEditable,
+                  autosaveId: null,
+                  autosaveCreatedDate: null,
+                  hasPendingAutosave: true,
+                },
+                superseded: false,
+                readback: "matched",
+              }),
+              { status: 200 },
+            ),
+        ) as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      entryId: "entry-1",
+      readback: "matched",
+      writeSnapshot: { version: "opaque-version-2" },
+    });
+
+    await expect(
+      executeBuilderCmsWrite({
+        request,
+        fetchImpl: vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                committed: true,
+                content: { ...matchedContent, ownerId: "other-space" },
+                editableContent: matchedEditable,
+                autosaveIds: [],
+                writeSnapshot: null,
+                superseded: false,
+                readback: "unavailable",
+              }),
+              { status: 200 },
+            ),
+        ) as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ ok: false, ambiguity: "provider" });
+  });
+
+  it("surfaces the guarded conflict code as a safe no-retry conflict", async () => {
+    useLegacyWriteAuthorization();
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/blog-article/entry-1",
+          body: {
+            id: "entry-1",
+            ownerId: "selected-space",
+            modelId: "model-uuid",
+            __write: { version: "stale-version" },
+          },
+        },
+        fetchImpl: vi.fn(
+          async () =>
+            new Response(JSON.stringify({ code: "CONTENT_WRITE_CONFLICT" }), {
+              status: 409,
+            }),
+        ) as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 409,
+      error:
+        "Builder content changed after review. Refresh and review the change again.",
+    });
+  });
+
+  it("rejects a guarded request whose raw owner does not match its bound source", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space",
+      oauthConnectionId: "connection-1",
+    });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeBuilderCmsWrite({
+        expectedSourceSpace: "selected-space",
+        expectedSourceConnectionId: "connection-1",
+        requireSourceBinding: true,
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/blog-article/entry-1",
+          body: {
+            id: "entry-1",
+            ownerId: "other-space",
+            modelId: "model-uuid",
+            __write: { version: "opaque-version" },
+          },
+        },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/does not match its bound entry, model, and space/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each(["wrong_snapshot_identity", "changed_with_snapshot"] as const)(
+    "treats incoherent guarded acknowledgement %s as an unknown outcome",
+    async (variant) => {
+      useLegacyWriteAuthorization();
+      const content = {
+        id: "entry-1",
+        ownerId: "selected-space",
+        modelId: "model-uuid",
+        data: { title: "Reviewed" },
+      };
+      const snapshotContent =
+        variant === "wrong_snapshot_identity"
+          ? { ...content, modelId: "other-model" }
+          : content;
+      const snapshot = {
+        version: "opaque-version-2",
+        content: snapshotContent,
+        editableContent: content,
+        autosaveId: null,
+        autosaveCreatedDate: null,
+        hasPendingAutosave: false,
+      };
+
+      await expect(
+        executeBuilderCmsWrite({
+          request: {
+            method: "PATCH",
+            path: "/api/v1/write/blog-article/entry-1",
+            body: {
+              ...content,
+              __write: { version: "opaque-version-1" },
+            },
+          },
+          fetchImpl: vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  committed: true,
+                  content,
+                  editableContent: content,
+                  autosaveIds: [],
+                  writeSnapshot: snapshot,
+                  superseded: variant === "changed_with_snapshot",
+                  readback:
+                    variant === "changed_with_snapshot" ? "changed" : "matched",
+                }),
+                { status: 200 },
+              ),
+          ) as unknown as typeof fetch,
+        }),
+      ).resolves.toMatchObject({ ok: false, ambiguity: "provider" });
+    },
+  );
+
   it("preserves a non-Source OAuth write caller without inventing a Source binding", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
@@ -239,6 +487,17 @@ describe("Builder CMS write client", () => {
         },
         expectedSourceSpace: "selected-space",
         expectedSourceConnectionId: "oauth-connection-1",
+        requireSourceBinding: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/OAuth connection is unavailable/);
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/blog-article/entry-1",
+          body: { data: { title: "Reviewed title" } },
+        },
         requireSourceBinding: true,
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),

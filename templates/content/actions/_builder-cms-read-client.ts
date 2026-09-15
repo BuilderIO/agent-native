@@ -53,6 +53,21 @@ export interface BuilderCmsEntryLiveState {
   id: string | null;
 }
 
+export interface BuilderCmsWriteSnapshot {
+  version: string;
+  content: BuilderContentEntry;
+  editableContent: BuilderContentEntry;
+  autosaveId: string | null;
+  autosaveCreatedDate: number | null;
+  hasPendingAutosave: boolean;
+}
+
+export interface BuilderCmsWriteSnapshotReadResult {
+  canonicalEntry: BuilderCmsSourceEntry;
+  editableEntry: BuilderCmsSourceEntry;
+  writeSnapshot: BuilderCmsWriteSnapshot;
+}
+
 export interface BuilderCmsEntryFidelitySummary {
   topLevelBlockCount: number;
   componentCount: number;
@@ -1443,6 +1458,162 @@ async function readBuilderCmsGeneralApiEntry(args: {
     fetchImpl: args.fetchImpl,
     url,
     privateKey: args.authorization.token,
+  });
+}
+
+function builderCmsWriteSnapshotFromResponse(args: {
+  value: unknown;
+  model: string;
+  modelId: string;
+  entryId: string;
+  ownerId: string;
+}): BuilderCmsWriteSnapshotReadResult {
+  if (
+    !args.value ||
+    typeof args.value !== "object" ||
+    Array.isArray(args.value)
+  ) {
+    throw new Error("Builder write snapshot returned a malformed response.");
+  }
+  const response = args.value as Record<string, unknown>;
+  if (!Array.isArray(response.results) || response.results.length !== 1) {
+    throw new Error(
+      "Builder write snapshot did not return exactly one canonical entry.",
+    );
+  }
+  const snapshot = response.writeSnapshot;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new Error(
+      "Builder write snapshot capability is unavailable for this entry.",
+    );
+  }
+  const record = snapshot as Record<string, unknown>;
+  const version = stringFromUnknown(record.version);
+  const content = record.content;
+  const editableContent = record.editableContent;
+  if (
+    !version ||
+    !content ||
+    typeof content !== "object" ||
+    Array.isArray(content) ||
+    !editableContent ||
+    typeof editableContent !== "object" ||
+    Array.isArray(editableContent) ||
+    (record.autosaveId !== null && typeof record.autosaveId !== "string") ||
+    (record.autosaveCreatedDate !== null &&
+      (typeof record.autosaveCreatedDate !== "number" ||
+        !Number.isFinite(record.autosaveCreatedDate))) ||
+    typeof record.hasPendingAutosave !== "boolean"
+  ) {
+    throw new Error(
+      "Builder write snapshot returned malformed capability data.",
+    );
+  }
+  const canonicalEntry = normalizeBuilderCmsApiEntry(
+    response.results[0],
+    args.model,
+  );
+  const snapshotCanonicalEntry = normalizeBuilderCmsApiEntry(
+    content,
+    args.model,
+  );
+  const editableEntry = normalizeBuilderCmsApiEntry(
+    editableContent,
+    args.model,
+  );
+  const hasExpectedIdentity = (value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return false;
+    }
+    const entry = value as Record<string, unknown>;
+    return (
+      stringFromUnknown(entry.id) === args.entryId &&
+      stringFromUnknown(entry.ownerId) === args.ownerId &&
+      stringFromUnknown(entry.modelId) === args.modelId
+    );
+  };
+  if (
+    !canonicalEntry ||
+    !snapshotCanonicalEntry ||
+    !editableEntry ||
+    canonicalEntry.id !== args.entryId ||
+    snapshotCanonicalEntry.id !== args.entryId ||
+    editableEntry.id !== args.entryId ||
+    !hasExpectedIdentity(response.results[0]) ||
+    !hasExpectedIdentity(content) ||
+    !hasExpectedIdentity(editableContent)
+  ) {
+    throw new Error(
+      "Builder write snapshot returned an unexpected entry payload.",
+    );
+  }
+  return {
+    canonicalEntry: snapshotCanonicalEntry,
+    editableEntry,
+    writeSnapshot: {
+      version,
+      content: content as BuilderContentEntry,
+      editableContent: editableContent as BuilderContentEntry,
+      autosaveId: record.autosaveId,
+      autosaveCreatedDate: record.autosaveCreatedDate,
+      hasPendingAutosave: record.hasPendingAutosave,
+    },
+  };
+}
+
+export async function readBuilderCmsWriteSnapshot(args: {
+  model: string;
+  entryId: string;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  fetchImpl?: FetchLike;
+}): Promise<BuilderCmsWriteSnapshotReadResult> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    oauthResource: "general",
+    requiredScope: BUILDER_CONTENT_READ_SCOPE,
+    legacyCredentialKeys: [],
+  });
+  assertBuilderReadSourceAuthorization(
+    authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  if (!isGeneralBuilderOAuth(authorization)) {
+    throw new Error(
+      "Builder write snapshot capability requires the source's general OAuth connection.",
+    );
+  }
+  const publicKey = requireBuilderOAuthPublicKey(
+    authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  const modelId = await resolveBuilderCmsGeneralModelId({
+    ...args,
+    authorization,
+    fetchImpl: args.fetchImpl ?? fetch,
+  });
+  const url = new URL("/api/v1/query-data", builderManagementApiHost());
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("writeSnapshot", "true");
+  url.searchParams.set("query.id", args.entryId);
+  url.searchParams.set("query.modelId", modelId);
+  const response = await fetchBuilderContentPage({
+    fetchImpl: args.fetchImpl ?? fetch,
+    url,
+    privateKey: authorization.token,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Builder write snapshot read failed with HTTP ${response.status}.`,
+    );
+  }
+  return builderCmsWriteSnapshotFromResponse({
+    value: (await response.json()) as unknown,
+    model: args.model,
+    modelId,
+    entryId: args.entryId,
+    ownerId: publicKey,
   });
 }
 

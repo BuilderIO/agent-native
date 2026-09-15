@@ -11,6 +11,10 @@ import type {
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
+  BUILDER_CMS_WRITE_VERSION_KEY,
   builderCmsSourceRowIdentityState,
 } from "./_builder-cms-source-adapter.js";
 import { builderCmsPushModeForTier } from "./_builder-cms-write-settings.js";
@@ -460,6 +464,101 @@ function mergeBuilderPatch(
   return merged;
 }
 
+function builderWriteSnapshotFromRow(
+  row: ContentDatabaseSource["rows"][number] | null,
+) {
+  if (!row) return null;
+  const version = row.sourceValues?.[BUILDER_CMS_WRITE_VERSION_KEY];
+  const canonicalJson =
+    row.sourceValues?.[BUILDER_CMS_WRITE_CANONICAL_JSON_KEY];
+  const editableJson = row.sourceValues?.[BUILDER_CMS_WRITE_EDITABLE_JSON_KEY];
+  const hasPendingAutosave =
+    row.sourceValues?.[BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY];
+  if (
+    typeof version !== "string" ||
+    !version.trim() ||
+    typeof canonicalJson !== "string" ||
+    typeof editableJson !== "string" ||
+    typeof hasPendingAutosave !== "boolean"
+  ) {
+    return null;
+  }
+  try {
+    const canonical = JSON.parse(canonicalJson) as unknown;
+    const editable = JSON.parse(editableJson) as unknown;
+    if (
+      !canonical ||
+      typeof canonical !== "object" ||
+      Array.isArray(canonical) ||
+      !editable ||
+      typeof editable !== "object" ||
+      Array.isArray(editable)
+    ) {
+      return null;
+    }
+    return {
+      version: version.trim(),
+      canonical: canonical as Record<string, unknown>,
+      editable: editable as Record<string, unknown>,
+      hasPendingAutosave,
+    };
+  } catch {
+    // coercion-ok: malformed persisted snapshot JSON is an unavailable guard and blocks the plan.
+    return null;
+  }
+}
+
+function guardedExistingEntryBody(args: {
+  effect: BuilderCmsWriteEffect;
+  row: ContentDatabaseSource["rows"][number] | null;
+  patch: Record<string, unknown>;
+  expectedOwnerId?: string | null;
+}) {
+  const snapshot = builderWriteSnapshotFromRow(args.row);
+  if (!snapshot) return null;
+  const baseIdentity = (value: Record<string, unknown>) => ({
+    id: typeof value.id === "string" ? value.id : null,
+    ownerId: typeof value.ownerId === "string" ? value.ownerId : null,
+    modelId: typeof value.modelId === "string" ? value.modelId : null,
+  });
+  const canonicalIdentity = baseIdentity(snapshot.canonical);
+  const editableIdentity = baseIdentity(snapshot.editable);
+  if (
+    !args.row ||
+    canonicalIdentity.id !== args.row.sourceRowId ||
+    editableIdentity.id !== args.row.sourceRowId ||
+    !canonicalIdentity.ownerId ||
+    canonicalIdentity.ownerId !== editableIdentity.ownerId ||
+    (args.expectedOwnerId &&
+      canonicalIdentity.ownerId !== args.expectedOwnerId) ||
+    !canonicalIdentity.modelId ||
+    canonicalIdentity.modelId !== editableIdentity.modelId
+  ) {
+    return null;
+  }
+  const staging = args.effect === "autosave";
+  const publishesReviewedDraft =
+    args.effect === "publish" && snapshot.hasPendingAutosave;
+  const unpublishesCombinedDraft = args.effect === "unpublish";
+  const base =
+    staging || publishesReviewedDraft || unpublishesCombinedDraft
+      ? snapshot.editable
+      : snapshot.canonical;
+  const body = mergeBuilderPatch(base, args.patch);
+  return {
+    ...body,
+    __write: {
+      version: snapshot.version,
+      ...(publishesReviewedDraft ? { publishDraft: true } : {}),
+      ...(args.effect === "update_in_place" && snapshot.hasPendingAutosave
+        ? {
+            companionDraft: mergeBuilderPatch(snapshot.editable, args.patch),
+          }
+        : {}),
+    },
+  };
+}
+
 function requiredBuilderReferencePatch(args: {
   source: ContentDatabaseSource;
   targetRow: ContentDatabaseSource["rows"][number] | null;
@@ -542,6 +641,7 @@ function builderRequestForEffect(args: {
   bodyPatch: Record<string, unknown>;
   currentTitle?: string | null;
   intentMarker?: string;
+  guardedBody?: Record<string, unknown> | null;
 }): BuilderCmsExecutionPayload["request"] {
   const entryPath = args.entryId ? `/${encodeURIComponent(args.entryId)}` : "";
   const basePath = `/api/v1/write/${encodeURIComponent(args.model)}${entryPath}`;
@@ -565,7 +665,7 @@ function builderRequestForEffect(args: {
         triggerWebhooks: "false",
       },
       body: {
-        ...args.bodyPatch,
+        ...(args.guardedBody ?? args.bodyPatch),
         ...(safeEntryName ? { name: safeEntryName } : {}),
       },
     };
@@ -578,7 +678,7 @@ function builderRequestForEffect(args: {
         triggerWebhooks: "true",
       },
       body: {
-        ...args.bodyPatch,
+        ...(args.guardedBody ?? args.bodyPatch),
         ...(safeEntryName ? { name: safeEntryName } : {}),
       },
     };
@@ -591,7 +691,7 @@ function builderRequestForEffect(args: {
         triggerWebhooks: "true",
       },
       body: {
-        ...args.bodyPatch,
+        ...(args.guardedBody ?? args.bodyPatch),
         published: "published",
       },
     };
@@ -604,7 +704,7 @@ function builderRequestForEffect(args: {
         triggerWebhooks: "true",
       },
       body: {
-        ...args.bodyPatch,
+        ...(args.guardedBody ?? args.bodyPatch),
         published: "draft",
       },
     };
@@ -881,11 +981,20 @@ export function buildBuilderCmsExecutionPlan(args: {
   // State-preserving effects must not include `published` in the body. Builder
   // PATCH preserves omitted publication state, so only transition/create effects
   // are allowed to set it.
+  const guardedBody = targetEntryId
+    ? guardedExistingEntryBody({
+        effect,
+        row: targetRow,
+        patch: bodyPatch,
+        expectedOwnerId: args.source.metadata.builderSpacePublicKey,
+      })
+    : null;
   const request = builderRequestForEffect({
     effect,
     model: args.source.sourceTable,
     entryId: targetEntryId,
     bodyPatch,
+    guardedBody,
     currentTitle: targetRow?.sourceDisplayKey ?? null,
     intentMarker:
       effect === "create_draft" && args.source.sourceTable === SAFE_WRITE_MODEL
@@ -904,6 +1013,11 @@ export function buildBuilderCmsExecutionPlan(args: {
     targetRow,
     request,
   });
+  if (targetEntryId && !guardedBody) {
+    fieldBlockers.push(
+      "Refresh this Builder entry before writing so a guarded write snapshot can be captured.",
+    );
+  }
   const safety = builderSafetyChecks({
     source: args.source,
     changeSet: args.changeSet,

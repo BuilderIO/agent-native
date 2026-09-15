@@ -68,10 +68,23 @@ import {
 } from "./_local-folder-source.js";
 export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
 import {
+  builderSourceSnapshotReference,
+  builderExecutionPayloadReference,
+  builderPrivatePayloadUnavailable,
+  isBuilderPrivatePayloadBoundToSource,
+  BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
+  cleanupBuilderPrivatePayload,
+  deleteBuilderPrivatePayload,
+  putBuilderPrivatePayload,
+  readBuilderExecutionPayload,
+  readBuilderPrivatePayload,
+} from "./_builder-cms-blob-custody.js";
+import {
   BuilderCmsContentEntryReadError,
   readBuilderCmsContentEntryResult,
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
+  readBuilderCmsWriteSnapshot,
   type BuilderCmsReadProgress,
   type BuilderCmsReadState,
 } from "./_builder-cms-read-client.js";
@@ -82,6 +95,12 @@ import {
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
+  BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY,
+  BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY,
+  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
+  BUILDER_CMS_WRITE_VERSION_KEY,
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
   buildBuilderCmsFixtureEntry,
   builderCmsQualifiedId,
@@ -627,11 +646,65 @@ export function serializeSourceRowRecord(
   };
 }
 
+async function hydrateBuilderWriteSnapshotRow(
+  row: ContentDatabaseSourceRecordRowDb,
+  sourceTable: string,
+): Promise<ContentDatabaseSourceRecordRowDb> {
+  const values =
+    parseObject<Record<string, DocumentPropertyValue>>(row.sourceValuesJson) ??
+    {};
+  const reference = values[BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY];
+  if (reference === undefined) return row;
+  const writeVersion = values[BUILDER_CMS_WRITE_VERSION_KEY];
+  if (typeof writeVersion !== "string" || !writeVersion.trim()) {
+    builderPrivatePayloadUnavailable(
+      "Builder write snapshot private blob has no bound version.",
+    );
+  }
+  const payload = await readBuilderPrivatePayload<{
+    canonical: Record<string, unknown>;
+    editable: Record<string, unknown>;
+  }>({
+    reference,
+    label: "Builder write snapshot",
+    binding: {
+      ownerEmail: row.ownerEmail,
+      sourceId: row.sourceId,
+      sourceRowId: row.sourceRowId,
+      sourceTable,
+      writeVersion: writeVersion.trim(),
+    },
+  });
+  if (
+    !payload?.canonical ||
+    typeof payload.canonical !== "object" ||
+    Array.isArray(payload.canonical) ||
+    !payload.editable ||
+    typeof payload.editable !== "object" ||
+    Array.isArray(payload.editable)
+  ) {
+    builderPrivatePayloadUnavailable(
+      "Builder write snapshot private blob payload is malformed.",
+    );
+  }
+  return {
+    ...row,
+    sourceValuesJson: JSON.stringify({
+      ...values,
+      [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify(payload.canonical),
+      [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify(payload.editable),
+    }),
+  };
+}
+
 const HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS = new Set([
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
+  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+  BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
 ]);
 
 const SOURCE_VALUES_JSON_COLUMN =
@@ -2002,7 +2075,7 @@ async function processBuilderBodyHydrationJob(
     entry.sourceValues,
     BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   );
-  const bodyEntry =
+  let bodyEntry =
     preloaded?.bodyEntry?.id === entry.id
       ? {
           ...preloaded.bodyEntry,
@@ -2013,9 +2086,6 @@ async function processBuilderBodyHydrationJob(
         }
       : entry;
   let activeSourceEntryJson = row.sourceEntryJson;
-  let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
-    await withBuilderBodySourceValues(bodyEntry),
-  );
   const sourceRow =
     preloaded?.sourceRow != null
       ? (preloaded.sourceRow ?? undefined)
@@ -2037,6 +2107,35 @@ async function processBuilderBodyHydrationJob(
     parseObject<Record<string, DocumentPropertyValue>>(
       sourceRow?.sourceValuesJson ?? "{}",
     ) ?? {};
+  if (
+    sourceRow &&
+    preloaded?.expectedSourceSpace &&
+    preloaded.expectedSourceConnectionId
+  ) {
+    const snapshot = await readBuilderCmsWriteSnapshot({
+      model: row.sourceTable,
+      entryId: sourceRow.sourceRowId,
+      expectedSourceSpace: preloaded.expectedSourceSpace,
+      expectedSourceConnectionId: preloaded.expectedSourceConnectionId,
+    });
+    bodyEntry = await withBuilderWriteSnapshotSourceValues({
+      entry: {
+        ...snapshot.editableEntry,
+        sourceValues: {
+          ...bodyEntry.sourceValues,
+          ...snapshot.editableEntry.sourceValues,
+        },
+      },
+      snapshot,
+      ownerEmail: sourceRow.ownerEmail,
+      sourceId: row.sourceId,
+      sourceRowId: sourceRow.sourceRowId,
+      sourceTable: row.sourceTable,
+    });
+  }
+  let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
+    await withBuilderBodySourceValues(bodyEntry),
+  );
   const rebuiltBlocksHash = stringSourceValue(
     entryWithBody.sourceValues,
     BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
@@ -2381,142 +2480,25 @@ async function processBuilderBodyHydrationJob(
       nextContent,
     });
   let wroteBody = false;
-  await db.transaction(async (tx) => {
-    const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
-      row,
-      activeSourceEntryJson,
-    );
-    const markPendingIfReplaced = async () => {
-      const [replacedByNewerJob] = await tx
-        .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
-        .from(schema.contentDatabaseBodyHydrationQueue)
-        .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
-      if (!replacedByNewerJob) return;
-      await tx
-        .update(schema.contentDatabaseItems)
-        .set({
-          bodyHydrationStatus: "pending",
-          bodyHydrationAttemptedAt: now,
-          bodyHydrationError: null,
-          updatedAt: now,
-        })
-        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-    };
-    const [stillOwnsQueueRow] = await tx
-      .update(schema.contentDatabaseBodyHydrationQueue)
-      .set({
-        updatedAt: now,
-      })
-      .where(queueRowCas)
-      .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-    if (!stillOwnsQueueRow) {
-      await markPendingIfReplaced();
-      return;
-    }
-    if (shouldWriteBody) {
-      const contentCas =
-        isEffectivelyEmptyDocumentContent(currentContent) &&
-        isEffectivelyEmptyDocumentContent(previousContent)
-          ? inArray(schema.documents.content, ["", "<empty-block/>"])
-          : eq(schema.documents.content, currentContent);
-      const [updatedDocument] = await tx
-        .update(schema.documents)
-        .set({
-          content: nextContent,
-          bodyRevision: bodyRevisionForContent(nextContent),
-          updatedAt: now,
-        })
-        .where(and(eq(schema.documents.id, row.documentId), contentCas))
-        .returning({ id: schema.documents.id });
-      wroteBody = Boolean(updatedDocument);
-    }
-    if (shouldWriteBody && !wroteBody) {
-      // Only mark the item pending if our queue row still exists. If a
-      // concurrent processor already completed (and deleted) this job, it
-      // owns the final `hydrated` status — resetting to pending here would
-      // strand the item as a zombie (pending with no queue row).
-      const [stillQueued] = await tx
-        .update(schema.contentDatabaseBodyHydrationQueue)
-        .set({
-          lastError:
-            "Skipped Builder body hydration because the document changed during sync.",
-          updatedAt: now,
-        })
-        .where(queueRowCas)
-        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-      if (stillQueued) {
-        await tx
-          .update(schema.contentDatabaseItems)
-          .set({
-            bodyHydrationStatus: "pending",
-            bodyHydrationAttemptedAt: now,
-            bodyHydrationError:
-              "Skipped Builder body hydration because the document changed during sync.",
-            updatedAt: now,
-          })
-          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-      }
-      return;
-    }
-    const sourceRowWhere = and(
-      eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-      eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
-      sourceRow
-        ? eq(
-            schema.contentDatabaseSourceRows.sourceValuesJson,
-            sourceRow.sourceValuesJson,
-          )
-        : isNull(schema.contentDatabaseSourceRows.id),
-    );
-    const [updatedSourceRow] = await tx
-      .update(schema.contentDatabaseSourceRows)
-      .set({
-        sourceValuesJson: JSON.stringify(nextValues),
-        lastSyncedAt: now,
-        lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
-        updatedAt: now,
-      })
-      .where(sourceRowWhere)
-      .returning({ id: schema.contentDatabaseSourceRows.id });
-    if (!updatedSourceRow) {
-      const [stillQueued] = await tx
-        .update(schema.contentDatabaseBodyHydrationQueue)
-        .set({
-          lastError:
-            "Skipped Builder body hydration because the source row changed during sync.",
-          updatedAt: now,
-        })
-        .where(queueRowCas)
-        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-      if (stillQueued) {
-        await tx
-          .update(schema.contentDatabaseItems)
-          .set({
-            bodyHydrationStatus: "pending",
-            bodyHydrationAttemptedAt: now,
-            bodyHydrationError:
-              "Skipped Builder body hydration because the source row changed during sync.",
-            updatedAt: now,
-          })
-          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-      }
-      return;
-    }
-    const [deleted] = await tx
-      .delete(schema.contentDatabaseBodyHydrationQueue)
-      .where(queueRowCas)
-      .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-    if (!deleted) {
-      // Our delete matched nothing: either a NEWER job version replaced this
-      // row (same id, different sourceEntryJson — mark pending so the newer
-      // job's processor owns it), or a concurrent processor completed and
-      // deleted the job — in which case it already set `hydrated`, and
-      // resetting to pending would strand the item with no queue row.
-      const [replacedByNewerJob] = await tx
-        .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
-        .from(schema.contentDatabaseBodyHydrationQueue)
-        .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
-      if (replacedByNewerJob) {
+  const previousSnapshotReference = sourceRow
+    ? builderSourceSnapshotReference(sourceRow.sourceValuesJson)
+    : null;
+  const nextSourceValuesJson = JSON.stringify(nextValues);
+  const nextSnapshotReference =
+    builderSourceSnapshotReference(nextSourceValuesJson);
+  let committedSnapshotReference = false;
+  try {
+    await db.transaction(async (tx) => {
+      const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
+        row,
+        activeSourceEntryJson,
+      );
+      const markPendingIfReplaced = async () => {
+        const [replacedByNewerJob] = await tx
+          .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+          .from(schema.contentDatabaseBodyHydrationQueue)
+          .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
+        if (!replacedByNewerJob) return;
         await tx
           .update(schema.contentDatabaseItems)
           .set({
@@ -2526,24 +2508,171 @@ async function processBuilderBodyHydrationJob(
             updatedAt: now,
           })
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      };
+      const [stillOwnsQueueRow] = await tx
+        .update(schema.contentDatabaseBodyHydrationQueue)
+        .set({
+          updatedAt: now,
+        })
+        .where(queueRowCas)
+        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+      if (!stillOwnsQueueRow) {
+        await markPendingIfReplaced();
+        return;
       }
-      return;
-    }
-    await tx
-      .update(schema.contentDatabaseItems)
-      .set({
-        bodyHydrationStatus: "hydrated",
-        bodyHydrationAttemptedAt: now,
-        bodyHydrationError: null,
-        bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
-        bodyHydrationReason: null,
-        bodyHydrationProviderStatus: "http_200",
-        bodyHydrationAttemptCount: row.attempts,
-        bodyHydrationRetryable: 0,
-        updatedAt: now,
-      })
-      .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-  });
+      if (shouldWriteBody) {
+        const contentCas =
+          isEffectivelyEmptyDocumentContent(currentContent) &&
+          isEffectivelyEmptyDocumentContent(previousContent)
+            ? inArray(schema.documents.content, ["", "<empty-block/>"])
+            : eq(schema.documents.content, currentContent);
+        const [updatedDocument] = await tx
+          .update(schema.documents)
+          .set({
+            content: nextContent,
+            bodyRevision: bodyRevisionForContent(nextContent),
+            updatedAt: now,
+          })
+          .where(and(eq(schema.documents.id, row.documentId), contentCas))
+          .returning({ id: schema.documents.id });
+        wroteBody = Boolean(updatedDocument);
+      }
+      if (shouldWriteBody && !wroteBody) {
+        // Only mark the item pending if our queue row still exists. If a
+        // concurrent processor already completed (and deleted) this job, it
+        // owns the final `hydrated` status — resetting to pending here would
+        // strand the item as a zombie (pending with no queue row).
+        const [stillQueued] = await tx
+          .update(schema.contentDatabaseBodyHydrationQueue)
+          .set({
+            lastError:
+              "Skipped Builder body hydration because the document changed during sync.",
+            updatedAt: now,
+          })
+          .where(queueRowCas)
+          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+        if (stillQueued) {
+          await tx
+            .update(schema.contentDatabaseItems)
+            .set({
+              bodyHydrationStatus: "pending",
+              bodyHydrationAttemptedAt: now,
+              bodyHydrationError:
+                "Skipped Builder body hydration because the document changed during sync.",
+              updatedAt: now,
+            })
+            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+        }
+        return;
+      }
+      const sourceRowWhere = and(
+        eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+        eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
+        sourceRow
+          ? eq(
+              schema.contentDatabaseSourceRows.sourceValuesJson,
+              sourceRow.sourceValuesJson,
+            )
+          : isNull(schema.contentDatabaseSourceRows.id),
+      );
+      const [updatedSourceRow] = await tx
+        .update(schema.contentDatabaseSourceRows)
+        .set({
+          sourceValuesJson: nextSourceValuesJson,
+          lastSyncedAt: now,
+          lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
+          updatedAt: now,
+        })
+        .where(sourceRowWhere)
+        .returning({ id: schema.contentDatabaseSourceRows.id });
+      if (!updatedSourceRow) {
+        const [stillQueued] = await tx
+          .update(schema.contentDatabaseBodyHydrationQueue)
+          .set({
+            lastError:
+              "Skipped Builder body hydration because the source row changed during sync.",
+            updatedAt: now,
+          })
+          .where(queueRowCas)
+          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+        if (stillQueued) {
+          await tx
+            .update(schema.contentDatabaseItems)
+            .set({
+              bodyHydrationStatus: "pending",
+              bodyHydrationAttemptedAt: now,
+              bodyHydrationError:
+                "Skipped Builder body hydration because the source row changed during sync.",
+              updatedAt: now,
+            })
+            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+        }
+        return;
+      }
+      committedSnapshotReference = true;
+      const [deleted] = await tx
+        .delete(schema.contentDatabaseBodyHydrationQueue)
+        .where(queueRowCas)
+        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+      if (!deleted) {
+        // Our delete matched nothing: either a NEWER job version replaced this
+        // row (same id, different sourceEntryJson — mark pending so the newer
+        // job's processor owns it), or a concurrent processor completed and
+        // deleted the job — in which case it already set `hydrated`, and
+        // resetting to pending would strand the item with no queue row.
+        const [replacedByNewerJob] = await tx
+          .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+          .from(schema.contentDatabaseBodyHydrationQueue)
+          .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
+        if (replacedByNewerJob) {
+          await tx
+            .update(schema.contentDatabaseItems)
+            .set({
+              bodyHydrationStatus: "pending",
+              bodyHydrationAttemptedAt: now,
+              bodyHydrationError: null,
+              updatedAt: now,
+            })
+            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+        }
+        return;
+      }
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "hydrated",
+          bodyHydrationAttemptedAt: now,
+          bodyHydrationError: null,
+          bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
+          bodyHydrationReason: null,
+          bodyHydrationProviderStatus: "http_200",
+          bodyHydrationAttemptCount: row.attempts,
+          bodyHydrationRetryable: 0,
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+    });
+  } catch (error) {
+    throw error;
+  }
+  if (
+    !committedSnapshotReference &&
+    nextSnapshotReference &&
+    nextSnapshotReference !== previousSnapshotReference
+  ) {
+    await deleteBuilderPrivatePayload(nextSnapshotReference).catch(
+      () => undefined,
+    );
+  } else if (
+    committedSnapshotReference &&
+    previousSnapshotReference &&
+    previousSnapshotReference !== nextSnapshotReference
+  ) {
+    await cleanupBuilderPrivatePayload(
+      previousSnapshotReference,
+      "superseded source snapshot",
+    );
+  }
   // Keep persisted and in-memory Yjs state intact. The SQL content + updatedAt
   // written above are authoritative; an open full-page editor reconciles that
   // snapshot into its Y.Doc. Deleting collab state here can race a connected
@@ -3178,7 +3307,14 @@ export async function processBuilderBodyHydrationQueue(args: {
     }
   }
   const preparedPristineHydrations: PreparedPristineBuilderBodyHydration[] = [];
-  if (!args.documentId && bulkPreloadBodies) {
+  if (
+    !args.documentId &&
+    bulkPreloadBodies &&
+    !(
+      hydrationSourceMetadata.builderSpacePublicKey &&
+      hydrationSourceMetadata.connectionId
+    )
+  ) {
     await processWithConcurrency(
       claimedJobs,
       BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
@@ -3350,6 +3486,49 @@ export async function withBuilderBodySourceValues(
       [BUILDER_CMS_BODY_LAST_UPDATED_KEY]:
         stringSourceValue(entry.sourceValues, "lastUpdated") ?? entry.updatedAt,
       [BUILDER_CMS_BODY_SIDECARS_KEY]: snapshot.sidecarsJson,
+    },
+  };
+}
+
+export async function withBuilderWriteSnapshotSourceValues(args: {
+  entry: BuilderCmsSourceEntry;
+  snapshot: Awaited<ReturnType<typeof readBuilderCmsWriteSnapshot>>;
+  ownerEmail?: string;
+  sourceId: string;
+  sourceRowId: string;
+  sourceTable: string;
+}): Promise<BuilderCmsSourceEntry> {
+  const version = args.snapshot.writeSnapshot.version;
+  const reference = await putBuilderPrivatePayload({
+    label: "Builder write snapshot",
+    ownerEmail: args.ownerEmail,
+    binding: {
+      ownerEmail: args.ownerEmail ?? "",
+      sourceId: args.sourceId,
+      sourceRowId: args.sourceRowId,
+      sourceTable: args.sourceTable,
+      writeVersion: version,
+    },
+    payload: {
+      canonical: args.snapshot.writeSnapshot.content,
+      editable: args.snapshot.writeSnapshot.editableContent,
+    },
+  });
+  const sourceValues = { ...args.entry.sourceValues };
+  delete sourceValues[BUILDER_CMS_WRITE_CANONICAL_JSON_KEY];
+  delete sourceValues[BUILDER_CMS_WRITE_EDITABLE_JSON_KEY];
+  return {
+    ...args.entry,
+    sourceValues: {
+      ...sourceValues,
+      [BUILDER_CMS_WRITE_VERSION_KEY]: version,
+      [BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY]: reference,
+      [BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY]:
+        args.snapshot.writeSnapshot.autosaveId,
+      [BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY]:
+        args.snapshot.writeSnapshot.autosaveCreatedDate,
+      [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]:
+        args.snapshot.writeSnapshot.hasPendingAutosave,
     },
   };
 }
@@ -4674,7 +4853,24 @@ async function loadSourceSnapshot(
     string,
     ContentDatabaseSourceExecution[]
   >();
-  for (const row of executionRows) {
+  const hydratedExecutionRows = await Promise.all(
+    executionRows.map(async (row) => ({
+      ...row,
+      payloadJson: JSON.stringify(
+        await readBuilderExecutionPayload({
+          payloadJson: row.payloadJson,
+          binding: {
+            ownerEmail: row.ownerEmail,
+            sourceId: row.sourceId,
+            changeSetId: row.changeSetId,
+            executionId: row.id,
+            idempotencyKey: row.idempotencyKey,
+          },
+        }),
+      ),
+    })),
+  );
+  for (const row of hydratedExecutionRows) {
     const executions = executionsByChangeSetId.get(row.changeSetId) ?? [];
     executions.push(serializeExecution(row));
     executionsByChangeSetId.set(row.changeSetId, executions);
@@ -4694,7 +4890,15 @@ async function loadSourceSnapshot(
     includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
     documentIds: options.documentIds,
   });
-  const rows = rowRows.map((row) =>
+  const hydratedRowRows =
+    isBuilderSource && options.includeHeavyBuilderBodyValues
+      ? await Promise.all(
+          rowRows.map((row) =>
+            hydrateBuilderWriteSnapshotRow(row, source.sourceTable),
+          ),
+        )
+      : rowRows;
+  const rows = hydratedRowRows.map((row) =>
     serializeSourceRowRecord(row, {
       includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
     }),
@@ -5914,6 +6118,20 @@ export async function replaceMockSourceRows(args: {
 }) {
   const db = getDb();
   const rows = mockSourceRowsForSeed(args);
+  const retainedReferences = new Set(
+    rows.flatMap((row) => {
+      const reference = builderSourceSnapshotReference(row.sourceValuesJson);
+      return reference &&
+        isBuilderPrivatePayloadBoundToSource(
+          reference,
+          args.ownerEmail,
+          args.sourceId,
+        )
+        ? [reference]
+        : [];
+    }),
+  );
+  let deletedReferences: string[] = [];
   await db.transaction(async (tx) => {
     const scope = args.documentIds?.length
       ? and(
@@ -5934,9 +6152,34 @@ export async function replaceMockSourceRows(args: {
       ...oldRows.map((row) => row.databaseItemId).filter(Boolean),
       ...rows.map((row) => row.databaseItemId),
     ]);
-    await tx.delete(schema.contentDatabaseSourceRows).where(scope);
+    const deletedRows = await tx
+      .delete(schema.contentDatabaseSourceRows)
+      .where(scope)
+      .returning({
+        ownerEmail: schema.contentDatabaseSourceRows.ownerEmail,
+        sourceId: schema.contentDatabaseSourceRows.sourceId,
+        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      });
+    deletedReferences = deletedRows
+      .map((row) => builderSourceSnapshotReference(row.sourceValuesJson))
+      .filter(
+        (reference): reference is string =>
+          !!reference &&
+          !retainedReferences.has(reference) &&
+          isBuilderPrivatePayloadBoundToSource(
+            reference,
+            args.ownerEmail,
+            args.sourceId,
+          ),
+      );
     await insertMockSourceRows(tx, rows, args.now);
   });
+  for (const reference of new Set(deletedReferences)) {
+    await cleanupBuilderPrivatePayload(
+      reference,
+      "deleted replaced source snapshot",
+    );
+  }
 }
 
 export function sourceValuesForSeededSourceRow(args: {
@@ -6027,6 +6270,17 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
     existingEpoch !== null &&
     incomingEpoch === existingEpoch;
   const next = { ...args.incoming };
+  for (const key of [
+    BUILDER_CMS_WRITE_VERSION_KEY,
+    BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
+    BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY,
+    BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY,
+    BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
+  ]) {
+    if (next[key] === undefined && existing[key] !== undefined) {
+      next[key] = existing[key];
+    }
+  }
   const preserveExistingBody =
     !incomingContent?.trim() &&
     !!existingContent?.trim() &&
@@ -6363,9 +6617,46 @@ async function deleteSourceChangeSetRecords(args: {
       )
     : eq(schema.contentDatabaseSourceChangeSets.sourceId, args.sourceId);
 
-  await db.delete(schema.contentDatabaseSourceExecutions).where(executionWhere);
-  await db.delete(schema.contentDatabaseSourceChangeReviews).where(reviewWhere);
-  await db.delete(schema.contentDatabaseSourceChangeSets).where(changeSetWhere);
+  let deletedExecutions: Array<{
+    ownerEmail: string;
+    sourceId: string;
+    payloadJson: string;
+  }> = [];
+  await db.transaction(async (tx) => {
+    deletedExecutions = await tx
+      .delete(schema.contentDatabaseSourceExecutions)
+      .where(executionWhere)
+      .returning({
+        ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
+        sourceId: schema.contentDatabaseSourceExecutions.sourceId,
+        payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+      });
+    await tx
+      .delete(schema.contentDatabaseSourceChangeReviews)
+      .where(reviewWhere);
+    await tx
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetWhere);
+  });
+  const references = new Set(
+    deletedExecutions.flatMap((row) => {
+      const reference = builderExecutionPayloadReference(row.payloadJson);
+      return reference &&
+        isBuilderPrivatePayloadBoundToSource(
+          reference,
+          row.ownerEmail,
+          row.sourceId,
+        )
+        ? [reference]
+        : [];
+    }),
+  );
+  for (const reference of references) {
+    await cleanupBuilderPrivatePayload(
+      reference,
+      "deleted source execution payload",
+    );
+  }
 }
 
 async function pruneDuplicateOpenSourceChangeSets(sourceId: string) {
@@ -7272,6 +7563,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
           .from(schema.contentDatabaseSourceRows)
           .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
       ).filter((row) => !activeSourceRowIds.has(row.sourceRowId));
+      const deletedReferences: string[] = [];
       await db.transaction(async (tx) => {
         await lockDatabaseMemberships(
           tx,
@@ -7281,11 +7573,38 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
           staleRows.map((row) => row.id),
           idChunkSize(),
         )) {
-          await tx
+          const deletedRows = await tx
             .delete(schema.contentDatabaseSourceRows)
-            .where(inArray(schema.contentDatabaseSourceRows.id, idChunk));
+            .where(inArray(schema.contentDatabaseSourceRows.id, idChunk))
+            .returning({
+              ownerEmail: schema.contentDatabaseSourceRows.ownerEmail,
+              sourceId: schema.contentDatabaseSourceRows.sourceId,
+              sourceValuesJson:
+                schema.contentDatabaseSourceRows.sourceValuesJson,
+            });
+          for (const row of deletedRows) {
+            const reference = builderSourceSnapshotReference(
+              row.sourceValuesJson,
+            );
+            if (
+              reference &&
+              isBuilderPrivatePayloadBoundToSource(
+                reference,
+                row.ownerEmail,
+                row.sourceId,
+              )
+            ) {
+              deletedReferences.push(reference);
+            }
+          }
         }
       });
+      for (const reference of new Set(deletedReferences)) {
+        await cleanupBuilderPrivatePayload(
+          reference,
+          "deleted stale source snapshot",
+        );
+      }
     }
 
     await updateBuilderCmsSourceReadMetadata({
