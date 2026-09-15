@@ -1,4 +1,5 @@
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
+import type { CodeLayerSource } from "@shared/code-layer";
 import {
   hitTestPenAnchor,
   hitTestPenHandle,
@@ -78,7 +79,12 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-type ScreenStub = { id: string; filename: string; content: string };
+type ScreenStub = {
+  id: string;
+  filename: string;
+  content: string;
+  codeLayerSource?: CodeLayerSource;
+};
 
 function makeGeom(x: number, y: number, w: number, h: number): FrameGeometry {
   return { x, y, width: w, height: h };
@@ -120,8 +126,14 @@ function hashString(s: string): string {
 /** Inject pre-built primitives into the module cache so tests don't need
  *  DOMParser (unavailable in jsdom-less vitest). */
 function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
-  // Cache key mirrors the implementation: id:length:hash(content)
-  const key = `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
+  const source =
+    screen.codeLayerSource ??
+    ({ kind: "design-file", fileId: screen.id } as const);
+  const sourceKey = Object.entries(source)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join("\u0000");
+  const key = `${screen.id}:${sourceKey}:${screen.content.length}:${hashString(screen.content)}`;
   primitiveParseCache.set(key, prims);
 }
 

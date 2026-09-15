@@ -66,7 +66,9 @@ vi.mock("@/components/ui/avatar", () => ({
 }));
 
 vi.mock("@/components/ui/checkbox", () => ({
-  Checkbox: () => <input type="checkbox" />,
+  Checkbox: (props: React.InputHTMLAttributes<HTMLInputElement>) => (
+    <input type="checkbox" {...props} />
+  ),
 }));
 
 vi.mock("@/components/ui/skeleton", () => ({
@@ -271,6 +273,25 @@ describe("RecordingCard behavior", () => {
 
     expect(container.textContent).not.toContain("clipsFinalRaw.retry");
     expect(hasRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("keeps checkboxes visible while recordings are being selected", () => {
+    act(() => {
+      root.render(
+        <RecordingCard
+          recording={recording}
+          selectionMode
+          onToggleSelect={vi.fn()}
+        />,
+      );
+    });
+
+    const checkbox = container.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    );
+
+    expect(checkbox?.className).toContain("sm:opacity-100");
+    expect(checkbox?.className).not.toContain("sm:opacity-0");
   });
 
   it("defers trash until the dropdown menu has closed", async () => {

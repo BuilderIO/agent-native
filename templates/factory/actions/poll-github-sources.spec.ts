@@ -169,6 +169,91 @@ describe("selectParkedRowsForRecheck", () => {
   });
 });
 
+describe("shouldRequeueOpenFromRecheck", () => {
+  it("requeues in-review PRs when bot review keys grow without a head SHA change", async () => {
+    const { shouldRequeueOpenFromRecheck } =
+      await import("./poll-github-sources.js");
+    expect(
+      shouldRequeueOpenFromRecheck(
+        {
+          prBabysitState: "queued",
+          prBabysitBotReviewBodyKeys: ["bot1:please fix"],
+        },
+        {
+          humanReviewCommentCount: 0,
+          humanReviewBodyCount: 0,
+          botReviewBodyKeys: ["bot1:please fix", "bot2:new thread"],
+          commentsTruncated: false,
+          reviewsTruncated: false,
+          changesRequested: false,
+          botErrorAfterPing: false,
+          mergeable: true,
+          mergeableState: "clean",
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it("does not requeue parked babysit rows", async () => {
+    const { shouldRequeueOpenFromRecheck } =
+      await import("./poll-github-sources.js");
+    expect(
+      shouldRequeueOpenFromRecheck(
+        {
+          prBabysitState: "waiting",
+          prBabysitBotReviewBodyKeys: ["bot1:please fix"],
+        },
+        {
+          humanReviewCommentCount: 0,
+          humanReviewBodyCount: 0,
+          botReviewBodyKeys: ["bot1:please fix", "bot2:new thread"],
+          commentsTruncated: false,
+          reviewsTruncated: false,
+          changesRequested: false,
+          botErrorAfterPing: false,
+          mergeable: true,
+          mergeableState: "clean",
+        },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("recheck terminal routing", () => {
+  it("routes draft GitHub summaries through terminal recheck handling", async () => {
+    const { closedPullRequestKind } =
+      await import("../server/triage/babysit-pr-terminal.js");
+    expect(
+      closedPullRequestKind({ state: "open", draft: true, merged: false }),
+    ).toBe("draft");
+  });
+});
+
+describe("selectOpenPrRowsForRecheck", () => {
+  it("includes in-review rows and skips parked ones", async () => {
+    const { selectOpenPrRowsForRecheck } =
+      await import("./poll-github-sources.js");
+    const rows = [
+      {
+        pullRequestNumber: 1,
+        repository: "acme/current",
+        metadataJson: JSON.stringify({ prBabysitState: "queued" }),
+      },
+      {
+        pullRequestNumber: 2,
+        repository: "acme/current",
+        metadataJson: JSON.stringify({ prBabysitState: "waiting" }),
+      },
+    ];
+    expect(
+      selectOpenPrRowsForRecheck(rows, {
+        configuredRepository: "acme/current",
+        listedOpenPrNumbers: new Set(),
+      }).map((row) => row.pullRequestNumber),
+    ).toEqual([1]);
+  });
+});
+
 describe("parkedRecheckEvidencePatch", () => {
   const recheck = {
     humanReviewCommentCount: 1,
@@ -251,6 +336,7 @@ describe("buildPullRequestPollMetadataJson", () => {
     userId: 1,
     headRef: "head",
     baseRef: "main",
+    state: "open",
     draft: false,
     updatedAt: "2026-09-10T12:00:00.000Z",
     htmlUrl: "https://github.com/acme/repo/pull/42",
@@ -284,6 +370,28 @@ describe("buildPullRequestPollMetadataJson", () => {
         "https://github.com/acme/repo/pull/42#issuecomment-1",
       author: "builder-io-bot",
     });
+  });
+
+  it("clears terminal babysit metadata when a merged pull request reopens", async () => {
+    const { buildPullRequestPollMetadataJson } =
+      await import("./poll-github-sources.js");
+    const current = JSON.stringify({
+      prBabysitState: "merged",
+      prBabysitMergedAt: "2026-09-14T19:47:10Z",
+      prBabysitPendingReopen: false,
+    });
+    const merged = JSON.parse(
+      buildPullRequestPollMetadataJson(
+        current,
+        pullRequest,
+        undefined,
+        false,
+        "2026-09-10T12:00:00.000Z",
+      ),
+    );
+    expect(merged.prBabysitState).toBeNull();
+    expect(merged.prBabysitMergedAt).toBeNull();
+    expect(merged.prBabysitPendingReopen).toBe(false);
   });
 });
 
@@ -668,6 +776,21 @@ describe("poll-github-sources author filter", () => {
         seenPages.push(requested);
         return pages[requested - 1] ?? page([]);
       },
+      getPullRequestSummary: async () => ({
+        state: "open",
+        headSha: "sha-1",
+        mergeable: true,
+        mergeableState: "clean",
+      }),
+      getPullRequestEvidence: async () => ({
+        comments: [],
+        commentsTruncated: false,
+        reviews: [],
+        reviewsTruncated: false,
+        checks: [],
+        checksCoverage: "complete",
+      }),
+      listIssueComments: async () => ({ comments: [], truncated: false }),
     });
 
     await action.run(input, context);

@@ -9,6 +9,7 @@ import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 
 import { runChangeSelectedZIndex } from "./change-selected-z-index";
 
@@ -19,7 +20,9 @@ const CONTENT = `<html><body><div data-agent-native-node-id="wrap">
 
 /** Selection state carries projection ids, not authored node attributes. */
 function projectionId(authoredId: string, content = CONTENT): string {
-  const node = buildCodeLayerProjection(content).nodes.find(
+  const node = buildCodeLayerProjection(content, {
+    source: { kind: "design-file", fileId: "file-1" },
+  }).nodes.find(
     (candidate) =>
       candidate.dataAttributes["data-agent-native-node-id"] === authoredId,
   );
@@ -33,7 +36,17 @@ function harness(
   content = CONTENT,
 ) {
   const targetId = projectionId(authoredId, content);
-  const applyLocalContentUpdate = vi.fn();
+  const applyLocalContentUpdate = vi.fn((nextContent: string) => {
+    const prepared = prepareCanonicalSourceContent(nextContent, {
+      fileId: "file-1",
+      fileType: "html",
+    });
+    return {
+      status: "accepted" as const,
+      content: prepared.content,
+      nodeIdMap: prepared.nodeIdMap,
+    };
+  });
   const commitVisualStyles = vi.fn();
   const selectedElement = {
     selector: `[data-agent-native-node-id="${targetId}"]`,

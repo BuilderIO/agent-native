@@ -783,6 +783,20 @@ switch (command) {
     break;
   }
 
+  case "identity": {
+    const [operation, ...identityArgs] = args;
+    if (operation !== "rekey") {
+      console.error(
+        "Usage: agent-native identity rekey --from <old-email> --to <new-email> [--yes] | --resume",
+      );
+      process.exit(1);
+    }
+    const cliDir = path.dirname(fileURLToPath(import.meta.url));
+    const script = path.resolve(cliDir, "../scripts/identity-rekey.js");
+    run(process.execPath, [script, ...identityArgs]);
+    break;
+  }
+
   case "agent": {
     import("./agent.js")
       .then(async (m) => {

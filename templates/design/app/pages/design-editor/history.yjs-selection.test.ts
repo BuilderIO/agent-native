@@ -5,7 +5,7 @@ import {
   readYjsUndoSelection,
   stampYjsUndoSelection,
   YJS_UNDO_SELECTION_META_KEY,
-} from "./history";
+} from "@/pages/design-editor/history";
 
 /** Minimal stand-in for `Y.UndoManager` — only the `undoStack`/`meta` shape
  * `stampYjsUndoSelection`/`readYjsUndoSelection` actually touch. */

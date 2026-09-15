@@ -31,7 +31,9 @@ import {
   DEV_ACTION_ROUTE,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
+  devActionHandoffUrl,
   hashDatabaseKey,
+  isValidDevActionHandoffUrl,
   readDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
 import {
@@ -56,20 +58,6 @@ function withoutCliHandoffText(value: unknown): string {
     CLI_HANDOFF_URL_PATTERN,
     "[redacted embed handoff]",
   );
-}
-
-function cliHandoffUrl(result: unknown): string | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  for (const key of CLI_HANDOFF_KEYS) {
-    const value = (result as Record<string, unknown>)[key];
-    if (
-      typeof value === "string" &&
-      value.includes("/_agent-native/embed/start?")
-    ) {
-      return value;
-    }
-  }
-  return undefined;
 }
 
 function withoutCliHandoffSecrets(
@@ -119,6 +107,15 @@ interface CliHandoffLaunchDeps {
   ) => { status: number | null; error?: Error };
 }
 
+function resolveCliHandoffBaseUrl(env: NodeJS.ProcessEnv): string | undefined {
+  return (
+    env.APP_URL ||
+    env.WORKSPACE_GATEWAY_URL ||
+    env.VITE_WORKSPACE_GATEWAY_URL ||
+    env.BETTER_AUTH_URL
+  );
+}
+
 export function openCliHandoff(
   urlOrPath: string,
   deps: CliHandoffLaunchDeps = {},
@@ -132,13 +129,17 @@ export function openCliHandoff(
         "Secure browser handoff is disabled by AGENT_NATIVE_NO_OPEN. Remove it and rerun this action.",
     };
   }
+  const baseUrl = resolveCliHandoffBaseUrl(env);
+  if (!isValidDevActionHandoffUrl(urlOrPath, baseUrl)) {
+    return {
+      ok: false,
+      reason: "invalid-url",
+      message:
+        "Secure browser handoff found an invalid app URL. Fix APP_URL or WORKSPACE_GATEWAY_URL, then rerun this action.",
+    };
+  }
   let url = urlOrPath;
   if (urlOrPath.startsWith("/")) {
-    const baseUrl =
-      env.APP_URL ||
-      env.WORKSPACE_GATEWAY_URL ||
-      env.VITE_WORKSPACE_GATEWAY_URL ||
-      env.BETTER_AUTH_URL;
     if (!baseUrl) {
       return {
         ok: false,
@@ -203,7 +204,7 @@ export function openCliHandoff(
 }
 
 function printActionResult(result: unknown): CliHandoffLaunchOutcome | null {
-  const handoffUrl = cliHandoffUrl(result);
+  const handoffUrl = devActionHandoffUrl(result);
   const handoff = handoffUrl ? openCliHandoff(handoffUrl) : null;
   console.log(withoutCliHandoffSecrets(result));
   return handoff;
@@ -244,12 +245,12 @@ async function runAppDbPluginIfPresent(): Promise<void> {
  */
 export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const actionName = process.argv[2];
+  const args = process.argv.slice(3);
 
-  if (!actionName || actionName === "--help") {
+  if (!actionName || actionName === "--help" || args.includes("--help")) {
     console.log(
       `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...]`,
     );
-    console.log(`\nRun any action with --help for usage details.`);
 
     // List local actions (try actions/ first, then scripts/)
     const actionsDir = path.resolve(process.cwd(), "actions");
@@ -293,8 +294,6 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
     console.error(`Error: Invalid action name "${actionName}"`);
     process.exit(1);
   }
-
-  const args = process.argv.slice(3);
 
   // Forward to an already-running local dev server before touching the
   // database ourselves — PGlite's process lock (db/client.ts) means opening
@@ -415,7 +414,12 @@ export async function tryForwardToDevServer(
   const body = (await response.json().catch(() => ({
     ok: false,
     error: "Invalid response from dev server.",
-  }))) as { ok: boolean; result?: unknown; error?: string };
+  }))) as {
+    ok: boolean;
+    result?: unknown;
+    error?: string;
+    devHandoffUrl?: unknown;
+  };
   if (!body.ok) {
     console.error(
       `Action "${actionName}" failed:`,
@@ -423,9 +427,22 @@ export async function tryForwardToDevServer(
     );
     process.exit(1);
   }
+  const handoffUrl =
+    typeof body.devHandoffUrl === "string"
+      ? body.devHandoffUrl
+      : devActionHandoffUrl(body.result);
   if (body.result !== undefined) {
-    assertCliHandoffLaunched(printActionResult(body.result));
+    console.log(withoutCliHandoffSecrets(body.result));
   }
+  const validHandoffUrl = isValidDevActionHandoffUrl(
+    handoffUrl,
+    resolveCliHandoffBaseUrl(process.env),
+  )
+    ? handoffUrl
+    : undefined;
+  assertCliHandoffLaunched(
+    validHandoffUrl ? openCliHandoff(validHandoffUrl) : null,
+  );
   process.exit(0);
 }
 

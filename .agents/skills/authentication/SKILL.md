@@ -98,22 +98,37 @@ import { defineAppRoles } from "@agent-native/core/org-team";
 
 export const coachAccess = defineAppRoles({
   appId: "coach",
-  roles: ["member", "coach-admin"] as const,
+  roles: ["member", "approver", "coach-admin"] as const,
   defaultRole: "member",
+  permissions: { approve: ["approver", "coach-admin"] as const },
 });
 
 // in an action
 authorize: coachAccess.requireAny("coach-admin"),
 ```
 
+For a role-configurable permission, guard instead with
+`authorize: coachAccess.requirePermission("approve")`.
+
 Roles are an unordered set, not a ladder — declaration order carries no meaning,
 and every guard names its accepted roles explicitly. `defaultRole` is **display
-only**: `requireAny` matches an explicit assignment row and nothing else, so
+only**: `requireAny` and `requirePermission` match explicit assignment rows and
+nothing else, so
 "nobody assigned this person" never reads as "granted", and widening the default
 cannot silently widen a guard. Org membership is a precondition, resolved in the
 same statement as the assignment, so a leftover assignment for a removed member
 can never authorize. Only org owners/admins may assign app roles; render the
 picker with `<TeamPage appRoles={descriptor} />`.
+
+Members may have multiple roles. `resolve` returns `{ status: "assigned", roles }`,
+and `assertAny` accepts any intersection with its requested roles. Declare
+permission keys and default role grants in the descriptor; owners/admins can
+override the role grants per organization from TeamPage or through the
+`list-app-permissions` / `set-app-permission-roles` actions. `requirePermission`
+uses the org override when present and code defaults otherwise. Unknown
+permission keys and roles are rejected; an empty override denies that
+permission to every role. `set-app-member-roles` replaces the member's full role
+set. Invitations can carry app roles, which apply after the member joins.
 
 `requireAny` validates at definition time — no roles, or a role outside the
 declared vocabulary, throws when the module loads rather than surfacing as an

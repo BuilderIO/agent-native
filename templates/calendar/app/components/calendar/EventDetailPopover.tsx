@@ -75,6 +75,10 @@ import {
 import { useEvent, useUpdateEvent } from "@/hooks/use-events";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import {
+  getCalendarEventRenderKey,
+  withCalendarEventSourceIdentity,
+} from "@/lib/calendar-event-identity";
 import { addCalendarDays } from "@/lib/calendar-timezone";
 import {
   getDateKeyInTimezone,
@@ -437,15 +441,15 @@ function toTimeInputValue(iso: string, timezone?: string): string {
 interface EventDetailPopoverProps {
   event: CalendarEvent;
   children: React.ReactNode;
-  onDelete: (eventId: string) => void;
+  onDelete: (event: CalendarEvent) => void;
   isDraft?: boolean;
   timezone?: string;
   /** When true, the popover opens immediately and title is focused for editing */
   defaultOpen?: boolean;
   /** Called when the title is changed and should be persisted */
-  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
+  onTitleSave?: (event: CalendarEvent, title: string) => void;
   /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
-  onDismissNew?: (eventId: string, accountEmail?: string) => void;
+  onDismissNew?: (event: CalendarEvent) => void;
   /** Called after the popover's visible open state changes through its normal lifecycle. */
   onOpenChange?: (open: boolean) => void;
   /** Prefer a placement that keeps Day-view detail controls inside the grid. */
@@ -644,12 +648,15 @@ export function EventDetailPopover({
             return;
           }
           updateEvent.mutate(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              targetAccountEmail,
-              ...guestNotification,
-            },
+            withCalendarEventSourceIdentity(
+              {
+                id: event.id,
+                accountEmail: event.accountEmail,
+                targetAccountEmail,
+                ...guestNotification,
+              },
+              event,
+            ),
             {
               onSuccess: () => toast.success(t("eventForm.eventUpdated")),
               onError: () => {
@@ -833,12 +840,15 @@ export function EventDetailPopover({
             return;
           }
           updateEvent.mutate(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
+            withCalendarEventSourceIdentity(
+              {
+                id: event.id,
+                accountEmail: event.accountEmail,
+                ...updates,
+                ...guestNotification,
+              },
+              event,
+            ),
             { onSettled: endAction },
           );
         } catch {
@@ -931,12 +941,15 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onSuccess: () => toast(t("eventForm.googleMeetAdded")),
             onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
@@ -986,12 +999,15 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onSuccess: () => toast(t("eventForm.zoomAdded")),
             onError: (error) =>
@@ -1107,12 +1123,15 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onError: () => toast.error(t("eventForm.updateFailed")),
             onSettled: endAction,
@@ -1191,7 +1210,7 @@ export function EventDetailPopover({
         return;
       }
       if (!beginAction()) return;
-      updateEvent.mutate(update, {
+      updateEvent.mutate(withCalendarEventSourceIdentity(update, event), {
         onError: () => toast.error(t("calendarView.failedUpdateEvent")),
         onSettled: endAction,
       });
@@ -1553,7 +1572,7 @@ export function EventDetailPopover({
     const title = editingTitle.trim();
     const updates = isEditingTitle && title ? { title } : undefined;
     if (updates) {
-      onTitleSave?.(event.id, updates.title, event.accountEmail);
+      onTitleSave?.(event, updates.title);
       setIsEditingTitle(false);
       isNewEventRef.current = false;
     }
@@ -1595,7 +1614,7 @@ export function EventDetailPopover({
         // Popover is closing — handle saves
         if (isEditingTitle) {
           if (trimmedTitle) {
-            onTitleSave?.(event.id, trimmedTitle, event.accountEmail);
+            onTitleSave?.(event, trimmedTitle);
             isNewEventRef.current = false;
             savedPendingChange = true;
           }
@@ -1620,7 +1639,7 @@ export function EventDetailPopover({
           !trimmedTitle &&
           onDismissNew
         ) {
-          onDismissNew(event.id, event.accountEmail);
+          onDismissNew(event);
         }
 
         setEditingField(null);
@@ -1632,8 +1651,7 @@ export function EventDetailPopover({
       open,
       isEditingTitle,
       editingTitle,
-      event.id,
-      event.accountEmail,
+      event,
       onTitleSave,
       onDismissNew,
       editingField,
@@ -1653,8 +1671,9 @@ export function EventDetailPopover({
     eventDetailSidebar &&
     !isNewEventRef.current &&
     !isDraft &&
-    sidebarEvent?.id === event.id &&
-    sidebarEvent.accountEmail === event.accountEmail;
+    sidebarEvent !== null &&
+    getCalendarEventRenderKey(sidebarEvent) ===
+      getCalendarEventRenderKey(event);
   const detailsOpen = popoverOpen || sidebarDetailsOpen;
   const previousDetailsOpenRef = useRef(false);
 
@@ -1794,7 +1813,7 @@ export function EventDetailPopover({
                       e.preventDefault();
                       const trimmed = editingTitle.trim();
                       if (trimmed) {
-                        onTitleSave?.(event.id, trimmed, event.accountEmail);
+                        onTitleSave?.(event, trimmed);
                         isNewEventRef.current = false;
                       }
                       setIsEditingTitle(false);
@@ -1820,7 +1839,7 @@ export function EventDetailPopover({
                   onBlur={() => {
                     const trimmed = editingTitle.trim();
                     if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                      onTitleSave?.(event.id, trimmed, event.accountEmail);
+                      onTitleSave?.(event, trimmed);
                       isNewEventRef.current = false;
                     }
                     setIsEditingTitle(false);
@@ -2767,7 +2786,7 @@ export function EventDetailPopover({
                 disabled={mutationPending}
                 onClick={() => {
                   if (isDraft) onDraftDiscard?.(event.id);
-                  else onDelete(event.id);
+                  else onDelete(event);
                   handleOpenChange(false);
                 }}
               >

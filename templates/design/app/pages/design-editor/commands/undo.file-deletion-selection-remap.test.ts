@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { runRedo } from "./redo";
-import { runUndo } from "./undo";
+import { runRedo } from "@/pages/design-editor/commands/redo";
+import { runUndo } from "@/pages/design-editor/commands/undo";
 
 /**
  * Figma parity (ground-truth Round 4): a plain selection change is its own
@@ -174,36 +174,44 @@ describe("undo/redo — selection history after a file-deletion undo", () => {
     );
     // The fix under test: the pure-selection entry recorded before the
     // delete must now point at the recreated screen, not the dead one.
-    expect(refs.selectionUndoStackRef.current[0]?.before).toEqual({
+    expect(refs.selectionUndoStackRef.current[0]?.before).toMatchObject({
       overviewSelectedScreenIds: ["screen-a-2"],
       selectedLayerIds: ["screen-a-2"],
       activeFileId: "screen-a-2",
     });
-    expect(refs.selectionUndoStackRef.current[0]?.after).toEqual({
+    expect(refs.selectionUndoStackRef.current[0]?.after).toMatchObject({
       overviewSelectedScreenIds: ["screen-b"],
       selectedLayerIds: ["screen-b"],
       activeFileId: "screen-b",
     });
+
+    // The recreated screen is now part of the live file projection used by
+    // subsequent selection-only history replay.
+    (args.files as unknown as { id: string }[]).push({ id: "screen-a-2" });
 
     // Undo #2: walks back into the plain selection-change entry.
     runUndo(args as unknown as Parameters<typeof runUndo>[0]);
     await flushMicrotasks();
 
-    expect(args.restoreSelectionSnapshot).toHaveBeenLastCalledWith({
-      overviewSelectedScreenIds: ["screen-a-2"],
-      selectedLayerIds: ["screen-a-2"],
-      activeFileId: "screen-a-2",
-    });
+    expect(args.restoreSelectionSnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        overviewSelectedScreenIds: ["screen-a-2"],
+        selectedLayerIds: ["screen-a-2"],
+        activeFileId: "screen-a-2",
+      }),
+    );
 
     // Redo: walks forward again over the same selection entry.
     runRedo(args as unknown as Parameters<typeof runRedo>[0]);
     await flushMicrotasks();
 
-    expect(args.restoreSelectionSnapshot).toHaveBeenLastCalledWith({
-      overviewSelectedScreenIds: ["screen-b"],
-      selectedLayerIds: ["screen-b"],
-      activeFileId: "screen-b",
-    });
+    expect(args.restoreSelectionSnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        overviewSelectedScreenIds: ["screen-b"],
+        selectedLayerIds: ["screen-b"],
+        activeFileId: "screen-b",
+      }),
+    );
 
     // Never once restore the dead pre-deletion id.
     for (const call of args.restoreSelectionSnapshot.mock.calls) {

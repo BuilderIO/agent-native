@@ -393,28 +393,58 @@ test.describe("breakpoints (Design's Framer model, not Figma)", () => {
 
   test("the default device set is a desktop base plus mobile only", async ({
     page,
-  }) => {
-    const id = await newDesign(page);
+  }, testInfo) => {
+    const created = await postAction(page, "create-design", {
+      title: "generated default device fixture",
+      projectType: "prototype",
+    });
+    const id = created?.id ?? created?.data?.id;
+    if (!id) throw new Error("create-design returned no id");
+
+    // Device defaults are applied by generation. A manually created shell plus
+    // create-file intentionally starts with Base + Add instead.
+    const generated = await postAction(page, "generate-design", {
+      designId: id,
+      prompt: "Create a responsive constraints test fixture.",
+      files: [
+        {
+          filename: "index.html",
+          content: FIXTURE,
+          fileType: "html",
+        },
+      ],
+    });
+    expect(generated.savedFiles).toHaveLength(1);
+
     const record = await designRecord(page, id);
     const data =
       typeof record.data === "string"
         ? JSON.parse(record.data || "{}")
         : (record.data ?? {});
-    const widths = (data.breakpointSet?.breakpoints ?? []).map(
-      (b: any) => b.widthPx,
+    const screen = (record.files ?? []).find(
+      (file: any) => file.filename === "index.html",
     );
-    // Not skipped: if create-design still injects no breakpointSet (the
-    // documented default is applied by generate-design, per the skill), that
-    // is a real product/test-scope gap this assertion should surface rather
-    // than silently pass.
-    expect(
-      widths.length,
-      "the default device set (desktop base plus mobile) must exist on a newly created design",
-    ).toBeGreaterThan(0);
-    expect(
-      widths,
-      `skill: the default injected set is "a Desktop base plus a single Mobile (390) ` +
-        `breakpoint frame ... never an auto-added tablet". Got ${JSON.stringify(widths)}.`,
-    ).not.toContain(810);
+    expect(screen, "generate-design must save index.html").toBeDefined();
+    expect(data.canvasFrames?.[screen.id]?.width).toBe(1440);
+
+    const breakpoints = data.breakpointSet?.breakpoints ?? [];
+    await testInfo.attach("generated-device-defaults", {
+      body: JSON.stringify(
+        {
+          designId: id,
+          screenId: screen.id,
+          primaryFrame: data.canvasFrames?.[screen.id],
+          breakpoints,
+        },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+    expect(breakpoints).toHaveLength(1);
+    expect(breakpoints[0]).toMatchObject({
+      label: "Mobile",
+      widthPx: 390,
+    });
   });
 });

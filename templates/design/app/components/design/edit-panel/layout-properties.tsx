@@ -8,6 +8,12 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -24,10 +30,12 @@ import {
   type AutoLayoutMatrixValue,
   type ScrubInputChangeMeta,
 } from "../inspector";
+import { IconLayoutSettings } from "../inspector/design-icons";
 import type { ElementInfo } from "../types";
 import {
   autoLayoutAlignmentFromStyles,
   availableSizingForElement,
+  commitFixedElementSizes,
   commitElementMinMax,
   commitElementSizing,
   horizontalToJustify,
@@ -220,12 +228,14 @@ function FlexContainerControls({
   onStylesChange,
   onDisableAutoLayout,
   onApplyLayoutFlow,
+  showSizingControls,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
+  showSizingControls: boolean;
 }) {
   const styles = element.computedStyles;
   // The element's CURRENT layout flow as authored in code, read from its own
@@ -546,6 +556,7 @@ function FlexContainerControls({
           );
         }}
         availableChildSizing={availableSizingForElement(element)}
+        showSizingControls={showSizingControls}
         onChildSizingChange={(axis, sizing) => {
           commitElementSizing(
             element,
@@ -556,9 +567,11 @@ function FlexContainerControls({
           );
         }}
         onChildSizeChange={(axis, px, meta) =>
-          onStyleChange(
-            axis === "horizontal" ? "width" : "height",
-            `${px}px`,
+          commitFixedElementSizes(
+            element,
+            { [axis]: px },
+            onStyleChange,
+            onStylesChange,
             meta,
           )
         }
@@ -673,12 +686,67 @@ function GridChildControls({
   );
 }
 
+function LayoutAdvancedPopover({
+  element,
+  onStyleChange,
+  flexChild,
+  gridChild,
+}: {
+  element: ElementInfo;
+  onStyleChange: StyleChangeHandler;
+  flexChild: boolean;
+  gridChild: boolean;
+}) {
+  const t = useT();
+  const label = t(
+    flexChild
+      ? "editPanel.layoutContext.flexChild"
+      : "editPanel.layoutContext.gridChild",
+  );
+
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={label}
+              className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+            >
+              <IconLayoutSettings className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        side="left"
+        align="end"
+        sideOffset={8}
+        data-design-chrome-region="right-panel"
+        className="w-72 space-y-3 p-3 !text-[11px]"
+      >
+        {flexChild ? (
+          <FlexChildControls element={element} onStyleChange={onStyleChange} />
+        ) : null}
+        {gridChild ? (
+          <GridChildControls element={element} onStyleChange={onStyleChange} />
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function LayoutContextProperties({
   element,
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
   onApplyLayoutFlow,
+  showContainerSizing = true,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -687,6 +755,7 @@ export function LayoutContextProperties({
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
+  showContainerSizing?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -697,20 +766,15 @@ export function LayoutContextProperties({
   const isContainer = isContainerElement(element);
   const aspectLock = useAspectRatioLock(element);
 
-  const childControls = (
-    <>
-      {flexChild ? (
-        <div className="pt-2 shadow-[inset_0_1px_var(--design-editor-control-border)]">
-          <FlexChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
-      {gridChild ? (
-        <div className="pt-2 shadow-[inset_0_1px_var(--design-editor-control-border)]">
-          <GridChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
-    </>
-  );
+  const childActions =
+    flexChild || gridChild ? (
+      <LayoutAdvancedPopover
+        element={element}
+        onStyleChange={onStyleChange}
+        flexChild={flexChild}
+        gridChild={gridChild}
+      />
+    ) : undefined;
 
   // Leaf elements (text, img, svg, etc.) never get auto layout — show the plain
   // design W/H sizing block instead.
@@ -757,15 +821,22 @@ export function LayoutContextProperties({
           px,
           aspectLock.ratio,
         );
-        const patch = { width: `${px}px`, height: `${nextHeight}px` };
-        if (onStylesChange) onStylesChange(patch, meta);
-        else {
-          onStyleChange("width", patch.width, meta);
-          onStyleChange("height", patch.height, meta);
-        }
+        commitFixedElementSizes(
+          element,
+          { horizontal: px, vertical: nextHeight },
+          onStyleChange,
+          onStylesChange,
+          meta,
+        );
         return;
       }
-      onStyleChange("width", `${px}px`, meta);
+      commitFixedElementSizes(
+        element,
+        { horizontal: px },
+        onStyleChange,
+        onStylesChange,
+        meta,
+      );
     };
     const commitHeight = (px: number, meta?: ScrubInputChangeMeta) => {
       if (aspectLock.locked && canLockAspect && aspectLock.ratio) {
@@ -774,19 +845,29 @@ export function LayoutContextProperties({
           px,
           aspectLock.ratio,
         );
-        const patch = { width: `${nextWidth}px`, height: `${px}px` };
-        if (onStylesChange) onStylesChange(patch, meta);
-        else {
-          onStyleChange("width", patch.width, meta);
-          onStyleChange("height", patch.height, meta);
-        }
+        commitFixedElementSizes(
+          element,
+          { horizontal: nextWidth, vertical: px },
+          onStyleChange,
+          onStylesChange,
+          meta,
+        );
         return;
       }
-      onStyleChange("height", `${px}px`, meta);
+      commitFixedElementSizes(
+        element,
+        { vertical: px },
+        onStyleChange,
+        onStylesChange,
+        meta,
+      );
     };
 
     return (
-      <PanelSection title={t("editPanel.sections.layout")}>
+      <PanelSection
+        title={t("editPanel.sections.layout")}
+        actions={childActions}
+      >
         {/* design-editor single-row-per-axis: [W | value | Fixed/Hug/Fill ▾]
             with the full sizing menu (modes + min/max + variable) per axis,
             plus a chain-link aspect-ratio lock at the FAR RIGHT of the row
@@ -797,36 +878,40 @@ export function LayoutContextProperties({
             span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
             className="group/field relative"
           >
-            <SizingField
-              axis="W"
-              sizingAxis="horizontal"
-              value={widthSizing}
-              resolvedSize={resolvedWidth}
-              mixed={isMixedValue(element.computedStyles.width)}
-              minMax={readElementMinMax(element, "horizontal")}
-              options={availableSizing.horizontal ?? ["fixed"]}
-              disabled={false}
-              onChange={(mode) =>
-                commitElementSizing(
-                  element,
-                  "horizontal",
-                  mode,
-                  onStyleChange,
-                  onStylesChange,
-                )
-              }
-              onSizeChange={commitWidth}
-              onMinMaxChange={(axis, kind, val, meta) =>
-                commitElementMinMax(axis, kind, val, onStyleChange, meta)
-              }
-            />
-            <FieldTrailer
-              element={element}
-              overrideProperty="width"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-            />
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex h-4 items-center justify-between gap-1">
+                <SubsectionLabel>{t("editPanel.labels.width")}</SubsectionLabel>
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="width"
+                  motionKeyframeContext={motionKeyframeContext}
+                  breakpointOverrideContext={breakpointOverrideContext}
+                />
+              </div>
+              <SizingField
+                axis="W"
+                sizingAxis="horizontal"
+                value={widthSizing}
+                resolvedSize={resolvedWidth}
+                mixed={isMixedValue(element.computedStyles.width)}
+                minMax={readElementMinMax(element, "horizontal")}
+                options={availableSizing.horizontal ?? ["fixed"]}
+                disabled={false}
+                onChange={(mode) =>
+                  commitElementSizing(
+                    element,
+                    "horizontal",
+                    mode,
+                    onStyleChange,
+                    onStylesChange,
+                  )
+                }
+                onSizeChange={commitWidth}
+                onMinMaxChange={(axis, kind, val, meta) =>
+                  commitElementMinMax(axis, kind, val, onStyleChange, meta)
+                }
+              />
+            </div>
           </InspectorGridCell>
           <InspectorGridCell
             span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
@@ -836,36 +921,42 @@ export function LayoutContextProperties({
             span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
             className="group/field relative"
           >
-            <SizingField
-              axis="H"
-              sizingAxis="vertical"
-              value={heightSizing}
-              resolvedSize={resolvedHeight}
-              mixed={isMixedValue(element.computedStyles.height)}
-              minMax={readElementMinMax(element, "vertical")}
-              options={availableSizing.vertical ?? ["fixed"]}
-              disabled={false}
-              onChange={(mode) =>
-                commitElementSizing(
-                  element,
-                  "vertical",
-                  mode,
-                  onStyleChange,
-                  onStylesChange,
-                )
-              }
-              onSizeChange={commitHeight}
-              onMinMaxChange={(axis, kind, val, meta) =>
-                commitElementMinMax(axis, kind, val, onStyleChange, meta)
-              }
-            />
-            <FieldTrailer
-              element={element}
-              overrideProperty="height"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-            />
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex h-4 items-center justify-between gap-1">
+                <SubsectionLabel>
+                  {t("editPanel.labels.height")}
+                </SubsectionLabel>
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="height"
+                  motionKeyframeContext={motionKeyframeContext}
+                  breakpointOverrideContext={breakpointOverrideContext}
+                />
+              </div>
+              <SizingField
+                axis="H"
+                sizingAxis="vertical"
+                value={heightSizing}
+                resolvedSize={resolvedHeight}
+                mixed={isMixedValue(element.computedStyles.height)}
+                minMax={readElementMinMax(element, "vertical")}
+                options={availableSizing.vertical ?? ["fixed"]}
+                disabled={false}
+                onChange={(mode) =>
+                  commitElementSizing(
+                    element,
+                    "vertical",
+                    mode,
+                    onStyleChange,
+                    onStylesChange,
+                  )
+                }
+                onSizeChange={commitHeight}
+                onMinMaxChange={(axis, kind, val, meta) =>
+                  commitElementMinMax(axis, kind, val, onStyleChange, meta)
+                }
+              />
+            </div>
           </InspectorGridCell>
           <InspectorGridCell
             span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
@@ -888,7 +979,7 @@ export function LayoutContextProperties({
                   disabled={!canLockAspect}
                   onClick={toggleAspectLock}
                   className={cn(
-                    "mt-0.5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
+                    "mt-5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
                     "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
                     aspectLock.locked &&
                       "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
@@ -910,7 +1001,6 @@ export function LayoutContextProperties({
             </Tooltip>
           </InspectorGridCell>
         </InspectorGrid>
-        {childControls}
       </PanelSection>
     );
   }
@@ -922,7 +1012,10 @@ export function LayoutContextProperties({
   // horizontal/vertical/wrap/grid flow applies `display:flex`; choosing the
   // normal-flow option resets to `display:block`.
   return (
-    <PanelSection title={t("editPanel.sections.autoLayout")}>
+    <PanelSection
+      title={t("editPanel.sections.autoLayout")}
+      actions={childActions}
+    >
       {/* Selection-stable key so per-selection UI state (paddingLinked, which
           must not silently flip while the user is mid-scrub — see the
           FlexContainerControls comment) resets on selection change instead of
@@ -942,8 +1035,8 @@ export function LayoutContextProperties({
         onStylesChange={onStylesChange}
         onDisableAutoLayout={onDisableAutoLayout}
         onApplyLayoutFlow={onApplyLayoutFlow}
+        showSizingControls={showContainerSizing}
       />
-      {childControls}
     </PanelSection>
   );
 }
@@ -995,7 +1088,6 @@ export function LayoutGuideProperties({
   return (
     <PanelSection
       title={"Layout guide" /* i18n-ignore design inspector label */}
-      defaultCollapsed
       actions={
         <SectionIconButton
           label={
@@ -1027,11 +1119,7 @@ export function LayoutGuideProperties({
           <InspectorGridCell span={4} ariaHidden />
           <InspectorGridCell span={4} ariaHidden />
         </InspectorGrid>
-      ) : (
-        <p className="!text-[11px] text-muted-foreground">
-          {"No layout guides" /* i18n-ignore design inspector empty state */}
-        </p>
-      )}
+      ) : null}
     </PanelSection>
   );
 }

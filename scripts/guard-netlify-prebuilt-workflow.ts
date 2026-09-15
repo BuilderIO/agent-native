@@ -1418,7 +1418,9 @@ if (
   !reusableBetaFreshness.includes(
     "Beta source_ref must be a full 40-character commit SHA.",
   ) ||
-  !reusableBetaFreshness.includes("Beta source_ref must equal current main") ||
+  !reusableBetaFreshness.includes(
+    "Beta source ${sourceSha} is not an ancestor of main ${mainSha}",
+  ) ||
   !reusableBetaFreshness.includes(
     "Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.",
   ) ||
@@ -1570,16 +1572,13 @@ if (
 }
 if (
   !betaResolveSourceScript.includes(
-    "context.eventName === 'workflow_dispatch'",
+    "const comparison = await github.rest.repos.compareCommits({",
   ) ||
   !betaResolveSourceScript.includes(
-    "sourceSha.toLowerCase() !== mainSha.toLowerCase()",
-  ) ||
-  !betaResolveSourceScript.includes(
-    "Manual beta source_ref must equal current main",
+    "source_ref ${sourceSha} is not an ancestor of main ${mainSha}.",
   )
 ) {
-  issues.push(`${betaPath} must reject stale manual source_ref values`);
+  issues.push(`${betaPath} must reject manual source_ref values outside main`);
 }
 
 if (issues.length) {

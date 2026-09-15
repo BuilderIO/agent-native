@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
 import { resolveSelectedCodeLayerNode } from "@/pages/design-editor/code-layer-state";
+import { withMeasuredGeometry } from "@/pages/design-editor/editor-helpers";
 
 import { runScreenElementSelect } from "./screen-element-select";
 
@@ -72,6 +73,7 @@ function makeArgs(overrides: {
     getScreenContent: () => "",
     handleBreakpointBarSelect: vi.fn(),
     id: "design-1",
+    createdOverviewLayerSelection: null,
     pendingOverviewLayerSelectionRef: { current: null },
     pendingOverviewScreenSelectionRef: { current: null },
     selectedLayerIdsState: overrides.selectedLayerIdsState,
@@ -107,6 +109,32 @@ function makeArgs(overrides: {
 }
 
 describe("runScreenElementSelect — Shift+click toggles selection membership", () => {
+  it("does not measure a duplicate selector from another Screen when the scoped iframe is absent", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.setAttribute("data-screen-iframe-id", "screen-other");
+    document.body.appendChild(iframe);
+    const target = iframe.contentDocument!.createElement("div");
+    target.id = "node-a";
+    iframe.contentDocument!.body.appendChild(target);
+    target.getBoundingClientRect = () =>
+      ({ x: 10, y: 20, width: 100, height: 40 }) as DOMRect;
+
+    try {
+      expect(
+        withMeasuredGeometry(makeInfo("node-a"), "screen-missing").boundingRect,
+      ).toBeUndefined();
+      expect(withMeasuredGeometry(makeInfo("node-a")).boundingRect).toEqual({
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 40,
+      });
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  });
+
   it("removes an already-selected element from a multi-selection (A+B selected, Shift+click A -> only B), and moves the primary selection to B", () => {
     const nodes = [makeNode("node-a"), makeNode("node-b")];
     let result: string[] = [];

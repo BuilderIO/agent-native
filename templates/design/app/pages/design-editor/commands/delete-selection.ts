@@ -4,6 +4,11 @@ import {
   buildCodeLayerTree,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
+import {
+  linkedComponentRootForNode,
+  COMPONENT_REF_ATTR,
+  COMPONENT_ID_ATTR,
+} from "@shared/component-model";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -36,7 +41,14 @@ import { applyScopedVisualStyleEdit } from "@/pages/design-editor/pending-edits"
 import { removeElementFromHtml } from "@/pages/design-editor/text-edit-utils";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { LinkedComponentEdit } from "./linked-component-mutation";
+
 export interface DeleteSelectionArgs {
+  applyLinkedComponentEdit?: (
+    fileId: string,
+    nodeId: string,
+    edit: LinkedComponentEdit,
+  ) => void;
   activeBreakpointUpperBoundPx: number | null;
   activeBreakpointWidthStateRef: RefObject<number | undefined>;
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
@@ -132,6 +144,7 @@ export interface DeleteSelectionArgs {
 }
 
 export function runDeleteSelection({
+  applyLinkedComponentEdit,
   activeBreakpointUpperBoundPx,
   activeBreakpointWidthStateRef,
   activeCanvasSourceType,
@@ -163,6 +176,146 @@ export function runDeleteSelection({
 }: DeleteSelectionArgs) {
   trace("structure", "delete", { layers: selectedLayerIdsState.length });
   if (!canEditDesign) return;
+  const snapshots = getSelectedLayerSnapshots();
+  const candidates =
+    snapshots.length > 0
+      ? snapshots.map((snapshot) => ({
+          fileId: snapshot.sourceFileId,
+          nodeId:
+            snapshot.rootNodeId ??
+            snapshot.node.dataAttributes["data-agent-native-node-id"],
+          projectionId: snapshot.node.id,
+        }))
+      : activeFile && selectedElement
+        ? [
+            {
+              fileId: activeFile.id,
+              nodeId: selectedElement.sourceId,
+              projectionId: "",
+            },
+          ]
+        : [];
+  let unresolvedTarget = false;
+  const projectionsByFile = new Map<
+    string,
+    ReturnType<typeof buildCodeLayerProjection>
+  >();
+  const targets = candidates.flatMap((candidate) => {
+    let projection = projectionsByFile.get(candidate.fileId);
+    if (!projection) {
+      const content =
+        liveScreenSnapshotsById[candidate.fileId]?.html ??
+        (candidate.fileId === activeFile?.id
+          ? getFreshActiveContent()
+          : getScreenContent(candidate.fileId));
+      projection = buildCodeLayerProjection(content, {
+        source: { kind: "design-file", fileId: candidate.fileId },
+      });
+      projectionsByFile.set(candidate.fileId, projection);
+    }
+    if (
+      !projection.nodes.some(
+        (node) =>
+          Object.prototype.hasOwnProperty.call(
+            node.dataAttributes,
+            COMPONENT_ID_ATTR,
+          ) ||
+          Object.prototype.hasOwnProperty.call(
+            node.dataAttributes,
+            COMPONENT_REF_ATTR,
+          ),
+      )
+    ) {
+      unresolvedTarget = true;
+      return [];
+    }
+    const node =
+      projection.nodes.find(
+        (node) =>
+          node.id === candidate.projectionId ||
+          (candidate.nodeId &&
+            node.dataAttributes["data-agent-native-node-id"] ===
+              candidate.nodeId),
+      ) ??
+      (candidates.length === 1 && selectedElement
+        ? resolveCodeLayerNodeFromElementInfo(projection, selectedElement)
+        : undefined);
+    if (!node) {
+      unresolvedTarget = true;
+      return [];
+    }
+    const selectedIds = new Set(
+      candidates
+        .filter((other) => other.fileId === candidate.fileId)
+        .map((other) => other.nodeId),
+    );
+    let parent = projection.nodes.find((parent) => parent.id === node.parentId);
+    const containedMain = projection.nodes.find(
+      (candidate) =>
+        Object.prototype.hasOwnProperty.call(
+          candidate.dataAttributes,
+          COMPONENT_ID_ATTR,
+        ) &&
+        candidate.source &&
+        node.source &&
+        candidate.source.start >= node.source.start &&
+        candidate.source.end <= node.source.end,
+    );
+    const root =
+      containedMain ??
+      (parent ? linkedComponentRootForNode(parent, projection) : null);
+    while (parent) {
+      if (selectedIds.has(parent.dataAttributes["data-agent-native-node-id"]))
+        return [];
+      parent = projection.nodes.find(
+        (ancestor) => ancestor.id === parent!.parentId,
+      );
+    }
+    return [{ fileId: candidate.fileId, node, root }];
+  });
+  if (targets.some((target) => target.root)) {
+    const lowerBoundPx =
+      responsiveEditScopeRef.current === "only"
+        ? (activeBreakpointWidthStateRef.current ?? null)
+        : null;
+    const scoped =
+      activeBreakpointUpperBoundPx !== null || lowerBoundPx !== null;
+    const message =
+      activeCanvasSourceType !== "inline"
+        ? "designEditor.componentInstances.linkedEditSourceUnsupported"
+        : scoped
+          ? "designEditor.componentInstances.linkedEditScopeUnsupported"
+          : "designEditor.componentInstances.linkedStructureUnsupported";
+    if (
+      activeCanvasSourceType !== "inline" ||
+      scoped ||
+      !applyLinkedComponentEdit ||
+      unresolvedTarget ||
+      targets.some(
+        (target) =>
+          !target.root?.dataAttributes[COMPONENT_REF_ATTR] ||
+          !target.node.dataAttributes["data-agent-native-node-id"],
+      )
+    ) {
+      toast.error(t(message));
+      return;
+    }
+    const first = targets[0]!;
+    applyLinkedComponentEdit(
+      first.fileId,
+      first.node.dataAttributes["data-agent-native-node-id"]!,
+      {
+        kind: "styleTargetsBatch",
+        targets: targets.map((target) => ({
+          fileId: target.fileId,
+          nodeId: target.node.dataAttributes["data-agent-native-node-id"]!,
+          styles: { display: "none" },
+        })),
+      },
+    );
+    return;
+  }
+
   // U19: delete is a discrete one-shot action — see the matching note in
   // handlePasteSelection.
   undoManagerRef.current?.stopCapturing();
@@ -313,7 +466,6 @@ export function runDeleteSelection({
     }
     return;
   }
-  const snapshots = getSelectedLayerSnapshots();
   if (snapshots.length > 0) {
     const activeRuntimeSelectors: string[] = [];
     let shouldDeleteActiveLiveDom = false;
@@ -334,9 +486,12 @@ export function runDeleteSelection({
       // below could never find anything to remove. Use the live snapshot
       // HTML when this screen has one.
       const liveSnapshot = liveScreenSnapshotsById[file.id];
+      const source = liveSnapshot
+        ? { kind: "inline-html" as const, fileId: file.id }
+        : { kind: "design-file" as const, fileId: file.id };
       const originalContent = liveSnapshot?.html ?? getScreenContent(file.id);
       let content = originalContent;
-      const projection = buildCodeLayerProjection(content);
+      const projection = buildCodeLayerProjection(content, { source });
       const tree = buildCodeLayerTree(projection);
       const nodesById = new Map(
         projection.nodes.map((node) => [node.id, node]),
@@ -395,6 +550,7 @@ export function runDeleteSelection({
             target: { nodeId },
             property: "display",
             value: "none",
+            source,
             upperBoundPx: activeBreakpointUpperBoundPx,
             lowerBoundPx:
               responsiveEditScopeRef.current === "only"
@@ -509,6 +665,11 @@ export function runDeleteSelection({
   const activeLiveSnapshot = activeFile
     ? liveScreenSnapshotsById[activeFile.id]
     : undefined;
+  const source = activeFile
+    ? activeLiveSnapshot
+      ? { kind: "inline-html" as const, fileId: activeFile.id }
+      : { kind: "design-file" as const, fileId: activeFile.id }
+    : undefined;
   const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
   // Item 7b — same breakpoint-scoped display:none routing as the
   // multi-layer-snapshot branch above, for the single-runtime-selected-
@@ -518,7 +679,9 @@ export function runDeleteSelection({
     activeBreakpointWidthStateRef.current !== undefined &&
     activeBreakpointUpperBoundPx != null
   ) {
-    const projection = buildCodeLayerProjection(baseContent);
+    const projection = buildCodeLayerProjection(baseContent, {
+      ...(source ? { source } : {}),
+    });
     const targetNode = resolveCodeLayerNodeFromElementInfo(
       projection,
       selectedElement,
@@ -533,6 +696,7 @@ export function runDeleteSelection({
           target: { nodeId },
           property: "display",
           value: "none",
+          ...(source ? { source } : {}),
           upperBoundPx: activeBreakpointUpperBoundPx,
           lowerBoundPx:
             responsiveEditScopeRef.current === "only"
@@ -566,7 +730,9 @@ export function runDeleteSelection({
     selectedElement.sourceId &&
     previousMotionFileIdRef.current === activeFile?.id
   ) {
-    const projection = buildCodeLayerProjection(baseContent);
+    const projection = buildCodeLayerProjection(baseContent, {
+      ...(source ? { source } : {}),
+    });
     const tree = buildCodeLayerTree(projection);
     const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
     const targetNode = projection.nodes.find(

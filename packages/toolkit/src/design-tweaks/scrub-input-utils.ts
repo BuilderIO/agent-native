@@ -5,6 +5,14 @@ export interface ScrubExpressionOptions {
   precision?: number;
 }
 
+export interface ScrubRelativeExpression {
+  expression: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+  precision?: number;
+}
+
 // ─── Scrub-drag gesture-lifecycle state machine ───────────────────────────────
 //
 // Pure mirror of the pointerdown/pointermove/pointerup bookkeeping in
@@ -66,11 +74,12 @@ export interface ParsedScrubExpression {
   normalized: string;
 }
 
-type MathOperator = "+" | "-" | "*" | "/";
+type MathOperator = "+" | "-" | "*" | "/" | "^" | "u+" | "u-";
 
 type Token =
   | { type: "number"; value: number }
-  | { type: "operator"; value: MathOperator };
+  | { type: "operator"; value: MathOperator }
+  | { type: "parenthesis"; value: "open" | "close" };
 
 const NUMBER_CHAR_PATTERN = /[0-9.]/;
 // Comma is only treated as a digit character while scanning a number token
@@ -96,6 +105,47 @@ export function parseScrubExpression(
     value: normalizedValue,
     normalized: formatScrubValue(normalizedValue, options),
   };
+}
+
+export function parseScrubRelativeExpression(
+  input: string,
+  currentValue: number,
+  options: ScrubExpressionOptions = {},
+  mixedLabel = "Mixed",
+): ParsedScrubExpression | null {
+  const expressionWithMixed = normalizeScrubMixedExpression(input, mixedLabel);
+  if (!expressionWithMixed) return null;
+
+  const expression = toNumericExpression(
+    expressionWithMixed.replace(/\bMixed\b/i, `(${currentValue})`),
+    currentValue,
+    options.unit,
+  );
+  const value = evaluateNumericExpression(expression);
+  if (value === null) return null;
+
+  const normalizedValue = normalizeScrubNumber(value, options);
+  return {
+    value: normalizedValue,
+    normalized: formatScrubValue(normalizedValue, options),
+  };
+}
+
+export function normalizeScrubMixedExpression(
+  input: string,
+  mixedLabel = "Mixed",
+): string | null {
+  const raw = input.trim();
+  const labels = [...new Set([mixedLabel.trim(), "Mixed"].filter(Boolean))];
+  if (labels.length === 0) return null;
+  const token = labels.map(escapeRegExp).join("|");
+  const pattern = new RegExp(
+    `(^|[^A-Za-z0-9_])(${token})(?=$|[^A-Za-z0-9_])`,
+    "gi",
+  );
+  const matches = [...raw.matchAll(pattern)];
+  if (matches.length !== 1) return null;
+  return raw.replace(pattern, (_match, prefix: string) => `${prefix}Mixed`);
 }
 
 export function normalizeScrubNumber(
@@ -192,8 +242,9 @@ function toNumericExpression(
     expression = expression.replace(new RegExp(escapeRegExp(unit), "gi"), "");
   }
 
+  expression = expression.replace(/\bx\b/gi, `(${currentValue})`);
+
   if (expression.startsWith("=")) return expression.slice(1).trim();
-  if (/^[+\-*/]/.test(expression)) return `${currentValue}${expression}`;
   return expression;
 }
 
@@ -202,7 +253,7 @@ function evaluateNumericExpression(expression: string): number | null {
   if (!tokens.length) return null;
 
   const values: number[] = [];
-  const operators: MathOperator[] = [];
+  const operators: Array<MathOperator | "("> = [];
 
   for (const token of tokens) {
     if (token.type === "number") {
@@ -210,9 +261,33 @@ function evaluateNumericExpression(expression: string): number | null {
       continue;
     }
 
+    if (token.type === "parenthesis") {
+      if (token.value === "open") {
+        operators.push("(");
+        continue;
+      }
+      while (operators.length && operators[operators.length - 1] !== "(") {
+        if (!applyTopOperator(values, operators)) return null;
+      }
+      if (operators.pop() !== "(") return null;
+      continue;
+    }
+
+    if (token.value === "u+" || token.value === "u-") {
+      // Prefix signs bind after exponentiation (`-2^2` is -4) but before
+      // multiplication and addition. Push without reducing the preceding
+      // operators because a prefix operator has no operand yet.
+      operators.push(token.value);
+      continue;
+    }
+
     while (
       operators.length &&
-      precedence(operators[operators.length - 1]) >= precedence(token.value)
+      operators[operators.length - 1] !== "(" &&
+      (precedence(operators[operators.length - 1]) > precedence(token.value) ||
+        (precedence(operators[operators.length - 1]) ===
+          precedence(token.value) &&
+          token.value !== "^"))
     ) {
       if (!applyTopOperator(values, operators)) return null;
     }
@@ -220,6 +295,7 @@ function evaluateNumericExpression(expression: string): number | null {
   }
 
   while (operators.length) {
+    if (operators[operators.length - 1] === "(") return null;
     if (!applyTopOperator(values, operators)) return null;
   }
 
@@ -239,12 +315,27 @@ function tokenizeExpression(expression: string): Token[] {
       continue;
     }
 
-    const signedNumber =
-      (char === "+" || char === "-") &&
-      previousWasOperator &&
-      NUMBER_CHAR_PATTERN.test(expression[index + 1] ?? "");
+    if (char === "+" || char === "-") {
+      if (previousWasOperator) {
+        const previousToken = tokens.at(-1);
+        // A negative exponent must be grouped explicitly in this editor:
+        // `2^-2` is rejected, while `2^(-2)` is a valid expression.
+        if (previousToken?.type === "operator" && previousToken.value === "^")
+          return [];
+        tokens.push({
+          type: "operator",
+          value: char === "-" ? "u-" : "u+",
+        });
+      } else {
+        tokens.push({ type: "operator", value: char });
+      }
+      previousWasOperator = true;
+      index += 1;
+      continue;
+    }
 
-    if (NUMBER_CHAR_PATTERN.test(char) || signedNumber) {
+    if (NUMBER_CHAR_PATTERN.test(char)) {
+      if (!previousWasOperator) return [];
       const start = index;
       index += 1;
       // Allow a single comma decimal separator within this number token
@@ -266,20 +357,50 @@ function tokenizeExpression(expression: string): Token[] {
       continue;
     }
 
+    if (char === "(") {
+      if (!previousWasOperator) return [];
+      tokens.push({ type: "parenthesis", value: "open" });
+      previousWasOperator = true;
+      index += 1;
+      continue;
+    }
+
+    if (char === ")") {
+      if (previousWasOperator) return [];
+      tokens.push({ type: "parenthesis", value: "close" });
+      previousWasOperator = false;
+      index += 1;
+      continue;
+    }
+
     return [];
   }
 
+  if (previousWasOperator && tokens.at(-1)?.type === "operator") return [];
   return tokens;
 }
 
 function applyTopOperator(
   values: number[],
-  operators: MathOperator[],
+  operators: Array<MathOperator | "(">,
 ): boolean {
   const operator = operators.pop();
+  if (operator === "u+" || operator === "u-") {
+    const value = values.pop();
+    if (value === undefined) return false;
+    values.push(operator === "u-" ? -value : value);
+    return true;
+  }
   const right = values.pop();
   const left = values.pop();
-  if (!operator || right === undefined || left === undefined) return false;
+  if (
+    !operator ||
+    operator === "(" ||
+    right === undefined ||
+    left === undefined
+  ) {
+    return false;
+  }
 
   switch (operator) {
     case "+":
@@ -295,15 +416,23 @@ function applyTopOperator(
       if (right === 0) return false;
       values.push(left / right);
       return true;
+    case "^":
+      values.push(left ** right);
+      return Number.isFinite(values[values.length - 1]);
   }
 }
 
-function precedence(operator: MathOperator): number {
-  return operator === "*" || operator === "/" ? 2 : 1;
+function precedence(operator: MathOperator | "("): number {
+  if (operator === "^") return 4;
+  if (operator === "u+" || operator === "u-") return 3;
+  if (operator === "*" || operator === "/") return 2;
+  return 1;
 }
 
 function isOperator(char: string): char is MathOperator {
-  return char === "+" || char === "-" || char === "*" || char === "/";
+  return (
+    char === "+" || char === "-" || char === "*" || char === "/" || char === "^"
+  );
 }
 
 function escapeRegExp(value: string): string {

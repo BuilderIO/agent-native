@@ -7,6 +7,11 @@
  * it cannot be screenshotted from the OS at all — hence a recreation rather
  * than an image.
  *
+ * It is a picture, so it must behave like one. Do not restore the `:hover` and
+ * `:active` rules this once carried: they lit up the mic/camera toggles and the
+ * "Start recording" button on mouse-over, a visitor spent a recording trying to
+ * click them, and could not tell the art from the running app.
+ *
  * All CSS lives here, scoped under `.clips-mock`, and the popover's custom
  * properties are pinned to the dark palette. The real stylesheet
  * (templates/clips/desktop/src/styles.css) is deliberately NOT imported: it
@@ -705,7 +710,11 @@ const CLIPS_MOCK_CSS = [
   // The negative margin pulls the window up into the header block, and the top
   // padding reserves room for the popover to hang above the window's top edge
   // while the box itself stays clipped.
-  ".clips-mock { position: relative; width: 100%; margin-top: -160px; padding: 182px 40px 28px; overflow: hidden; }",
+  // `pointer-events: none` is load-bearing, not polish: the art recreates the
+  // recorder's own controls, so any hover highlight or cursor change on a
+  // `role="img"` reads as a working "Start recording" button and the visitor
+  // clicks a picture. Keep the whole mock inert.
+  ".clips-mock { position: relative; width: 100%; margin-top: -160px; padding: 182px 40px 28px; overflow: hidden; pointer-events: none; }",
   ".clips-mock, .clips-mock * { box-sizing: border-box; }",
   ".clips-mock-frame { position: relative; height: 100%; }",
   // Palette. Dark by default; the light block further down swaps the whole mock
@@ -799,34 +808,12 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .bottom-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; color: var(--fg-muted); }",
   ".clips-mock .bottom-label { font-size: 11px; font-weight: 500; }",
 
-  // Hover behavior, mirroring the real stylesheet's transitions. The mock is
-  // decorative, so these exist purely to make it feel like live UI.
-  ".clips-mock .icon-button, .clips-mock .mode-toggle > span, .clips-mock .toggle, .clips-mock .bottom-btn, .clips-mock .bottom-icon, .clips-mock .primary, .clips-mock .row, .clips-mock .library-nav-item, .clips-mock .library-icon-btn, .clips-mock .library-search, .clips-mock .library-new-recording, .clips-mock .library-import { transition: background 120ms, color 120ms, border-color 120ms, box-shadow 120ms, transform 80ms; }",
-  ".clips-mock .icon-button:hover { background: var(--surface-hover); color: var(--fg); }",
-  ".clips-mock .mode-toggle > span:hover { color: var(--fg); }",
-  ".clips-mock .row:hover { background: var(--surface-hover); border-color: var(--border-strong); }",
-  ".clips-mock .toggle-on:hover { background: #15803d; }",
-  ".clips-mock .toggle-off:hover { color: var(--fg); }",
-  ".clips-mock .primary:hover { background: #474747; color: var(--fg); }",
-  ".clips-mock .primary:active { transform: translateY(1px); }",
-  ".clips-mock .bottom-btn:hover { background: var(--surface-hover); color: var(--fg); }",
-  ".clips-mock .bottom-btn:hover .bottom-icon { color: var(--fg); }",
-  ".clips-mock .readiness-summary:hover { color: var(--fg); }",
-
-  // Library chrome hover only. The recording cards stay static.
-  ".clips-mock .library-nav-item:hover { background: var(--lib-hover-bg); color: var(--lib-active-fg); }",
-  ".clips-mock .library-icon-btn:hover { background: var(--lib-hover-bg); color: var(--lib-fg); }",
-  ".clips-mock .library-search:hover { border-color: var(--lib-input-hover-border); }",
-  ".clips-mock .library-new-recording:hover { background: var(--lib-btn-hover-bg); border-color: var(--lib-btn-hover-border); color: var(--lib-fg); }",
-  ".clips-mock .library-import:hover { background: var(--lib-hover-bg); color: var(--lib-fg); }",
-
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
   "html.light .clips-mock { --lib-window-bg: #f1f0ea; --lib-chrome-bg: #eae8e1; --lib-chrome-border: #dedbd2; --lib-dot: #c8c5bb; --lib-border: #dedbd2; --lib-fg: #22201c; --lib-fg-dim: #56534d; --lib-fg-muted: #6f6b64; --lib-fg-subtle: #827e76; --lib-fg-faint: #969288; --lib-btn-bg: #fdfdfb; --lib-btn-border: #d7d3ca; --lib-btn-fg: #3f3c36; --lib-btn-hover-bg: #f8f7f3; --lib-btn-hover-border: #c0bcb2; --lib-hover-bg: rgba(50, 48, 38, 0.05); --lib-active-bg: rgba(50, 48, 38, 0.09); --lib-active-fg: #1d1b17; --lib-input-bg: #fdfdfb; --lib-input-border: #dcd8cf; --lib-input-hover-border: #c0bcb2; --lib-card-bg: #fdfdfb; --lib-card-border: #e3e0d8; --lib-card-hover-border: #c4c0b6; --lib-thumb-bg: #ebe9e3; --lib-avatar-bg: #e4e1d9; --lib-avatar-fg: #5d5a52; }",
   "html.light .clips-mock .clips-mock-popover { --brand: #22201c; --brand-hover: #131210; --brand-ring: rgba(34, 32, 28, 0.2); --bg: #fefefc; --surface: #f5f4ef; --surface-hover: #efede7; --surface-strong: #e8e6de; --fg: #22201c; --fg-muted: #6a6760; --fg-subtle: #8b887f; --border: #e2dfd7; --border-strong: #d1cdc4; --shadow-sm: 0 1px 2px rgba(50, 48, 38, 0.09); --shadow-md: 0 8px 24px rgba(50, 48, 38, 0.14), 0 2px 6px rgba(50, 48, 38, 0.07); }",
   "html.light .clips-mock .clips-mock-popover.app { border-color: #dedbd2; box-shadow: 0 28px 64px rgba(50, 48, 38, 0.22), 0 6px 18px rgba(50, 48, 38, 0.12); }",
   "html.light .clips-mock .primary { color: #3f3c36; }",
-  "html.light .clips-mock .primary:hover { background: #dedbd3; color: var(--fg); }",
 
   // Narrow screens. The popover is a fixed 340x408 panel, so it shrinks and
   // tucks into the right edge rather than letting the CTA clip out. This block

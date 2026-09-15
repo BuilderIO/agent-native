@@ -4,10 +4,18 @@ import type { RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const toastError = vi.fn();
+const shaderWrites = vi.hoisted(() => new Set<string>());
+vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+  isShaderWriteInFlight: (fileId: string | undefined) =>
+    Boolean(fileId && shaderWrites.has(fileId)),
+}));
 vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => toastError(...args) },
 }));
 
+import { buildCodeLayerProjection } from "@shared/code-layer";
+import { analyzeComponentLinks } from "@shared/component-links";
+import { COMPONENT_REF_ATTR } from "@shared/component-model";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type {
@@ -19,6 +27,7 @@ import {
   type ClipboardContentLineage,
 } from "@/lib/clipboard-content-lineage";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runPasteSelection, type PasteSelectionArgs } from "./paste-selection";
@@ -108,13 +117,24 @@ function harness(
 
   const args: PasteSelectionArgs = {
     activeFile,
+    designId: "design-1",
     applyFileContentUpdate: (fileId, nextContent) => {
-      writes.push({ fileId, content: nextContent });
-      contentByFileId.set(fileId, nextContent);
+      const publication = prepareCanonicalSourceContent(nextContent, {
+        fileId,
+        fileType: "html",
+      });
+      writes.push({ fileId, content: publication.content });
+      contentByFileId.set(fileId, publication.content);
+      return { status: "accepted", ...publication };
     },
     applyLocalContentUpdate: (nextContent) => {
-      writes.push({ fileId: activeFile.id, content: nextContent });
-      contentByFileId.set(activeFile.id, nextContent);
+      const publication = prepareCanonicalSourceContent(nextContent, {
+        fileId: activeFile.id,
+        fileType: activeFile.fileType,
+      });
+      writes.push({ fileId: activeFile.id, content: publication.content });
+      contentByFileId.set(activeFile.id, publication.content);
+      return { status: "accepted", ...publication };
     },
     boardFileId: "board",
     canEditDesign: true,
@@ -127,6 +147,9 @@ function harness(
     getCanvasScreenClipboardEntries: () => [],
     getFreshActiveContent: () => contentByFileId.get(activeFile.id) ?? "",
     getScreenContent: (screenId) => contentByFileId.get(screenId) ?? "",
+    historyOrderRef: ref(
+      [] as PasteSelectionArgs["historyOrderRef"]["current"],
+    ),
     latestClipboardMutationContentRef: lineageRef as never,
     pasteCascadeRef: ref(0),
     pasteCopiedScreens: () => {},
@@ -138,8 +161,10 @@ function harness(
       const next = publishClipboardContentMutation({
         current: lineageRef.current.get(publishArgs.fileId),
         baseContentHash: sourceContentHash(publishArgs.baseContent),
+        fileId: publishArgs.fileId,
+        fileType: files.find((file) => file.id === publishArgs.fileId)
+          ?.fileType,
         nextContent: publishArgs.nextContent,
-        nextContentHash: sourceContentHash(publishArgs.nextContent),
         origin: publishArgs.origin,
         baseSource: publishArgs.baseSource,
       });
@@ -195,10 +220,22 @@ describe("pasting copied layers with no explicit drop point", () => {
 
   it("keeps the copy inside the frame it came from when the board is the active surface", async () => {
     const { args, writes } = harness();
+    args.historyOrderRef.current = ["selection"];
 
     await runPasteSelection(args);
 
+    expect(args.historyOrderRef.current).toEqual([
+      "selection",
+      "clipboard-paste",
+    ]);
     expect(writes.map((write) => write.fileId)).toEqual(["home"]);
+    const acceptedContent = writes[0]!.content;
+    const lineage = args.latestClipboardMutationContentRef.current.get("home");
+    const clipboardUndoStack = args.clipboardPasteUndoStackRef.current;
+    const clipboardUndo = clipboardUndoStack[clipboardUndoStack.length - 1];
+    expect(lineage?.content).toBe(acceptedContent);
+    expect(lineage?.contentHash).toBe(sourceContentHash(acceptedContent));
+    expect(clipboardUndo?.after).toBe(acceptedContent);
     const copies = pastedCopies(writes[0]!.content);
     expect(copies).toHaveLength(1);
     expect(
@@ -210,6 +247,59 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(left).toBeLessThan(390);
     expect(top).toBeGreaterThanOrEqual(0);
     expect(top).toBeLessThan(844);
+  });
+
+  it("does not reserve paste history while the target shader write is active", async () => {
+    const { args, writes } = harness();
+    shaderWrites.add("home");
+    try {
+      await runPasteSelection(args);
+
+      expect(writes).toEqual([]);
+      expect(args.clipboardPasteUndoStackRef.current).toEqual([]);
+      expect(args.historyOrderRef.current).toEqual([]);
+      expect(args.latestClipboardMutationContentRef.current.has("home")).toBe(
+        false,
+      );
+    } finally {
+      shaderWrites.delete("home");
+    }
+  });
+
+  it("keeps a same-Design pasted main linked after the clipboard clone", async () => {
+    const componentHtml = `<button data-agent-native-node-id="button-main" data-agent-native-component-id="cmp-button" data-agent-native-component="Button">Save</button>`;
+    const content = `<!doctype html><html><body>${componentHtml}<p data-agent-native-node-id="after">After</p></body></html>`;
+    const { args, writes } = harness({
+      files: [designFile("home", "index.html", content)],
+      activeFileId: "home",
+      entries: [
+        {
+          html: componentHtml,
+          rootNodeId: "button-main",
+          sourceFileId: "home",
+        },
+      ],
+    });
+
+    await runPasteSelection(args);
+
+    expect(writes).toHaveLength(1);
+    const source = {
+      kind: "design-file" as const,
+      designId: "design-1",
+      fileId: "home",
+      filename: "index.html",
+    };
+    const projection = buildCodeLayerProjection(writes[0]!.content, { source });
+    const references = projection.nodes.filter(
+      (node) => node.dataAttributes[COMPONENT_REF_ATTR] === "cmp-button",
+    );
+    expect(references).toHaveLength(1);
+    expect(
+      analyzeComponentLinks([projection]).components.find(
+        (component) => component.componentId === "cmp-button",
+      )?.status,
+    ).toBe("resolved");
   });
 
   it("pastes directly above the source, not appended after a later sibling", async () => {
@@ -558,6 +648,74 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(writes).toEqual([]);
     expect(toastError).toHaveBeenCalledTimes(1);
   });
+
+  it("refuses cross-file paste when snapshot capture failed and leaves the destination untouched", async () => {
+    const { args, writes, runtimeInsertRequests } = harness({
+      entries: [
+        {
+          html: `<div class=\"source-class\" data-agent-native-node-id=\"source\">Styled</div>`,
+          rootNodeId: "source",
+          sourceFileId: "home",
+          styleSnapshotCaptureFailed: true,
+        },
+      ],
+    });
+
+    await runPasteSelection(args, { x: 240, y: 150 });
+
+    expect(writes).toEqual([]);
+    expect(runtimeInsertRequests).toEqual([]);
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows same-file duplication after capture failure using the copied source markup", async () => {
+    const { args, writes } = harness({
+      activeFileId: "home",
+      entries: [
+        {
+          html: `<div class=\"source-class\" data-agent-native-node-id=\"source\">Styled</div>`,
+          rootNodeId: "source",
+          sourceFileId: "home",
+          styleSnapshotCaptureFailed: true,
+        },
+      ],
+    });
+    args.viewModeRef.current = "single";
+
+    await runPasteSelection(args, { x: 250, y: 160 });
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.fileId).toBe("home");
+    const doc = new DOMParser().parseFromString(
+      writes[0]!.content,
+      "text/html",
+    );
+    const copies = Array.from(doc.querySelectorAll(".source-class"));
+    expect(copies).toHaveLength(1);
+    expect(copies[0]?.textContent).toBe("Styled");
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "missing-file"])(
+    "treats absent or unknown source ownership as cross-file for failed snapshots (%s)",
+    async (sourceFileId) => {
+      const { args, writes } = harness({
+        entries: [
+          {
+            html: `<div data-agent-native-node-id=\"source\">Styled</div>`,
+            rootNodeId: "source",
+            sourceFileId,
+            styleSnapshotCaptureFailed: true,
+          },
+        ],
+      });
+
+      await runPasteSelection(args, { x: 240, y: 150 });
+
+      expect(writes).toEqual([]);
+      expect(toastError).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("reports a paste the destination document refuses to clone into", async () => {
     const { args, writes } = harness({ activeFileId: "home" });

@@ -33,8 +33,10 @@ actions, and local folders that sync into the same collection model.
   `share-local-file-document`, `list-local-component-files`, and
   `write-local-component-file`.
 - Use `pull-document` or `get-document` before editing a page. Use
-  `edit-document` for precise find/replace changes and `update-document` for
-  full rewrites or new content.
+  `edit-document` for revision-guarded body changes. When `get-document`
+  returns a literally empty body, initialize it with `initializeContent`, the
+  returned `baseRevision`, and a stable `idempotencyKey`. Browser-owned full
+  rewrites and metadata changes use `update-document`.
 - Use `list-documents` or `search-documents` to find an existing collection by
   its exact title, then inspect it with `get-content-database` before creating
   or submitting anything. Do not create a second collection when the canonical

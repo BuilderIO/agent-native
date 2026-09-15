@@ -32,6 +32,7 @@ function commitWith(
       commitInteractionStateStyles: () => false,
       commitRelativeStyleDeltaToSelectedLayers: () => false,
       commitStylesToSelectedLayers: () => false,
+      commitCapturedStyleTargets: () => {},
       commitVisualStyles,
       handleClearBreakpointOverride: () => false,
       previewInteractionStateStyles: () => {},
@@ -89,6 +90,7 @@ describe("the live preview while dragging", () => {
           commitInteractionStateStyles: () => false,
           commitRelativeStyleDeltaToSelectedLayers: () => false,
           commitStylesToSelectedLayers: () => false,
+          commitCapturedStyleTargets: () => {},
           commitVisualStyles: () => {},
           handleClearBreakpointOverride: () => false,
           previewInteractionStateStyles: () => {},
@@ -117,5 +119,33 @@ describe("the live preview while dragging", () => {
     expect(sent).toEqual([
       { selector: TEMPLATE_BODY_SELECTOR, property: "backgroundColor" },
     ]);
+  });
+});
+
+describe("a canceled style gesture", () => {
+  it("does not repeat its restored preview as a source write", () => {
+    const commitStylesToSelectedLayers = vi.fn(() => true);
+    const commitVisualStyles = vi.fn();
+    runStylesChange(
+      {
+        commitInteractionStateStyles: vi.fn(() => true),
+        commitRelativeStyleDeltaToSelectedLayers: vi.fn(() => true),
+        commitStylesToSelectedLayers,
+        commitCapturedStyleTargets: () => {},
+        commitVisualStyles,
+        handleClearBreakpointOverride: vi.fn(() => true),
+        previewInteractionStateStyles: vi.fn(),
+        selectedCanvasSelectorCandidates: [],
+        selectedElement: elementInfo(),
+        selectedLayerTargetsRef: { current: [] },
+        textEditingState: { active: false },
+      },
+      { backgroundColor: "rgb(59, 130, 246)" },
+      { phase: "cancel" },
+    );
+
+    expect(commitStylesToSelectedLayers).toHaveBeenCalledOnce();
+    expect(commitStylesToSelectedLayers).toHaveBeenCalledWith({}, "cancel");
+    expect(commitVisualStyles).not.toHaveBeenCalled();
   });
 });

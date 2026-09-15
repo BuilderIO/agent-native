@@ -119,7 +119,10 @@ const messages = {
         stuck: "Stuck",
         clean: "Clean",
         ineligible: "Ineligible",
+        merged: "Merged on GitHub",
         reopened: "Reopened after update",
+        mergeable_as_of:
+          "Mergeable; Factory will not ping Builder again on this branch.",
       },
       slack: {
         claimed: "Claimed",
@@ -373,6 +376,9 @@ const messages = {
     auditSkipped: "{{count}} skipped",
     auditStartedCount: "{{count}} started",
     auditSeenBefore: "Seen before",
+    auditMergedOnGitHub: "Merged on GitHub",
+    auditClosedOnGitHub: "Closed on GitHub",
+    auditDraftOnGitHub: "Draft on GitHub",
     auditNewThisRun: "New",
     auditAlreadyStarted: "Already started",
     historyTab: "History",

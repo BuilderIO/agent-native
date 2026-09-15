@@ -1,3 +1,5 @@
+import { readGitHubTerminalFromAuditDetails } from "../triage/babysit-pr-terminal.js";
+
 export type FactoryAuditEventRecord = {
   id: string;
   itemId: string | null;
@@ -73,6 +75,7 @@ export type FactoryAuditReportItem = {
   babysitAgentMatched?: boolean | null;
   babysitBotThreadSummaries?: string[] | null;
   babysitHumanThreadSummaries?: string[] | null;
+  gitHubTerminal?: "merged" | "closed" | "draft" | null;
 };
 
 export type FactoryAuditTraceStep = {
@@ -234,6 +237,11 @@ function projectItem(
     occurredBeforeWindow(item?.slackBuilderReplyAt, window) ||
     startedBeforeWindow(run, window);
   const babysit = readBabysitAuditDetails(events);
+  const gitHubTerminal = readGitHubTerminalFromAuditDetails(
+    decision?.action === "babysit-factory-pull-request"
+      ? decision.details
+      : undefined,
+  );
 
   return {
     itemId,
@@ -279,6 +287,7 @@ function projectItem(
     babysitAgentMatched: babysit.agentMatched,
     babysitBotThreadSummaries: babysit.botThreadSummaries,
     babysitHumanThreadSummaries: babysit.humanThreadSummaries,
+    gitHubTerminal,
   };
 }
 

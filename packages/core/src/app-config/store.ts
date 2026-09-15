@@ -29,6 +29,14 @@ interface AppConfigGlobals {
   __agentNativeAppConfig?: AppConfigState;
 }
 
+/**
+ * Nitro replaces this build-only sentinel with a literal before bundling. A
+ * missing marker means this is a local/test build, where optional adapters are
+ * available from the workspace dependencies.
+ */
+export const enterpriseAuthAdaptersBuilt =
+  process.env.AGENT_NATIVE_BUILD_ENTERPRISE_AUTH !== "false";
+
 // Same reason the provider registries do this: core can be loaded more than
 // once in a dev server or a dual-format build, and a config set by a plugin
 // has to be visible to a reader that resolved a different copy of the module.

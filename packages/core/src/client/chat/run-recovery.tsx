@@ -236,9 +236,15 @@ function isDesktopChatRelayRunError(info: RunErrorInfo): boolean {
 export function BuilderConnectCta({
   variant = "primary",
   onConnected,
+  reconnect = false,
 }: {
   variant?: "primary" | "compact";
   onConnected?: () => void;
+  /** Render the connect control even while connection status still reports
+   *  configured. A caller sets this after the server has actually seen the
+   *  credential rejected: Builder can revoke upstream without that landing in
+   *  the local status, and a Connected badge in that state is a dead end. */
+  reconnect?: boolean;
 }) {
   const t = useT();
   const flow = useBuilderConnectFlow({
@@ -249,7 +255,7 @@ export function BuilderConnectCta({
   const { configured, orgName, connecting, error } = flow;
 
   if (variant === "compact") {
-    if (configured) {
+    if (configured && !reconnect) {
       return (
         <span className="agent-builder-setup-card__builder-button inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
           <IconCheck size={11} className="text-emerald-500" />
@@ -274,6 +280,8 @@ export function BuilderConnectCta({
                 <IconLoader2 size={10} className="animate-spin" />
                 {t("agentChat.common.waiting")}
               </>
+            ) : reconnect ? (
+              t("agentChat.recovery.reconnectBuilder")
             ) : (
               t("agentChat.setup.connectBuilder")
             )}

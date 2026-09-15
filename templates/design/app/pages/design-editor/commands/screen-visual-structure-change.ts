@@ -1,6 +1,9 @@
 import { stripBoardSurfaceOffsetFromCoord } from "@shared/board-file";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
-import { normalizeDesignSourceType } from "@shared/source-mode";
+import {
+  isRunningAppSourceType,
+  normalizeDesignSourceType,
+} from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -24,6 +27,12 @@ import {
 } from "@/pages/design-editor/html-layer-positioning";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
+
 export interface ScreenVisualStructureChangeArgs {
   activeFile: DesignFile;
   applyFileContentUpdate: (
@@ -38,7 +47,7 @@ export interface ScreenVisualStructureChangeArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   canEditDesign: boolean;
   designSourceType: "inline" | "localhost" | "fusion";
   getScreenContent: (screenId: string) => string;
@@ -143,7 +152,7 @@ export function runScreenVisualStructureChange(
   );
   const screenSourceType =
     normalizeDesignSourceType(overviewScreen?.sourceType) ?? designSourceType;
-  if (screenSourceType === "localhost") {
+  if (isRunningAppSourceType(screenSourceType)) {
     recordPendingLiveStructureEdit(
       screenId,
       selector,
@@ -155,7 +164,8 @@ export function runScreenVisualStructureChange(
     return "pending";
   }
   const baseContent = getScreenContent(screenId);
-  const projection = buildCodeLayerProjection(baseContent);
+  const source = { kind: "design-file" as const, fileId: screenId };
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const resolveBridgeNode = (targetSelector: string, sourceId?: string) =>
     resolveCodeLayerNodeFromBridge(projection, targetSelector, sourceId);
   const targetInfo = elementInfo
@@ -169,14 +179,18 @@ export function runScreenVisualStructureChange(
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
     : resolveBridgeNode(selector, details?.sourceId);
   const anchorNode = resolveBridgeNode(anchorSelector, details?.anchorSourceId);
-  const patch = applyVisualEdit(baseContent, {
-    kind: "moveNode",
-    target: targetNode ? { nodeId: targetNode.id } : { selector },
-    anchor: anchorNode
-      ? { nodeId: anchorNode.id }
-      : { selector: anchorSelector },
-    placement,
-  });
+  const patch = applyVisualEdit(
+    baseContent,
+    {
+      kind: "moveNode",
+      target: targetNode ? { nodeId: targetNode.id } : { selector },
+      anchor: anchorNode
+        ? { nodeId: anchorNode.id }
+        : { selector: anchorSelector },
+      placement,
+    },
+    { source },
+  );
   dndHostLog("persist:rewrite", {
     status: patch.result.status,
     message: patch.result.message,
@@ -247,15 +261,8 @@ export function runScreenVisualStructureChange(
               movedNodeAttrId,
             )
           : patch.content;
-  const nextProjection = buildCodeLayerProjection(nextContent);
-  applyFileContentUpdate(
-    screenId,
-    nextContent,
-    absoluteOffsetWasPoisoned
-      ? { forcePreviewFullDocument: true }
-      : { skipPreview: true },
-  );
-  const movedNode =
+  const nextProjection = buildCodeLayerProjection(nextContent, { source });
+  const movedNodeCandidate =
     (movedNodeAttrId
       ? nextProjection.nodes.find(
           (node) =>
@@ -270,6 +277,20 @@ export function runScreenVisualStructureChange(
         elementInfo?.sourceId ??
         (targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : undefined),
     );
+  const publication = applyFileContentUpdate(
+    screenId,
+    nextContent,
+    absoluteOffsetWasPoisoned
+      ? { forcePreviewFullDocument: true }
+      : { skipPreview: true },
+  );
+  if (publication.status !== "accepted") return false;
+  const acceptedProjection = projectAcceptedSource(publication, source);
+  const movedNode = mapAcceptedSelectionNode(
+    publication,
+    acceptedProjection,
+    movedNodeCandidate,
+  );
   if (movedNode) {
     setActiveFileId(screenId);
     setSelectedLayerIdsState([movedNode.id]);

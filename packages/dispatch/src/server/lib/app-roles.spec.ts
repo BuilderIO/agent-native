@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertAny: vi.fn(),
+  assertPermission: vi.fn(),
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
   isStandaloneDispatchRuntime: vi.fn(),
@@ -9,7 +10,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/org", () => ({
-  defineAppRoles: () => ({ assertAny: mocks.assertAny }),
+  defineAppRoles: () => ({
+    assertAny: mocks.assertAny,
+    assertPermission: mocks.assertPermission,
+  }),
   isMissingOrganizationTableError: (error: unknown) =>
     /(?:organizations|org_members).*does not exist/i.test(String(error)),
   isStandaloneDispatchRuntime: mocks.isStandaloneDispatchRuntime,
@@ -39,6 +43,7 @@ describe("authorizeDispatchAdmin", () => {
       { active: true, role: "member" },
     );
     mocks.assertAny.mockResolvedValue("admin");
+    mocks.assertPermission.mockResolvedValue(undefined);
     mocks.getRequestOrgId.mockReturnValue(undefined);
     mocks.getRequestUserEmail.mockReturnValue(undefined);
     mocks.isStandaloneDispatchRuntime.mockReturnValue(false);
@@ -46,6 +51,9 @@ describe("authorizeDispatchAdmin", () => {
 
   it("denies an organization member without the Dispatch admin role", async () => {
     mocks.assertAny.mockRejectedValue(
+      new ForbiddenError("Requires dispatch role admin"),
+    );
+    mocks.assertPermission.mockRejectedValue(
       new ForbiddenError("Requires dispatch role admin"),
     );
 
@@ -58,7 +66,7 @@ describe("authorizeDispatchAdmin", () => {
       orgId: "org-1",
       email: "member@example.test",
     });
-    expect(mocks.assertAny).toHaveBeenCalledWith(["admin"], {
+    expect(mocks.assertPermission).toHaveBeenCalledWith(["administer"], {
       orgId: "org-1",
       userEmail: "member@example.test",
     });
@@ -96,7 +104,7 @@ describe("authorizeDispatchAdmin", () => {
 
   it("allows a member with the Dispatch admin role", async () => {
     await expect(authorizeDispatchAdmin({}, context)).resolves.toBeUndefined();
-    expect(mocks.assertAny).toHaveBeenCalledWith(["admin"], {
+    expect(mocks.assertPermission).toHaveBeenCalledWith(["administer"], {
       orgId: "org-1",
       userEmail: "member@example.test",
     });

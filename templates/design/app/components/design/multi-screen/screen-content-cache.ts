@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
+import { resolveScreenHeightMode } from "./screen-height";
 import type {
   FrameGeometry,
   MultiScreenCanvasProps,
@@ -31,6 +32,7 @@ export function sameResolvedMetadata(
     a.width === b.width &&
     a.height === b.height &&
     a.heightPinned === b.heightPinned &&
+    a.heightMode === b.heightMode &&
     a.previewUrl === b.previewUrl
   );
 }
@@ -51,6 +53,7 @@ function sameScreenMetadataInput(
     a.width === b.width &&
     a.height === b.height &&
     a.heightPinned === b.heightPinned &&
+    a.heightMode === b.heightMode &&
     a.url === b.url &&
     a.previewUrl === b.previewUrl &&
     a.bridgeUrl === b.bridgeUrl &&
@@ -178,6 +181,10 @@ export function resolveScreenMetadata(
   const height =
     deviceViewport?.height ??
     (metadata.height && metadata.height > 0 ? metadata.height : 2560);
+  const heightMode = resolveScreenHeightMode(
+    metadata.heightMode,
+    metadata.heightPinned,
+  );
   return {
     source:
       normalizeSource(metadata.sourceType ?? metadata.source) ??
@@ -190,7 +197,8 @@ export function resolveScreenMetadata(
     width,
     height,
     // A height the user dragged. Auto-fit must not grow past it.
-    heightPinned: metadata.heightPinned === true,
+    heightPinned: heightMode === "fixed",
+    heightMode,
     previewUrl,
   };
 }
