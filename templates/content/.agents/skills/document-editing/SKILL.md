@@ -91,7 +91,7 @@ pnpm action edit-document --id abc123 --edits '[{"find":"old","replace":"new"},{
 
 External MCP, WebMCP, tool, and A2A callers first read the document, then pass
 its `baseRevision` and one stable `idempotencyKey`. When the returned body is
-literally empty, pass nonempty `initializeContent` instead of `find` or `edits`.
+literally empty, pass non-whitespace `initializeContent` instead of `find` or `edits`.
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 

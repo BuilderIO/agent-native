@@ -99,9 +99,12 @@ const editDocumentSchema = z.object({
   initializeContent: z
     .string()
     .min(1)
+    .refine((value) => value.trim().length > 0, {
+      message: "initializeContent must contain non-whitespace content.",
+    })
     .optional()
     .describe(
-      "Exact Markdown used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits.",
+      "Exact Markdown containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits.",
     ),
   contextPackId: z
     .string()

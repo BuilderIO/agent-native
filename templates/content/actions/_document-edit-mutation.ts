@@ -232,6 +232,18 @@ export async function mutateDocumentBody(
       statusCode: 400,
     });
   }
+  if (
+    initializationContent !== undefined &&
+    initializationContent.trim().length === 0
+  ) {
+    throw new ActionContractError(
+      "initializeContent must contain non-whitespace content.",
+      {
+        errorCode: "DOCUMENT_INITIALIZATION_CONTENT_REQUIRED",
+        statusCode: 400,
+      },
+    );
+  }
   const payloadDigest = digest(
     normalizedEdits
       ? {

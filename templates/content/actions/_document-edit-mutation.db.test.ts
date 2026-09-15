@@ -102,6 +102,32 @@ describe("revisioned document edit mutation", () => {
     expect(await db.select().from(schema.documentEditReceipts)).toHaveLength(0);
   });
 
+  it("rejects whitespace-only initialization content without consuming the empty body", async () => {
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ content: "" })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+
+    await expect(
+      mutateDocumentBody({
+        documentId: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, ""),
+        idempotencyKey: "initialize-whitespace-content",
+        initializeContent: " \n\t",
+        ctx,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_INITIALIZATION_CONTENT_REQUIRED",
+    });
+    expect(await db.select().from(schema.documentEditReceipts)).toHaveLength(0);
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    expect(document).toMatchObject({ content: "", bodyRevision: 0 });
+  });
+
   it("allows only one of two differently keyed concurrent initializers", async () => {
     const db = getDb();
     await db
