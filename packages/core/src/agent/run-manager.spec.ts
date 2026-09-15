@@ -2728,6 +2728,205 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  // Reported from Factory chat: the agent announced the `resources` action,
+  // narrated one more sentence, and the turn ended. The run reported `done`
+  // while the browser still held an unstarted `resources` card, so the user was
+  // told the agent stopped before starting the resources action and that the
+  // requested changes were not made. Preparation is per tool call, so a later
+  // text or sibling call must not retire it.
+  it("auto-continues when an announced action is abandoned behind later events", async () => {
+    const prepare = (
+      send: (event: AgentChatEvent) => void,
+      tool: string,
+      id: string,
+    ) => {
+      send({ type: "activity", label: `Preparing ${tool} action`, tool, id });
+      send({ type: "tool_input_start", tool, id });
+      send({ type: "tool_input_delta", tool, id, text: '{"action":"write"' });
+    };
+    const runSibling = (send: (event: AgentChatEvent) => void) => {
+      send({ type: "tool_start", tool: "read-file", id: "A", input: {} });
+    };
+
+    const cases: Array<{
+      name: string;
+      tail: (send: (event: AgentChatEvent) => void) => void;
+    }> = [
+      {
+        name: "narration",
+        tail: (send) => send({ type: "text", text: "Writing the skill now." }),
+      },
+      {
+        name: "sibling-then-narration",
+        tail: (send) => {
+          runSibling(send);
+          send({
+            type: "tool_done",
+            tool: "read-file",
+            id: "A",
+            input: {},
+            result: "ok",
+          });
+          send({ type: "text", text: "Writing the skill now." });
+        },
+      },
+      {
+        name: "sibling-renders-chat-ui",
+        tail: (send) => {
+          runSibling(send);
+          send({
+            type: "tool_done",
+            tool: "read-file",
+            id: "A",
+            input: {},
+            result: "ok",
+            chatUI: { renderer: "core.inline-extension" },
+          });
+        },
+      },
+      {
+        name: "sibling-failed",
+        tail: (send) => {
+          runSibling(send);
+          send({
+            type: "tool_done",
+            tool: "read-file",
+            id: "A",
+            input: {},
+            result: "boom",
+            isError: true,
+          });
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const events: AgentChatEvent[] = [];
+      const run = startRun(
+        `run-abandoned-${testCase.name}`,
+        `thread-abandoned-${testCase.name}`,
+        async (send) => {
+          prepare(send, "resources", "B");
+          testCase.tail(send);
+          send({ type: "done" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await run.finalized;
+
+      expect(events.at(-1), testCase.name).toEqual({
+        type: "auto_continue",
+        reason: "stream_ended",
+      });
+      expect(events, testCase.name).not.toContainEqual({ type: "done" });
+    }
+  });
+
+  // The counterpart: a preparation that actually ran must not hold the turn
+  // open, or every successful action-using turn would auto-continue.
+  it("stays terminal when every announced action started", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-prepared-and-started",
+      "thread-prepared-and-started",
+      async (send) => {
+        send({
+          type: "activity",
+          label: "Preparing resources action",
+          tool: "resources",
+          id: "B",
+        });
+        send({ type: "tool_input_start", tool: "resources", id: "B" });
+        send({ type: "tool_start", tool: "resources", id: "B", input: {} });
+        send({
+          type: "tool_done",
+          tool: "resources",
+          id: "B",
+          input: {},
+          result: "written",
+        });
+        send({ type: "text", text: "Created the skill." });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  // An approval gate is the user's turn, not an interruption. Auto-continuing
+  // past it would run the queued action the gate exists to hold.
+  it("stays terminal when an approval gate holds the remaining action", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-approval-holds-preparation",
+      "thread-approval-holds-preparation",
+      async (send) => {
+        send({
+          type: "activity",
+          label: "Preparing resources action",
+          tool: "resources",
+          id: "B",
+        });
+        send({ type: "tool_input_start", tool: "resources", id: "B" });
+        send({ type: "tool_start", tool: "send-email", id: "A", input: {} });
+        send({
+          type: "approval_required",
+          tool: "send-email",
+          id: "A",
+          input: {},
+          approvalKey: "send-email",
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("stays terminal when a connection gate holds the remaining action", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-connection-holds-preparation",
+      "thread-connection-holds-preparation",
+      async (send) => {
+        send({
+          type: "activity",
+          label: "Preparing resources action",
+          tool: "resources",
+          id: "B",
+        });
+        send({
+          type: "connection_required",
+          requestId: "conn-1",
+          provider: "github",
+          reason: "connect",
+          detail: "Connect GitHub to continue.",
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
   it("keeps a completed custom UI tool result terminal", async () => {
     const events: AgentChatEvent[] = [];
     const run = startRun(

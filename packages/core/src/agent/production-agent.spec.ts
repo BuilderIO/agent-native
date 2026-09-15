@@ -13209,6 +13209,167 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBeUndefined();
   });
 
+  it("does not resurrect a completed call from a replayed preparation heartbeat", () => {
+    // A reconnect can replay the preparation activity AFTER its call finished.
+    // Re-registering it would hold the turn open on work that already landed.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+        {
+          type: "tool_start",
+          tool: "edit-design",
+          id: "edit-1",
+          input: { designId: "d1" },
+        },
+        {
+          type: "tool_done",
+          tool: "edit-design",
+          id: "edit-1",
+          input: { designId: "d1" },
+          result: '{"ok":true}',
+        },
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("keeps a settled call settled across a continuation boundary", () => {
+    // Ids are not reused across attempts, so a replay of a call that already
+    // ran is a replay no matter which side of the boundary it lands on.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+        },
+        {
+          type: "tool_start",
+          tool: "edit-design",
+          id: "edit-1",
+          input: { designId: "d1" },
+        },
+        {
+          type: "tool_done",
+          tool: "edit-design",
+          id: "edit-1",
+          input: { designId: "d1" },
+          result: '{"ok":true}',
+        },
+        { type: "auto_continue", reason: "stream_ended" },
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("keeps a parallel same-tool preparation when its twin starts first", () => {
+    // Two distinct calls can share a tool name. The one that never started is
+    // exactly the signal this scan exists to surface, so a sibling starting
+    // ahead of it must not retire it.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing resources action",
+          tool: "resources",
+          id: "res-a",
+        },
+        {
+          type: "activity",
+          label: "Preparing resources action",
+          tool: "resources",
+          id: "res-b",
+        },
+        {
+          type: "tool_start",
+          tool: "resources",
+          id: "res-b",
+          input: { action: "write" },
+        },
+        {
+          type: "tool_done",
+          tool: "resources",
+          id: "res-b",
+          input: { action: "write" },
+          result: "written",
+        },
+      ]),
+    ).toBe("resources");
+  });
+
+  it("drops preparation context superseded by an earlier continuation boundary", () => {
+    // A chunk that ended at `auto_continue` was re-prompted, and the resumed
+    // model re-issued its work under fresh ids. Naming the pre-boundary tool
+    // would point the next continuation at a superseded intention.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+        { type: "auto_continue", reason: "stream_ended" },
+        {
+          type: "activity",
+          label: "Preparing generate-design action",
+          tool: "generate-design",
+          id: "generate-1",
+          progressBytes: 512,
+        },
+        {
+          type: "tool_start",
+          tool: "generate-design",
+          id: "generate-1",
+          input: { designId: "d1" },
+        },
+        {
+          type: "tool_done",
+          tool: "generate-design",
+          id: "generate-1",
+          input: { designId: "d1" },
+          result: '{"ok":true}',
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("still names the tool when the ledger ENDS at a continuation boundary", () => {
+    // The trailing boundary is the event being explained, not an earlier attempt
+    // it superseded - this is the context the continuation prompt exists to carry.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+        { type: "auto_continue", reason: "stream_ended" },
+      ]),
+    ).toBe("edit-design");
+  });
+
   it("keeps earlier unfinished action-preparation context when a later parallel input starts and finishes", () => {
     expect(
       lastUnfinishedPreparingActionToolFromEvents([

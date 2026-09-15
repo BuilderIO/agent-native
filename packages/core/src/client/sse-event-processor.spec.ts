@@ -2435,6 +2435,437 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  // The server ends a chunk that announced an action but never started it with
+  // `auto_continue` (run-manager `endsDuringActionPreparation`). The
+  // continuation re-issues the work under a fresh call id, so the superseded
+  // spinner must not be reported as a never-run action on the eventual `done`.
+  it("does not report an action the continuation went on to complete", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const content: ContentPart[] = [];
+    const counter = { value: 0 };
+
+    await expect(
+      drain(
+        readSSEStream(
+          eventStream([
+            {
+              type: "activity",
+              label: "Preparing resources action",
+              tool: "resources",
+              id: "call-resources-1",
+            },
+            {
+              type: "tool_input_delta",
+              tool: "resources",
+              id: "call-resources-1",
+              text: '{"action":"write"',
+            },
+            { type: "auto_continue", reason: "stream_ended" },
+          ]),
+          content,
+          counter,
+          "tab-continuation",
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
+
+    // The boundary only means a continuation was REQUESTED. Until one lands,
+    // the promised action is still the only record that it was promised.
+    expect(content).toEqual([
+      expect.objectContaining({ toolName: "resources", activity: true }),
+    ]);
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "resources",
+            id: "call-resources-2",
+            input: { action: "write", path: "skills/github.md" },
+          },
+          {
+            type: "tool_done",
+            tool: "resources",
+            id: "call-resources-2",
+            input: { action: "write", path: "skills/github.md" },
+            result: "written",
+          },
+          { type: "text", text: "Created the skill." },
+          { type: "done" },
+        ]),
+        content,
+        counter,
+        "tab-continuation",
+      ),
+    );
+
+    expect(
+      content.filter((part) => part.type === "tool-call" && part.activity),
+    ).toEqual([]);
+    const last = results.at(-1) as { metadata?: { custom?: unknown } };
+    expect(last?.metadata?.custom).toBeUndefined();
+    expect(
+      dispatchEvent.mock.calls.some(
+        ([event]) =>
+          (event as { type: string }).type === "agent-chat:run-error",
+      ),
+    ).toBe(false);
+  });
+
+  // A continuation that never lands leaves the promise unfulfilled, and the
+  // card is the only record of it. Mirrors the adapter's conflict-exhaustion
+  // path, where the boundary is followed by nothing at all.
+  it("still reports an action when no continuation ever completes it", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const content: ContentPart[] = [];
+    const counter = { value: 0 };
+
+    await expect(
+      drain(
+        readSSEStream(
+          eventStream([
+            {
+              type: "activity",
+              label: "Preparing run-code action",
+              tool: "run-code",
+              id: "call-run-code-1",
+            },
+            { type: "loop_limit", maxIterations: 1 },
+          ]),
+          content,
+          counter,
+          "tab-unfulfilled",
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "done" }]),
+        content,
+        counter,
+        "tab-unfulfilled",
+      ),
+    );
+
+    const last = results.at(-1) as {
+      metadata?: { custom?: { runError?: { message?: string } } };
+    };
+    expect(last?.metadata?.custom?.runError?.message).toContain(
+      "stopped before starting the run code action",
+    );
+    expect(content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: "run-code",
+          activity: true,
+          result: "Stopped before this action started.",
+        }),
+      ]),
+    );
+  });
+
+  // A delegation legitimately spans a continuation: `agent_call` resolves its
+  // own card and never clears the activity flag, so a running sub-agent and an
+  // unstarted intention look alike. Pins that a delegation is never swept away
+  // by a later completion for the same agent.
+  it("keeps a delegated agent card that spans a continuation", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const content: ContentPart[] = [];
+    const counter = { value: 0 };
+
+    await expect(
+      drain(
+        readSSEStream(
+          eventStream([
+            {
+              type: "agent_call",
+              status: "start",
+              agent: "researcher",
+              agentCallId: "agent-1",
+            },
+            { type: "auto_continue", reason: "stream_ended" },
+          ]),
+          content,
+          counter,
+          "tab-delegation-span",
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
+
+    // A second delegation to the SAME agent completes in the continuation.
+    // That must not stand in as a result for the one still running.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            status: "start",
+            agent: "researcher",
+            agentCallId: "agent-2",
+          },
+          {
+            type: "agent_call",
+            status: "done",
+            agent: "researcher",
+            agentCallId: "agent-2",
+          },
+          { type: "done" },
+        ]),
+        content,
+        counter,
+        "tab-delegation-span",
+      ),
+    );
+
+    expect(
+      content.filter(
+        (part) => part.type === "tool-call" && part.toolCallId === "agent-1",
+      ),
+    ).toHaveLength(1);
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  // An unrelated earlier call to the same tool is not evidence that THIS
+  // continuation redid the inherited one.
+  it("still reports an inherited action when only an earlier call to that tool completed", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const content: ContentPart[] = [];
+    const counter = { value: 0 };
+
+    await expect(
+      drain(
+        readSSEStream(
+          eventStream([
+            {
+              type: "tool_start",
+              tool: "resources",
+              id: "res-earlier",
+              input: { action: "read" },
+            },
+            {
+              type: "tool_done",
+              tool: "resources",
+              id: "res-earlier",
+              input: { action: "read" },
+              result: "contents",
+            },
+            {
+              type: "activity",
+              label: "Preparing resources action",
+              tool: "resources",
+              id: "res-pending",
+            },
+            { type: "auto_continue", reason: "stream_ended" },
+          ]),
+          content,
+          counter,
+          "tab-earlier-only",
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
+
+    // The continuation narrates but never redoes the action.
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "All set." }, { type: "done" }]),
+        content,
+        counter,
+        "tab-earlier-only",
+      ),
+    );
+
+    const last = results.at(-1) as {
+      metadata?: { custom?: { runError?: { details?: string } } };
+    };
+    expect(last?.metadata?.custom?.runError?.details).toBe(
+      "interrupted_actions: resources",
+    );
+  });
+
+  // Both twins are announced in this chunk, so neither is inherited from an
+  // earlier one and the unstarted sibling stays reported.
+
+  // The reverse of the case above: the LATER-announced twin runs first. Both
+  // cards were announced in this same chunk, so neither is a superseded
+  // continuation and the unstarted one is still the signal worth reporting.
+  it("still reports an unstarted twin when the later sibling ran first", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing resources action",
+            tool: "resources",
+            id: "res-a",
+          },
+          {
+            type: "activity",
+            label: "Preparing resources action",
+            tool: "resources",
+            id: "res-b",
+          },
+          {
+            type: "tool_start",
+            tool: "resources",
+            id: "res-b",
+            input: { action: "write" },
+          },
+          {
+            type: "tool_done",
+            tool: "resources",
+            id: "res-b",
+            input: { action: "write" },
+            result: "written",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-parallel-reverse",
+      ),
+    );
+
+    const last = results.at(-1) as {
+      metadata?: { custom?: { runError?: { details?: string } } };
+    };
+    expect(last?.metadata?.custom?.runError?.details).toBe(
+      "interrupted_actions: resources",
+    );
+  });
+
+  it("still reports an unstarted parallel twin of a tool that did run", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing resources action",
+            tool: "resources",
+            id: "res-a",
+          },
+          {
+            type: "activity",
+            label: "Preparing resources action",
+            tool: "resources",
+            id: "res-b",
+          },
+          {
+            type: "tool_start",
+            tool: "resources",
+            id: "res-a",
+            input: { action: "write" },
+          },
+          {
+            type: "tool_done",
+            tool: "resources",
+            id: "res-a",
+            input: { action: "write" },
+            result: "written",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-parallel",
+      ),
+    );
+
+    const last = results.at(-1) as {
+      metadata?: { custom?: { runError?: { details?: string } } };
+    };
+    expect(last?.metadata?.custom?.runError?.details).toBe(
+      "interrupted_actions: resources",
+    );
+  });
+
   it("uses a calm writing label for streamed tool-input progress", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

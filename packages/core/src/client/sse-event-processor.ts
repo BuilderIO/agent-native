@@ -19,6 +19,7 @@ import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
   humanizeToolName,
+  isDelegatedAgentToolCall,
   isToolCallActive,
   runningToolLabel,
 } from "./tool-display.js";
@@ -1230,6 +1231,76 @@ function coalesceCompletedToolRepeat(
   content.splice(completedIndex, 1);
 }
 
+/**
+ * Unstarted action preparations carried into this chunk.
+ *
+ * Delegated agent cards share the `activity: true` + no-result shape but are
+ * not intentions - they are in-flight sub-agent work that `agent_call` resolves
+ * on its own card, and a delegation legitimately spans a continuation. Treating
+ * one as a preparation would let a later completion for the same agent remove a
+ * card whose run is still going.
+ */
+function unstartedPreparationIds(content: ContentPart[]): Set<string> {
+  const ids = new Set<string>();
+  for (const part of content) {
+    if (
+      part.type === "tool-call" &&
+      part.activity === true &&
+      part.result === undefined &&
+      !isDelegatedAgentToolCall(part)
+    ) {
+      ids.add(part.toolCallId);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Drop inherited preparation cards the turn went on to serve.
+ *
+ * A continuation re-runs the model, so work it re-issues arrives under a NEW
+ * call id and paints its own card. The superseded card would otherwise stay
+ * pending and be reported as an action that never ran - announcing a failure
+ * on a turn that actually succeeded.
+ *
+ * Both conditions are load-bearing. `inherited` means an earlier chunk
+ * announced it, which is what separates it from a parallel twin announced in
+ * this same chunk - a twin that never started is exactly the signal worth
+ * reporting, whichever sibling happened to run first. A completed call for the
+ * same tool is the evidence the intention was actually carried out; without it
+ * the continuation was requested but never delivered (retry exhaustion, a
+ * conflicting run, a user stop), and the card is the only record of the
+ * promise. That completion must sit LATER in the transcript, or an unrelated
+ * earlier call to the same tool would stand in as evidence for work this
+ * continuation never redid.
+ */
+function dropSupersededActionPreparations(
+  content: ContentPart[],
+  inherited: Set<string> | undefined,
+): void {
+  if (!inherited || inherited.size === 0) return;
+  for (let index = content.length - 1; index >= 0; index--) {
+    const part = content[index];
+    if (
+      part?.type !== "tool-call" ||
+      part.activity !== true ||
+      part.result !== undefined ||
+      !inherited.has(part.toolCallId)
+    ) {
+      continue;
+    }
+    const servedLater = content.some(
+      (later, laterIndex) =>
+        laterIndex > index &&
+        later.type === "tool-call" &&
+        later.toolName === part.toolName &&
+        later.activity !== true &&
+        later.result !== undefined,
+    );
+    if (servedLater) content.splice(index, 1);
+  }
+}
+
 function formatToolNames(tools: string[]): string {
   const names = tools.map(humanizeToolName);
   if (names.length === 0) return "the promised action";
@@ -1429,6 +1500,17 @@ interface ProcessEventState {
    *  it once. Cleared by `resetProcessEventState` on a server `clear` retry
    *  so the next batch of real output re-arms it. */
   streamProgressDispatched: boolean;
+  /**
+   * Call ids of preparation cards this chunk INHERITED - announced by an
+   * earlier chunk of the same turn and still unstarted when it ended.
+   *
+   * This is what separates a superseded intention from a parallel twin. Twins
+   * are announced inside one chunk, so they are never in here; a card that
+   * survived into a new chunk is one the continuation is re-planning. Captured
+   * per stream because the continuation POST opens a new stream over the same
+   * content array.
+   */
+  inheritedPreparations: Set<string>;
 }
 
 function markAssistantText(state: ProcessEventState | undefined) {
@@ -2031,6 +2113,7 @@ export function processEvent(
     // This event is terminal. There may be no visible text or tool_done after
     // the last preparation activity, so do not leave its label mounted.
     dispatchActivityClear(tabId);
+    dropSupersededActionPreparations(content, state?.inheritedPreparations);
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     return {
       action: "missing_api_key",
@@ -2144,6 +2227,7 @@ export function processEvent(
         }),
       );
     }
+    dropSupersededActionPreparations(content, state?.inheritedPreparations);
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     if (!missingProviderError) {
       content.push({
@@ -2167,6 +2251,7 @@ export function processEvent(
     // tools so both success and interrupted-terminal paths settle the UI.
     dispatchActivityClear(tabId);
     const userStoppedRun = ev.reason === "user";
+    dropSupersededActionPreparations(content, state?.inheritedPreparations);
     const interruptedTools = pendingToolNames(content);
     const allInterruptedTools = [
       ...interruptedTools.running,
@@ -2315,6 +2400,7 @@ export async function* readSSEStream(
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
     streamProgressDispatched: false,
+    inheritedPreparations: unstartedPreparationIds(content),
   };
   let renderUpdatesThisTurn = 0;
   let nextEventLoopTurn: Promise<void> | null = null;
@@ -2588,6 +2674,7 @@ export async function readSSEStreamRaw(
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
     streamProgressDispatched: false,
+    inheritedPreparations: unstartedPreparationIds(content),
   };
   // Tracks whether the most recent content state was already pushed via
   // onUpdate inside the loop, so the post-loop flush below doesn't emit the
