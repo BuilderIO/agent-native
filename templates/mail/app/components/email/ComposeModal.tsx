@@ -1,5 +1,5 @@
 import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
@@ -45,7 +45,11 @@ import {
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAliases } from "@/hooks/use-aliases";
 import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
-import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
+import {
+  useSendEmail,
+  useAddOptimisticReply,
+  useArchiveEmail,
+} from "@/hooks/use-emails";
 import { useSettings } from "@/hooks/use-emails";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
@@ -60,7 +64,9 @@ import {
   isSameScheduledDraft,
   splitQuotedContent,
 } from "./compose-draft-context";
+import { handleComposeSendLaterShortcut } from "./compose-shortcuts";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
+import { shouldMarkReplyDoneAfterSend } from "./mail-send-policy";
 import {
   RecipientInput,
   computeRecipientMove,
@@ -72,6 +78,12 @@ const SEND_UNDO_WINDOW_MS = 10_000;
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 
 type ComposeAccount = { email: string; displayName?: string };
+
+export interface ComposePaletteCommands {
+  send: () => void;
+  sendLater: () => void;
+  sendAndMarkDone: () => void;
+}
 
 function ComposeFieldRow({
   label,
@@ -188,6 +200,7 @@ interface ComposeModalProps {
   onRestoreAfterSend: (id: string) => void;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
+  onRegisterComposeCommands?: (commands: ComposePaletteCommands | null) => void;
   onInitialExpandedConsumed?: () => void;
 }
 
@@ -205,9 +218,11 @@ export function ComposeModal({
   onRestoreAfterSend,
   onNewDraft,
   onFlush,
+  onRegisterComposeCommands,
   onInitialExpandedConsumed,
 }: ComposeModalProps) {
   const t = useT();
+  const formatters = useFormatters();
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
   const [isExpanded, setIsExpanded] = useState(
@@ -215,8 +230,17 @@ export function ComposeModal({
   );
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [showQuoted, setShowQuoted] = useState(false);
+  const composeRef = useRef<HTMLDivElement>(null);
+  const composePaletteCommandsRef = useRef<ComposePaletteCommands>({
+    send: () => {},
+    sendLater: () => {},
+    sendAndMarkDone: () => {},
+  });
+  const knownDraftIdsRef = useRef(new Set(drafts.map((draft) => draft.id)));
+  const pendingNewDraftIdsRef = useRef(new Set<string>());
 
   // Observe agent sidebar width so compose window stays to its left
   const [sidebarRight, setSidebarRight] = useState(16); // default 16px (right-4)
@@ -246,6 +270,7 @@ export function ComposeModal({
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const addOptimisticReply = useAddOptimisticReply();
+  const archiveEmail = useArchiveEmail();
   const updateQueuedDraft = useUpdateQueuedDraft();
   const scheduleEmail = useScheduleEmail();
   const { data: aliases = [] } = useAliases();
@@ -258,11 +283,44 @@ export function ComposeModal({
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
 
+  useEffect(() => {
+    const [account] = allAccounts;
+    if (
+      allAccounts.length !== 1 ||
+      !activeDraft ||
+      activeDraft.mode !== "compose" ||
+      activeDraft.savedDraftId ||
+      activeDraft.queuedDraftId ||
+      activeDraft.accountEmail
+    ) {
+      return;
+    }
+    onUpdate(activeDraft.id, { accountEmail: account.email });
+  }, [activeDraft, allAccounts, onUpdate]);
+
   // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
     setShowCcBcc(false);
     setShowQuoted(false);
   }, [activeId]);
+
+  useEffect(() => {
+    const currentDraftIds = new Set(drafts.map((draft) => draft.id));
+    for (const id of currentDraftIds) {
+      if (!knownDraftIdsRef.current.has(id)) {
+        pendingNewDraftIdsRef.current.add(id);
+      }
+    }
+    for (const id of pendingNewDraftIdsRef.current) {
+      if (!currentDraftIds.has(id)) pendingNewDraftIdsRef.current.delete(id);
+    }
+    knownDraftIdsRef.current = currentDraftIds;
+    if (!activeDraft || !pendingNewDraftIdsRef.current.delete(activeDraft.id)) {
+      return;
+    }
+    setMinimized(false);
+    setIsExpanded(activeDraft.mode === "compose");
+  }, [activeDraft?.id, drafts]);
 
   // Focus editor when reply/forward opens
   useEffect(() => {
@@ -278,9 +336,25 @@ export function ComposeModal({
     onInitialExpandedConsumed?.();
   }, [activeDraft?.id, initialExpanded, onInitialExpandedConsumed]);
 
-  const handleSend = async () => {
+  useEffect(() => {
+    setScheduleOpen(false);
+  }, [activeId]);
+
+  // Partially typed recipients live in RecipientInput, outside the draft snapshot.
+  const hasUncommittedRecipientText = () =>
+    Array.from(
+      composeRef.current?.querySelectorAll<HTMLInputElement>(
+        "[data-mail-recipient-input]",
+      ) ?? [],
+    ).some((input) => input.value.trim().length > 0);
+
+  const handleSend = async (explicitlyMarkDone = false) => {
     if (!activeDraft || !activeId || schedulingRef.current) return;
     if (sendingIdsRef.current.has(activeId)) return;
+    if (hasUncommittedRecipientText()) {
+      toast.error(t("mail.toasts.finishRecipientInput"));
+      return;
+    }
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
@@ -290,6 +364,11 @@ export function ComposeModal({
 
     // Snapshot draft data for potential undo
     const draftSnapshot = { ...activeDraft };
+    const markDoneAfterSend = shouldMarkReplyDoneAfterSend(
+      draftSnapshot,
+      settings?.sendAndArchive === true,
+      explicitlyMarkDone,
+    );
 
     // Hide it during the undo window without deleting either draft copy.
     onStageForSend(activeId);
@@ -362,6 +441,13 @@ export function ComposeModal({
               sentMessageId: result?.id,
             });
           }
+          if (markDoneAfterSend && draftSnapshot.replyToId) {
+            archiveEmail.mutate({
+              id: draftSnapshot.replyToId,
+              accountEmail: draftSnapshot.accountEmail,
+              threadId: draftSnapshot.replyToThreadId,
+            });
+          }
         })
         .catch(() => {
           toast.dismiss(sendingToastId);
@@ -371,8 +457,37 @@ export function ComposeModal({
     }, SEND_UNDO_WINDOW_MS);
   };
 
+  composePaletteCommandsRef.current = {
+    send: () => {
+      void handleSend();
+    },
+    sendLater: () => setScheduleOpen(true),
+    sendAndMarkDone: () => {
+      void handleSend(true);
+    },
+  };
+  const hasActiveDraft = Boolean(activeId && activeDraft);
+  useEffect(() => {
+    if (!onRegisterComposeCommands) return;
+    if (!hasActiveDraft || minimized) {
+      onRegisterComposeCommands(null);
+      return;
+    }
+    onRegisterComposeCommands({
+      send: () => composePaletteCommandsRef.current.send(),
+      sendLater: () => composePaletteCommandsRef.current.sendLater(),
+      sendAndMarkDone: () =>
+        composePaletteCommandsRef.current.sendAndMarkDone(),
+    });
+    return () => onRegisterComposeCommands(null);
+  }, [hasActiveDraft, minimized, onRegisterComposeCommands]);
+
   const handleSendLater = async (runAt: number) => {
     if (!activeDraft || !activeId || schedulingRef.current) return;
+    if (hasUncommittedRecipientText()) {
+      toast.error(t("mail.toasts.finishRecipientInput"));
+      return;
+    }
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
@@ -384,16 +499,20 @@ export function ComposeModal({
 
     try {
       await scheduleEmail.mutateAsync({
-        to: expandAliasTokens(draftSnapshot.to, aliases),
-        cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
-        bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
-        subject: draftSnapshot.subject,
-        body: draftSnapshot.body,
-        replyToId: draftSnapshot.replyToId,
         threadId: draftSnapshot.replyToThreadId,
         accountEmail: draftSnapshot.accountEmail,
-        attachments: draftSnapshot.attachments,
         runAt,
+        payload: {
+          to: expandAliasTokens(draftSnapshot.to, aliases),
+          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+          bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
+          subject: draftSnapshot.subject,
+          body: draftSnapshot.body,
+          replyToId: draftSnapshot.replyToId,
+          threadId: draftSnapshot.replyToThreadId,
+          accountEmail: draftSnapshot.accountEmail,
+          attachments: draftSnapshot.attachments,
+        },
       });
 
       // Preserve edits made while the scheduling request was in flight.
@@ -404,14 +523,14 @@ export function ComposeModal({
         onDiscard(schedulingId);
       }
 
-      const scheduledDate = new Date(runAt).toLocaleString("en-US", {
+      const scheduledDate = formatters.formatDate(new Date(runAt), {
         weekday: "short",
         month: "short",
         day: "numeric",
         hour: "numeric",
         minute: "2-digit",
       });
-      toast(`Scheduled for ${scheduledDate}`);
+      toast(t("mail.sendLater.scheduledFor", { date: scheduledDate }));
     } catch {
       toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
     } finally {
@@ -419,8 +538,27 @@ export function ComposeModal({
     }
   };
 
-  const composeRef = useRef<HTMLDivElement>(null);
   const composeAnimationRef = useRef<Animation | null>(null);
+  const focusBccAfterExpandRef = useRef(false);
+
+  useEffect(() => {
+    if (!showCcBcc || !focusBccAfterExpandRef.current) return;
+    focusBccAfterExpandRef.current = false;
+    composeRef.current
+      ?.querySelector<HTMLInputElement>('[data-recipient-field="bcc"]')
+      ?.focus();
+  }, [showCcBcc]);
+
+  const revealCcBcc = () => {
+    if (!activeId || !activeDraft) return;
+    setShowCcBcc(true);
+    const missingFields: Partial<ComposeState> = {};
+    if (activeDraft.cc === undefined) missingFields.cc = "";
+    if (activeDraft.bcc === undefined) missingFields.bcc = "";
+    if (Object.keys(missingFields).length > 0) {
+      onUpdate(activeId, missingFields);
+    }
+  };
 
   const animateComposeLayout = useCallback((updateLayout: () => void) => {
     const compose = composeRef.current;
@@ -474,9 +612,33 @@ export function ComposeModal({
     // (prevents agent chat Cmd+Enter from triggering email send)
     if (!composeRef.current?.contains(e.target as Node)) return;
 
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.altKey &&
+      e.shiftKey &&
+      e.key.toLowerCase() === "b" &&
+      activeId &&
+      activeDraft
+    ) {
+      e.preventDefault();
+      if (showCcBcc) {
+        composeRef.current
+          ?.querySelector<HTMLInputElement>('[data-recipient-field="bcc"]')
+          ?.focus();
+      } else {
+        focusBccAfterExpandRef.current = true;
+        revealCcBcc();
+      }
+      return;
+    }
+
+    if (handleComposeSendLaterShortcut(e, () => setScheduleOpen(true))) {
+      return;
+    }
+
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      void handleSend();
+      void handleSend(e.shiftKey);
     }
     if (e.key === "Escape") {
       e.preventDefault();
@@ -726,6 +888,7 @@ export function ComposeModal({
                 onClick={() => {
                   animateComposeLayout(() => {
                     setIsExpanded(false);
+                    if (!minimized) setScheduleOpen(false);
                     setMinimized(!minimized);
                   });
                 }}
@@ -806,12 +969,10 @@ export function ComposeModal({
                   aria-expanded={showCcBcc}
                   onClick={() => {
                     const next = !showCcBcc;
-                    setShowCcBcc(next);
                     if (next) {
-                      if (activeDraft.cc === undefined)
-                        onUpdate(activeId!, { cc: "" });
-                      if (activeDraft.bcc === undefined)
-                        onUpdate(activeId!, { bcc: "" });
+                      revealCcBcc();
+                    } else {
+                      setShowCcBcc(false);
                     }
                   }}
                   className="flex size-4 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
@@ -883,6 +1044,7 @@ export function ComposeModal({
             showQuoted={showQuoted}
             setShowQuoted={setShowQuoted}
             signature={settings?.signature}
+            autocompleteEnabled={settings?.autocompleteEnabled ?? false}
             onUploadImage={handleUploadImage}
           />
 
@@ -1026,7 +1188,8 @@ export function ComposeModal({
               <SendLaterButton
                 onSend={handleSend}
                 onSendLater={handleSendLater}
-                disabled={!activeDraft.to.trim()}
+                open={scheduleOpen}
+                onOpenChange={setScheduleOpen}
                 isSending={sendEmail.isPending}
                 isScheduling={scheduleEmail.isPending}
               />
@@ -1056,6 +1219,7 @@ function ComposeBody({
   showQuoted,
   setShowQuoted,
   signature,
+  autocompleteEnabled,
   onUploadImage,
 }: {
   activeDraft: ComposeState;
@@ -1064,7 +1228,7 @@ function ComposeBody({
   onUpdate: (id: string, partial: Partial<ComposeState>) => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
   onClose: (id: string) => void;
-  onSend: () => void;
+  onSend: (markDone?: boolean) => void;
   isGenerating: boolean;
   sendToAgent: (opts: {
     message: string;
@@ -1075,6 +1239,7 @@ function ComposeBody({
   showQuoted: boolean;
   setShowQuoted: (show: boolean) => void;
   signature?: string;
+  autocompleteEnabled: boolean;
   onUploadImage: (file: File) => Promise<string>;
 }) {
   const t = useT();
@@ -1134,6 +1299,7 @@ function ComposeBody({
         onClose={() => onClose(activeId)}
         onFlush={() => onFlush(activeId)}
         isGenerating={isGenerating}
+        autocompleteEnabled={autocompleteEnabled}
         draftId={activeId}
         getCurrentDraftBody={(editor) =>
           getCurrentDraftBodyFromEditor({

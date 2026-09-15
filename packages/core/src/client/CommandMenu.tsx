@@ -290,6 +290,10 @@ export interface CommandMenuProps {
   emptyText?: string;
   /** Whether to show the "Ask AI" fallback when no commands match. Default: true */
   showAgentFallback?: boolean;
+  /** Clear the current command query on Escape before dismissing the menu. */
+  clearSearchOnEscape?: boolean;
+  /** Customize focus restoration when the dialog closes. */
+  onCloseAutoFocus?: (event: Event) => void;
   /** Custom class for the dialog content */
   className?: string;
   /**
@@ -325,6 +329,8 @@ export function CommandMenu({
   inputLabel = placeholder,
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
+  clearSearchOnEscape = false,
+  onCloseAutoFocus,
   className,
   changelog,
   changelogLabel = "What's new",
@@ -609,9 +615,15 @@ export function CommandMenu({
           aria-describedby={undefined}
           onEscapeKeyDown={(event) => {
             const dismissNested = nestedDialogsRef.current.at(-1);
-            if (!dismissNested) return;
-            event.preventDefault();
-            queueMicrotask(dismissNested);
+            if (dismissNested) {
+              event.preventDefault();
+              queueMicrotask(dismissNested);
+              return;
+            }
+            if (clearSearchOnEscape && search.length > 0) {
+              event.preventDefault();
+              setSearch("");
+            }
           }}
           hideClose
           motion="instant"
@@ -627,6 +639,7 @@ export function CommandMenu({
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
+          onCloseAutoFocus={onCloseAutoFocus}
           style={{
             animation: "none",
             transition: "none",

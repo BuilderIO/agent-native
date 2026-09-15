@@ -484,6 +484,109 @@ describe("CommandMenu docs group", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("clears a nonempty command query on Escape before dismissing when enabled", () => {
+    const onOpenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={onOpenChange}
+          clearSearchOnEscape
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    search("launch");
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(input?.value).toBe("");
+    expect(document.querySelector("[role=dialog]")).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onOpenChange).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("runs the close-focus callback when Escape dismisses the menu", async () => {
+    const returnFocusTarget = document.createElement("button");
+    document.body.appendChild(returnFocusTarget);
+    returnFocusTarget.focus();
+    const onCloseAutoFocus = vi.fn((event: Event) => {
+      event.preventDefault();
+      returnFocusTarget.focus();
+    });
+
+    function Harness() {
+      const [open, setOpen] = React.useState(true);
+      return (
+        <CommandMenu
+          open={open}
+          onOpenChange={setOpen}
+          onCloseAutoFocus={onCloseAutoFocus}
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>
+      );
+    }
+
+    act(() => root.render(<Harness />));
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(document.querySelector("[role=dialog]")).toBeNull();
+    expect(onCloseAutoFocus).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(returnFocusTarget);
+    returnFocusTarget.remove();
+  });
+
   it("dismisses a nested dialog before the command dialog", async () => {
     const dismissNested = vi.fn();
     const onOpenChange = vi.fn();
