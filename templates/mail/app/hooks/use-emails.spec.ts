@@ -238,6 +238,18 @@ describe("useMarkRead", () => {
     expect(rollbackReadMutation("message-confirmed", second)).toBe(false);
   });
 
+  it("keeps a newer completion authoritative over an older completion", () => {
+    const first = beginReadMutation("message-out-of-order", true, false);
+    const second = beginReadMutation("message-out-of-order", false, true);
+
+    expect(confirmReadMutation("message-out-of-order", second, true)).toBe(
+      true,
+    );
+    expect(confirmReadMutation("message-out-of-order", first, false)).toBe(
+      true,
+    );
+  });
+
   it("retains an earlier in-flight mutation when the latest fails", () => {
     const first = beginReadMutation("message-pending", false, true);
     const second = beginReadMutation("message-pending", true, false);
@@ -533,6 +545,8 @@ describe("inbox-thread cache rollback on mutation error", () => {
       const hook = source.slice(source.indexOf(start), source.indexOf(end));
       for (const marker of markers) expect(hook).toContain(marker);
     }
+    expect(source).toContain("settleWithConcurrency(");
+    expect(source).toContain("TRASH_ACTION_CONCURRENCY = 5");
   });
 
   it("treats a partial move as an error and keeps only successful threads removed", () => {

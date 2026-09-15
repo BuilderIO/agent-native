@@ -457,6 +457,7 @@ const OVERRIDE_DURATION = 60_000; // 60s — covers Gmail's consistency window
 
 type BooleanMutationState = {
   version: number;
+  confirmedVersion: number;
   confirmedState: boolean | undefined;
   pending: Map<number, boolean>;
 };
@@ -473,6 +474,7 @@ function beginBooleanMutation(
   const version = (existing?.version ?? 0) + 1;
   const mutation = existing ?? {
     version,
+    confirmedVersion: 0,
     confirmedState: currentState,
     pending: new Map<number, boolean>(),
   };
@@ -480,6 +482,20 @@ function beginBooleanMutation(
   mutation.pending.set(version, nextState);
   mutations.set(emailId, mutation);
   return version;
+}
+
+function latestBooleanMutationState(
+  mutation: BooleanMutationState,
+): boolean | undefined {
+  let latestVersion = mutation.confirmedVersion;
+  let latestState = mutation.confirmedState;
+  for (const [version, state] of mutation.pending) {
+    if (version > latestVersion) {
+      latestVersion = version;
+      latestState = state;
+    }
+  }
+  return latestState;
 }
 
 function confirmBooleanMutation(
@@ -490,13 +506,14 @@ function confirmBooleanMutation(
 ): boolean | undefined | null {
   const current = mutations.get(emailId);
   if (!current?.pending.delete(version)) return null;
-  current.confirmedState = state;
-  if (current.pending.size > 0) {
-    const latestVersion = Math.max(...current.pending.keys());
-    return current.pending.get(latestVersion);
+  if (version > current.confirmedVersion) {
+    current.confirmedVersion = version;
+    current.confirmedState = state;
   }
+  const resolved = latestBooleanMutationState(current);
+  if (current.pending.size > 0) return resolved;
   mutations.delete(emailId);
-  return current.confirmedState;
+  return resolved;
 }
 
 function rollbackBooleanMutation(
@@ -508,13 +525,15 @@ function rollbackBooleanMutation(
   if (!current?.pending.has(version)) return null;
   const latestVersion = Math.max(...current.pending.keys());
   current.pending.delete(version);
+  if (version !== latestVersion) return null;
   if (current.pending.size === 0) {
     mutations.delete(emailId);
     return current.confirmedState;
   }
-  if (version !== latestVersion) return null;
   const nextVersion = Math.max(...current.pending.keys());
-  return current.pending.get(nextVersion);
+  return nextVersion > current.confirmedVersion
+    ? current.pending.get(nextVersion)
+    : null;
 }
 
 const readMutationVersions = new Map<string, BooleanMutationState>();
@@ -1660,16 +1679,44 @@ function reconcilePartialInboxMutation(
     succeededThreadIds.size > 0 ? reapply(succeededThreadIds) : undefined;
 }
 
+async function settleWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (true) {
+        const index = next++;
+        if (index >= items.length) return;
+        results[index] = await Promise.resolve()
+          .then(() => run(items[index], index))
+          .then(
+            (value) => ({ status: "fulfilled" as const, value }),
+            (reason) => ({ status: "rejected" as const, reason }),
+          );
+      }
+    }),
+  );
+  return results;
+}
+
+const TRASH_ACTION_CONCURRENCY = 5;
+
 async function enqueueBulkTrashMutation(
   targets: BulkEmailTarget[],
 ): Promise<void> {
-  const results = await Promise.allSettled(
-    targets.map((target) =>
-      callAction("trash-email", {
+  const results = await settleWithConcurrency(
+    targets,
+    TRASH_ACTION_CONCURRENCY,
+    async (target) => {
+      await callAction("trash-email", {
         id: target.id,
         accountEmail: target.accountEmail,
-      }).then(assertActionSuccess),
-    ),
+      }).then(assertActionSuccess);
+    },
   );
   const failedIds = targets.flatMap((target, index) =>
     results[index]?.status === "rejected" ? [target.id] : [],
@@ -1779,9 +1826,9 @@ export function useBulkArchiveEmails() {
 }
 
 /**
- * Bulk trash: one action call for every selected id — the server fans the
- * Gmail calls out with bounded concurrency (no Gmail batch endpoint exists
- * for trash) — plus one optimistic cache update.
+ * Bulk trash: one bounded-concurrency action call per selected id — the
+ * server also bounds its Gmail calls because no batch endpoint exists — plus
+ * one optimistic cache update.
  */
 export function useBulkTrashEmails() {
   const qc = useQueryClient();
