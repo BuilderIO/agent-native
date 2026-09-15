@@ -183,6 +183,29 @@ describe("AppSidebar", () => {
     expect(link?.getAttribute("data-state")).toBe("closed");
   });
 
+  it("labels a custom collapsed brand link too", () => {
+    act(() => {
+      root.render(
+        <AppSidebar
+          collapsed
+          brandName="Plan"
+          brandLink={
+            <div>
+              <a href="/plans" data-custom-brand>
+                icon
+              </a>
+            </div>
+          }
+        />,
+      );
+    });
+
+    const brand = container.querySelector<HTMLElement>(
+      "[data-sidebar-header] div",
+    );
+    expect(brand?.getAttribute("data-state")).toBe("closed");
+  });
+
   it("renders sections with uppercase headers and dividers", () => {
     act(() => {
       root.render(

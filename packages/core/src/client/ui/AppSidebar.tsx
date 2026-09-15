@@ -16,14 +16,13 @@ import { AgentNativeIcon } from "../components/icons/AgentNativeIcon.js";
 import { EnvironmentBadge } from "../EnvironmentBadge.js";
 import { FeedbackButton } from "../FeedbackButton.js";
 
-const RouterSidebarLink: AppSidebarLinkComponent = forwardRef<
-  HTMLAnchorElement,
-  AppSidebarLinkProps
->(({ to, href, children, ...props }, ref) => (
-  <Link ref={ref} to={to ?? href ?? "/"} {...props}>
-    {children}
-  </Link>
-));
+const RouterSidebarLink = forwardRef<HTMLAnchorElement, AppSidebarLinkProps>(
+  ({ to, href, children, ...props }, ref) => (
+    <Link ref={ref} to={to ?? href ?? "/"} {...props}>
+      {children}
+    </Link>
+  ),
+);
 RouterSidebarLink.displayName = "RouterSidebarLink";
 
 export interface AppSidebarHeaderProps extends ToolkitAppSidebarHeaderProps {

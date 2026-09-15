@@ -170,6 +170,15 @@ describe("OrgSwitcher", () => {
     // Rail neighbours use the shared tooltip; a native `title` reads as a
     // missing tooltip next to them.
     expect(button?.getAttribute("title")).toBeNull();
+    // The tooltip and the popover both target this one button. Anything
+    // rendered between the popover trigger and the button eats the click.
+    expect(button?.getAttribute("aria-haspopup")).toBe("dialog");
+    act(() => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.textContent).toContain("Organization settings");
+
     act(() => {
       button?.focus();
     });

@@ -438,11 +438,14 @@ export function OrgSwitcher({
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      <PopoverPrimitive.Trigger asChild>
-        {compact ? (
-          <TooltipProvider delayDuration={0}>
-            <Tooltip>
-              <TooltipTrigger asChild>
+      {compact ? (
+        // The popover trigger has to sit directly on the button: both Radix
+        // slots merge their props into the same DOM node, and a provider
+        // between them would swallow the click that opens the switcher.
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverPrimitive.Trigger asChild>
                 <button
                   type="button"
                   aria-label={triggerLabel}
@@ -450,11 +453,13 @@ export function OrgSwitcher({
                 >
                   <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
                 </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{triggerLabel}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        ) : (
+              </PopoverPrimitive.Trigger>
+            </TooltipTrigger>
+            <TooltipContent side="right">{triggerLabel}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <PopoverPrimitive.Trigger asChild>
           <button
             type="button"
             aria-label={triggerLabel}
@@ -470,8 +475,8 @@ export function OrgSwitcher({
             )}
             <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
           </button>
-        )}
-      </PopoverPrimitive.Trigger>
+        </PopoverPrimitive.Trigger>
+      )}
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           side="top"

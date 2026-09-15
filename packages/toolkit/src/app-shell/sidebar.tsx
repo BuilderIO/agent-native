@@ -14,7 +14,6 @@ import {
   useState,
   type AnchorHTMLAttributes,
   type ComponentType,
-  type ForwardRefExoticComponent,
   type HTMLAttributes,
   type MouseEvent,
   type RefAttributes,
@@ -53,9 +52,10 @@ export interface AppSidebarLinkProps extends Omit<
  * event handlers, `data-state`, and ref through props, so a link component that
  * only destructures the props it recognizes silently drops the trigger and the
  * tooltip never opens. Forwarding the ref and spreading the rest is the
- * contract, not an optional nicety.
+ * contract; the type widens the prop surface so doing so compiles, and
+ * `sidebar.spec.tsx` is what actually holds the contract.
  */
-export type AppSidebarLinkComponent = ForwardRefExoticComponent<
+export type AppSidebarLinkComponent = ComponentType<
   AppSidebarLinkProps & RefAttributes<HTMLAnchorElement>
 >;
 
@@ -70,14 +70,13 @@ export interface AppSidebarContextValue {
 
 const AppSidebarContext = createContext<AppSidebarContextValue | null>(null);
 
-const NativeSidebarLink: AppSidebarLinkComponent = forwardRef<
-  HTMLAnchorElement,
-  AppSidebarLinkProps
->(({ to, href, children, ...props }, ref) => (
-  <a ref={ref} href={to ?? href} {...props}>
-    {children}
-  </a>
-));
+const NativeSidebarLink = forwardRef<HTMLAnchorElement, AppSidebarLinkProps>(
+  ({ to, href, children, ...props }, ref) => (
+    <a ref={ref} href={to ?? href} {...props}>
+      {children}
+    </a>
+  ),
+);
 NativeSidebarLink.displayName = "NativeSidebarLink";
 
 const defaultSidebarContextValue: AppSidebarContextValue = {
@@ -191,9 +190,11 @@ export const AppSidebarHeader = forwardRef<
         )}
         {...props}
       >
-        {collapsed && !brandLink && brandName ? (
+        {collapsed && brandName && isValidElement(brand) ? (
           // Own provider: the header is exported on its own, so it cannot
-          // assume an AppSidebar TooltipProvider above it.
+          // assume an AppSidebar TooltipProvider above it. `isValidElement`
+          // because `brandLink` is a ReactNode escape hatch, and Radix's
+          // asChild slot needs a single element to merge into.
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>{brand}</TooltipTrigger>
