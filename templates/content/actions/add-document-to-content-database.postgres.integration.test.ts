@@ -7,8 +7,19 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 // PGlite runs every transaction on one connection, so the `.db.test.ts` suite
-// cannot interleave two of them and cannot prove a row lock. These run against
+// cannot interleave two of them and cannot prove a row lock. This runs against
 // a real PostgreSQL pool, where two adoptions genuinely overlap.
+//
+// Not in CI yet: the only place that invokes a Content Postgres suite is the
+// root `test:content-db-postgres` script, and the root package.json is a
+// FULL_CHECK_FILES entry (scripts/ci-change-scope.ts), so adding it there
+// forces a full-tree lint that currently fails on unrelated formatting debt in
+// main. Run it by hand until that is wired:
+//
+//   CONTENT_ROW_MUTATION_POSTGRES_URL=postgres://postgres@127.0.0.1:5432/content_test \
+//     pnpm --filter content exec vitest --run \
+//     actions/add-document-to-content-database.postgres.integration.test.ts \
+//     --config vitest.config.ts
 const POSTGRES_URL = process.env.CONTENT_ROW_MUTATION_POSTGRES_URL;
 const OWNER = "synthetic-postgres-adopt-owner@example.test";
 
