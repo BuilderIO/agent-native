@@ -11,3 +11,8 @@ an opaque error ID, killing every sibling attachment and the user's prompt with
 it. An image whose bytes are a different supported format is now relabelled so
 it works, and an attachment that decodes to nothing usable degrades to a text
 note naming the real problem instead of ending the turn.
+
+Validation asks each file about itself rather than trusting a magic number:
+base64 must be canonical (a spliced space or a line break decodes fine in
+Node but is rejected by the provider), a PNG must carry its IHDR chunk, and
+JPEG, WebP, GIF, PNG, and PDF payloads must reach their own declared end.

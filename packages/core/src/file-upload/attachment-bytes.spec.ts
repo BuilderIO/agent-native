@@ -137,6 +137,98 @@ describe("reconcileImageBytes", () => {
   });
 });
 
+// Review feedback on #5033, each confirmed against the live gateway before
+// being fixed: a magic number alone is not proof the bytes decode, and Node's
+// base64 reader is more forgiving than the provider's.
+describe("payloads that satisfy a magic number but still fail the provider", () => {
+  it("rejects a PNG signature wrapped around no image", () => {
+    const sigAndEnd = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from([0x00, 0x00, 0x00, 0x00]),
+      Buffer.from("IEND", "ascii"),
+      Buffer.from([0xae, 0x42, 0x60, 0x82]),
+    ]).toString("base64");
+    expect(
+      reconcileImageBytes({ base64: sigAndEnd, declared: "image/png" }).kind,
+    ).toBe("undecodable");
+  });
+
+  it("rejects a JPEG whose end-of-image marker never arrived", () => {
+    const noEoi = Buffer.from(JPEG_BASE64, "base64").subarray(0, 20);
+    expect(
+      reconcileImageBytes({
+        base64: noEoi.toString("base64"),
+        declared: "image/jpeg",
+      }),
+    ).toEqual({ kind: "truncated", mediaType: "image/jpeg" });
+  });
+
+  it("accepts a JPEG that carries trailing bytes after its marker", () => {
+    const trailing = Buffer.concat([
+      Buffer.from(JPEG_BASE64, "base64"),
+      Buffer.alloc(16),
+    ]).toString("base64");
+    expect(
+      reconcileImageBytes({ base64: trailing, declared: "image/jpeg" }),
+    ).toEqual({ kind: "ok", mediaType: "image/jpeg" });
+  });
+
+  it("rejects a WebP whose RIFF header promises more bytes than arrived", () => {
+    const lying = Buffer.concat([
+      Buffer.from("RIFF", "ascii"),
+      Buffer.from([0xff, 0xff, 0x00, 0x00]),
+      Buffer.from("WEBPVP8L", "ascii"),
+      Buffer.from([1, 2, 3, 4]),
+    ]).toString("base64");
+    expect(
+      reconcileImageBytes({ base64: lying, declared: "image/webp" }),
+    ).toEqual({ kind: "truncated", mediaType: "image/webp" });
+  });
+
+  it("accepts a WebP whose declared size matches what arrived", () => {
+    expect(
+      reconcileImageBytes({ base64: WEBP_BASE64, declared: "image/webp" }),
+    ).toEqual({ kind: "ok", mediaType: "image/webp" });
+  });
+
+  it("rejects a PDF cut off before its trailer", () => {
+    const full = Buffer.from(PDF_BASE64, "base64");
+    const cut = full.subarray(0, Math.floor(full.length * 0.6));
+    expect(
+      reconcilePdfBytes({
+        base64: cut.toString("base64"),
+        declared: "application/pdf",
+      }),
+    ).toEqual({ kind: "truncated", mediaType: "application/pdf" });
+  });
+});
+
+// Buffer.from(value, "base64") skips characters outside the alphabet, so these
+// all decode to the correct bytes in Node while the provider rejects the whole
+// request. Line-wrapped base64 is a real encoder output.
+describe("non-canonical base64", () => {
+  const clean = PNG_BASE64;
+
+  it.each([
+    ["an illegal character", `${clean.slice(0, 40)}!${clean.slice(40)}`],
+    ["an embedded space", `${clean.slice(0, 40)} ${clean.slice(40)}`],
+    ["a line break", `${clean.slice(0, 40)}\n${clean.slice(40)}`],
+    ["a length that is not a multiple of four", clean.slice(0, -1)],
+  ])("rejects a payload carrying %s", (_label, value) => {
+    expect(Buffer.from(value, "base64").length).toBeGreaterThan(0);
+    expect(sniffAttachmentMediaType(value)).toBeNull();
+    expect(
+      reconcileImageBytes({ base64: value, declared: "image/png" }).kind,
+    ).toBe("undecodable");
+  });
+
+  it("still accepts the canonical form of the same bytes", () => {
+    expect(
+      reconcileImageBytes({ base64: clean, declared: "image/png" }),
+    ).toEqual({ kind: "ok", mediaType: "image/png" });
+  });
+});
+
 describe("reconcilePdfBytes", () => {
   it("accepts real PDF bytes", () => {
     expect(

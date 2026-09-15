@@ -1012,7 +1012,7 @@ describe("buildUserContentWithAttachments", () => {
             type: "file",
             name: "reference.pdf",
             contentType: "application/pdf",
-            data: "data:application/pdf;base64,JVBERi0x",
+            data: `data:application/pdf;base64,${PDF_BASE64}`,
           },
         ],
       }),
@@ -1021,7 +1021,7 @@ describe("buildUserContentWithAttachments", () => {
         type: "file",
         mediaType: "application/pdf",
         filename: "reference.pdf",
-        data: "JVBERi0x",
+        data: PDF_BASE64,
       },
       { type: "text", text: "Use this reference" },
     ]);
