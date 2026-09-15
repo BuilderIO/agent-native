@@ -1,0 +1,310 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const recordMock = vi.hoisted(() => vi.fn());
+const sentryMock = vi.hoisted(() => ({
+  init: vi.fn(),
+  setTag: vi.fn(),
+  setUser: vi.fn(),
+}));
+const amplitudeMock = vi.hoisted(() => ({
+  init: vi.fn(),
+  track: vi.fn(),
+}));
+
+vi.mock("@rrweb/record", () => ({ record: recordMock }));
+vi.mock("@sentry/browser", () => sentryMock);
+vi.mock("@amplitude/analytics-browser", () => amplitudeMock);
+
+const replayStateKey = Symbol.for("agent-native.client.sessionReplay");
+const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
+
+async function waitForAssertion(assertion: () => void): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw lastError;
+}
+
+function installBrowser(url = "https://design.agent-native.com/editor") {
+  const parsed = new URL(url);
+  const sessionStorageMap = new Map<string, string>();
+  const localStorageMap = new Map<string, string>();
+  const location = {
+    href: parsed.href,
+    origin: parsed.origin,
+    hostname: parsed.hostname,
+    pathname: parsed.pathname,
+    search: parsed.search,
+    hash: parsed.hash,
+  };
+  const storageStub = (map: Map<string, string>) => ({
+    getItem: vi.fn((key: string) => map.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      map.set(key, value);
+    }),
+    removeItem: vi.fn((key: string) => {
+      map.delete(key);
+    }),
+  });
+  const windowStub: Record<string, unknown> = {
+    location,
+    history: { pushState: vi.fn(), replaceState: vi.fn() },
+    localStorage: storageStub(localStorageMap),
+    sessionStorage: storageStub(sessionStorageMap),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    setInterval,
+    clearInterval,
+    setTimeout,
+    clearTimeout,
+  };
+  windowStub.parent = windowStub;
+  vi.stubGlobal("window", windowStub);
+  vi.stubGlobal("document", {
+    referrer: "",
+    title: "Design",
+    visibilityState: "visible",
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    cookie: "",
+  });
+  vi.stubGlobal("navigator", { sendBeacon: vi.fn(() => false) });
+  let idCounter = 0;
+  vi.stubGlobal("crypto", {
+    randomUUID: vi.fn(() => `00000000-0000-4000-8000-${++idCounter}`),
+  });
+  vi.stubGlobal("BroadcastChannel", undefined);
+  vi.stubGlobal("CompressionStream", undefined);
+
+  const uploads: RequestInit[] = [];
+  let respond: (call: number) => Response = () => new Response("{}");
+  const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
+    if (String(input).includes("/_agent-native/auth/session")) {
+      return new Response(JSON.stringify({ error: "not authenticated" }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    uploads.push(init ?? {});
+    return respond(uploads.length);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  return {
+    uploads,
+    setResponder(next: (call: number) => Response) {
+      respond = next;
+    },
+  };
+}
+
+function quotaExceeded(retryAfterSeconds?: number): Response {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (retryAfterSeconds !== undefined) {
+    headers["Retry-After"] = String(retryAfterSeconds);
+  }
+  return new Response(
+    JSON.stringify({
+      error: "Replay ingest byte quota exceeded for this public key",
+    }),
+    { status: 429, headers },
+  );
+}
+
+async function freshSessionReplay() {
+  vi.resetModules();
+  return import("./session-replay.js");
+}
+
+describe("session replay ingest quota (HTTP 429)", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete (globalThis as any)[replayStateKey];
+    delete (globalThis as any)[pageviewStateKey];
+  });
+
+  it("stops re-sending the rejected batch instead of retry-storming", async () => {
+    const browser = installBrowser();
+    browser.setResponder(() => quotaExceeded(60));
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, startSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
+
+    // A Design canvas session keeps emitting while the key is over quota.
+    for (let index = 0; index < 20; index += 1) {
+      recordOptions.emit({ type: 3, data: { source: 1, index } });
+      await flushSessionReplay("interval");
+    }
+
+    expect(browser.uploads).toHaveLength(1);
+  });
+
+  it("does not resume uploading for the rest of the over-quota session", async () => {
+    const browser = installBrowser();
+    browser.setResponder(() => quotaExceeded());
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, startSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
+
+    // Even a high-priority unload flush must not reopen the firehose.
+    recordOptions.emit({ type: 3, data: { source: 1 } });
+    await flushSessionReplay("pagehide");
+    await flushSessionReplay("beforeunload");
+
+    expect(browser.uploads).toHaveLength(1);
+  });
+
+  it("stops the recorder when the server names no retry window", async () => {
+    const browser = installBrowser();
+    browser.setResponder(() => quotaExceeded());
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { isSessionReplayActive, startSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(isSessionReplayActive()).toBe(false));
+    expect(browser.uploads).toHaveLength(1);
+  });
+
+  it("stops the recorder when the retry window outlasts the session", async () => {
+    const browser = installBrowser();
+    browser.setResponder(() => quotaExceeded(24 * 60 * 60));
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { isSessionReplayActive, startSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(isSessionReplayActive()).toBe(false));
+    expect(browser.uploads).toHaveLength(1);
+  });
+
+  it("pauses but keeps recording for a short rate-limit window", async () => {
+    const browser = installBrowser();
+    browser.setResponder(() => quotaExceeded(60));
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, isSessionReplayActive, startSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
+
+    for (let index = 0; index < 20; index += 1) {
+      recordOptions.emit({ type: 3, data: { source: 1, index } });
+      await flushSessionReplay("interval");
+    }
+
+    expect(browser.uploads).toHaveLength(1);
+    expect(isSessionReplayActive()).toBe(true);
+  });
+
+  it("resumes with a fresh snapshot once the pause elapses", async () => {
+    const browser = installBrowser();
+    browser.setResponder((call) =>
+      call === 1 ? quotaExceeded(60) : new Response("{}"),
+    );
+    let recordOptions: any;
+    const takeFullSnapshot = vi.fn(() => {
+      recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    });
+    (recordMock as any).takeFullSnapshot = takeFullSnapshot;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, startSessionReplay } =
+      await freshSessionReplay();
+
+    const nowSpy = vi.spyOn(Date, "now");
+    const base = Date.now();
+    nowSpy.mockReturnValue(base);
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
+
+    // Events emitted during the pause are dropped, not queued.
+    recordOptions.emit({ type: 3, data: { source: 1 } });
+    await flushSessionReplay("interval");
+    expect(browser.uploads).toHaveLength(1);
+
+    nowSpy.mockReturnValue(base + 61_000);
+    await flushSessionReplay("interval");
+
+    expect(takeFullSnapshot).toHaveBeenCalled();
+    await waitForAssertion(() => expect(browser.uploads).toHaveLength(2));
+    nowSpy.mockRestore();
+  });
+});

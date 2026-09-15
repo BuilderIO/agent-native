@@ -12,6 +12,10 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import {
+  decideReplayQuotaResponse,
+  parseRetryAfterSeconds,
+} from "./session-replay-quota.js";
 import { scrubUrl } from "./url-scrub.js";
 
 function isSyntheticBrowserTraffic(): boolean {
@@ -70,6 +74,7 @@ type RrwebRecordFn = ((
   options: RrwebRecordOptions,
 ) => ReplayStopFn | undefined) & {
   addCustomEvent?: (tag: string, payload: unknown) => void;
+  takeFullSnapshot?: (isCheckout?: boolean) => void;
 };
 
 interface RrwebRecordModule {
@@ -91,6 +96,8 @@ interface SessionReplayState {
   retryBatches: QueuedReplayEvent[][];
   /** Consecutive retryable 4xx responses for the current recording episode. */
   transientClientErrorFailures: number;
+  /** Epoch ms before which the ingest key is over quota and rejecting uploads. */
+  uploadsPausedUntilMs: number | null;
   flushTimer: number | null;
   maxDurationTimer: number | null;
   flushing: boolean;
@@ -119,6 +126,8 @@ interface SessionReplayState {
   restoreIframeBridge: (() => void) | null;
   /** rrweb's `record.addCustomEvent`, captured at start (null when absent). */
   addCustomEvent: ((tag: string, payload: unknown) => void) | null;
+  /** rrweb's `record.takeFullSnapshot`, captured at start (null when absent). */
+  takeFullSnapshot: ((isCheckout?: boolean) => void) | null;
   /** Uninstalls console/network interceptors and flushes pending duplicates. */
   restoreCaptures: (() => void) | null;
   options: NormalizedSessionReplayOptions | null;
@@ -494,6 +503,7 @@ function getState(): SessionReplayState {
       queuedBytes: 0,
       retryBatches: [],
       transientClientErrorFailures: 0,
+      uploadsPausedUntilMs: null,
       flushTimer: null,
       maxDurationTimer: null,
       flushing: false,
@@ -509,6 +519,7 @@ function getState(): SessionReplayState {
       removeLifecycleListeners: null,
       restoreIframeBridge: null,
       addCustomEvent: null,
+      takeFullSnapshot: null,
       restoreCaptures: null,
       options: null,
       lastAuthenticatedProperties: null,
@@ -1338,10 +1349,11 @@ function enqueueReplayEvent(
 ): void {
   if (!state.options) return;
   const eventType = typeof event.type === "number" ? event.type : null;
-  if (state.pendingReplayUpload) {
-    // A timed-out request has an uncertain server outcome. Keep at most the
-    // newest FullSnapshot as a bounded placeholder until the old request
-    // settles; never let an uncertain upload turn into a retry backlog.
+  if (state.pendingReplayUpload || replayUploadsParked(state, Date.now())) {
+    // No upload can drain the queue right now - the last request's outcome is
+    // uncertain, or the ingest key is over quota. Keep at most the newest
+    // FullSnapshot as a bounded placeholder; letting rrweb accumulate behind a
+    // blocked upload is how one rejected batch turns into a session-long leak.
     if (eventType !== RRWEB_FULL_SNAPSHOT_EVENT_TYPE) return;
     state.queue = [];
     state.queuedBytes = 0;
@@ -1581,10 +1593,13 @@ function canUseReplayKeepalive(body: BodyInit): boolean {
  * from a transient failure worth retrying. */
 class ReplayUploadHttpError extends Error {
   readonly status: number;
-  constructor(status: number) {
+  /** Seconds the server asked us to wait, or null when it did not say. */
+  readonly retryAfterSeconds: number | null;
+  constructor(status: number, retryAfterSeconds: number | null = null) {
     super(`Session replay upload failed with HTTP ${status}`);
     this.name = "ReplayUploadHttpError";
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -1653,6 +1668,41 @@ function isTransientReplayUploadClientError(status: number): boolean {
   return status === 401 || status === 403 || status === 404;
 }
 
+function readRetryAfterHeader(response: Response): string | null {
+  return response.headers?.get("retry-after") ?? null;
+}
+
+/** True while the ingest key told us it is over quota.
+ *
+ * Clearing an elapsed pause also re-anchors rrweb: every event recorded during
+ * the pause was dropped, so incremental mutations resumed against the old
+ * mirror would render as corrupt playback. */
+function replayUploadsParked(
+  state: SessionReplayState,
+  nowMs: number,
+): boolean {
+  const until = state.uploadsPausedUntilMs;
+  if (until === null) return false;
+  if (nowMs < until) return true;
+  state.uploadsPausedUntilMs = null;
+  state.awaitingFullSnapshot = true;
+  const previousInternal = replayCaptureInternal;
+  replayCaptureInternal = true;
+  try {
+    state.takeFullSnapshot?.(true);
+  } catch (error) {
+    // Without a snapshot the recorder stays quarantined rather than resuming
+    // against a stale mirror, so say so instead of looking recovered.
+    console.warn(
+      "[session-replay] could not re-anchor after quota pause",
+      error,
+    );
+  } finally {
+    replayCaptureInternal = previousInternal;
+  }
+  return false;
+}
+
 function awaitReplayUploadRequest(
   timeout: ReturnType<typeof startReplayUploadTimeout>,
   createRequest: () => Promise<Response>,
@@ -1676,7 +1726,10 @@ async function awaitReplayUpload(
 ): Promise<void> {
   const checkedRequest = request.then((response) => {
     if (!response.ok) {
-      throw new ReplayUploadHttpError(response.status);
+      throw new ReplayUploadHttpError(
+        response.status,
+        parseRetryAfterSeconds(readRetryAfterHeader(response), Date.now()),
+      );
     }
   });
   try {
@@ -2082,6 +2135,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   if (isSyntheticBrowserTraffic()) return;
   const state = getState();
   if (!state.options) return;
+  if (replayUploadsParked(state, Date.now())) return;
   if (state.pendingReplayUpload) {
     // The fence blocks another upload, but it must not turn teardown into an
     // unbounded wait when the original transport never settles.
@@ -2119,6 +2173,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   let fencedTimedOutUpload = false;
   let isDefinitiveClientError = false;
   let definitiveClientErrorStatus: number | null = null;
+  let pausedForQuota = false;
   try {
     await sendReplayUpload(state.options, payload.body, {
       beforeKeepaliveUpload: shouldReserveSequenceBeforeKeepalive(reason)
@@ -2168,6 +2223,25 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         rejectedStatus === 413 ? splitReplayBatch(events) : null;
       const isUnsplittableOversizedBatch =
         rejectedStatus === 413 && splitBatch === null;
+      // 429 means the ingest key is over its per-minute rate or rolling daily
+      // byte quota. The batch is valid, so neither splitting nor retrying it
+      // can help; re-sending on every flush tick just burns the same rate
+      // limit the recorder needs to recover. Park uploads for the window the
+      // server named, and treat an unnamed or session-length window as
+      // terminal for this recording.
+      const quotaDecision =
+        rejectedStatus === 429 && error instanceof ReplayUploadHttpError
+          ? decideReplayQuotaResponse(error.retryAfterSeconds, Date.now())
+          : null;
+      if (quotaDecision) {
+        // Park uploads before anything else can reach the wire. A teardown
+        // flush riding out of the stop below would otherwise put one more
+        // doomed request on a key that just said it has nothing left.
+        state.uploadsPausedUntilMs =
+          quotaDecision.kind === "pause"
+            ? quotaDecision.resumeAtMs
+            : Number.POSITIVE_INFINITY;
+      }
       const isTransientClientError =
         rejectedStatus !== null &&
         isTransientReplayUploadClientError(rejectedStatus);
@@ -2183,7 +2257,8 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       isDefinitiveClientError =
         error instanceof ReplayUploadHttpError &&
         (isDefinitiveReplayUploadClientError(error.status) ||
-          exhaustedTransientClientRetries) &&
+          exhaustedTransientClientRetries ||
+          quotaDecision?.kind === "stop") &&
         !splitBatch &&
         !isUnsplittableOversizedBatch;
       if (splitBatch) {
@@ -2202,6 +2277,16 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         if (replayBatchNeedsDomReset(events)) {
           quarantinePendingReplayUntilFullSnapshot(state);
         }
+      } else if (quotaDecision?.kind === "pause") {
+        // Drop the rejected batch rather than pinning it at the head of
+        // `retryBatches`: a queue nobody can drain keeps rrweb events growing
+        // for the whole pause. A new FullSnapshot re-anchors playback on
+        // resume.
+        pausedForQuota = true;
+        state.retryBatches = [];
+        state.queue = [];
+        state.queuedBytes = 0;
+        state.awaitingFullSnapshot = true;
       } else if (isDefinitiveClientError) {
         // Continuing after a checksum/sequence conflict would reuse the same
         // rejected sequence forever. More importantly, advancing past it would
@@ -2231,6 +2316,10 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         console.warn(
           "[session-replay] dropping oversized replay event (HTTP 413)",
           error,
+        );
+      } else if (pausedForQuota) {
+        console.warn(
+          "[session-replay] ingest key over quota; pausing uploads (HTTP 429)",
         );
       } else if (isDefinitiveClientError) {
         console.warn(
@@ -3391,6 +3480,7 @@ export async function startSessionReplay(
   // conflict-loop guard must not prevent this one from recovering once.
   state.automaticConflictRestartAttempted = false;
   state.transientClientErrorFailures = 0;
+  state.uploadsPausedUntilMs = null;
   const startGeneration = ++state.startGeneration;
 
   let startPromise: Promise<SessionReplayStartResult>;
@@ -3558,6 +3648,10 @@ async function startSessionReplayRecorder(
     installUrlMonitor(state);
     installLifecycleListeners(state);
     installSessionReplayIframeBridge(state, normalized);
+    state.takeFullSnapshot =
+      typeof rrweb.record.takeFullSnapshot === "function"
+        ? rrweb.record.takeFullSnapshot.bind(rrweb.record)
+        : null;
     state.addCustomEvent =
       typeof rrweb.record.addCustomEvent === "function"
         ? rrweb.record.addCustomEvent
