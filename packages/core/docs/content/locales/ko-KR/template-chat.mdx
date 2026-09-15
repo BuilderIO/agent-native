@@ -25,14 +25,33 @@ description: "내구성 있는 채팅 스레드, 액션, 애플리케이션 상�
 
 </Cards>
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>무엇을 도와드릴까요?</h1><p class='wf-muted' style='margin:10px 0 0'>무엇이든 채팅해 보세요. 액션, 컴포넌트, 페이지, 작업 또는 자체 백엔드를 추가할 수 있습니다.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>에이전트에게 메시지 보내기...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 높음</span><span class='wf-pill'>실행</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F890d00ea6365496f98a6717926bf3aae?alt=media&token=9f47fcb7-f89c-4df7-9ce5-7a77b8270800&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Chat 앱에서 에이전트와 대화하는 모습을 담은 짧은 화면 녹화입니다."
+  caption="Chat 애플리케이션에 대한 간단한 둘러보기입니다."
+  autoplay={true}
+  loop={true}
+/>
+
+## 시작하기 {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+```
+
+설치, 첫 실행, LLM 연결에 대해서는
+[채팅: 개발자 가이드](/docs/template-chat-developers#quick-start) 문서를
+참고하세요. 브라우저 UI가 전혀 없는 자동화 우선 작업이라면 대신 `--headless`로
+스캐폴딩하세요.
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+예약된 작업, 큐, CLI 루프, 또는 채팅과 앱 페이지가 아직 유용하지 않은 외부 에이전트
+워크플로에 사용하세요. 핵심 불변성은 동일하게 유지됩니다: 액션은 채팅, UI, HTTP,
+MCP, A2A, CLI가 공유하는 표면입니다. 이 경로를 자세히 다루는
+[자동화 우선 앱](/docs/pure-agent-apps) 문서를 참고하세요.
 
 ## 무엇이 제공되는가 {#what-ships}
 
@@ -64,7 +83,7 @@ description: "내구성 있는 채팅 스레드, 액션, 애플리케이션 상�
 
 </Comparison>
 
-그것이 핵심입니다. 채팅은 일반적인 척하는 도메인 제품이 아니라, 여러분 자신의
+채팅은 일반적인 척하는 도메인 제품이 아니라, 여러분 자신의
 에이전트를 위한 얇고 유용한 기본 셸입니다.
 
 <Diagram id="doc-block-chat2" title="채팅 셸에 포함된 내용" summary={"액션, 내구성 있는 스레드, 실시간 동기화, 인증이라는 프레임워크의 표준 런타임 위에 얹힌 얇은 채팅 화면이며, 자체 UI를 추가할 여지가 있습니다."}>
@@ -138,40 +157,3 @@ description: "내구성 있는 채팅 스레드, 액션, 애플리케이션 상�
 - **Agent-Native의 액션, 상태, 인증, 배포 형태를 유지하면서 자신만의 에이전트
   백엔드를 익숙한 채팅 UI에 연결하고 싶은** 경우.
 - **도메인 템플릿과 맞지 않는 사용자 정의 내부 도구를 프로토타이핑하는** 경우.
-
-## 시작하기 {#get-started}
-
-```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-설치, 첫 실행, LLM 연결에 대해서는
-[채팅: 개발자 가이드](/docs/template-chat-developers#quick-start) 문서를
-참고하세요. 브라우저 UI가 전혀 없는 자동화 우선 작업이라면 대신 `--headless`로
-스캐폴딩하세요.
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-예약된 작업, 큐, CLI 루프, 또는 채팅과 앱 페이지가 아직 유용하지 않은 외부 에이전트
-워크플로에 사용하세요. 핵심 불변성은 동일하게 유지됩니다: 액션은 채팅, UI, HTTP,
-MCP, A2A, CLI가 공유하는 표면입니다. 이 경로를 자세히 다루는
-[자동화 우선 앱](/docs/pure-agent-apps) 문서를 참고하세요.
-
-## 다음 단계
-
-- [**채팅에서 첫 번째 기능 만들기**](/docs/template-chat-first-edits) — 주석이
-  달린 시작 채팅 라우트와 실제 기능을 추가하는 전체 안내
-- [**채팅: 개발자 가이드**](/docs/template-chat-developers) — 빠른 시작, 액션,
-  핵심 테이블, 인증, 기본으로 제공되는 관리자 페이지
-- [**시작하기**](/docs/getting-started) — 액션에서 인라인 결과, 앱 페이지까지
-  이어지는 채팅 우선 경로 구축하기
-- [**템플릿**](/docs/cloneable-saas) — Cloneable SaaS 모델과 대신 시작점으로 삼을
-  수 있는 모든 도메인 템플릿
-- [**에이전트 서피스**](/docs/agent-surfaces) — 채팅, 인라인 UI, 앱 페이지,
-  임베디드, 자동화, 외부 에이전트 패턴
-- [**액션**](/docs/actions-overview) — 채팅과 UI가 모두 호출하는 액션 시스템
-- [**기본 채팅 UI**](/docs/native-chat-ui) — 채팅 화면 기본 요소와 런타임 옵션
-- [**자동화 우선 앱**](/docs/pure-agent-apps) — 작업, 큐, 스크립트, 외부 에이전트를
-  위한 브라우저 없는 워크플로
