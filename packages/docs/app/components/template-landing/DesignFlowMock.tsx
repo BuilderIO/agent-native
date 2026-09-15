@@ -137,10 +137,6 @@ function PaymentScreen() {
             <span className="at-option-meta">For faster renewals</span>
           </span>
         </div>
-        <div className="at-detail">
-          <span className="at-detail-label">Billing postcode</span>
-          <span className="at-detail-value">94107</span>
-        </div>
       </div>
       <div className="at-footer">
         <span className="at-primary">Pay $12.00</span>
@@ -262,7 +258,7 @@ const DESIGN_FLOW_MOCK_CSS = [
   ".design-flow-mock .at-option-meta { color: var(--at-fg-soft); font-size: 15px; }",
   ".design-flow-mock .at-option-price { flex-shrink: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.03em; }",
 
-  ".design-flow-mock .at-card { display: flex; flex-direction: column; justify-content: space-between; height: 150px; padding: 20px; border-radius: 22px; background: linear-gradient(135deg, var(--at-accent) 0%, var(--at-fg) 100%); color: var(--at-accent-on); }",
+  ".design-flow-mock .at-card { display: flex; flex-direction: column; justify-content: space-between; aspect-ratio: 1.586 / 1; padding: 22px; border-radius: 22px; background: linear-gradient(135deg, var(--at-accent) 0%, var(--at-fg) 100%); color: var(--at-accent-on); }",
   ".design-flow-mock .at-card-top { display: flex; align-items: center; justify-content: space-between; }",
   // The chip is drawn for the same reason as the barcode: a card image would be
   // the only photographic thing in the flow.
