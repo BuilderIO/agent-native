@@ -3228,13 +3228,13 @@ function SettingsPanelContent({
           <SettingsGroup title="Workspace">
             {isWorkspace && (
               <SettingsRow
-                label={t("pages.workspaceApps")}
+                label={t("dispatch.pages.workspaceApps")}
                 control={
                   <a
                     href={dispatchAllAppsHref}
                     className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
                   >
-                    {t("pages.browseApps")}
+                    {t("dispatch.pages.browseApps")}
                     <IconExternalLink size={14} />
                   </a>
                 }
