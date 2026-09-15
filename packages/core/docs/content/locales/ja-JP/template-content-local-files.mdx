@@ -22,9 +22,7 @@ Content のデータモデルは 1 つです。すべてのページは SQL に�
 <div class="diagram-flow">
   <div class="diagram-col">
     <div class="diagram-node">
-      既存スペース<br /><small class="diagram-muted"
-        >個人または組織</small
-      >
+      既存スペース<br /><small class="diagram-muted">個人または組織</small>
     </div>
     <div class="diagram-node">
       新しいフォルダーバックドスペース<br /><small class="diagram-muted"
@@ -89,11 +87,11 @@ Content のデータモデルは 1 つです。すべてのページは SQL に�
 
 ### 信頼できる情報源ポリシーを選ぶ
 
-| ポリシー                 | 動作                                                       |
-| ------------------------ | ---------------------------------------------------------- |
-| `database_primary`       | Content が正であり、フォルダーの変更は使用前にレビューされます |
+| ポリシー                 | 動作                                                              |
+| ------------------------ | ----------------------------------------------------------------- |
+| `database_primary`       | Content が正であり、フォルダーの変更は使用前にレビューされます    |
 | `source_primary`         | 同時に行われた Content の編集がない場合、フォルダーが正になります |
-| `reviewed_bidirectional` | どちらの方向の変更も、競合時にレビューが必要です             |
+| `reviewed_bidirectional` | どちらの方向の変更も、競合時にレビューが必要です                  |
 
 </Steps>
 
