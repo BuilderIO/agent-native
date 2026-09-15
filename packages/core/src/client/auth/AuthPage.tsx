@@ -68,8 +68,10 @@ export interface AuthPageProps {
   brandMarkLightSrc?: string;
   githubUrl: string;
   showGoogle: boolean;
-  /** @deprecated Browser SSO entry points were removed. */
+  /** Whether identity SSO is available for this request. */
   identitySsoEnabled?: boolean;
+  /** Whether Google sign-in should start through the preview identity hub. */
+  googleViaIdentitySso?: boolean;
   /** @deprecated Automatic browser SSO handoff was removed. */
   identitySsoAuto?: boolean;
   signupLegalNotice?: AuthLegalNotice;
@@ -558,6 +560,23 @@ export function resolveGoogleAuthUrlPath(input: {
     : `${input.runtimeAppBasePath}${GOOGLE_AUTH_URL_PATH}`;
 }
 
+export function shouldUseIdentitySsoForGoogle(input: {
+  googleViaIdentitySso: boolean;
+  currentOrigin: string;
+}): boolean {
+  if (!input.googleViaIdentitySso) return false;
+  try {
+    const url = new URL(input.currentOrigin);
+    return (
+      url.protocol === "https:" &&
+      /^[a-f0-9]{24}--agent-native-[a-z0-9-]+\.netlify\.app$/.test(url.hostname)
+    );
+  } catch {
+    // coercion-ok: an invalid browser origin cannot select the preview flow.
+    return false;
+  }
+}
+
 function createFlowId(): string {
   try {
     if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -672,6 +691,7 @@ export function AuthPage(props: AuthPageProps) {
     brandMarkLightSrc,
     githubUrl,
     showGoogle,
+    googleViaIdentitySso = false,
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl,
@@ -1456,6 +1476,18 @@ export function AuthPage(props: AuthPageProps) {
       // coercion-ok: analytics session storage is optional.
     }
     const target = resumeHref();
+    if (
+      !isBuilderPreview() &&
+      !isAgentNativeDesktop() &&
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso,
+        currentOrigin: window.location.origin,
+      })
+    ) {
+      const params = new URLSearchParams({ return: target });
+      window.location.replace(`${identityHref}?${params.toString()}`);
+      return;
+    }
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
@@ -1586,13 +1618,15 @@ export function AuthPage(props: AuthPageProps) {
   }, [
     googleAuthUrlPath,
     googleBusy,
+    identityHref,
     identityBootstrapHref,
+    googleViaIdentitySso,
     resolveGoogleFlow,
     resumeHref,
+    setNotice,
     showGoogle,
     startOAuthExchange,
     stopNativeOAuth,
-    stopOAuthPolling,
     t,
     trackingApp,
     view,

@@ -47,12 +47,14 @@ import {
   consumeSsoState,
   createSsoState,
   CANONICAL_IDENTITY_SSO_HUB_URL,
+  NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL,
   getIdentityHubUrl,
   identitySsoLoginButtonHtml,
   isCanonicalIdentitySsoClientRequest,
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
   isIdentitySsoEnabled,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
   isJtiReplayed,
   SSO_STATE_TTL_MS,
 } from "./identity-sso-store.js";
@@ -360,13 +362,27 @@ interface SsoClientBinding {
   authority: string;
 }
 
+function resolveIdentitySsoClientOrigin(event: H3Event): string {
+  const host = getHeader(event, "host")?.trim();
+  if (
+    host &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      host,
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return `https://${host.toLowerCase()}`;
+  }
+  return getOrigin(event);
+}
+
 function resolveClientBinding(
   event: H3Event,
   hub: string,
 ): SsoClientBinding | null {
   const appId = resolveIdentitySsoAppId(event);
   const clientId = resolveClientId(appId);
-  const redirectUri = `${getOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
+  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
   const authority = normalizeAuthority(hub);
   if (!authority || !appId || !clientId || !redirectUri) return null;
   return { appId, clientId, redirectUri, authority };
@@ -389,6 +405,15 @@ export function resolveIdentityHubUrl(event: H3Event): string | undefined {
     )
   ) {
     return CANONICAL_IDENTITY_SSO_HUB_URL;
+  }
+  if (
+    !isDesktopSsoUserAgent(getHeader(event, "user-agent")) &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      getHeader(event, "host"),
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL;
   }
   if (!isDesktopSsoUserAgent(getHeader(event, "user-agent"))) {
     return undefined;
