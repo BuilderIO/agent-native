@@ -118,6 +118,13 @@ describe("Google callback deploy verification guard", () => {
       step,
       /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,
     );
+    const relayIndex = reusableSource.indexOf(
+      "      - name: Verify Netlify Google OAuth relay configuration",
+    );
+    const uploadIndex = reusableSource.indexOf(
+      "      - name: Upload the prebuilt artifact",
+    );
+    assert.ok(relayIndex >= 0 && relayIndex < uploadIndex);
   });
 });
 
