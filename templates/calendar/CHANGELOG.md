@@ -3,6 +3,45 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-15
+
+### Improved
+
+- Calendar mirrors Notion Calendar's customizable day ranges and view settings
+
+### Fixed
+
+- Calendar shortcut help renders each command row without duplicate React keys
+- Calendar treats already-deleted Google events as absent during cleanup.
+
+## 2026-09-14
+
+### Security
+
+- Calendar requests only the permissions needed for Calendar and account identity
+
+## 2026-09-13
+
+### Improved
+
+- Calendar sidebar overflow is easier to discover with visible scroll controls and edge cues.
+
+### Fixed
+
+- Event mutations stay scoped to the selected calendar when provider IDs collide.
+- Reset event detail drafts when switching between same-ID calendar sources
+
+## 2026-09-12
+
+### Fixed
+
+- Deleting a recurring event no longer hides matching events from other calendars.
+- Fixed calendar shortcuts and event interactions for more reliable location suggestions, drag confirmations, and recurring-event deletion.
+- Prevent optimistic calendar updates and rollback from crossing accounts when provider event IDs collide.
+- Primary Google recurring RSVP and deletion actions now update account-scoped cached occurrences.
+- Selected events stay bound to the correct calendar when event IDs collide.
+- Week navigation now opens on the configured first day of the destination week.
+
 ## 2026-09-10
 
 ### Fixed
