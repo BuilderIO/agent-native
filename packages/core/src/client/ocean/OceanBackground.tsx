@@ -53,12 +53,14 @@ export function OceanBackground({
   const handleOceanError = useCallback(() => setBackground("fallback"), []);
 
   if (background === "ocean") {
-    return React.createElement(HeroOceanBackground, {
-      className,
-      frameRate,
-      onError: handleOceanError,
-    });
+    return (
+      <HeroOceanBackground
+        className={className}
+        frameRate={frameRate}
+        onError={handleOceanError}
+      />
+    );
   }
 
-  return React.createElement(StarfieldBackground, { className, frameRate });
+  return <StarfieldBackground className={className} frameRate={frameRate} />;
 }
