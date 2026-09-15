@@ -15,6 +15,7 @@ import {
   startWorkspaceAppCreation,
   updateWorkspaceAppMetadata,
 } from "./app-creation-store.js";
+import { listCuratedWorkspaceTemplates } from "./curated-workspace-templates.js";
 
 const originalFetch = globalThis.fetch;
 const settingsKey = "dispatch-app-creation-settings:user:dev@example.test";
@@ -24,9 +25,28 @@ const mocks = vi.hoisted(() => {
   const state = {
     orgRole: "admin" as string | null,
   };
+  const executedSql: string[] = [];
+  const defaultDbExec = () => ({
+    execute: vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      executedSql.push(sql);
+      if (sql.includes("SELECT id FROM workspace_apps")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      return {
+        rows: state.orgRole ? [{ role: state.orgRole }] : [],
+        rowsAffected: 0,
+      };
+    }),
+  });
   return {
     settings,
     state,
+    executedSql,
+    defaultDbExec,
     getSetting: vi.fn(async (key: string) => settings.get(key) ?? null),
     mutateSetting: vi.fn(
       async (key: string, updater: (current: any) => any) => {
@@ -50,6 +70,7 @@ const mocks = vi.hoisted(() => {
           typeof statement === "string"
             ? statement
             : String((statement as { sql?: unknown })?.sql ?? "");
+        executedSql.push(sql);
         if (sql.includes("SELECT id FROM workspace_apps")) {
           return { rows: [], rowsAffected: 0 };
         }
@@ -156,6 +177,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  mocks.executedSql.length = 0;
   mocks.settings.clear();
   mocks.getOrgSetting.mockReset();
   mocks.getOrgSetting.mockResolvedValue(null);
@@ -171,21 +193,7 @@ afterEach(() => {
   );
   mocks.state.orgRole = "admin";
   mocks.getDbExec.mockReset();
-  mocks.getDbExec.mockImplementation(() => ({
-    execute: vi.fn(async (statement: unknown) => {
-      const sql =
-        typeof statement === "string"
-          ? statement
-          : String((statement as { sql?: unknown })?.sql ?? "");
-      if (sql.includes("SELECT id FROM workspace_apps")) {
-        return { rows: [], rowsAffected: 0 };
-      }
-      return {
-        rows: mocks.state.orgRole ? [{ role: mocks.state.orgRole }] : [],
-        rowsAffected: 0,
-      };
-    }),
-  }));
+  mocks.getDbExec.mockImplementation(mocks.defaultDbExec);
   mocks.resolveAccess.mockReset();
   mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
   mocks.resolveBuilderCredentialsDetailed.mockResolvedValue({
@@ -424,16 +432,126 @@ describe("listWorkspaceApps", () => {
   });
 
   it.each([401, 403])(
-    "surfaces hosted registry authorization failures instead of using local manifests (%i)",
+    "serves the deployment manifest when the hosted registry denies the read (%i)",
     async (status) => {
       const fetchMock = vi.fn(async () => new Response("denied", { status }));
       vi.stubGlobal("fetch", fetchMock);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.stubEnv("A2A_SECRET", "test-a2a-secret");
       vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
       stubManifest([
         { id: "dispatch", name: "Dispatch", path: "/dispatch" },
         { id: "clips", name: "Clips", path: "/clips" },
       ]);
+
+      const apps = await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `workspace apps gateway denied the registry read with HTTP ${status}`,
+        ),
+      );
+      warn.mockRestore();
+    },
+  );
+
+  // A read the caller could not authenticate must not write the access rows it
+  // is then filtered by, and must not delete rows or shares the denied
+  // registry never confirmed are gone.
+  it("never mutates registry state from the unverified fallback manifest", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    // Prove the recorder is live before trusting an empty mutation list; a
+    // dead capture would otherwise make this assertion pass vacuously.
+    expect(mocks.executedSql.some((sql) => /\bSELECT\b/i.test(sql))).toBe(true);
+    const mutations = mocks.executedSql.filter((sql) =>
+      /\b(INSERT|UPDATE|DELETE)\b/i.test(sql),
+    );
+    expect(mutations).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it("names the apps an unverified read cannot resolve access for", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("no access record for 1 app(s)"),
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("clips"));
+    warn.mockRestore();
+  });
+
+  // An unavailable route means the manifest really is the authority, so that
+  // path must stay trusted; only an explicit denial downgrades it.
+  it("treats an unavailable gateway as authoritative rather than unverified", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+    expect(mocks.executedSql.some((sql) => /\bINSERT\b/i.test(sql))).toBe(true);
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringContaining("denied the registry read"),
+    );
+    warn.mockRestore();
+  });
+
+  it.each([401, 403])(
+    "still rejects a denied registry read when no deployment manifest can answer (%i)",
+    async (status) => {
+      const fetchMock = vi.fn(async () => new Response("denied", { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
 
       await expect(
         runWithRequestContext({ userEmail: "dev@example.test" }, () =>
@@ -442,9 +560,38 @@ describe("listWorkspaceApps", () => {
       ).rejects.toThrow(
         `Workspace apps gateway rejected the request with HTTP ${status}.`,
       );
-      expect(fetchMock).toHaveBeenCalledTimes(1);
     },
   );
+
+  // The Apps page rendered two "Couldn't load data" cards from one failure:
+  // the curated catalog reads the same registry only to mark apps installed.
+  it("keeps the curated template catalog readable when the registry denies the read", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "mail", name: "Mail", path: "/mail" },
+    ]);
+
+    const templates = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listCuratedWorkspaceTemplates(),
+    );
+
+    expect(templates.length).toBeGreaterThan(0);
+    expect(
+      templates.find((template) => template.id === "mail")?.installed,
+    ).toBe(true);
+    expect(
+      templates.find((template) => template.id === "calendar")?.installed,
+    ).toBe(false);
+    warn.mockRestore();
+  });
 
   it("falls back to local manifests when the hosted registry route is missing", async () => {
     const fetchMock = vi.fn(
