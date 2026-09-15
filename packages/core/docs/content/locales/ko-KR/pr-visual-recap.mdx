@@ -81,8 +81,8 @@ OpenAI 호환 제공업체를 사용하는 Agent-Native Code)를 호출합니다
   </div>
 </div>
 <div class="diagram-foot diagram-muted">
-  추가로 정보성 <span class="diagram-pill">Visual Recap</span> 체크가
-  표시됩니다 &mdash; 병합을 막지 않으며 절대 필수가 아닙니다.
+  추가로 정보성 <span class="diagram-pill">Visual Recap</span> 체크가 표시됩니다
+  &mdash; 병합을 막지 않으며 절대 필수가 아닙니다.
 </div>
 ```
 
@@ -131,6 +131,7 @@ npx @agent-native/core@latest skills add visual-plan --with-github-action
 워크플로는 `gate`, `collect-diff`, `block-reference`, `scan`,
 `build-prompt`, `publish`, `shot`, `comment`, `check`, `usage`를 포함한
 **게시된 CLI 하위 명령**을 `npx @agent-native/recap-cli@latest recap
+
 <subcommand>`를 통해 호출하므로, 저장소에 도우미 스크립트로 복사되는 것은
 없습니다. `setup`과 `doctor`는 로컬에서 실행하는 대화형 도우미이고,
 `gate`는 모든 요약 실행 전에 워크플로가 거치는 보안 게이트 단계입니다.
@@ -210,11 +211,11 @@ GitHub가 구성된 모든 레이블과 일치하는 온라인 러너를 찾지 
 `VISUAL_RECAP_AGENT` 저장소 변수로 스킬을 실행할 코딩 에이전트를
 선택하세요.
 
-| `VISUAL_RECAP_AGENT` | 코딩 에이전트                              | 필요한 API 키          | 필요한 변수                                   |
-| --------------------- | ------------------------------------------ | ----------------------- | ---------------------------------------------- |
-| `claude` _(기본값)_   | Claude Code CLI                             | `ANTHROPIC_API_KEY`     | —                                              |
-| `codex`               | OpenAI Codex CLI                            | `OPENAI_API_KEY`        | —                                              |
-| `openai-compatible`   | Agent-Native Code + 호환 제공업체            | `VISUAL_RECAP_API_KEY`  | `VISUAL_RECAP_BASE_URL`, `VISUAL_RECAP_MODEL`  |
+| `VISUAL_RECAP_AGENT` | 코딩 에이전트                     | 필요한 API 키          | 필요한 변수                                   |
+| -------------------- | --------------------------------- | ---------------------- | --------------------------------------------- |
+| `claude` _(기본값)_  | Claude Code CLI                   | `ANTHROPIC_API_KEY`    | —                                             |
+| `codex`              | OpenAI Codex CLI                  | `OPENAI_API_KEY`       | —                                             |
+| `openai-compatible`  | Agent-Native Code + 호환 제공업체 | `VISUAL_RECAP_API_KEY` | `VISUAL_RECAP_BASE_URL`, `VISUAL_RECAP_MODEL` |
 
 이 변수를 설정하지 않으면 Action은 `claude`를 사용합니다.
 
@@ -280,7 +281,7 @@ DeepSeek을 사용하려면 `VISUAL_RECAP_AGENT=openai-compatible`,
   `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY`를
   DeepSeek, Kimi, 또는 다른 OpenAI 호환 엔드포인트로 지정하세요.
 - **명시적인 PR 레이블을 요구하세요.** `VISUAL_RECAP_REQUIRED_LABELS=visual
-  recap`을 설정하면 워크플로는 설치된 상태로 두되 PR에 해당 레이블이
+recap`을 설정하면 워크플로는 설치된 상태로 두되 PR에 해당 레이블이
   붙기 전까지는 요약을 건너뜁니다. 여러 레이블이 옵트인하도록 하려면
   `visual recap,recap`처럼 쉼표로 구분된 목록을 사용하세요. 목록에 있는
   레이블을 붙이면 워크플로가 즉시 깨어납니다.
@@ -300,10 +301,10 @@ DeepSeek을 사용하려면 `VISUAL_RECAP_AGENT=openai-compatible`,
 
 ### 기본 백엔드를 위한 시크릿
 
-| 시크릿                | 목적                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `PLAN_RECAP_TOKEN`     | `npx @agent-native/core@latest connect`로 발급되는 취소 가능한 토큰입니다. 요약 계획 게시와 스크린샷 업로드를 승인합니다. |
-| `ANTHROPIC_API_KEY`    | 기본 Claude Code 백엔드를 위한 LLM 키입니다.                                              |
+| 시크릿              | 목적                                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`  | `npx @agent-native/core@latest connect`로 발급되는 취소 가능한 토큰입니다. 요약 계획 게시와 스크린샷 업로드를 승인합니다. |
+| `ANTHROPIC_API_KEY` | 기본 Claude Code 백엔드를 위한 LLM 키입니다.                                                                              |
 
 **팀: 조직 서비스 토큰을 사용하세요.** 개인 토큰은 그것을 발급한 사람에게
 묶여 있습니다 — 그 사람이 조직을 떠나거나 자신의 토큰을 취소하면, 그
@@ -339,17 +340,17 @@ npx @agent-native/recap-cli@latest recap setup
 
 ### 선택 사항(기본값을 바꿀 때만)
 
-| 시크릿 / 변수                    | 기본값                                                          | 필요한 경우                                                                                                                                                                                                     |
-| --------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`                  | —                                                                  | 시크릿. `VISUAL_RECAP_AGENT=codex`와 함께 설정해 대신 Codex로 요약을 실행합니다.                                                                                                                                     |
-| `VISUAL_RECAP_API_KEY`            | —                                                                  | 시크릿. DeepSeek, Kimi, 또는 다른 OpenAI 호환 제공업체를 위해 `VISUAL_RECAP_AGENT=openai-compatible`과 함께 설정합니다.                                                                                                |
-| `VISUAL_RECAP_AGENT`              | `claude`                                                           | 변수. 코딩 에이전트 백엔드를 선택합니다(`claude`, `codex`, `openai-compatible`).                                                                                                                                   |
-| `VISUAL_RECAP_BASE_URL`           | 호환 백엔드에서는 필수                                             | 변수. OpenAI 호환 백엔드의 HTTP(S) 기본 URL입니다. 자격 증명이 포함되면 거부됩니다.                                                                                                                                    |
-| `VISUAL_RECAP_MODEL`              | Claude는 `claude-sonnet-5`; 호환 백엔드에서는 필수                 | 변수. OpenAI 호환 백엔드의 제공업체 모델 ID(그곳에서는 필수). Claude는 설정하지 않으면 이제 `claude-sonnet-5`가 기본값입니다 — 다른 값(예: 가장 저렴한 등급인 `claude-haiku-4-5`)으로 재정의하려면 설정하세요. Codex는 설정하지 않으면 Codex CLI 자체의 기본값을 사용합니다. |
-| `VISUAL_RECAP_REASONING`          | 각 모델의 기본값                                                   | 변수. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Codex 백엔드에 적용됩니다.                                                                                                                       |
-| `VISUAL_RECAP_REQUIRED_LABELS`    | —                                                                  | 변수. 쉼표로 구분된 PR 레이블입니다. 설정하면 게이트는 나열된 레이블이 하나 이상 붙을 때까지 PR을 건너뜁니다. 예: `visual recap`.                                                                                       |
-| `RECAP_CLI_VERSION`               | `latest`                                                           | 변수. 워크플로가 설치하는 `@agent-native/recap-cli` 버전을 고정합니다 — 예: `1.5.0`. [버전 고정](#version-pinning-copy-variant)을 참조하세요.                                                                          |
-| `PLAN_RECAP_APP_URL`              | `https://plan.agent-native.com`                                   | 시크릿. Plans 앱을 다른 origin에서 자체 호스팅할 때만 필요합니다.                                                                                                                                                     |
+| 시크릿 / 변수                  | 기본값                                             | 필요한 경우                                                                                                                                                                                                                                                                  |
+| ------------------------------ | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`               | —                                                  | 시크릿. `VISUAL_RECAP_AGENT=codex`와 함께 설정해 대신 Codex로 요약을 실행합니다.                                                                                                                                                                                             |
+| `VISUAL_RECAP_API_KEY`         | —                                                  | 시크릿. DeepSeek, Kimi, 또는 다른 OpenAI 호환 제공업체를 위해 `VISUAL_RECAP_AGENT=openai-compatible`과 함께 설정합니다.                                                                                                                                                      |
+| `VISUAL_RECAP_AGENT`           | `claude`                                           | 변수. 코딩 에이전트 백엔드를 선택합니다(`claude`, `codex`, `openai-compatible`).                                                                                                                                                                                             |
+| `VISUAL_RECAP_BASE_URL`        | 호환 백엔드에서는 필수                             | 변수. OpenAI 호환 백엔드의 HTTP(S) 기본 URL입니다. 자격 증명이 포함되면 거부됩니다.                                                                                                                                                                                          |
+| `VISUAL_RECAP_MODEL`           | Claude는 `claude-sonnet-5`; 호환 백엔드에서는 필수 | 변수. OpenAI 호환 백엔드의 제공업체 모델 ID(그곳에서는 필수). Claude는 설정하지 않으면 이제 `claude-sonnet-5`가 기본값입니다 — 다른 값(예: 가장 저렴한 등급인 `claude-haiku-4-5`)으로 재정의하려면 설정하세요. Codex는 설정하지 않으면 Codex CLI 자체의 기본값을 사용합니다. |
+| `VISUAL_RECAP_REASONING`       | 각 모델의 기본값                                   | 변수. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Codex 백엔드에 적용됩니다.                                                                                                                                                                             |
+| `VISUAL_RECAP_REQUIRED_LABELS` | —                                                  | 변수. 쉼표로 구분된 PR 레이블입니다. 설정하면 게이트는 나열된 레이블이 하나 이상 붙을 때까지 PR을 건너뜁니다. 예: `visual recap`.                                                                                                                                            |
+| `RECAP_CLI_VERSION`            | `latest`                                           | 변수. 워크플로가 설치하는 `@agent-native/recap-cli` 버전을 고정합니다 — 예: `1.5.0`. [버전 고정](#version-pinning-copy-variant)을 참조하세요.                                                                                                                                |
+| `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                    | 시크릿. Plans 앱을 다른 origin에서 자체 호스팅할 때만 필요합니다.                                                                                                                                                                                                            |
 
 워크플로는 헬퍼 CLI를 호출하는 방식을 자동으로 감지하므로(이 모노레포
 내부에서는 로컬 소스, 그 외에서는 게시된 `@agent-native/recap-cli`),
@@ -482,14 +483,14 @@ GitHub 작성자 소속이 `OWNER`, `MEMBER`, `COLLABORATOR`인 신뢰된 포크
 
 ### 포크 워크플로가 하는 일과 하지 않는 일
 
-| 워크플로가 하는 일                                                                                                       | 워크플로가 하지 않는 일                                                              |
-| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| **base 저장소**를 **base 브랜치 참조**에서 체크아웃 — 신뢰된 코드만                                                       | 포크의 어떤 코드도 체크아웃하거나 실행하지 않음                                        |
-| 포크 head를 원격 참조로 가져옴(`git fetch origin pull/<n>/head:refs/recap/fork-head`) — 커밋을 가져오는 것은 안전함        | 포크에서 패키지를 설치하거나, 포크 스크립트를 실행하거나, 포크 콘텐츠를 코드로 평가함  |
-| `git diff base...refs/recap/fork-head` 실행 — 이미 가져온 두 객체 간의 순수 텍스트 diff                                    | diff를 LLM에 대한 텍스트 입력 이외의 용도로 사용함                                     |
-| **base 저장소**의 visual-recap 스킬과 에이전트 구성을 실행                                                                | 포크에서 스킬이나 구성을 로드함                                                        |
-| 1차 PR과 동일하게 diff를 시크릿 스캔 단계(안전하게 실패)에 통과시킴                                                        | 시크릿 스캔을 건너뜀                                                                   |
-| diff 콘텐츠를 신뢰할 수 없는 것으로 표시하는 명시적인 프롬프트 강화 노트를 에이전트 프롬프트에 추가함                       | 일반 요약 에이전트를 넘어서는 추가 권한을 에이전트에 부여함                            |
+| 워크플로가 하는 일                                                                                                  | 워크플로가 하지 않는 일                                                               |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **base 저장소**를 **base 브랜치 참조**에서 체크아웃 — 신뢰된 코드만                                                 | 포크의 어떤 코드도 체크아웃하거나 실행하지 않음                                       |
+| 포크 head를 원격 참조로 가져옴(`git fetch origin pull/<n>/head:refs/recap/fork-head`) — 커밋을 가져오는 것은 안전함 | 포크에서 패키지를 설치하거나, 포크 스크립트를 실행하거나, 포크 콘텐츠를 코드로 평가함 |
+| `git diff base...refs/recap/fork-head` 실행 — 이미 가져온 두 객체 간의 순수 텍스트 diff                             | diff를 LLM에 대한 텍스트 입력 이외의 용도로 사용함                                    |
+| **base 저장소**의 visual-recap 스킬과 에이전트 구성을 실행                                                          | 포크에서 스킬이나 구성을 로드함                                                       |
+| 1차 PR과 동일하게 diff를 시크릿 스캔 단계(안전하게 실패)에 통과시킴                                                 | 시크릿 스캔을 건너뜀                                                                  |
+| diff 콘텐츠를 신뢰할 수 없는 것으로 표시하는 명시적인 프롬프트 강화 노트를 에이전트 프롬프트에 추가함               | 일반 요약 에이전트를 넘어서는 추가 권한을 에이전트에 부여함                           |
 
 ### 레이블을 붙이기 전에 diff를 검토해야 하는 이유
 
@@ -527,14 +528,14 @@ GitHub 작성자 소속이 `OWNER`, `MEMBER`, `COLLABORATOR`인 신뢰된 포크
 스킬, 에이전트 구성을 스스로 다시 작성해서 시크릿을 유출하는 일이
 결코 일어날 수 없습니다.
 
-| 경로 패턴                                   | 이유                                       |
-| -------------------------------------------- | -------------------------------------------- |
-| `.github/workflows/pr-visual-recap.yml`      | 워크플로 자체                                |
-| `**/skills/visual-(recap\|plan\|plans)/**`   | 에이전트가 따르는 visual-recap 스킬          |
-| `**/.claude/**`                              | 러너가 로드하는 에이전트 설정                |
-| `**/CLAUDE.md`                               | 러너가 로드하는 에이전트 지시                |
-| `**/AGENTS.md`                               | 러너가 로드하는 에이전트 지시                |
-| `**/.mcp.json`                               | 러너가 로드하는 MCP 서버 구성                |
+| 경로 패턴                                  | 이유                                |
+| ------------------------------------------ | ----------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | 워크플로 자체                       |
+| `**/skills/visual-(recap\|plan\|plans)/**` | 에이전트가 따르는 visual-recap 스킬 |
+| `**/.claude/**`                            | 러너가 로드하는 에이전트 설정       |
+| `**/CLAUDE.md`                             | 러너가 로드하는 에이전트 지시       |
+| `**/AGENTS.md`                             | 러너가 로드하는 에이전트 지시       |
+| `**/.mcp.json`                             | 러너가 로드하는 MCP 서버 구성       |
 
 `BuilderIO/agent-native` 모노레포에서는, 워크플로가 PR head 소스가
 아니라 신뢰된 base 브랜치 소스에서 요약 CLI를 실행합니다. 이 덕분에
@@ -659,12 +660,12 @@ EXAMPLE_API_KEY=placeholder-value
 위임합니다. 모든 호출자는 워크플로가 실행될 때마다 자동으로 최신
 로직을 가져오며, 로컬에서 업데이트할 필요가 없습니다.
 
-|                                    | Copy(기본값)                | 재사용 가능              |
-| ---------------------------------- | ---------------------------- | -------------------------- |
-| 저장소 안의 워크플로 크기          | 약 360줄                     | 약 20줄                    |
-| 수정 사항 자동 반영                | 아니오 — `recap setup` 재실행 | 예                          |
-| 에어갭 / 완전한 감사 가능성        | 예                            | 아니오                      |
-| 특정 버전에 고정 가능              | 로컬 편집으로만 가능          | 예 — `uses:`에서 `@v1.2.3` 설정 |
+|                             | Copy(기본값)                  | 재사용 가능                     |
+| --------------------------- | ----------------------------- | ------------------------------- |
+| 저장소 안의 워크플로 크기   | 약 360줄                      | 약 20줄                         |
+| 수정 사항 자동 반영         | 아니오 — `recap setup` 재실행 | 예                              |
+| 에어갭 / 완전한 감사 가능성 | 예                            | 아니오                          |
+| 특정 버전에 고정 가능       | 로컬 편집으로만 가능          | 예 — `uses:`에서 `@v1.2.3` 설정 |
 
 ### 호출자 스니펫
 

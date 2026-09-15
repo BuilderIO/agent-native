@@ -89,7 +89,8 @@ persistant est une aide à la revue, pas un feu vert.
   </div>
 </div>
 <div class="diagram-foot diagram-muted">
-  Plus une vérification informative <span class="diagram-pill">Visual Recap</span>
+  Plus une vérification informative
+  <span class="diagram-pill">Visual Recap</span>
   &mdash; non bloquante, jamais requise.
 </div>
 ```
@@ -229,11 +230,11 @@ contributions non fiables vers un runner persistant.
 Choisissez quel agent de codage exécute la compétence avec la variable de
 dépôt `VISUAL_RECAP_AGENT` :
 
-| `VISUAL_RECAP_AGENT` | Agent de codage                            | Clé API requise        | Variables requises                            |
-| --------------------- | ------------------------------------------- | ----------------------- | --------------------------------------------- |
-| `claude` _(par défaut)_ | CLI Claude Code                           | `ANTHROPIC_API_KEY`    | —                                             |
-| `codex`              | CLI OpenAI Codex                            | `OPENAI_API_KEY`       | —                                             |
-| `openai-compatible`  | Agent-Native Code + fournisseur compatible | `VISUAL_RECAP_API_KEY` | `VISUAL_RECAP_BASE_URL`, `VISUAL_RECAP_MODEL` |
+| `VISUAL_RECAP_AGENT`    | Agent de codage                            | Clé API requise        | Variables requises                            |
+| ----------------------- | ------------------------------------------ | ---------------------- | --------------------------------------------- |
+| `claude` _(par défaut)_ | CLI Claude Code                            | `ANTHROPIC_API_KEY`    | —                                             |
+| `codex`                 | CLI OpenAI Codex                           | `OPENAI_API_KEY`       | —                                             |
+| `openai-compatible`     | Agent-Native Code + fournisseur compatible | `VISUAL_RECAP_API_KEY` | `VISUAL_RECAP_BASE_URL`, `VISUAL_RECAP_MODEL` |
 
 Si la variable n'est pas définie, l'action utilise `claude`.
 
@@ -337,10 +338,10 @@ votre dépôt.
 
 ### Secrets pour le backend par défaut
 
-| Secret              | Objectif                                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Secret              | Objectif                                                                                                                                                   |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PLAN_RECAP_TOKEN`  | Jeton révocable créé par `npx @agent-native/core@latest connect`. Autorise la publication du plan récapitulatif et le téléversement de la capture d'écran. |
-| `ANTHROPIC_API_KEY` | La clé LLM pour le backend Claude Code par défaut.                                                                                   |
+| `ANTHROPIC_API_KEY` | La clé LLM pour le backend Claude Code par défaut.                                                                                                         |
 
 **Équipes : utilisez un jeton de service d'organisation.** Un jeton
 personnel est lié à la personne qui l'a créé — si elle quitte
@@ -382,17 +383,17 @@ jamais de vrai jeton.
 
 ### Optionnel (uniquement si vous changez les défauts)
 
-| Secret / variable              | Défaut                                                             | Quand vous en avez besoin                                                                                                                                                                                                                                         |
-| ------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`               | —                                                                    | Secret. À définir avec `VISUAL_RECAP_AGENT=codex` pour exécuter le récapitulatif avec Codex à la place.                                                                                                                                                                |
-| `VISUAL_RECAP_API_KEY`         | —                                                                    | Secret. À définir avec `VISUAL_RECAP_AGENT=openai-compatible` pour DeepSeek, Kimi, ou un autre fournisseur compatible OpenAI.                                                                                                                                       |
-| `VISUAL_RECAP_AGENT`           | `claude`                                                             | Variable. Sélectionne le backend agent de codage (`claude`, `codex`, ou `openai-compatible`).                                                                                                                                                                  |
-| `VISUAL_RECAP_BASE_URL`        | requise pour le backend compatible                                   | Variable. URL de base HTTP(S) pour le backend compatible OpenAI ; les identifiants sont rejetés.                                                                                                                                                                  |
-| `VISUAL_RECAP_MODEL`           | `claude-sonnet-5` pour Claude ; requise pour le backend compatible    | Variable. Identifiant de modèle fournisseur pour les backends compatibles OpenAI (requis dans ce cas). Pour Claude, non défini vaut désormais par défaut `claude-sonnet-5` — définissez-la pour la remplacer, par exemple `claude-haiku-4-5` pour le tier le moins cher. Pour Codex, non défini utilise le modèle par défaut propre à la CLI Codex. |
-| `VISUAL_RECAP_REASONING`       | défaut propre à chaque modèle                                        | Variable. Profondeur de raisonnement : `none`, `minimal`, `low`, `medium`, `high`, ou `xhigh`. S'applique au backend Codex.                                                                                                                                         |
-| `VISUAL_RECAP_REQUIRED_LABELS` | —                                                                    | Variable. Étiquettes de PR séparées par des virgules. Une fois définie, la vérification saute tant que la PR n'a pas au moins une étiquette listée, par exemple `visual recap`.                                                                                    |
-| `RECAP_CLI_VERSION`            | `latest`                                                             | Variable. Épingle la version de `@agent-native/recap-cli` que le workflow installe — par exemple `1.5.0`. Voir [Épinglage de version](#version-pinning-copy-variant).                                                                                              |
-| `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                                      | Secret. Uniquement en cas d'auto-hébergement de l'application Plans sur une autre origine.                                                                                                                                                                          |
+| Secret / variable              | Défaut                                                             | Quand vous en avez besoin                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`               | —                                                                  | Secret. À définir avec `VISUAL_RECAP_AGENT=codex` pour exécuter le récapitulatif avec Codex à la place.                                                                                                                                                                                                                                             |
+| `VISUAL_RECAP_API_KEY`         | —                                                                  | Secret. À définir avec `VISUAL_RECAP_AGENT=openai-compatible` pour DeepSeek, Kimi, ou un autre fournisseur compatible OpenAI.                                                                                                                                                                                                                       |
+| `VISUAL_RECAP_AGENT`           | `claude`                                                           | Variable. Sélectionne le backend agent de codage (`claude`, `codex`, ou `openai-compatible`).                                                                                                                                                                                                                                                       |
+| `VISUAL_RECAP_BASE_URL`        | requise pour le backend compatible                                 | Variable. URL de base HTTP(S) pour le backend compatible OpenAI ; les identifiants sont rejetés.                                                                                                                                                                                                                                                    |
+| `VISUAL_RECAP_MODEL`           | `claude-sonnet-5` pour Claude ; requise pour le backend compatible | Variable. Identifiant de modèle fournisseur pour les backends compatibles OpenAI (requis dans ce cas). Pour Claude, non défini vaut désormais par défaut `claude-sonnet-5` — définissez-la pour la remplacer, par exemple `claude-haiku-4-5` pour le tier le moins cher. Pour Codex, non défini utilise le modèle par défaut propre à la CLI Codex. |
+| `VISUAL_RECAP_REASONING`       | défaut propre à chaque modèle                                      | Variable. Profondeur de raisonnement : `none`, `minimal`, `low`, `medium`, `high`, ou `xhigh`. S'applique au backend Codex.                                                                                                                                                                                                                         |
+| `VISUAL_RECAP_REQUIRED_LABELS` | —                                                                  | Variable. Étiquettes de PR séparées par des virgules. Une fois définie, la vérification saute tant que la PR n'a pas au moins une étiquette listée, par exemple `visual recap`.                                                                                                                                                                     |
+| `RECAP_CLI_VERSION`            | `latest`                                                           | Variable. Épingle la version de `@agent-native/recap-cli` que le workflow installe — par exemple `1.5.0`. Voir [Épinglage de version](#version-pinning-copy-variant).                                                                                                                                                                               |
+| `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                                    | Secret. Uniquement en cas d'auto-hébergement de l'application Plans sur une autre origine.                                                                                                                                                                                                                                                          |
 
 Le workflow détecte automatiquement comment invoquer sa CLI auxiliaire
 (source locale à l'intérieur de ce monorepo, `@agent-native/recap-cli`
@@ -536,14 +537,14 @@ OpenAI.
 
 ### Ce que fait et ne fait PAS le workflow de fork
 
-| Le workflow FAIT                                                                                                                       | Le workflow ne FAIT PAS                                                                                          |
-| ----------------------------------------------------------------------------------------------------------------------------------------| ------------------------------------------------------------------------------------------------------------------ |
-| Consulter le **dépôt de base** sur la **réf. de branche de base** — code de confiance uniquement                                       | Faire le checkout ou exécuter du code du fork                                                                     |
-| Récupérer la tête du fork comme réf. distante (`git fetch origin pull/<n>/head:refs/recap/fork-head`) — récupérer des commits est sûr | Installer des paquets depuis le fork, exécuter des scripts du fork, ou évaluer du contenu du fork comme du code   |
-| Exécuter `git diff base...refs/recap/fork-head` — un diff texte pur de deux objets déjà récupérés                                      | Utiliser le diff comme autre chose qu'une entrée texte pour le LLM                                                 |
-| Exécuter la compétence visual-recap et la configuration d'agent du **dépôt de base**                                                    | Charger une compétence ou une configuration depuis le fork                                                        |
-| Faire passer le diff par la même étape de scan de secrets (échec fermé) que les PR internes                                             | Sauter le scan de secrets                                                                                          |
-| Ajouter au prompt de l'agent une note explicite de durcissement marquant le contenu du diff comme non fiable                            | Accorder à l'agent des permissions supplémentaires au-delà de l'agent de récapitulatif normal                     |
+| Le workflow FAIT                                                                                                                      | Le workflow ne FAIT PAS                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Consulter le **dépôt de base** sur la **réf. de branche de base** — code de confiance uniquement                                      | Faire le checkout ou exécuter du code du fork                                                                   |
+| Récupérer la tête du fork comme réf. distante (`git fetch origin pull/<n>/head:refs/recap/fork-head`) — récupérer des commits est sûr | Installer des paquets depuis le fork, exécuter des scripts du fork, ou évaluer du contenu du fork comme du code |
+| Exécuter `git diff base...refs/recap/fork-head` — un diff texte pur de deux objets déjà récupérés                                     | Utiliser le diff comme autre chose qu'une entrée texte pour le LLM                                              |
+| Exécuter la compétence visual-recap et la configuration d'agent du **dépôt de base**                                                  | Charger une compétence ou une configuration depuis le fork                                                      |
+| Faire passer le diff par la même étape de scan de secrets (échec fermé) que les PR internes                                           | Sauter le scan de secrets                                                                                       |
+| Ajouter au prompt de l'agent une note explicite de durcissement marquant le contenu du diff comme non fiable                          | Accorder à l'agent des permissions supplémentaires au-delà de l'agent de récapitulatif normal                   |
 
 ### Pourquoi vous devez relire le diff avant d'étiqueter
 
@@ -590,14 +591,14 @@ l'un des chemins suivants, si bien qu'une PR ne peut jamais réécrire le
 workflow, la compétence, ou la configuration d'agent que le job de
 récapitulatif de confiance charge, et exfiltrer des secrets :
 
-| Motif de chemin                            | Raison                                             |
-| ------------------------------------------- | --------------------------------------------------- |
-| `.github/workflows/pr-visual-recap.yml`    | Le workflow lui-même                               |
-| `**/skills/visual-(recap\|plan\|plans)/**` | La compétence visual-recap que suit l'agent        |
-| `**/.claude/**`                            | Paramètres d'agent que charge le runner            |
-| `**/CLAUDE.md`                             | Instructions d'agent que charge le runner          |
-| `**/AGENTS.md`                             | Instructions d'agent que charge le runner          |
-| `**/.mcp.json`                             | Configuration de serveur MCP que charge le runner  |
+| Motif de chemin                            | Raison                                            |
+| ------------------------------------------ | ------------------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | Le workflow lui-même                              |
+| `**/skills/visual-(recap\|plan\|plans)/**` | La compétence visual-recap que suit l'agent       |
+| `**/.claude/**`                            | Paramètres d'agent que charge le runner           |
+| `**/CLAUDE.md`                             | Instructions d'agent que charge le runner         |
+| `**/AGENTS.md`                             | Instructions d'agent que charge le runner         |
+| `**/.mcp.json`                             | Configuration de serveur MCP que charge le runner |
 
 Dans le monorepo `BuilderIO/agent-native`, le workflow exécute la CLI de
 récapitulatif depuis une source de branche de base de confiance plutôt
@@ -741,12 +742,12 @@ via `uses:`. Chaque appelant récupère automatiquement la dernière
 logique à chaque exécution du workflow, sans mise à jour locale
 nécessaire.
 
-|                                       | Copie (par défaut)               | Réutilisable                            |
-| -------------------------------------- | ----------------------------------- | ------------------------------------------ |
-| Taille du workflow dans votre dépôt    | ~360 lignes                        | ~20 lignes                                |
-| Récupère les corrections automatiquement | Non — réexécutez `recap setup`   | Oui                                        |
-| Air-gap / auditabilité complète        | Oui                                 | Non                                         |
-| Épinglable à une version spécifique    | Uniquement en éditant localement    | Oui — définissez `@v1.2.3` dans `uses:`   |
+|                                          | Copie (par défaut)               | Réutilisable                            |
+| ---------------------------------------- | -------------------------------- | --------------------------------------- |
+| Taille du workflow dans votre dépôt      | ~360 lignes                      | ~20 lignes                              |
+| Récupère les corrections automatiquement | Non — réexécutez `recap setup`   | Oui                                     |
+| Air-gap / auditabilité complète          | Oui                              | Non                                     |
+| Épinglable à une version spécifique      | Uniquement en éditant localement | Oui — définissez `@v1.2.3` dans `uses:` |
 
 ### Extrait de l'appelant
 
