@@ -47,6 +47,14 @@ describe("browser diagnostics helpers", () => {
           durationMs: 40,
         },
       ]),
+      interactionEventsJson: JSON.stringify([
+        {
+          timestampMs: 0,
+          elapsedMs: 0,
+          kind: "click",
+          target: "button#submit",
+        },
+      ]),
     });
 
     expect(diagnostics?.summary).toEqual({
@@ -56,6 +64,29 @@ describe("browser diagnostics helpers", () => {
       networkCount: 2,
       networkFailureCount: 1,
       capturedAt: "2026-06-22T10:01:00.000Z",
+    });
+    expect(diagnostics?.timeline?.map((entry) => entry.kind)).toEqual([
+      "click",
+      "console",
+      "console",
+      "network",
+      "network",
+      "network",
+      "network",
+    ]);
+    expect(diagnostics?.timeline?.[0]).toMatchObject({
+      kind: "click",
+      target: "button#submit",
+    });
+    expect(
+      diagnostics?.timeline?.find(
+        (entry) => entry.kind === "network" && entry.status === 500,
+      ),
+    ).toMatchObject({
+      kind: "network",
+      phase: "response",
+      status: 500,
+      durationMs: 120,
     });
   });
 
@@ -69,6 +100,7 @@ describe("browser diagnostics helpers", () => {
 
     expect(diagnostics?.consoleLogs).toEqual([]);
     expect(diagnostics?.networkRequests).toEqual([]);
+    expect(diagnostics?.timeline).toEqual([]);
     expect(
       summarizeBrowserDiagnostics({
         consoleLogs: [],

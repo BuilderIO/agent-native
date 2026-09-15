@@ -22,6 +22,90 @@
   flags.__clipsOverlayHostReady = true;
   let recordingActive = false;
 
+  type InteractionKind = "navigation" | "click" | "input" | "scroll";
+  const OVERLAY_ROOT_ID = "clips-recorder-overlay-root";
+
+  function targetDescriptor(target: EventTarget | null): string | undefined {
+    if (!(target instanceof Element)) return undefined;
+    if (target.closest(`#${OVERLAY_ROOT_ID}`)) return undefined;
+    const element = target.closest(
+      "button,a,input,textarea,select,[role=button]",
+    ) as Element | null;
+    const candidate = element ?? target;
+    const tag = candidate.tagName.toLowerCase();
+    const id = candidate.id;
+    const testId = candidate.getAttribute("data-testid");
+    const name = candidate.getAttribute("name");
+    const part = [id, testId, name].find((value): value is string => {
+      if (!value || value.length > 80) return false;
+      return /^[A-Za-z0-9_.:-]+$/.test(value);
+    });
+    return `${tag}${part ? `#${part}` : ""}`.slice(0, 200);
+  }
+
+  function sendDiagnosticInteraction(
+    kind: InteractionKind,
+    target: EventTarget | null = null,
+    url?: string,
+  ): void {
+    if (!recordingActive) return;
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: "CLIPS_DIAGNOSTIC_INTERACTION",
+          kind,
+          target: targetDescriptor(target),
+          ...(url ? { url } : {}),
+        },
+        () => void chrome.runtime.lastError,
+      );
+    // coercion-ok: the extension context can disappear after page unload; capture is best-effort
+    } catch {
+      /* background unavailable */
+    }
+  }
+
+  let lastScrollAt = 0;
+  const onClick = (event: MouseEvent) =>
+    sendDiagnosticInteraction("click", event.target);
+  const onInput = (event: Event) =>
+    sendDiagnosticInteraction("input", event.target);
+  const onScroll = (event: Event) => {
+    const now = Date.now();
+    if (now - lastScrollAt < 250) return;
+    lastScrollAt = now;
+    sendDiagnosticInteraction("scroll", event.target);
+  };
+  const onNavigation = () =>
+    sendDiagnosticInteraction("navigation", null, window.location.href);
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+  history.pushState = function patchedPushState(
+    this: History,
+    state: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ) {
+    const result = originalPushState.call(this, state, unused, url);
+    onNavigation();
+    return result;
+  };
+  history.replaceState = function patchedReplaceState(
+    this: History,
+    state: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ) {
+    const result = originalReplaceState.call(this, state, unused, url);
+    onNavigation();
+    return result;
+  };
+  document.addEventListener("click", onClick, true);
+  document.addEventListener("input", onInput, true);
+  document.addEventListener("scroll", onScroll, true);
+  window.addEventListener("popstate", onNavigation);
+  window.addEventListener("hashchange", onNavigation);
+
   function errorPayload(error: unknown): {
     name: string;
     message: string;

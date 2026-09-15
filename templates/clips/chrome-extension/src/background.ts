@@ -1,3 +1,4 @@
+import { sanitizeBrowserDiagnosticNavigationUrl } from "@shared/browser-diagnostics";
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
 import {
@@ -56,6 +57,7 @@ const UNQUOTED_SECRET_VALUE_RE = new RegExp(
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 type ConsoleLevel = "debug" | "log" | "info" | "warn" | "error";
 type NetworkType = "fetch" | "xhr";
+type InteractionKind = "navigation" | "click" | "input" | "scroll";
 type UploadMode = "streaming" | "buffered";
 
 type ExtensionSettings = {
@@ -124,6 +126,14 @@ type NetworkRequest = {
   error?: string;
 };
 
+type InteractionEvent = {
+  timestampMs: number;
+  elapsedMs: number;
+  kind: InteractionKind;
+  target?: string;
+  url?: string;
+};
+
 type BrowserDiagnosticsData = {
   pageUrl: string | null;
   userAgent: string | null;
@@ -131,6 +141,7 @@ type BrowserDiagnosticsData = {
   endedAt: string;
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
+  interactionEvents?: InteractionEvent[];
   summary: {
     consoleCount: number;
     consoleErrorCount: number;
@@ -236,6 +247,7 @@ type CaptureSession = {
   attachError: string | null;
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
+  interactionEvents: InteractionEvent[];
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
 };
 
@@ -1329,6 +1341,7 @@ function createSession(
     attachError: null,
     consoleLogs: [],
     networkRequests: [],
+    interactionEvents: [],
     pendingNetworkRequests: new Map(),
   };
   sessions.set(sessionId, session);
@@ -2022,6 +2035,7 @@ async function saveNativeDiagnostics(
       endedAt: snapshot.endedAt,
       consoleLogs: snapshot.consoleLogs,
       networkRequests: snapshot.networkRequests,
+      interactionEvents: snapshot.interactionEvents,
     },
   ).catch((err) => {
     console.warn("[clips-extension] diagnostics save failed:", err);
@@ -2181,6 +2195,7 @@ function snapshotSession(session: CaptureSession): BrowserDiagnosticsData {
     endedAt,
     consoleLogs,
     networkRequests,
+    interactionEvents: session.interactionEvents.slice(-800),
     summary: summarize({ endedAt, consoleLogs, networkRequests }),
   };
 }
@@ -2193,6 +2208,14 @@ function beginSessionCapture(
   session.startedAt = new Date(startedAtMs).toISOString();
   session.consoleLogs = [];
   session.networkRequests = [];
+  session.interactionEvents = [];
+  if (session.targetUrl) {
+    pushInteraction(session, {
+      kind: "navigation",
+      url: session.targetUrl,
+      timestampMs: startedAtMs,
+    });
+  }
   session.pendingNetworkRequests.clear();
 }
 
@@ -2284,6 +2307,31 @@ function pushNetwork(session: CaptureSession, entry: NetworkRequest): void {
       0,
       session.networkRequests.length - MAX_NETWORK_REQUESTS,
     );
+  }
+}
+
+function pushInteraction(
+  session: CaptureSession,
+  entry: Omit<InteractionEvent, "timestampMs" | "elapsedMs"> & {
+    timestampMs?: number;
+  },
+): void {
+  const timestampMs = entry.timestampMs ?? nowMs();
+  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  if (elapsedMs === null) return;
+  session.interactionEvents.push({
+    timestampMs,
+    elapsedMs,
+    kind: entry.kind,
+    ...(entry.target
+      ? { target: truncate(redactString(entry.target), 200) }
+      : {}),
+    ...(entry.url
+      ? { url: sanitizeBrowserDiagnosticNavigationUrl(entry.url) }
+      : {}),
+  });
+  if (session.interactionEvents.length > 800) {
+    session.interactionEvents.splice(0, session.interactionEvents.length - 800);
   }
 }
 
@@ -2616,7 +2664,7 @@ function ensureRestored(): Promise<void> {
 }
 void ensureRestored();
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
   void (async () => {
     // Critical: never read activeNativeRecording/overlayPhase before state is
@@ -2625,7 +2673,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     await ensureRestored();
     let response: unknown;
     try {
-      response = await dispatchRuntimeMessage(message);
+      response = await dispatchRuntimeMessage(message, sender);
     } catch (err) {
       console.error(
         "[clips-bg] message failed:",
@@ -2655,8 +2703,36 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
+async function dispatchRuntimeMessage(
+  message: unknown,
+  sender?: chrome.runtime.MessageSender,
+): Promise<unknown> {
   const type = (message as { type?: unknown }).type;
+
+  if (type === "CLIPS_DIAGNOSTIC_INTERACTION") {
+    const tabId = sender?.tab?.id;
+    const sessionId =
+      typeof tabId === "number" ? tabToSession.get(tabId) : null;
+    const session = sessionId ? sessions.get(sessionId) : null;
+    const kind = (message as { kind?: unknown }).kind;
+    if (
+      !session ||
+      (kind !== "navigation" &&
+        kind !== "click" &&
+        kind !== "input" &&
+        kind !== "scroll")
+    ) {
+      return { ok: false };
+    }
+    const target = (message as { target?: unknown }).target;
+    const url = (message as { url?: unknown }).url;
+    pushInteraction(session, {
+      kind,
+      ...(typeof target === "string" ? { target } : {}),
+      ...(typeof url === "string" ? { url } : {}),
+    });
+    return { ok: true };
+  }
 
   if (type === "CLIPS_EXTENSION_ERROR") {
     const report = message as ExtensionErrorMessage;
