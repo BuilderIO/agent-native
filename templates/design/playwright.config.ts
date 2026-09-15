@@ -16,7 +16,8 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = Number(process.env.E2E_PORT ?? 9333);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
-const E2E_RUN_ID = process.env.E2E_RUN_ID ?? `${Date.now()}-${process.pid}-${randomUUID()}`;
+const E2E_RUN_ID =
+  process.env.E2E_RUN_ID ?? `${Date.now()}-${process.pid}-${randomUUID()}`;
 if (!/^[A-Za-z0-9_-]+$/.test(E2E_RUN_ID)) {
   throw new Error("E2E_RUN_ID must contain only letters, numbers, _ or -");
 }
@@ -35,9 +36,10 @@ const AUTH_DIR = process.env.E2E_AUTH_DIR
   : path.join(E2E_RUN_ROOT, "auth");
 process.env.E2E_AUTH_DIR ??= AUTH_DIR;
 const E2E_DATABASE_URL =
-  process.env.E2E_DATABASE_URL ??
-  `pglite:${path.join(E2E_RUN_ROOT, "pglite")}`;
-if (!process.env.E2E_DATABASE_URL) {
+  process.env.E2E_DATABASE_URL ?? `pglite:${path.join(E2E_RUN_ROOT, "pglite")}`;
+const usesRunPglite = !process.env.E2E_DATABASE_URL;
+process.env.E2E_DATABASE_URL ??= E2E_DATABASE_URL;
+if (usesRunPglite) {
   process.env.E2E_RUN_PGLITE_DIR = path.join(E2E_RUN_ROOT, "pglite");
 }
 const E2E_RESULTS_DIR = path.join(
