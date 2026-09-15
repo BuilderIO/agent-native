@@ -136,6 +136,27 @@ describe("responsive Interact wiring", () => {
     );
   });
 
+  it("pins a squeeze-immune close beside the docked bar", () => {
+    // Reported gap: a wide left rail (the Code panel is 640px) plus a
+    // modest window squeezes the docked bar's canvas column enough that
+    // its own Close gets clipped by overflow-hidden before anything else
+    // in the row. The docked bar hides its own Close (showClose={floating}
+    // is false when docked) and a pinned duplicate, anchored to the canvas
+    // area's own right edge rather than the bar's shrunken one, takes over.
+    expect(source).toContain("showClose={floating}");
+    expect(source).toContain("ResponsiveInteractExitButton");
+    const pinnedExitIndex = source.indexOf(
+      "responsiveInteractActive && !minimalUi ? (",
+    );
+    expect(pinnedExitIndex).toBeGreaterThan(-1);
+    const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 400);
+    expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
+    expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
+    // Height/edge-matched to the bar's own row (h-12, pr-3) so it reads as
+    // one row, not a second floating control competing with the first.
+    expect(pinnedExit).toContain("flex h-12 items-center pr-3");
+  });
+
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
     expect(source).toContain(
       "embedded && !hostOwnsChrome && !embedChromeRequested",

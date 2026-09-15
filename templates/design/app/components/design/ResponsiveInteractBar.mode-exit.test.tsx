@@ -87,6 +87,19 @@ describe("ResponsiveInteractBar mode exits", () => {
     );
   });
 
+  // Reported gap #2: the docked bar's own Close can get clipped by its
+  // column's `overflow-hidden` when a wide left rail leaves little room
+  // (see DesignEditor.tsx's pinned ResponsiveInteractExitButton, which
+  // covers Close for that case instead). `showClose={false}` is how a
+  // caller opts a render out of the in-bar Close so there's exactly one
+  // Close control on screen, not two.
+  it("omits its own Close when the caller renders it pinned elsewhere", () => {
+    const markup = renderBar({ showClose: false });
+
+    expect(markup).toContain('aria-label="Edit"');
+    expect(markup).not.toContain('aria-label="Exit responsive preview"');
+  });
+
   it("hides Annotate for a caller without edit access", () => {
     const markup = renderBar({ canAnnotate: false });
 
