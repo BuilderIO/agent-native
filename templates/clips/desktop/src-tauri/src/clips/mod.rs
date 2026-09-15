@@ -80,6 +80,8 @@ const BUBBLE_SIZE_SMALL: u32 = 360;
 const BUBBLE_SIZE_MEDIUM: u32 = 504;
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
+const POPOVER_MIN_HEIGHT_LOGICAL: f64 = 260.0;
+const POPOVER_SCREEN_MARGIN_LOGICAL: f64 = 16.0;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
 
 #[cfg(target_os = "macos")]
@@ -1659,6 +1661,52 @@ pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn clamp_popover_logical_size(
+    height: f64,
+    width: Option<f64>,
+    work_area: PhysicalSize<u32>,
+    scale: f64,
+) -> (f64, f64) {
+    let scale = scale.max(1.0);
+    let max_height =
+        (work_area.height as f64 / scale - POPOVER_SCREEN_MARGIN_LOGICAL).clamp(1.0, 820.0);
+    let max_width =
+        (work_area.width as f64 / scale - POPOVER_SCREEN_MARGIN_LOGICAL).clamp(1.0, 960.0);
+    (
+        width
+            .unwrap_or(POPOVER_DEFAULT_WIDTH_LOGICAL)
+            .clamp(POPOVER_DEFAULT_WIDTH_LOGICAL.min(max_width), max_width),
+        height.clamp(POPOVER_MIN_HEIGHT_LOGICAL.min(max_height), max_height),
+    )
+}
+
+fn physical_rect_center(rect: tauri::Rect) -> (i32, i32) {
+    let (x, y) = match rect.position {
+        tauri::Position::Physical(p) => (p.x, p.y),
+        tauri::Position::Logical(p) => (p.x as i32, p.y as i32),
+    };
+    let (width, height) = match rect.size {
+        tauri::Size::Physical(s) => (s.width as i32, s.height as i32),
+        tauri::Size::Logical(s) => (s.width as i32, s.height as i32),
+    };
+    (x + width / 2, y + height / 2)
+}
+
+fn monitor_containing_point(window: &WebviewWindow, x: i32, y: i32) -> Option<tauri::Monitor> {
+    window
+        .available_monitors()
+        .ok()?
+        .into_iter()
+        .find(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            x >= position.x
+                && x < position.x + size.width as i32
+                && y >= position.y
+                && y < position.y + size.height as i32
+        })
+}
+
 /// Resize the popover window to match the rendered React app height. The
 /// React side measures its own shell with a ResizeObserver and calls this
 /// whenever the height changes — gives us auto-sizing without having to
@@ -1682,34 +1730,27 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         return Ok(());
     }
     if let Some(w) = app.get_webview_window("popover") {
-        let monitor = w
-            .current_monitor()
-            .ok()
-            .flatten()
+        let tray_center = app
+            .try_state::<TrayAnchor>()
+            .and_then(|anchor| anchor.0.lock().ok().and_then(|guard| *guard))
+            .map(physical_rect_center);
+        let monitor = tray_center
+            .and_then(|(x, y)| monitor_containing_point(&w, x, y))
+            .or_else(|| w.current_monitor().ok().flatten())
             .or_else(|| w.primary_monitor().ok().flatten());
-        let max_logical_height = monitor
+        let (width, clamped) = monitor
             .as_ref()
             .map(|monitor| {
-                let scale = monitor.scale_factor().max(1.0);
-                // The window IS the visible panel (native shadow, no apron),
-                // so only the 24px menu-bar margin is reserved.
-                ((monitor.size().height as f64) / scale - 24.0).clamp(260.0, 820.0)
+                clamp_popover_logical_size(
+                    height,
+                    width,
+                    monitor.work_area().size,
+                    monitor.scale_factor(),
+                )
             })
-            .unwrap_or(820.0);
-        // Same idea as height: a monitor narrower than the requested width
-        // (e.g. settings' 720) must not let the window grow past the screen
-        // edge, since `position_popover`'s x-clamp can only slide a
-        // too-wide window, not shrink it back onto the display.
-        let max_logical_width = monitor
-            .map(|monitor| {
-                let scale = monitor.scale_factor().max(1.0);
-                ((monitor.size().width as f64) / scale - 16.0).clamp(320.0, 960.0)
-            })
-            .unwrap_or(960.0);
-        let clamped = height.clamp(200.0, max_logical_height);
-        let width = width
-            .unwrap_or(320.0)
-            .clamp(320.0, max_logical_width.max(320.0));
+            .unwrap_or_else(|| {
+                clamp_popover_logical_size(height, width, PhysicalSize::new(976, 836), 1.0)
+            });
         // The window IS the panel now — elevation is the native NSWindow
         // shadow on exact bounds, so there is no apron to add here.
         let (window_width, window_height) = (width, clamped);
@@ -1723,7 +1764,11 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         // stale (pre-resize) read here would center/clamp against the old,
         // narrower width and let the window balloon past the screen edge
         // once the real resize lands a moment later.
-        let target_scale = w.scale_factor().unwrap_or(1.0).max(1.0);
+        let target_scale = monitor
+            .as_ref()
+            .map(|monitor| monitor.scale_factor())
+            .unwrap_or_else(|| w.scale_factor().unwrap_or(1.0))
+            .max(1.0);
         let target_physical = PhysicalSize::new(
             (window_width * target_scale).round() as u32,
             (window_height * target_scale).round() as u32,
@@ -2323,9 +2368,26 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        overlay_labels_to_hide, strip_trailing_period_for_messaging, text_insertion_strategy,
-        TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
+        clamp_popover_logical_size, overlay_labels_to_hide, strip_trailing_period_for_messaging,
+        text_insertion_strategy, TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
     };
+    use tauri::PhysicalSize;
+
+    #[test]
+    fn popover_size_uses_work_area_and_preserves_recorder_controls() {
+        assert_eq!(
+            clamp_popover_logical_size(120.0, Some(1_000.0), PhysicalSize::new(800, 600), 1.0),
+            (784.0, 260.0)
+        );
+        assert_eq!(
+            clamp_popover_logical_size(1_000.0, None, PhysicalSize::new(1_600, 1_200), 2.0),
+            (320.0, 584.0)
+        );
+        assert_eq!(
+            clamp_popover_logical_size(260.0, Some(320.0), PhysicalSize::new(200, 180), 1.0),
+            (184.0, 164.0)
+        );
+    }
 
     #[test]
     fn overlay_cleanup_can_preserve_finalizing_progress() {
@@ -3182,8 +3244,9 @@ pub fn position_popover_with_size(
     let Some(monitor) = monitor else {
         return;
     };
-    let mon_size = monitor.size();
-    let mon_pos = monitor.position();
+    let work_area = monitor.work_area();
+    let mon_size = &work_area.size;
+    let mon_pos = &work_area.position;
 
     if let Some(rect) = tray_rect {
         // `Rect { position, size }` on macOS is in physical pixels with the
@@ -3216,20 +3279,13 @@ pub fn position_popover_with_size(
         // is parked at (2,2) on the primary display, so current_monitor()
         // always resolves to the primary monitor — wrong when the user clicked
         // the icon on a secondary display
-        let icon_cx = icon_x + icon_w / 2;
-        let icon_cy = icon_y + icon_h / 2;
-        let tray_monitor = window.available_monitors().ok().and_then(|monitors| {
-            monitors.into_iter().find(|m| {
-                let mp = m.position();
-                let ms = m.size();
-                icon_cx >= mp.x
-                    && icon_cx < mp.x + ms.width as i32
-                    && icon_cy >= mp.y
-                    && icon_cy < mp.y + ms.height as i32
-            })
-        });
+        let tray_monitor =
+            monitor_containing_point(window, icon_x + icon_w / 2, icon_y + icon_h / 2);
         let (clamp_pos, clamp_size) = tray_monitor
-            .map(|m| (*m.position(), *m.size()))
+            .map(|m| {
+                let work_area = m.work_area();
+                (work_area.position, work_area.size)
+            })
             .unwrap_or((*mon_pos, *mon_size));
 
         // Clamp so settings and long error states don't run off the edge of

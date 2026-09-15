@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { navigateCalendarDate } from "./calendar-navigation";
+import {
+  getVisibleCalendarDays,
+  navigateCalendarDate,
+} from "./calendar-navigation";
 import { dateKeyToDate, dateToCalendarDateKey } from "./calendar-timezone";
 
 describe("calendar date navigation", () => {
@@ -28,6 +31,39 @@ describe("calendar date navigation", () => {
         navigateCalendarDate("week", selectedDate, "prev", 1),
       ),
     ).toBe("2026-09-07");
+  });
+
+  it("advances by the configured number of displayed days", () => {
+    const periodStart = dateKeyToDate("2026-09-14");
+    const nextPeriod = navigateCalendarDate("week", periodStart, "next", 1, 5);
+    expect(dateToCalendarDateKey(nextPeriod)).toBe("2026-09-19");
+    expect(
+      dateToCalendarDateKey(
+        navigateCalendarDate("week", periodStart, "prev", 1, 5),
+      ),
+    ).toBe("2026-09-09");
+    expect(
+      dateToCalendarDateKey(
+        navigateCalendarDate("week", nextPeriod, "next", 1, 5),
+      ),
+    ).toBe("2026-09-24");
+  });
+
+  it("keeps a weekend-only custom range visible when weekends are hidden", () => {
+    const sunday = dateKeyToDate("2026-09-13");
+    expect(
+      getVisibleCalendarDays(sunday, sunday, true).map(dateToCalendarDateKey),
+    ).toEqual(["2026-09-13"]);
+  });
+
+  it("filters weekends when the custom range also contains weekdays", () => {
+    expect(
+      getVisibleCalendarDays(
+        dateKeyToDate("2026-09-13"),
+        dateKeyToDate("2026-09-15"),
+        true,
+      ).map(dateToCalendarDateKey),
+    ).toEqual(["2026-09-14", "2026-09-15"]);
   });
 
   it("keeps day and month navigation semantics unchanged", () => {

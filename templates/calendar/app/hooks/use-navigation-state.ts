@@ -19,6 +19,7 @@ interface NavigationState {
   calendarDraft?: string;
   bookingLinkId?: string;
   extensionId?: string;
+  addPersonEmail?: string;
 }
 
 const EVENT_DRAFT_ID = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -86,6 +87,7 @@ export function useNavigationState() {
     sidebarEvent,
     eventDraft,
     setEventDraft,
+    openAddPersonPrefilled,
   } = useCalendarContext();
 
   // Capture setters in refs so the onNavigate callback always closes over current values.
@@ -99,6 +101,8 @@ export function useNavigationState() {
   setSidebarEventRef.current = setSidebarEvent;
   const setEventDraftRef = useRef(setEventDraft);
   setEventDraftRef.current = setEventDraft;
+  const openAddPersonPrefilledRef = useRef(openAddPersonPrefilled);
+  openAddPersonPrefilledRef.current = openAddPersonPrefilled;
 
   useAgentRouteState<NavigationState>({
     getNavigationState: ({ pathname }) => {
@@ -199,6 +203,13 @@ export function useNavigationState() {
             // Best-effort — a failed focus must not break navigation.
           }
         })();
+      }
+
+      // A deep link can carry a peer to add — typically from the overlay
+      // access request email. This only opens the dialog prefilled; the
+      // recipient still confirms, so opening an email never writes.
+      if (cmd.addPersonEmail) {
+        openAddPersonPrefilledRef.current(cmd.addPersonEmail);
       }
 
       // A deep link can also carry an unsent event draft. The draft lives in

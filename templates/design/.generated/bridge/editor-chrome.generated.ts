@@ -4957,11 +4957,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var paddingRight = readPx(cs.paddingRight);
       var paddingBottom = readPx(cs.paddingBottom);
       var paddingLeft = readPx(cs.paddingLeft);
-      var sx = chromeScaleX();
-      var sy = chromeScaleY();
       var line = chromeLineScale();
-      var hLineWidth = Math.max(6, Math.min(18, rect.width * 0.12)) * sx;
-      var vLineHeight = Math.max(6, Math.min(18, rect.height * 0.12)) * sy;
+      var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
       var innerLeft = borderLeft;
       var innerTop = borderTop;
       var innerWidth = Math.max(1, rect.width - borderLeft - borderRight);
@@ -4983,9 +4980,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               height: paddingTop
             },
             line: {
-              x: rect.width / 2 - hLineWidth / 2,
+              x: rect.width / 2 - tickLength / 2,
               y: innerTop + paddingTop / 2 - line / 2,
-              width: hLineWidth,
+              width: tickLength,
               height: line
             }
           })
@@ -5008,9 +5005,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               height: paddingBottom
             },
             line: {
-              x: rect.width / 2 - hLineWidth / 2,
+              x: rect.width / 2 - tickLength / 2,
               y: rect.height - borderBottom - paddingBottom / 2 - line / 2,
-              width: hLineWidth,
+              width: tickLength,
               height: line
             }
           })
@@ -5034,9 +5031,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             line: {
               x: innerLeft + paddingLeft / 2 - line / 2,
-              y: rect.height / 2 - vLineHeight / 2,
+              y: rect.height / 2 - tickLength / 2,
               width: line,
-              height: vLineHeight
+              height: tickLength
             }
           })
         );
@@ -5059,9 +5056,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             line: {
               x: rect.width - borderRight - paddingRight / 2 - line / 2,
-              y: rect.height / 2 - vLineHeight / 2,
+              y: rect.height / 2 - tickLength / 2,
               width: line,
-              height: vLineHeight
+              height: tickLength
             }
           })
         );
@@ -5072,11 +5069,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var children = visibleLayoutChildren(el);
       if (children.length < 2) return [];
       var handles = [];
-      var sx = chromeScaleX();
-      var sy = chromeScaleY();
       var line = chromeLineScale();
-      var hLineWidth = 8 * sx;
-      var vLineHeight = 8 * sy;
+      var tickLength = 8 * line;
       var isFlex = cs.display === "flex" || cs.display === "inline-flex";
       var isGrid = cs.display === "grid" || cs.display === "inline-grid";
       if (!isFlex && !isGrid) return handles;
@@ -5112,9 +5106,9 @@ export const editorChromeBridgeScript: string = `"use strict";
                 region: { x: a.right, y: top, width: gap, height },
                 line: {
                   x: a.right + gap / 2 - line / 2,
-                  y: top + height / 2 - vLineHeight / 2,
+                  y: top + height / 2 - tickLength / 2,
                   width: line,
-                  height: vLineHeight
+                  height: tickLength
                 }
               })
             );
@@ -5132,9 +5126,9 @@ export const editorChromeBridgeScript: string = `"use strict";
                 value: cssGap,
                 region: { x: left, y: a.bottom, width, height: gap },
                 line: {
-                  x: left + width / 2 - hLineWidth / 2,
+                  x: left + width / 2 - tickLength / 2,
                   y: a.bottom + gap / 2 - line / 2,
-                  width: hLineWidth,
+                  width: tickLength,
                   height: line
                 }
               })
@@ -10220,7 +10214,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalSelectedEl = selectedEl;
       var duplicatedForDrag = false;
       var duplicatedSourceNodeIdMap;
+      var duplicateGrabOffset = null;
       if (e.altKey && selectedEl && selectedEl !== document.body && selectedEl !== document.documentElement) {
+        var grabbedRect = selectedEl.getBoundingClientRect();
         var clone = selectedEl.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
         selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
@@ -10228,8 +10224,23 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectedEl = clone;
         duplicatedForDrag = true;
         gestureEl = clone;
+        var insertedRect = clone.getBoundingClientRect();
+        duplicateGrabOffset = {
+          x: grabbedRect.left - insertedRect.left,
+          y: grabbedRect.top - insertedRect.top
+        };
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
+      }
+      function dragGrabRect(el) {
+        var rect = el.getBoundingClientRect();
+        if (!duplicateGrabOffset || el !== gestureEl) return rect;
+        return new DOMRect(
+          rect.left + duplicateGrabOffset.x,
+          rect.top + duplicateGrabOffset.y,
+          rect.width,
+          rect.height
+        );
       }
       var groupEls = duplicatedForDrag || e.altKey ? [gestureEl] : collectMoveGroupMembers(gestureEl);
       if (groupEls.indexOf(gestureEl) === -1) groupEls = [gestureEl];
@@ -10316,7 +10327,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               el.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.18)";
               el.style.pointerEvents = "none";
             }
-            el.style.transform = "translate(" + dx + "px, " + dy + "px)" + (snap.authoredTransform ? " " + snap.authoredTransform : "");
+            var liftDx = dx + (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+            var liftDy = dy + (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
+            el.style.transform = "translate(" + liftDx + "px, " + liftDy + "px)" + (snap.authoredTransform ? " " + snap.authoredTransform : "");
           });
         }, clearReorderLift2 = function() {
           reorderLiftedMembers.forEach(function(snap) {
@@ -10735,7 +10748,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, containerIsSimplePacked = containerIsSimplePacked2, reorderMainGap = reorderMainGap2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
-          return member.getBoundingClientRect();
+          return dragGrabRect(member);
         });
         var reorderOrigins = groupEls.map(function(member) {
           return {
@@ -10745,7 +10758,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             prevInlinePositionStyles: snapshotInlinePositionStyles(member)
           };
         });
-        var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+        var reorderGestureStartRect = dragGrabRect(reorderEl);
         var reorderLastTargetKey = null;
         var keepCurrentFlowParent = bridgeSpaceKeyPressed;
         var reorderIgnoresAutoLayout = Boolean(e.ctrlKey || e.metaKey);
@@ -10766,7 +10779,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
         crossScreenClaimedByHost = false;
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
-        var reorderRect = reorderEl.getBoundingClientRect();
+        var reorderRect = dragGrabRect(reorderEl);
         var reorderPointerStart = pointerStartParam || e;
         var reorderPointerOffset = {
           x: reorderPointerStart.clientX - reorderRect.left,
@@ -10786,6 +10799,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
         }
         var reorderLiftedMembers = [];
+        if (duplicateGrabOffset && (duplicateGrabOffset.x !== 0 || duplicateGrabOffset.y !== 0)) {
+          applyReorderLift2(0, 0);
+          positionOverlay(selectionOverlay, selectedEl);
+        }
         var reorderCommittedTarget = null;
         var reorderCommittedSlot = null;
         var reorderCommittedAt = 0;

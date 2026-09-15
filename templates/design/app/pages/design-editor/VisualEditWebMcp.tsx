@@ -9,6 +9,21 @@ export interface VisualEditPromptResult {
   prompt: string;
 }
 
+export function hasNativeWebMcpHost(targetDocument?: Document): boolean {
+  const doc =
+    targetDocument ?? (typeof document === "undefined" ? undefined : document);
+  if (!doc) return false;
+
+  const hosts: Array<object | undefined> = [doc, doc.defaultView?.navigator];
+  return hosts.some((host) => {
+    if (!host) return false;
+    return Boolean(
+      (host as { modelContext?: unknown }).modelContext &&
+      !Object.prototype.hasOwnProperty.call(host, "modelContext"),
+    );
+  });
+}
+
 export function createVisualEditWebMcpActions(args: {
   getPrompt: () => VisualEditPromptResult;
 }) {

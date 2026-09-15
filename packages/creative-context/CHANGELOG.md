@@ -1,5 +1,15 @@
 # @agent-native/creative-context
 
+## 0.8.0
+
+### Minor Changes
+
+- 24ed917: Add a default-off Creative Context lab and keep What's new in its own settings group.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.7.25
 
 ### Patch Changes

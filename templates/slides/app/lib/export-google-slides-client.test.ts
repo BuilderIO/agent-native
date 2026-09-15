@@ -10,9 +10,12 @@ const requestString = (value: unknown) =>
         ? value.url
         : (JSON.stringify(value) ?? "");
 
-const { buildDeckPptxBlobMock } = vi.hoisted(() => ({
-  buildDeckPptxBlobMock: vi.fn(),
-}));
+const { buildDeckPptxBlobMock, retargetPptxForGoogleSlidesMock } = vi.hoisted(
+  () => ({
+    buildDeckPptxBlobMock: vi.fn(),
+    retargetPptxForGoogleSlidesMock: vi.fn(async (blob: Blob) => blob),
+  }),
+);
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => `/slides${path}`,
@@ -21,6 +24,10 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 vi.mock("./export-pptx-client", () => ({
   buildDeckPptxBlob: buildDeckPptxBlobMock,
+}));
+
+vi.mock("./pptx-google-slides", () => ({
+  retargetPptxForGoogleSlides: retargetPptxForGoogleSlidesMock,
 }));
 
 import {
@@ -113,7 +120,12 @@ describe("exportDeckToGoogleSlides", () => {
       exportDeckToGoogleSlides("Quarterly Review", [{ id: "slide-1" }]),
     ).resolves.toEqual({ url: "https://docs.google.com/d/new" });
 
-    expect(buildDeckPptxBlobMock).toHaveBeenCalledTimes(1);
+    expect(buildDeckPptxBlobMock).toHaveBeenCalledWith(
+      "Quarterly Review",
+      [{ id: "slide-1" }],
+      undefined,
+      { target: "google-slides" },
+    );
     expect(await uploadedPptxText()).toBe("pptx");
   });
 
@@ -148,6 +160,8 @@ describe("exportDeckToGoogleSlides", () => {
       "/slides/api/exports/pptx",
       expect.objectContaining({ body: JSON.stringify({ deckId: "deck-1" }) }),
     );
+    // Slides still lays the server's file out on its own terms.
+    expect(retargetPptxForGoogleSlidesMock).toHaveBeenCalledTimes(1);
     expect(await uploadedPptxText()).toBe("PK-server-vector");
   });
 

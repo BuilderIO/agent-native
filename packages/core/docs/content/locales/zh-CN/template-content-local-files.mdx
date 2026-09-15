@@ -17,9 +17,7 @@ Content 只有一个数据模型：每个页面都存储在 SQL 中，属于一�
 <div class="diagram-flow">
   <div class="diagram-col">
     <div class="diagram-node">
-      现有空间<br /><small class="diagram-muted"
-        >个人或组织</small
-      >
+      现有空间<br /><small class="diagram-muted">个人或组织</small>
     </div>
     <div class="diagram-node">
       由文件夹支持的新空间<br /><small class="diagram-muted"
@@ -84,10 +82,10 @@ Files 集合的、由文件夹支持的私有空间。
 
 ### 选择真实来源策略
 
-| 策略                      | 行为                                                 |
-| ------------------------- | ---------------------------------------------------- |
+| 策略                     | 行为                                                 |
+| ------------------------ | ---------------------------------------------------- |
 | `database_primary`       | Content 具有权威性；文件夹的更改会先经过审核才会生效 |
-| `source_primary`         | 当不存在并发的 Content 编辑时，文件夹具有权威性       |
+| `source_primary`         | 当不存在并发的 Content 编辑时，文件夹具有权威性      |
 | `reviewed_bidirectional` | 任一方向的更改在出现冲突时都需要审核                 |
 
 </Steps>
