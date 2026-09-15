@@ -1,4 +1,9 @@
 import { parseCssColor, rgbaToCss } from "@shared/color-utils";
+import {
+  gradientStopWithFillOpacity,
+  gradientFillInterpolation,
+  readGradientFillOpacity,
+} from "@shared/gradient-opacity";
 import { IconTrash } from "@tabler/icons-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -24,6 +29,8 @@ export interface GradientStopValue {
 
 export interface GradientValue {
   kind: GradientKind;
+  opacity?: number;
+  interpolation?: string;
   /** Angle in degrees — used by linear and angular (conic) gradients. */
   angle: number;
   stops: GradientStopValue[];
@@ -91,23 +98,33 @@ function sortedStops(stops: GradientStopValue[]): GradientStopValue[] {
 
 /** Build a valid CSS gradient string for the given gradient value. */
 export function gradientToCss(value: GradientValue): string {
+  const interpolation =
+    value.interpolation ??
+    gradientFillInterpolation(
+      value.stops.map((stop) => stop.color),
+      value.opacity,
+    );
+  const colorSpace = interpolation ? ` ${interpolation}` : "";
   const stops = sortedStops(value.stops)
-    .map((stop) => `${normalizeColor(stop.color)} ${round(stop.position)}%`)
+    .map(
+      (stop) =>
+        `${gradientStopWithFillOpacity(normalizeColor(stop.color), value.opacity)} ${round(stop.position)}%`,
+    )
     .join(", ");
 
   switch (value.kind) {
     case "linear":
-      return `linear-gradient(${round(value.angle)}deg, ${stops})`;
+      return `linear-gradient(${round(value.angle)}deg${colorSpace}, ${stops})`;
     case "radial":
-      return `radial-gradient(circle at center, ${stops})`;
+      return `radial-gradient(circle at center${colorSpace}, ${stops})`;
     case "diamond":
       // CSS has no diamond gradient; a radial gradient with closest-side on a
       // non-circular ellipse reads as the diamond falloff the design editor shows.
-      return `radial-gradient(ellipse closest-side at center, ${stops})`;
+      return `radial-gradient(ellipse closest-side at center${colorSpace}, ${stops})`;
     case "angular":
-      return `conic-gradient(from ${round(value.angle)}deg at center, ${stops})`;
+      return `conic-gradient(from ${round(value.angle)}deg at center${colorSpace}, ${stops})`;
     default:
-      return `linear-gradient(${round(value.angle)}deg, ${stops})`;
+      return `linear-gradient(${round(value.angle)}deg${colorSpace}, ${stops})`;
   }
 }
 
@@ -267,6 +284,13 @@ export function parseGradientCss(
     if (/from|at\s/i.test(first)) stopStart = 1;
   }
 
+  if (/^in\s/i.test(first)) stopStart = 1;
+  const interpolation =
+    stopStart === 1
+      ? first.match(
+          /\bin\s+[a-z0-9-]+(?:\s+(?:shorter|longer|increasing|decreasing)\s+hue)?/i,
+        )?.[0]
+      : undefined;
   const stopSegments = segments.slice(stopStart);
   const stops: GradientStopValue[] = [];
   stopSegments.forEach((seg, index) => {
@@ -280,7 +304,14 @@ export function parseGradientCss(
   });
 
   if (stops.length < 2) return null;
-  return { kind, angle, stops };
+  const fill = readGradientFillOpacity(stops);
+  return {
+    kind,
+    angle,
+    stops: fill.stops,
+    ...(interpolation ? { interpolation } : {}),
+    ...(fill.opacity !== 100 ? { opacity: fill.opacity } : {}),
+  };
 }
 
 // ─── AngleDial ────────────────────────────────────────────────────────────────

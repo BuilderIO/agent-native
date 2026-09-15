@@ -1,14 +1,18 @@
 ---
-title: "Cross-App SSO"
-description: "Document the remaining Desktop workspace SSO and server-side organization federation. Browser sign-in with Agent-Native was removed."
+title: "Organization SSO and Cross-App Federation"
+description: "Distinguish organization OIDC or SAML login from cross-app identity federation."
 ---
 
-# Cross-App SSO
+# Organization SSO and Cross-App Federation
 
-The browser-facing "Sign in with Agent-Native" option and automatic browser
-handoff are removed. Normal per-app sign-in is the default for web users. This
-page describes the remaining explicit Desktop and server-side federation
-contracts.
+Organization SSO authenticates a person with their company's OIDC or SAML
+identity provider when they sign in to one Agent-Native deployment. Cross-app
+federation carries verified identity or organization context between separate
+Agent-Native deployments. The two capabilities have different setup, credentials,
+and trust boundaries. For organization provider setup, see
+[Administered Deployments](/docs/administered-deployments#organization-sso-and-directory-provisioning).
+This page describes cross-app federation through Desktop and server-side
+protocols.
 
 <!-- i18n-copy-ignore: Agent-Native is a proper name. -->
 
@@ -17,9 +21,12 @@ contracts.
 If all apps share one origin, a shared cookie domain already provides shared
 login. No federation is needed.
 
+For configuring an organization's own OIDC or SAML provider, see
+[Administered Deployments](/docs/administered-deployments#organization-sso-and-directory-provisioning).
+
 </Callout>
 
-## What remains
+## Cross-app federation
 
 ### Packaged Desktop workspace
 

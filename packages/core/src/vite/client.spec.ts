@@ -2683,6 +2683,24 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const useMessagePartReasoning = stub;");
     expect(code).toContain("export const useMessagePartRuntime = stub;");
   });
+
+  it("stubs optional enterprise auth adapters when build flags are off", () => {
+    vi.stubEnv("AUTH_SSO", "");
+    vi.stubEnv("AUTH_SCIM", "");
+    const plugin = agentNative().find(
+      (entry) => entry.name === "agent-native-enterprise-auth-adapter-stub",
+    ) as any;
+
+    expect(plugin).toBeDefined();
+    expect(plugin.resolveId("@better-auth/sso")).toBe(
+      "\0agent-native-enterprise-auth-adapter-stub:@better-auth/sso",
+    );
+    expect(plugin.resolveId("@better-auth/scim")).toBe(
+      "\0agent-native-enterprise-auth-adapter-stub:@better-auth/scim",
+    );
+    expect(plugin.resolveId("@better-auth/core")).toBeNull();
+    vi.unstubAllEnvs();
+  });
 });
 
 describe("external store client compatibility", () => {

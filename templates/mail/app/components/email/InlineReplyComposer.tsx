@@ -42,6 +42,7 @@ import { useAliases } from "@/hooks/use-aliases";
 import {
   useSendEmail,
   useAddOptimisticReply,
+  useArchiveEmail,
   useSettings,
 } from "@/hooks/use-emails";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
@@ -55,6 +56,7 @@ import {
   splitQuotedContent,
 } from "./compose-draft-context";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
+import { shouldMarkReplyDoneAfterSend } from "./mail-send-policy";
 import {
   RecipientInput,
   computeRecipientMove,
@@ -103,6 +105,7 @@ export const InlineReplyComposer = forwardRef<
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const addOptimisticReply = useAddOptimisticReply();
+  const archiveEmail = useArchiveEmail();
   const { data: settings } = useSettings();
   const { data: aliases = [] } = useAliases();
   const editorRef = useRef<ComposeEditorHandle>(null);
@@ -183,7 +186,7 @@ export const InlineReplyComposer = forwardRef<
       ? editableContent
       : draft.body;
 
-  const handleSend = async () => {
+  const handleSend = async (explicitlyMarkDone = false) => {
     if (sendingRef.current) return;
     if (!draft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
@@ -192,6 +195,11 @@ export const InlineReplyComposer = forwardRef<
     sendingRef.current = true;
 
     const draftSnapshot = { ...draft };
+    const markDoneAfterSend = shouldMarkReplyDoneAfterSend(
+      draftSnapshot,
+      settings?.sendAndArchive === true,
+      explicitlyMarkDone,
+    );
 
     onDiscard(draft.id);
 
@@ -250,6 +258,13 @@ export const InlineReplyComposer = forwardRef<
             id: sendingToastId,
             duration: 3_000,
           });
+          if (markDoneAfterSend && draftSnapshot.replyToId) {
+            archiveEmail.mutate({
+              id: draftSnapshot.replyToId,
+              accountEmail: draftSnapshot.accountEmail,
+              threadId: draftSnapshot.replyToThreadId,
+            });
+          }
         })
         .catch(() => {
           toast.dismiss(sendingToastId);
@@ -268,7 +283,7 @@ export const InlineReplyComposer = forwardRef<
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      void handleSend();
+      void handleSend(e.shiftKey);
     }
     if (e.key === "Escape") {
       e.preventDefault();
@@ -553,6 +568,7 @@ export const InlineReplyComposer = forwardRef<
           onClose={() => onClose(draft.id)}
           onFlush={() => onFlush(draft.id)}
           isGenerating={isGenerating}
+          autocompleteEnabled={settings?.autocompleteEnabled ?? false}
           draftId={draft.id}
           getCurrentDraftBody={(editor) =>
             getCurrentDraftBodyFromEditor({
@@ -727,7 +743,7 @@ export const InlineReplyComposer = forwardRef<
           </Tooltip>
           <Button
             size="sm"
-            onClick={handleSend}
+            onClick={() => void handleSend()}
             disabled={sendEmail.isPending || !draft.to.trim()}
             className="gap-1.5"
           >

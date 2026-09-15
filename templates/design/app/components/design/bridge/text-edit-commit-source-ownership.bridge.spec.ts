@@ -53,6 +53,37 @@ async function startSession(page: Page, inner = ""): Promise<void> {
   );
 }
 
+async function startMultilineSelectionSession(page: Page): Promise<void> {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.setContent(`<!doctype html><html><head><style>
+    html, body { margin: 0; width: 100%; height: 100%; }
+    #${NODE_ID} { position: absolute; left: 100px; top: 100px; width: 300px; font: 24px/30px sans-serif; }
+    #${NODE_ID} > div { display: block; height: 30px; }
+  </style></head><body>
+    <div id="${NODE_ID}" data-agent-native-node-id="${NODE_ID}" data-an-primitive="text">
+      <div id="line-home">Home</div>
+      <div id="line-browse">Browse</div>
+      <div id="line-library">Library</div>
+    </div>
+  </body></html>`);
+  await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+  await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+  await page.evaluate(() => {
+    (
+      window as Window & { __selectionPayloads?: unknown[] }
+    ).__selectionPayloads = [];
+    window.addEventListener("message", (event: MessageEvent) => {
+      if ((event.data as { type?: string })?.type === "element-select") {
+        (
+          window as Window & { __selectionPayloads?: unknown[] }
+        ).__selectionPayloads?.push(
+          (event.data as { payload?: unknown }).payload,
+        );
+      }
+    });
+  });
+}
+
 /** The host saving the commit and echoing the saved document back. */
 async function echoSavedDocument(page: Page, inner: string): Promise<void> {
   await page.evaluate(
@@ -85,6 +116,292 @@ function committedContent(page: Page) {
 
 describe("text-edit commit claims its content as source", () => {
   it(
+    "selects generated Text lines as the Text object and re-enters at the clicked line",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await startMultilineSelectionSession(page);
+
+        const browse = (await page.locator("#line-browse").boundingBox())!;
+        const modifier = process.platform === "darwin" ? "Meta" : "Control";
+        await page.keyboard.down(modifier);
+        try {
+          await page.mouse.click(
+            browse.x + browse.width / 2,
+            browse.y + browse.height / 2,
+          );
+        } finally {
+          await page.keyboard.up(modifier);
+        }
+        await page.waitForFunction(
+          () =>
+            (window as Window & { __selectionPayloads?: unknown[] })
+              .__selectionPayloads?.length === 1,
+        );
+        const selection = await page.evaluate(
+          () =>
+            (
+              window as Window & {
+                __selectionPayloads?: Array<{
+                  sourceId?: string;
+                  primitiveKind?: string;
+                  wholeTextStyleRoot?: boolean;
+                }>;
+              }
+            ).__selectionPayloads?.[0],
+        );
+        expect(selection).toMatchObject({
+          sourceId: NODE_ID,
+          primitiveKind: "text",
+          wholeTextStyleRoot: true,
+        });
+
+        await page.mouse.click(
+          browse.x + browse.width / 2,
+          browse.y + browse.height / 2,
+        );
+        await page.waitForFunction(
+          () =>
+            (window as Window & { __selectionPayloads?: unknown[] })
+              .__selectionPayloads?.length === 2,
+        );
+        const repeatedSelection = await page.evaluate(
+          () =>
+            (
+              window as Window & {
+                __selectionPayloads?: Array<{
+                  sourceId?: string;
+                }>;
+              }
+            ).__selectionPayloads?.[1],
+        );
+        expect(repeatedSelection?.sourceId).toBe(NODE_ID);
+
+        const library = (await page.locator("#line-library").boundingBox())!;
+        await page.mouse.dblclick(
+          library.x + library.width / 2,
+          library.y + library.height / 2,
+        );
+        const editing = page.locator(
+          `#${NODE_ID}[data-agent-native-text-editing="true"][contenteditable="true"]`,
+        );
+        await page.waitForFunction(
+          (selector) =>
+            document.activeElement === document.querySelector(selector),
+          `#${NODE_ID}[data-agent-native-text-editing="true"][contenteditable="true"]`,
+        );
+        expect(await editing.count()).toBe(1);
+        const caretLineId = await page.evaluate(() => {
+          const anchor = window.getSelection()?.anchorNode;
+          const element =
+            anchor?.nodeType === Node.ELEMENT_NODE
+              ? (anchor as Element)
+              : anchor?.parentElement;
+          return element?.closest("[id^='line-']")?.id ?? null;
+        });
+        expect(caretLineId).toBe("line-library");
+
+        await page.keyboard.type("!");
+        await page.keyboard.press("Escape");
+        expect(await committedContent(page)).toMatchObject({
+          text: expect.stringContaining("Library!"),
+        });
+        expect(await page.locator("#line-home").textContent()).toBe("Home");
+        expect(await page.locator("#line-browse").textContent()).toBe("Browse");
+        expect(await page.locator("#line-library").textContent()).toBe(
+          "Library!",
+        );
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "keeps a selected multiline Text root selected when clicking one of its lines again",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await startMultilineSelectionSession(page);
+
+        await page.evaluate((selector) => {
+          window.postMessage({ type: "select-element", selector }, "*");
+        }, SELECTOR);
+        await page.waitForFunction(
+          () =>
+            (window as Window & { __selectionPayloads?: unknown[] })
+              .__selectionPayloads?.length === 1,
+        );
+        const initialSelection = await page.evaluate(
+          () =>
+            (
+              window as Window & {
+                __selectionPayloads?: Array<{ sourceId?: string }>;
+              }
+            ).__selectionPayloads?.[0],
+        );
+        expect(initialSelection?.sourceId).toBe(NODE_ID);
+
+        const browse = (await page.locator("#line-browse").boundingBox())!;
+        await page.mouse.click(
+          browse.x + browse.width / 2,
+          browse.y + browse.height / 2,
+        );
+        await page.waitForFunction(
+          () =>
+            (window as Window & { __selectionPayloads?: unknown[] })
+              .__selectionPayloads?.length === 2,
+        );
+        const repeatedSelection = await page.evaluate(
+          () =>
+            (
+              window as Window & {
+                __selectionPayloads?: Array<{ sourceId?: string }>;
+              }
+            ).__selectionPayloads?.[1],
+        );
+        expect(repeatedSelection?.sourceId).toBe(NODE_ID);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "keeps generated Group promotion while text editing resolves to the nested Text root",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setViewportSize({ width: 900, height: 700 });
+        await page.setContent(`<!doctype html><html><head><style>
+          html, body { margin: 0; width: 100%; height: 100%; }
+          #generated-group { position: absolute; left: 100px; top: 100px; width: 320px; height: 140px; }
+          #${NODE_ID} { width: 300px; font: 24px/30px sans-serif; }
+          #${NODE_ID} > div { display: block; height: 30px; }
+        </style></head><body>
+          <div id="generated-group" data-agent-native-node-id="generated-group" data-agent-native-layer-name="Text Group" data-agent-native-group-wrapper="true">
+            <div id="${NODE_ID}" data-agent-native-node-id="${NODE_ID}" data-an-primitive="text">
+              <div id="line-one">One</div>
+              <div id="line-two">Two</div>
+            </div>
+          </div>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await page.evaluate(() => {
+          (
+            window as Window & { __selectionPayloads?: unknown[] }
+          ).__selectionPayloads = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if ((event.data as { type?: string })?.type === "element-select") {
+              (
+                window as Window & { __selectionPayloads?: unknown[] }
+              ).__selectionPayloads?.push(
+                (event.data as { payload?: unknown }).payload,
+              );
+            }
+          });
+        });
+
+        const line = (await page.locator("#line-two").boundingBox())!;
+        await page.mouse.click(
+          line.x + line.width / 2,
+          line.y + line.height / 2,
+        );
+        await page.waitForFunction(
+          () =>
+            (window as Window & { __selectionPayloads?: unknown[] })
+              .__selectionPayloads?.length === 1,
+        );
+        const selection = await page.evaluate(
+          () =>
+            (
+              window as Window & {
+                __selectionPayloads?: Array<{
+                  sourceId?: string;
+                }>;
+              }
+            ).__selectionPayloads?.[0],
+        );
+        expect(selection?.sourceId).toBe("generated-group");
+
+        await page.mouse.click(
+          line.x + line.width / 2,
+          line.y + line.height / 2,
+        );
+        await page.waitForFunction(
+          () =>
+            (window as Window & { __selectionPayloads?: unknown[] })
+              .__selectionPayloads?.length === 2,
+        );
+        const deepSelection = await page.evaluate(
+          () =>
+            (
+              window as Window & {
+                __selectionPayloads?: Array<{ sourceId?: string }>;
+              }
+            ).__selectionPayloads?.[1],
+        );
+        expect(deepSelection?.sourceId).toBe(NODE_ID);
+
+        await page.mouse.dblclick(
+          line.x + line.width / 2,
+          line.y + line.height / 2,
+        );
+        const editing = page.locator(
+          `#${NODE_ID}[data-agent-native-text-editing="true"][contenteditable="true"]`,
+        );
+        await page.waitForFunction(
+          (selector) =>
+            document.activeElement === document.querySelector(selector),
+          `#${NODE_ID}[data-agent-native-text-editing="true"][contenteditable="true"]`,
+          { timeout: 3000 },
+        );
+        expect(await editing.count()).toBe(1);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it.each(["Meta", "Control"])(
+    "%s+Enter commits and exits without inserting a line break",
+    { timeout: 30_000 },
+    async (modifier) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await startSession(page);
+        await page.keyboard.type("First title");
+        await page.keyboard.press(`${modifier}+Enter`);
+        expect(
+          await page.locator("[data-agent-native-text-editing]").count(),
+        ).toBe(0);
+        expect(await committedContent(page)).toEqual({
+          text: "First title",
+          html: "First title",
+          childNodes: ["#text"],
+        });
+        await page.waitForFunction(
+          () =>
+            (window as Window & { __committed?: string[] }).__committed
+              ?.length === 1,
+        );
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "renders committed text once after the saved document echoes back",
     { timeout: 30_000 },
     async () => {
@@ -110,7 +427,7 @@ describe("text-edit commit claims its content as source", () => {
         );
         await page.waitForFunction(
           () =>
-            (window as Window & { __committed?: unknown[] }).__committed
+            (window as Window & { __committed?: string[] }).__committed
               ?.length === 1,
         );
         expect(

@@ -9,10 +9,14 @@ const discoverAgents = vi.fn();
 const findAgent = vi.fn();
 
 vi.mock("../a2a/client.js", () => ({
+  A2ANoJsonRpcInterfaceError: class A2ANoJsonRpcInterfaceError extends Error {},
   A2AClient: class {
     constructor(public baseUrl: string) {}
     getAgentCard(options?: { timeoutMs?: number }) {
       return getAgentCard(this.baseUrl, options);
+    }
+    resolveEndpointUrl() {
+      return Promise.resolve(this.baseUrl);
     }
   },
 }));

@@ -5,7 +5,7 @@ packages:
 overrides:
   "@assistant-ui/store": ">=0.2.9 <0.2.14"
   "@assistant-ui/tap": "^0.5.14"
-  better-auth: "1.6.0"
+  better-auth: "1.7.4"
   nf3: "0.3.17"
   # These five reach @agent-native/core through peer edges, so two apps that
   # drift even a patch apart fork a second ~175 MB physical copy of core.

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   isConnected: vi.fn(),
-  getConnectedAccounts: vi.fn(),
+  getConnectedAccountsWithErrors: vi.fn(),
   ensureInboxFresh: vi.fn(),
   readSettings: vi.fn(),
   readInboxThreads: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock("../server/lib/local-email-store.js", () => ({
 
 vi.mock("../server/lib/google-auth.js", () => ({
   isConnected: mocks.isConnected,
-  getConnectedAccounts: mocks.getConnectedAccounts,
+  getConnectedAccountsWithErrors: mocks.getConnectedAccountsWithErrors,
 }));
 
 vi.mock("../server/lib/inbox-sync.js", () => ({
@@ -97,7 +97,10 @@ beforeEach(() => {
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.isConnected.mockResolvedValue(true);
   // Gmail-connected by default; local-mode tests override this to [].
-  mocks.getConnectedAccounts.mockResolvedValue([OWNER]);
+  mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+    accounts: [OWNER],
+    errors: [],
+  });
   mocks.ensureInboxFresh.mockResolvedValue([
     { accountEmail: OWNER, state: "ready", lastSyncedAt: Date.now() },
   ]);
@@ -240,7 +243,10 @@ describe("list-inbox-threads action — local mode (no connected Google account)
   }
 
   beforeEach(() => {
-    mocks.getConnectedAccounts.mockResolvedValue([]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [],
+      errors: [],
+    });
   });
 
   it("never calls the synced-store path when no Google account is connected", async () => {
@@ -250,6 +256,18 @@ describe("list-inbox-threads action — local mode (no connected Google account)
 
     expect(mocks.ensureInboxFresh).not.toHaveBeenCalled();
     expect(mocks.readInboxThreads).not.toHaveBeenCalled();
+  });
+
+  it("does not switch to local mail when managed account lookup fails", async () => {
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [],
+      errors: [{ email: "workspace", error: "workspace lookup unavailable" }],
+    });
+
+    await expect(
+      action.run({ limit: 50, offset: 0 } as any, undefined as any),
+    ).rejects.toThrow("workspace lookup unavailable");
+    expect(mocks.readLocalEmails).not.toHaveBeenCalled();
   });
 
   it("groups local messages into one thread item with unified counts and reports no accounts/syncing", async () => {
@@ -324,12 +342,15 @@ describe("list-inbox-threads action — local mode (no connected Google account)
 });
 
 describe("list-inbox-threads action — managed workspace grant (no per-user OAuth row)", () => {
-  it("uses the synced-store path, not local fallback, when getConnectedAccounts reports a managed grant", async () => {
+  it("uses the synced-store path, not local fallback, when connected accounts reports a managed grant", async () => {
     // HIGH review finding: a managed Gmail grant has no per-user OAuth row,
     // so the "is this account connected" check must go through
-    // getConnectedAccounts (which falls back to the managed client's email),
+    // the connected-account inventory includes the managed client's email,
     // not listOAuthAccountsByOwner directly.
-    mocks.getConnectedAccounts.mockResolvedValue(["managed@example.com"]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["managed@example.com"],
+      errors: [],
+    });
     mocks.readInboxThreads.mockResolvedValue([
       row({
         threadId: "t1",

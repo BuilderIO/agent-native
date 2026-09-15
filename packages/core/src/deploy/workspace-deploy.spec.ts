@@ -448,7 +448,7 @@ describe("workspace deploy", () => {
       "utf-8",
     );
     expect(starterServer).toContain(
-      'path: ["/starter","/starter.data","/starter/*"]',
+      'path: ["/starter","/starter.data","/starter/*","/.well-known/oauth-authorization-server/starter","/.well-known/openid-configuration/starter","/.well-known/oauth-protected-resource/starter","/.well-known/oauth-protected-resource/starter/*"]',
     );
     expect(starterServer).toContain("normalizeBasePathArgs");
     expect(starterServer).toContain('"/starter/assets/*"');
@@ -548,6 +548,21 @@ describe("workspace deploy", () => {
     );
     expect(redirects).toContain(
       "/.well-known/* /.netlify/functions/dispatch-server 200",
+    );
+    expect(redirects).toContain(
+      "/.well-known/oauth-authorization-server/starter /.netlify/functions/starter-server 200",
+    );
+    expect(redirects).toContain(
+      "/.well-known/oauth-protected-resource/starter/* /.netlify/functions/starter-server 200",
+    );
+    expect(
+      redirects.indexOf(
+        "/.well-known/oauth-authorization-server/starter /.netlify/functions/starter-server 200",
+      ),
+    ).toBeLessThan(
+      redirects.indexOf(
+        "/.well-known/* /.netlify/functions/dispatch-server 200",
+      ),
     );
     expect(redirects).toContain("/favicon.ico /dispatch/favicon.ico 302");
     expect(redirects).toContain("/ /dispatch/overview 302");
@@ -823,6 +838,24 @@ describe("workspace deploy", () => {
       src: "/_agent-native/(.*)",
       dest: "/dispatch-server",
     });
+    expect(config.routes).toContainEqual({
+      src: "/\\.well-known/oauth-authorization-server/starter",
+      dest: "/starter-server",
+    });
+    expect(config.routes).toContainEqual({
+      src: "/\\.well-known/oauth-protected-resource/starter/(.*)",
+      dest: "/starter-server",
+    });
+    expect(
+      config.routes.findIndex(
+        (route: { src?: string }) =>
+          route.src === "/\\.well-known/oauth-authorization-server/starter",
+      ),
+    ).toBeLessThan(
+      config.routes.findIndex(
+        (route: { src?: string }) => route.src === "/\\.well-known/(.*)",
+      ),
+    );
     expect(config.routes).toContainEqual({
       src: "/\\.well-known/(.*)",
       dest: "/dispatch-server",
@@ -1172,6 +1205,12 @@ describe("workspace deploy", () => {
     ) as { include: string[] };
     expect(routes.include).toContain("/_agent-native/*");
     expect(routes.include).toContain("/.well-known/*");
+    expect(routes.include).toContain(
+      "/.well-known/oauth-authorization-server/starter",
+    );
+    expect(routes.include).toContain(
+      "/.well-known/oauth-protected-resource/starter/*",
+    );
     expect(routes.include).toContain("/favicon.ico");
     expect(routes.include).toContain("/approval");
     expect(routes.include).toContain("/extensions");
@@ -1190,6 +1229,17 @@ describe("workspace deploy", () => {
     expect(worker).toContain(
       'return Response.redirect(new URL("/dispatch/overview", request.url).toString(), 302);',
     );
+    expect(worker).toContain(
+      'if (pathname === "/.well-known/oauth-authorization-server/starter") return app_starter.fetch(request, env, ctx);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/.well-known/oauth-protected-resource/starter" || pathname.startsWith("/.well-known/oauth-protected-resource/starter/")) return app_starter.fetch(request, env, ctx);',
+    );
+    expect(
+      worker.indexOf(
+        'pathname === "/.well-known/oauth-authorization-server/starter"',
+      ),
+    ).toBeLessThan(worker.indexOf('pathname === "/_agent-native"'));
     expect(worker).toContain(
       'if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/") || pathname === "/.well-known" || pathname.startsWith("/.well-known/")) return app_dispatch.fetch(request, env, ctx);',
     );
@@ -1244,6 +1294,12 @@ describe("workspace deploy", () => {
     ) as { include: string[] };
     expect(routes.include).not.toContain("/_agent-native/*");
     expect(routes.include).not.toContain("/.well-known/*");
+    expect(routes.include).toContain(
+      "/.well-known/oauth-authorization-server/starter",
+    );
+    expect(routes.include).toContain(
+      "/.well-known/oauth-protected-resource/starter/*",
+    );
     expect(routes.include).not.toContain("/favicon.ico");
 
     const worker = fs.readFileSync(
@@ -1252,6 +1308,9 @@ describe("workspace deploy", () => {
     );
     expect(worker).not.toContain('pathname === "/_agent-native"');
     expect(worker).not.toContain('pathname === "/.well-known"');
+    expect(worker).toContain(
+      'if (pathname === "/.well-known/oauth-authorization-server/starter") return app_starter.fetch(request, env, ctx);',
+    );
     expect(worker).not.toContain('pathname === "/favicon.ico"');
   });
 });

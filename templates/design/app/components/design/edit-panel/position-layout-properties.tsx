@@ -384,6 +384,9 @@ export function PositionLayoutProperties({
   const authoredLeft = authoredStyleValue(element, "left");
   const authoredTop = authoredStyleValue(element, "top");
   const authoredTransform = authoredStyleValue(element, "transform");
+  const rotationTransform = isMixedValue(styles.transform)
+    ? undefined
+    : (authoredTransform ?? styles.transform);
   const constraintsValue = deriveConstraintsValue(element);
   const [constraintsExpanded, setConstraintsExpanded] = useState(false);
   // position:absolute/fixed takes a child out of the parent's flex flow, so it
@@ -426,9 +429,19 @@ export function PositionLayoutProperties({
           label={"Absolute position" /* i18n-ignore design inspector action */}
           active={constrainedPosition}
           onClick={() =>
-            onStyleChange(
-              "position",
-              constrainedPosition ? "relative" : "absolute",
+            commitStylePatch(
+              constrainedPosition
+                ? {
+                    position: "relative",
+                    inset: "auto",
+                    left: "auto",
+                    right: "auto",
+                    top: "auto",
+                    bottom: "auto",
+                  }
+                : { position: "absolute" },
+              onStyleChange,
+              onStylesChange,
             )
           }
         >
@@ -512,7 +525,7 @@ export function PositionLayoutProperties({
               label="X"
               ariaLabel="X-position"
               tooltipLabel="X-position"
-              precision={0}
+              precision={2}
               value={
                 isMixedValue(authoredLeft)
                   ? MIXED_VALUE
@@ -531,7 +544,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    left: geometryPx(v),
+                    left: `${v}px`,
                   },
                   onStyleChange,
                   onStylesChange,
@@ -561,7 +574,7 @@ export function PositionLayoutProperties({
               label="Y"
               ariaLabel="Y-position"
               tooltipLabel="Y-position"
-              precision={0}
+              precision={2}
               value={
                 isMixedValue(authoredTop)
                   ? MIXED_VALUE
@@ -575,7 +588,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    top: geometryPx(v),
+                    top: `${v}px`,
                   },
                   onStyleChange,
                   onStylesChange,
@@ -661,36 +674,48 @@ export function PositionLayoutProperties({
               // Detect the Mixed sentinel BEFORE parsing: parseRotationValue
               // would silently turn "Mixed" into 0 and render "0deg" instead
               // of the mixed state (mirrors the opacity field's guard).
+              // CSS positive rotation is clockwise on screen; the inspector
+              // exposes Figma's counter-clockwise-positive degree domain.
               value={
                 isMixedValue(styles.transform)
                   ? MIXED_VALUE
-                  : `${parseRotationValue(styles.transform)}deg`
+                  : `${-parseRotationValue(rotationTransform)}deg`
               }
               unit="deg"
               inputClassName="h-6"
-              onChange={(v, meta) =>
+              onChange={(v, meta) => {
+                const mixedRotation = isMixedValue(styles.transform);
+                const hasPerTargetOperation =
+                  typeof meta?.relativeDelta === "number" ||
+                  meta?.relativeExpression !== undefined;
+                // A typed absolute value on a mixed selection still needs
+                // each layer's existing transform functions preserved.
+                const perTargetMeta =
+                  mixedRotation && !hasPerTargetOperation
+                    ? {
+                        ...meta,
+                        relativeExpression: {
+                          expression: `Mixed*0+${v}`,
+                          unit: "deg",
+                        },
+                      }
+                    : meta;
                 onStyleChange(
-                  "transform",
+                  // `rotation` is a per-target edit domain, translated back
+                  // to each target's CSS transform by the per-layer writer.
+                  mixedRotation &&
+                    (hasPerTargetOperation || perTargetMeta?.relativeExpression)
+                    ? "rotation"
+                    : "transform",
                   // From a mixed selection the sentinel is not a transform —
-                  // treat it as absent so the typed value applies cleanly to
-                  // every selected object instead of producing
-                  // "Mixed rotate(…)". This field always writes the Z
-                  // rotation — back-compat: existing designs'
-                  // `transform: rotate()` is the Z axis. When the 3D
-                  // expander below is active (non-zero X/Y/perspective),
-                  // mergeRotationValue's plain rotate() slot still round-
-                  // trips correctly since composeTransform3D always emits a
-                  // trailing rotateZ() once 3D is active, which
-                  // ROTATE_FN_PATTERN also matches.
-                  mergeRotationValue(
-                    isMixedValue(styles.transform)
-                      ? undefined
-                      : styles.transform,
-                    v,
-                  ),
-                  meta,
-                )
-              }
+                  // this value is ignored by the per-target writer, while
+                  // `perTargetMeta` applies it without dropping each layer's
+                  // translation and scale. This field writes the Z rotation —
+                  // existing designs' `transform: rotate()` remains supported.
+                  mergeRotationValue(rotationTransform, -v),
+                  perTargetMeta,
+                );
+              }}
             />
             <FieldTrailer
               element={element}

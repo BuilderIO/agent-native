@@ -15,6 +15,7 @@ import {
 import * as chrono from "chrono-node";
 import { format, parse, isValid } from "date-fns";
 
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import { cn } from "@/lib/utils";
 
 type ViewMode = "month" | "week" | "day";
@@ -178,7 +179,7 @@ export function CommandPalette({
           <CommandMenu.Group heading={t("eventForm.events")}>
             {matchingEvents.map((event) => (
               <CommandMenu.Item
-                key={event.id}
+                key={getCalendarEventRenderKey(event)}
                 onSelect={() => onEventClick(event)}
                 keywords={[event.title.toLowerCase()]}
               >

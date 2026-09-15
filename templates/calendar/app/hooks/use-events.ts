@@ -14,6 +14,7 @@ import {
 import { nanoid } from "nanoid";
 import { useMemo } from "react";
 
+import type { CalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import {
   isSharedCalendarDemo,
@@ -27,9 +28,15 @@ import {
 
 import {
   applyCalendarEventRsvp,
+  calendarEventIsInScope,
   calendarEventOverlapsListParams,
+  findCalendarEventById,
+  findCalendarEventForSelection,
+  getRemovedCalendarEvents,
   mergeCalendarEventIntoList,
+  removeCalendarEventsForScope,
   removeOptimisticCalendarEventFromList,
+  restoreMissingCalendarEvents,
 } from "./event-list-cache";
 
 type CreateEventInput = Omit<
@@ -52,6 +59,7 @@ type CreateEventInput = Omit<
 
 type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
+  cacheEventIdentity?: CalendarEventSourceIdentity;
   targetAccountEmail?: string;
   addGoogleMeet?: boolean;
   removeGoogleMeet?: boolean;
@@ -70,7 +78,10 @@ type CreateEventMutationContext = EventListMutationContext & {
   optimisticId?: string;
 };
 type RsvpEventMutationContext = EventListMutationContext & {
-  previousEvent?: CalendarEvent;
+  previousEventQueries?: Array<[QueryKey, CalendarEvent | undefined]>;
+};
+type DeleteEventMutationContext = {
+  removedByQuery?: Array<[QueryKey, CalendarEvent[]]>;
 };
 
 type UpdateEventResult = Partial<CalendarEvent> & {
@@ -111,14 +122,6 @@ function getListEventsParams(
     return undefined;
   }
   return params as Record<string, string>;
-}
-
-function getEventQueryKey(id: string, calendarSourceKey?: string) {
-  return [
-    "action",
-    "get-event",
-    calendarSourceKey ? { id, calendarSourceKey } : { id },
-  ] as const;
 }
 
 export function getOptimisticTitleIsGenerated(
@@ -466,6 +469,7 @@ export function useUpdateEvent() {
         const previous = queryClient.getQueriesData<CalendarEvent[]>({
           queryKey: ["action", "list-events"],
         });
+        const { cacheEventIdentity, ...eventInput } = newData;
         const {
           addGoogleMeet,
           removeGoogleMeet,
@@ -478,7 +482,7 @@ export function useUpdateEvent() {
           workingLocationType,
           workingLocationLabel,
           ...optimisticData
-        } = newData;
+        } = eventInput;
         const optimisticPatch = targetAccountEmail
           ? {}
           : {
@@ -493,7 +497,14 @@ export function useUpdateEvent() {
         queryClient.setQueriesData<CalendarEvent[]>(
           { queryKey: ["action", "list-events"] },
           (old) => {
-            const target = old?.find((event) => event.id === optimisticData.id);
+            const target = old
+              ? findCalendarEventById(
+                  old,
+                  optimisticData.id,
+                  cacheEventIdentity ?? optimisticData.accountEmail,
+                )
+              : undefined;
+            if (!target) return old;
             // A working-location change can alter the visual grouping of several
             // days. Keep the editor mounted until Google confirms the write so a
             // rejected request does not appear to save and then snap back.
@@ -502,11 +513,11 @@ export function useUpdateEvent() {
             )
               return old;
             return old?.map((e) => {
-              const matchesScope =
-                e.id === optimisticData.id ||
-                (scope === "all" &&
-                  !!target?.recurringEventId &&
-                  e.recurringEventId === target.recurringEventId);
+              const matchesScope = calendarEventIsInScope(
+                e,
+                target,
+                scope ?? "single",
+              );
               if (!matchesScope) return e;
               const nextWorkingLocationType =
                 workingLocationType ?? getWorkingLocationType(e);
@@ -542,7 +553,14 @@ export function useUpdateEvent() {
         if (!eventPatch?.id) return;
         queryClient.setQueriesData<CalendarEvent[]>(
           { queryKey: ["action", "list-events"] },
-          (old) => reconcileUpdatedEventList(old, input.id, eventPatch),
+          (old) =>
+            reconcileUpdatedEventList(
+              old,
+              input.id,
+              eventPatch,
+              input.accountEmail,
+              input.cacheEventIdentity,
+            ),
         );
       },
       onError: (_err, _newData, context) => {
@@ -567,6 +585,8 @@ export function reconcileUpdatedEventList(
   events: CalendarEvent[] | undefined,
   originalId: string,
   result: UpdateEventResult,
+  accountEmail?: string,
+  cacheEventIdentity?: CalendarEventSourceIdentity,
 ): CalendarEvent[] | undefined {
   if (!result.id) return events;
   const {
@@ -578,9 +598,17 @@ export function reconcileUpdatedEventList(
     ...eventPatch
   } = result;
   const targetId = replacedId ?? originalId;
+  const target = events
+    ? findCalendarEventById(
+        events,
+        targetId,
+        cacheEventIdentity ?? accountEmail,
+      )
+    : undefined;
+  if (!target) return events;
 
   return events?.map((event) => {
-    if (event.id !== targetId) return event;
+    if (!calendarEventIsInScope(event, target, "single")) return event;
     const idChanged = event.id !== eventPatch.id;
     return {
       ...event,
@@ -592,11 +620,9 @@ export function reconcileUpdatedEventList(
 
 export function findEventByCurrentOrReplacedId(
   events: CalendarEvent[],
-  eventId: string,
+  selectedEvent: CalendarEvent,
 ): CalendarEvent | undefined {
-  return events.find(
-    (event) => event.id === eventId || event._replacedId === eventId,
-  );
+  return findCalendarEventForSelection(events, selectedEvent);
 }
 
 export function useDeleteEvent() {
@@ -612,30 +638,50 @@ export function useDeleteEvent() {
     {
       id: string;
       accountEmail?: string;
+      cacheEventIdentity?: CalendarEventSourceIdentity;
       scope?: "single" | "all" | "thisAndFollowing";
       sendUpdates?: "all" | "none";
       removeOnly?: boolean;
       notificationMessage?: string;
     }
   >("delete-event", {
-    onMutate: async ({ id }) => {
+    onMutate: async ({ id, accountEmail, cacheEventIdentity, scope }) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: ["action", "list-events"],
       });
-      queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["action", "list-events"] },
-        (old) => old?.filter((e) => e.id !== id),
+      const cachedEvents = previous.flatMap(([, events]) => events ?? []);
+      const targetEvent = findCalendarEventById(
+        cachedEvents,
+        id,
+        cacheEventIdentity ?? accountEmail,
       );
-      return { previous };
+      const hasMatchingEvents = cachedEvents.some(
+        (event) => event.id === id || event._replacedId === id,
+      );
+      if (hasMatchingEvents && !targetEvent) return { removedByQuery: [] };
+      const removedByQuery: Array<[QueryKey, CalendarEvent[]]> = [];
+      for (const [key, old] of previous) {
+        const next = removeCalendarEventsForScope(
+          old,
+          id,
+          scope,
+          targetEvent,
+          accountEmail,
+        );
+        const removed = getRemovedCalendarEvents(old, next);
+        if (removed.length > 0) removedByQuery.push([key, removed]);
+        if (next !== old) queryClient.setQueryData(key, next);
+      }
+      return { removedByQuery };
     },
     onError: (_err, _vars, context) => {
-      const previous = (context as EventListMutationContext | undefined)
-        ?.previous;
-      if (previous) {
-        for (const [key, data] of previous) {
-          queryClient.setQueryData(key, data);
-        }
+      const removedByQuery = (context as DeleteEventMutationContext | undefined)
+        ?.removedByQuery;
+      for (const [key, removed] of removedByQuery ?? []) {
+        queryClient.setQueryData<CalendarEvent[]>(key, (current) =>
+          restoreMissingCalendarEvents(current, removed),
+        );
       }
     },
     onSettled: () => {
@@ -661,55 +707,84 @@ export function useRsvpEvent() {
       id: string;
       status: "accepted" | "declined" | "tentative";
       accountEmail?: string;
+      cacheEventIdentity?: CalendarEventSourceIdentity;
       scope?: "single" | "all" | "thisAndFollowing";
       note?: string;
       sendUpdates?: "all" | "none";
     }
   >("rsvp-event", {
-    onMutate: async ({ id, status, accountEmail, scope, note }) => {
-      await queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+    onMutate: async ({
+      id,
+      status,
+      accountEmail,
+      cacheEventIdentity,
+      scope,
+      note,
+    }) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY }),
+        queryClient.cancelQueries({ queryKey: ["action", "get-event"] }),
+      ]);
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: LIST_EVENTS_QUERY_KEY,
       });
-      const previousEvent = queryClient.getQueryData<CalendarEvent>(
-        getEventQueryKey(id),
-      );
+      const previousEventQueries = queryClient
+        .getQueriesData<CalendarEvent>({ queryKey: ["action", "get-event"] })
+        .filter(([, event]) => {
+          if (!event) return false;
+          const next = applyCalendarEventRsvp(
+            [event],
+            id,
+            status,
+            scope,
+            accountEmail,
+            note,
+            cacheEventIdentity,
+          );
+          return next?.[0] !== event;
+        });
 
       updateListEventQueries(queryClient, (old) =>
-        applyCalendarEventRsvp(old, id, status, scope, accountEmail, note),
-      );
-      queryClient.setQueryData<CalendarEvent>(getEventQueryKey(id), (old) => {
-        const updated = applyCalendarEventRsvp(
-          old ? [old] : undefined,
+        applyCalendarEventRsvp(
+          old,
           id,
           status,
           scope,
           accountEmail,
           note,
+          cacheEventIdentity,
+        ),
+      );
+      for (const [key, event] of previousEventQueries) {
+        const updated = applyCalendarEventRsvp(
+          event ? [event] : undefined,
+          id,
+          status,
+          scope,
+          accountEmail,
+          note,
+          cacheEventIdentity,
         );
-        return updated?.[0];
-      });
+        queryClient.setQueryData(key, updated?.[0]);
+      }
 
-      return { previous, previousEvent };
+      return { previous, previousEventQueries };
     },
-    onError: (_err, vars, context) => {
+    onError: (_err, _vars, context) => {
       const mutationContext = context as RsvpEventMutationContext | undefined;
       if (mutationContext?.previous) {
         for (const [key, data] of mutationContext.previous) {
           queryClient.setQueryData(key, data);
         }
       }
-      if (mutationContext?.previousEvent) {
-        queryClient.setQueryData(
-          getEventQueryKey(vars.id),
-          mutationContext.previousEvent,
-        );
+      for (const [key, event] of mutationContext?.previousEventQueries ?? []) {
+        queryClient.setQueryData(key, event);
       }
     },
-    onSettled: (_data, _error, vars) => {
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
       void queryClient.invalidateQueries({
-        queryKey: getEventQueryKey(vars.id),
+        queryKey: ["action", "get-event"],
       });
     },
   });

@@ -33,9 +33,10 @@ function ToolHarness({ initialTool }: { initialTool: MultiScreenCanvasTool }) {
 
 function dispatchMouse(
   target: EventTarget,
-  type: "mousedown" | "mousemove" | "mouseup",
+  type: "mousedown" | "mousemove" | "mouseup" | "click",
   clientX: number,
   clientY: number,
+  modifiers: Pick<MouseEventInit, "shiftKey"> = {},
 ) {
   target.dispatchEvent(
     new MouseEvent(type, {
@@ -45,6 +46,7 @@ function dispatchMouse(
       buttons: type === "mouseup" ? 0 : 1,
       clientX,
       clientY,
+      ...modifiers,
     }),
   );
 }
@@ -141,6 +143,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   }
 
   async function renderSelectedFrame(width = 320, selected = true) {
+    const onGeometryChange = vi.fn();
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -159,6 +162,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             "screen-a": { x: 0, y: 0, width, height: 640 },
           }}
           onPick={() => {}}
+          onGeometryChange={onGeometryChange}
         />,
       );
     });
@@ -168,7 +172,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     const label = frame?.querySelector<HTMLElement>("[data-frame-label]");
     expect(frame).not.toBeNull();
     expect(label).not.toBeNull();
-    return { frame: frame!, label: label! };
+    return { frame: frame!, label: label!, onGeometryChange };
   }
 
   async function expectPortaledReviewTargetDoesNotStartGesture(
@@ -452,6 +456,55 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       dispatchMouse(window, "mouseup", 355, 765);
     });
   });
+
+  it.each([
+    "[data-frame-drag-surface]",
+    "[data-frame-label]",
+    "[data-screen-card]",
+  ])("constrains a Shift-started screen drag from %s", async (selector) => {
+    const { frame } = await renderSelectedFrame();
+    const target = container.querySelector<HTMLElement>(selector)!;
+    const before = { left: frame.style.left, top: frame.style.top };
+
+    await act(async () => {
+      dispatchMouse(target, "mousedown", 320, 400, { shiftKey: true });
+      dispatchMouse(window, "mousemove", 355, 405, { shiftKey: true });
+      await nextAnimationFrame();
+      dispatchMouse(window, "mouseup", 355, 405, { shiftKey: true });
+      dispatchMouse(target, "click", 355, 405, { shiftKey: true });
+    });
+
+    expect(Number.parseFloat(frame.style.left)).toBeGreaterThan(
+      Number.parseFloat(before.left),
+    );
+    expect(frame.style.top).toBe(before.top);
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+    ).not.toBeNull();
+  });
+
+  it.each([
+    "[data-frame-drag-surface]",
+    "[data-frame-label]",
+    "[data-screen-card]",
+  ])(
+    "preserves Shift-click deselection without moving from %s",
+    async (selector) => {
+      const { onGeometryChange } = await renderSelectedFrame();
+      const target = container.querySelector<HTMLElement>(selector)!;
+
+      await act(async () => {
+        dispatchMouse(target, "mousedown", 320, 400, { shiftKey: true });
+        dispatchMouse(window, "mouseup", 320, 400, { shiftKey: true });
+        dispatchMouse(target, "click", 320, 400, { shiftKey: true });
+      });
+
+      expect(onGeometryChange).toHaveBeenLastCalledWith({
+        "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+      });
+      expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
+    },
+  );
 
   it("arms a shift+drag on a screen frame and constrains it to the dominant axis", async () => {
     const { frame } = await renderSelectedFrame();

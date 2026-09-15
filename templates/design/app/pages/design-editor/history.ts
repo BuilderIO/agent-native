@@ -2,10 +2,13 @@ import type {
   CanvasFrameGeometry,
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import type { RefObject } from "react";
 import type * as Y from "yjs";
 
 import type { ElementInfo } from "@/components/design/types";
 
+import type { DesignDataOperation } from "./data-operations";
+import { captureHistorySelectionSources } from "./history-identity";
 import { selectionHistorySnapshotsEqual } from "./selection-state";
 
 export const MAX_DESIGN_UNDO_STACK = 50;
@@ -28,6 +31,8 @@ export const YJS_UNDO_SELECTION_META_KEY = "design-editor-selection-before";
 export interface YjsUndoSelectionSnapshot {
   selectedElement: ElementInfo | null;
   selectedLayerIds: string[];
+  sourceContentByFileId?: Record<string, string>;
+  sourceFileIdByFileId?: Record<string, string>;
 }
 
 /** Opaque handle on "whichever stack item was on top before a gesture's
@@ -131,6 +136,8 @@ export function forwardYjsUndoStackItemMeta(
 export interface GeometryHistorySelection {
   overviewSelectedScreenIds: string[];
   selectedLayerIds: string[];
+  sourceContentByFileId?: Record<string, string>;
+  sourceFileIdByFileId?: Record<string, string>;
   activeFileId: string | null;
 }
 
@@ -139,6 +146,7 @@ export interface GeometryHistoryEntry {
   after: CanvasFrameGeometryById;
   selectionBefore?: GeometryHistorySelection;
   selectionAfter?: GeometryHistorySelection;
+  linkedContentChanges?: ContentHistoryChange[];
 }
 
 /**
@@ -172,10 +180,24 @@ export interface FileDeletionHistorySnapshot {
   createdAt: string;
   updatedAt: string;
   geometry?: CanvasFrameGeometry;
+  screenMetadata?: Record<string, unknown>;
+  localhostScreen?: Record<string, unknown>;
+  variantMemberships?: FileDeletionVariantMembershipSnapshot[];
+}
+
+export interface FileDeletionVariantMembershipSnapshot {
+  setId: string;
+  set: Record<string, unknown>;
+  screen: unknown;
+  index: number;
+  originalScreenIds: string[];
 }
 
 export interface FileDeletionHistoryEntry {
   files: FileDeletionHistorySnapshot[];
+  // Failed cleanup left these files alive. Retain their created bytes and metadata
+  // until restoration completes, without creating them again.
+  restoredFiles?: FileDeletionHistorySnapshot[];
 }
 
 export function filterFileDeletionHistoryEntry(
@@ -183,6 +205,7 @@ export function filterFileDeletionHistoryEntry(
   fileIds: ReadonlySet<string>,
 ): FileDeletionHistoryEntry {
   return {
+    ...entry,
     files: entry.files.filter((file) => fileIds.has(file.id)),
   };
 }
@@ -190,12 +213,66 @@ export function filterFileDeletionHistoryEntry(
 export function remapFileDeletionHistoryEntryIds(
   entry: FileDeletionHistoryEntry,
   fileIds: readonly string[],
+  referencedFileIds: ReadonlyMap<string, string> = new Map(),
 ): FileDeletionHistoryEntry {
+  const idByOldId = new Map([
+    ...referencedFileIds,
+    ...entry.files.flatMap((file, index) => {
+      const id = fileIds[index];
+      return id ? [[file.id, id] as const] : [];
+    }),
+  ]);
+  const remapFile = (file: FileDeletionHistorySnapshot, id: string) => {
+    const remapScreen = (screen: unknown) => {
+      const oldId =
+        typeof screen === "string"
+          ? screen
+          : screen && typeof screen === "object" && !Array.isArray(screen)
+            ? (screen as Record<string, unknown>).id
+            : undefined;
+      const newId =
+        typeof oldId === "string" ? idByOldId.get(oldId) : undefined;
+      if (!newId) return screen;
+      return typeof screen === "string"
+        ? newId
+        : { ...(screen as Record<string, unknown>), id: newId };
+    };
+    return {
+      ...file,
+      id,
+      ...(file.variantMemberships
+        ? {
+            variantMemberships: file.variantMemberships.map((membership) => ({
+              ...membership,
+              set: {
+                ...membership.set,
+                ...(Array.isArray(membership.set.screens)
+                  ? {
+                      screens: membership.set.screens.map(remapScreen),
+                    }
+                  : {}),
+              },
+              originalScreenIds: membership.originalScreenIds.map(
+                (screenId) => idByOldId.get(screenId) ?? screenId,
+              ),
+              screen: remapScreen(membership.screen),
+            })),
+          }
+        : {}),
+    };
+  };
   return {
     files: entry.files.flatMap((file, index) => {
       const id = fileIds[index];
-      return id ? [{ ...file, id }] : [];
+      return id ? [remapFile(file, id)] : [];
     }),
+    ...(entry.restoredFiles
+      ? {
+          restoredFiles: entry.restoredFiles.map((file) =>
+            remapFile(file, idByOldId.get(file.id) ?? file.id),
+          ),
+        }
+      : {}),
   };
 }
 
@@ -292,10 +369,61 @@ export function geometryHistoryEntryTouchesFrameIds(
 export function pruneGeometryHistoryEntryForDeletedFiles(
   entry: GeometryHistoryEntry,
   deletedFileIds: Set<string>,
+  deletedLayerIds: ReadonlySet<string> = new Set(),
 ): GeometryHistoryEntry | null {
-  if (!geometryHistoryEntryTouchesFrameIds(entry, deletedFileIds)) {
-    return entry;
+  const linkedContentChanges = (entry.linkedContentChanges ?? []).filter(
+    (change) => !deletedFileIds.has(change.fileId),
+  );
+  const touchesDeletedGeometry = geometryHistoryEntryTouchesFrameIds(
+    entry,
+    deletedFileIds,
+  );
+  const deletedSelectionIds = new Set([...deletedFileIds, ...deletedLayerIds]);
+  const pruneSelection = (
+    selection: GeometryHistorySelection | undefined,
+  ): GeometryHistorySelection | undefined => {
+    if (!selection) return undefined;
+    const activeFileDeleted =
+      !!selection.activeFileId && deletedFileIds.has(selection.activeFileId);
+    const selectedLayerIds = activeFileDeleted
+      ? []
+      : selection.selectedLayerIds.filter((id) => !deletedSelectionIds.has(id));
+    const overviewSelectedScreenIds =
+      selection.overviewSelectedScreenIds.filter(
+        (fileId) => !deletedFileIds.has(fileId),
+      );
+    const unchanged =
+      selectedLayerIds.length === selection.selectedLayerIds.length &&
+      overviewSelectedScreenIds.length ===
+        selection.overviewSelectedScreenIds.length &&
+      activeFileDeleted === false;
+    if (unchanged) return selection;
+    return {
+      overviewSelectedScreenIds,
+      selectedLayerIds,
+      activeFileId: activeFileDeleted ? null : selection.activeFileId,
+    };
+  };
+
+  const selectionBefore = pruneSelection(entry.selectionBefore);
+  const selectionAfter = pruneSelection(entry.selectionAfter);
+  if (
+    !touchesDeletedGeometry &&
+    linkedContentChanges.length === (entry.linkedContentChanges?.length ?? 0)
+  ) {
+    if (
+      selectionBefore === entry.selectionBefore &&
+      selectionAfter === entry.selectionAfter
+    ) {
+      return entry;
+    }
+    return {
+      ...entry,
+      ...(entry.selectionBefore ? { selectionBefore } : {}),
+      ...(entry.selectionAfter ? { selectionAfter } : {}),
+    };
   }
+
   const before = { ...entry.before };
   const after = { ...entry.after };
   for (const frameId of deletedFileIds) {
@@ -310,35 +438,13 @@ export function pruneGeometryHistoryEntryForDeletedFiles(
       break;
     }
   }
-  if (!hasRemainingChange) return null;
-  const pruneSelection = (
-    selection: GeometryHistorySelection | undefined,
-  ): GeometryHistorySelection | undefined => {
-    if (!selection) return undefined;
-    const activeFileDeleted =
-      !!selection.activeFileId && deletedFileIds.has(selection.activeFileId);
-    return {
-      overviewSelectedScreenIds: selection.overviewSelectedScreenIds.filter(
-        (fileId) => !deletedFileIds.has(fileId),
-      ),
-      // Layer ids are scoped to the active file. Once that file is deleted,
-      // retaining them makes a later undo/redo try to restore selection to a
-      // non-existent iframe and can visibly snap the inspector/canvas before
-      // reconciliation clears it. If the active file survives, its layer ids
-      // remain valid and should be preserved.
-      selectedLayerIds: activeFileDeleted ? [] : selection.selectedLayerIds,
-      activeFileId: activeFileDeleted ? null : selection.activeFileId,
-    };
-  };
+  if (!hasRemainingChange && linkedContentChanges.length === 0) return null;
   return {
     before,
     after,
-    ...(entry.selectionBefore
-      ? { selectionBefore: pruneSelection(entry.selectionBefore)! }
-      : {}),
-    ...(entry.selectionAfter
-      ? { selectionAfter: pruneSelection(entry.selectionAfter)! }
-      : {}),
+    ...(entry.linkedContentChanges ? { linkedContentChanges } : {}),
+    ...(entry.selectionBefore ? { selectionBefore } : {}),
+    ...(entry.selectionAfter ? { selectionAfter } : {}),
   };
 }
 
@@ -382,6 +488,10 @@ export interface ContentHistoryChange {
   fileId: string;
   before: string;
   after: string;
+  designDataChange?: {
+    undo: DesignDataOperation[];
+    redo: DesignDataOperation[];
+  };
   /** Agent-authored replacement checkpoint. Prevents the next user edit's
    * fallback mirror from coalescing backward through this entry, which would
    * collapse the agent state out of the undo stack and make a single Cmd+Z
@@ -399,6 +509,7 @@ export interface ContentHistoryChange {
 
 export interface ContentHistoryGroup {
   changes: ContentHistoryChange[];
+  linkedComponent?: true;
 }
 
 export type ContentHistoryEntry = ContentHistoryChange | ContentHistoryGroup;
@@ -453,7 +564,18 @@ export function stampContentHistorySelectionAfter(
 ): void {
   const top = stack[stack.length - 1];
   if (!top || top === previousTop) return;
-  afterMap.set(top, after);
+  afterMap.set(
+    top,
+    captureHistorySelectionSources(after, {
+      ...after.sourceContentByFileId,
+      ...Object.fromEntries(
+        getContentHistoryChanges(top).map((change) => [
+          change.fileId,
+          change.after,
+        ]),
+      ),
+    }),
+  );
 }
 
 export interface PendingTextCreationHistory {
@@ -499,6 +621,16 @@ export function getContentHistoryChanges(
   return "changes" in entry ? entry.changes : [entry];
 }
 
+export function hasContentHistoryChange(change: ContentHistoryChange): boolean {
+  return (
+    change.before !== change.after ||
+    Boolean(
+      change.designDataChange?.undo.length ||
+      change.designDataChange?.redo.length,
+    )
+  );
+}
+
 export function getAvailableContentHistoryChanges(
   entry: ContentHistoryEntry,
   availableFileIds: Iterable<string>,
@@ -515,8 +647,10 @@ export function getAvailableContentHistoryChanges(
 
 export function contentHistoryEntryFromChanges(
   changes: ContentHistoryChange[],
+  linkedComponent = false,
 ): ContentHistoryEntry | null {
   if (changes.length === 0) return null;
+  if (linkedComponent) return { changes, linkedComponent: true };
   if (changes.length === 1) return changes[0]!;
   return { changes };
 }
@@ -587,4 +721,86 @@ export function mergeLocalContentHistoryFallback(
     return [...stack.slice(0, -1), { ...last, after: change.after }];
   }
   return [...stack.slice(-(MAX_DESIGN_UNDO_STACK - 1)), change];
+}
+
+export interface ContentHistoryReservation {
+  commit: (changes: ContentHistoryChange[]) => void;
+  cancel: () => void;
+}
+
+/** Reserve the gesture's actual stack position before its source action awaits I/O. */
+export function reserveLinkedComponentContentHistory<T extends string>(args: {
+  stack: RefObject<ContentHistoryEntry[]>;
+  selections: RefObject<(GeometryHistorySelection | undefined)[]>;
+  order: RefObject<T[]>;
+  selection: GeometryHistorySelection;
+  after?: RefObject<ContentHistorySelectionAfterMap>;
+  clearRedoStacks?: () => void;
+}): ContentHistoryReservation {
+  const entry: ContentHistoryGroup = { changes: [], linkedComponent: true };
+  args.stack.current = [
+    ...args.stack.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+    entry,
+  ];
+  args.selections.current = [
+    ...args.selections.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+    args.selection,
+  ];
+  args.order.current = [
+    ...args.order.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+    "file-content" as T,
+  ];
+  const cancel = () => {
+    const index = args.stack.current.indexOf(entry);
+    if (index < 0) return;
+    // Order tokens are kinds, so locate the entry's token from the aligned content stack.
+    let remaining = args.stack.current.length - index;
+    for (
+      let position = args.order.current.length - 1;
+      position >= 0;
+      position--
+    ) {
+      if (
+        args.order.current[position] === "file-content" &&
+        --remaining === 0
+      ) {
+        args.order.current.splice(position, 1);
+        break;
+      }
+    }
+    args.stack.current.splice(index, 1);
+    args.selections.current.splice(index, 1);
+  };
+  return {
+    cancel,
+    commit: (changes) => {
+      const persistedChanges = changes.filter(hasContentHistoryChange);
+      if (persistedChanges.length === 0) {
+        cancel();
+        return;
+      }
+      args.clearRedoStacks?.();
+      const index = args.stack.current.indexOf(entry);
+      if (index < 0) return;
+      entry.changes = persistedChanges;
+      args.selections.current[index] = captureHistorySelectionSources(
+        args.selection,
+        {
+          ...args.selection.sourceContentByFileId,
+          ...Object.fromEntries(
+            changes.map(({ fileId, before }) => [fileId, before]),
+          ),
+        },
+      );
+      args.after?.current.set(
+        entry,
+        captureHistorySelectionSources(args.selection, {
+          ...args.selection.sourceContentByFileId,
+          ...Object.fromEntries(
+            changes.map(({ fileId, after }) => [fileId, after]),
+          ),
+        }),
+      );
+    },
+  };
 }

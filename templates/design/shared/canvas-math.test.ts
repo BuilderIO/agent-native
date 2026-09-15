@@ -123,6 +123,61 @@ describe("canvas snap and resize math", () => {
     ).toEqual({ x: 130, y: 100, width: 120, height: 150 });
   });
 
+  it("clamps a resized frame to maximum bounds while preserving the anchor", () => {
+    const origin = { x: 20, y: 30, width: 360, height: 315 };
+
+    expect(
+      resizeFrameFromDelta(origin, "e", 100, 0, {
+        minWidth: 24,
+        maxWidth: 400,
+      }),
+    ).toEqual({ ...origin, width: 400 });
+    expect(
+      resizeFrameFromDelta(origin, "w", -100, 0, {
+        minWidth: 24,
+        maxWidth: 400,
+      }),
+    ).toEqual({ ...origin, x: -20, width: 400 });
+  });
+
+  it("combines per-frame min/max limits when resizing a Screen group", () => {
+    const frames = [
+      { id: "a", geometry: { x: 0, y: 0, width: 360, height: 315 } },
+      { id: "b", geometry: { x: 400, y: 0, width: 300, height: 315 } },
+    ];
+    const result = resizeFrameGroupFromDelta(
+      frames,
+      { x: 0, y: 0, width: 700, height: 315 },
+      "e",
+      300,
+      0,
+      {
+        minWidth: 1,
+        minHeight: 1,
+        frameSizeBoundsById: {
+          a: { maxWidth: 400 },
+          b: { maxWidth: 400 },
+        },
+      },
+    );
+
+    expect(result.bounds.width).toBeCloseTo(700 * (400 / 360));
+    expect(result.frames[0]?.geometry.width).toBeCloseTo(400);
+    expect(result.frames[1]?.geometry.width).toBeCloseTo(400 * (300 / 360));
+  });
+
+  it("does not snap a frame beyond its maximum width", () => {
+    const snap = computeResizeSnap(
+      { x: 0, y: 0, width: 398, height: 100 },
+      [{ id: "target", geometry: { x: 405, y: 0, width: 120, height: 120 } }],
+      "e",
+      { thresholdScreenPx: 10, zoom: 100, minWidth: 1, maxWidth: 400 },
+    );
+
+    expect(snap.frame.width).toBe(400);
+    expect(snap.guides).toEqual([]);
+  });
+
   it("snaps resizing edges to sibling edges", () => {
     const snap = computeResizeSnap(
       { x: 0, y: 0, width: 198, height: 100 },
@@ -2164,8 +2219,8 @@ describe("canvas nudge math", () => {
     });
     expect(getNudgeDelta("ArrowDown", { shiftKey: true })).toEqual({
       dx: 0,
-      dy: 8,
-      step: 8,
+      dy: 10,
+      step: 10,
       snap: { bypass: false, reason: null },
     });
   });

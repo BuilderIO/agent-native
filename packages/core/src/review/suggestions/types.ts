@@ -71,6 +71,7 @@ export interface SuggestionAdapter {
     resourceId: string;
     baseRevision: string;
     operations: SuggestionOperation[];
+    metadata?: Record<string, unknown> | null;
     ctx?: Record<string, unknown>;
   }): Promise<void | SuggestionOperation[]> | void | SuggestionOperation[];
   preview?(context: SuggestionContext): Promise<unknown> | unknown;

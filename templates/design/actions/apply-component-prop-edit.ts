@@ -41,8 +41,11 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   prepareInlineSourceEdit,
+  readLiveSourceFile,
   SourceWorkspaceEditConflictError,
+  resolveSourceWorkspace,
   writeInlineSourceFile,
+  writeInlineSourceFilesBatch,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
 import {
@@ -52,10 +55,19 @@ import {
 import type { CodeLayerSource, ClassEditIntent } from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
+  applyComponentPropertyEdit,
+  linkedComponentRootForNode,
+  resetComponentInstanceOverrides,
+  type ComponentPropertyEdit,
+  type ComponentPropertyTransformResult,
+  type ComponentSourceDocument,
+} from "../shared/component-links.js";
+import {
   componentNameFor,
   componentNodeIdMatches,
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -101,7 +113,10 @@ export function applyRootAttributeEdit(
 
   let newOpenTag: string;
   if (attrRe.test(openTag)) {
-    newOpenTag = openTag.replace(attrRe, `$1"${escaped}"`);
+    newOpenTag = openTag.replace(
+      attrRe,
+      (_match, prefix: string) => `${prefix}"${escaped}"`,
+    );
   } else {
     const insertOffset = openTag.endsWith("/>")
       ? openTag.length - 2
@@ -163,6 +178,335 @@ async function persistEdit(file: {
   }
 }
 
+async function persistLinkedComponentEdit(args: {
+  designId: string;
+  nodeId: string;
+  fileId: string;
+  edit:
+    | ComponentPropertyEdit
+    | { kind: "styleBatch"; values: Record<string, string> }
+    | {
+        kind: "styleTargetsBatch";
+        targets: Array<{
+          fileId: string;
+          nodeId: string;
+          styles: Record<string, string>;
+        }>;
+      }
+    | { kind: "resetOverrides" };
+  expectedFiles: Array<{ fileId: string; versionHash: string }>;
+}): Promise<Record<string, unknown>> {
+  const workspace = await resolveSourceWorkspace(args.designId, {
+    includeContent: true,
+    includeBoard: true,
+  });
+  if (workspace.sourceType !== "inline") {
+    return {
+      designId: args.designId,
+      nodeId: args.nodeId,
+      persisted: false,
+      ctaRequired: true,
+      sourceType: workspace.sourceType,
+      error: "Linked component edits require inline design files.",
+    };
+  }
+
+  const files = workspace.files.filter((file) => file.fileType === "html");
+  const expected = new Map(
+    args.expectedFiles.map(({ fileId, versionHash }) => [fileId, versionHash]),
+  );
+  if (
+    expected.size !== files.length ||
+    files.some((file) => !expected.has(file.id))
+  ) {
+    return {
+      designId: args.designId,
+      nodeId: args.nodeId,
+      persisted: false,
+      conflict: true,
+      error:
+        "The editor's source file set changed. Refresh the design and retry.",
+    };
+  }
+
+  const liveFiles = await Promise.all(
+    files.map(async (file) => ({ file, ...(await readLiveSourceFile(file)) })),
+  );
+  if (
+    liveFiles.some(
+      ({ file, versionHash }) => expected.get(file.id) !== versionHash,
+    )
+  ) {
+    return {
+      designId: args.designId,
+      nodeId: args.nodeId,
+      persisted: false,
+      conflict: true,
+      error:
+        "A source file changed since this component edit was prepared. Refresh the design and retry.",
+    };
+  }
+
+  const documents: ComponentSourceDocument[] = liveFiles.map(
+    ({ file, content }) => ({
+      source: {
+        kind: "design-file",
+        designId: args.designId,
+        fileId: file.id,
+        filename: file.filename,
+      },
+      content,
+    }),
+  );
+  let transformed: ComponentPropertyTransformResult | null = null;
+  if (args.edit.kind === "resetOverrides") {
+    transformed = resetComponentInstanceOverrides({
+      documents,
+      instance: { fileId: args.fileId, nodeId: args.nodeId },
+    });
+  } else if (args.edit.kind === "styleBatch") {
+    let currentDocuments = documents;
+    let componentId = "";
+    const originalByFileId = new Map(
+      documents.map((document) => [document.source.fileId!, document]),
+    );
+    for (const [property, value] of Object.entries(args.edit.values)) {
+      const next = applyComponentPropertyEdit({
+        documents: currentDocuments,
+        target: { fileId: args.fileId, nodeId: args.nodeId },
+        edit: { kind: "style", property, value },
+      });
+      if (next.status !== "updated") {
+        transformed = next;
+        break;
+      }
+      componentId = next.componentId;
+      const changesByFileId = new Map(
+        next.changes.map((change) => [change.fileId, change.after]),
+      );
+      currentDocuments = currentDocuments.map((document) => ({
+        ...document,
+        content:
+          changesByFileId.get(document.source.fileId ?? "") ?? document.content,
+      }));
+    }
+    if (!transformed) {
+      transformed = {
+        status: "updated",
+        componentId,
+        changes: currentDocuments.flatMap((document) => {
+          const fileId = document.source.fileId ?? "";
+          const before = originalByFileId.get(fileId)?.content;
+          return before === undefined || before === document.content
+            ? []
+            : [
+                {
+                  fileId,
+                  source: document.source,
+                  before,
+                  after: document.content,
+                },
+              ];
+        }),
+      };
+    }
+  } else if (args.edit.kind === "styleTargetsBatch") {
+    let currentDocuments = documents;
+    let componentId = "";
+    for (const target of args.edit.targets) {
+      const targetDocument = currentDocuments.find(
+        (document) => document.source.fileId === target.fileId,
+      );
+      if (!targetDocument) {
+        transformed = { status: "missing-file", fileId: target.fileId };
+        break;
+      }
+      const projection = buildCodeLayerProjection(targetDocument.content, {
+        source: targetDocument.source,
+      });
+      const node = projection.nodes.find((candidate) =>
+        componentNodeIdMatches(candidate, target.nodeId),
+      );
+      if (!node) {
+        transformed = {
+          status: "missing-node",
+          fileId: target.fileId,
+          nodeId: target.nodeId,
+        };
+        break;
+      }
+      const linked = linkedComponentRootForNode(node, projection) !== null;
+      for (const [property, value] of Object.entries(target.styles)) {
+        if (linked) {
+          const next = applyComponentPropertyEdit({
+            documents: currentDocuments,
+            target: { fileId: target.fileId, nodeId: target.nodeId },
+            edit: { kind: "style", property, value },
+          });
+          if (next.status !== "updated") {
+            transformed = next;
+            break;
+          }
+          componentId = next.componentId;
+          const changesByFileId = new Map(
+            next.changes.map((change) => [change.fileId, change.after]),
+          );
+          currentDocuments = currentDocuments.map((document) => ({
+            ...document,
+            content:
+              changesByFileId.get(document.source.fileId ?? "") ??
+              document.content,
+          }));
+        } else {
+          const targetSource = currentDocuments.find(
+            (document) => document.source.fileId === target.fileId,
+          )!;
+          const patch = applyVisualEdit(
+            targetSource.content,
+            {
+              kind: "style",
+              target: { nodeId: target.nodeId },
+              property,
+              value,
+            },
+            { source: targetSource.source },
+          );
+          if (patch.result.status !== "applied") {
+            transformed = {
+              status: "edit-refused",
+              fileId: target.fileId,
+              nodeId: target.nodeId,
+              message: patch.result.message,
+            };
+            break;
+          }
+          currentDocuments = currentDocuments.map((document) =>
+            document.source.fileId === target.fileId
+              ? { ...document, content: patch.content }
+              : document,
+          );
+        }
+      }
+      if (transformed) break;
+    }
+    if (!transformed && !componentId) {
+      const firstTarget = args.edit.targets[0];
+      transformed = {
+        status: "not-linked",
+        fileId: firstTarget?.fileId,
+        nodeId: firstTarget?.nodeId,
+      };
+    }
+    if (!transformed) {
+      const originalByFileId = new Map(
+        documents.map((document) => [document.source.fileId!, document]),
+      );
+      transformed = {
+        status: "updated",
+        componentId,
+        changes: currentDocuments.flatMap((document) => {
+          const fileId = document.source.fileId ?? "";
+          const before = originalByFileId.get(fileId)?.content;
+          return before === undefined || before === document.content
+            ? []
+            : [
+                {
+                  fileId,
+                  source: document.source,
+                  before,
+                  after: document.content,
+                },
+              ];
+        }),
+      };
+    }
+  } else {
+    transformed = applyComponentPropertyEdit({
+      documents,
+      target: { fileId: args.fileId, nodeId: args.nodeId },
+      edit: args.edit,
+    });
+  }
+  if (transformed.status !== "updated") {
+    return {
+      designId: args.designId,
+      nodeId: args.nodeId,
+      persisted: false,
+      transformStatus: transformed.status,
+      error:
+        transformed.message ??
+        `Linked component edit failed: ${transformed.status}.`,
+    };
+  }
+
+  const updated = new Map(
+    transformed.changes.map((change) => [change.fileId, change.after]),
+  );
+  const fileById = new Map(liveFiles.map(({ file }) => [file.id, file]));
+  const batches = liveFiles.map(({ file, content, versionHash }) => ({
+    file: { ...file, content },
+    content: updated.get(file.id) ?? content,
+    expectedVersionHash: versionHash,
+  }));
+  const entered = [...files].map((file) => file.id).sort();
+  for (const id of entered) agentEnterDocument(id);
+  try {
+    const persisted = await writeInlineSourceFilesBatch({
+      designId: args.designId,
+      files: batches,
+    });
+    const persistedById = new Map(
+      persisted.files.map((file) => [file.id, file]),
+    );
+    const changes = transformed.changes.map((change) => {
+      const file = persistedById.get(change.fileId);
+      return {
+        ...change,
+        beforeVersionHash: sourceContentHash(change.before),
+        afterVersionHash: file?.versionHash,
+        updatedAt: file?.updatedAt,
+      };
+    });
+    const sourceBases = persisted.files.map((file) => ({
+      fileId: file.id,
+      versionHash: file.versionHash,
+      updatedAt: file.updatedAt,
+    }));
+    const targetFile = fileById.get(args.fileId);
+    const targetDocument = documents.find(
+      ({ source }) => source.fileId === args.fileId,
+    );
+    const targetNode = targetDocument
+      ? buildCodeLayerProjection(targetDocument.content, {
+          source: targetDocument.source,
+        }).nodes.find((node) => componentNodeIdMatches(node, args.nodeId))
+      : undefined;
+    if (targetFile && targetNode) {
+      agentUpdateSelection(args.fileId, {
+        selection: agentSelectionDescriptor(
+          { nodeId: args.nodeId, selector: targetNode.selector },
+          "Editing component",
+        ),
+        nodeId: args.nodeId,
+        editingFile: targetFile.filename,
+        designId: args.designId,
+      });
+    }
+    return {
+      designId: args.designId,
+      nodeId: args.nodeId,
+      componentId: transformed.componentId,
+      persisted: changes.length > 0,
+      ctaRequired: false,
+      fileId: args.fileId,
+      changes,
+      sourceBases,
+    };
+  } finally {
+    for (const id of entered) agentLeaveDocument(id);
+  }
+}
+
 // ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
@@ -211,6 +555,40 @@ export default defineAction({
           from: z.string().describe("Existing Tailwind class to remove"),
           to: z.string().describe("Replacement Tailwind class to add"),
         }),
+        z.object({
+          kind: z.literal("style"),
+          property: z.string().min(1),
+          value: z.string(),
+        }),
+        z.object({
+          kind: z.literal("styleBatch"),
+          values: z
+            .record(z.string(), z.string())
+            .refine((values) => Object.keys(values).length > 0),
+        }),
+        z.object({
+          kind: z.literal("styleTargetsBatch"),
+          targets: z
+            .array(
+              z.object({
+                fileId: z.string().min(1),
+                nodeId: z.string().min(1),
+                styles: z
+                  .record(z.string(), z.string())
+                  .refine((styles) => Object.keys(styles).length > 0),
+              }),
+            )
+            .min(1),
+        }),
+        z.object({
+          kind: z.literal("textContent"),
+          value: z.string(),
+        }),
+        z.object({
+          kind: z.literal("layerName"),
+          value: z.string(),
+        }),
+        z.object({ kind: z.literal("resetOverrides") }),
       ])
       .describe("The prop edit to apply"),
     source: z
@@ -226,6 +604,18 @@ export default defineAction({
           .optional()
           .describe(
             "design_files.updatedAt value the currentContent is based on.",
+          ),
+        expectedFiles: z
+          .array(
+            z.object({
+              fileId: z.string().min(1),
+              versionHash: z.string().min(1),
+            }),
+          )
+          .min(1)
+          .optional()
+          .describe(
+            "Exact source version hashes for every HTML file in the Design. Required for linked property edits.",
           ),
       })
       .optional(),
@@ -262,6 +652,73 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
     const db = getDb();
+
+    if (edit.kind === "styleTargetsBatch") {
+      const firstTarget = edit.targets[0];
+      const targetKeys = edit.targets.map(
+        (target) => `${target.fileId}\u0000${target.nodeId}`,
+      );
+      if (
+        !fileId ||
+        firstTarget?.fileId !== fileId ||
+        firstTarget.nodeId !== nodeId ||
+        new Set(targetKeys).size !== targetKeys.length
+      ) {
+        return {
+          designId,
+          nodeId,
+          persisted: false,
+          error:
+            "The selected style targets are incomplete or duplicated. Refresh and retry.",
+        };
+      }
+    }
+
+    if (
+      edit.kind === "style" ||
+      edit.kind === "styleBatch" ||
+      edit.kind === "styleTargetsBatch" ||
+      edit.kind === "textContent" ||
+      edit.kind === "layerName" ||
+      edit.kind === "resetOverrides"
+    ) {
+      if (!fileId || !source?.expectedFiles) {
+        return {
+          designId,
+          nodeId,
+          persisted: false,
+          conflict: true,
+          error:
+            "Linked edits require the target file and exact source versions. Refresh the design and retry.",
+        };
+      }
+      const linkedEdit:
+        | ComponentPropertyEdit
+        | { kind: "styleBatch"; values: Record<string, string> }
+        | {
+            kind: "styleTargetsBatch";
+            targets: Array<{
+              fileId: string;
+              nodeId: string;
+              styles: Record<string, string>;
+            }>;
+          }
+        | { kind: "resetOverrides" } =
+        edit.kind === "style" ||
+        edit.kind === "textContent" ||
+        edit.kind === "layerName"
+          ? edit
+          : edit.kind === "styleBatch" || edit.kind === "styleTargetsBatch"
+            ? edit
+            : { kind: "resetOverrides" };
+      return persistLinkedComponentEdit({
+        designId,
+        nodeId,
+        fileId,
+        edit: linkedEdit,
+        expectedFiles: source.expectedFiles,
+      });
+    }
 
     // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [

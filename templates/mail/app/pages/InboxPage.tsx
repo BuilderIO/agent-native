@@ -48,6 +48,10 @@ import {
   inboxThreadKey,
   savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
+import {
+  buildForwardDraft,
+  buildReplyDraft,
+} from "@/lib/message-draft-builders";
 import { savedEmailDraftMetadata } from "@/lib/saved-draft";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -352,7 +356,14 @@ export function InboxPage() {
     : "";
 
   const googleStatus = useGoogleAuthStatus();
-  const { activeAccounts } = useAccountFilter();
+  const { activeAccounts, allAccounts } = useAccountFilter();
+  const myEmails = useMemo(() => {
+    const emails = new Set(
+      allAccounts.map((account) => account.email.toLowerCase()),
+    );
+    if (settings?.email) emails.add(settings.email.toLowerCase());
+    return emails;
+  }, [allAccounts, settings?.email]);
   const { data: labelsData, accountErrors: labelAccountErrors } = useLabels(
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
@@ -934,35 +945,16 @@ export function InboxPage() {
   }, [optimisticThreadId, threads]);
 
   const handleCompose = useCallback(
-    (email: EmailMessage, mode: "reply" | "forward") => {
-      if (mode === "reply") {
-        compose.open({
-          to: email.from.email,
-          subject: email.subject.startsWith("Re:")
-            ? email.subject
-            : `Re: ${email.subject}`,
-          body: `\n\n\n\n— On ${new Date(email.date).toLocaleDateString()}, ${email.from.name || email.from.email} wrote:\n\n${email.body
-            .split("\n")
-            .map((l) => `> ${l}`)
-            .join("\n")}`,
-          mode: "reply",
-          replyToId: email.id,
-          replyToThreadId: email.threadId,
-        });
-      } else {
-        compose.open({
-          to: "",
-          subject: email.subject.startsWith("Fwd:")
-            ? email.subject
-            : `Fwd: ${email.subject}`,
-          body: `\n\n\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
-          mode: "forward",
-          replyToId: email.id,
-          replyToThreadId: email.threadId,
-        });
+    (email: EmailMessage, mode: "reply" | "replyAll" | "forward") => {
+      if (mode === "forward") {
+        compose.open(buildForwardDraft(email, myEmails));
+        return;
       }
+      compose.open(
+        buildReplyDraft(email, myEmails, { replyAll: mode === "replyAll" }),
+      );
     },
-    [compose],
+    [compose, myEmails],
   );
 
   // Open a saved draft in the compose window

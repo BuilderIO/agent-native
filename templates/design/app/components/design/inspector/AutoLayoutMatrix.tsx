@@ -303,6 +303,7 @@ export interface AutoLayoutMatrixProps {
     Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>
   >;
   showChildLayoutControls?: boolean;
+  showSizingControls?: boolean;
   labels?: Partial<AutoLayoutMatrixLabels>;
   disabled?: boolean;
   className?: string;
@@ -378,6 +379,7 @@ export function AutoLayoutMatrix({
   onChildSizeChange,
   availableChildSizing,
   showChildLayoutControls = true,
+  showSizingControls = true,
   labels,
   disabled = false,
   className,
@@ -532,94 +534,96 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {/* ── Resizing ── */}
-        <InspectorGrid
-          className="design-sidebar-property-grid items-start"
-          layout="label-action-pair"
-        >
-          <InspectorGridCell span={28}>
-            <ControlLabel>
-              {"Resizing" /* i18n-ignore design inspector label */}
-            </ControlLabel>
-          </InspectorGridCell>
-          <InspectorGridCell span={11}>
-            <SizingField
-              axis="W"
-              sizingAxis="horizontal"
-              value={value.childSizing.horizontal}
-              resolvedSize={value.resolvedSize?.horizontal}
-              mixed={Boolean(value.mixedSize?.horizontal)}
-              minMax={value.childMinMax?.horizontal}
-              options={resolveSizingOptions(
-                availableChildSizing?.horizontal,
-                value.childSizing.horizontal,
-              )}
-              labels={copy}
-              disabled={disabled}
-              onChange={(next) => onChildSizingChange("horizontal", next)}
-              onSizeChange={
-                onChildSizeChange
-                  ? (px, meta) => onChildSizeChange("horizontal", px, meta)
-                  : undefined
-              }
-              onMinMaxChange={onChildMinMaxChange}
-              onApplyVariable={onApplyVariable}
-            />
-          </InspectorGridCell>
-          <InspectorGridCell span={1} ariaHidden />
-          <InspectorGridCell span={11}>
-            <SizingField
-              axis="H"
-              sizingAxis="vertical"
-              value={value.childSizing.vertical}
-              resolvedSize={value.resolvedSize?.vertical}
-              mixed={Boolean(value.mixedSize?.vertical)}
-              minMax={value.childMinMax?.vertical}
-              options={resolveSizingOptions(
-                availableChildSizing?.vertical,
-                value.childSizing.vertical,
-              )}
-              labels={copy}
-              disabled={disabled}
-              onChange={(next) => onChildSizingChange("vertical", next)}
-              onSizeChange={
-                onChildSizeChange
-                  ? (px, meta) => onChildSizeChange("vertical", px, meta)
-                  : undefined
-              }
-              onMinMaxChange={onChildMinMaxChange}
-              onApplyVariable={onApplyVariable}
-            />
-          </InspectorGridCell>
-          <InspectorGridCell span={1} ariaHidden />
-          <InspectorGridCell span={4} className="flex justify-center">
-            {canResizeToFit ? (
-              /* Resize-to-fit only applies when both axes have measurable content. */
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={disabled}
-                    aria-label={
-                      "Resize to fit" /* i18n-ignore inspector tooltip */
-                    }
-                    onClick={() => {
-                      onChildSizingChange("horizontal", "hug");
-                      onChildSizingChange("vertical", "hug");
-                    }}
-                    className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
-                  >
-                    <IconArrowsDiagonalMinimize2 className="size-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {"Resize to fit" /* i18n-ignore inspector tooltip */}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
-          </InspectorGridCell>
-        </InspectorGrid>
+        {showSizingControls ? (
+          <InspectorGrid
+            className="design-sidebar-property-grid items-start"
+            layout="label-action-pair"
+          >
+            <InspectorGridCell span={28}>
+              <ControlLabel>
+                {"Resizing" /* i18n-ignore design inspector label */}
+              </ControlLabel>
+            </InspectorGridCell>
+            <InspectorGridCell span={11}>
+              <SizingField
+                axis="W"
+                sizingAxis="horizontal"
+                value={value.childSizing.horizontal}
+                resolvedSize={value.resolvedSize?.horizontal}
+                mixed={Boolean(value.mixedSize?.horizontal)}
+                minMax={value.childMinMax?.horizontal}
+                options={resolveSizingOptions(
+                  availableChildSizing?.horizontal,
+                  value.childSizing.horizontal,
+                )}
+                labels={copy}
+                disabled={disabled}
+                onChange={(next) => onChildSizingChange("horizontal", next)}
+                onSizeChange={
+                  onChildSizeChange
+                    ? (px, meta) => onChildSizeChange("horizontal", px, meta)
+                    : undefined
+                }
+                onMinMaxChange={onChildMinMaxChange}
+                onApplyVariable={onApplyVariable}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell span={1} ariaHidden />
+            <InspectorGridCell span={11}>
+              <SizingField
+                axis="H"
+                sizingAxis="vertical"
+                value={value.childSizing.vertical}
+                resolvedSize={value.resolvedSize?.vertical}
+                mixed={Boolean(value.mixedSize?.vertical)}
+                minMax={value.childMinMax?.vertical}
+                options={resolveSizingOptions(
+                  availableChildSizing?.vertical,
+                  value.childSizing.vertical,
+                )}
+                labels={copy}
+                disabled={disabled}
+                onChange={(next) => onChildSizingChange("vertical", next)}
+                onSizeChange={
+                  onChildSizeChange
+                    ? (px, meta) => onChildSizeChange("vertical", px, meta)
+                    : undefined
+                }
+                onMinMaxChange={onChildMinMaxChange}
+                onApplyVariable={onApplyVariable}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell span={1} ariaHidden />
+            <InspectorGridCell span={4} className="flex justify-center">
+              {canResizeToFit ? (
+                /* Resize-to-fit only applies when both axes have measurable content. */
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={disabled}
+                      aria-label={
+                        "Resize to fit" /* i18n-ignore inspector tooltip */
+                      }
+                      onClick={() => {
+                        onChildSizingChange("horizontal", "hug");
+                        onChildSizingChange("vertical", "hug");
+                      }}
+                      className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                    >
+                      <IconArrowsDiagonalMinimize2 className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {"Resize to fit" /* i18n-ignore inspector tooltip */}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </InspectorGridCell>
+          </InspectorGrid>
+        ) : null}
 
         {showChildLayoutControls &&
         !isBlock &&
@@ -1797,6 +1801,10 @@ export interface SizingFieldProps {
   /** Currently-set min/max constraints (px). */
   minMax?: SizingFieldMinMax;
   options?: AutoLayoutSizing[];
+  /** Optional Auto mode used by root frames with intrinsic sizing. */
+  autoMode?: { active: boolean; label: string; onSelect: () => void };
+  /** Hide constraints and variables when this field represents a frame size. */
+  showAdvancedOptions?: boolean;
   /** Optional label overrides; English defaults are used for any omitted key. */
   labels?: Partial<AutoLayoutMatrixLabels>;
   disabled: boolean;
@@ -1845,6 +1853,8 @@ export function SizingField({
   mixed = false,
   minMax,
   options = SIZING_OPTIONS,
+  autoMode,
+  showAdvancedOptions = true,
   labels: labelOverrides,
   disabled,
   onChange,
@@ -1865,7 +1875,8 @@ export function SizingField({
 
   // design rule: when Fixed, show ONLY the numeric value + chevron (no word).
   // When Hug / Fill, show value + the mode word.
-  const showWord = value !== "fixed";
+  const showWord = Boolean(autoMode?.active) || value !== "fixed";
+  const modeLabel = autoMode?.active ? autoMode.label : labels[value];
   // An unmeasurable size prints nothing rather than a stale number: the mode
   // word alone is true, "437" next to it is not.
   const sizeText = mixed
@@ -1901,14 +1912,14 @@ export function SizingField({
       <SizingMenuItem
         icon={<IconSizingFixed />}
         label={labels.fixed}
-        active={value === "fixed"}
+        active={!autoMode?.active && value === "fixed"}
         onSelect={() => onChange("fixed")}
       />
       {canHug ? (
         <SizingMenuItem
           icon={<IconSizingHug />}
           label={labels.hugContents}
-          active={value === "hug"}
+          active={!autoMode?.active && value === "hug"}
           onSelect={() => onChange("hug")}
         />
       ) : null}
@@ -1916,13 +1927,21 @@ export function SizingField({
         <SizingMenuItem
           icon={<IconSizingFill />}
           label={labels.fillContainer}
-          active={value === "fill"}
+          active={!autoMode?.active && value === "fill"}
           onSelect={() => onChange("fill")}
+        />
+      ) : null}
+      {autoMode ? (
+        <SizingMenuItem
+          icon={<IconSizingFixed />}
+          label={autoMode.label}
+          active={autoMode.active}
+          onSelect={autoMode.onSelect}
         />
       ) : null}
 
       {/* ── Min / Max ── */}
-      {onMinMaxChange ? (
+      {showAdvancedOptions && onMinMaxChange ? (
         <>
           <DropdownMenuSeparator />
           <SizingMenuItem
@@ -1943,13 +1962,17 @@ export function SizingField({
       ) : null}
 
       {/* ── Variable ── */}
-      <DropdownMenuSeparator />
-      <SizingMenuItem
-        icon={<IconSizingVariable />}
-        label={labels.applyVariable}
-        disabled={!onApplyVariable}
-        onSelect={() => onApplyVariable?.(sizingAxis)}
-      />
+      {showAdvancedOptions ? (
+        <>
+          <DropdownMenuSeparator />
+          <SizingMenuItem
+            icon={<IconSizingVariable />}
+            label={labels.applyVariable}
+            disabled={!onApplyVariable}
+            onSelect={() => onApplyVariable?.(sizingAxis)}
+          />
+        </>
+      ) : null}
     </DropdownMenuContent>
   );
 
@@ -1996,7 +2019,7 @@ export function SizingField({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    aria-label={`${axis} sizing mode — ${labels[value]}`}
+                    aria-label={`${axis} sizing mode — ${modeLabel}`}
                     disabled={disabled}
                     className={cn(
                       "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
@@ -2009,7 +2032,7 @@ export function SizingField({
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>
-                {`${axis} · ${labels[value]} — click to change sizing mode`}
+                {`${axis} · ${modeLabel} — click to change sizing mode`}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -2026,7 +2049,7 @@ export function SizingField({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  aria-label={`${axis} ${sizeText} ${labels[value]}`}
+                  aria-label={`${axis} ${sizeText} ${modeLabel}`}
                   disabled={disabled}
                   className={cn(
                     "flex h-6 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
@@ -2050,7 +2073,7 @@ export function SizingField({
                   {/* Mode word (Hug/Fill only) */}
                   {showWord ? (
                     <span className="shrink-0 truncate text-muted-foreground">
-                      {labels[value]}
+                      {modeLabel}
                     </span>
                   ) : null}
                   {/* Caret */}
@@ -2060,7 +2083,7 @@ export function SizingField({
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>{`${axis} · ${labels[value]} — click to change sizing mode`}</TooltipContent>
+            <TooltipContent>{`${axis} · ${modeLabel} — click to change sizing mode`}</TooltipContent>
           </Tooltip>
           {dropdownContent}
         </DropdownMenu>

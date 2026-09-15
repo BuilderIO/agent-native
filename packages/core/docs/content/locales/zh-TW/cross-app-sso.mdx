@@ -1,15 +1,17 @@
 ---
 title: "跨應用程式 SSO"
-description: "記錄 Desktop 工作區 SSO 與伺服器端組織聯邦的剩餘行為。瀏覽器中的 Agent-Native 登入已移除。"
+description: "區分組織 OIDC 或 SAML 登入與跨應用程式身分聯邦。"
 ---
 
-# 跨應用程式 SSO
+# 組織 SSO 與跨應用程式聯邦
+
+組織 SSO 透過公司的 OIDC 或 SAML 身分提供者驗證使用者登入單一 Agent-Native 部署。跨應用程式聯邦則在不同部署間傳遞已驗證的身分或組織內容。兩者的設定與信任邊界不同。
 
 瀏覽器中的「Sign in with Agent-Native」選項和自動瀏覽器跳轉已移除。對於
 Web 使用者，每個應用程式獨立登入仍是預設方式。本頁只介紹剩餘的明確
 Desktop 流程和伺服器端聯邦協定。
 
-## 保留的功能
+## 跨應用程式聯邦
 
 ### Desktop 工作區
 
@@ -104,3 +106,5 @@ false 仍然表示退出。如果旗標、偏好設定、註冊或資格檢查�
 - [Dispatch](/docs/dispatch)
 - [安全性與資料範圍](/docs/security)
 - [多應用程式工作區](/docs/multi-app-workspace)
+
+透過 OIDC 或 SAML 進行企業登入，與應用程式之間的身分聯合不同。[管理式部署指南](/docs/administered-deployments)介紹企業部署模式。瀏覽器中的 Agent-Native 登入仍已移除。

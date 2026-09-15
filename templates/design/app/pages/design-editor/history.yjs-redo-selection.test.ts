@@ -7,7 +7,7 @@ import {
   readYjsUndoSelection,
   stampYjsUndoSelection,
   stampYjsUndoSelectionAfter,
-} from "./history";
+} from "@/pages/design-editor/history";
 
 /** Minimal stand-in for `Y.UndoManager`, extended with the round-trip
  * behavior `forwardYjsUndoStackItemMeta` exists to compensate for: real

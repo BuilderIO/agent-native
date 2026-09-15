@@ -244,12 +244,12 @@ async function runAppDbPluginIfPresent(): Promise<void> {
  */
 export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const actionName = process.argv[2];
+  const args = process.argv.slice(3);
 
-  if (!actionName || actionName === "--help") {
+  if (!actionName || actionName === "--help" || args.includes("--help")) {
     console.log(
       `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...]`,
     );
-    console.log(`\nRun any action with --help for usage details.`);
 
     // List local actions (try actions/ first, then scripts/)
     const actionsDir = path.resolve(process.cwd(), "actions");
@@ -293,8 +293,6 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
     console.error(`Error: Invalid action name "${actionName}"`);
     process.exit(1);
   }
-
-  const args = process.argv.slice(3);
 
   // Forward to an already-running local dev server before touching the
   // database ourselves — PGlite's process lock (db/client.ts) means opening

@@ -7,6 +7,10 @@ import {
   CommandList,
 } from "@agent-native/toolkit/ui/command";
 import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@agent-native/toolkit/ui/toggle-group";
+import {
   IconBolt,
   IconCheck,
   IconChevronDown,
@@ -21,8 +25,11 @@ import {
 import { useEffect, useState } from "react";
 
 import {
+  deleteAgentEnginePersonalProviderSettings,
+  getAgentEngineProviderKeyStatus,
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
+  type AgentEngineProviderKeyStatus,
 } from "../agent-engine-key.js";
 import {
   AGENT_PROVIDER_CATALOG,
@@ -36,6 +43,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
+import { useOrgRole } from "../org/hooks.js";
 import { cn } from "../utils.js";
 
 export interface AgentProviderPickerProps {
@@ -212,14 +220,16 @@ export function AgentProviderSetupForm({
   initialProvider = "anthropic",
   configuredProviders,
   onConnected,
-  scope = "user",
+  scope,
   layout = "compact",
   showTitle = true,
   className,
 }: AgentProviderSetupFormProps) {
   const t = useT();
+  const { canManageOrg } = useOrgRole();
   const isPage = layout === "page";
   const [provider, setProvider] = useState<AgentProviderId>(initialProvider);
+  const [selectedScope, setSelectedScope] = useState<"user" | "org">("user");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [endpoint, setEndpoint] = useState("");
@@ -227,9 +237,57 @@ export function AgentProviderSetupForm({
     initialProvider === "ollama",
   );
   const [saving, setSaving] = useState(false);
+  const [removingPersonalKey, setRemovingPersonalKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providerKeyStatus, setProviderKeyStatus] =
+    useState<AgentEngineProviderKeyStatus | null>(null);
+  const [statusError, setStatusError] = useState(false);
+  const providerScope = scope ?? selectedScope;
   const active = getAgentProviderOption(provider);
+
+  useEffect(() => {
+    if (scope === undefined) setSelectedScope(canManageOrg ? "org" : "user");
+  }, [canManageOrg, scope]);
+
+  const refreshProviderKeyStatus = async () => {
+    if (!active.key) {
+      setProviderKeyStatus(null);
+      setStatusError(false);
+      return;
+    }
+    try {
+      const status = await getAgentEngineProviderKeyStatus(provider);
+      setProviderKeyStatus(status);
+      setStatusError(status.status === "unknown");
+    } catch {
+      setProviderKeyStatus(null);
+      setStatusError(true);
+    }
+  };
+
+  useEffect(() => {
+    if (!active.key) {
+      setProviderKeyStatus(null);
+      setStatusError(false);
+      return;
+    }
+    let cancelled = false;
+    void getAgentEngineProviderKeyStatus(provider)
+      .then((status) => {
+        if (cancelled) return;
+        setProviderKeyStatus(status);
+        setStatusError(status.status === "unknown");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProviderKeyStatus(null);
+        setStatusError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [provider]);
 
   useEffect(() => {
     setModel(active.defaultModel);
@@ -264,7 +322,7 @@ export function AgentProviderSetupForm({
           ...(active.key ? { key: active.key } : {}),
           ...(apiKey.trim() ? { apiKey } : {}),
           ...(endpoint.trim() ? { baseUrl: endpoint } : {}),
-          scope,
+          scope: providerScope,
         });
       }
       await setAgentEngineProvider({
@@ -273,6 +331,7 @@ export function AgentProviderSetupForm({
       });
       setApiKey("");
       setSaved(true);
+      void refreshProviderKeyStatus();
       onConnected?.(provider);
       window.setTimeout(() => setSaved(false), 2200);
     } catch (err) {
@@ -288,7 +347,30 @@ export function AgentProviderSetupForm({
     }
   };
 
-  const isConfigured = configuredProviders?.has(provider) || saved;
+  const handleUseOrganizationKey = async () => {
+    if (removingPersonalKey) return;
+    setRemovingPersonalKey(true);
+    setError(null);
+    try {
+      await deleteAgentEnginePersonalProviderSettings(provider);
+      await refreshProviderKeyStatus();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("agentPanel.providerSetupFailed", {
+              defaultValue: "Could not configure this provider.",
+            }),
+      );
+    } finally {
+      setRemovingPersonalKey(false);
+    }
+  };
+
+  const isConfigured =
+    configuredProviders?.has(provider) ||
+    providerKeyStatus?.status === "set" ||
+    saved;
   const modelInputVisible = active.supportsCustomModel;
   const endpointVisible = active.supportsEndpoint;
 
@@ -329,6 +411,61 @@ export function AgentProviderSetupForm({
             })}
           </p>
         </div>
+      ) : null}
+
+      {canManageOrg && scope === undefined ? (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium text-foreground">
+            {t("agentPanel.keyScope")}
+          </p>
+          <ToggleGroup
+            type="single"
+            value={providerScope}
+            onValueChange={(value) => {
+              if (value === "user" || value === "org") setSelectedScope(value);
+            }}
+            disabled={saving}
+            aria-label={t("agentPanel.keyScope")}
+            className="inline-flex rounded-md border border-border p-0.5"
+          >
+            <ToggleGroupItem value="user" size="sm">
+              {t("agentPanel.personalKeyScope")}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="org" size="sm">
+              {t("agentPanel.organizationKeyScope")}
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+      ) : null}
+
+      {providerKeyStatus?.effectiveScope === "user" ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <span>{t("agentPanel.personalKeyInEffect")}</span>
+          {providerKeyStatus.organizationKeyPresent ? (
+            <button
+              type="button"
+              disabled={removingPersonalKey || saving}
+              onClick={() => void handleUseOrganizationKey()}
+              className="font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+            >
+              {removingPersonalKey
+                ? t("agentPanel.savingProvider", { defaultValue: "Saving..." })
+                : t("agentPanel.useOrganizationKey")}
+            </button>
+          ) : null}
+        </div>
+      ) : providerKeyStatus?.effectiveScope === "org" ? (
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentPanel.organizationKeyInEffect")}
+        </p>
+      ) : providerKeyStatus?.effectiveScope === "workspace" ? (
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentPanel.sharedKeyInEffect")}
+        </p>
+      ) : statusError ? (
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentPanel.keyStatusUnavailable")}
+        </p>
       ) : null}
 
       <AgentProviderPicker

@@ -1,6 +1,8 @@
 import { isOverviewScreenFile } from "@shared/design-files";
 import { MAX_SANE_FRAME_DIMENSION_PX } from "@shared/responsive-frame-layout";
 
+import { resolveScreenHeightMode } from "@/components/design/multi-screen/screen-height";
+
 import { getDesignDataRecord } from "../design-data-geometry-utils";
 import type { DesignFile } from "../types";
 
@@ -21,6 +23,7 @@ export interface OverviewScreen {
   width?: number;
   height?: number;
   heightPinned: boolean;
+  heightMode?: "auto" | "fixed" | "hug";
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -102,6 +105,10 @@ export function deriveOverviewScreens({
         ? (metadata[key] as number)
         : undefined;
     const rawBreakpointHeights = metadata.breakpointHeights;
+    const heightMode = resolveScreenHeightMode(
+      metadata.heightMode,
+      metadata.heightPinned === true,
+    );
     const breakpointHeights =
       rawBreakpointHeights &&
       typeof rawBreakpointHeights === "object" &&
@@ -139,7 +146,8 @@ export function deriveOverviewScreens({
       // Without this the pin never reaches the canvas and the content-fit
       // pass grows a deliberately-sized screen straight back.
       heightPinned:
-        metadata.heightPinned === true || locallyPinnedHeightIds.has(file.id),
+        heightMode === "fixed" || locallyPinnedHeightIds.has(file.id),
+      heightMode,
       url: stringValue("url"),
       previewUrl: stringValue("previewUrl"),
       bridgeUrl: stringValue("bridgeUrl"),

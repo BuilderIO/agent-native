@@ -37,11 +37,35 @@ export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
   );
 }
 
+export function shouldCycleMailTab(target: EventTarget | null): boolean {
+  const element =
+    target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+  if (!element) return true;
+
+  if (
+    element.closest(
+      '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]',
+    )
+  ) {
+    return false;
+  }
+  if (element.closest("[data-mail-tab-list]")) return true;
+
+  return (
+    !isKeyboardShortcutTarget(element) &&
+    element.closest('[tabindex]:not([tabindex="-1"])') === null
+  );
+}
+
 interface Shortcut {
   key: string;
   meta?: boolean;
   ctrl?: boolean;
-  shift?: boolean;
+  shift?: boolean | "either";
   alt?: boolean;
   handler: ShortcutHandler;
   shouldHandle?: (e: KeyboardEvent) => boolean;
@@ -64,14 +88,11 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
         }
 
         const keyMatch = e.key.toLowerCase() === shortcut.key.toLowerCase();
+        const shiftMatch =
+          shortcut.shift === "either" || e.shiftKey === Boolean(shortcut.shift);
         const modMatch = shortcut.meta
-          ? (e.metaKey || e.ctrlKey) &&
-            !e.altKey &&
-            (shortcut.shift ? e.shiftKey : !e.shiftKey)
-          : !e.metaKey &&
-            !e.ctrlKey &&
-            !e.altKey &&
-            (shortcut.shift ? e.shiftKey : !e.shiftKey);
+          ? (e.metaKey || e.ctrlKey) && !e.altKey && shiftMatch
+          : !e.metaKey && !e.ctrlKey && !e.altKey && shiftMatch;
 
         if (keyMatch && modMatch) {
           if (shortcut.shouldHandle && !shortcut.shouldHandle(e)) continue;
@@ -95,6 +116,8 @@ export function useSequenceShortcuts(
   sequences: { keys: string[]; handler: () => void }[],
   enabled = true,
 ) {
+  const sequencesRef = useRef(sequences);
+  sequencesRef.current = sequences;
   const bufferRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -108,7 +131,7 @@ export function useSequenceShortcuts(
       clearTimeout(timerRef.current);
       bufferRef.current = [...bufferRef.current, e.key.toLowerCase()].slice(-3);
 
-      for (const seq of sequences) {
+      for (const seq of sequencesRef.current) {
         const buf = bufferRef.current;
         const keys = seq.keys;
         if (buf.length >= keys.length) {
@@ -131,6 +154,7 @@ export function useSequenceShortcuts(
     return () => {
       window.removeEventListener("keydown", handleKey);
       clearTimeout(timerRef.current);
+      bufferRef.current = [];
     };
-  }, [enabled, sequences]);
+  }, [enabled]);
 }

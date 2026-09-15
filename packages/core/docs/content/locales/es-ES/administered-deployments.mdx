@@ -1,0 +1,36 @@
+---
+title: Despliegues administrados
+description: Configura un espacio de trabajo de Agent-Native con acceso por invitación para una organización.
+---
+
+# Despliegues administrados
+
+Usa un espacio de trabajo para las aplicaciones internas de una organización. La organización es el límite de membresía y datos. El espacio de trabajo agrupa la configuración de despliegue de una o varias aplicaciones.
+
+## Cerrar el registro y la creación de organizaciones
+
+```dotenv
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+Con `AUTH_SIGNUP=invited`, una cuenta nueva necesita una invitación pendiente, un dominio de correo verificado y permitido, o una dirección de `AUTH_BOOTSTRAP_ADMINS`. La comprobación se aplica al registro por contraseña, enlace mágico y proveedor social. Unirse por dominio no es una invitación ni asigna un rol de aplicación.
+
+El primer administrador de inicio que accede crea la organización canónica y se convierte en propietario. Si ya hay una organización, se incorpora como propietario. Si hay varias, el sistema no elige una. Después configura el dominio permitido e invita al equipo desde **Team settings**.
+
+## Claves y roles de empresa
+
+Un propietario o administrador puede guardar una clave LLM de la organización. La clave personal tiene prioridad hasta que el miembro elige usar la clave de organización. Los roles de aplicación corresponden a una aplicación y una persona puede tener varios. Los administradores pueden asignar permisos definidos en código a roles sin desplegar la aplicación.
+
+## Cambio de correo e identidad
+
+El usuario cambia su correo desde la configuración de cuenta tras verificarlo. Para una migración administrada, ejecuta `agent-native identity rekey --from old@example.com --to new@example.com` una vez por aplicación. Revisa las tablas y los recuentos antes de `--yes`. El historial de auditoría permanece intacto. La migración a identificadores de principal inmutables se plantea para después de 1.0.
+
+## SSO de organización y aprovisionamiento de directorio
+
+El SSO de organización y SCIM son funciones opcionales. Activa `AUTH_SSO=1` y `AUTH_SCIM=1` para mostrar los controles en los ajustes del equipo. Configura estas variables tanto en el entorno de compilación como en el de ejecución; cambiarlas después del despliegue requiere volver a compilar. Configura primero el dominio de correo de la organización. Añade un proveedor OIDC o SAML con emisor, ID y secreto de cliente, o punto de entrada SAML, ID de entidad y metadatos XML del IdP. Los ajustes muestran el URI de redireccionamiento y los metadatos SP. Crea el registro DNS TXT `_better-auth-token-<provider-id>.<organization-domain>` con el valor mostrado, espera a que se propague y verifica el dominio. Después, un administrador puede exigir Google o un proveedor SSO verificado. Crea una conexión SCIM y copia el token, que solo aparece una vez, y el endpoint en el proveedor de identidad. En Okta o Microsoft Entra ID, crea una aplicación empresarial OIDC o SAML. Para el aprovisionamiento, configura el cliente SCIM y prueba la creación, actualización y desactivación de usuarios con un grupo pequeño. Es independiente de la federación de identidad entre aplicaciones.
+
+Usa `accessFilter()` y `assertAccess()` para las operaciones del servidor. El SQL del agente usa vistas temporales filtradas. `pnpm guards` incluye la comprobación de consultas sin ámbito. RLS no está activo y se plantea como refuerzo posterior a 1.0. Elige un espacio de trabajo para varias aplicaciones internas y una aplicación independiente para una herramienta aislada o un prototipo. Consulta [aplicación independiente o espacio de trabajo](/docs/multi-app-workspace#standalone-or-workspace) y [versionado y estabilidad](/docs/versioning-and-stability).
