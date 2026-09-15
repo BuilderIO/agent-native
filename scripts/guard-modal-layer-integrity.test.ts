@@ -271,6 +271,51 @@ test("still sees a call site sharing a line with a URL in JSX text", () => {
   assert.match(findings[0]!, /receives "relative"/);
 });
 
+test("flags an arbitrary position declaration", () => {
+  for (const token of ["[position:relative]", "sm:[position:absolute]"]) {
+    const { findings } = findOverlayPositionOverrides(
+      `<DialogContent className="${token} max-w-lg" />`,
+      "templates/demo/app/App.tsx",
+    );
+    assert.equal(findings.length, 1, token);
+  }
+});
+
+test("does not flag unrelated arbitrary declarations", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent className="[overflow:clip] [inset:0]" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.deepEqual(findings, []);
+});
+
+test("skips a call site commented out after code on the same line", () => {
+  const { findings, unreadable } = findOverlayPositionOverrides(
+    'const note = "see"; // <DialogContent className="relative" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.deepEqual(findings, []);
+  assert.deepEqual(unreadable, []);
+});
+
+test("reads past a block comment containing a closing angle bracket", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent /* documented > container */ className="relative" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "relative"/);
+});
+
+test("expands a template literal nested inside an interpolation", () => {
+  const { findings } = findOverlayPositionOverrides(
+    "<DialogContent className={`${cn(wide && `relative`)} max-w-lg`} />",
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "relative"/);
+});
+
 test("honors a reviewed opt-out on the overlay tag", () => {
   const { findings } = findOverlayPositionOverrides(
     '<DialogContent /* overlay-position-ok: rendered into a positioned container */ className="relative">',

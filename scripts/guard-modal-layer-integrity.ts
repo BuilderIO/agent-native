@@ -124,11 +124,15 @@ const OVERLAY_SCAN_ROOTS = ["templates", "packages", "apps"];
 
 function hasPositionUtility(classValue: string): string | null {
   for (const token of classValue.split(/\s+/)) {
+    const bare = token.replace(/^!/, "").replace(/!$/, "");
+    // `[position:relative]` sets the same property and can survive alongside
+    // `fixed` in the merged string, where source order decides.
+    if (/(^|:)\[position:[^\]]+\]$/.test(bare)) return token;
     // Keep variant prefixes: `sm:relative` drops `fixed` just as hard, and
     // `!relative` / `relative!` beat it in the cascade even if the merge keeps
     // both. Five overlay call sites here already use the important modifier.
-    const utility = token
-      .slice(token.lastIndexOf(":") + 1)
+    const utility = bare
+      .slice(bare.lastIndexOf(":") + 1)
       .replace(/^!/, "")
       .replace(/!$/, "");
     if (POSITION_UTILITIES.includes(utility)) return token;
@@ -172,16 +176,11 @@ function readOpeningTag(source: string, start: number): string | null {
  * as a live attribute. Length is preserved so offsets stay valid, and quotes
  * are tracked so `href="https://..."` is not mistaken for a line comment.
  *
- * `lineComments: "at-line-start"` is for whole-file use. This is not a JS
- * lexer, and an unquoted `//` in JSX body text would otherwise blank the rest
- * of that line - hiding a real call site is worse than the parked example it
- * would catch. A commented-out call site always sits on a line that starts
- * with `//`, so that narrower rule covers it without the risk.
+ * This is not a JS lexer, so `findOverlayPositionOverrides` cross-checks the
+ * masked scan against the raw one and reports any call site the masking hid
+ * rather than dropping it.
  */
-function maskComments(
-  tag: string,
-  lineComments: "anywhere" | "at-line-start" = "anywhere",
-): string {
+function maskComments(tag: string): string {
   const out = tag.split("");
   let quote: string | null = null;
 
@@ -207,10 +206,9 @@ function maskComments(
       continue;
     }
     if (next === "/") {
-      if (lineComments === "at-line-start") {
-        const lineStart = tag.lastIndexOf("\n", index) + 1;
-        if (tag.slice(lineStart, index).trim() !== "") continue;
-      }
+      // `https://` in unquoted JSX text is the one realistic `//` that is not
+      // a comment; masking from there would blank the rest of the line.
+      if (tag[index - 1] === ":") continue;
       const newline = tag.indexOf("\n", index);
       const end = newline === -1 ? tag.length : newline;
       for (let blank = index; blank < end; blank += 1) out[blank] = " ";
@@ -250,13 +248,60 @@ function expandTemplateLiteral(raw: string): string[] {
       else if (rest[index] === "}") depth -= 1;
     }
     const expression = rest.slice(open + 2, index - 1);
-    for (const nested of expression.matchAll(/"([^"]*)"|'([^']*)'/g)) {
-      parts.push(nested[1] ?? nested[2] ?? "");
+    for (const nested of expression.matchAll(
+      /"([^"]*)"|'([^']*)'|`([^`]*)`/g,
+    )) {
+      const backtick = nested[3];
+      if (backtick === undefined) parts.push(nested[1] ?? nested[2] ?? "");
+      else parts.push(...expandTemplateLiteral(backtick));
     }
     rest = rest.slice(index);
   }
 
   return parts;
+}
+
+/**
+ * Reads a template literal starting at its opening backtick, tolerating
+ * `${...}` interpolations that themselves contain backticks.
+ */
+function readTemplateLiteral(
+  text: string,
+  start: number,
+): { raw: string; end: number } {
+  let index = start + 1;
+
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === "`")
+      return { raw: text.slice(start + 1, index), end: index + 1 };
+    if (character === "$" && text[index + 1] === "{") {
+      let depth = 1;
+      index += 2;
+      while (index < text.length && depth > 0) {
+        const inner = text[index]!;
+        if (inner === "\\") {
+          index += 2;
+          continue;
+        }
+        if (inner === "`") {
+          index = readTemplateLiteral(text, index).end;
+          continue;
+        }
+        if (inner === "{") depth += 1;
+        else if (inner === "}") depth -= 1;
+        index += 1;
+      }
+      continue;
+    }
+    index += 1;
+  }
+
+  return { raw: text.slice(start + 1), end: text.length };
 }
 
 function classNameLiterals(rawTag: string): string[] {
@@ -273,9 +318,7 @@ function classNameLiterals(rawTag: string): string[] {
       continue;
     }
     if (opener === "`") {
-      const close = rest.indexOf("`", 1);
-      if (close > 0)
-        literals.push(...expandTemplateLiteral(rest.slice(1, close)));
+      literals.push(...expandTemplateLiteral(readTemplateLiteral(rest, 0).raw));
       continue;
     }
     if (opener !== "{") continue;
@@ -283,25 +326,28 @@ function classNameLiterals(rawTag: string): string[] {
     // cn("relative", isWide && "sticky") - any literal in the expression can
     // reach tailwind-merge, so collect them all.
     let depth = 0;
-    let quote: string | null = null;
-    let literal = "";
     for (let index = 0; index < rest.length; index += 1) {
       const character = rest[index]!;
-      if (quote) {
-        if (character === "\\") index += 1;
-        else if (character === quote) {
-          if (quote === "`") literals.push(...expandTemplateLiteral(literal));
-          else literals.push(literal);
-          quote = null;
-        } else literal += character;
+      if (character === "`") {
+        const template = readTemplateLiteral(rest, index);
+        literals.push(...expandTemplateLiteral(template.raw));
+        index = template.end - 1;
         continue;
       }
-      if (character === '"' || character === "'" || character === "`") {
-        quote = character;
-        literal = "";
-      } else if (character === "{") {
-        depth += 1;
-      } else if (character === "}") {
+      if (character === '"' || character === "'") {
+        let cursor = index + 1;
+        let literal = "";
+        while (cursor < rest.length && rest[cursor] !== character) {
+          if (rest[cursor] === "\\") cursor += 1;
+          else literal += rest[cursor];
+          cursor += 1;
+        }
+        literals.push(literal);
+        index = cursor;
+        continue;
+      }
+      if (character === "{") depth += 1;
+      else if (character === "}") {
         depth -= 1;
         if (depth === 0) break;
       }
@@ -309,6 +355,11 @@ function classNameLiterals(rawTag: string): string[] {
   }
 
   return literals;
+}
+
+/** True when masking blanked this offset, i.e. it really was in a comment. */
+function isInsideComment(masked: string, index: number): boolean {
+  return masked[index] === " ";
 }
 
 export interface OverlayScanResult {
@@ -328,12 +379,29 @@ export function findOverlayPositionOverrides(
     "g",
   );
 
-  const discoverable = maskComments(source, "at-line-start");
+  // Structure is read off the masked copy so a `>` inside a comment cannot end
+  // the tag early, and a commented-out example is not treated as a call site.
+  // Length is preserved, so every offset also indexes into the raw source.
+  const masked = maskComments(source);
+  const maskedStarts = new Set(
+    [...masked.matchAll(opening)].map((match) => match.index),
+  );
 
-  for (const match of discoverable.matchAll(opening)) {
+  for (const match of source.matchAll(opening)) {
     const component = match[1]!;
     const line = source.slice(0, match.index).split("\n").length;
-    const tag = readOpeningTag(source, match.index);
+    if (!maskedStarts.has(match.index)) {
+      // Either a genuine commented-out example or a masking mistake. Cheap to
+      // tell apart by eye, and silence here would lose a real call site.
+      if (!isInsideComment(masked, match.index)) {
+        unreadable.push(
+          `${relativePath}:${line} <${component}> was dropped by comment ` +
+            `masking but does not sit in a comment; it was not inspected.`,
+        );
+      }
+      continue;
+    }
+    const tag = readOpeningTag(masked, match.index);
     if (tag === null) {
       unreadable.push(
         `${relativePath}:${line} <${component}> has an opening tag this guard ` +
@@ -341,7 +409,14 @@ export function findOverlayPositionOverrides(
       );
       continue;
     }
-    if (tag.includes(OVERRIDE_OPT_OUT)) continue;
+    // The opt-out lives in a comment, so it is read off the raw tag.
+    if (
+      source
+        .slice(match.index, match.index + tag.length)
+        .includes(OVERRIDE_OPT_OUT)
+    ) {
+      continue;
+    }
 
     for (const value of classNameLiterals(tag)) {
       const offending = hasPositionUtility(value);
