@@ -36,6 +36,14 @@
   let lastHistoryNavigation: { url: string; sentAtMs: number } | null = null;
   const OVERLAY_ROOT_ID = "clips-recorder-overlay-root";
 
+  function resetDiagnosticQuotas(): void {
+    historyNavigationWindowStartedAt = 0;
+    historyNavigationCount = 0;
+    clickInputWindowStartedAt = 0;
+    clickInputCount = 0;
+    lastHistoryNavigation = null;
+  }
+
   function targetDescriptor(target: EventTarget | null): string | undefined {
     if (!(target instanceof Element)) return undefined;
     if (target.closest(`#${OVERLAY_ROOT_ID}`)) return undefined;
@@ -216,7 +224,12 @@
   try {
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== "local" || !changes.clipsRecordingActive) return;
-      recordingActive = changes.clipsRecordingActive.newValue === true;
+      const nextRecordingActive =
+        changes.clipsRecordingActive.newValue === true;
+      if (nextRecordingActive && !recordingActive) {
+        resetDiagnosticQuotas();
+      }
+      recordingActive = nextRecordingActive;
     });
   } catch {
     /* storage unavailable */
@@ -488,7 +501,11 @@
     try {
       chrome.storage.local.get("clipsRecordingActive", (value) => {
         if (chrome.runtime.lastError) return;
-        recordingActive = value?.clipsRecordingActive === true;
+        const nextRecordingActive = value?.clipsRecordingActive === true;
+        if (nextRecordingActive && !recordingActive) {
+          resetDiagnosticQuotas();
+        }
+        recordingActive = nextRecordingActive;
         if (recordingActive) {
           sendDiagnosticNavigation(window.location.href);
           requestState();

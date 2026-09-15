@@ -25,6 +25,7 @@ describe("Clips overlay follow permissions", () => {
     expect(contentScriptSource).toContain(
       "MAX_CLICK_INPUT_MESSAGES_PER_WINDOW",
     );
+    expect(contentScriptSource).toContain("function resetDiagnosticQuotas");
     expect(contentScriptSource).toContain(
       "sendDiagnosticNavigation(window.location.href)",
     );
