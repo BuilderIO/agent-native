@@ -769,6 +769,7 @@ export function Sidebar({
         collapsed={collapsed}
         collapsible={Boolean(onCollapsedChange)}
         onCollapsedChange={onCollapsedChange}
+        overflowAffordances
         brandName={t("navigation.brand")}
         brandHref="/home"
         secondaryItems={secondaryItems}

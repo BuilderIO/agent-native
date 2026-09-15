@@ -15,6 +15,7 @@ import {
 } from "./event-list-cache";
 import {
   findEventByCurrentOrReplacedId,
+  findVisibleSelectedEvent,
   getOptimisticTitleIsGenerated,
   mergeAttendeeLists,
   reconcileUpdatedEventList,
@@ -39,6 +40,13 @@ function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
 }
 
 describe("calendar event list cache helpers", () => {
+  it("drops a selected declined event when the preference is turned off", () => {
+    const declined = calendarEvent({ responseStatus: "declined" });
+
+    expect(findVisibleSelectedEvent([], declined, true)).toBe(declined);
+    expect(findVisibleSelectedEvent([], declined, false)).toBeUndefined();
+  });
+
   it("preserves generated provenance when an optimistic display title is nonempty", () => {
     expect(
       getOptimisticTitleIsGenerated({
