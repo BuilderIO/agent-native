@@ -568,6 +568,21 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
       selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
     )
     .toBe("2px");
+
+  // Figma's tracking field takes a percentage of the font size, so "2%" is
+  // authored as 0.02em (1.04px at this 52px size).
+  await setScrubInput(typographySection, "Letter spacing", "2%");
+  await expect
+    .poll(() =>
+      selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
+    )
+    .toBe("0.02em");
+  await setScrubInput(typographySection, "Letter spacing", "0.64");
+  await expect
+    .poll(() =>
+      selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
+    )
+    .toBe("0.64px");
 });
 
 test("search selects Lato Medium and keeps custom font names offline", async ({

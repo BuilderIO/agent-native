@@ -8,6 +8,7 @@ import {
   isKnownFontWeight,
   isTextDecorationLineActive,
   nextTextDecorationLineValue,
+  parseLetterSpacingInput,
   parseLineHeightInput,
   parseTextDecorationLineTokens,
   resolveLineHeightFieldValue,
@@ -512,5 +513,34 @@ describe("text truncation styles", () => {
       }),
     ).toBeNull();
     expect(textTruncationStyleChanges(true, 0, {})).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseLetterSpacingInput — Figma's tracking field takes a percentage of the
+// font size, so "2%" is 0.02em; a bare number stays px like the scrub unit.
+// ---------------------------------------------------------------------------
+
+describe("parseLetterSpacingInput", () => {
+  it("turns a percentage into em", () => {
+    expect(parseLetterSpacingInput("2%", 0)).toEqual({
+      text: "0.02em",
+      value: 0.02,
+      unit: "em",
+      cssValue: "0.02em",
+    });
+  });
+
+  it("keeps an explicit em value", () => {
+    expect(parseLetterSpacingInput("0.05em", 0)?.cssValue).toBe("0.05em");
+  });
+
+  it("keeps a bare number and an explicit px in px with two decimals", () => {
+    expect(parseLetterSpacingInput("0.64", 0)?.cssValue).toBe("0.64px");
+    expect(parseLetterSpacingInput("-1.5px", 0)?.cssValue).toBe("-1.5px");
+  });
+
+  it("rejects text that is not a number", () => {
+    expect(parseLetterSpacingInput("wide", 0)).toBeNull();
   });
 });

@@ -655,7 +655,7 @@ test.describe("YT #2 (landing page tutorial)", () => {
     }
   });
 
-  test("right-click context menu on Navbar (canvas) offers Duplicate, and using it behaves like Cmd+D (same name, inserted above, becomes selection)", async ({
+  test("right-click context menu on Navbar (canvas) offers no Duplicate item (Figma parity); Cmd+D duplicates with the same name, inserted above, and becomes the selection", async ({
     page,
     request,
   }) => {
@@ -663,43 +663,75 @@ test.describe("YT #2 (landing page tutorial)", () => {
     try {
       await gotoEditor(page, designId);
       await selectByNodeId(page, "navbar");
+      // Real Figma documents Duplicate only as ⌘D and Alt-drag ("Copy and
+      // paste objects"); its canvas right-click menu has Copy / Paste here /
+      // Paste to replace / Copy/Paste as, not Duplicate. The canvas menu
+      // here matches that, so the gesture under test is ⌘D.
       await rightClickCanvasNode(page, "navbar");
       const menu = page.getByRole("menu").last();
       await expect(menu).toBeVisible({ timeout: 5_000 });
-      const duplicateItem = menu.getByRole("menuitem", { name: /Duplicate/i });
       await expect(
-        duplicateItem,
-        `context menu must offer Duplicate; trace: ${await dumpTrace(page)}`,
-      ).toHaveCount(1);
-      await duplicateItem.click();
+        menu.getByRole("menuitem", { name: /Duplicate/i }),
+        `canvas context menu must not offer Duplicate; trace: ${await dumpTrace(page)}`,
+      ).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(menu).toBeHidden();
+      await selectByNodeId(page, "navbar");
+      await page.keyboard.press(`${MOD}+d`);
       await page.waitForTimeout(300);
 
       await expect(
         layerTree(page).locator('[data-layer-row-button] span[title="Navbar"]'),
       ).toHaveCount(2, { timeout: 10_000 });
-      const html = await fileContent(page, designId, "index.html");
-      const navbarIds = [
-        ...html.matchAll(
-          /data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-layer-name="Navbar"/g,
-        ),
-      ].map((m) => m[1]);
-      expect(navbarIds).toHaveLength(2);
-      const bodyOrder = [
-        ...html.matchAll(/data-agent-native-node-id="([^"]+)"/g),
-      ].map((m) => m[1]);
+      // The panel reflects the copy before the debounced save lands, so poll
+      // the persisted source instead of reading it once.
+      const navbarIdsIn = (html: string) =>
+        [
+          ...html.matchAll(
+            /data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-layer-name="Navbar"/g,
+          ),
+        ].map((m) => m[1]);
+      let navbarIds: string[] = [];
+      await expect
+        .poll(async () => {
+          navbarIds = navbarIdsIn(
+            await fileContent(page, designId, "index.html"),
+          );
+          return navbarIds.length;
+        })
+        .toBe(2);
       const copyId = navbarIds.find((id) => id !== "navbar")!;
-      expect(bodyOrder.indexOf(copyId)).toBeLessThan(
-        bodyOrder.indexOf("navbar"),
-      );
+      // Figma places a ⌘D copy directly above the original in the layer
+      // list; the panel's top row is the last DOM child, so "directly above"
+      // is the very next SIBLING in source order (same rule as
+      // parity-clipboard-duplicate.spec.ts). Compare siblings, not every
+      // stamped descendant.
+      const siblingIds = await designFrame(page)
+        .locator("body")
+        .evaluate((body) =>
+          Array.from(body.children).map((child) =>
+            child.getAttribute("data-agent-native-node-id"),
+          ),
+        );
+      expect(siblingIds[siblingIds.indexOf("navbar") + 1]).toBe(copyId);
 
-      const selectedRow = layerTree(page).locator(
-        '[role="treeitem"][aria-selected="true"]',
+      // Panel rows are keyed by projection id, not by the stamped node id, and
+      // the top row is the last DOM child — so Figma's "directly above,
+      // becomes the selection" reads as: the first Navbar row is the copy and
+      // it alone is primary. Expand first: a collapsed subtree renders no row.
+      await expandAllLayers(page);
+      const navbarRows = layerTree(page)
+        .locator("[data-layer-row-content]")
+        .filter({ has: page.locator('span[title="Navbar"]') });
+      await expect(navbarRows).toHaveCount(2);
+      await expect(navbarRows.first()).toHaveAttribute(
+        "data-layer-selection",
+        "primary",
       );
-      const selectedId = await selectedRow
-        .locator("[data-layer-row-button]")
-        .first()
-        .getAttribute("data-layer-node-id");
-      expect(selectedId).toBe(copyId);
+      await expect(navbarRows.nth(1)).not.toHaveAttribute(
+        "data-layer-selection",
+        "primary",
+      );
     } finally {
       await deleteDesign(request, designId);
     }

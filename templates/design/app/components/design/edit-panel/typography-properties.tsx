@@ -74,6 +74,7 @@ import {
   isKnownFontWeight,
   isTextDecorationLineActive,
   nextTextDecorationLineValue,
+  parseLetterSpacingInput,
   parseLineHeightInput,
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
@@ -753,8 +754,19 @@ export function TypographyProperties({
               onChange={(value, meta) =>
                 onStyleChange("letterSpacing", `${value}px`, meta)
               }
+              onTextCommit={(draft, meta) => {
+                const parsed = parseLetterSpacingInput(
+                  draft,
+                  letterSpacingIsMixed
+                    ? 0
+                    : parseNumericValue(styles.letterSpacing ?? "0"),
+                );
+                if (!parsed) return { accepted: false };
+                onStyleChange("letterSpacing", parsed.cssValue, meta);
+                return { accepted: true, displayValue: parsed.text };
+              }}
               unit="px"
-              precision={1}
+              precision={2}
               className="w-full gap-0"
               labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
               inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"

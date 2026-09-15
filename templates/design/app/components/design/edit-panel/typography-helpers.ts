@@ -250,6 +250,41 @@ export function parseLineHeightInput(
   return { text, value, unit, cssValue: text };
 }
 
+export type LetterSpacingUnit = "px" | "em";
+
+export interface ParsedLetterSpacingInput {
+  text: string;
+  value: number;
+  unit: LetterSpacingUnit;
+  cssValue: string;
+}
+
+/**
+ * Figma's tracking field takes a percentage of the font size, so "2%" must
+ * mean 0.02em, not be dropped on the floor. A bare number stays px (the
+ * scrub unit), and "em" is accepted verbatim.
+ */
+export function parseLetterSpacingInput(
+  input: string,
+  currentPx: number,
+): ParsedLetterSpacingInput | null {
+  const raw = input.trim();
+  const explicitUnit = raw
+    .match(/(?:px|em|%)\s*$/i)?.[0]
+    ?.trim()
+    .toLowerCase();
+  const unit: LetterSpacingUnit =
+    explicitUnit === "px" ? "px" : explicitUnit ? "em" : "px";
+  const parsed = parseScrubExpression(raw, currentPx, {
+    unit: explicitUnit ?? "px",
+    precision: 2,
+  });
+  if (!parsed) return null;
+  const value = explicitUnit === "%" ? parsed.value / 100 : parsed.value;
+  const text = formatScrubValue(value, { unit, precision: 2 });
+  return { text, value, unit, cssValue: text };
+}
+
 /**
  * Fallback dimension used when converting a text box from an auto (width or
  * height) resize mode to "fixed". When the box already has a real authored
