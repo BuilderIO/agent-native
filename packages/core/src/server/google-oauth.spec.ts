@@ -9,6 +9,7 @@ import {
   encodeNetlifyPreviewGoogleOAuthRelayState,
   getOAuthStateSigningKey,
   isNetlifyPreviewGoogleOAuthCallbackUrl,
+  NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX,
   logOAuthStateDecodeFailure,
 } from "./google-oauth.js";
 
@@ -49,18 +50,20 @@ describe("decodeOAuthState", () => {
     });
   });
 
-  it("round-trips the signed preview relay target", () => {
-    const callbackUri =
-      "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
+  it("round-trips signed state without relay metadata", () => {
     const signed = encodeOAuthState({
       redirectUri:
         "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
-      relayTarget: callbackUri,
     });
 
     const result = decodeOAuthState(signed, FALLBACK_URI);
 
-    expect(result).toMatchObject({ ok: true, relayTarget: callbackUri });
+    expect(result).toMatchObject({
+      ok: true,
+      redirectUri:
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+    });
+    expect((result as Record<string, unknown>).relayTarget).toBeUndefined();
   });
 
   it("rejects a state param with no HMAC delimiter", () => {
@@ -218,6 +221,34 @@ describe("Netlify preview Google OAuth relay state", () => {
         "https://example.com/_agent-native/google/callback",
       ),
     ).toThrow("Invalid Netlify preview Google OAuth relay state");
+  });
+
+  it("rejects an edited expiry without the original HMAC", () => {
+    const state = encodeNetlifyPreviewGoogleOAuthRelayState(
+      "signed-preview-state",
+      callbackUri,
+      1_000,
+    );
+    const envelope = state.slice(
+      NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX.length,
+    );
+    const delimiter = envelope.lastIndexOf(".");
+    const encodedPayload = envelope.slice(0, delimiter);
+    const signature = envelope.slice(delimiter + 1);
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    payload.e = 999_999_999;
+    const editedPayload = Buffer.from(JSON.stringify(payload)).toString(
+      "base64url",
+    );
+
+    expect(
+      decodeNetlifyPreviewGoogleOAuthRelayState(
+        `${NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX}${editedPayload}.${signature}`,
+        601_001,
+      ),
+    ).toBeNull();
   });
 });
 

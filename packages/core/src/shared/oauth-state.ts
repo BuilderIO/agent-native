@@ -18,15 +18,9 @@ export function extractOAuthStateProvider(
   return extractOAuthStateField(state, "p");
 }
 
-export function extractOAuthStateRelayTarget(
-  state: string | null | undefined,
-): string | undefined {
-  return extractOAuthStateField(state, "x");
-}
-
 function extractOAuthStateField(
   state: string | null | undefined,
-  field: "app" | "p" | "x",
+  field: "app" | "p",
 ): string | undefined {
   if (!state) return undefined;
   try {

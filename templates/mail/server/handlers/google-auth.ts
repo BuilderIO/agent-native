@@ -10,8 +10,7 @@ import {
   hasWorkspaceProviderOAuthCredentials,
   resolveOAuthRedirectUri,
   encodeOAuthState,
-  encodeNetlifyPreviewGoogleOAuthRelayState,
-  getNetlifyPreviewGoogleOAuthCallbackUrl,
+  wrapNetlifyPreviewGoogleOAuthState,
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
@@ -159,7 +158,13 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
     const method = getMethod(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -207,10 +212,8 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     // Use the named-arg overload — the positional form smuggled `flowId`
     // into the `returnUrl` slot in earlier revisions, which broke desktop
     // OAuth completion. See encodeOAuthState's docs.
-    const relayTarget = getNetlifyPreviewGoogleOAuthCallbackUrl(event);
     const state = encodeOAuthState({
       redirectUri,
-      relayTarget,
       owner,
       desktop,
       addAccount: false,
@@ -220,14 +223,8 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
-    const url = await getAuthUrl(
-      undefined,
-      redirectUri,
-      relayTarget
-        ? encodeNetlifyPreviewGoogleOAuthRelayState(state, relayTarget)
-        : state,
-      owner,
-    );
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
+    const url = await getAuthUrl(undefined, redirectUri, oauthState, owner);
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
     }
@@ -422,7 +419,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
     try {
       const q = getQuery(event);
       const method = getMethod(event);
-      const redirectUri = resolveOAuthRedirectUri(event);
+      const redirectUri = resolveOAuthRedirectUri(
+        event,
+        "/_agent-native/google/add-account/callback",
+        { useNetlifyPreviewGoogleOAuthRelay: true },
+      );
       if (!redirectUri) {
         setResponseStatus(event, 400);
         return {
@@ -461,13 +462,8 @@ export const getGoogleAddAccountUrl = defineEventHandler(
           return { error: "Invalid desktop exchange challenge." };
         }
       }
-      const relayTarget = getNetlifyPreviewGoogleOAuthCallbackUrl(
-        event,
-        "/_agent-native/google/add-account/callback",
-      );
       const state = encodeOAuthState({
         redirectUri,
-        relayTarget,
         owner: session.email,
         desktop,
         addAccount: true,
@@ -476,12 +472,15 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         desktopVerifierHash,
         desktopBrowserBindingHash,
       });
+      const oauthState = wrapNetlifyPreviewGoogleOAuthState(
+        event,
+        state,
+        "/_agent-native/google/add-account/callback",
+      );
       const url = await getAuthUrl(
         undefined,
         redirectUri,
-        relayTarget
-          ? encodeNetlifyPreviewGoogleOAuthRelayState(state, relayTarget)
-          : state,
+        oauthState,
         session.email,
       );
       if (q.redirect === "1") {

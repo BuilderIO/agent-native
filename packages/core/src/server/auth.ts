@@ -96,7 +96,6 @@ import {
 import {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
-  extractOAuthStateRelayTarget,
 } from "../shared/oauth-state.js";
 import {
   PASSWORD_MIN_LENGTH,
@@ -197,6 +196,7 @@ import {
   decodeNetlifyPreviewGoogleOAuthRelayState,
   isNetlifyPreviewGoogleOAuthCallbackUrl,
   isNetlifyPreviewGoogleOAuthRelayState,
+  wrapNetlifyPreviewGoogleOAuthState,
 } from "./google-oauth.js";
 import { clearIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import {
@@ -2813,11 +2813,7 @@ function netlifyPreviewGoogleOAuthCallbackRelayResponse(
   if (!isNetlifyPreviewGoogleOAuthRelayState(outerState)) return undefined;
 
   const relay = decodeNetlifyPreviewGoogleOAuthRelayState(outerState);
-  if (
-    !relay ||
-    !isNetlifyPreviewGoogleOAuthCallbackUrl(relay.callbackUri) ||
-    extractOAuthStateRelayTarget(relay.state) !== relay.callbackUri
-  ) {
+  if (!relay || !isNetlifyPreviewGoogleOAuthCallbackUrl(relay.callbackUri)) {
     return previewGoogleOAuthRelayError(400);
   }
 
@@ -4846,7 +4842,13 @@ async function mountBetterAuthRoutes(
         // `/_agent-native/...`). Reject anything else so an attacker can't
         // smuggle a different already-registered redirect URI past Google's
         // host-prefix matching. See HIGH-1 in 09-oauth-session.md.
-        const redirectUri = resolveOAuthRedirectUri(event);
+        const redirectUri = resolveOAuthRedirectUri(
+          event,
+          "/_agent-native/google/callback",
+          {
+            useNetlifyPreviewGoogleOAuthRelay: true,
+          },
+        );
         if (redirectUri === null) {
           setResponseStatus(event, 400);
           return { error: AUTH_GOOGLE_START_FALLBACK };
@@ -4924,6 +4926,7 @@ async function mountBetterAuthRoutes(
           signupAttribution,
           signupAnonymousId,
         });
+        const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
           desktop,
@@ -4942,7 +4945,7 @@ async function mountBetterAuthRoutes(
           scope: googleScopes,
           access_type: "online",
           prompt: "select_account",
-          state,
+          state: oauthState,
         });
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
         if (q.redirect === "1") {

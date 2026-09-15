@@ -234,6 +234,7 @@ export const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX =
   "agent-native-preview-google-relay.";
 const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_TTL_MS = 10 * 60 * 1000;
 const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_CLOCK_SKEW_MS = 2 * 60 * 1000;
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_MAX_LENGTH = 32 * 1024;
 const NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_PATH_RE =
   /^(?:\/[a-z0-9-]+)?\/_agent-native\/google\/(?:add-account\/)?callback$/;
 
@@ -272,8 +273,8 @@ export function isNetlifyPreviewGoogleOAuthCallbackUrl(
       isNetlifyDeployPermalinkIdentitySsoClientOrigin(url.origin) &&
       isNetlifyPreviewGoogleOAuthCallbackPath(url.pathname)
     );
-    // coercion-ok: malformed callback URLs are rejected as invalid input.
   } catch {
+    // coercion-ok: malformed callback URLs are rejected as invalid input.
     return false;
   }
 }
@@ -283,6 +284,7 @@ export function isNetlifyPreviewGoogleOAuthRelayState(
 ): value is string {
   return (
     typeof value === "string" &&
+    value.length <= NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_MAX_LENGTH &&
     value.startsWith(NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX)
   );
 }
@@ -311,9 +313,14 @@ export function encodeNetlifyPreviewGoogleOAuthRelayState(
     i: now,
     e: now + NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_TTL_MS,
   };
-  return `${NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX}${Buffer.from(
-    JSON.stringify(payload),
-  ).toString("base64url")}`;
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
+    "base64url",
+  );
+  const signature = crypto
+    .createHmac("sha256", getOAuthStateSigningKey())
+    .update(encodedPayload)
+    .digest("base64url");
+  return `${NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX}${encodedPayload}.${signature}`;
 }
 
 export function decodeNetlifyPreviewGoogleOAuthRelayState(
@@ -322,11 +329,28 @@ export function decodeNetlifyPreviewGoogleOAuthRelayState(
 ): { callbackUri: string; state: string } | null {
   if (!isNetlifyPreviewGoogleOAuthRelayState(value)) return null;
   try {
-    const encoded = value.slice(
+    const encodedEnvelope = value.slice(
       NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX.length,
     );
+    const delimiter = encodedEnvelope.lastIndexOf(".");
+    if (delimiter <= 0 || delimiter === encodedEnvelope.length - 1) return null;
+    const encodedPayload = encodedEnvelope.slice(0, delimiter);
+    const signature = encodedEnvelope.slice(delimiter + 1);
+    const expectedSignature = crypto
+      .createHmac("sha256", getOAuthStateSigningKey())
+      .update(encodedPayload)
+      .digest("base64url");
+    if (
+      signature.length !== expectedSignature.length ||
+      !crypto.timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(expectedSignature),
+      )
+    ) {
+      return null;
+    }
     const parsed = JSON.parse(
-      Buffer.from(encoded, "base64url").toString("utf8"),
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
     ) as Record<string, unknown>;
     const issuedAt = parsed.i;
     const expiresAt = parsed.e;
@@ -342,6 +366,7 @@ export function decodeNetlifyPreviewGoogleOAuthRelayState(
       !Number.isFinite(issuedAt) ||
       !Number.isFinite(expiresAt) ||
       issuedAt > now + NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_CLOCK_SKEW_MS ||
+      expiresAt < issuedAt ||
       expiresAt < now ||
       !isNetlifyPreviewGoogleOAuthCallbackUrl(callbackUri)
     ) {
@@ -352,6 +377,20 @@ export function decodeNetlifyPreviewGoogleOAuthRelayState(
     // coercion-ok: malformed relay state is rejected as invalid input.
     return null;
   }
+}
+
+export function wrapNetlifyPreviewGoogleOAuthState(
+  event: H3Event,
+  state: string,
+  callbackPath = "/_agent-native/google/callback",
+): string {
+  const callbackUri = getNetlifyPreviewGoogleOAuthCallbackUrl(
+    event,
+    callbackPath,
+  );
+  return callbackUri
+    ? encodeNetlifyPreviewGoogleOAuthRelayState(state, callbackUri)
+    : state;
 }
 
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {
@@ -398,6 +437,8 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
 export type OAuthRedirectUriOptions = {
   /** Allow a known framework callback to bypass an app mount prefix. */
   allowRootCallback?: boolean;
+  /** Use the fixed Beta callback plus an immutable-preview relay. */
+  useNetlifyPreviewGoogleOAuthRelay?: boolean;
 };
 
 function getDefaultOAuthRedirectUrl(
@@ -507,10 +548,9 @@ export function resolveOAuthRedirectUri(
   options: OAuthRedirectUriOptions = {},
 ): string | null {
   const supplied = getQuery(event).redirect_uri;
-  const previewCallbackUri = getNetlifyPreviewGoogleOAuthCallbackUrl(
-    event,
-    defaultPath,
-  );
+  const previewCallbackUri = options.useNetlifyPreviewGoogleOAuthRelay
+    ? getNetlifyPreviewGoogleOAuthCallbackUrl(event, defaultPath)
+    : undefined;
   if (previewCallbackUri) {
     if (
       typeof supplied === "string" &&
@@ -533,8 +573,6 @@ export function resolveOAuthRedirectUri(
 
 export interface OAuthStatePayload {
   redirectUri: string;
-  /** Exact preview callback origin for the beta Google OAuth relay. */
-  relayTarget?: string;
   owner?: string;
   orgId?: string;
   desktop?: boolean;
@@ -626,7 +664,6 @@ export function getOAuthStateSigningKey(): string {
  */
 export interface EncodeOAuthStateOptions {
   redirectUri: string;
-  relayTarget?: string;
   owner?: string;
   orgId?: string;
   desktop?: boolean;
@@ -714,7 +751,6 @@ export function encodeOAuthState(
     n: nonce,
     r: opts.redirectUri,
   };
-  if (opts.relayTarget) payload.x = opts.relayTarget;
   if (opts.owner) payload.o = opts.owner;
   if (opts.orgId) payload.g = opts.orgId;
   if (opts.desktop) payload.d = true;
@@ -806,7 +842,6 @@ export function decodeOAuthState(
     return {
       ok: true,
       redirectUri: parsed.r || fallbackUri,
-      relayTarget: typeof parsed.x === "string" ? parsed.x : undefined,
       owner: parsed.o || undefined,
       orgId: typeof parsed.g === "string" ? parsed.g : undefined,
       desktop: !!parsed.d,

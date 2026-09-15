@@ -2562,7 +2562,6 @@ describe("server/auth", () => {
       const innerState = encodeOAuthState({
         redirectUri:
           "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
-        relayTarget: callbackUri,
       });
       const outerState = encodeNetlifyPreviewGoogleOAuthRelayState(
         innerState,
@@ -8745,7 +8744,11 @@ describe("server/auth", () => {
         },
       });
 
-      expect(resolveOAuthRedirectUri(event)).toBe(
+      expect(
+        resolveOAuthRedirectUri(event, "/_agent-native/google/callback", {
+          useNetlifyPreviewGoogleOAuthRelay: true,
+        }),
+      ).toBe(
         "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
       );
       expect(
@@ -8760,6 +8763,8 @@ describe("server/auth", () => {
               "x-forwarded-proto": "https",
             },
           }),
+          "/_agent-native/google/callback",
+          { useNetlifyPreviewGoogleOAuthRelay: true },
         ),
       ).toBe(
         "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
@@ -8774,8 +8779,14 @@ describe("server/auth", () => {
               "x-forwarded-proto": "https",
             },
           }),
+          "/_agent-native/google/callback",
+          { useNetlifyPreviewGoogleOAuthRelay: true },
         ),
       ).toBeNull();
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        `https://${"a".repeat(24)}--agent-native-mail.netlify.app/_agent-native/google/callback`,
+      );
     });
 
     it("defaults root workspace framework-route requests to the root callback", async () => {

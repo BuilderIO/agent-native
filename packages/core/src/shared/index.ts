@@ -13,7 +13,6 @@ export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
-  extractOAuthStateRelayTarget,
 } from "./oauth-state.js";
 export { isGoogleProfileImageUrl } from "./google-profile-image.js";
 export {

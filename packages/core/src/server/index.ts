@@ -545,6 +545,7 @@ export {
   decodeOAuthState,
   encodeNetlifyPreviewGoogleOAuthRelayState,
   decodeNetlifyPreviewGoogleOAuthRelayState,
+  wrapNetlifyPreviewGoogleOAuthState,
   getNetlifyPreviewGoogleOAuthCallbackUrl,
   isNetlifyPreviewGoogleOAuthCallbackUrl,
   isNetlifyPreviewGoogleOAuthRelayState,

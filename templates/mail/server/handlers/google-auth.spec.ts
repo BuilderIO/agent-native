@@ -10,8 +10,6 @@ const mocks = vi.hoisted(() => ({
   getAppUrl: vi.fn(),
   getAuthStatus: vi.fn(),
   getAuthUrl: vi.fn(),
-  getNetlifyPreviewGoogleOAuthCallbackUrl: vi.fn(),
-  encodeNetlifyPreviewGoogleOAuthRelayState: vi.fn(),
   getClient: vi.fn(),
   getOAuth2Credentials: vi.fn(),
   getSession: vi.fn(),
@@ -35,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   setDesktopExchangeError: vi.fn(),
   setOAuthDisplayName: vi.fn(),
   setResponseStatus: vi.fn(),
+  wrapNetlifyPreviewGoogleOAuthState: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
@@ -51,10 +50,6 @@ vi.mock("@agent-native/core/server", () => ({
   encodeOAuthState: mocks.encodeOAuthState,
   ensureGoogleAuthIdentity: mocks.ensureGoogleAuthIdentity,
   getAppUrl: mocks.getAppUrl,
-  getNetlifyPreviewGoogleOAuthCallbackUrl:
-    mocks.getNetlifyPreviewGoogleOAuthCallbackUrl,
-  encodeNetlifyPreviewGoogleOAuthRelayState:
-    mocks.encodeNetlifyPreviewGoogleOAuthRelayState,
   getSession: mocks.getSession,
   isElectron: mocks.isElectron,
   logOAuthStateDecodeFailure: mocks.logOAuthStateDecodeFailure,
@@ -70,6 +65,7 @@ vi.mock("@agent-native/core/server", () => ({
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
+  wrapNetlifyPreviewGoogleOAuthState: mocks.wrapNetlifyPreviewGoogleOAuthState,
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -133,8 +129,8 @@ describe("Mail Google auth-url handlers", () => {
       "https://mail.agent-native.com/_agent-native/google/callback",
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
-    mocks.encodeNetlifyPreviewGoogleOAuthRelayState.mockReturnValue(
-      "relay-state",
+    mocks.wrapNetlifyPreviewGoogleOAuthState.mockImplementation(
+      (_event: unknown, state: string) => state,
     );
     mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
     mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
@@ -161,12 +157,10 @@ describe("Mail Google auth-url handlers", () => {
   });
 
   it("keeps Gmail-scoped OAuth on the preview relay", async () => {
-    const callbackUri =
-      "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
-    mocks.getNetlifyPreviewGoogleOAuthCallbackUrl.mockReturnValue(callbackUri);
     mocks.resolveOAuthRedirectUri.mockReturnValue(
       "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
     );
+    mocks.wrapNetlifyPreviewGoogleOAuthState.mockReturnValue("relay-state");
 
     await getGoogleAuthUrl(
       createEvent({ return: "/inbox", redirect: "1" }) as any,
@@ -176,12 +170,12 @@ describe("Mail Google auth-url handlers", () => {
       expect.objectContaining({
         redirectUri:
           "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
-        relayTarget: callbackUri,
       }),
     );
-    expect(
-      mocks.encodeNetlifyPreviewGoogleOAuthRelayState,
-    ).toHaveBeenCalledWith("encoded-state", callbackUri);
+    expect(mocks.wrapNetlifyPreviewGoogleOAuthState).toHaveBeenCalledWith(
+      expect.anything(),
+      "encoded-state",
+    );
     expect(mocks.getAuthUrl).toHaveBeenCalledWith(
       undefined,
       "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
