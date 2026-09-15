@@ -265,6 +265,69 @@ describe("session replay ingest quota (HTTP 429)", () => {
     expect(isSessionReplayActive()).toBe(true);
   });
 
+  it("keeps the key parked when the recorder restarts mid-session", async () => {
+    const browser = installBrowser();
+    browser.setResponder(() => quotaExceeded());
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { isSessionReplayActive, startSessionReplay } =
+      await freshSessionReplay();
+
+    const options = {
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    };
+    await startSessionReplay(options);
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(isSessionReplayActive()).toBe(false));
+    expect(browser.uploads).toHaveLength(1);
+
+    // Agent chat events re-invoke replay startup on every phase change. The
+    // key's daily budget did not come back just because we restarted.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await startSessionReplay(options);
+      recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    }
+
+    expect(browser.uploads).toHaveLength(1);
+  });
+
+  it("unparks when the recorder restarts against a different ingest key", async () => {
+    const browser = installBrowser();
+    browser.setResponder((call) => (call === 1 ? quotaExceeded() : new Response("{}")));
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { isSessionReplayActive, startSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_exhausted",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(isSessionReplayActive()).toBe(false));
+
+    await startSessionReplay({
+      publicKey: "anpk_fresh",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+
+    await waitForAssertion(() => expect(browser.uploads).toHaveLength(2));
+  });
+
   it("resumes with a fresh snapshot once the pause elapses", async () => {
     const browser = installBrowser();
     browser.setResponder((call) =>

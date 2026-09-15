@@ -96,8 +96,10 @@ interface SessionReplayState {
   retryBatches: QueuedReplayEvent[][];
   /** Consecutive retryable 4xx responses for the current recording episode. */
   transientClientErrorFailures: number;
-  /** Epoch ms before which the ingest key is over quota and rejecting uploads. */
-  uploadsPausedUntilMs: number | null;
+  /** Set when an ingest key reports it is over quota. Scoped to the key, not
+   * to the recording episode: restarting the recorder does not hand the key
+   * its daily budget back. */
+  quotaPause: { publicKey: string; untilMs: number } | null;
   flushTimer: number | null;
   maxDurationTimer: number | null;
   flushing: boolean;
@@ -503,7 +505,7 @@ function getState(): SessionReplayState {
       queuedBytes: 0,
       retryBatches: [],
       transientClientErrorFailures: 0,
-      uploadsPausedUntilMs: null,
+      quotaPause: null,
       flushTimer: null,
       maxDurationTimer: null,
       flushing: false,
@@ -1681,10 +1683,10 @@ function replayUploadsParked(
   state: SessionReplayState,
   nowMs: number,
 ): boolean {
-  const until = state.uploadsPausedUntilMs;
-  if (until === null) return false;
-  if (nowMs < until) return true;
-  state.uploadsPausedUntilMs = null;
+  const pause = state.quotaPause;
+  if (!pause) return false;
+  if (nowMs < pause.untilMs) return true;
+  state.quotaPause = null;
   state.awaitingFullSnapshot = true;
   const previousInternal = replayCaptureInternal;
   replayCaptureInternal = true;
@@ -2233,14 +2235,17 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         rejectedStatus === 429 && error instanceof ReplayUploadHttpError
           ? decideReplayQuotaResponse(error.retryAfterSeconds, Date.now())
           : null;
-      if (quotaDecision) {
+      if (quotaDecision && state.options) {
         // Park uploads before anything else can reach the wire. A teardown
         // flush riding out of the stop below would otherwise put one more
         // doomed request on a key that just said it has nothing left.
-        state.uploadsPausedUntilMs =
-          quotaDecision.kind === "pause"
-            ? quotaDecision.resumeAtMs
-            : Number.POSITIVE_INFINITY;
+        state.quotaPause = {
+          publicKey: state.options.publicKey,
+          untilMs:
+            quotaDecision.kind === "pause"
+              ? quotaDecision.resumeAtMs
+              : Number.POSITIVE_INFINITY,
+        };
       }
       const isTransientClientError =
         rejectedStatus !== null &&
@@ -3480,7 +3485,13 @@ export async function startSessionReplay(
   // conflict-loop guard must not prevent this one from recovering once.
   state.automaticConflictRestartAttempted = false;
   state.transientClientErrorFailures = 0;
-  state.uploadsPausedUntilMs = null;
+  // A restart is a new episode, not a new quota. Only a different ingest key
+  // has budget this one does not, so everything else stays parked - agent chat
+  // phase events re-enter startup constantly, and clearing the pause here
+  // would put a fresh FullSnapshot on an exhausted key each time.
+  if (state.quotaPause && state.quotaPause.publicKey !== normalized.publicKey) {
+    state.quotaPause = null;
+  }
   const startGeneration = ++state.startGeneration;
 
   let startPromise: Promise<SessionReplayStartResult>;
