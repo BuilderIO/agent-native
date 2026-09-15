@@ -189,20 +189,27 @@ export function gridTemplateForTracks(
   return `repeat(${safeCount}, minmax(0, 1fr))`;
 }
 
-function authoredGridTemplate(
+// A computed grid template is the browser's resolved px list ("50px 50px"),
+// so it can only say how many tracks exist, never how they were sized.
+// Treating it as authored turned fill/hug tracks into fixed px the moment a
+// matrix or sizing change committed against a stale inline snapshot.
+function gridAxisValue(
   element: ElementInfo,
   property: "gridTemplateColumns" | "gridTemplateRows",
-): string {
-  return (
-    element.inlineStyles?.[property] || element.computedStyles[property] || ""
-  );
+): ReturnType<typeof parseGridTemplate> & { template: string } {
+  const authored = element.inlineStyles?.[property] || "";
+  if (authored) return { ...parseGridTemplate(authored), template: authored };
+  const computed = element.computedStyles[property] || "";
+  return {
+    count: computed ? parseGridTemplate(computed).count : 1,
+    sizing: "fill",
+    template: "",
+  };
 }
 
 export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
-  const columnsTemplate = authoredGridTemplate(element, "gridTemplateColumns");
-  const rowsTemplate = authoredGridTemplate(element, "gridTemplateRows");
-  const columns = parseGridTemplate(columnsTemplate);
-  const rows = parseGridTemplate(rowsTemplate);
+  const columns = gridAxisValue(element, "gridTemplateColumns");
+  const rows = gridAxisValue(element, "gridTemplateRows");
   return {
     columns: columns.count,
     rows: rows.count,
@@ -210,12 +217,18 @@ export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
     rowSizing: rows.sizing,
     columnSize: columns.fixedSize,
     rowSize: rows.fixedSize,
-    columnTemplate: columnsTemplate,
-    rowTemplate: rowsTemplate,
+    columnTemplate: columns.template,
+    rowTemplate: rows.template,
     columnGap: parseNumericValue(element.computedStyles.columnGap || "0"),
     rowGap: parseNumericValue(element.computedStyles.rowGap || "0"),
-    columnsMixed: isMixedValue(columnsTemplate),
-    rowsMixed: isMixedValue(rowsTemplate),
+    columnsMixed: isMixedValue(
+      element.inlineStyles?.gridTemplateColumns ||
+        element.computedStyles.gridTemplateColumns,
+    ),
+    rowsMixed: isMixedValue(
+      element.inlineStyles?.gridTemplateRows ||
+        element.computedStyles.gridTemplateRows,
+    ),
     columnGapMixed: isMixedValue(element.computedStyles.columnGap),
     rowGapMixed: isMixedValue(element.computedStyles.rowGap),
   };

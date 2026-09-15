@@ -91,6 +91,39 @@ describe("LayoutContextProperties", () => {
     });
   });
 
+  it("never reads track sizing from a computed template — only the track count", () => {
+    // Without an inline template the browser's resolved px list is all there
+    // is; a matrix or sizing commit built on it froze fill/hug tracks into
+    // fixed px ("repeat(2, 50px)", "40px 60px").
+    const grid = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {},
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "50px 50px",
+          gridTemplateRows: "40px 60px",
+          columnGap: "16px",
+          rowGap: "16px",
+          width: "100px",
+          height: "100px",
+        },
+      }),
+    );
+    expect(grid).toMatchObject({
+      columns: 2,
+      columnSizing: "fill",
+      columnTemplate: "",
+      rows: 2,
+      rowSizing: "fill",
+      rowTemplate: "",
+    });
+    expect(grid.columnSize).toBeUndefined();
+    expect(
+      gridTemplateForTracks(2, grid.rowSizing, grid.rowSize, undefined),
+    ).toBe("repeat(2, minmax(0, 1fr))");
+  });
+
   it("detects real grid tracks without rewriting authored custom templates", () => {
     expect(parseGridTemplate("repeat(3, minmax(0, 1fr))")).toEqual({
       count: 3,
