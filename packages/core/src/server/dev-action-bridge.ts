@@ -30,6 +30,7 @@ import type { H3Event } from "h3";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getAppConfig } from "../app-config/index.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import { isLoopbackRequest } from "./auth.js";
@@ -61,16 +62,47 @@ export function hashDatabaseKey(databaseUrl: string): string {
 }
 
 const DEV_ACTION_HANDOFF_KEYS = ["embedStartUrl", "startUrl"] as const;
+const DEV_ACTION_HANDOFF_PATH = "/_agent-native/embed/start";
+
+function isLoopbackAppUrl(value: string): URL | undefined {
+  if (!URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  const hostname = url.hostname.toLowerCase();
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    (hostname !== "localhost" &&
+      hostname !== "127.0.0.1" &&
+      hostname !== "::1" &&
+      hostname !== "[::1]")
+  ) {
+    return undefined;
+  }
+  return url;
+}
+
+export function isValidDevActionHandoffUrl(
+  value: unknown,
+  loopbackAppUrl = getAppConfig().app.url,
+): value is string {
+  if (typeof value !== "string") return false;
+  if (value.startsWith(`${DEV_ACTION_HANDOFF_PATH}?`)) return true;
+  const appUrl = loopbackAppUrl ? isLoopbackAppUrl(loopbackAppUrl) : undefined;
+  if (!appUrl) return false;
+  if (!URL.canParse(value)) return false;
+  const candidate = new URL(value);
+  return (
+    candidate.origin === appUrl.origin &&
+    candidate.pathname === DEV_ACTION_HANDOFF_PATH &&
+    candidate.search.length > 1
+  );
+}
 
 /** Read the private browser handoff without making it part of action output. */
 export function devActionHandoffUrl(result: unknown): string | undefined {
   if (!result || typeof result !== "object") return undefined;
   for (const key of DEV_ACTION_HANDOFF_KEYS) {
     const value = (result as Record<string, unknown>)[key];
-    if (
-      typeof value === "string" &&
-      value.includes("/_agent-native/embed/start?")
-    ) {
+    if (isValidDevActionHandoffUrl(value)) {
       return value;
     }
   }

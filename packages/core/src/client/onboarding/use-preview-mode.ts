@@ -83,10 +83,12 @@ export function useOnboardingPreviewMode(): boolean {
 }
 
 export function useOnboardingPreviewStep(): OnboardingPreviewStep | null {
-  const [step, setStep] = useState(readPreviewStep);
+  const search = typeof window === "undefined" ? "" : window.location.search;
+  const [step, setStep] = useState(() => getOnboardingPreviewStep(search));
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onChange = () => setStep(readPreviewStep());
+    onChange();
     window.addEventListener("popstate", onChange);
     window.addEventListener("storage", onChange);
     window.addEventListener("agent-native-dev-overlay:changed", onChange);
@@ -95,6 +97,6 @@ export function useOnboardingPreviewStep(): OnboardingPreviewStep | null {
       window.removeEventListener("storage", onChange);
       window.removeEventListener("agent-native-dev-overlay:changed", onChange);
     };
-  }, []);
+  }, [search]);
   return step;
 }

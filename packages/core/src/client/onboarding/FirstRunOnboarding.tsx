@@ -168,6 +168,10 @@ export function FirstRunOnboarding({
     "existing" | "provision"
   >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
+  useEffect(() => {
+    if (!previewMode || !previewStep) return;
+    setScreen(previewStep === "references" ? "extension" : previewStep);
+  }, [previewMode, previewStep]);
   const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const mcpServersQuery = useMcpServers();
   const createMcpServer = useCreateMcpServer();

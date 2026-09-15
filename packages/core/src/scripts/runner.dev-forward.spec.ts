@@ -12,6 +12,13 @@ const mockGetDatabaseUrl = vi.hoisted(() =>
 const mockHashDatabaseKey = vi.hoisted(() =>
   vi.fn((url: string) => `hash:${url}`),
 );
+const mockIsValidDevActionHandoffUrl = vi.hoisted(() =>
+  vi.fn(
+    (value: unknown) =>
+      typeof value === "string" &&
+      value.startsWith("/_agent-native/embed/start?"),
+  ),
+);
 
 vi.mock("../db/client.js", () => ({
   closeDbExec: vi.fn(async () => {}),
@@ -29,6 +36,8 @@ vi.mock("../server/dev-action-bridge.js", () => ({
       : typeof result?.startUrl === "string"
         ? result.startUrl
         : undefined,
+  isValidDevActionHandoffUrl: (...args: unknown[]) =>
+    mockIsValidDevActionHandoffUrl(...args),
   hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
   readDevActionDiscoveryFile: (...args: unknown[]) =>
     mockReadDevActionDiscoveryFile(...args),
@@ -67,6 +76,7 @@ describe("tryForwardToDevServer", () => {
     mockHashDatabaseKey
       .mockReset()
       .mockImplementation((url: string) => `hash:${url}`);
+    mockIsValidDevActionHandoffUrl.mockClear();
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
   });
@@ -217,6 +227,33 @@ describe("tryForwardToDevServer", () => {
       "Secure browser handoff is disabled",
     );
     expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
+  });
+
+  it("ignores an untrusted handoff returned beside the forwarded result", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        ok: true,
+        result: "forwarded-ok",
+        devHandoffUrl:
+          "https://evil.example/_agent-native/embed/start?ticket=secret",
+      }),
+    });
+    const exit = mockExit();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(tryForwardToDevServer("open-visual-edit", [])).rejects.toThrow(
+      "process.exit(0)",
+    );
+
+    expect(mockIsValidDevActionHandoffUrl).toHaveBeenCalledWith(
+      "https://evil.example/_agent-native/embed/start?ticket=secret",
+      undefined,
+    );
+    expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
+    expect(exit).toHaveBeenCalledWith(0);
   });
 
   it("exits 1 when the forwarded action itself failed", async () => {

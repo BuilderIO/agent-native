@@ -33,6 +33,7 @@ import {
   DEV_ACTION_USER_HEADER,
   devActionHandoffUrl,
   hashDatabaseKey,
+  isValidDevActionHandoffUrl,
   readDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
 import {
@@ -117,6 +118,14 @@ export function openCliHandoff(
       reason: "disabled",
       message:
         "Secure browser handoff is disabled by AGENT_NATIVE_NO_OPEN. Remove it and rerun this action.",
+    };
+  }
+  if (!isValidDevActionHandoffUrl(urlOrPath, env.APP_URL)) {
+    return {
+      ok: false,
+      reason: "invalid-url",
+      message:
+        "Secure browser handoff found an invalid app URL. Fix APP_URL or WORKSPACE_GATEWAY_URL, then rerun this action.",
     };
   }
   let url = urlOrPath;
@@ -420,7 +429,15 @@ export async function tryForwardToDevServer(
   if (body.result !== undefined) {
     console.log(withoutCliHandoffSecrets(body.result));
   }
-  assertCliHandoffLaunched(handoffUrl ? openCliHandoff(handoffUrl) : null);
+  const validHandoffUrl = isValidDevActionHandoffUrl(
+    handoffUrl,
+    process.env.APP_URL,
+  )
+    ? handoffUrl
+    : undefined;
+  assertCliHandoffLaunched(
+    validHandoffUrl ? openCliHandoff(validHandoffUrl) : null,
+  );
   process.exit(0);
 }
 

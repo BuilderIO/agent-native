@@ -14,9 +14,7 @@ import {
   HOST_TURN_START_TIMEOUT_MS,
   PENDING_STRUCTURE_HARD_TIMEOUT_MS,
   PENDING_STRUCTURE_RUNTIME_POLL_MS,
-  PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS,
   PENDING_STRUCTURE_SOURCE_POLL_MS,
-  PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS,
 } from "@/pages/design-editor/editor-constants";
 import type {
   PendingLiveNonStyleEdit,
@@ -274,20 +272,18 @@ export async function runApplyPendingVisualStylesWithAgent({
       if (delivery.target === "local") setActiveLeftPanel("agent");
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
 
-      let deadline = Date.now() + PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS;
       const hardDeadline = Date.now() + PENDING_STRUCTURE_HARD_TIMEOUT_MS;
       let nextSourcePollAt = 0;
       let verificationRuntimeMounted = false;
       let observedVersionHashes = session.sources.map(
         (source) => source.baselineVersionHash,
       );
-      while (
-        !session.cancelled &&
-        Date.now() < hardDeadline &&
-        (Date.now() < deadline || stagedSourceHandoffRef.current === "running")
-      ) {
+      while (!session.cancelled && Date.now() < hardDeadline) {
+        const runtimeRequestId = session.requestId;
         const runtimeSnapshots =
-          pendingStructureVerificationSnapshotsRef.current.get(requestId) ?? {};
+          pendingStructureVerificationSnapshotsRef.current.get(
+            runtimeRequestId,
+          ) ?? {};
         if (verificationRuntimeMounted && session.edits.length > 0) {
           const runtimeResult = partitionPendingStructuresRuntime(
             runtimeSnapshots,
@@ -354,19 +350,24 @@ export async function runApplyPendingVisualStylesWithAgent({
                 (versionHash, index) =>
                   versionHash ?? observedVersionHashes[index]!,
               );
-              // Each source write gets its own HMR/runtime window. A single
-              // fixed 15s window makes a correct multi-file agent run look
-              // like a conflict while the agent is still writing later files.
-              deadline = Date.now() + PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS;
               if (!verificationRuntimeMounted) {
                 verificationRuntimeMounted = true;
               }
+              // A source write gets a fresh hidden iframe. Reusing the same
+              // request key can leave the old document mounted and its
+              // snapshot race with the next write.
+              pendingStructureVerificationSnapshotsRef.current.delete(
+                session.requestId,
+              );
+              pendingStructureVerificationRevisionRef.current += 1;
+              session.requestId =
+                pendingStructureVerificationRevisionRef.current;
               pendingStructureVerificationSnapshotsRef.current.set(
-                requestId,
+                session.requestId,
                 {},
               );
               setRuntimeStructureVerificationRequest({
-                requestId,
+                requestId: session.requestId,
                 screenIds,
               });
               setPendingStructureVerificationStatus("awaiting-runtime");

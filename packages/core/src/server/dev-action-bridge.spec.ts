@@ -50,11 +50,37 @@ import {
   DEV_ACTION_USER_HEADER,
   getDevActionToken,
   hashDatabaseKey,
+  isValidDevActionHandoffUrl,
   mountDevActionForwardRoute,
   readDevActionDiscoveryFile,
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "./dev-action-bridge.js";
+
+describe("dev action browser handoff validation", () => {
+  it("accepts only the relative embed path or a loopback APP_URL origin", () => {
+    expect(
+      isValidDevActionHandoffUrl("/_agent-native/embed/start?ticket=private"),
+    ).toBe(true);
+    expect(
+      isValidDevActionHandoffUrl(
+        "prefix /_agent-native/embed/start?ticket=private",
+      ),
+    ).toBe(false);
+    expect(
+      isValidDevActionHandoffUrl(
+        "https://evil.example/_agent-native/embed/start?ticket=private",
+        "http://127.0.0.1:8091",
+      ),
+    ).toBe(false);
+    expect(
+      isValidDevActionHandoffUrl(
+        "http://127.0.0.1:8091/_agent-native/embed/start?ticket=private",
+        "http://127.0.0.1:8091",
+      ),
+    ).toBe(true);
+  });
+});
 
 function mountedHandler(actions: Record<string, any>, options?: any) {
   const mounted: Array<{ path: string; handler: any }> = [];

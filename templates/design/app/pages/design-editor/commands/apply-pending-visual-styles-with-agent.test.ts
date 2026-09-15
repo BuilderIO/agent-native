@@ -48,7 +48,7 @@ function argsFor(
 ) {
   const sessionRef = { current: undefined };
   const pendingEditsRef = { current: edits };
-  const stagedSourceHandoffRef = { current: "running" as const };
+  const stagedSourceHandoffRef = { current: "idle" as const };
   const sourceVersions = new Map(
     edits.map((edit) => [edit.sourceAnchor!.relPath, "v0"]),
   );
@@ -84,7 +84,7 @@ function argsFor(
   callActionMock.mockImplementation(async (_action, input) => {
     const path = (input as { path: string }).path;
     const index = Number(path.match(/screen-(\d+)/)?.[1]);
-    const writeAt = index === 1 ? 5_000 : index === 2 ? 40_000 : 95_000;
+    const writeAt = index === 1 ? 65_000 : index === 2 ? 100_000 : 155_000;
     if (Date.now() >= writeAt) sourceVersions.set(path, "v1");
     return { versionHash: sourceVersions.get(path) };
   });
@@ -143,7 +143,7 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     sendDesignSourceHandoffAndConfirmMock.mockClear();
   });
 
-  it("resets the runtime window for each source write and drains each edit", async () => {
+  it("allows long source-write gaps and drains each edit", async () => {
     const edits = [structureEdit(1), structureEdit(2), structureEdit(3)];
     const snapshots = new Map();
     const setup = argsFor(edits, snapshots);
@@ -154,12 +154,12 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       await vi.advanceTimersByTimeAsync(PENDING_STRUCTURE_RUNTIME_POLL_MS);
     };
     await vi.advanceTimersByTimeAsync(0);
-    await wakeAt(5_000);
-    await wakeAt(5_150);
-    await wakeAt(40_000);
-    await wakeAt(40_150);
-    await wakeAt(95_000);
-    await wakeAt(95_150);
+    await wakeAt(65_000);
+    await wakeAt(65_150);
+    await wakeAt(100_000);
+    await wakeAt(100_150);
+    await wakeAt(155_000);
+    await wakeAt(155_150);
     await expect(applyPromise).resolves.toBeUndefined();
 
     expect(setup.cancelPendingStructureVerification).not.toHaveBeenCalled();
@@ -175,7 +175,7 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     );
   });
 
-  it("keeps a running host turn bounded by the hard deadline", async () => {
+  it("keeps verification bounded by the hard deadline", async () => {
     const edits = [structureEdit(1)];
     const snapshots = new Map();
     const setup = argsFor(edits, snapshots);
