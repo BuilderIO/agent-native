@@ -9204,11 +9204,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Drop any frame still queued from the last move: this mouseup event
         // carries the final position and must be the tick tagged `final`,
         // or the host never gets its one-drag-one-undo history entry.
-        if (activeMarqueeSelection && activeMarqueeSelection.moveFrame != null) {
+        if (
+          activeMarqueeSelection &&
+          activeMarqueeSelection.moveFrame != null
+        ) {
           window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
           activeMarqueeSelection.moveFrame = null;
         }
-        if (activeMarqueeSelection) activeMarqueeSelection.pendingMoveEvent = null;
+        if (activeMarqueeSelection)
+          activeMarqueeSelection.pendingMoveEvent = null;
         updateMarqueeSelection(ev, true);
         suppressNextShieldClickBriefly();
       }

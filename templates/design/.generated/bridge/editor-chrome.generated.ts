@@ -6911,7 +6911,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
             activeMarqueeSelection.moveFrame = null;
           }
-          if (activeMarqueeSelection) activeMarqueeSelection.pendingMoveEvent = null;
+          if (activeMarqueeSelection)
+            activeMarqueeSelection.pendingMoveEvent = null;
           updateMarqueeSelection(ev, true);
           suppressNextShieldClickBriefly();
         }

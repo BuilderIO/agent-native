@@ -119,7 +119,10 @@ function rectContainsPoint(
 ): boolean {
   const { x, y, width, height } = info.boundingRect;
   return (
-    point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height
+    point.x >= x &&
+    point.x <= x + width &&
+    point.y >= y &&
+    point.y <= y + height
   );
 }
 
@@ -167,6 +170,50 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
     }
   }, 60_000);
 
+  it("agrees with the reported boundingRect space when the document is scrolled", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 400 },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await openBridgePage(page);
+
+      // The host derives `atPoint` by inverting the same mapping it applied to
+      // `info.boundingRect`, and rectInfoForElement reports that rect in
+      // DOCUMENT space (client rect + scroll). Scrolling is where a filter
+      // written in viewport space would silently drop the element under the
+      // pointer, so pin the two spaces against each other with the page
+      // scrolled well past the first row.
+      await page.evaluate("window.scrollTo(0, 420);");
+      await page.waitForTimeout(50);
+      const scrollY = await page.evaluate(() => window.scrollY);
+      expect(scrollY).toBeGreaterThan(0);
+
+      const all = await collectSelectableRects(page, { deep: true });
+      // Pick a small, deep target that is on screen after the scroll.
+      const target = all.find((info) => info.sourceId?.startsWith("action-"));
+      expect(target).toBeDefined();
+      const centre = {
+        x: target!.boundingRect.x + target!.boundingRect.width / 2,
+        y: target!.boundingRect.y + target!.boundingRect.height / 2,
+      };
+
+      const atPoint = await collectSelectableRects(page, {
+        deep: true,
+        atPoint: centre,
+      });
+
+      expect(errors, errors.join("\n")).toEqual([]);
+      expect(atPoint.map((info) => info.sourceId)).toContain(target!.sourceId);
+      // Still narrowed, not silently widened back to the whole document.
+      expect(atPoint.length).toBeLessThan(all.length / 10);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   it("builds full element info for the chain it returns", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -183,7 +230,9 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
       // nudge, paste-over and motion all read `computedStyles` off it.
       expect(atPoint.length).toBeGreaterThan(0);
       for (const info of atPoint) {
-        expect(Object.keys(info.computedStyles ?? {}).length).toBeGreaterThan(0);
+        expect(Object.keys(info.computedStyles ?? {}).length).toBeGreaterThan(
+          0,
+        );
       }
     } finally {
       await browser.close();
@@ -209,19 +258,21 @@ describe("a marquee drag does not rebuild element info every frame", () => {
       await page.mouse.up();
       await page.waitForTimeout(80);
 
-      const { styleReads, messages, selectedCount } = await page.evaluate(() => {
-        const msgs = (
-          window as unknown as {
-            __marqueeMessages: Array<{ payload?: unknown[] }>;
-          }
-        ).__marqueeMessages;
-        return {
-          styleReads: (window as unknown as { __styleReads: number })
-            .__styleReads,
-          messages: msgs.length,
-          selectedCount: (msgs[msgs.length - 1]?.payload ?? []).length,
-        };
-      });
+      const { styleReads, messages, selectedCount } = await page.evaluate(
+        () => {
+          const msgs = (
+            window as unknown as {
+              __marqueeMessages: Array<{ payload?: unknown[] }>;
+            }
+          ).__marqueeMessages;
+          return {
+            styleReads: (window as unknown as { __styleReads: number })
+              .__styleReads,
+            messages: msgs.length,
+            selectedCount: (msgs[msgs.length - 1]?.payload ?? []).length,
+          };
+        },
+      );
 
       expect(errors, errors.join("\n")).toEqual([]);
       // The drag really did sweep a large hit-set over many frames.

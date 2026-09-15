@@ -3732,7 +3732,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const frameEntries = getSelectableFrameEntries().filter(
         (entry) => !screenIds || screenIds.has(entry.id),
       );
-      const frameCandidates = await Promise.all(
+      // Started, not awaited: the board request must not queue behind the
+      // screens' round-trips. A single slow screen would otherwise burn the
+      // whole reply timeout before the board — whose own iframe is ready —
+      // is even asked, and a marquee that ends in the meantime drops it.
+      const frameCandidatesPromise = Promise.all(
         frameEntries.map(async (entry) => {
           const screen = screensRef.current.find(
             (item) => item.id === entry.id,
@@ -3784,11 +3788,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }));
         }),
       );
-      const boardCandidates =
+      const boardCandidatesPromise =
         boardFileId &&
         boardSurfaceRenderGeometry &&
         (!screenIds || screenIds.has(boardFileId))
-          ? await (async () => {
+          ? (async () => {
               const reply = await requestSelectableElementInfos(
                 boardFileId,
                 deep,
@@ -3829,7 +3833,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 frameGeometry: boardSurfaceRenderGeometry,
               }));
             })()
-          : [];
+          : Promise.resolve([] as CanvasLayerMarqueeCandidate[]);
+      const [frameCandidates, boardCandidates] = await Promise.all([
+        frameCandidatesPromise,
+        boardCandidatesPromise,
+      ]);
       if (unanswered.length > 0) {
         dndHostLog("overview:selectable-rects-unanswered", { unanswered });
       }
@@ -3867,40 +3875,42 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // Deep: drill-in/pick must see nested descendants to walk one level
       // further per repeat click — unlike a marquee, which stops at the
       // current container scope's direct children by default.
-      void collectLayerMarqueeCandidates(new Set([id]), true, point).then((result) => {
-        if (drillInRequestRef.current !== requestId) return;
-        if (result.unanswered.length > 0) {
-          // The screen never answered, so "nothing under the pointer" is not
-          // knowable. Keep the current selection instead of clearing it.
-          return;
-        }
-        const candidates = result.candidates;
-        const target =
-          mode === "pick"
-            ? resolvePickTargetAtPoint({ candidates, screenId: id, point })
-            : resolveDrillInTarget({
-                candidates,
-                screenId: id,
-                point,
-                previousKey,
-              });
-        if (!target) {
-          // Nothing selectable under the pointer (e.g. an empty frame). Leave
-          // the frame itself selected rather than falling back to Interact.
-          drillInTargetRef.current = null;
-          return;
-        }
-        drillInTargetRef.current = {
-          screenId: id,
-          key: drillInCandidateKey(target),
-        };
-        updateSelectedDraftIds(() => []);
-        updateSelectedIds(() => []);
-        onLayerMarqueeSelectionChange?.(
-          [{ screenId: target.screenId, info: target.info }],
-          { source: "pointer" },
-        );
-      });
+      void collectLayerMarqueeCandidates(new Set([id]), true, point).then(
+        (result) => {
+          if (drillInRequestRef.current !== requestId) return;
+          if (result.unanswered.length > 0) {
+            // The screen never answered, so "nothing under the pointer" is not
+            // knowable. Keep the current selection instead of clearing it.
+            return;
+          }
+          const candidates = result.candidates;
+          const target =
+            mode === "pick"
+              ? resolvePickTargetAtPoint({ candidates, screenId: id, point })
+              : resolveDrillInTarget({
+                  candidates,
+                  screenId: id,
+                  point,
+                  previousKey,
+                });
+          if (!target) {
+            // Nothing selectable under the pointer (e.g. an empty frame). Leave
+            // the frame itself selected rather than falling back to Interact.
+            drillInTargetRef.current = null;
+            return;
+          }
+          drillInTargetRef.current = {
+            screenId: id,
+            key: drillInCandidateKey(target),
+          };
+          updateSelectedDraftIds(() => []);
+          updateSelectedIds(() => []);
+          onLayerMarqueeSelectionChange?.(
+            [{ screenId: target.screenId, info: target.info }],
+            { source: "pointer" },
+          );
+        },
+      );
     },
     [
       collectLayerMarqueeCandidates,
@@ -4556,7 +4566,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               result.unanswered.map((entry) => entry.screenId),
             );
             result.unanswered.forEach((entry) => {
-              if (entry.reason === "timeout") timedOutScreenIds.add(entry.screenId);
+              if (entry.reason === "timeout")
+                timedOutScreenIds.add(entry.screenId);
             });
             newIds.forEach((id) => {
               collectingScreenIds.delete(id);
