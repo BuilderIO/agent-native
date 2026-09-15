@@ -128,10 +128,12 @@ function FromAccountSelector({
   accounts,
   value,
   onChange,
+  label,
 }: {
   accounts: ComposeAccount[];
   value: string | undefined;
   onChange: (email: string) => void;
+  label: string;
 }) {
   // On mount, if no account is set, apply the sticky default
   const resolvedValue =
@@ -154,7 +156,7 @@ function FromAccountSelector({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <ComposeFieldRow label="From">
+    <ComposeFieldRow label={label}>
       <Select
         value={resolvedValue}
         onValueChange={(email) => {
@@ -819,13 +821,13 @@ export function ComposeModal({
 
   const title = activeDraft
     ? activeDraft.queuedDraftId
-      ? "Queued draft"
+      ? t("mail.compose.queuedDraft")
       : activeDraft.mode === "reply"
-        ? "Reply"
+        ? t("mail.compose.reply")
         : activeDraft.mode === "forward"
-          ? "Forward"
-          : "New message"
-    : "New message";
+          ? t("mail.compose.forward")
+          : t("mail.compose.newMessage")
+    : t("mail.compose.newMessage");
 
   const composeStyle = {
     right: isMobile ? 0 : sidebarRight,
@@ -865,12 +867,12 @@ export function ComposeModal({
               const label =
                 draft.subject?.trim() ||
                 (draft.queuedDraftId
-                  ? "Queued draft"
+                  ? t("mail.compose.queuedDraft")
                   : draft.mode === "reply"
-                    ? "Reply"
+                    ? t("mail.compose.reply")
                     : draft.mode === "forward"
-                      ? "Forward"
-                      : "New message");
+                      ? t("mail.compose.forward")
+                      : t("mail.compose.newMessage"));
               return (
                 <button
                   key={draft.id}
@@ -1002,13 +1004,14 @@ export function ComposeModal({
               <FromAccountSelector
                 accounts={allAccounts}
                 value={activeDraft.accountEmail}
+                label={t("mail.compose.from")}
                 onChange={(email) =>
                   onUpdate(activeId!, { accountEmail: email })
                 }
               />
             )}
             <ComposeFieldRow
-              label="To"
+              label={t("mail.compose.to")}
               trailing={
                 <button
                   type="button"
@@ -1037,6 +1040,7 @@ export function ComposeModal({
                 value={activeDraft.to}
                 onChange={(val) => onUpdate(activeId!, { to: val })}
                 autoFocus={activeDraft.mode === "compose"}
+                ariaLabel={t("mail.compose.toRecipients")}
                 field="to"
                 onMoveRecipient={moveRecipient}
               />
@@ -1044,18 +1048,20 @@ export function ComposeModal({
 
             {showCcBcc && (
               <>
-                <ComposeFieldRow label="Cc">
+                <ComposeFieldRow label={t("mail.compose.cc")}>
                   <RecipientInput
                     value={activeDraft.cc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { cc: val })}
+                    ariaLabel={t("mail.compose.ccRecipients")}
                     field="cc"
                     onMoveRecipient={moveRecipient}
                   />
                 </ComposeFieldRow>
-                <ComposeFieldRow label="Bcc">
+                <ComposeFieldRow label={t("mail.compose.bcc")}>
                   <RecipientInput
                     value={activeDraft.bcc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { bcc: val })}
+                    ariaLabel={t("mail.compose.bccRecipients")}
                     field="bcc"
                     onMoveRecipient={moveRecipient}
                   />

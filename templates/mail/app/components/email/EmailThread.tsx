@@ -1833,7 +1833,7 @@ const ExpandedMessageCard = forwardRef<
           <div className="flex flex-col gap-1 text-[13px]">
             <div className="flex gap-3">
               <span className="w-10 shrink-0 text-muted-foreground/60">
-                From
+                {t("mail.thread.from")}
               </span>
               <span className="text-foreground font-semibold">
                 <button
@@ -1845,7 +1845,9 @@ const ExpandedMessageCard = forwardRef<
               </span>
             </div>
             <div className="flex gap-3">
-              <span className="w-10 shrink-0 text-muted-foreground/60">To</span>
+              <span className="w-10 shrink-0 text-muted-foreground/60">
+                {t("mail.thread.to")}
+              </span>
               <span className="text-foreground">
                 {email.to.map(renderContactLink)}
               </span>
@@ -1853,7 +1855,7 @@ const ExpandedMessageCard = forwardRef<
             {email.cc && email.cc.length > 0 && (
               <div className="flex gap-3">
                 <span className="w-10 shrink-0 text-muted-foreground/60">
-                  Cc
+                  {t("mail.thread.cc")}
                 </span>
                 <span className="text-foreground">
                   {email.cc.map(renderContactLink)}
@@ -1869,7 +1871,7 @@ const ExpandedMessageCard = forwardRef<
                   month: "long",
                   day: "numeric",
                 })}{" "}
-                at{" "}
+                {t("mail.thread.at")}{" "}
                 {new Date(email.date).toLocaleTimeString("en-US", {
                   hour: "numeric",
                   minute: "2-digit",

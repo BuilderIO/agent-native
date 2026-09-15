@@ -363,11 +363,12 @@ export const InlineReplyComposer = forwardRef<
     <>
       <div className="flex items-center border-b border-border/30 px-4 pb-2">
         <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-          To
+          {t("mail.compose.to")}
         </span>
         <RecipientInput
           value={draft.to}
           onChange={(val) => onUpdate(draft.id, { to: val })}
+          ariaLabel={t("mail.compose.toRecipients")}
           autoFocus={draft.mode === "forward"}
           field="to"
           onMoveRecipient={moveRecipient}
@@ -394,22 +395,24 @@ export const InlineReplyComposer = forwardRef<
         <>
           <div className="flex items-center border-b border-border/30 px-4">
             <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-              Cc
+              {t("mail.compose.cc")}
             </span>
             <RecipientInput
               value={draft.cc ?? ""}
               onChange={(val) => onUpdate(draft.id, { cc: val })}
+              ariaLabel={t("mail.compose.ccRecipients")}
               field="cc"
               onMoveRecipient={moveRecipient}
             />
           </div>
           <div className="flex items-center border-b border-border/30 px-4">
             <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-              Bcc
+              {t("mail.compose.bcc")}
             </span>
             <RecipientInput
               value={draft.bcc ?? ""}
               onChange={(val) => onUpdate(draft.id, { bcc: val })}
+              ariaLabel={t("mail.compose.bccRecipients")}
               field="bcc"
               onMoveRecipient={moveRecipient}
             />
