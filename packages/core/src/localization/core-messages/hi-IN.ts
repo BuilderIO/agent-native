@@ -2,11 +2,9 @@ import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "हमेशा अनुमति दें",
-  "approval.alwaysAllowHint":
-    "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
+  "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
   "approval.alwaysAllowAction": "इस कार्रवाई को हमेशा अनुमति दें",
-  "approval.alwaysAllowActionHint":
-    "स्वीकृत करें और इस कार्रवाई को हमेशा अनुमति दें",
+  "approval.alwaysAllowActionHint": "स्वीकृत करें और इस कार्रवाई को हमेशा अनुमति दें",
   "approval.approve": "स्वीकृत करें",
   "approval.approved": "स्वीकृत। {{tool}} को फिर से चलाया जा रहा है...",
   "approval.denied": "अस्वीकृत। {{tool}} नहीं चला।",
@@ -22,8 +20,7 @@ const messages: AgentChatTranslation = {
   "auth.refreshDescription":
     "आप लॉग इन हैं, लेकिन इस चैट कनेक्शन को दोबारा कनेक्ट करना होगा।",
   "auth.refreshTitle": "चैट सत्र को रीफ़्रेश करना होगा",
-  "auth.requiredDescription":
-    "एजेंट का उपयोग करने के लिए आपको लॉग इन करना होगा।",
+  "auth.requiredDescription": "एजेंट का उपयोग करने के लिए आपको लॉग इन करना होगा।",
   "auth.requiredTitle": "प्रमाणीकरण आवश्यक है",
   "commands.act": "कार्य मोड पर वापस जाएँ",
   "commands.available": "उपलब्ध कमांड",
@@ -48,19 +45,15 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "अन्य",
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
-  "onboarding.builderActivateCredits":
-    "Builder.io के मुफ़्त क्रेडिट सक्रिय करें",
-  "onboarding.builderConnectCredits":
-    "Builder.io के मुफ़्त क्रेडिट कनेक्ट करें",
+  "onboarding.builderActivateCredits": "Builder.io के मुफ़्त क्रेडिट सक्रिय करें",
+  "onboarding.builderConnectCredits": "Builder.io के मुफ़्त क्रेडिट कनेक्ट करें",
   "onboarding.builderActivateDescription":
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
-  "onboarding.builderActiveCredits":
-    "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
+  "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderCredits": "Builder.io के मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderActivateTitle": "मुफ़्त क्रेडिट सक्रिय करें",
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
-  "onboarding.builderAccountExistsDescription":
-    "इसे कनेक्ट करने के लिए लॉग इन करें।",
+  "onboarding.builderAccountExistsDescription": "इसे कनेक्ट करने के लिए लॉग इन करें।",
   "onboarding.builderActivationDescription":
     "हम एक क्लिक में आपके लिए Builder.io खाता अपने-आप बनाएँगे।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
@@ -69,18 +62,14 @@ const messages: AgentChatTranslation = {
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
-  "onboarding.builderActivating":
-    "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
-  "onboarding.builderConnecting":
-    "Builder.io के मुफ़्त क्रेडिट कनेक्ट किए जा रहे हैं",
+  "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
+  "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट कनेक्ट किए जा रहे हैं",
   "onboarding.builderProvisioningDescription":
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
-  "onboarding.capability.llm.keySummary":
-    "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.capability.llm.keySummary": "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
+  "onboarding.capability.fileStorage.keySummary": "Builder स्टोरेज या S3-संगत बकेट",
   "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
   "onboarding.capability.voiceInput.keySummary":
     "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
@@ -190,16 +179,14 @@ const messages: AgentChatTranslation = {
   "composer.assets.contextTitle": "इमेज: {{title}}",
   "composer.assets.generatedImage": "बनाई गई इमेज",
   "composer.assets.generateImage": "इमेज बनाएँ",
-  "composer.assets.invalidUrl":
-    "कॉन्फ़िगर किया गया इमेज पिकर URL मान्य नहीं है।",
+  "composer.assets.invalidUrl": "कॉन्फ़िगर किया गया इमेज पिकर URL मान्य नहीं है।",
   "composer.assets.loadingPicker": "Assets पिकर लोड हो रहा है",
   "composer.assets.openPicker": "Assets इमेज पिकर खोलें",
   "composer.assets.openSecurely":
     "साइन इन करने और सुरक्षित रूप से इमेज चुनने के लिए Assets को नए टैब में खोलें।",
   "composer.assets.pickerTitle": "Assets इमेज पिकर",
   "composer.auto": "अपने-आप",
-  "composer.builderModelCredits":
-    "Claude, OpenAI और Gemini के लिए मुफ़्त क्रेडिट",
+  "composer.builderModelCredits": "Claude, OpenAI और Gemini के लिए मुफ़्त क्रेडिट",
   "composer.chatGptSubscription": "ChatGPT सदस्यता",
   "composer.closePreview": "प्रीव्यू बंद करें",
   "composer.configureProviderKeys":
@@ -240,11 +227,9 @@ const messages: AgentChatTranslation = {
   "composer.menu.generateImage": "इमेज बनाएँ",
   "composer.menu.generateImageDescription": "Assets इमेज पिकर खोलें",
   "composer.menu.integrations": "इंटीग्रेशन",
-  "composer.menu.integrationsDescription":
-    "टूल और सेवाओं को एजेंट से कनेक्ट करें",
+  "composer.menu.integrationsDescription": "टूल और सेवाओं को एजेंट से कनेक्ट करें",
   "composer.menu.scheduleTask": "कार्य शेड्यूल करें",
-  "composer.menu.scheduleTaskDescription":
-    "किसी कार्य को शेड्यूल के अनुसार चलाएँ",
+  "composer.menu.scheduleTaskDescription": "किसी कार्य को शेड्यूल के अनुसार चलाएँ",
   "composer.menu.uploadFile": "फ़ाइल अपलोड करें",
   "composer.menu.uploadFileDescription": "इमेज, PDFs, टेक्स्ट/कोड, JSON, CSV",
   "composer.messageAgent": "एजेंट को संदेश भेजें...",
@@ -285,8 +270,7 @@ const messages: AgentChatTranslation = {
     "स्किल का वर्णन करें और एजेंट को उसका ड्राफ़्ट बनाने दें",
   "composer.skill.createNew": "नई स्किल बनाएँ",
   "composer.skill.name": "स्किल का नाम",
-  "composer.skill.review":
-    "सहेजने से पहले {{name}} की सामग्री की समीक्षा करें।",
+  "composer.skill.review": "सहेजने से पहले {{name}} की सामग्री की समीक्षा करें।",
   "composer.skill.savedAt": "यहाँ सहेजा गया",
   "composer.skill.saveFailed": "स्किल फ़ाइल सहेजी नहीं जा सकी",
   "composer.skill.selectedFile": "चुनी गई फ़ाइल",
@@ -464,8 +448,7 @@ const messages: AgentChatTranslation = {
   "integrations.lookingForProviders": "OAuth या MCP प्रदाता ढूंढ रहे हैं?",
   "integrations.manage": "प्रबंधित करें",
   "integrations.recommended": "अनुशंसित",
-  "integrations.subtitle":
-    "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
+  "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
   "limit.account": "आपके खाते",
   "limit.descriptionAll":
     "एजेंट ने सभी उपलब्ध चरणों का उपयोग कर लिया। नए टर्न में जारी रखें या पहले {{scope}} की सीमा बढ़ाएँ।",
@@ -492,8 +475,7 @@ const messages: AgentChatTranslation = {
     "एजेंट अंतिम संदेश भेजे बिना रुक गया। उसे जारी रखने के लिए कहें या फिर से प्रयास करें।",
   "message.messages": "संदेश",
   "message.nextBranch": "अगली शाखा",
-  "message.noRestoreRun":
-    "इस संदेश के लिए पुनर्स्थापित करने योग्य कोई रन नहीं है।",
+  "message.noRestoreRun": "इस संदेश के लिए पुनर्स्थापित करने योग्य कोई रन नहीं है।",
   "message.previousBranch": "पिछली शाखा",
   "message.regenerate": "जवाब फिर से बनाएँ",
   "message.restoreFailed": "पुनर्स्थापना विफल रही ({{status}})।",
@@ -585,8 +567,7 @@ const messages: AgentChatTranslation = {
     "मौजूदा Builder.io या मॉडल प्रदाता क्रेडेंशियल अस्वीकार कर दिया गया। Builder.io को दोबारा कनेक्ट करें, फिर इस संदेश को दोबारा आज़माएँ।",
   "recovery.diagnoseRetry": "समस्या जाँचें और फिर प्रयास करें",
   "recovery.forkDescription": "इस बातचीत को एक अलग चैट थ्रेड में शाखित करें।",
-  "recovery.forkFailed":
-    "इस चैट की शाखा नहीं बनाई जा सकी। नई चैट शुरू करके देखें।",
+  "recovery.forkFailed": "इस चैट की शाखा नहीं बनाई जा सकी। नई चैट शुरू करके देखें।",
   "recovery.forking": "शाखा बनाई जा रही है...",
   "recovery.newChatHint":
     "अगर दोबारा प्रयास करने पर वही त्रुटि आए, तो नया चैट सत्र शुरू करें और पहले से हुए बदलावों से आगे बढ़ें।",
@@ -603,8 +584,7 @@ const messages: AgentChatTranslation = {
   "secrets.chooseKey": "कुंजी चुनें",
   "secrets.customKey": "कस्टम कुंजी",
   "secrets.customKeyHint": "नाम से कोई भी कुंजी जोड़ें",
-  "secrets.emptyHint":
-    "अपने खुद के खातों का उपयोग करने के लिए एक कुंजी जोड़ें।",
+  "secrets.emptyHint": "अपने खुद के खातों का उपयोग करने के लिए एक कुंजी जोड़ें।",
   "secrets.emptyMore":
     "और {{count}} अधिक 'नया' के अंतर्गत, या नाम से कोई भी कस्टम कुंजी जोड़ें",
   "secrets.emptyTitle": "अभी तक कोई कुंजी नहीं।",
@@ -657,8 +637,7 @@ const messages: AgentChatTranslation = {
   "share.commenterDescription": "देख सकता है और टिप्पणियाँ जोड़ सकता है",
   "share.advanced": "उन्नत",
   "share.advancedAccess": "उन्नत एक्सेस",
-  "share.advancedDescription":
-    "नियंत्रित करें कि संगठन का एक्सेस खोज में कैसे दिखाई दे।",
+  "share.advancedDescription": "नियंत्रित करें कि संगठन का एक्सेस खोज में कैसे दिखाई दे।",
   "share.copied": "कॉपी किया गया",
   "share.copy": "कॉपी करें",
   "share.shareWithAgents": "एजेंट्स के साथ साझा करें",

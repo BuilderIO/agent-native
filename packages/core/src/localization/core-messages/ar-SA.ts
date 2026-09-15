@@ -479,8 +479,7 @@ const messages: AgentChatTranslation = {
   "limit.maxSteps": "الحد الأقصى للخطوات",
   "limit.namedOrganization": "مؤسسة {{organization}}",
   "limit.organization": "المؤسسة",
-  "limit.ownerOnly":
-    "لا يمكن تغيير هذا الحد إلا بواسطة مالكي المؤسسة ومشرفيها.",
+  "limit.ownerOnly": "لا يمكن تغيير هذا الحد إلا بواسطة مالكي المؤسسة ومشرفيها.",
   "limit.reached": "تم بلوغ حد الخطوات",
   "limit.saveAndContinue": "الحفظ والمتابعة",
   "message.actions": "إجراءات الرسالة",
@@ -690,8 +689,7 @@ const messages: AgentChatTranslation = {
   "share.owner": "المالك",
   "share.peopleWithAccess": "الأشخاص الذين لديهم صلاحية الوصول",
   "share.private": "خاص",
-  "share.privateDescription":
-    "يمكن للأشخاص الذين لديهم صلاحية الوصول فقط العرض",
+  "share.privateDescription": "يمكن للأشخاص الذين لديهم صلاحية الوصول فقط العرض",
   "share.public": "عام",
   "share.publicDescription": "يمكن لأي شخص لديه الرابط العرض",
   "share.remove": "إزالة",
