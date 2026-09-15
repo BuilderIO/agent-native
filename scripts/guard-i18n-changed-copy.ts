@@ -137,6 +137,18 @@ function collectCatalogSurfaces(
         continue;
       }
 
+      // Some catalogs keep the English source inline but moved locale
+      // messages to sibling per-locale files (e.g. content's i18n-data.ts
+      // + i18n/<locale>.ts). The source file itself no longer imports them,
+      // so resolve targets by locale file presence in the catalog dir.
+      const localeFile = path.join(catalogDir, `${locale}.ts`);
+      if (existsSync(localeFile)) {
+        const target = relative(localeFile);
+        targets.push(target);
+        if (changedFiles.has(localeFile)) changedTargets.add(target);
+        continue;
+      }
+
       const target = `${relative(sourceImplementation)}#${locale}`;
       targets.push(target);
       if (localeChanges.has(locale)) changedTargets.add(target);
