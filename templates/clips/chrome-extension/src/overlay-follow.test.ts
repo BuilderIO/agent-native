@@ -26,6 +26,7 @@ describe("Clips overlay follow permissions", () => {
       "MAX_CLICK_INPUT_MESSAGES_PER_WINDOW",
     );
     expect(contentScriptSource).toContain("function resetDiagnosticQuotas");
+    expect(contentScriptSource).toContain("resetQuotas || enteringRecording");
     expect(contentScriptSource).toContain(
       "sendDiagnosticNavigation(window.location.href)",
     );
@@ -93,5 +94,10 @@ describe("Clips overlay follow permissions", () => {
     expect(historyBridgeSource).toContain("webCrypto.getRandomValues(bytes)");
     expect(historyBridgeSource).toContain('data.kind === "request-token"');
     expect(backgroundSource).toContain("MAX_CLICK_INPUT_INGRESS_PER_WINDOW");
+    expect(backgroundSource).toContain("restoreCaptureSession");
+    expect(backgroundSource).toContain('overlayPhase === "paused"');
+    expect(backgroundSource).toContain(
+      'const resetDiagnosticQuotas = overlayPhase === "recording";',
+    );
   });
 });

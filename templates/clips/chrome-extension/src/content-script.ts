@@ -708,9 +708,12 @@
     });
   }
 
-  function reconcile(parts: OverlayPart[]): void {
+  function reconcile(parts: OverlayPart[], resetQuotas = false): void {
     console.log("[clips-cs] reconcile parts:", parts, "on", location.href);
     const wanted = new Set(parts.filter((p) => ALL_PARTS.includes(p)));
+    const enteringRecording =
+      wanted.has("toolbar") && !lastWantedParts.has("toolbar");
+    if (resetQuotas || enteringRecording) resetDiagnosticQuotas();
     const enteringCameraCountdown =
       wanted.has("countdown") &&
       wanted.has("bubble") &&
@@ -768,7 +771,11 @@
     const type = (message as { type?: unknown }).type;
     if (type === "CLIPS_OVERLAY_MOUNT") {
       const parts = (message as { parts?: unknown }).parts;
-      reconcile(Array.isArray(parts) ? (parts as OverlayPart[]) : []);
+      reconcile(
+        Array.isArray(parts) ? (parts as OverlayPart[]) : [],
+        (message as { resetDiagnosticQuotas?: unknown })
+          .resetDiagnosticQuotas === true,
+      );
     } else if (type === "CLIPS_OVERLAY_UNMOUNT") {
       reconcile([]);
     }
