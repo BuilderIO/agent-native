@@ -75,6 +75,8 @@ Read the relevant skill before deeper work:
   `expectedMatches: 1`, and `baseContentHash`; without it, use `objectId` with
   `replace` and the same hash, else exact `find` and `expectedMatches: 1` (see
   `slide-editing` and `mcp.instructions`).
+- For data requests, follow `analytics-data-for-decks`; delegate via Analytics
+  over A2A, never write SQL or call providers directly.
 - Without a reference deck or design system, call `get-workspace-defaults`
   first (see `create-deck`).
 - Before generation, follow `creative-context` for source order, `contextMode`,
