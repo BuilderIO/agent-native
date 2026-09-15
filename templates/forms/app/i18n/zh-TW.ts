@@ -327,6 +327,8 @@ const messages = {
     responseSubmitted: "回覆已提交",
     noFields: "此表單還沒有欄位。",
     failedSubmit: "提交表單失敗",
+    uncheckablePattern:
+      "此表單中「{label}」的規則無法檢核。請聯絡表單擁有者修正。",
   },
   responseInsights: {
     unavailable: "洞察不可用",

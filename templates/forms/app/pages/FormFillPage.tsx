@@ -1,6 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
-import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import {
+  normalizeDocumentTitle,
+  testUserRegex,
+} from "@agent-native/core/shared";
 import { isConditionalFieldVisible } from "@shared/conditional";
 import {
   getFormCompletionMode,
@@ -165,8 +168,11 @@ export function FormFillPage() {
           );
         }
         if (field.validation.pattern && typeof val === "string") {
-          const regex = new RegExp(field.validation.pattern);
-          if (!regex.test(val)) {
+          const result = testUserRegex(field.validation.pattern, val);
+          if (result.status === "unevaluated") {
+            return t("publicForm.uncheckablePattern", { label: field.label });
+          }
+          if (result.status === "no-match") {
             return field.validation.message || `${field.label} is invalid`;
           }
         }

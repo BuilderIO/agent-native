@@ -65,8 +65,14 @@ export function hasForwardedInlineLocaleUpdate(
     return false;
   }
 
+  // Two wrapper shapes forward the same inline locale block: spreading it into
+  // a local object (`...messagesByLocale["es-ES"]`) and re-exporting it
+  // directly (`export default messagesByLocale["es-ES"]`). Recognising only the
+  // first left every app using the second unable to satisfy this guard except
+  // through an i18n-copy-ignore marker, which is the escape hatch this check
+  // exists to make unnecessary.
   return new RegExp(
-    `^\\s*\\.\\.\\.\\s*messagesByLocale\\s*\\[\\s*["']${locale}["']\\s*\\]`,
+    `(?:\\.\\.\\.|\\bexport\\s+default)\\s*messagesByLocale\\s*\\[\\s*["']${locale}["']\\s*\\]`,
     "m",
   ).test(wrapperText);
 }

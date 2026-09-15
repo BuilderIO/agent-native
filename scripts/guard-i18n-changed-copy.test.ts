@@ -58,6 +58,36 @@ describe("changed copy localization coverage", () => {
     );
   });
 
+  it("accepts a wrapper that re-exports the locale instead of spreading it", () => {
+    // templates/calendar and templates/brain use this shape. It forwards the
+    // inline block just as directly as the spread form.
+    const source = "/catalog/i18n-data.ts";
+    assert.equal(
+      hasForwardedInlineLocaleUpdate(
+        "es-ES",
+        new Set(["es-ES"]),
+        source,
+        source,
+        `import { messagesByLocale } from "../i18n-data";\n\nexport default messagesByLocale["es-ES"];\n`,
+      ),
+      true,
+    );
+  });
+
+  it("still fails a re-export wrapper when that locale did not change", () => {
+    const source = "/catalog/i18n-data.ts";
+    assert.equal(
+      hasForwardedInlineLocaleUpdate(
+        "es-ES",
+        new Set(["fr-FR"]),
+        source,
+        source,
+        `export default messagesByLocale["es-ES"];\n`,
+      ),
+      false,
+    );
+  });
+
   it("still fails when the target locale has no inline update", () => {
     const source = "/catalog/i18n-data.ts";
     assert.equal(

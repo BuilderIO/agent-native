@@ -359,6 +359,8 @@ const messages = {
     responseSubmitted: "Réponse envoyée",
     noFields: "Ce formulaire n’a pas encore de champs.",
     failedSubmit: "Impossible d’envoyer le formulaire",
+    uncheckablePattern:
+      "La règle de ce formulaire pour {label} ne peut pas être vérifiée. Demandez au propriétaire du formulaire de la corriger.",
   },
   responseInsights: {
     unavailable: "Insights indisponibles",

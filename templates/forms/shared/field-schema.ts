@@ -77,7 +77,9 @@ export const formFieldSchema = z
         pattern: z
           .string()
           .optional()
-          .describe("Regular expression the value must match (text, email)."),
+          .describe(
+            "Regular expression the value must match (text, email). Rejected if it can backtrack catastrophically, which would freeze the respondent's browser and the submit handler. Avoid a repeated group whose body is itself optional or repeated: write `^\\S+(\\s+\\S+)+$` for 'at least two words', never `^([A-Za-z]+\\s?)+$`.",
+          ),
         message: z
           .string()
           .optional()

@@ -3,6 +3,8 @@
 // by the public form SSR renderer and into CSS/JS selectors by the inline
 // runtime — an unrestricted id like `x" onfocus="alert(1)` would otherwise
 // stored-XSS every anonymous submitter of a published form.
+import { compileUserRegex } from "@agent-native/core/shared";
+
 import {
   DEFAULT_FORM_FILE_MAX_BYTES,
   isValidFileAccept,
@@ -222,11 +224,24 @@ export function assertValidFields(fields: unknown): void {
             `field #${idx + 1} validation.pattern must be a string`,
           );
         }
-        try {
-          new RegExp(v.pattern);
-        } catch {
+        // A syntactically valid pattern is not a safe one. `^([A-Za-z]+\s?)+$`
+        // — what an LLM reaches for to mean "at least two words" — backtracks
+        // exponentially and freezes both the respondent's tab and the submit
+        // handler's event loop. Reject it here so it never reaches the column.
+        const compiled = compileUserRegex(v.pattern);
+        if (compiled.status === "invalid-syntax") {
           throw new Error(
             `field #${idx + 1} validation.pattern must be a valid regular expression`,
+          );
+        }
+        if (compiled.status === "too-long") {
+          throw new Error(
+            `field #${idx + 1} validation.pattern is too long: ${compiled.message}`,
+          );
+        }
+        if (compiled.status === "unsafe") {
+          throw new Error(
+            `field #${idx + 1} validation.pattern can hang the browser and the server: ${compiled.message}. Rewrite it without overlapping repetition — for example use \`^\\S+(\\s+\\S+)+$\` for "at least two words".`,
           );
         }
       }

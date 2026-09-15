@@ -358,6 +358,8 @@ const messages = {
     responseSubmitted: "Respuesta enviada",
     noFields: "Este formulario aún no tiene campos.",
     failedSubmit: "No se pudo enviar el formulario",
+    uncheckablePattern:
+      "La regla de este formulario para {label} no se puede comprobar. Pide al propietario del formulario que la corrija.",
   },
   responseInsights: {
     unavailable: "Insights no disponibles",

@@ -353,6 +353,8 @@ const messages = {
     responseSubmitted: "تم إرسال الرد",
     noFields: "لا يحتوي هذا النموذج على حقول بعد.",
     failedSubmit: "فشل إرسال النموذج",
+    uncheckablePattern:
+      "تعذّر التحقق من قاعدة هذا النموذج الخاصة بـ {label}. يرجى الطلب من مالك النموذج إصلاحها.",
   },
   responseInsights: {
     unavailable: "الرؤى غير متاحة",

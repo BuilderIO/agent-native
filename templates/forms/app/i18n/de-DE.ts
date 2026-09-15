@@ -357,6 +357,8 @@ const messages = {
     responseSubmitted: "Antwort gesendet",
     noFields: "Dieses Formular hat noch keine Felder.",
     failedSubmit: "Formular konnte nicht gesendet werden",
+    uncheckablePattern:
+      "Die Regel dieses Formulars für {label} kann nicht geprüft werden. Bitten Sie den Formularbesitzer, sie zu korrigieren.",
   },
   responseInsights: {
     unavailable: "Insights nicht verfügbar",
