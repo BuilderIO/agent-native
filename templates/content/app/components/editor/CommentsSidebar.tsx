@@ -1759,7 +1759,11 @@ function SuggestionOperationSummary({
       | { markdown?: string; changedText?: string }
       | undefined;
     const previousText = before?.changedText;
-    const nextText = after?.changedText;
+    const nextText =
+      operation.kind === "delete_text" &&
+      after?.changedText === "<empty-block/>"
+        ? ""
+        : after?.changedText;
     const key = operation.id ?? index;
     const anchor = operation.anchor as
       | { from?: unknown; to?: unknown }

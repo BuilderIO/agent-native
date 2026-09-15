@@ -1705,6 +1705,12 @@ describe("document editor layout", () => {
     expect(teardown).toContain("const loadedContentWasEmpty");
     expect(teardown).toContain("const loadedUpdatedAt");
     expect(teardown).toContain("lastSavedContentRef.current.content");
+    expect(teardown).toContain("documentRevisionRef.current !==");
+    expect(teardown).toContain("lastSavedContentRef.current.revision");
+    expect(teardown).toContain("...lastSavedContentRef.current");
+    expect(teardown).not.toContain(
+      "serverUpdatedAt > lastSavedContentRef.current.updatedAt",
+    );
     expect(teardown).toContain("{ loadedContentWasEmpty }");
     expect(teardown).toContain("{ loadedUpdatedAt }");
   });

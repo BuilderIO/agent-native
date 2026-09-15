@@ -27,6 +27,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
         "home.noMatchingDecks": "No matching decks found.",
+        "home.addDesignSystem": "Add design system",
       }[key] ?? key
     );
   },
@@ -36,6 +37,24 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => (
     <div data-testid="google-drive-connection-cta" />
   ),
+}));
+
+vi.mock("@/components/design-system/DesignSystemSetup", () => ({
+  DesignSystemSetup: ({
+    open,
+    onComplete,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    onComplete: () => void;
+  }) =>
+    open ? (
+      <div data-testid="design-system-setup-dialog">
+        <button type="button" onClick={onComplete}>
+          Finish setup
+        </button>
+      </div>
+    ) : null,
 }));
 
 import {
@@ -56,6 +75,8 @@ function renderStep(
         value: string;
       }) => Promise<ImportedReference | null>
     >();
+  const onOpenChange = vi.fn();
+  const onDesignSystemsChanged = vi.fn();
 
   render(
     <NewDeckReferenceStep
@@ -68,7 +89,8 @@ function renderStep(
       onImport={onImport}
       onImportSource={onImportSource}
       onSkip={vi.fn()}
-      onOpenChange={vi.fn()}
+      onOpenChange={onOpenChange}
+      onDesignSystemsChanged={onDesignSystemsChanged}
       title="New presentation"
       designSystemLabel="Design system"
       referenceDeckLabel="Reference deck"
@@ -80,7 +102,13 @@ function renderStep(
     />,
   );
 
-  return { onSelect, onImport, onImportSource };
+  return {
+    onSelect,
+    onImport,
+    onImportSource,
+    onOpenChange,
+    onDesignSystemsChanged,
+  };
 }
 
 describe("<NewDeckReferenceStep>", () => {
@@ -384,6 +412,34 @@ describe("<NewDeckReferenceStep>", () => {
     renderStep({ promptSummary: "Some prompt" });
 
     expect(screen.queryByText("Attached")).toBeNull();
+  });
+
+  it("opens design system creation inline instead of navigating away", () => {
+    const { onOpenChange, onDesignSystemsChanged } = renderStep({
+      designSystems: [],
+    });
+
+    // Regression: this used to be a plain `<a target="_blank" href="/design-systems">`,
+    // which opened a full-page route in a new tab. Since that route is itself
+    // gated by first-run onboarding, the new tab showed onboarding from the
+    // beginning instead of the design-systems page. Asserting there is no
+    // anchor here, and that the step's own open/close state never fires,
+    // guards against that pattern coming back for this or any other
+    // create-affordance reused inside an onboarding step.
+    expect(
+      screen.queryByRole("link", { name: "Add design system" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add design system" }));
+
+    expect(screen.getByTestId("design-system-setup-dialog")).not.toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    expect(screen.queryByTestId("design-system-setup-dialog")).toBeNull();
+    expect(onDesignSystemsChanged).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it("shows the placeholder until the reference deck is touched", () => {
