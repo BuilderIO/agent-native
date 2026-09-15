@@ -1,5 +1,5 @@
 import { mockEvent, type H3Event } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretPairsMock = vi.hoisted(() => vi.fn());
 const CredentialStoreUnavailableErrorMock = vi.hoisted(
@@ -35,7 +35,11 @@ import {
   setMcpOAuthFlowCookie,
   stripMcpOAuthAppBasePath,
   type McpOAuthFlow,
+  trackFirstRunMcpOAuthEvent,
 } from "./oauth-routes.js";
+
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock("../tracking/registry.js", () => ({ track: trackMock }));
 
 describe("trusted MCP OAuth authorization scopes", () => {
   it("pins Builder Publish to its read-only scope", () => {
@@ -126,6 +130,36 @@ const baseFlow: McpOAuthFlow = {
 };
 
 describe("MCP OAuth callback flow validation", () => {
+  beforeEach(() => trackMock.mockReset());
+
+  it("records first-run OAuth completion once with safe metadata", () => {
+    trackFirstRunMcpOAuthEvent(
+      {
+        ...baseFlow,
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      "integration_connect_completed",
+      { reconfigured: true },
+      "alice@example.com",
+    );
+
+    expect(trackMock).toHaveBeenCalledOnce();
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_completed",
+      expect.objectContaining({
+        flow: "first_run",
+        step_id: "tools",
+        integration_id: "linear",
+        integration_name: "linear",
+        connection_mode: "oauth",
+        auth_mode: "oauth",
+        scope: "user",
+      }),
+      { userId: "alice@example.com" },
+    );
+  });
+
   it("returns to integrations when OAuth saved credentials do not connect", () => {
     expect(resolveMcpOAuthReturnPath(false, { ...baseFlow })).toBe(
       "/settings/integrations",

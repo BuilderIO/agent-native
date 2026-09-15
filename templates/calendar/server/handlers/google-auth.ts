@@ -26,6 +26,7 @@ import {
   setDesktopExchange,
   setDesktopExchangeError,
   safeReturnPath,
+  setFirstRunOnboardingCookie,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
@@ -430,6 +431,7 @@ export const handleGoogleCallback = defineEventHandler(
           name: identity.name,
           image: identity.picture,
         });
+        if (isNewUser) setFirstRunOnboardingCookie(event);
         const { sessionToken } = await createOAuthSession(
           event,
           identity.email,

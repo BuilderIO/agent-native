@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   setAccountDisplayName: vi.fn(),
   setDesktopExchange: vi.fn(),
   setDesktopExchangeError: vi.fn(),
+  setFirstRunOnboardingCookie: vi.fn(),
   setOAuthDisplayName: vi.fn(),
   setResponseStatus: vi.fn(),
   wrapNetlifyPreviewGoogleOAuthState: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock("@agent-native/core/server", () => ({
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
+  setFirstRunOnboardingCookie: mocks.setFirstRunOnboardingCookie,
   wrapNetlifyPreviewGoogleOAuthState: mocks.wrapNetlifyPreviewGoogleOAuthState,
 }));
 
@@ -203,6 +205,7 @@ describe("Mail Google auth-url handlers", () => {
       accessToken: "gmail-access-token",
     });
     mocks.googleFetch.mockResolvedValue({ id: "google-user-id" });
+    mocks.ensureGoogleAuthIdentity.mockResolvedValue(true);
     mocks.oauthCallbackResponse.mockReturnValue("signed-in");
 
     await expect(
@@ -219,6 +222,9 @@ describe("Mail Google auth-url handlers", () => {
     );
     expect(mocks.createOAuthSession).toHaveBeenCalled();
     expect(mocks.getClient).toHaveBeenCalledWith("owner@example.com");
+    expect(mocks.setFirstRunOnboardingCookie).toHaveBeenCalledWith(
+      expect.anything(),
+    );
   });
 
   it("returns a JSON auth URL for verifier-bound add-account sign-in", async () => {

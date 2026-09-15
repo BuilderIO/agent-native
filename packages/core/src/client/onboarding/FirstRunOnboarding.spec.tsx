@@ -692,6 +692,22 @@ describe("FirstRunOnboarding", () => {
     await act(async () => {
       await mocks.createMcpServerMutation.mock.results[0]?.value;
     });
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "integration_cta_clicked",
+      expect.objectContaining({
+        flow: "first_run",
+        step_id: "tools",
+        integration_id: "context7",
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "integration_connect_started",
+      expect.objectContaining({ integration_id: "context7", scope: "user" }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "integration_connect_completed",
+      expect.objectContaining({ integration_id: "context7", scope: "user" }),
+    );
     expect(mocks.completeFirstRun).not.toHaveBeenCalled();
     expect(
       document.body.querySelector("[data-onboarding-screen='tools']"),
@@ -807,6 +823,10 @@ describe("FirstRunOnboarding", () => {
       mocks.trackOnboardingEvent.mock.calls
         .filter(([event]) => event === "onboarding_step_completed")
         .map(([, properties]) => (properties as { step_id: string }).step_id);
+    const skippedSteps = () =>
+      mocks.trackOnboardingEvent.mock.calls
+        .filter(([event]) => event === "onboarding_step_skipped")
+        .map(([, properties]) => (properties as { step_id: string }).step_id);
 
     act(() => {
       [...document.body.querySelectorAll("button")]
@@ -824,7 +844,8 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(completedSteps()).toEqual(["intro", "choice", "manual"]);
+    expect(completedSteps()).toEqual(["intro", "choice"]);
+    expect(skippedSteps()).toEqual(["manual"]);
 
     act(() => {
       document.body
@@ -832,7 +853,7 @@ describe("FirstRunOnboarding", () => {
         ?.click();
     });
 
-    expect(completedSteps()).toEqual(["intro", "choice", "manual"]);
+    expect(completedSteps()).toEqual(["intro", "choice"]);
   });
 
   it("saves the selected role before completing first-run onboarding", async () => {
@@ -894,6 +915,10 @@ describe("FirstRunOnboarding", () => {
         method: "POST",
         body: JSON.stringify({ role: "developer" }),
       }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_role_option_selected",
+      { flow: "first_run", step_id: "role", role: "developer" },
     );
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
   });

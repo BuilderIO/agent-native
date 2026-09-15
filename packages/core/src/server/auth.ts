@@ -4672,7 +4672,7 @@ function desktopOAuthBrowserBindingCookieAttrs(event: H3Event): {
     : { sameSite: "lax", secure: false };
 }
 
-function setFirstRunOnboardingCookie(event: H3Event): void {
+export function setFirstRunOnboardingCookie(event: H3Event): void {
   setCookie(event, FIRST_RUN_ONBOARDING_COOKIE, "1", {
     ...crossSiteCookieAttrs(event),
     ...cookieDomainAttrs(),

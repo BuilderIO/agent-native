@@ -80,6 +80,7 @@ export {
   getSessionEmail,
   getFrameworkSessionCookieValues,
   setFrameworkSessionCookie,
+  setFirstRunOnboardingCookie,
   clearFrameworkSessionCookies,
   runAuthGuard,
   registerDesktopExchange,

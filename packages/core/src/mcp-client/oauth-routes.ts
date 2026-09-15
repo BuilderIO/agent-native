@@ -29,6 +29,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
 import { MCP_OAUTH_FLOW_TTL_SECONDS } from "../shared/mcp-oauth-flow-ttl.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import { track } from "../tracking/registry.js";
 import {
   finishMcpOAuthAuthorization,
   isGoogleWorkspaceMcpServer,
@@ -43,6 +44,8 @@ import {
   MCP_OAUTH_FLOW_COOKIE_MAX_CHUNKS as FLOW_COOKIE_MAX_CHUNKS,
   readMcpOAuthFlowCookiePayload,
 } from "./oauth-flow-cookie.js";
+
+const MCP_TRACKING_INTEGRATION_ID_PATTERN = /^[a-z0-9-]{1,64}$/u;
 import {
   addOAuthRemoteServer,
   listRemoteServers,
@@ -130,6 +133,8 @@ export interface McpOAuthFlow {
   discoveryState?: McpOAuthDiscoveryState;
   authorizationScope?: string;
   returnUrl?: string;
+  trackingFlow?: "first_run";
+  trackingIntegrationId?: string;
   replaceServerId?: string;
   expiresAt: number;
 }
@@ -257,6 +262,16 @@ async function handleMcpOAuthStart(
   const rawUrl = reconnectServer?.url ?? text(query.url);
   const rawName = reconnectServer?.name ?? text(query.name);
   const returnUrl = text(query.return);
+  const trackingFlow =
+    query.tracking_flow === "first_run" ? "first_run" : undefined;
+  const rawTrackingIntegrationId = trackingFlow
+    ? text(query.tracking_integration_id)
+    : undefined;
+  const trackingIntegrationId =
+    rawTrackingIntegrationId &&
+    MCP_TRACKING_INTEGRATION_ID_PATTERN.test(rawTrackingIntegrationId)
+      ? rawTrackingIntegrationId
+      : undefined;
   if (!rawUrl || !rawName) {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth requires a server name and URL." };
@@ -391,6 +406,8 @@ async function handleMcpOAuthStart(
           }
         : {}),
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
+      ...(trackingFlow ? { trackingFlow } : {}),
+      ...(trackingIntegrationId ? { trackingIntegrationId } : {}),
       ...(reconnectServerId ? { replaceServerId: reconnectServerId } : {}),
       expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
     };
@@ -529,6 +546,16 @@ async function handleMcpOAuthCallback(
     return { error: "MCP OAuth authorization response issuer is invalid." };
   }
   if (providerError || !code) {
+    if (flow.trackingFlow === "first_run") {
+      trackFirstRunMcpOAuthEvent(
+        flow,
+        "integration_connect_failed",
+        {
+          error_type: "authorization_denied",
+        },
+        session.email,
+      );
+    }
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization was not completed." };
   }
@@ -573,6 +600,12 @@ async function handleMcpOAuthCallback(
           credentials,
         });
     if (!result.ok) {
+      trackFirstRunMcpOAuthEvent(
+        flow,
+        "integration_connect_failed",
+        { error_type: "connection_rejected" },
+        session.email,
+      );
       setResponseStatus(event, 400);
       return { error: result.error };
     }
@@ -581,15 +614,55 @@ async function handleMcpOAuthCallback(
       scopeId: flow.scopeId,
       server: result.server,
     });
+    trackFirstRunMcpOAuthEvent(
+      flow,
+      "integration_connect_completed",
+      { reconfigured: connected },
+      session.email,
+    );
     const returnPath = resolveMcpOAuthReturnPath(connected, flow);
     return redirectWithStagedCookies(
       event,
       getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
     );
   } catch {
+    trackFirstRunMcpOAuthEvent(
+      flow,
+      "integration_connect_failed",
+      { error_type: "oauth_callback_error" },
+      session.email,
+    );
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization could not be completed." };
   }
+}
+
+export function trackFirstRunMcpOAuthEvent(
+  flow: Pick<
+    McpOAuthFlow,
+    "trackingFlow" | "trackingIntegrationId" | "name" | "scope"
+  >,
+  eventName: "integration_connect_completed" | "integration_connect_failed",
+  properties: Record<string, unknown>,
+  userId: string,
+): void {
+  if (flow.trackingFlow !== "first_run") return;
+  track(
+    eventName,
+    {
+      flow: "first_run",
+      step_id: "tools",
+      integration_name: flow.name,
+      connection_mode: "oauth",
+      auth_mode: "oauth",
+      scope: flow.scope,
+      ...(flow.trackingIntegrationId
+        ? { integration_id: flow.trackingIntegrationId }
+        : {}),
+      ...properties,
+    },
+    { userId },
+  );
 }
 
 export function setMcpOAuthFlowCookie(
