@@ -64,26 +64,31 @@ export const RUN_STALE_MS = 15_000;
  * because it answers with the deployment-wide `AGENT_USER_EMAIL` once the
  * request context has unwound — a detached worker finalizing a run would then
  * tag a private thread's event as owned by that ambient identity and hand it to
- * them through the owner fast path. Without a request behind the transition
- * there is no caller to grant, and the resource tags gate the event on their
- * own: access resolution costs one extra poll cycle, disclosure does not
- * recover.
+ * them through the owner fast path.
+ *
+ * A transition with no request behind it announces nothing. Emitting it
+ * unowned would look harmless — the resource tags still gate delivery — but an
+ * event that misses the owner fast path falls to `scheduleAccessCheck`, which
+ * runs a detached `chat_thread` access query. That is the same fire-and-forget
+ * read against a shared connection that this notifier is careful not to do
+ * itself, only one layer further away. Silence is cheap here: the tray polls
+ * every few seconds while a run reads as active, so it still converges on the
+ * terminal status.
  *
  * Best-effort: poll delivery is advisory, the tray still polls while a run
  * reads as active, and a failure here must never fail the run it reports on.
  */
 function bumpRunsPoll(threadId: string): void {
   try {
-    // An unresolved caller is not a reason to broadcast: fall back to the
-    // access-gated tags alone rather than emitting a globally visible event.
     const caller = getRequestContext()?.userEmail?.trim();
+    if (!caller) return;
     recordChange({
       source: "runs",
       type: "change",
       key: threadId,
+      owner: caller,
       resourceType: "chat_thread",
       resourceId: threadId,
-      ...(caller ? { owner: caller } : {}),
     });
   } catch {
     // coercion-ok: a dropped poll notification cannot corrupt run state, and

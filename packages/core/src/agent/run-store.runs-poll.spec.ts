@@ -148,37 +148,32 @@ describe("runs poll notifications", () => {
     });
   });
 
-  it("stays access-gated when the request has no authenticated user", async () => {
+  it("stays silent when the request has no authenticated user", async () => {
     requestUser = undefined;
     await insertRun("run-orphan", "thread-1", "turn-orphan");
-    await settle();
+    await settleQuiet();
 
-    const event = runsEvents()[0];
-    // No caller is not a licence to broadcast: an untagged event would be
-    // visible to every authenticated user.
-    expect(event.owner).toBeUndefined();
-    expect(event).toMatchObject({
-      resourceType: "chat_thread",
-      resourceId: "thread-1",
-    });
+    // An untagged event would reach every authenticated user, and a
+    // resource-tagged one with no owner misses the fast path and drives a
+    // detached access query. Neither is worth a poll hint the tray recovers
+    // on its own.
+    expect(runsEvents()).toHaveLength(0);
   });
 
   it("never attributes the event to the deployment-wide ambient identity", async () => {
     // A detached worker can finalize a run after the request context has
     // unwound. `getRequestUserEmail()` answers with AGENT_USER_EMAIL there, so
     // the owner fast path would hand a private thread's event to whoever the
-    // deploy env names. No caller is the correct answer: the resource tags
-    // still gate delivery, one poll cycle later.
+    // deploy env names. No caller means no announcement: the tray converges
+    // on the terminal status through its own active polling.
     hasRequestStore = false;
     await insertRun("run-detached", "thread-1", "turn-detached");
-    await settle();
+    await settleQuiet();
 
-    const event = runsEvents()[0];
-    expect(event.owner).toBeUndefined();
-    expect(event).toMatchObject({
-      resourceType: "chat_thread",
-      resourceId: "thread-1",
-    });
+    expect(
+      runsEvents().some((event) => event.owner === AMBIENT_DEPLOY_USER),
+    ).toBe(false);
+    expect(runsEvents()).toHaveLength(0);
   });
 
   it("never queries chat_threads to build the event", async () => {
