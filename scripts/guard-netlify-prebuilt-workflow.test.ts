@@ -121,29 +121,8 @@ describe("Google callback deploy verification guard", () => {
     );
     assert.match(step, /relay_context=production/);
     assert.match(step, /!value/);
-    assert.match(
-      step,
-      /netlify env:get AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET[\s\S]*--scope runtime[\s\S]*--json 2>\/dev\/null \|[\s\S]*node -e/,
-    );
-    const resolverScript = step.match(
-      /--json 2>\/dev\/null \|\n\s*node -e '\n([\s\S]*?)\n\s*'/,
-    )?.[1];
-    assert.ok(resolverScript);
-    const runResolver = (json: string) =>
-      execFileSync(process.execPath, ["-e", resolverScript], {
-        encoding: "utf8",
-        input: json,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-    assert.throws(
-      () => runResolver("{}"),
-      /AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET does not resolve/,
-    );
-    assert.doesNotThrow(() =>
-      runResolver(
-        '{"AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET":"test-relay-secret"}',
-      ),
-    );
+    assert.match(step, /Netlify masks secret values/);
+    assert.doesNotMatch(step, /netlify env:get/);
     assert.match(
       step,
       /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,
