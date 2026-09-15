@@ -1,6 +1,8 @@
+import { applyTextToYDoc } from "@agent-native/core/collab";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import { runApplyFileContentUpdate } from "@/pages/design-editor/commands/apply-file-content-update";
 import {
@@ -166,8 +168,12 @@ it("migrates server-acknowledged raw bytes but leaves an ordinary unsaved previe
     | { baseUpdatedAt?: string | null; sourceContent?: string }
     | undefined;
   let migrationCanceled = false;
+  const ydoc = new Y.Doc();
+  ydoc.getText("content").insert(0, rawContent);
   const migrationResult = runApplyLocalContentUpdate(
     localArgs({
+      ydoc,
+      isSynced: true,
       cancelQueuedFileContentSave: () => {
         migrationCanceled = true;
       },
@@ -188,6 +194,8 @@ it("migrates server-acknowledged raw bytes but leaves an ordinary unsaved previe
   );
   expect(migrationResult.status).toBe("accepted");
   expect(migrationCanceled).toBe(false);
+  expect(ydoc.getText("content").toString()).toBe(rawContent);
+  ydoc.destroy();
   expect(migrationQueue?.content).toBe(
     migrationResult.status === "accepted" ? migrationResult.content : undefined,
   );
@@ -219,4 +227,89 @@ it("migrates server-acknowledged raw bytes but leaves an ordinary unsaved previe
   expect(ordinaryResult.status).toBe("accepted");
   expect(canceledOrdinarySave).toBe(true);
   expect(ordinaryQueueCalled).toBe(false);
+});
+
+it.each(["active", "overview"])(
+  "keeps the server as CRDT author for a second %s edit before catch-up",
+  (target) => {
+    const before = '<main data-agent-native-node-id="root"></main>';
+    const first = before.replace(
+      "</main>",
+      '<button data-agent-native-node-id="copy">Paste</button></main>',
+    );
+    const second = first.replace(
+      'node-id="copy"',
+      'node-id="copy" style="color:red"',
+    );
+    const server = new Y.Doc();
+    server.getText("content").insert(0, before);
+    const client = new Y.Doc();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server), "remote");
+    applyTextToYDoc(server, "content", first, "server");
+    const queueFileContentSave = vi.fn();
+    const recordLocalContentHistoryEntry = vi.fn();
+    const args = localArgs({
+      activeFile: { ...activeFile, content: first },
+      collabContentRef: { current: first },
+      isSynced: true,
+      ydoc: client,
+      undoManagerRef: { current: new Y.UndoManager(client.getText("content")) },
+      queueFileContentSave,
+      recordLocalContentHistoryEntry,
+    });
+    const result =
+      target === "active"
+        ? runApplyLocalContentUpdate(args, second)
+        : runApplyFileContentUpdate(
+            {
+              ...args,
+              activeFile: { ...activeFile, id: "other-screen" },
+              applyFileContentUpdate: vi.fn(),
+              applyLocalContentUpdate: vi.fn(),
+              files: [{ ...activeFile, content: first }],
+              getScreenContent: () => first,
+              overviewIsSynced: true,
+              overviewPresenceFileId: activeFile.id,
+              overviewYdoc: client,
+            },
+            activeFile.id,
+            second,
+          );
+    expect(result.status).toBe("accepted");
+    expect(client.getText("content").toString()).toBe(before);
+    expect(queueFileContentSave).toHaveBeenCalledWith(
+      activeFile.id,
+      second,
+      expect.objectContaining({
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(first),
+      }),
+    );
+    if (target === "active")
+      expect(recordLocalContentHistoryEntry).toHaveBeenCalled();
+    applyTextToYDoc(server, "content", second, "server");
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server), "remote");
+    expect(client.getText("content").toString()).toBe(second);
+    args.undoManagerRef.current?.destroy();
+    client.destroy();
+    server.destroy();
+  },
+);
+
+it("routes a stale callback with a destroyed matching Y.Doc through the server", () => {
+  const ydoc = new Y.Doc();
+  ydoc.getText("content").insert(0, oldContent);
+  ydoc.destroy();
+  const queueFileContentSave = vi.fn();
+  const result = runApplyLocalContentUpdate(
+    localArgs({ ydoc, isSynced: true, queueFileContentSave }),
+    oldContent.replace("Old", "New"),
+  );
+  expect(result.status).toBe("accepted");
+  expect(ydoc.getText("content").toString()).toBe(oldContent);
+  expect(queueFileContentSave).toHaveBeenCalledWith(
+    activeFile.id,
+    expect.any(String),
+    expect.objectContaining({ syncCollab: true }),
+  );
 });

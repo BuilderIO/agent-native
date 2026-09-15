@@ -3,10 +3,7 @@ import * as Y from "yjs";
 
 import type { ElementInfo } from "@/components/design/types";
 import { refreshElementInfoFromContent } from "@/pages/design-editor/code-layer-state";
-import {
-  shouldApplyRemotePreviewContent,
-  writeCollabText,
-} from "@/pages/design-editor/collab-sync";
+import { shouldApplyRemotePreviewContent } from "@/pages/design-editor/collab-sync";
 import {
   LOCAL_EDIT_ORIGIN,
   TAB_ID,
@@ -120,9 +117,6 @@ export function runObserveCollabText({
       ) {
         setContentRenderRevision((revision) => revision + 1);
       }
-      // Untracked write — see clear() note in the seed effect above.
-      undoManagerRef.current?.clear(true, false);
-      writeCollabText(ydoc, ytext, pendingLocalContent, TAB_ID);
       return;
     }
     const next = isLocalEdit

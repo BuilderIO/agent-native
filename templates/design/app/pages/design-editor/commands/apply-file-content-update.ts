@@ -7,6 +7,7 @@ import * as Y from "yjs";
 import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
+  canWriteCollabText,
   resolveScreenCollabSyncTarget,
   writeCollabText,
 } from "@/pages/design-editor/collab-sync";
@@ -217,25 +218,14 @@ export function runApplyFileContentUpdate(
       ),
     };
   });
-  // §gesture-persistence — mirror applyLocalContentUpdate's collab-doc
-  // write. This screen isn't the active file, but overview mode can still
-  // hold a LIVE connected Yjs doc for it via the presence-only
-  // `overviewYdoc` subscription (keyed on `overviewPresenceFileId`, the
-  // selected/worked screen in overview — see its declaration doc comment).
-  // Before this fix, per-screen gesture commits only ever wrote SQL and
-  // relied entirely on the server-side `syncCollab: true` -> applyText
-  // round-trip to keep that connected doc in step; any gap between the
-  // SQL write and the next collab poll/state fetch left the connected
-  // client holding pre-edit Yjs text, which a subsequent doc connect
-  // (Code panel open) could read back as the seed snapshot. Writing the
-  // ydoc directly here — the same untracked-full-rewrite pattern used
-  // throughout this file — closes that gap the same way the active-file
-  // path already does, and lets syncCollab be skipped for the
-  // server-side round-trip since the client push already covers it.
+  // Overview presence owns a live document only for the selected Screen.
+  // A lagging document must receive the server delta before authoring edits.
   const { writeLiveDoc, syncCollab } = resolveScreenCollabSyncTarget({
     fileId,
     overviewPresenceFileId,
-    overviewDocConnected: !!(overviewYdoc && overviewIsSynced),
+    overviewDocConnected:
+      !needsIdentityMigration &&
+      canWriteCollabText(overviewYdoc, overviewIsSynced, previousContent),
   });
   if (writeLiveDoc && overviewYdoc) {
     writeCollabText(
@@ -254,7 +244,7 @@ export function runApplyFileContentUpdate(
           ? nextContent
           : (options.sourceBaseContent ?? previousContent),
       ),
-      syncCollab: needsIdentityMigration || syncCollab,
+      syncCollab,
       immediate: true,
       identityMigrationSourceContent,
     });

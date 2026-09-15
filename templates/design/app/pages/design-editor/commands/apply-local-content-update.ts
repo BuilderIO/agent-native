@@ -7,7 +7,10 @@ import * as Y from "yjs";
 import { trace } from "@/components/design/design-trace";
 import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
-import { writeCollabText } from "@/pages/design-editor/collab-sync";
+import {
+  canWriteCollabText,
+  writeCollabText,
+} from "@/pages/design-editor/collab-sync";
 import {
   LOCAL_EDIT_ORIGIN,
   TAB_ID,
@@ -199,11 +202,13 @@ export function runApplyLocalContentUpdate(
     nextContent,
     publication: options.clipboardMutation,
   });
+  const writeLiveDoc =
+    !needsIdentityMigration &&
+    canWriteCollabText(ydoc, isSynced, previousContent);
   const yjsHistoryAvailable = Boolean(
     shouldRecordHistory &&
     viewModeRef.current !== "overview" &&
-    ydoc &&
-    isSynced &&
+    writeLiveDoc &&
     undoManagerRef.current,
   );
   if (
@@ -327,7 +332,7 @@ export function runApplyLocalContentUpdate(
   if (renderFallback) {
     setContentRenderRevision((revision) => revision + 1);
   }
-  if (ydoc && isSynced) {
+  if (ydoc && writeLiveDoc) {
     const ytext = ydoc.getText("content");
     if (ytext.toJSON() !== nextContent) {
       if (!yjsHistoryAvailable) {
@@ -354,7 +359,7 @@ export function runApplyLocalContentUpdate(
           ? inputContent
           : (options.sourceBaseContent ?? previousContent),
       ),
-      syncCollab: needsIdentityMigration || !(ydoc && isSynced),
+      syncCollab: !writeLiveDoc,
       immediate: needsIdentityMigration ? true : options.immediateSave,
       identityMigrationSourceContent,
     });

@@ -28,7 +28,10 @@ import {
   resolveCodeLayerTargetFromBridge,
   resolveCodeLayerTargetFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
-import { writeCollabText } from "@/pages/design-editor/collab-sync";
+import {
+  canWriteCollabText,
+  writeCollabText,
+} from "@/pages/design-editor/collab-sync";
 import type {
   LiveScreenSnapshot,
   PatchProofState,
@@ -695,10 +698,10 @@ export function runCommitVisualStyles(
       setContentRenderRevision((revision) => revision + 1);
     }
   } else {
+    const writeLiveDoc = canWriteCollabText(ydoc, isSynced, baseContent);
     const yjsHistoryAvailable = Boolean(
       viewModeRef.current !== "overview" &&
-      ydoc &&
-      isSynced &&
+      writeLiveDoc &&
       undoManagerRef.current,
     );
     if (
@@ -754,7 +757,7 @@ export function runCommitVisualStyles(
     // through Yjs (not only via the slower update-file → applyText round-trip).
     // Single-screen edits use the active-file UndoManager. Overview edits are
     // tracked in the global file-content stack so all screens share one order.
-    if (ydoc && isSynced) {
+    if (ydoc && writeLiveDoc) {
       const ytext = ydoc.getText("content");
       if (ytext.toJSON() !== resolvedNextContent) {
         if (!yjsHistoryAvailable) {
@@ -774,7 +777,7 @@ export function runCommitVisualStyles(
     }
     queueFileContentSave(activeFile.id, resolvedNextContent, {
       expectedVersionHash: sourceContentHash(baseContent),
-      syncCollab: !(ydoc && isSynced),
+      syncCollab: !writeLiveDoc,
     });
     if (
       shouldReplacePreviewAfterVisualStyleCommit({

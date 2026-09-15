@@ -66,8 +66,8 @@ function rowsAffected(result: unknown): number | undefined {
  * text, NOR the `content` being written (an own edit that raced ahead via
  * Yjs), NOR the current SQL mirror content. A caller whose hash matches the
  * current mirror is the mirror column's own lineage (mirror-lineage rescue):
- * it proceeds instead of skipping, advancing the mirror AND diff-merging its
- * content into the live doc.
+ * it proceeds instead of skipping, advancing the mirror while the client
+ * remains responsible for its CRDT operations.
  * In the genuinely-stale case the content column is intentionally left
  * untouched (the live
  * collab document remains the source of truth) while any `filename`/
@@ -438,7 +438,6 @@ export default defineAction({
         // BEFORE the hash comparison so this exact-match case always proceeds
         // as a normal write instead of hitting either the skip or throw path.
         let skipContentWrite = skippedStaleOperation;
-        let mirrorLineageCollabSync = false;
         if (
           !skippedStaleOperation &&
           expectedVersionHash !== undefined &&
@@ -453,36 +452,10 @@ export default defineAction({
             !acceptedBaseHashes.has(sourceContentHash(liveContent))
           ) {
             if (syncCollab === false && collabExists) {
-              // Mirror-lineage rescue (sequential-edit data-loss fix, verified
-              // live): the client's Yjs transact and its guarded update-file
-              // call ride two independent transports, and the Yjs pipe can lag
-              // or silently die — reproduced with a live collab doc that never
-              // received EITHER of two sequential scrub edits while the HTTP
-              // saves advanced the SQL mirror normally. Comparing the caller
-              // only against that stale live text mis-classified the SECOND
-              // save as a divergent writer and silently dropped it. When the
-              // caller's expectedVersionHash matches the CURRENT SQL mirror,
-              // the caller is the mirror's own uninterrupted lineage (a plain
-              // CAS success against the column this write updates) while the
-              // live doc is the diverging party — a dead/lagging client Yjs
-              // pipe or a concurrent live-only editor. Do NOT skip, and do NOT
-              // silently drop either side: proceed with the mirror write AND
-              // push `content` through the collab layer exactly like
-              // syncCollab:true does (mirrorLineageCollabSync below). The
-              // applyText char-diff merge folds the caller's change into the
-              // live doc as a CRDT diff, so no one's edits are dropped: the
-              // mirror advances with the caller, and the live doc receives the
-              // caller's change as a diff-merge that preserves any other
-              // editor's live edits. Only callers matching NEITHER the live
-              // text NOR the mirror are genuinely stale and still hit the skip
-              // below.
-              if (acceptedBaseHashes.has(persistedContentHash)) {
-                // Caller is exactly at the persisted mirror's tip — the live
-                // collab doc is the lagging party, not the caller. Write the
-                // mirror normally and also sync the caller's content into the
-                // live doc via the collab diff-merge below.
-                mirrorLineageCollabSync = true;
-              } else {
+              // A delayed client transport does not invalidate the SQL lineage.
+              // Preserve the mirror CAS, but keep CRDT authorship with the client:
+              // its original deltas can still arrive after this HTTP save.
+              if (!acceptedBaseHashes.has(persistedContentHash)) {
                 skipContentWrite = true;
                 skippedStaleMirror = true;
               }
@@ -642,17 +615,14 @@ export default defineAction({
           }
         }
 
-        // Push content through the collab layer so live editors see the change.
-        // mirrorLineageCollabSync: a syncCollab:false caller whose hash matched
-        // the current SQL mirror (mirror-lineage rescue) also syncs here, so a
-        // dead/lagging live doc receives the caller's change as a CRDT
-        // diff-merge instead of silently diverging from the mirror.
+        // Only the declared server writer authors CRDT operations. A mirror-only
+        // save must not duplicate a delayed client's insertions.
         const shouldConvergePersistedRetry =
           exactOperationAlreadyPersisted && syncCollab;
         if (
           content !== undefined &&
           (!skipContentWrite || shouldConvergePersistedRetry) &&
-          (syncCollab || mirrorLineageCollabSync)
+          syncCollab
         ) {
           const collabExists = await hasCollabState(id);
           if (collabExists) {

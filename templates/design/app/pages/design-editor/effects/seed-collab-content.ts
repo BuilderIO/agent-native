@@ -1,11 +1,7 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import * as Y from "yjs";
 
-import {
-  shouldRebaseCollabDocFromStoredContent,
-  writeCollabText,
-} from "@/pages/design-editor/collab-sync";
-import { TAB_ID } from "@/pages/design-editor/editor-session";
+import { shouldRebaseCollabDocFromStoredContent } from "@/pages/design-editor/collab-sync";
 import type {
   PendingLocalFileContent,
   PreviewContentReplaceResult,
@@ -38,7 +34,6 @@ export interface SeedCollabContentArgs {
   setCollabContent: Dispatch<SetStateAction<string | null>>;
   setCollabContentFileId: Dispatch<SetStateAction<string | null>>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
-  undoManagerRef: RefObject<Y.UndoManager | null>;
   ydoc: Y.Doc | null;
 }
 
@@ -57,13 +52,14 @@ export function runSeedCollabContent({
   setCollabContent,
   setCollabContentFileId,
   setContentRenderRevision,
-  undoManagerRef,
   ydoc,
 }: SeedCollabContentArgs) {
   if (!ydoc || !isSynced || !activeFileId) return;
   const fileId = activeFileId;
   const ytext = ydoc.getText("content");
   const text = ytext.toJSON();
+  // Source actions own Yjs updates. Re-splicing SQL or pending bytes here
+  // duplicates insertions when their server delta is still in flight.
   const pending = pendingLocalFileContentsRef.current.get(fileId);
   const pendingLocalContent = pending?.content;
   if (
@@ -84,13 +80,6 @@ export function runSeedCollabContent({
       ) {
         setContentRenderRevision((revision) => revision + 1);
       }
-      // Untracked origin: the UndoManager only tracks LOCAL_EDIT_ORIGIN, so
-      // this write is invisible to it. Clear the undo stack so a subsequent
-      // Cmd+Z can't replay a tracked delta from before it against content it
-      // no longer matches (see the DE:5135-style mitigation below for the
-      // same hazard).
-      undoManagerRef.current?.clear(true, false);
-      writeCollabText(ydoc, ytext, pendingLocalContent, TAB_ID);
     } else {
       setCollabContent(pendingLocalContent);
       setCollabContentFileId(fileId);
@@ -143,9 +132,7 @@ export function runSeedCollabContent({
       ) {
         setContentRenderRevision((revision) => revision + 1);
       }
-      // Untracked write — see clear() note above.
-      undoManagerRef.current?.clear(true, false);
-      writeCollabText(ydoc, ytext, acceptedStoredContent, TAB_ID);
+
       return;
     }
     // Y.Doc snapshots are a render seed, not the SQL source of truth; the

@@ -1,12 +1,7 @@
 import { shouldUseLiveFileContent } from "@shared/html-content";
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import * as Y from "yjs";
 
-import { writeCollabText } from "@/pages/design-editor/collab-sync";
-import {
-  TAB_ID,
-  shouldAdoptExternalReconcileContent,
-} from "@/pages/design-editor/editor-session";
+import { shouldAdoptExternalReconcileContent } from "@/pages/design-editor/editor-session";
 import type { PreviewContentReplaceResult } from "@/pages/design-editor/editor-state";
 import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
@@ -29,7 +24,6 @@ export interface AdoptDbFileContentArgs {
   collabContentRef: RefObject<string | null>;
   documentFileContentRef: RefObject<string | null>;
   documentFileUpdatedAtRef: RefObject<string | null>;
-  isLeadClient: boolean;
   isSynced: boolean;
   lastAppliedFileContentRef: RefObject<string | null>;
   lastAppliedFileUpdatedAtRef: RefObject<string | null>;
@@ -47,8 +41,6 @@ export interface AdoptDbFileContentArgs {
   setCollabContentFileId: Dispatch<SetStateAction<string | null>>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
   staleAgentCollabRecoveryTimerRef: RefObject<number | null>;
-  undoManagerRef: RefObject<Y.UndoManager | null>;
-  ydoc: Y.Doc | null;
 }
 
 export function runAdoptDbFileContent({
@@ -62,7 +54,6 @@ export function runAdoptDbFileContent({
   collabContentRef,
   documentFileContentRef,
   documentFileUpdatedAtRef,
-  isLeadClient,
   isSynced,
   lastAppliedFileContentRef,
   lastAppliedFileUpdatedAtRef,
@@ -74,8 +65,6 @@ export function runAdoptDbFileContent({
   setCollabContentFileId,
   setContentRenderRevision,
   staleAgentCollabRecoveryTimerRef,
-  undoManagerRef,
-  ydoc,
 }: AdoptDbFileContentArgs) {
   if (!activeFile || !isSynced) return;
   const dbSourceContent = activeFile.content ?? "";
@@ -120,18 +109,6 @@ export function runAdoptDbFileContent({
       setContentRenderRevision((revision) => revision + 1);
     }
 
-    if (isLeadClient && ydoc) {
-      const ytext = ydoc.getText("content");
-      if (ytext.toJSON() !== dbContent) {
-        // Untracked write (agent edit / external DB content replacing a
-        // live doc that diverged) — clear the undo stack so a stale
-        // tracked delta can't be replayed against content it no longer
-        // matches (see U1: this is the primary corruption path — agent
-        // edits, motion autosave, and id-stamping all land here).
-        undoManagerRef.current?.clear(true, false);
-        writeCollabText(ydoc, ytext, dbContent, TAB_ID);
-      }
-    }
     return;
   }
 
@@ -212,15 +189,6 @@ export function runAdoptDbFileContent({
           ) {
             setContentRenderRevision((revision) => revision + 1);
           }
-
-          if (isLeadClient && ydoc) {
-            const ytext = ydoc.getText("content");
-            if (ytext.toJSON() !== expectedContent) {
-              // Untracked write — see U1 note above.
-              undoManagerRef.current?.clear(true, false);
-              writeCollabText(ydoc, ytext, expectedContent, TAB_ID);
-            }
-          }
         }, 1200);
       }
     } else {
@@ -281,20 +249,5 @@ export function runAdoptDbFileContent({
     )
   ) {
     setContentRenderRevision((revision) => revision + 1);
-  }
-
-  // Lead client mirrors it into the shared Y.Doc so other open clients
-  // receive it through Yjs and the durable collab state stays in step. The
-  // agent's update-file/generate-design already wrote the Y.Doc in-process,
-  // so in the common case this is a no-op diff; it only does real work when
-  // the Yjs update was missed (the failure this fallback exists to cover).
-  if (isLeadClient && ydoc) {
-    const ytext = ydoc.getText("content");
-    if (ytext.toJSON() !== dbContent) {
-      // Untracked write — see U1 note above. The view-appropriate
-      // checkpoint recorded above (U21) is what Cmd+Z now falls back to.
-      undoManagerRef.current?.clear(true, false);
-      writeCollabText(ydoc, ytext, dbContent, TAB_ID);
-    }
   }
 }

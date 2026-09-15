@@ -63,7 +63,7 @@ function publisherHarness() {
   };
 }
 
-it("seeds a freshly connected Y.Doc from canonical persisted source", () => {
+it("renders canonical persisted source while its Yjs update is in flight", () => {
   const ydoc = new Y.Doc();
   ydoc.getText("content").insert(0, before);
   const publisher = publisherHarness();
@@ -109,7 +109,7 @@ it("seeds a freshly connected Y.Doc from canonical persisted source", () => {
     ydoc,
   } as never);
 
-  expect(ydoc.getText("content").toJSON()).toBe(expected);
+  expect(ydoc.getText("content").toJSON()).toBe(before);
   expect(collabContent).toBe(expected);
   expect(collabFileId).toBe(fileId);
   expect(latest.current).toBe(expected);
@@ -192,7 +192,7 @@ it("keeps SQL authority for a divergent cold Y.Doc without a proven watermark", 
     ydoc,
   } as never);
 
-  expect(ydoc.getText("content").toJSON()).toBe(staleCanonical);
+  expect(ydoc.getText("content").toJSON()).toBe(rawPeer);
   expect(collabContent).toBe(staleCanonical);
   expect(collabFileId).toBe(fileId);
   expect(latest.current).toBe(staleCanonical);
@@ -204,7 +204,7 @@ it("keeps SQL authority for a divergent cold Y.Doc without a proven watermark", 
   });
   expect(publisher.args.cancelIdentityMigration).not.toHaveBeenCalled();
   expect(publisher.queued).toEqual([]);
-  expect(undoManager.clear).toHaveBeenCalledWith(true, false);
+  expect(undoManager.clear).not.toHaveBeenCalled();
 
   ydoc.destroy();
 });
@@ -438,7 +438,7 @@ it("preserves peer edits against unchanged SQL and adopts changed same-milliseco
   documentUpdatedAt.current = sameMillisecondSource.updatedAt;
   adopt(sameMillisecondSource);
   expect(collabContent).toBe(expectedSameMillisecondUpdate);
-  expect(ytext.toJSON()).toBe(expectedSameMillisecondUpdate);
+  expect(ytext.toJSON()).toBe(rawPeer);
   expect(lastApplied.current).toBe(sameMillisecondSource.updatedAt);
   expect(lastAppliedContent.current).toBe(rawSameMillisecondUpdate);
   expect(
@@ -449,7 +449,7 @@ it("preserves peer edits against unchanged SQL and adopts changed same-milliseco
   ydoc.destroy();
 });
 
-it("adopts newly persisted source into a lead Y.Doc through the canonical publisher", () => {
+it("adopts newly persisted source through the canonical publisher without a second Yjs writer", () => {
   const ydoc = new Y.Doc();
   ydoc.getText("content").insert(0, before);
   const publisher = publisherHarness();
@@ -509,7 +509,7 @@ it("adopts newly persisted source into a lead Y.Doc through the canonical publis
     ydoc,
   } as never);
 
-  expect(ydoc.getText("content").toJSON()).toBe(expected);
+  expect(ydoc.getText("content").toJSON()).toBe(before);
   expect(collabContent).toBe(expected);
   expect(collabContentFileId).toBe(fileId);
   expect(latest.current).toBe(expected);

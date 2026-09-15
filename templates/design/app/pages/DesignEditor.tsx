@@ -19,7 +19,6 @@ import {
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
-  isReconcileLeadClient,
   emailToColor,
   emailToName,
   usePresence,
@@ -6283,27 +6282,6 @@ function DesignEditor() {
     }
   }, []);
 
-  // Whether this client applies authoritative external snapshots into the
-  // shared Y.Doc. Exactly one client (the lead) does, so an agent/peer edit
-  // that arrives via the get-design refetch isn't diffed into the CRDT by every
-  // open client and duplicated. Re-elected on awareness / visibility changes.
-  const [isLeadClient, setIsLeadClient] = useState(true);
-  useEffect(() => {
-    if (!awareness || !ydoc) {
-      setIsLeadClient(true);
-      return;
-    }
-    const update = () =>
-      setIsLeadClient(isReconcileLeadClient(awareness, ydoc.clientID));
-    update();
-    awareness.on("change", update);
-    document.addEventListener("visibilitychange", update);
-    return () => {
-      awareness.off("change", update);
-      document.removeEventListener("visibilitychange", update);
-    };
-  }, [awareness, ydoc]);
-
   useEffect(() => {
     if (previousDesignIdForHistoryRef.current === id) return;
     previousDesignIdForHistoryRef.current = id ?? null;
@@ -6362,7 +6340,6 @@ function DesignEditor() {
         setCollabContent,
         setCollabContentFileId,
         setContentRenderRevision,
-        undoManagerRef,
         ydoc,
       }),
     [
@@ -6520,8 +6497,8 @@ function DesignEditor() {
   // was backgrounded, or refetchInterval is off for a normal agent edit), but
   // get-design still refetches via the action-change invalidate. Driven by
   // `updatedAt`: only content genuinely newer than what the preview reflects is
-  // adopted, so a lagging poll can never revert live edits. The lead client also
-  // writes it into the Y.Doc so peers receive it and it persists.
+  // adopted, so a lagging poll can never revert live edits. Source actions
+  // publish the corresponding Yjs operations through the server.
   useEffect(
     () =>
       runAdoptDbFileContent({
@@ -6535,7 +6512,6 @@ function DesignEditor() {
         collabContentRef,
         documentFileContentRef,
         documentFileUpdatedAtRef,
-        isLeadClient,
         isSynced,
         lastAppliedFileUpdatedAtRef,
         lastAppliedFileContentRef,
@@ -6547,8 +6523,6 @@ function DesignEditor() {
         setCollabContentFileId,
         setContentRenderRevision,
         staleAgentCollabRecoveryTimerRef,
-        undoManagerRef,
-        ydoc,
       }),
     [
       canEditDesign,
@@ -6559,9 +6533,7 @@ function DesignEditor() {
       collabContent,
       collabContentFileId,
       isSynced,
-      isLeadClient,
       recordExternalContentHistoryCheckpoint,
-      ydoc,
     ],
   );
 
