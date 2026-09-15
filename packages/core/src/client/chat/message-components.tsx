@@ -80,7 +80,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { localizeKnownChatErrorText } from "../error-format.js";
+import {
+  isCreditsLimitErrorCode,
+  localizeKnownChatErrorText,
+} from "../error-format.js";
 import {
   DEFAULT_LOCALE,
   useFormatters,
@@ -2119,7 +2122,7 @@ export function shouldShowInlineRunError({
   runError: RunErrorInfo | null;
   bannerRunErrorKey: string | null | undefined;
 }): boolean {
-  if (!runError) return false;
+  if (!runError || isCreditsLimitErrorCode(runError.errorCode)) return false;
   return runErrorKey(runError) !== bannerRunErrorKey;
 }
 

@@ -135,9 +135,11 @@ type FactoryAuditResponse = {
 export function FactoryAuditView({
   factoryId,
   refreshToken = 0,
+  onFetchingChange,
 }: {
   factoryId: string;
   refreshToken?: number;
+  onFetchingChange?: (isFetching: boolean) => void;
 }) {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -199,6 +201,10 @@ export function FactoryAuditView({
     if (refreshToken === 0) return;
     void refetchAudit();
   }, [refreshToken, refetchAudit]);
+
+  useEffect(() => {
+    onFetchingChange?.(auditQuery.isFetching);
+  }, [auditQuery.isFetching, onFetchingChange]);
 
   function setAuditFilter(key: "automation" | "range", value: string) {
     setCursor(null);

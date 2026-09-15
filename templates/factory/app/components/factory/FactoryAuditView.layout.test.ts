@@ -70,4 +70,17 @@ describe("FactoryAuditView outcome-first audit", () => {
     expect(rangeFilterIdx).toBeGreaterThan(-1);
     expect(source.indexOf("{runListFilters}")).toBeGreaterThan(runListIdx);
   });
+
+  it("reports fetching state so the tab bar refresh trigger can show a spinner", () => {
+    const source = readViewSource();
+    expect(source).toContain(
+      "onFetchingChange?: (isFetching: boolean) => void",
+    );
+    expect(source).toContain("if (refreshToken === 0) return");
+    expect(source).toContain("void refetchAudit()");
+    expect(source).toContain("onFetchingChange?.(auditQuery.isFetching)");
+    expect(source.indexOf("[refreshToken, refetchAudit]")).toBeLessThan(
+      source.indexOf("[auditQuery.isFetching, onFetchingChange]"),
+    );
+  });
 });

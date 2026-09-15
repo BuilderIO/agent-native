@@ -13,7 +13,11 @@ import {
   useAgentSettingsTabs,
   type SettingsTabItem,
 } from "@agent-native/core/client/settings";
-import { createCreativeContextAgentTab } from "@agent-native/creative-context/client";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
+import {
+  createCreativeContextAgentTab,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { IconBell } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -34,6 +38,7 @@ import { buildAnalyticsGeneralSettingsSearchEntries } from "./settings/settings-
 
 export default function Settings() {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const replayStorageStatus = useReplayStorageStatus();
   const { data: analyticsPrefs, isLoading: analyticsPrefsLoading } =
     useActionQuery<AnalyticsUserPrefs>("get-user-pref", {
@@ -129,10 +134,24 @@ export default function Settings() {
       }
     />
   );
+  const agentAdditionalTabFactories = useMemo(
+    () => (creativeContextEnabled ? [createCreativeContextAgentTab] : []),
+    [creativeContextEnabled],
+  );
   const agentSettingsTabs = useAgentSettingsTabs({
     agentAdditionalContent,
-    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+    agentAdditionalTabFactories,
   });
+  const labs = useMemo(
+    () => [
+      {
+        ...CREATIVE_CONTEXT_LIBRARY_LAB,
+        displayName: t("creativeContext.share.title"),
+        description: t("creativeContext.description"),
+      },
+    ],
+    [t],
+  );
 
   const extraTabs = useMemo<SettingsTabItem[]>(
     () => [
@@ -167,6 +186,7 @@ export default function Settings() {
       teamLabel={t("navigation.team")}
       whatsNewLabel={t("root.whatsNew")}
       extraTabs={extraTabs}
+      labs={labs}
       generalSearchEntries={generalSearchEntries}
       general={
         <div className="w-full space-y-6">
