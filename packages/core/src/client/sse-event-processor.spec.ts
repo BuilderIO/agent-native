@@ -2594,6 +2594,77 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  // An unrelated earlier call to the same tool is not evidence that THIS
+  // continuation redid the inherited one.
+  it("still reports an inherited action when only an earlier call to that tool completed", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const content: ContentPart[] = [];
+    const counter = { value: 0 };
+
+    await expect(
+      drain(
+        readSSEStream(
+          eventStream([
+            {
+              type: "tool_start",
+              tool: "resources",
+              id: "res-earlier",
+              input: { action: "read" },
+            },
+            {
+              type: "tool_done",
+              tool: "resources",
+              id: "res-earlier",
+              input: { action: "read" },
+              result: "contents",
+            },
+            {
+              type: "activity",
+              label: "Preparing resources action",
+              tool: "resources",
+              id: "res-pending",
+            },
+            { type: "auto_continue", reason: "stream_ended" },
+          ]),
+          content,
+          counter,
+          "tab-earlier-only",
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
+
+    // The continuation narrates but never redoes the action.
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "All set." }, { type: "done" }]),
+        content,
+        counter,
+        "tab-earlier-only",
+      ),
+    );
+
+    const last = results.at(-1) as {
+      metadata?: { custom?: { runError?: { details?: string } } };
+    };
+    expect(last?.metadata?.custom?.runError?.details).toBe(
+      "interrupted_actions: resources",
+    );
+  });
+
   // Both twins are announced in this chunk, so neither is inherited from an
   // earlier one and the unstarted sibling stays reported.
 

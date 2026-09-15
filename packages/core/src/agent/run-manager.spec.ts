@@ -2896,6 +2896,37 @@ describe("run manager soft timeout", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
+  it("stays terminal when a connection gate holds the remaining action", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-connection-holds-preparation",
+      "thread-connection-holds-preparation",
+      async (send) => {
+        send({
+          type: "activity",
+          label: "Preparing resources action",
+          tool: "resources",
+          id: "B",
+        });
+        send({
+          type: "connection_required",
+          requestId: "conn-1",
+          provider: "github",
+          reason: "connect",
+          detail: "Connect GitHub to continue.",
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
   it("keeps a completed custom UI tool result terminal", async () => {
     const events: AgentChatEvent[] = [];
     const run = startRun(

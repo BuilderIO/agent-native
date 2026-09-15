@@ -1259,7 +1259,9 @@ function unstartedPreparationIds(content: ContentPart[]): Set<string> {
  * same tool is the evidence the intention was actually carried out; without it
  * the continuation was requested but never delivered (retry exhaustion, a
  * conflicting run, a user stop), and the card is the only record of the
- * promise.
+ * promise. That completion must sit LATER in the transcript, or an unrelated
+ * earlier call to the same tool would stand in as evidence for work this
+ * continuation never redid.
  */
 function dropSupersededActionPreparations(
   content: ContentPart[],
@@ -1277,7 +1279,8 @@ function dropSupersededActionPreparations(
       continue;
     }
     const servedLater = content.some(
-      (later) =>
+      (later, laterIndex) =>
+        laterIndex > index &&
         later.type === "tool-call" &&
         later.toolName === part.toolName &&
         later.activity !== true &&

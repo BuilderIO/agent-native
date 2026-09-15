@@ -186,9 +186,11 @@ export function unfinishedActionPreparations(
       event.type === "clear" ||
       event.type === "error" ||
       event.type === "missing_api_key" ||
-      // The turn handed control to the user on purpose. Whatever else the model
-      // had queued is the user's call to resume, not ours to auto-continue.
+      // The turn handed control to the user on purpose - to approve a call, or
+      // to connect a provider it needs. Whatever else the model had queued is
+      // the user's call to resume, not ours to auto-continue.
       event.type === "approval_required" ||
+      event.type === "connection_required" ||
       (isTurnBoundaryEvent(event) && order < events.length - 1)
     ) {
       active.clear();
