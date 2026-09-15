@@ -68,6 +68,7 @@ async function fetchWithRetry(
         return { response };
       }
       lastError = new Error(`HTTP ${response.status}`);
+      await response.body?.cancel();
     } catch (err) {
       lastError = err;
     }
@@ -234,6 +235,17 @@ export function referencedSameOriginAssetUrls(
   baseUrl: string,
 ): string[] {
   const documentUrl = new URL(baseUrl);
+  let resolutionBaseUrl = documentUrl;
+  const baseHref = html.match(
+    /<base\b[^>]*\bhref=["']([^"']+)["'][^>]*>/i,
+  )?.[1];
+  if (baseHref) {
+    try {
+      resolutionBaseUrl = new URL(baseHref, documentUrl);
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+    }
+  }
   const assets = new Set<string>();
 
   for (const match of html.matchAll(/<(link|script)\b[^>]*>/gi)) {
@@ -257,7 +269,7 @@ export function referencedSameOriginAssetUrls(
     }
 
     try {
-      const url = new URL(value, documentUrl);
+      const url = new URL(value, resolutionBaseUrl);
       if (
         url.origin === documentUrl.origin &&
         (url.protocol === "http:" || url.protocol === "https:")
@@ -280,6 +292,7 @@ async function checkReferencedAsset(url: string): Promise<string | undefined> {
     response.status === 408 ||
     response.status === 425 ||
     response.status === 429 ||
+    response.status === 404 ||
     response.status >= 500;
   let result = await fetchWithRetry(url, shouldRetryAssetResponse, {
     method: "HEAD",
@@ -349,6 +362,7 @@ async function checkHtmlAssets(
         .map((asset) => checkReferencedAsset(asset)),
     );
     failures.push(...batch.filter((failure): failure is string => !!failure));
+    if (failures.length >= 5) break;
   }
   if (failures.length > 0) {
     return {

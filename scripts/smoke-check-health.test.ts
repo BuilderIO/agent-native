@@ -23,4 +23,18 @@ describe("deployed HTML asset probe", () => {
       "https://dispatch.example.test/assets/app.css",
     ]);
   });
+
+  it("resolves relative assets against the document base URL", () => {
+    const assets = referencedSameOriginAssetUrls(
+      `
+        <base href="/app/">
+        <script src="assets/main.js"></script>
+      `,
+      "https://dispatch.example.test/overview",
+    );
+
+    assert.deepEqual(assets, [
+      "https://dispatch.example.test/app/assets/main.js",
+    ]);
+  });
 });
