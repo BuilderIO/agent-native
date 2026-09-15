@@ -261,6 +261,7 @@ export async function ensureUsageTable(): Promise<void> {
           run_id TEXT,
           thread_id TEXT,
           task_id TEXT,
+          -- guard:allow-identity-column integration scope IDs identify an integration record, not a user principal.
           integration_scope_id TEXT,
           source_platform TEXT,
           source_id TEXT,
