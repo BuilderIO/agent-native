@@ -182,6 +182,149 @@ describe("update-breakpoint persistence", () => {
     expect(persistedFile.content_operation_revision).toBeNull();
   });
 
+  it("migrates interaction-state and exact-range stores with the same width edit", async () => {
+    const responsiveHtml = managedHtml.replace(
+      "</style></head>",
+      `</style>
+<style data-agent-native-state-breakpoints>
+@media (max-width: 809px) {
+  [data-agent-native-node-id="hero"][data-agent-native-node-id="hero"]:hover {
+    color: red !important;
+  }
+}
+</style>
+<style data-agent-native-breakpoint-range="hero::left::390-809">
+@media(max-width:809px) {
+  [data-agent-native-node-id="hero"] { left: 24px; }
+}
+</style></head>`,
+    );
+    await localDb.pglite?.query(
+      "UPDATE design_files SET content = $1 WHERE id = $2",
+      [responsiveHtml, "file-1"],
+    );
+
+    const result = await updateBreakpoint.run({
+      designId: "design-1",
+      breakpointId: "tablet",
+      widthPx: 900,
+    });
+
+    expect(result).toMatchObject({ updated: true });
+    const persistedFile = await queryOne<{ content: string }>(
+      "SELECT content FROM design_files WHERE id = $1",
+      ["file-1"],
+    );
+    expect(persistedFile.content).toContain(
+      '@media (max-width: 899px) {\n  [data-agent-native-node-id="hero"][data-agent-native-node-id="hero"]:hover',
+    );
+    expect(persistedFile.content).toContain(
+      'data-agent-native-breakpoint-range="hero::left::390-899"',
+    );
+    expect(persistedFile.content).toContain("@media(max-width:899px)");
+  });
+
+  it("migrates the lower bound in generated exact-range stores", async () => {
+    const exactRangeHtml = managedHtml.replace(
+      "</style></head>",
+      `</style>
+<style data-agent-native-breakpoint-range="hero::left::390-809">
+@media (min-width: 390px) and (max-width: 809px) {
+  [data-agent-native-node-id="hero"][data-agent-native-node-id="hero"] {
+    left: 24px;
+  }
+}
+</style></head>`,
+    );
+    await localDb.pglite?.query(
+      "UPDATE design_files SET content = $1 WHERE id = $2",
+      [exactRangeHtml, "file-1"],
+    );
+
+    const result = await updateBreakpoint.run({
+      designId: "design-1",
+      breakpointId: "phone",
+      widthPx: 420,
+    });
+
+    expect(result).toMatchObject({ updated: true });
+    const persistedFile = await queryOne<{ content: string }>(
+      "SELECT content FROM design_files WHERE id = $1",
+      ["file-1"],
+    );
+    expect(persistedFile.content).toContain(
+      'data-agent-native-breakpoint-range="hero::left::420-809"',
+    );
+    expect(persistedFile.content).toContain(
+      "@media (min-width: 420px) and (max-width: 809px)",
+    );
+  });
+
+  it("refuses a responsive-store collision without partially updating the design", async () => {
+    const collidingHtml = managedHtml.replace(
+      "</style></head>",
+      `</style>
+<style data-agent-native-state-breakpoints>
+@media (max-width: 809px) { [data-agent-native-node-id="hero"]:hover { color: red; } }
+@media (max-width: 899px) { [data-agent-native-node-id="hero"]:hover { color: blue; } }
+</style></head>`,
+    );
+    await localDb.pglite?.query(
+      "UPDATE design_files SET content = $1 WHERE id = $2",
+      [collidingHtml, "file-1"],
+    );
+
+    const result = await updateBreakpoint.run({
+      designId: "design-1",
+      breakpointId: "tablet",
+      widthPx: 900,
+    });
+
+    expect(result).toMatchObject({ updated: false });
+    const persistedDesign = await queryOne<{ data: string }>(
+      "SELECT data FROM designs WHERE id = $1",
+      ["design-1"],
+    );
+    const persistedFile = await queryOne<{ content: string }>(
+      "SELECT content FROM design_files WHERE id = $1",
+      ["file-1"],
+    );
+    expect(JSON.parse(persistedDesign.data)).toEqual(designData);
+    expect(persistedFile.content).toBe(collidingHtml);
+  });
+
+  it("refuses malformed adjacent stores without partially updating the design", async () => {
+    const malformedHtml = managedHtml.replace(
+      "</style></head>",
+      `</style>
+<style data-agent-native-state-breakpoints>
+@media (max-width: 809px) { [data-agent-native-node-id="hero"]:hover { color: red; }
+</style></head>`,
+    );
+    await localDb.pglite?.query(
+      "UPDATE design_files SET content = $1 WHERE id = $2",
+      [malformedHtml, "file-1"],
+    );
+
+    const result = await updateBreakpoint.run({
+      designId: "design-1",
+      breakpointId: "tablet",
+      widthPx: 900,
+    });
+
+    expect(result).toMatchObject({ updated: false });
+    const persistedDesign = await queryOne<{ data: string }>(
+      "SELECT data FROM designs WHERE id = $1",
+      ["design-1"],
+    );
+    const persistedFile = await queryOne<{ content: string }>(
+      "SELECT content FROM design_files WHERE id = $1",
+      ["file-1"],
+    );
+    expect(JSON.parse(persistedDesign.data)).toEqual(designData);
+    expect(persistedFile.content).toBe(malformedHtml);
+  });
+
   it("preserves opaque managed CSS while migrating the media bound", async () => {
     const mixedHtml = managedHtml.replace(
       "@media (max-width: 809px) {\n",

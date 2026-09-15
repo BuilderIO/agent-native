@@ -6,8 +6,21 @@ import {
   injectManagedBreakpointCss,
 } from "../../shared/breakpoint-media.js";
 import { migrateMaxWidthClassBoundsInHtml } from "../../shared/code-layer.js";
+import {
+  extractManagedResponsiveInteractionStateCss,
+  injectManagedResponsiveInteractionStateCss,
+} from "../../shared/interaction-states.js";
 
 const MEDIA_PARAMS_RE = /^\s*\(\s*max-width\s*:\s*(\d+(?:\.\d+)?)px\s*\)\s*$/i;
+const EXACT_RANGE_ATTR = "data-agent-native-breakpoint-range";
+const EXACT_RANGE_STYLE_OPEN_RE = new RegExp(
+  `<style\\b(?=[^>]*\\b${EXACT_RANGE_ATTR}\\s*=\\s*(?:"([^"]*)"|'([^']*)'))[^>]*>`,
+  "gi",
+);
+const EXACT_RANGE_MAX_WIDTH_RE =
+  /(\(\s*max-width\s*:\s*)(\d+(?:\.\d+)?)(\s*px\s*\))/gi;
+const EXACT_RANGE_MIN_WIDTH_RE =
+  /(\(\s*min-width\s*:\s*)(\d+(?:\.\d+)?)(\s*px\s*\))/gi;
 
 type ResolvedMediaRule = {
   source: number;
@@ -23,12 +36,59 @@ type ResolvedMediaRule = {
 export function migrateBreakpointMediaBounds(
   html: string,
   boundMap: ReadonlyMap<number, number | null>,
+  options: { widthMap?: ReadonlyMap<number, number | null> } = {},
 ): string | null {
   const withMigratedClasses = migrateMaxWidthClassBoundsInHtml(html, boundMap);
   if (withMigratedClasses === null) return null;
-  const css = extractManagedBreakpointCss(withMigratedClasses);
-  if (css === null || boundMap.size === 0) return withMigratedClasses;
+  let migratedHtml = withMigratedClasses;
 
+  const css = extractManagedBreakpointCss(migratedHtml);
+  if (css === null) {
+    if (hasManagedStyleMarker(migratedHtml, "data-agent-native-breakpoints")) {
+      return null;
+    }
+  } else {
+    const migratedCss = migrateMediaCssBounds(css, boundMap);
+    if (migratedCss === null) return null;
+    if (migratedCss !== css) {
+      migratedHtml = injectManagedBreakpointCss(migratedHtml, migratedCss);
+    }
+  }
+
+  const interactionCss =
+    extractManagedResponsiveInteractionStateCss(migratedHtml);
+  if (interactionCss === null) {
+    if (
+      hasManagedStyleMarker(migratedHtml, "data-agent-native-state-breakpoints")
+    ) {
+      return null;
+    }
+  } else {
+    const migratedInteractionCss = migrateMediaCssBounds(
+      interactionCss,
+      boundMap,
+    );
+    if (migratedInteractionCss === null) return null;
+    if (migratedInteractionCss !== interactionCss) {
+      migratedHtml = injectManagedResponsiveInteractionStateCss(
+        migratedHtml,
+        migratedInteractionCss,
+      );
+    }
+  }
+
+  return migrateExactBreakpointRanges(
+    migratedHtml,
+    boundMap,
+    options.widthMap ?? new Map(),
+  );
+}
+
+function migrateMediaCssBounds(
+  css: string,
+  boundMap: ReadonlyMap<number, number | null>,
+): string | null {
+  if (boundMap.size === 0) return css;
   let root: Root;
   try {
     const parsed = parseCss(css, { map: false });
@@ -79,7 +139,7 @@ export function migrateBreakpointMediaBounds(
   });
 
   if (refused) return null;
-  if (!changed) return withMigratedClasses;
+  if (!changed) return css;
 
   for (const [rule, { source, target }] of resolved) {
     if (source === target) continue;
@@ -115,5 +175,167 @@ export function migrateBreakpointMediaBounds(
     parent.nodes = reordered;
   }
 
-  return injectManagedBreakpointCss(withMigratedClasses, root.toString());
+  return root.toString();
+}
+
+function hasManagedStyleMarker(html: string, attribute: string): boolean {
+  return new RegExp(`<style\\b(?=[^>]*\\b${attribute}\\b)[^>]*>`, "i").test(
+    html,
+  );
+}
+
+type ExactRangeStyle = {
+  openStart: number;
+  openEnd: number;
+  closeStart: number;
+  marker: string;
+  body: string;
+};
+
+function migrateExactBreakpointRanges(
+  html: string,
+  boundMap: ReadonlyMap<number, number | null>,
+  widthMap: ReadonlyMap<number, number | null>,
+): string | null {
+  if (boundMap.size === 0 && widthMap.size === 0) return html;
+
+  const entries: ExactRangeStyle[] = [];
+  EXACT_RANGE_STYLE_OPEN_RE.lastIndex = 0;
+  let openMatch: RegExpExecArray | null;
+  while ((openMatch = EXACT_RANGE_STYLE_OPEN_RE.exec(html)) !== null) {
+    const bodyStart = openMatch.index + openMatch[0].length;
+    const afterOpen = html.slice(bodyStart);
+    const closeMatch = /<\s*\/\s*style\b[^>]*>/i.exec(afterOpen);
+    if (!closeMatch) return null;
+    const closeStart = bodyStart + closeMatch.index;
+    const closeEnd = closeStart + closeMatch[0].length;
+    entries.push({
+      openStart: openMatch.index,
+      openEnd: bodyStart,
+      closeStart,
+      marker: openMatch[1] ?? openMatch[2] ?? "",
+      body: html.slice(bodyStart, closeStart),
+    });
+    EXACT_RANGE_STYLE_OPEN_RE.lastIndex = closeEnd;
+  }
+
+  if (entries.length === 0 && hasManagedStyleMarker(html, EXACT_RANGE_ATTR)) {
+    return null;
+  }
+  if (entries.length === 0) return html;
+
+  const targetOwners = new Map<string, string>();
+  const updates: Array<{
+    entry: ExactRangeStyle;
+    marker: string;
+    body: string;
+  }> = [];
+
+  for (const entry of entries) {
+    const separator = entry.marker.lastIndexOf("::");
+    const bounds =
+      separator > 0
+        ? /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(
+            entry.marker.slice(separator + 2),
+          )
+        : null;
+    if (!bounds) return null;
+
+    const oldMin = Math.round(Number.parseFloat(bounds[1]));
+    const oldMax = Math.round(Number.parseFloat(bounds[2]));
+    const minMapped = widthMap.has(oldMin);
+    const maxMapped = boundMap.has(oldMax);
+    if (minMapped !== maxMapped) return null;
+
+    let nextMin = oldMin;
+    let nextMax = oldMax;
+    if (minMapped && maxMapped) {
+      const requestedMin = widthMap.get(oldMin)!;
+      const requestedMax = boundMap.get(oldMax)!;
+      if (
+        requestedMin === null ||
+        requestedMax === null ||
+        !Number.isFinite(requestedMin) ||
+        !Number.isFinite(requestedMax) ||
+        requestedMin <= 0 ||
+        requestedMax <= 0
+      ) {
+        return null;
+      }
+      nextMin = Math.round(requestedMin);
+      nextMax = Math.round(requestedMax);
+      if (nextMin > nextMax) return null;
+    }
+
+    const nextMarker =
+      entry.marker.slice(0, separator + 2) + `${nextMin}-${nextMax}`;
+    const owner = targetOwners.get(nextMarker);
+    if (owner !== undefined && owner !== entry.marker) return null;
+    targetOwners.set(nextMarker, entry.marker);
+
+    let nextBody = entry.body;
+    if (minMapped && maxMapped) {
+      const minMatches = [...entry.body.matchAll(EXACT_RANGE_MIN_WIDTH_RE)];
+      const maxMatches = [...entry.body.matchAll(EXACT_RANGE_MAX_WIDTH_RE)];
+      if (
+        maxMatches.length !== 1 ||
+        Math.round(Number.parseFloat(maxMatches[0]![2])) !== oldMax
+      ) {
+        return null;
+      }
+      if (
+        minMatches.length > 1 ||
+        (minMatches.length === 1 &&
+          Math.round(Number.parseFloat(minMatches[0]![2])) !== oldMin)
+      ) {
+        return null;
+      }
+      nextBody = entry.body.replace(
+        EXACT_RANGE_MAX_WIDTH_RE,
+        (_match, prefix: string, _value: string, suffix: string) =>
+          `${prefix}${nextMax}${suffix}`,
+      );
+      if (minMatches.length === 1) {
+        nextBody = nextBody.replace(
+          EXACT_RANGE_MIN_WIDTH_RE,
+          (_match, prefix: string, _value: string, suffix: string) =>
+            `${prefix}${nextMin}${suffix}`,
+        );
+      }
+    }
+
+    if (nextMarker !== entry.marker || nextBody !== entry.body) {
+      updates.push({ entry, marker: nextMarker, body: nextBody });
+    }
+  }
+
+  return applyExactRangeBodyUpdates(html, updates);
+}
+
+function applyExactRangeBodyUpdates(
+  html: string,
+  updates: Array<{ entry: ExactRangeStyle; marker: string; body: string }>,
+): string | null {
+  let migratedHtml = html;
+  for (let index = updates.length - 1; index >= 0; index -= 1) {
+    const update = updates[index]!;
+    const openTag = migratedHtml.slice(
+      update.entry.openStart,
+      update.entry.openEnd,
+    );
+    const markerStart = openTag.indexOf(update.entry.marker);
+    if (markerStart < 0) return null;
+    const nextOpenTag =
+      openTag.slice(0, markerStart) +
+      update.marker +
+      openTag.slice(markerStart + update.entry.marker.length);
+    const bodyStart = update.entry.openEnd;
+    const bodyEnd = update.entry.closeStart;
+    migratedHtml =
+      migratedHtml.slice(0, update.entry.openStart) +
+      nextOpenTag +
+      update.body +
+      migratedHtml.slice(bodyEnd);
+  }
+  return migratedHtml;
 }

@@ -168,6 +168,7 @@ export default defineAction({
               breakpoint,
             ]),
           );
+          const widthMap = new Map<number, number | null>();
           const updates: Array<{ fileId: string; content: string }> = [];
 
           for (const file of files) {
@@ -175,14 +176,15 @@ export default defineAction({
             const baseWidthPx = screenBaseWidth(current, file.id);
             const boundMap = new Map<number, number | null>();
             for (const breakpoint of previousSet.breakpoints) {
+              const nextBreakpoint = nextById.get(breakpoint.id);
+              if (!nextBreakpoint) continue;
+              widthMap.set(breakpoint.widthPx, nextBreakpoint.widthPx);
               const previousBound = breakpointUpperBoundPx(
                 previousWidths,
                 breakpoint.widthPx,
                 baseWidthPx,
               );
               if (previousBound === null) continue;
-              const nextBreakpoint = nextById.get(breakpoint.id);
-              if (!nextBreakpoint) continue;
               boundMap.set(
                 previousBound,
                 breakpointUpperBoundPx(
@@ -195,6 +197,7 @@ export default defineAction({
             const content = migrateBreakpointMediaBounds(
               file.content,
               boundMap,
+              { widthMap },
             );
             if (content === null)
               throw new BreakpointMediaMigrationError(file.id);
