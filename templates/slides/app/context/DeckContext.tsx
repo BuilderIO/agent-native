@@ -4,7 +4,10 @@ import {
   type LocalOpUndoController,
   type LocalOpUndoEntry,
 } from "@agent-native/core/client/collab";
-import { callAction } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  callActionWithRetry,
+} from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useOrg } from "@agent-native/core/client/org";
 import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
@@ -1392,10 +1395,15 @@ export function deriveInverseOp(
  * kicks the user out of the editor and shows the "Create your first deck"
  * empty state, even though their decks still exist on the server. The 200/[]
  * case still means the user has no decks and is returned as `[]`.
+ *
+ * `callActionWithRetry` spends the shared transient budget before returning
+ * that `null`: a hard refresh against a cold backend used to turn one gateway
+ * blip into a settled "Couldn't load your content" pane over decks that were
+ * about to arrive.
  */
 async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   try {
-    const result = await callAction<DeckListActionResult>(
+    const result = await callActionWithRetry<DeckListActionResult>(
       "list-decks",
       { light: "true", includePreview: "true" },
       { method: "GET" },
@@ -1420,7 +1428,7 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
  */
 async function fetchDeckListLightFromAPI(): Promise<{ id: string }[] | null> {
   try {
-    const result = await callAction<DeckListActionResult>(
+    const result = await callActionWithRetry<DeckListActionResult>(
       "list-decks",
       { light: "true" },
       { method: "GET" },
@@ -1443,52 +1451,26 @@ async function fetchDeckListLightFromAPI(): Promise<{ id: string }[] | null> {
   }
 }
 
-const DECK_FETCH_RETRY_ATTEMPTS = 3;
-const DECK_FETCH_RETRY_DELAY_MS = 400;
-
 // `get-deck` returns a real 404/403 only when the deck is genuinely gone or
 // the caller genuinely lacks access (see actions/get-deck.ts). A network blip
-// or 5xx is transient and must not be coerced into the same "not found" null
-// the caller uses to show the owner-facing "deck unavailable" pane — that
-// flashed a wrong message on brief server hiccups even though the deck still
-// existed.
-function isConfirmedDeckAbsence(err: unknown): boolean {
-  const status = (err as { status?: unknown } | null)?.status;
-  return status === 404 || status === 403;
-}
-
-// A timeout already made the caller wait the full action timeout window once
-// (see DEFAULT_ACTION_TIMEOUT_MS in use-action.ts); retrying would multiply
-// that wait instead of surfacing the failure — same reasoning as
-// `isActionTimeout` in the shared action-query retry policy.
-function isDeckFetchTimeout(err: unknown): boolean {
-  return (err as { timedOut?: unknown } | null)?.timedOut === true;
-}
-
+// or gateway 5xx is transient and must not be coerced into the same "not
+// found" null the caller uses to show the owner-facing "deck unavailable"
+// pane — that flashed a wrong message on brief server hiccups even though the
+// deck still existed. `callActionWithRetry` already refuses to retry 404/403
+// and timeouts, so this read gets the transient budget without spending it on
+// answers the server already gave.
 async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
-  for (let attempt = 1; attempt <= DECK_FETCH_RETRY_ATTEMPTS; attempt++) {
-    try {
-      const result = await callAction<unknown>(
-        "get-deck",
-        { id },
-        { method: "GET" },
-      );
-      return normalizeActionDeck(result);
-    } catch (err) {
-      if (
-        isConfirmedDeckAbsence(err) ||
-        isDeckFetchTimeout(err) ||
-        attempt === DECK_FETCH_RETRY_ATTEMPTS
-      ) {
-        console.error(`Failed to fetch deck ${id}:`, err);
-        return null;
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, attempt * DECK_FETCH_RETRY_DELAY_MS),
-      );
-    }
+  try {
+    const result = await callActionWithRetry<unknown>(
+      "get-deck",
+      { id },
+      { method: "GET" },
+    );
+    return normalizeActionDeck(result);
+  } catch (err) {
+    console.error(`Failed to fetch deck ${id}:`, err);
+    return null;
   }
-  return null;
 }
 
 export function deckIdFromPathname(pathname: string): string | null {
@@ -2347,7 +2329,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     // A null result means the fetch failed (network error or non-2xx). Skip
     // the diff so we don't wipe local state on a transient failure.
     if (fresh === null) return;
-    setLoadError(false);
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
     const freshIds = new Set(fresh.map((d) => d.id));
@@ -2364,12 +2345,25 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         !freshIds.has(d.id) && !isNewerThanSnapshot(d.id, createSeqAtRequest),
     );
     for (const id of freshIds) localCreateSeqByIdRef.current.delete(id);
-    if (addedIds.length === 0 && removed.length === 0) return;
+    // Nothing to hydrate, so local state already matches the server and the
+    // error pane can go. When there IS something to hydrate, the error has to
+    // survive until `setDecks` below: clearing it here left `loading` false,
+    // `loadError` false, and `decks` still empty for the length of the body
+    // reads, which rendered "no decks yet" over a user who has decks.
+    if (addedIds.length === 0 && removed.length === 0) {
+      setLoadError(false);
+      return;
+    }
 
-    const addedDecks = (
-      await Promise.all(addedIds.map((id) => fetchDeckFromAPI(id)))
-    ).filter((d): d is Deck => d !== null);
+    const addedResults = await Promise.all(
+      addedIds.map((id) => fetchDeckFromAPI(id)),
+    );
     if (requestId !== deckListRequestIdRef.current) return;
+    const addedDecks = addedResults.filter((d): d is Deck => d !== null);
+    // The server named these ids; a body we could not read back is a truncated
+    // reconcile, not a completed one. Clearing the error here would assert
+    // "no decks yet" on a list the server just said is non-empty.
+    const hydratedEveryAddedDeck = addedDecks.length === addedIds.length;
 
     lastExternalUpdateRef.current = Date.now();
     const removedIds = new Set(removed.map((d) => d.id));
@@ -2385,6 +2379,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
+    if (hydratedEveryAddedDeck) setLoadError(false);
   }, [isNewerThanSnapshot]);
 
   // Re-fetch the currently-open deck's full slide data and reconcile it.

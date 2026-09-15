@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
+import { parseDesignSystemIndexingStatus } from "../shared/design-system-validation.js";
 
 type EffectiveRole = "owner" | ShareRole;
 
@@ -37,10 +38,13 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
 export default defineAction({
   description:
     "List all design systems accessible to the current user. Returns title, " +
-    "id, and isDefault (true only for the caller's effective default). For a " +
-    "named system, match the exact title and pass its id as designSystemId " +
-    "— or pass the title as `designSystem` on create-deck — then call " +
-    "get-design-system once before authoring.",
+    "id, isDefault (true only for the caller's effective default), and " +
+    "indexingStatus ('ready' | 'indexing' | 'unavailable'). Do not pass a " +
+    "non-'ready' id to create-deck or apply-design-system — its tokens and " +
+    "components are not queryable yet; call get-design-system to confirm " +
+    "status if unsure. For a named system, match the exact title and pass " +
+    "its id as designSystemId — or pass the title as `designSystem` on " +
+    "create-deck — then call get-design-system once before authoring.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -141,6 +145,7 @@ export default defineAction({
         role = "owner";
       }
       const canManage = canManageRole(role);
+      const indexingStatus = parseDesignSystemIndexingStatus(row.data);
 
       if (args.compact === "true") {
         return {
@@ -149,6 +154,7 @@ export default defineAction({
           isDefault: row.id === effectiveDefaultId,
           accessRole: role,
           canManage,
+          indexingStatus,
         };
       }
       return {
@@ -162,6 +168,7 @@ export default defineAction({
         canManage,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        indexingStatus,
       };
     });
 

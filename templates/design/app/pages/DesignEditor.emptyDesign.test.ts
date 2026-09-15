@@ -30,6 +30,26 @@ describe("empty design", () => {
     );
   });
 
+  it("keeps the prompt and blocks generation when Labs state is unreadable", () => {
+    const submit = source.slice(
+      source.indexOf("onSubmit={async (\n          prompt: string,"),
+      source.indexOf('title={t("designEditor.tweaksPromptTitle")'),
+    );
+    const labStateGuard = submit.indexOf("if (!creativeContextLab.isSuccess)");
+
+    expect(labStateGuard).toBeGreaterThanOrEqual(0);
+    expect(submit.indexOf("setGenerationIssue(issue)")).toBeGreaterThan(
+      labStateGuard,
+    );
+    expect(submit.indexOf("throw new Error(issue)")).toBeGreaterThan(
+      labStateGuard,
+    );
+    expect(submit.indexOf("agentSubmit(")).toBeGreaterThan(labStateGuard);
+    expect(submit.indexOf("patchPendingGeneration(")).toBeGreaterThan(
+      labStateGuard,
+    );
+  });
+
   it("offers creation prompts in the chat rather than orientation ones", () => {
     const config = source.slice(
       source.indexOf("const designAgentSuggestionConfig = useMemo"),

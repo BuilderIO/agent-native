@@ -820,6 +820,10 @@ const messages = {
     continue: "متابعة",
     continueToGenerate: "متابعة للإنشاء",
     designSystem: "نظام التصميم",
+    designSystemIndexing: "جارٍ الفهرسة…",
+    designSystemUnavailable: "غير متاح",
+    designSystemIndexingNotice:
+      "لا يزال نظام التصميم هذا قيد الفهرسة. اختر نظامًا آخر أو انتظر انتهاء الفهرسة قبل المتابعة.",
     referenceDeck: "عرض مرجعي",
     referenceDeckPlaceholder: "اتّبع أسلوب عرض موجود",
     referenceDeckNone: "بدون مرجع",
