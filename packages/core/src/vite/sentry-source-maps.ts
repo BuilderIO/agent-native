@@ -24,23 +24,27 @@ function firstNonEmpty(
 
 export function resolveSentryClientRelease(
   env: Record<string, string | undefined>,
-): string {
-  return `agent-native-client@${resolveAgentNativeBuildId(env, "development")}`;
+): string | null {
+  const buildId = resolveAgentNativeBuildId(env, "");
+  return buildId ? `agent-native-client@${buildId}` : null;
 }
 
-export interface SentrySourceMapUploadConfig {
+interface SentrySourceMapUploadCredentials {
   authToken: string;
   org: string;
   project: string;
   url?: string;
+}
+
+export interface SentrySourceMapUploadConfig extends SentrySourceMapUploadCredentials {
   release: string;
 }
 
 // A token alone can't safely guess org/project, and a half-configured plugin
 // would fail every build rather than cleanly no-op.
-export function resolveSentrySourceMapUploadConfig(
-  env: Record<string, string | undefined> = process.env,
-): SentrySourceMapUploadConfig | null {
+function resolveSentrySourceMapUploadCredentials(
+  env: Record<string, string | undefined>,
+): SentrySourceMapUploadCredentials | null {
   const authToken = firstNonEmpty(env.SENTRY_AUTH_TOKEN);
   if (!authToken) return null;
   const org = firstNonEmpty(env.SENTRY_ORG, env.SENTRY_ORG_SLUG);
@@ -55,14 +59,21 @@ export function resolveSentrySourceMapUploadConfig(
     org,
     project,
     url: firstNonEmpty(env.SENTRY_URL),
-    release: resolveSentryClientRelease(env),
   };
+}
+
+export function resolveSentrySourceMapUploadConfig(
+  env: Record<string, string | undefined> = process.env,
+): SentrySourceMapUploadConfig | null {
+  const credentials = resolveSentrySourceMapUploadCredentials(env);
+  const release = resolveSentryClientRelease(env);
+  return credentials && release ? { ...credentials, release } : null;
 }
 
 export function isSentrySourceMapUploadEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  return resolveSentrySourceMapUploadConfig(env) !== null;
+  return resolveSentrySourceMapUploadCredentials(env) !== null;
 }
 
 function createUploadedSourceMapCleanupPlugin(): Plugin {
@@ -92,13 +103,11 @@ function createUploadedSourceMapCleanupPlugin(): Plugin {
   };
 }
 
-function resolvedClientBuildId(config: ResolvedConfig): string {
+function resolvedClientBuildId(config: ResolvedConfig): string | null {
   const definedBuildId = config.define?.__AGENT_NATIVE_BUILD_ID__;
-  if (typeof definedBuildId !== "string") return "development";
+  if (typeof definedBuildId !== "string") return null;
   const buildId: unknown = JSON.parse(definedBuildId);
-  return typeof buildId === "string" && buildId.trim()
-    ? buildId.trim()
-    : "development";
+  return typeof buildId === "string" && buildId.trim() ? buildId.trim() : null;
 }
 
 // Safe to always include in the plugins array regardless of `vite build` vs
@@ -107,19 +116,26 @@ function resolvedClientBuildId(config: ResolvedConfig): string {
 export function createSentrySourceMapUploadPlugin(
   env: Record<string, string | undefined> = process.env,
 ): Plugin[] {
-  const initialConfig = resolveSentrySourceMapUploadConfig(env);
-  if (!initialConfig) return [];
+  const credentials = resolveSentrySourceMapUploadCredentials(env);
+  if (!credentials) return [];
 
   let uploadPlugin: Plugin | undefined;
   const proxyPlugin: Plugin = {
     name: "sentry-vite-plugin",
     enforce: "pre",
     configResolved(config) {
-      const uploadConfig = resolveSentrySourceMapUploadConfig({
-        ...env,
-        DEPLOY_ID: undefined,
-        AGENT_NATIVE_BUILD_ID: resolvedClientBuildId(config),
-      })!;
+      if (config.command !== "build") return;
+      const buildId = resolvedClientBuildId(config);
+      if (!buildId) {
+        console.warn(
+          "Sentry source map upload skipped because the client build ID is missing; generated source maps will still be removed.",
+        );
+        return;
+      }
+      const uploadConfig: SentrySourceMapUploadConfig = {
+        ...credentials,
+        release: `agent-native-client@${buildId}`,
+      };
       const sentryPlugin = sentryVitePlugin({
         org: uploadConfig.org,
         project: uploadConfig.project,

@@ -54,15 +54,18 @@ async function runViteBuild(
   entryPath: string,
   publishDirectory: string,
   plugins: Plugin[],
-  buildId = "deploy-42",
+  buildId: string | null = "deploy-42",
 ): Promise<void> {
   await build({
     configFile: false,
     logLevel: "silent",
     plugins,
-    define: {
-      __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
-    },
+    define:
+      buildId === null
+        ? undefined
+        : {
+            __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+          },
     build: {
       emptyOutDir: true,
       lib: {
@@ -111,6 +114,16 @@ describe("vite/sentry-source-maps", () => {
     it("returns null when a token is set but org/project are missing", () => {
       expect(
         resolveSentrySourceMapUploadConfig({ SENTRY_AUTH_TOKEN: "tok" }),
+      ).toBeNull();
+    });
+
+    it("returns null when no deployment build id is available", () => {
+      expect(
+        resolveSentrySourceMapUploadConfig({
+          SENTRY_AUTH_TOKEN: "tok",
+          SENTRY_ORG: "acme",
+          SENTRY_PROJECT: "web",
+        }),
       ).toBeNull();
     });
 
@@ -177,6 +190,31 @@ describe("vite/sentry-source-maps", () => {
       expect(plugins.at(-1)?.name).toBe(
         "agent-native:delete-uploaded-sentry-source-maps",
       );
+    });
+
+    it("warns and skips upload when the client build id is missing", async () => {
+      const { entryPath, mapPath, publishDirectory } = temporaryBuild();
+      const warning = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      const plugins = createSentrySourceMapUploadPlugin({
+        SENTRY_AUTH_TOKEN: "tok",
+        SENTRY_ORG: "acme",
+        SENTRY_PROJECT: "web",
+      });
+
+      try {
+        await runViteBuild(entryPath, publishDirectory, plugins, null);
+        expect(warning).toHaveBeenCalledWith(
+          expect.stringContaining("client build ID is missing"),
+        );
+      } finally {
+        warning.mockRestore();
+      }
+
+      expect(sentryVitePluginMock).not.toHaveBeenCalled();
+      expect(sentryUpload).not.toHaveBeenCalled();
+      expect(existsSync(mapPath)).toBe(false);
     });
 
     it("removes source maps from the publish artifact after upload succeeds", async () => {
