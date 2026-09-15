@@ -30,6 +30,7 @@ beforeEach(async () => {
   const db = getDb();
   await db.delete(schema.documentEditReceipts);
   await db.delete(schema.documentVersions);
+  await db.delete(schema.documentShares);
   await db.delete(schema.documents);
   await db.insert(schema.documents).values({
     id: DOCUMENT_ID,
@@ -47,6 +48,26 @@ afterAll(() => {
 const ctx = { caller: "mcp" as const, userEmail: OWNER };
 
 describe("revisioned document edit mutation", () => {
+  it("rechecks editor access inside the write transaction", async () => {
+    await expect(
+      mutateDocumentBody({
+        documentId: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, "alpha beta"),
+        idempotencyKey: "revoked-editor",
+        edits: [{ find: "alpha", replace: "omega" }],
+        ctx: { caller: "mcp", userEmail: "revoked@example.com" },
+      }),
+    ).rejects.toThrow(/access|editor/i);
+    expect(await getDb().select().from(schema.documentEditReceipts)).toEqual(
+      [],
+    );
+    const [document] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    expect(document).toMatchObject({ content: "alpha beta", bodyRevision: 0 });
+  });
+
   it("commits one revision/version/receipt and replays a double delivery", async () => {
     const input = {
       documentId: DOCUMENT_ID,
@@ -283,6 +304,11 @@ describe("revisioned document edit mutation", () => {
       ...input,
       resolveCreativeContext: async () => {
         resolutionCount += 1;
+        const [document] = await getDb()
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, DOCUMENT_ID));
+        expect(document.content).toBe("alpha beta");
         return undefined;
       },
     });
@@ -337,5 +363,27 @@ describe("revisioned document edit mutation", () => {
     expect(
       await getDb().select().from(schema.documentEditReceipts),
     ).toHaveLength(0);
+  });
+
+  it("rejects a stale base before resolving mutable creative context", async () => {
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "changed outside the edit protocol" })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    let resolutionCount = 0;
+    await expect(
+      mutateDocumentBody({
+        documentId: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, "alpha beta"),
+        idempotencyKey: "stale-before-context",
+        edits: [{ find: "alpha", replace: "omega" }],
+        resolveCreativeContext: async () => {
+          resolutionCount += 1;
+          throw new Error("mutable context should not be resolved");
+        },
+        ctx,
+      }),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+    expect(resolutionCount).toBe(0);
   });
 });

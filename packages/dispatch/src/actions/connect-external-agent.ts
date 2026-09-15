@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
   resourceGetByPath,
@@ -7,25 +7,11 @@ import {
 } from "@agent-native/core/resources/store";
 import { z } from "zod";
 
-import {
-  AGENT_IMPORT_ERROR_CODES,
-  failAgentImport,
-} from "../lib/agent-import-errors.js";
+import { parseAgentEndpointUrl } from "../lib/agent-endpoint-url.js";
 import {
   currentOrgId,
   currentOwnerEmail,
 } from "../server/lib/dispatch-store.js";
-
-function parseAgentEndpointUrl(value: string): URL {
-  try {
-    return new URL(value.trim());
-  } catch {
-    failAgentImport(
-      "Enter a valid http:// or https:// endpoint URL.",
-      AGENT_IMPORT_ERROR_CODES.inputInvalid,
-    );
-  }
-}
 
 function slugify(value: string): string {
   return (
@@ -50,9 +36,9 @@ async function assertCanManageSharedAgent() {
   });
   const role = result.rows[0]?.role;
   if (role !== "owner" && role !== "admin") {
-    throw new Error(
-      "Only organization owners and admins can connect shared agents.",
-    );
+    fail("Only organization owners and admins can connect shared agents.", {
+      statusCode: 403,
+    });
   }
 }
 
@@ -69,18 +55,11 @@ export default defineAction({
       .describe("Share with the workspace or keep the connection personal"),
   }),
   run: async ({ url, name, description, scope }) => {
-    const parsed = parseAgentEndpointUrl(url);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      failAgentImport(
-        "Use an http:// or https:// endpoint URL.",
-        AGENT_IMPORT_ERROR_CODES.inputInvalid,
-      );
-    }
-    if (parsed.username || parsed.password) {
-      failAgentImport(
-        "Do not include credentials in the endpoint URL.",
-        AGENT_IMPORT_ERROR_CODES.inputInvalid,
-      );
+    let parsed: URL;
+    try {
+      parsed = parseAgentEndpointUrl(url);
+    } catch (err) {
+      fail(err instanceof Error ? err.message : "Enter a valid URL.");
     }
 
     if (scope === "shared") await assertCanManageSharedAgent();
@@ -93,9 +72,8 @@ export default defineAction({
         : currentOwnerEmail();
     const existing = await resourceGetByPath(owner, path);
     if (existing) {
-      failAgentImport(
+      fail(
         `An external agent already exists at ${path}. Rename it before connecting again.`,
-        AGENT_IMPORT_ERROR_CODES.duplicate,
         { statusCode: 409 },
       );
     }

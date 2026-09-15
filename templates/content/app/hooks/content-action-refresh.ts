@@ -122,11 +122,19 @@ const REVIEW_MUTATIONS = new Set([
   "set-review-thread-muted",
 ]);
 
+const COMMENT_AI_MUTATIONS = new Set([
+  "start-comment-ai-request",
+  "reply-to-comment-ai-request",
+  "create-comment-ai-suggestion",
+  "apply-comment-ai-request",
+]);
+
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
   if (
     query.queryKey[1] !== "get-document" &&
     query.queryKey[1] !== "list-comments" &&
+    query.queryKey[1] !== "list-comment-ai-requests" &&
     query.queryKey[1] !== "list-document-properties"
   ) {
     return false;
@@ -168,6 +176,20 @@ function eventsIncludeMutation(
       typeof event.key === "string" &&
       mutations.has(event.key),
   );
+}
+
+function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
+  if (eventKey === "start-comment-ai-request") return false;
+  if (
+    eventKey === "reply-to-comment-ai-request" ||
+    eventKey === "create-comment-ai-suggestion"
+  )
+    return queryName === "list-comments";
+  if (eventKey === "apply-comment-ai-request")
+    return queryName === "get-document" || queryName === "list-comments";
+  if (eventKey === "decide-resource-suggestion")
+    return queryName === "get-document";
+  return CONTENT_MUTATIONS.has(eventKey);
 }
 
 function isDatabaseQuery(query: ActionQuery): boolean {
@@ -246,13 +268,23 @@ export function contentActionInvalidatePredicate(
       return false;
     }
     if (
+      query.queryKey[1] === "list-comment-ai-requests" &&
+      typeof targetId === "string" &&
+      targetId === documentId
+    ) {
+      return eventsIncludeMutation(events, COMMENT_AI_MUTATIONS);
+    }
+    if (
       queryTargetsDocumentReviewResource(
         query,
         "list-resource-suggestions",
         documentId,
       )
     ) {
-      return eventsIncludeMutation(events, SUGGESTION_MUTATIONS);
+      return (
+        eventsIncludeMutation(events, SUGGESTION_MUTATIONS) ||
+        eventsIncludeMutation(events, COMMENT_AI_MUTATIONS)
+      );
     }
     if (
       queryTargetsDocumentReviewResource(
@@ -274,7 +306,7 @@ export function contentActionInvalidatePredicate(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
-          CONTENT_MUTATIONS.has(event.key),
+          eventRefreshesDocumentQuery(event.key, query.queryKey[1]),
       );
     }
     if (queryTargetsDatabase(query, documentId)) {

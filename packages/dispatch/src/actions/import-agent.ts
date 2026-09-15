@@ -1,12 +1,8 @@
 import crypto from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
-import {
-  AGENT_IMPORT_ERROR_CODES,
-  failAgentImport,
-} from "../lib/agent-import-errors.js";
 import {
   buildSimpleAgentContent,
   normalizeImportedAgent,
@@ -39,7 +35,16 @@ export default defineAction({
       .describe("Make the profile available to all apps or selected apps"),
   }),
   run: async ({ source, fileName, scope }) => {
-    const normalized = normalizeImportedAgent(source, fileName);
+    let normalized: ReturnType<typeof normalizeImportedAgent>;
+    try {
+      normalized = normalizeImportedAgent(source, fileName);
+    } catch (err) {
+      fail(
+        err instanceof Error
+          ? err.message
+          : "That agent definition could not be parsed.",
+      );
+    }
     const { dispatchActions } = await import("./index.js");
     const availableToolNames = new Set([
       ...Object.keys(dispatchActions),
@@ -84,9 +89,8 @@ export default defineAction({
           warnings,
         };
       }
-      failAgentImport(
+      fail(
         `An agent already exists at ${path}. Rename the source before importing it.`,
-        AGENT_IMPORT_ERROR_CODES.duplicate,
         { statusCode: 409 },
       );
     }

@@ -227,6 +227,46 @@ describe("SimpleAgentsPanel", () => {
     expect(document.body.textContent).toContain("Connect endpoint");
   });
 
+  it("blocks connecting an agent with a malformed endpoint URL", async () => {
+    await act(async () => {
+      root.render(<SimpleAgentsPanel />);
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Import or connect"))
+        ?.click();
+    });
+    await act(async () => {
+      selectTab("Connect endpoint");
+    });
+
+    const urlInput = document.getElementById(
+      "external-agent-url",
+    ) as HTMLInputElement | null;
+    expect(urlInput).not.toBeNull();
+
+    // Regression for the markdown-link-artifact paste reported in feedback:
+    // no inline error caught this before submit, so it reached the backend
+    // and surfaced as a raw 500 toast.
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(urlInput, "https://api.github.com](https://api.github.com");
+      urlInput?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).toMatch(/enter a valid url/i);
+
+    const connectButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Connect agent"));
+    expect((connectButton as HTMLButtonElement | undefined)?.disabled).toBe(
+      true,
+    );
+  });
+
   it("filters both import pickers to the file types the import logic parses", async () => {
     await act(async () => {
       root.render(<SimpleAgentsPanel />);
