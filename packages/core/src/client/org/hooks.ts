@@ -12,6 +12,7 @@ import type {
   OrgRole,
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
+import { useActionMutation } from "../use-action.js";
 
 const ORG_BASE = agentNativePath("/_agent-native/org");
 
@@ -160,16 +161,28 @@ export type InviteRole = "admin" | "member";
 export interface InviteVars {
   email: string;
   role?: InviteRole;
+  appId?: string;
+  appRoles?: string[];
 }
 
 export function useInviteMember() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (vars: string | InviteVars) => {
-      const body: { email: string; role: InviteRole } =
+      const body: {
+        email: string;
+        role: InviteRole;
+        appId?: string;
+        appRoles?: string[];
+      } =
         typeof vars === "string"
           ? { email: vars, role: "member" }
-          : { email: vars.email, role: vars.role ?? "member" };
+          : {
+              email: vars.email,
+              role: vars.role ?? "member",
+              appId: vars.appId,
+              appRoles: vars.appRoles,
+            };
       return apiFetch(`${ORG_BASE}/invitations`, {
         method: "POST",
         body: JSON.stringify(body),
@@ -207,6 +220,8 @@ export function useBulkInviteMembers() {
           invites: invites.map((i) => ({
             email: i.email,
             role: i.role ?? "member",
+            appId: i.appId,
+            appRoles: i.appRoles,
           })),
         }),
       }),
@@ -372,7 +387,7 @@ export function useSetOrgWorkspaceUrl() {
 export function useSetOrgAuthProvider() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (provider: "google" | null) =>
+    mutationFn: (provider: "google" | `sso:${string}` | null) =>
       apiFetch(`${ORG_BASE}/auth-provider`, {
         method: "PUT",
         body: JSON.stringify({ provider }),
@@ -383,27 +398,182 @@ export function useSetOrgAuthProvider() {
   });
 }
 
+export interface OrgSsoProvider {
+  providerId: string;
+  issuer: string;
+  domain: string;
+  domainVerified: boolean;
+  type: "oidc" | "saml";
+  redirectURI: string;
+  spMetadataUrl: string;
+}
+
+export interface OrgSsoProvidersResult {
+  enabled: boolean;
+  providers: OrgSsoProvider[];
+}
+
+export interface OrgScimConnection {
+  connectionId: string;
+  status: string;
+  createdAt: string | number;
+}
+
+export interface OrgScimResult {
+  enabled: boolean;
+  endpoint: string;
+  connections: OrgScimConnection[];
+}
+
+export function useOrgSsoProviders(enabled = true) {
+  const { data: org } = useOrg();
+  return useQuery<OrgSsoProvidersResult>({
+    queryKey: ["org-sso-providers", org?.orgId ?? null],
+    queryFn: () => apiFetch(`${ORG_BASE}/sso/providers`),
+    enabled: Boolean(org?.orgId) && enabled,
+  });
+}
+
+export function useCreateOrgSsoProvider() {
+  const qc = useQueryClient();
+  return useMutation<
+    { provider: OrgSsoProvider; domainVerificationToken?: string },
+    Error,
+    {
+      providerId: string;
+      issuer: string;
+      domain: string;
+      type: "oidc" | "saml";
+      oidcConfig?: {
+        clientId: string;
+        clientSecret: string;
+        discoveryEndpoint?: string;
+      };
+      samlConfig?: {
+        entryPoint: string;
+        cert?: string;
+        idpMetadata: { entityID: string; metadata: string };
+      };
+    }
+  >({
+    mutationFn: (body: {
+      providerId: string;
+      issuer: string;
+      domain: string;
+      type: "oidc" | "saml";
+      oidcConfig?: {
+        clientId: string;
+        clientSecret: string;
+        discoveryEndpoint?: string;
+      };
+      samlConfig?: {
+        entryPoint: string;
+        cert?: string;
+        idpMetadata: { entityID: string; metadata: string };
+      };
+    }) =>
+      apiFetch(`${ORG_BASE}/sso/providers`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-sso-providers"] });
+    },
+  });
+}
+
+export function useVerifyOrgSsoProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerId: string) =>
+      apiFetch(
+        `${ORG_BASE}/sso/providers/${encodeURIComponent(providerId)}/verify`,
+        { method: "POST" },
+      ),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-sso-providers"] });
+    },
+  });
+}
+
+export function useDeleteOrgSsoProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerId: string) =>
+      apiFetch(`${ORG_BASE}/sso/providers/${encodeURIComponent(providerId)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["org-sso-providers"] }),
+        qc.invalidateQueries({ queryKey: ["org-me"] }),
+      ]);
+    },
+  });
+}
+
+export function useOrgScim(enabled = true) {
+  const { data: org } = useOrg();
+  return useQuery<OrgScimResult>({
+    queryKey: ["org-scim", org?.orgId ?? null],
+    queryFn: () => apiFetch(`${ORG_BASE}/scim`),
+    enabled: Boolean(org?.orgId) && enabled,
+  });
+}
+
+export function useCreateOrgScimConnection() {
+  const qc = useQueryClient();
+  return useMutation<
+    { connection: OrgScimConnection; token: string },
+    Error,
+    void
+  >({
+    mutationFn: () =>
+      apiFetch(`${ORG_BASE}/scim`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-scim"] });
+    },
+  });
+}
+
+export function useDeleteOrgScimConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (connectionId: string) =>
+      apiFetch(`${ORG_BASE}/scim/${encodeURIComponent(connectionId)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-scim"] });
+    },
+  });
+}
+
 export interface AppRoleAssignment {
   email: string;
-  role: string;
+  roles: string[];
 }
 
 export interface AppRolesInfo {
   appId: string;
   roles: string[];
+  permissions: Record<string, readonly string[]>;
   /** Shown for members with no assignment. Never satisfies a server guard. */
   defaultRole: string | null;
   roleLabels: Record<string, string>;
   /** Whether the current user may change assignments (org owner/admin). */
   canManage: boolean;
   assignments: AppRoleAssignment[];
-  myRole: string | null;
+  myRoles: string[];
 }
 
 /**
  * App-role vocabulary and assignments for the active org.
  *
- * `myRole` and `canManage` are progressive disclosure only — every guarded
+ * `myRoles` and `canManage` are progressive disclosure only — every guarded
  * operation re-resolves both server-side, so a client that shows the wrong
  * affordance still cannot perform the operation.
  */
@@ -418,32 +588,23 @@ export function useAppRoles(appId: string | undefined) {
   });
 }
 
-/** The current user's role in one app, or `null` when unassigned. */
+/** The current user's roles in one app. */
 export function useAppRole(appId: string | undefined): {
-  role: string | null;
+  roles: string[];
   isLoading: boolean;
   error: Error | null;
 } {
   const query = useAppRoles(appId);
   return {
-    role: query.data?.myRole ?? null,
+    roles: query.data?.myRoles ?? [],
     isLoading: query.isLoading,
     error: query.error,
   };
 }
 
-export function useSetAppMemberRole(appId: string) {
+export function useSetAppMemberRoles() {
   const qc = useQueryClient();
-  return useMutation<
-    { appId: string; email: string; role: string | null },
-    Error,
-    { email: string; role: string | null }
-  >({
-    mutationFn: ({ email, role }) =>
-      apiFetch(`${ORG_BASE}/app-roles/${encodeURIComponent(email)}`, {
-        method: "PUT",
-        body: JSON.stringify({ appId, role }),
-      }),
+  return useActionMutation("set-app-member-roles", {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-app-roles"] });
     },

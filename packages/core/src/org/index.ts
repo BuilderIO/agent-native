@@ -56,7 +56,10 @@ export {
   listRegisteredAppRoles,
   listAppMemberRoles,
   resolveAppRole,
-  setAppMemberRole,
+  setAppMemberRoles,
+  applyInvitationAppRoles,
+  getAppPermissionOverrides,
+  setAppPermissionRoles,
 } from "./app-roles.js";
 export type {
   AppRoles,
@@ -104,9 +107,21 @@ export {
   orgMembers,
   orgInvitations,
   appMemberRoles,
+  appPermissionOverrides,
+  orgScimMemberships,
   workspaceApps,
   workspaceAppShares,
 } from "./schema.js";
+
+export {
+  listSSOProvidersHandler,
+  createSSOProviderHandler,
+  verifySSOProviderHandler,
+  deleteSSOProviderHandler,
+  getSCIMHandler,
+  createSCIMHandler,
+  deleteSCIMHandler,
+} from "./enterprise-auth-handlers.js";
 
 // Individual handlers — exported so templates can compose a custom org plugin
 // while still using the framework-provided handlers.

@@ -46,7 +46,8 @@ async function seedOrgTables(
       invited_by TEXT NOT NULL,
       created_at BIGINT NOT NULL,
       status TEXT NOT NULL,
-      role TEXT
+      role TEXT,
+      app_roles_json TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,
