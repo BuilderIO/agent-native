@@ -21,7 +21,7 @@ food, estimates calories and macros, and keeps your daily stats up to date.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-macros --standalone --template macros
+npx --yes @agent-native/core@latest create my-macros --standalone --template macros
 cd my-macros
 pnpm install
 pnpm dev
