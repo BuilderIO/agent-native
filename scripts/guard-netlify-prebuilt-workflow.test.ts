@@ -99,7 +99,7 @@ describe("Google callback deploy verification guard", () => {
 
   it("checks the published beta runtime context for the relay secret", () => {
     const relayStep =
-      "      - name: Verify Netlify Google OAuth relay configuration";
+      "      - name: Verify Netlify Google OAuth relay metadata";
     const packageStep = "      - name: Package the prebuilt artifact";
     const uploadStep = "      - name: Upload the prebuilt artifact";
     const smokeStep = "      - name: Smoke-test the uploaded deploy";

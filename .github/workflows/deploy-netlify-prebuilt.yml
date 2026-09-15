@@ -657,7 +657,7 @@ jobs:
       # Beta's artifact producer has deploy=false but receives the inherited
       # Netlify credential; PR preview producers intentionally do not, and
       # their trusted deploy job runs this check before the Netlify upload.
-      - name: Verify Netlify Google OAuth relay configuration
+      - name: Verify Netlify Google OAuth relay metadata
         if: >-
           (inputs.deploy || inputs.target == 'beta') &&
           inputs.migration_only != true &&
