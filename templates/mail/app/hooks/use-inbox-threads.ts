@@ -128,13 +128,30 @@ export function findInboxThreadIdByMessageId(
   return item ? threadKeyOf(item) : undefined;
 }
 
-/** Restore a snapshot taken with `snapshotInboxThreads` — used on mutation
- * error rollback, mirroring the `['emails']` `context.previous` restore. */
+/** Restore a raw inbox snapshot for an explicit cache reset. Optimistic
+ * mutation rollbacks retire journal entries instead of replacing this base. */
 export function restoreInboxThreadsOptimistic(
   qc: QueryClient,
   snapshot: ReturnType<typeof snapshotInboxThreads>,
 ) {
   for (const [key, data] of snapshot) qc.setQueryData(key, data);
+}
+
+/** Notify inbox observers after the journal changes without changing the raw
+ * server snapshot underneath them. The select overlay is the optimistic
+ * projection; keeping the base intact makes overlapping rollbacks additive. */
+function notifyInboxQueries(qc: QueryClient) {
+  qc.setQueriesData<ListInboxThreadsResult>(
+    { queryKey: INBOX_THREADS_QUERY_KEY },
+    (old) =>
+      old
+        ? {
+            ...old,
+            items: old.items.map((item) => ({ ...item })),
+            tabs: old.tabs.map((tab) => ({ ...tab })),
+          }
+        : old,
+  );
 }
 
 /** Back-compat: old `?label=<id>` / `?filter=<id>` links and the `?tab=other`
@@ -284,7 +301,7 @@ function recordInboxMutation(
 }
 
 export function forgetInboxMutation(qc: QueryClient, id: string) {
-  inboxMutationJournal(qc).delete(id);
+  if (inboxMutationJournal(qc).delete(id)) notifyInboxQueries(qc);
 }
 
 /** Retire a journal entry only after a refetch contains the requested state. */
@@ -361,6 +378,7 @@ export function clearInboxThreadRemoval(
         threadIds,
       });
   }
+  if (snapshot.length > 0) notifyInboxQueries(qc);
   return snapshot;
 }
 
@@ -393,6 +411,7 @@ export function restoreInboxThreadRemovals(
         : [],
     });
   }
+  if (snapshot.length > 0) notifyInboxQueries(qc);
 }
 
 export async function cancelInboxThreadsQueries(qc: QueryClient) {
@@ -485,28 +504,15 @@ export function applyInboxMutationOverlay(
   return result;
 }
 
-function applyMutationToCachedInbox(qc: QueryClient, mutation: InboxMutation) {
-  qc.setQueriesData<ListInboxThreadsResult>(
-    { queryKey: INBOX_THREADS_QUERY_KEY },
-    (old) => (old ? applyInboxMutation(old, mutation) : old),
-  );
-}
-
 /**
  * Optimistically remove threads (archive/trash) from every cached
- * list-inbox-threads page and decrement that page's own `total`/active-tab
- * count — the only tab we can adjust without re-deriving server-side tab
- * membership.
+ * list-inbox-threads page. The journal overlay adjusts the rendered `total`
+ * and active-tab count without rewriting the raw server snapshot.
  *
- * ponytail: each cached page decrements its own `total` independently, so a
- * removal from a page beyond page 0 doesn't touch page 0's `total` (the one
- * `hasNextPage` math reads) until the 3s `delayedInvalidate` refetch settles
- * — a load-more page can transiently look available for a few seconds after
- * archiving something from page 2+. Upgrade path: pre-scan every cached page
- * for a global removed count and apply it to every page's `total` uniformly
- * — skipped because a naive version double-counts a thread cached under two
- * different tabs' stale queries; doing it right needs per-tab scoping this
- * helper doesn't have today.
+ * ponytail: the overlay still derives each page's count independently, so a
+ * page beyond page 0 can report a transient local total until refetch settles.
+ * Upgrade path: give the journal per-tab membership so one global removal can
+ * adjust every cached page without double-counting stale cross-tab rows.
  */
 export function removeInboxThreadsOptimistic(
   qc: QueryClient,
@@ -524,7 +530,7 @@ export function removeInboxThreadsOptimistic(
     ),
     threadIds: [...threadIds],
   });
-  applyMutationToCachedInbox(qc, mutation);
+  notifyInboxQueries(qc);
   return mutation.id;
 }
 
@@ -544,7 +550,7 @@ export function markInboxThreadReadOptimistic(
     kind: "read",
     states,
   });
-  applyMutationToCachedInbox(qc, mutation);
+  notifyInboxQueries(qc);
   return mutation.id;
 }
 
@@ -576,7 +582,7 @@ export function adjustInboxThreadUnreadOptimistic(
     kind: "unread-count",
     state: { threadId, unreadCount, isRead: unreadCount === 0 },
   });
-  applyMutationToCachedInbox(qc, mutation);
+  notifyInboxQueries(qc);
   return mutation.id;
 }
 
@@ -591,6 +597,6 @@ export function toggleInboxThreadsStarOptimistic(
     kind: "star",
     threadIds: [...threadIds],
   });
-  applyMutationToCachedInbox(qc, mutation);
+  notifyInboxQueries(qc);
   return mutation.id;
 }

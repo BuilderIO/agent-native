@@ -13,7 +13,6 @@ import type {
 import {
   keepPreviousData,
   type QueryClient,
-  type QueryKey,
   useQuery,
   useInfiniteQuery,
   useMutation,
@@ -34,7 +33,6 @@ import {
   markInboxThreadReadOptimistic,
   removeInboxThreadsOptimistic,
   restoreInboxThreadRemovals,
-  restoreInboxThreadsOptimistic,
   settleInboxMutationIfObserved,
   snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
@@ -457,21 +455,21 @@ const optimisticOverrides = new Map<
 >();
 const OVERRIDE_DURATION = 60_000; // 60s — covers Gmail's consistency window
 
-const readMutations = new Map<
-  string,
-  {
-    version: number;
-    confirmedState?: boolean;
-    pending: Map<number, boolean>;
-  }
->();
+type BooleanMutationState = {
+  version: number;
+  confirmedState: boolean | undefined;
+  pending: Map<number, boolean>;
+};
 
-export function beginReadMutation(
+const starMutations = new Map<string, BooleanMutationState>();
+
+function beginBooleanMutation(
+  mutations: Map<string, BooleanMutationState>,
   emailId: string,
   currentState: boolean | undefined,
-  isRead: boolean,
+  nextState: boolean,
 ): number {
-  const existing = readMutations.get(emailId);
+  const existing = mutations.get(emailId);
   const version = (existing?.version ?? 0) + 1;
   const mutation = existing ?? {
     version,
@@ -479,37 +477,39 @@ export function beginReadMutation(
     pending: new Map<number, boolean>(),
   };
   mutation.version = version;
-  mutation.pending.set(version, isRead);
-  readMutations.set(emailId, mutation);
+  mutation.pending.set(version, nextState);
+  mutations.set(emailId, mutation);
   return version;
 }
 
-export function confirmReadMutation(
+function confirmBooleanMutation(
+  mutations: Map<string, BooleanMutationState>,
   emailId: string,
   version: number,
-  isRead: boolean,
+  state: boolean,
 ): boolean | undefined | null {
-  const current = readMutations.get(emailId);
+  const current = mutations.get(emailId);
   if (!current?.pending.delete(version)) return null;
-  current.confirmedState = isRead;
+  current.confirmedState = state;
   if (current.pending.size > 0) {
     const latestVersion = Math.max(...current.pending.keys());
     return current.pending.get(latestVersion);
   }
-  readMutations.delete(emailId);
+  mutations.delete(emailId);
   return current.confirmedState;
 }
 
-export function rollbackReadMutation(
+function rollbackBooleanMutation(
+  mutations: Map<string, BooleanMutationState>,
   emailId: string,
   version: number,
 ): boolean | undefined | null {
-  const current = readMutations.get(emailId);
+  const current = mutations.get(emailId);
   if (!current?.pending.has(version)) return null;
   const latestVersion = Math.max(...current.pending.keys());
   current.pending.delete(version);
   if (current.pending.size === 0) {
-    readMutations.delete(emailId);
+    mutations.delete(emailId);
     return current.confirmedState;
   }
   if (version !== latestVersion) return null;
@@ -517,30 +517,91 @@ export function rollbackReadMutation(
   return current.pending.get(nextVersion);
 }
 
+const readMutationVersions = new Map<string, BooleanMutationState>();
+
+export function beginReadMutation(
+  emailId: string,
+  currentState: boolean | undefined,
+  isRead: boolean,
+): number {
+  return beginBooleanMutation(
+    readMutationVersions,
+    emailId,
+    currentState,
+    isRead,
+  );
+}
+
+export function confirmReadMutation(
+  emailId: string,
+  version: number,
+  isRead: boolean,
+): boolean | undefined | null {
+  return confirmBooleanMutation(readMutationVersions, emailId, version, isRead);
+}
+
+export function rollbackReadMutation(
+  emailId: string,
+  version: number,
+): boolean | undefined | null {
+  return rollbackBooleanMutation(readMutationVersions, emailId, version);
+}
+
+function beginStarMutation(
+  emailId: string,
+  currentState: boolean | undefined,
+  isStarred: boolean,
+) {
+  return beginBooleanMutation(starMutations, emailId, currentState, isStarred);
+}
+
+function confirmStarMutation(
+  emailId: string,
+  version: number,
+  isStarred: boolean,
+) {
+  return confirmBooleanMutation(starMutations, emailId, version, isStarred);
+}
+
+function rollbackStarMutation(emailId: string, version: number) {
+  return rollbackBooleanMutation(starMutations, emailId, version);
+}
+
+function applyEmailBooleanMutationStates(
+  qc: QueryClient,
+  states: Map<string, boolean | undefined | null>,
+  field: "isRead" | "isStarred",
+): Map<string, boolean> {
+  const resolved = new Map<string, boolean>();
+  for (const [emailId, state] of states) {
+    if (state === undefined) {
+      clearOptimisticOverrideProperty(emailId, field);
+    } else if (state !== null) {
+      setOptimisticOverride(emailId, { [field]: state });
+      resolved.set(emailId, state);
+    }
+  }
+  if (resolved.size > 0) {
+    qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+      mapInfiniteEmails(old, (emails) =>
+        emails.map((email) =>
+          resolved.has(email.id)
+            ? { ...email, [field]: resolved.get(email.id)! }
+            : email,
+        ),
+      ),
+    );
+  }
+  return resolved;
+}
+
 function applyReadMutationStates(
   qc: QueryClient,
   states: Map<string, boolean | undefined | null>,
   threadId?: string,
 ) {
-  const resolved = new Map<string, boolean>();
-  for (const [emailId, state] of states) {
-    if (state === undefined) {
-      clearOptimisticOverrideProperty(emailId, "isRead");
-    } else if (state !== null) {
-      setOptimisticOverride(emailId, { isRead: state });
-      resolved.set(emailId, state);
-    }
-  }
+  const resolved = applyEmailBooleanMutationStates(qc, states, "isRead");
   if (resolved.size === 0) return;
-  qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-    mapInfiniteEmails(old, (emails) =>
-      emails.map((email) =>
-        resolved.has(email.id)
-          ? { ...email, isRead: resolved.get(email.id)! }
-          : email,
-      ),
-    ),
-  );
   if (!threadId) return;
   const thread = getCachedThread(threadId);
   if (!thread) return;
@@ -552,6 +613,35 @@ function applyReadMutationStates(
         : message,
     ),
   );
+}
+
+function applyStarMutationStates(
+  qc: QueryClient,
+  states: Map<string, boolean | undefined | null>,
+  threadIdsByEmailId?: Readonly<Record<string, string>> | string,
+) {
+  const resolved = applyEmailBooleanMutationStates(qc, states, "isStarred");
+  if (resolved.size === 0 || !threadIdsByEmailId) return;
+  const threadIds =
+    typeof threadIdsByEmailId === "string"
+      ? new Map([...resolved.keys()].map((id) => [id, threadIdsByEmailId]))
+      : new Map(
+          [...resolved.keys()]
+            .map((id) => [id, threadIdsByEmailId[id]] as const)
+            .filter((entry): entry is [string, string] => Boolean(entry[1])),
+        );
+  for (const threadId of new Set(threadIds.values())) {
+    const thread = getCachedThread(threadId);
+    if (!thread) continue;
+    setCachedThread(
+      threadId,
+      thread.map((message) =>
+        resolved.has(message.id)
+          ? { ...message, isStarred: resolved.get(message.id)! }
+          : message,
+      ),
+    );
+  }
 }
 
 function refreshThreadAfterMutations(thread: {
@@ -995,7 +1085,6 @@ export function useMarkRead() {
           emails.map((e) => (e.id === id ? { ...e, isRead } : e)),
         ),
       );
-      const inboxSnapshot = snapshotInboxThreads(qc);
       // Message-scoped: this only touches one message, so the row's unread
       // count must move by ±1, not snap the whole thread to read/unread —
       // see adjustInboxThreadUnreadOptimistic's doc.
@@ -1020,7 +1109,6 @@ export function useMarkRead() {
       return {
         mutationVersion,
         threadId: resolvedThreadId,
-        inboxSnapshot,
         inboxMutationId,
         refreshThread:
           resolvedThreadId && restartThread
@@ -1049,9 +1137,6 @@ export function useMarkRead() {
       );
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
-      }
-      if (context?.inboxSnapshot) {
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
       toast.error(toError(err).message);
     },
@@ -1110,7 +1195,6 @@ export function useMarkThreadRead() {
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
       }
-      const inboxSnapshot = snapshotInboxThreads(qc);
       const inboxMutationId = markInboxThreadReadOptimistic(
         qc,
         new Set([threadId]),
@@ -1132,7 +1216,6 @@ export function useMarkThreadRead() {
       }
       return {
         mutations,
-        inboxSnapshot,
         inboxMutationId,
         refreshThread: restartThread
           ? {
@@ -1167,9 +1250,6 @@ export function useMarkThreadRead() {
       applyReadMutationStates(qc, rollback, threadId);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
-      }
-      if (context?.inboxSnapshot) {
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
       toast.error(toError(err).message);
     },
@@ -1212,10 +1292,8 @@ export function useToggleStar() {
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
-      });
-      const target = previous
+      const target = qc
+        .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data))
         .find((e) => e.id === id);
       const resolvedThreadId =
@@ -1226,6 +1304,11 @@ export function useToggleStar() {
       const previousThread = resolvedThreadId
         ? getCachedThread(resolvedThreadId)
         : undefined;
+      const mutationVersion = beginStarMutation(
+        id,
+        target?.isStarred,
+        isStarred,
+      );
       setOptimisticOverride(id, { isStarred });
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
@@ -1279,24 +1362,30 @@ export function useToggleStar() {
         );
       }
       return {
-        previous,
         previousThread,
         threadId: resolvedThreadId,
         inboxSnapshot,
         inboxMutationId,
+        mutationVersion,
       };
     },
+    onSuccess: (_data, { id, isStarred }, context) => {
+      if (!context) return;
+      applyStarMutationStates(
+        qc,
+        new Map([
+          [id, confirmStarMutation(id, context.mutationVersion, isStarred)],
+        ]),
+        context.threadId,
+      );
+    },
     onError: (err, { id }, context) => {
-      clearOptimisticOverride(id);
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.threadId && context.previousThread) {
-        setCachedThread(context.threadId, context.previousThread);
-      }
+      const state = context
+        ? rollbackStarMutation(id, context.mutationVersion)
+        : null;
+      applyStarMutationStates(qc, new Map([[id, state]]), context?.threadId);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
-      }
-      if (context?.inboxSnapshot) {
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
       toast.error(toError(err).message);
     },
@@ -1344,10 +1433,8 @@ export function useArchiveEmail() {
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
-      });
-      const target = previous
+      const target = qc
+        .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data))
         .find((e) => e.id === id);
       const threadId =
@@ -1357,26 +1444,16 @@ export function useArchiveEmail() {
         id;
       suppressThread(threadId, "archive");
       invalidateCachedThread(threadId);
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => (e.threadId || e.id) !== threadId),
-        ),
-      );
-      const inboxSnapshot = snapshotInboxThreads(qc);
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
       );
-      return { previous, threadId, inboxSnapshot, inboxMutationId };
+      return { threadId, inboxMutationId };
     },
     onError: (err, _vars, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
-      }
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.inboxSnapshot) {
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
       toast.error(
         archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
@@ -1480,27 +1557,16 @@ export function useTrashEmail() {
         findInboxThreadIdByMessageId(qc, id) ||
         id;
       suppressThread(threadId, "trash");
-      // Remove all thread messages from all cached email queries
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => (e.threadId || e.id) !== threadId),
-        ),
-      );
-      const inboxSnapshot = snapshotInboxThreads(qc);
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
       );
-      return { previous, threadId, inboxSnapshot, inboxMutationId };
+      return { threadId, inboxMutationId };
     },
     onError: (err, _id, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
-      }
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.inboxSnapshot) {
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
       toast.error(toError(err).message);
     },
@@ -1583,7 +1649,6 @@ function reconcilePartialInboxMutation(
   qc: QueryClient,
   context: {
     inboxMutationId?: string;
-    inboxSnapshot: ReturnType<typeof snapshotInboxThreads>;
   },
   succeededThreadIds: ReadonlySet<string>,
   reapply: (threadIds: ReadonlySet<string>) => string,
@@ -1591,53 +1656,36 @@ function reconcilePartialInboxMutation(
   if (context.inboxMutationId) {
     forgetInboxMutation(qc, context.inboxMutationId);
   }
-  restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
   context.inboxMutationId =
     succeededThreadIds.size > 0 ? reapply(succeededThreadIds) : undefined;
 }
 
-function restoreBulkEmailField(
-  qc: QueryClient,
-  previous: Array<[QueryKey, InfiniteEmails | undefined]>,
-  succeededIds: ReadonlySet<string>,
-  field: "isRead" | "isStarred",
-  value: boolean,
-) {
-  for (const [key, data] of previous) {
-    qc.setQueryData(
-      key,
-      mapInfiniteEmails(data, (emails) =>
-        emails.map((email) =>
-          succeededIds.has(email.id) ? { ...email, [field]: value } : email,
-        ),
-      ),
-    );
-  }
-}
-
-function restoreBulkRemovedEmails(
-  qc: QueryClient,
-  previous: Array<[QueryKey, InfiniteEmails | undefined]>,
-  succeededThreadIds: ReadonlySet<string>,
-) {
-  for (const [key, data] of previous) {
-    qc.setQueryData(
-      key,
-      mapInfiniteEmails(data, (emails) =>
-        emails.filter(
-          (email) => !succeededThreadIds.has(email.threadId || email.id),
-        ),
-      ),
-    );
-  }
-}
-
-function bulkActionArgs(targets: BulkEmailTarget[]) {
-  return {
-    id: targets.map((t) => t.id).join(","),
-    threadIds: targets.map((t) => t.threadId ?? "").join(","),
-    accountEmails: targets.map((t) => t.accountEmail ?? "").join(","),
-  };
+async function enqueueBulkTrashMutation(
+  targets: BulkEmailTarget[],
+): Promise<void> {
+  const results = await Promise.allSettled(
+    targets.map((target) =>
+      callAction("trash-email", {
+        id: target.id,
+        accountEmail: target.accountEmail,
+      }).then(assertActionSuccess),
+    ),
+  );
+  const failedIds = targets.flatMap((target, index) =>
+    results[index]?.status === "rejected" ? [target.id] : [],
+  );
+  if (failedIds.length === 0) return;
+  const succeededIds = targets.flatMap((target, index) =>
+    results[index]?.status === "fulfilled" ? [target.id] : [],
+  );
+  const firstFailure = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  throw new BulkGmailMutationFailure(
+    failedIds,
+    succeededIds,
+    firstFailure?.reason,
+  );
 }
 
 interface BulkArchiveVars {
@@ -1664,12 +1712,9 @@ export function useBulkArchiveEmails() {
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
-      });
-      const allEmails = previous.flatMap(([, data]) =>
-        flattenInfiniteEmails(data),
-      );
+      const allEmails = qc
+        .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
+        .flatMap(([, data]) => flattenInfiniteEmails(data));
       const threadIdsByEmailId: Record<string, string> = {};
       const threadIds = targets.map((target) => {
         const found = allEmails.find((e) => e.id === target.id);
@@ -1686,18 +1731,10 @@ export function useBulkArchiveEmails() {
         suppressThread(threadId, "archive");
         invalidateCachedThread(threadId);
       }
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => !threadIdSet.has(e.threadId || e.id)),
-        ),
-      );
-      const inboxSnapshot = snapshotInboxThreads(qc);
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIdSet);
       return {
-        previous,
         threadIds: [...threadIdSet],
         threadIdsByEmailId,
-        inboxSnapshot,
         inboxMutationId,
       };
     },
@@ -1710,7 +1747,6 @@ export function useBulkArchiveEmails() {
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
         for (const threadId of failedThreadIds) unsuppressThread(threadId);
-        restoreBulkRemovedEmails(qc, context.previous, succeededThreadIds);
         reconcilePartialInboxMutation(
           qc,
           context,
@@ -1727,10 +1763,6 @@ export function useBulkArchiveEmails() {
       }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
-      }
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.inboxSnapshot) {
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
       toast.error(
         archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
@@ -1755,55 +1787,58 @@ export function useBulkTrashEmails() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (targets: BulkEmailTarget[]) =>
-      callAction("trash-email", bulkActionArgs(targets)).then(
-        assertActionSuccess,
-      ),
+      enqueueBulkTrashMutation(targets),
     onMutate: async (targets: BulkEmailTarget[]) => {
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
-      });
-      const allEmails = previous.flatMap(([, data]) =>
-        flattenInfiniteEmails(data),
-      );
+      const allEmails = qc
+        .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
+        .flatMap(([, data]) => flattenInfiniteEmails(data));
+      const threadIdsByEmailId: Record<string, string> = {};
       const threadIds = targets.map((target) => {
         const found = allEmails.find((e) => e.id === target.id);
-        return (
+        const threadId =
           target.threadId ||
           found?.threadId ||
           findInboxThreadIdByMessageId(qc, target.id) ||
-          target.id
-        );
+          target.id;
+        threadIdsByEmailId[target.id] = threadId;
+        return threadId;
       });
       const threadIdSet = new Set(threadIds);
       for (const threadId of threadIdSet) suppressThread(threadId, "trash");
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => !threadIdSet.has(e.threadId || e.id)),
-        ),
-      );
-      const inboxSnapshot = snapshotInboxThreads(qc);
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIdSet);
       return {
-        previous,
         threadIds: [...threadIdSet],
-        inboxSnapshot,
+        threadIdsByEmailId,
         inboxMutationId,
       };
     },
     onError: (err, _vars, context) => {
+      if (err instanceof BulkGmailMutationFailure && context) {
+        const failedThreadIds = new Set(
+          err.failedIds.map((id) => context.threadIdsByEmailId[id] || id),
+        );
+        const succeededThreadIds = new Set(
+          err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
+        );
+        for (const threadId of failedThreadIds) unsuppressThread(threadId);
+        reconcilePartialInboxMutation(
+          qc,
+          context,
+          succeededThreadIds,
+          (threadIds) => removeInboxThreadsOptimistic(qc, threadIds),
+        );
+        toast.error(toError(err).message);
+        return;
+      }
       for (const threadId of context?.threadIds ?? []) {
         unsuppressThread(threadId);
       }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
-      }
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.inboxSnapshot) {
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
       toast.error(toError(err).message);
     },
@@ -1841,41 +1876,62 @@ export function useBulkToggleStar() {
         queryKey: ["emails"],
       });
       const ids = new Set(targets.map((t) => t.id));
+      const allEmails = previous.flatMap(([, data]) =>
+        flattenInfiniteEmails(data),
+      );
       const threadIdsByEmailId = resolveBulkThreadIds(qc, targets);
-      for (const id of ids) setOptimisticOverride(id, { isStarred });
+      const mutationVersions: Record<string, number> = {};
+      for (const id of ids) {
+        mutationVersions[id] = beginStarMutation(
+          id,
+          allEmails.find((email) => email.id === id)?.isStarred,
+          isStarred,
+        );
+        setOptimisticOverride(id, { isStarred });
+      }
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
           emails.map((e) => (ids.has(e.id) ? { ...e, isStarred } : e)),
         ),
       );
-      const inboxSnapshot = snapshotInboxThreads(qc);
       const inboxMutationId = toggleInboxThreadsStarOptimistic(
         qc,
         new Set(Object.values(threadIdsByEmailId)),
         isStarred,
       );
-      return {
-        previous,
-        ids: [...ids],
-        threadIdsByEmailId,
-        inboxSnapshot,
-        inboxMutationId,
-      };
+      return { mutationVersions, threadIdsByEmailId, inboxMutationId };
+    },
+    onSuccess: (_data, vars, context) => {
+      if (!context) return;
+      const states = new Map<string, boolean | undefined | null>();
+      for (const [id, version] of Object.entries(context.mutationVersions)) {
+        states.set(id, confirmStarMutation(id, version, vars.isStarred));
+      }
+      applyStarMutationStates(qc, states, context.threadIdsByEmailId);
     },
     onError: (err, vars, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
-        const succeededIds = new Set(err.succeededIds);
         const succeededThreadIds = new Set(
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
-        for (const id of err.failedIds) clearOptimisticOverride(id);
-        restoreBulkEmailField(
-          qc,
-          context.previous,
-          succeededIds,
-          "isStarred",
-          vars.isStarred,
-        );
+        const states = new Map<string, boolean | undefined | null>();
+        for (const id of err.failedIds) {
+          states.set(
+            id,
+            rollbackStarMutation(id, context.mutationVersions[id]),
+          );
+        }
+        for (const id of err.succeededIds) {
+          states.set(
+            id,
+            confirmStarMutation(
+              id,
+              context.mutationVersions[id],
+              vars.isStarred,
+            ),
+          );
+        }
+        applyStarMutationStates(qc, states, context.threadIdsByEmailId);
         reconcilePartialInboxMutation(
           qc,
           context,
@@ -1886,13 +1942,15 @@ export function useBulkToggleStar() {
         toast.error(toError(err).message);
         return;
       }
-      for (const id of context?.ids ?? []) clearOptimisticOverride(id);
+      if (context) {
+        const states = new Map<string, boolean | undefined | null>();
+        for (const [id, version] of Object.entries(context.mutationVersions)) {
+          states.set(id, rollbackStarMutation(id, version));
+        }
+        applyStarMutationStates(qc, states, context.threadIdsByEmailId);
+      }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
-      }
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.inboxSnapshot) {
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
       toast.error(toError(err).message);
     },
@@ -1930,41 +1988,58 @@ export function useBulkMarkRead() {
         queryKey: ["emails"],
       });
       const ids = new Set(targets.map((t) => t.id));
+      const allEmails = previous.flatMap(([, data]) =>
+        flattenInfiniteEmails(data),
+      );
       const threadIdsByEmailId = resolveBulkThreadIds(qc, targets);
-      for (const id of ids) setOptimisticOverride(id, { isRead });
+      const mutationVersions: Record<string, number> = {};
+      for (const id of ids) {
+        mutationVersions[id] = beginReadMutation(
+          id,
+          allEmails.find((email) => email.id === id)?.isRead,
+          isRead,
+        );
+        setOptimisticOverride(id, { isRead });
+      }
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
           emails.map((e) => (ids.has(e.id) ? { ...e, isRead } : e)),
         ),
       );
-      const inboxSnapshot = snapshotInboxThreads(qc);
       const inboxMutationId = markInboxThreadReadOptimistic(
         qc,
         new Set(Object.values(threadIdsByEmailId)),
         isRead,
       );
-      return {
-        previous,
-        ids: [...ids],
-        threadIdsByEmailId,
-        inboxSnapshot,
-        inboxMutationId,
-      };
+      return { mutationVersions, threadIdsByEmailId, inboxMutationId };
+    },
+    onSuccess: (_data, vars, context) => {
+      if (!context) return;
+      const states = new Map<string, boolean | undefined | null>();
+      for (const [id, version] of Object.entries(context.mutationVersions)) {
+        states.set(id, confirmReadMutation(id, version, vars.isRead));
+      }
+      applyReadMutationStates(qc, states);
     },
     onError: (err, vars, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
-        const succeededIds = new Set(err.succeededIds);
         const succeededThreadIds = new Set(
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
-        for (const id of err.failedIds) clearOptimisticOverride(id);
-        restoreBulkEmailField(
-          qc,
-          context.previous,
-          succeededIds,
-          "isRead",
-          vars.isRead,
-        );
+        const states = new Map<string, boolean | undefined | null>();
+        for (const id of err.failedIds) {
+          states.set(
+            id,
+            rollbackReadMutation(id, context.mutationVersions[id]),
+          );
+        }
+        for (const id of err.succeededIds) {
+          states.set(
+            id,
+            confirmReadMutation(id, context.mutationVersions[id], vars.isRead),
+          );
+        }
+        applyReadMutationStates(qc, states);
         reconcilePartialInboxMutation(
           qc,
           context,
@@ -1975,13 +2050,15 @@ export function useBulkMarkRead() {
         toast.error(toError(err).message);
         return;
       }
-      for (const id of context?.ids ?? []) clearOptimisticOverride(id);
+      if (context) {
+        const states = new Map<string, boolean | undefined | null>();
+        for (const [id, version] of Object.entries(context.mutationVersions)) {
+          states.set(id, rollbackReadMutation(id, version));
+        }
+        applyReadMutationStates(qc, states);
+      }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
-      }
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (context?.inboxSnapshot) {
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
       }
       toast.error(toError(err).message);
     },
@@ -2058,11 +2135,9 @@ export function useMoveEmail() {
           emails.filter((email) => !threadIds.has(email.threadId || email.id)),
         ),
       );
-      const inboxSnapshot = snapshotInboxThreads(qc);
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIds);
       return {
         previous,
-        inboxSnapshot,
         threadIdsByEmailId,
         inboxMutationId,
       };
@@ -2088,7 +2163,6 @@ export function useMoveEmail() {
         if (context.inboxMutationId) {
           forgetInboxMutation(qc, context.inboxMutationId);
         }
-        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
         removeInboxThreadsOptimistic(qc, succeededThreadIds);
         return;
       }
@@ -2096,7 +2170,6 @@ export function useMoveEmail() {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
       context.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
     },
     onSettled: (_data, _error, _variables, context) =>
       delayedInvalidate(

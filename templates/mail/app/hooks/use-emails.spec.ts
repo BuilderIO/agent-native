@@ -257,9 +257,7 @@ describe("useMarkRead", () => {
     expect(hook).toContain("const restartThread = resolvedThreadId");
     expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
     expect(hook).toContain("resolvedThreadId && restartThread");
-    expect(source).toContain(
-      'clearOptimisticOverrideProperty(emailId, "isRead")',
-    );
+    expect(source).toContain("clearOptimisticOverrideProperty(emailId, field)");
     expect(hook).toContain("refreshThreadAfterMutations(");
   });
 });
@@ -437,12 +435,8 @@ describe("apiFetch quota signaling", () => {
 });
 
 describe("inbox-thread cache rollback on mutation error", () => {
-  // PR #4801 round 3: archive/trash/mark-read/star mutations optimistically
-  // update the list-inbox-threads cache via use-inbox-threads.ts's helpers,
-  // but only rolled back the legacy ['emails'] cache on error — a Gmail
-  // rejection left the synced inbox missing the thread (decremented counts)
-  // until the delayed invalidation. Each mutation below must snapshot the
-  // inbox cache in onMutate and restore it in onError.
+  // Inbox optimistic state is a journal overlay. Errors retire only their own
+  // entry, so overlapping mutations never restore an older cache snapshot.
   const boundaries: Array<[string, string]> = [
     ["export function useMarkRead()", "export function useMarkThreadRead()"],
     ["export function useMarkThreadRead()", "export function useToggleStar()"],
@@ -471,14 +465,14 @@ describe("inbox-thread cache rollback on mutation error", () => {
   ];
 
   it.each(boundaries)(
-    "%s snapshots and restores the inbox cache",
+    "%s journals and retires its inbox mutation",
     (start, end) => {
       const source = emailsHookSource();
       const hook = source.slice(source.indexOf(start), source.indexOf(end));
 
       expect(hook).toContain("cancelInboxThreadsQueries(qc)");
-      expect(hook).toContain("snapshotInboxThreads(qc)");
-      expect(hook).toContain("restoreInboxThreadsOptimistic(qc, context");
+      expect(hook).toContain("forgetInboxMutation(qc");
+      expect(hook).not.toContain("restoreInboxThreadsOptimistic(qc, context");
     },
   );
 
@@ -507,7 +501,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
           "enqueueBulkGmailMutation",
           "BulkGmailMutationFailure",
           "reconcilePartialInboxMutation",
-          "restoreBulkRemovedEmails",
         ],
       ],
       [
@@ -517,7 +510,8 @@ describe("inbox-thread cache rollback on mutation error", () => {
           "enqueueBulkGmailMutation",
           "resolveBulkThreadIds(qc, targets)",
           "BulkGmailMutationFailure",
-          "restoreBulkEmailField",
+          "mutationVersions",
+          "beginStarMutation",
           "reconcilePartialInboxMutation",
         ],
       ],
@@ -528,7 +522,8 @@ describe("inbox-thread cache rollback on mutation error", () => {
           "enqueueBulkGmailMutation",
           "resolveBulkThreadIds(qc, targets)",
           "BulkGmailMutationFailure",
-          "restoreBulkEmailField",
+          "mutationVersions",
+          "beginReadMutation",
           "reconcilePartialInboxMutation",
         ],
       ],
@@ -548,9 +543,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
 
     expect(hook).toContain('result.status === "partial"');
     expect(hook).toContain("throw new MoveEmailPartialFailure(result)");
-    expect(hook).toContain(
-      "restoreInboxThreadsOptimistic(qc, context.inboxSnapshot)",
-    );
+    expect(hook).toContain("forgetInboxMutation(qc, context.inboxMutationId)");
     expect(hook).toContain(
       "removeInboxThreadsOptimistic(qc, succeededThreadIds)",
     );
