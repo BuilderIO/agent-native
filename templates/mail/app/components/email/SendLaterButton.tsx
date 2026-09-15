@@ -224,6 +224,12 @@ export function SendLaterButton({
           className="w-80 max-w-[calc(100vw-2rem)] p-3"
           align="end"
           side="top"
+          onEscapeKeyDown={(event) => {
+            if (!query) return;
+            event.preventDefault();
+            setNaturalInput("");
+            setActiveIndex(-1);
+          }}
         >
           <div className="space-y-2">
             <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">

@@ -52,7 +52,14 @@ describe("scheduled mail actions", () => {
   it("does not persist an unapproved automation schedule", async () => {
     await expect(
       action.run(
-        { runAt: Date.now() + 60_000 },
+        {
+          runAt: Date.now() + 60_000,
+          payload: {
+            to: "recipient@example.com",
+            subject: "Scheduled",
+            body: "body",
+          },
+        },
         { caller: "automation", userEmail: "owner@example.com" },
       ),
     ).rejects.toThrow("Automation email sending is disabled");
@@ -60,23 +67,22 @@ describe("scheduled mail actions", () => {
   });
 
   it("rejects a schedule without a complete send payload", async () => {
-    await expect(
-      action.run({ runAt: Date.now() + 60_000 } as never),
-    ).rejects.toThrow("Scheduled email payload is incomplete or invalid");
-
-    await expect(
-      action.run({
+    expect(
+      action.schema.safeParse({ runAt: Date.now() + 60_000 }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
         runAt: Date.now() + 60_000,
         payload: { to: "recipient@example.com" },
-      } as never),
-    ).rejects.toThrow("Scheduled email payload is incomplete or invalid");
+      }).success,
+    ).toBe(false);
 
     expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
   });
 
   it("rejects malformed scheduled attachments before persistence", async () => {
-    await expect(
-      action.run({
+    expect(
+      action.schema.safeParse({
         runAt: Date.now() + 60_000,
         payload: {
           to: "recipient@example.com",
@@ -84,8 +90,8 @@ describe("scheduled mail actions", () => {
           body: "body",
           attachments: [{ originalName: "missing-upload-key.pdf" }],
         },
-      } as never),
-    ).rejects.toThrow("Scheduled email payload is incomplete or invalid");
+      }).success,
+    ).toBe(false);
 
     expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
   });
@@ -135,9 +141,9 @@ describe("scheduled mail actions", () => {
     );
   });
 
-  it("rejects a non-string payload sender before account lookup or persistence", async () => {
-    await expect(
-      action.run({
+  it("rejects a non-string payload sender at the action boundary", async () => {
+    expect(
+      action.schema.safeParse({
         runAt: Date.now() + 60_000,
         payload: {
           to: "recipient@example.com",
@@ -145,8 +151,8 @@ describe("scheduled mail actions", () => {
           body: "body",
           accountEmail: 42,
         },
-      }),
-    ).rejects.toThrow("Selected Gmail account must be an email address");
+      }).success,
+    ).toBe(false);
 
     expect(mocks.resolveScheduledSendAccountEmail).not.toHaveBeenCalled();
     expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
@@ -156,7 +162,6 @@ describe("scheduled mail actions", () => {
     { to: "bad-recipient", cc: "", bcc: "" },
     { to: "   ", cc: "", bcc: "" },
     { to: "recipient@example.com", cc: "bad-cc", bcc: "" },
-    { to: "recipient@example.com", cc: 42, bcc: "" },
     { to: "recipient@example.com", cc: "", bcc: "bad-bcc" },
   ])("rejects malformed scheduled recipients", async (recipients) => {
     await expect(
@@ -169,6 +174,22 @@ describe("scheduled mail actions", () => {
         },
       }),
     ).rejects.toThrow("Invalid recipient address");
+
+    expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-string scheduled recipient at the action boundary", async () => {
+    expect(
+      action.schema.safeParse({
+        runAt: Date.now() + 60_000,
+        payload: {
+          to: "recipient@example.com",
+          cc: 42,
+          subject: "Scheduled",
+          body: "body",
+        },
+      }).success,
+    ).toBe(false);
 
     expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
   });
