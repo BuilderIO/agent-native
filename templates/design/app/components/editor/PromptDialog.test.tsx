@@ -269,6 +269,20 @@ describe("PromptPopover asset picker", () => {
     expect(url.searchParams.get("embedded")).toBe("1");
     expect(url.searchParams.get("callerAppId")).toBe("design");
   });
+
+  it("falls back to the complete embedded contract for an invalid configured URL", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ASSETS_PICKER_URL", "https://[invalid");
+
+    const url = new URL(assetsPickerUrl());
+
+    expect(url.origin).toBe("https://assets.agent-native.com");
+    expect(url.pathname).toBe("/library");
+    expect(url.searchParams.get("__an_picker")).toBe("1");
+    expect(url.searchParams.get("mediaType")).toBe("image");
+    expect(url.searchParams.get("layout")).toBe("vertical");
+    expect(url.searchParams.get("embedded")).toBe("1");
+    expect(url.searchParams.get("callerAppId")).toBe("design");
+  });
 });
 
 describe("PromptPopover submit failure recovery", () => {

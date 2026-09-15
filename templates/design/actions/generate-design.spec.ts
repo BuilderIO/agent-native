@@ -1364,9 +1364,12 @@ describe("generate-design: new screens never stack on existing frames", () => {
     );
     expect(newFile).toBeDefined();
     expect(frames["file-1"]).toMatchObject({ width: 1440, height: 900 });
-    expect(frames[newFile!.id]?.x).toBeCloseTo(
-      1440 + 24 + 390 * (1440 / 1280) + 96,
-    );
+    expect(frames[newFile!.id]?.x).toBeCloseTo(1440 + 24 + 390 + 96);
+    const metadata = mocks.getDesignData().screenMetadata as Record<
+      string,
+      { width: number; height: number }
+    >;
+    expect(metadata["file-1"]).toMatchObject({ width: 1440, height: 900 });
   });
 
   it("reserves rotated breakpoints around the primary after an aspect-changing regeneration", async () => {
@@ -1706,6 +1709,9 @@ describe("generate-design: explicit device request resizes an existing frame", (
     // Existing index.html (file-1) with a persisted desktop-sized frame.
     setExistingFile("<html><body>old</body></html>");
     mocks.setDesignData({
+      screenMetadata: {
+        "file-1": { width: 1440, height: 900 },
+      },
       canvasFrames: {
         "file-1": { x: 300, y: 120, width: 1440, height: 900, z: 0 },
       },
@@ -1729,5 +1735,10 @@ describe("generate-design: explicit device request resizes an existing frame", (
       >
     )["file-1"];
     expect(frame).toMatchObject({ x: 300, y: 120, width: 390, height: 844 });
+    const metadata = mocks.getDesignData().screenMetadata as Record<
+      string,
+      { width: number; height: number }
+    >;
+    expect(metadata["file-1"]).toMatchObject({ width: 390, height: 844 });
   });
 });

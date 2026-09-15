@@ -1811,7 +1811,18 @@ async function readWorkspaceAppsFromFilesystem(
     if (!pkg) continue;
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
     const metadata = workspaceAppMetadataFromRecord(pkg);
-    const configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+    let configuredHomePath: string | undefined;
+    try {
+      configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+    } catch (error) {
+      // A broken app-only dependency must not hide healthy sibling apps from
+      // Dispatch. The next discovery pass can recover after the app is fixed.
+      console.warn(
+        `[dispatch] Could not load configuration for workspace app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
     apps.push({
       id: entry.name,
       name: pkg.displayName || titleCase(entry.name),

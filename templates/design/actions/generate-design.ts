@@ -1134,18 +1134,28 @@ const generateDesignAction = defineAction({
               ? (rawMetadata as Record<string, unknown>)
               : {};
           const frame = merged.canvasFrames[file.id];
+          // Explicit devices resize existing frames above, so their final
+          // frame dimensions must win over stale persisted metadata.
           const width =
-            typeof metadata.width === "number" && metadata.width > 0
-              ? metadata.width
-              : typeof frame?.width === "number" && frame.width > 0
+            devices && devices.length > 0
+              ? typeof frame?.width === "number" && frame.width > 0
                 ? frame.width
-                : viewport.width;
+                : viewport.width
+              : typeof metadata.width === "number" && metadata.width > 0
+                ? metadata.width
+                : typeof frame?.width === "number" && frame.width > 0
+                  ? frame.width
+                  : viewport.width;
           const height =
-            typeof metadata.height === "number" && metadata.height > 0
-              ? metadata.height
-              : typeof frame?.height === "number" && frame.height > 0
+            devices && devices.length > 0
+              ? typeof frame?.height === "number" && frame.height > 0
                 ? frame.height
-                : viewport.height;
+                : viewport.height
+              : typeof metadata.height === "number" && metadata.height > 0
+                ? metadata.height
+                : typeof frame?.height === "number" && frame.height > 0
+                  ? frame.height
+                  : viewport.height;
           if (
             rawMetadata === undefined ||
             metadata.width !== width ||

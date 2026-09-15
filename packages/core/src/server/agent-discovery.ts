@@ -888,14 +888,25 @@ async function readWorkspaceAppsFromFilesystem(
       continue;
     }
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    let configuredHomePath: string | undefined;
+    try {
+      configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+    } catch (error) {
+      if (strict) throw error;
+      // A broken app-only dependency must not hide healthy sibling agents.
+      console.warn(
+        `[agent-discovery] Could not load configuration for workspace app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
     apps.push({
       id: normalizeAgentId(entry.name),
       name: pkg.displayName || titleCase(entry.name),
       description: pkg.description || "",
       path: `/${entry.name}`,
       homePath: normalizeWorkspaceAppHomePath(
-        (await readConfiguredWorkspaceAppHomePath(appDir)) ??
-          inferWorkspaceAppRootHomePath(appDir),
+        configuredHomePath ?? inferWorkspaceAppRootHomePath(appDir),
       ),
       isDispatch: normalizeAgentId(entry.name) === "dispatch",
       audience:
