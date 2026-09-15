@@ -488,6 +488,12 @@ export interface McpOAuthProviderOptions {
   clientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   discoveryState?: McpOAuthDiscoveryState;
+  /**
+   * Runs the moment the SDK persists discovery, which is before it selects a
+   * resource, resolves scope, or registers a client. Throwing here is how a
+   * caller refuses a flow that discovery has already proven cannot finish.
+   */
+  onDiscoveryState?: (state: McpOAuthDiscoveryState) => void;
 }
 
 function issuerForDiscovery(
@@ -557,6 +563,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   private savedCodeVerifier?: string;
   private savedDiscovery?: McpOAuthDiscoveryState;
   private authorizationUrl?: URL;
+  private readonly onDiscoveryState?: (state: McpOAuthDiscoveryState) => void;
 
   constructor(options: McpOAuthProviderOptions) {
     this.redirectUrlValue = options.redirectUrl;
@@ -564,6 +571,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     this.clientInfo = options.clientInformation;
     this.savedCodeVerifier = options.codeVerifier;
     this.savedDiscovery = options.discoveryState;
+    this.onDiscoveryState = options.onDiscoveryState;
     const recordedIssuer = issuerForDiscovery(this.savedDiscovery);
     if (
       this.clientInfo &&
@@ -654,6 +662,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }): void {
     validateDiscoveryUrls(state);
     this.savedDiscovery = state;
+    this.onDiscoveryState?.(state);
   }
 
   discoveryState(): McpOAuthDiscoveryState | undefined {
@@ -704,16 +713,11 @@ export class McpOAuthRegistrationUnsupportedError extends Error {
   readonly issuer?: string;
   readonly authorizationServerUrl?: string;
 
-  constructor(details: {
-    issuer?: string;
-    authorizationServerUrl?: string;
-    cause?: unknown;
-  }) {
+  constructor(details: { issuer?: string; authorizationServerUrl?: string }) {
     const server =
       details.issuer ?? details.authorizationServerUrl ?? "(unknown)";
     super(
       `MCP OAuth authorization server ${server} does not support dynamic client registration`,
-      details.cause === undefined ? undefined : { cause: details.cause },
     );
     this.name = "McpOAuthRegistrationUnsupportedError";
     this.issuer = details.issuer;
@@ -722,27 +726,24 @@ export class McpOAuthRegistrationUnsupportedError extends Error {
 }
 
 /**
- * The SDK persists discovery state before it attempts registration, so a failed
- * start is classified from the metadata it already fetched rather than by
- * matching the SDK's error text.
+ * Refuse a start the moment discovery proves it cannot finish, rather than
+ * inferring the reason from a later rejection. Discovery lands before the SDK
+ * selects a resource, resolves scope, or registers, so a failure raised here is
+ * known to be the missing registration path; anything thrown afterwards is a
+ * different problem and keeps its own error.
  */
-function registrationUnsupportedFailure(
-  provider: McpOAuthClientProvider,
-  cause: unknown,
-): McpOAuthRegistrationUnsupportedError | undefined {
-  const discovery = provider.discoveryState();
-  const metadata = discovery?.authorizationServerMetadata as
+function assertRegisterableClient(state: McpOAuthDiscoveryState): void {
+  const metadata = state.authorizationServerMetadata as
     | (AuthorizationServerMetadata & {
         client_id_metadata_document_supported?: boolean;
       })
     | undefined;
-  if (!metadata) return undefined;
-  if (metadata.registration_endpoint) return undefined;
-  if (metadata.client_id_metadata_document_supported === true) return undefined;
-  return new McpOAuthRegistrationUnsupportedError({
+  if (!metadata) return;
+  if (metadata.registration_endpoint) return;
+  if (metadata.client_id_metadata_document_supported === true) return;
+  throw new McpOAuthRegistrationUnsupportedError({
     issuer: typeof metadata.issuer === "string" ? metadata.issuer : undefined,
-    authorizationServerUrl: discovery?.authorizationServerUrl,
-    cause,
+    authorizationServerUrl: state.authorizationServerUrl,
   });
 }
 
@@ -763,24 +764,25 @@ export async function startMcpOAuthAuthorization(
       googleScopes,
     );
   }
-  const provider = new McpOAuthClientProvider(options);
-  let result: Awaited<ReturnType<typeof auth>>;
-  try {
-    result = await auth(provider, {
-      serverUrl: options.serverUrl,
-      scope: options.scope,
-      ...(options.resourceMetadataUrl
-        ? { resourceMetadataUrl: new URL(options.resourceMetadataUrl) }
-        : {}),
-      fetchFn: guardedOAuthFetch(),
-    });
-  } catch (error) {
-    // A caller-supplied client never reaches registration, so only a start
-    // without one can have failed for want of a registerable client.
-    throw options.clientInformation
-      ? error
-      : (registrationUnsupportedFailure(provider, error) ?? error);
+  // A caller-supplied client never reaches registration, so only a start
+  // without one can be blocked by a missing registration path.
+  if (!options.clientInformation && options.discoveryState) {
+    assertRegisterableClient(options.discoveryState);
   }
+  const provider = new McpOAuthClientProvider({
+    ...options,
+    ...(options.clientInformation
+      ? {}
+      : { onDiscoveryState: assertRegisterableClient }),
+  });
+  const result = await auth(provider, {
+    serverUrl: options.serverUrl,
+    scope: options.scope,
+    ...(options.resourceMetadataUrl
+      ? { resourceMetadataUrl: new URL(options.resourceMetadataUrl) }
+      : {}),
+    fetchFn: guardedOAuthFetch(),
+  });
   if (result !== "REDIRECT" || !provider.authorizationRedirect) {
     throw new Error("MCP server did not start an interactive OAuth flow");
   }

@@ -947,15 +947,13 @@ describe("MCP OAuth client", () => {
 });
 
 /**
- * Mirrors the SDK's ordering: discovery state is persisted before registration
- * is attempted, so a start that dies in registration still leaves the metadata
- * behind for the framework to classify the failure from.
+ * Mirrors the SDK's ordering: discovery state is persisted before the SDK picks
+ * a resource, resolves scope, or registers a client, and `saveDiscoveryState`
+ * is not wrapped in a catch there.
  */
-function authFailingAfterDiscovery(
+function authSavingDiscovery(
   authorizationServerMetadata: Record<string, unknown>,
-  error = new Error(
-    "Incompatible auth server: does not support dynamic client registration",
-  ),
+  afterDiscovery?: () => never,
 ) {
   return async (provider: {
     saveDiscoveryState?: (state: Record<string, unknown>) => void;
@@ -964,7 +962,8 @@ function authFailingAfterDiscovery(
       authorizationServerUrl: String(authorizationServerMetadata.issuer ?? ""),
       authorizationServerMetadata,
     });
-    throw error;
+    afterDiscovery?.();
+    return "REDIRECT" as const;
   };
 }
 
@@ -981,15 +980,19 @@ describe("MCP OAuth start failures that no retry can fix", () => {
     code_challenge_methods_supported: ["S256"],
   };
 
-  it("reports an authorization server with no registration endpoint", async () => {
-    authMock.mockImplementation(authFailingAfterDiscovery(githubMetadata));
-
-    const failure = await startMcpOAuthAuthorization({
+  const start = (overrides: Record<string, unknown> = {}) =>
+    startMcpOAuthAuthorization({
       serverUrl: "https://api.githubcopilot.com/mcp/",
       redirectUrl:
         "https://app.example.com/_agent-native/mcp/servers/oauth/callback",
       state: "<STATE>",
-    }).catch((error: unknown) => error);
+      ...overrides,
+    });
+
+  it("refuses as soon as discovery shows no client can be registered", async () => {
+    authMock.mockImplementation(authSavingDiscovery(githubMetadata));
+
+    const failure = await start().catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(McpOAuthRegistrationUnsupportedError);
     expect((failure as McpOAuthRegistrationUnsupportedError).issuer).toBe(
@@ -997,59 +1000,63 @@ describe("MCP OAuth start failures that no retry can fix", () => {
     );
   });
 
-  it("leaves a registration-capable server's failure untouched", async () => {
-    const cause = new Error("registration endpoint returned 500");
+  it("refuses a caller-supplied discovery state with no registration path", async () => {
+    authMock.mockResolvedValue("REDIRECT");
+
+    const failure = await start({
+      discoveryState: {
+        authorizationServerUrl: "https://github.com/login/oauth",
+        authorizationServerMetadata: githubMetadata,
+      },
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(McpOAuthRegistrationUnsupportedError);
+    expect(authMock).not.toHaveBeenCalled();
+  });
+
+  // The metadata only proves registration is unavailable. It must not be read
+  // as proof that registration is what failed.
+  it("does not blame registration for a failure raised after discovery", async () => {
+    const cause = new Error("authorization endpoint unreachable");
     authMock.mockImplementation(
-      authFailingAfterDiscovery(
+      authSavingDiscovery(
         {
           ...githubMetadata,
           registration_endpoint: "https://auth.example.com/register",
         },
-        cause,
+        () => {
+          throw cause;
+        },
       ),
     );
 
-    await expect(
-      startMcpOAuthAuthorization({
-        serverUrl: "https://mcp.example.com/mcp",
-        redirectUrl:
-          "https://app.example.com/_agent-native/mcp/servers/oauth/callback",
-        state: "<STATE>",
-      }),
-    ).rejects.toBe(cause);
+    await expect(start()).rejects.toBe(cause);
   });
 
   it("leaves a CIMD-capable server's failure untouched", async () => {
-    const cause = new Error("authorize endpoint unreachable");
+    const cause = new Error("authorization endpoint unreachable");
     authMock.mockImplementation(
-      authFailingAfterDiscovery(
+      authSavingDiscovery(
         { ...githubMetadata, client_id_metadata_document_supported: true },
-        cause,
+        () => {
+          throw cause;
+        },
       ),
     );
 
-    await expect(
-      startMcpOAuthAuthorization({
-        serverUrl: "https://mcp.example.com/mcp",
-        redirectUrl:
-          "https://app.example.com/_agent-native/mcp/servers/oauth/callback",
-        state: "<STATE>",
-      }),
-    ).rejects.toBe(cause);
+    await expect(start()).rejects.toBe(cause);
   });
 
-  it("does not blame registration when a managed client was supplied", async () => {
-    const cause = new Error("authorize endpoint unreachable");
+  it("does not refuse a managed client that never needs registration", async () => {
+    const cause = new Error("authorization endpoint unreachable");
     authMock.mockImplementation(
-      authFailingAfterDiscovery(githubMetadata, cause),
+      authSavingDiscovery(githubMetadata, () => {
+        throw cause;
+      }),
     );
 
     await expect(
-      startMcpOAuthAuthorization({
-        serverUrl: "https://mcp.example.com/mcp",
-        redirectUrl:
-          "https://app.example.com/_agent-native/mcp/servers/oauth/callback",
-        state: "<STATE>",
+      start({
         clientInformation: {
           client_id: "managed-client",
           client_secret: "managed-secret",
@@ -1062,13 +1069,6 @@ describe("MCP OAuth start failures that no retry can fix", () => {
     const cause = new Error("network unreachable");
     authMock.mockRejectedValue(cause);
 
-    await expect(
-      startMcpOAuthAuthorization({
-        serverUrl: "https://mcp.example.com/mcp",
-        redirectUrl:
-          "https://app.example.com/_agent-native/mcp/servers/oauth/callback",
-        state: "<STATE>",
-      }),
-    ).rejects.toBe(cause);
+    await expect(start()).rejects.toBe(cause);
   });
 });

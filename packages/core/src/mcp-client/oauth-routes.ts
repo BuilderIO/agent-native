@@ -168,18 +168,38 @@ export function bindMcpOAuthAuthorizationScope(
     : credentials;
 }
 
+/**
+ * h3 hands a returned web `Response` straight back without merging the
+ * `Set-Cookie` headers staged earlier on `event.res`. The callback stages the
+ * flow-cookie deletion before it validates anything, so a `Response` that drops
+ * those headers leaves the encrypted PKCE/state cookie in the browser.
+ */
+export function withStagedCookies(
+  event: H3Event,
+  response: Response,
+): Response {
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  if (staged.length === 0) return response;
+  const headers = new Headers(response.headers);
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export function redirectWithStagedCookies(
   event: H3Event,
   location: string,
 ): Response {
-  const headers = new Headers({
-    Location: location,
-    "Cache-Control": "no-store",
-  });
-  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
-    headers.append("set-cookie", cookie);
-  }
-  return new Response(null, { status: 302, headers });
+  return withStagedCookies(
+    event,
+    new Response(null, {
+      status: 302,
+      headers: { Location: location, "Cache-Control": "no-store" },
+    }),
+  );
 }
 
 export function mountMcpOAuthRoutes(
@@ -502,7 +522,10 @@ export function mcpOAuthStartFailureResponse(
     setResponseStatus(event, failure.status);
     return failure.body;
   }
-  return oauthErrorPage(failure.body.error, failure.status);
+  return withStagedCookies(
+    event,
+    oauthErrorPage(failure.body.error, failure.status),
+  );
 }
 
 /** Shorthand for the single-message refusals in the browser-facing routes. */

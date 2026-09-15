@@ -621,6 +621,26 @@ describe("MCP OAuth start failure rendering", () => {
     expect(html).toContain("&lt;img");
   });
 
+  // The callback stages the flow-cookie deletion before it validates anything,
+  // and h3 does not merge staged Set-Cookie headers into a returned Response.
+  it("carries the staged flow-cookie deletion onto the HTML page", async () => {
+    const event = htmlEvent();
+    clearMcpOAuthFlowCookies(event);
+    const staged = event.res.headers.getSetCookie();
+    expect(staged.length).toBeGreaterThan(0);
+
+    const response = mcpOAuthStartFailureResponse(event, {
+      status: 400,
+      body: { error: "MCP OAuth state is invalid or expired." },
+    }) as Response;
+
+    expect(response.headers.getSetCookie()).toEqual(staged);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    await expect(response.text()).resolves.toContain(
+      "MCP OAuth state is invalid or expired.",
+    );
+  });
+
   it("keeps the JSON body for non-browser callers", () => {
     const event = jsonEvent();
     const response = mcpOAuthStartFailureResponse(event, {
