@@ -297,6 +297,29 @@ describe("OrgSwitcher", () => {
     expect(actionOrder[2]).toBeGreaterThan(actionOrder[1]);
   });
 
+  it("does not offer invitations when email delivery is unavailable", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "owner" }],
+        domainMatches: [],
+        pendingInvitations: [],
+        role: "owner",
+        emailConfigured: false,
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+
+    expect(document.body.textContent).not.toContain("Invite member");
+  });
+
   it("makes demo mode visible and removes the redacted email from sign out", () => {
     mocks.useDemoModeStatus.mockReturnValue({
       enabled: true,

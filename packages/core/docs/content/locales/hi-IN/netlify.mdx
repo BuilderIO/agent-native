@@ -24,7 +24,7 @@ Netlify पर deploy करने के लिए उसी मौजूदा
 Standalone app के लिए Netlify output build करके static assets और functions deploy करें:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 

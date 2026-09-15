@@ -24,7 +24,7 @@ Netlify، أضف `nitro: { preset: "netlify" }` إلى خيارات استدعا
 للتطبيق المستقل، ابنِ مخرجات Netlify وانشر الأصول والدوال:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 

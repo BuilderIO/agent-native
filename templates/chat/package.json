@@ -4,6 +4,7 @@
   "private": true,
   "description": "Minimal chat-first agent-native app template.",
   "type": "module",
+  "packageManager": "pnpm@10.29.1",
   "scripts": {
     "migrate:production": "tsx scripts/migrate-production.ts",
     "dev": "agent-native dev --open",

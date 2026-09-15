@@ -25,7 +25,7 @@ específicos do Chat.
 Para um app independente, gere a saída do Netlify e publique os assets e as funções:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 

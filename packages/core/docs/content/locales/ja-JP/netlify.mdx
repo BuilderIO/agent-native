@@ -25,7 +25,7 @@ export default defineConfig({
 スタンドアロンアプリでは、Netlify出力をビルドして静的アセットとfunctionsをデプロイします。
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 

@@ -2,6 +2,7 @@
   "name": "{{APP_NAME}}",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.29.1",
   "scripts": {
     "action": "agent-native action",
     "agent": "agent-native agent",

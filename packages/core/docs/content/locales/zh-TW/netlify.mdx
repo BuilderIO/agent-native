@@ -24,7 +24,7 @@ Chat 專用外掛、選項與別名。
 對於獨立應用程式，請建置 Netlify 輸出並部署靜態資源與函式：
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 

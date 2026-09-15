@@ -977,6 +977,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
         onRetryMembers={() => void refetchMembers()}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
+        emailConfigured={org.emailConfigured}
         appRoles={appRoles}
         groups={groupsQuery.data ?? []}
         canManageGroups={isOwnerOrAdmin}
@@ -1067,6 +1068,7 @@ export function MembersTableCard({
   onRetryMembers,
   currentUserEmail,
   currentUserRole,
+  emailConfigured,
   appRoles,
   groups,
   canManageGroups,
@@ -1088,6 +1090,7 @@ export function MembersTableCard({
   onRetryMembers: () => void;
   currentUserEmail: string;
   currentUserRole: OrgRole | null;
+  emailConfigured?: boolean;
   appRoles?: AppRolesDescriptor;
   groups: WorkspaceUserGroup[];
   canManageGroups: boolean;
@@ -1106,7 +1109,9 @@ export function MembersTableCard({
     () => new Set(),
   );
   const [bulkActionKey, setBulkActionKey] = useState(0);
-  const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
+  const canInvite =
+    emailConfigured !== false &&
+    (currentUserRole === "owner" || currentUserRole === "admin");
   const updateGroupMembers = useActionMutation(
     "bulk-update-workspace-user-groups",
   );

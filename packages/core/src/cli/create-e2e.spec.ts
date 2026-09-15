@@ -1733,6 +1733,7 @@ describe("workspace scaffold defaults", () => {
 
   it("does not copy local agent-native runtime state", () => {
     expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);
+    expect(_shouldSkipScaffoldEntry("pnpm-lock.yaml")).toBe(true);
     expect(
       _shouldSkipScaffoldEntry("pglite", path.join("data", "pglite")),
     ).toBe(true);

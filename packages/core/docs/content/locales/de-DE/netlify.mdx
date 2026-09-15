@@ -25,7 +25,7 @@ Chat-spezifischen Plugins, Optionen und Aliase unverändert.
 Für eine Standalone-App bauen Sie die Netlify-Ausgabe und stellen Assets und Funktionen bereit:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 

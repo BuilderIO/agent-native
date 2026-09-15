@@ -25,7 +25,7 @@ plugins, opciones y alias propios de Chat.
 Para una aplicación independiente, compila la salida de Netlify e implementa los activos y las funciones:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 

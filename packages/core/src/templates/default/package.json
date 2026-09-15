@@ -2,6 +2,7 @@
   "name": "{{APP_NAME}}",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.29.1",
   "scripts": {
     "dev": "agent-native dev --inspect",
     "build": "agent-native build",

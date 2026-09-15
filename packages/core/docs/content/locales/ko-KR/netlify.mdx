@@ -24,7 +24,7 @@ export default defineConfig({
 독립 앱은 Netlify 출력을 빌드한 뒤 정적 자산과 함수를 배포합니다:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 

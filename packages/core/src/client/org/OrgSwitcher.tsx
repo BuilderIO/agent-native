@@ -423,7 +423,9 @@ export function OrgSwitcher({
   }
 
   const canInvite =
-    !!org.orgId && (org.role === "owner" || org.role === "admin");
+    !!org.orgId &&
+    org.emailConfigured !== false &&
+    (org.role === "owner" || org.role === "admin");
 
   const personalLabel = session?.name || personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;

@@ -24,7 +24,7 @@ Chat 专用插件、选项和别名。
 对于独立应用，请构建 Netlify 输出并部署静态资源和函数：
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
