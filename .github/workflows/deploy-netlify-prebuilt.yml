@@ -695,7 +695,9 @@ jobs:
               const relay = variables.find(
                 (variable) => variable.key === "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
               );
-              const value = relay?.values?.find((entry) => entry.context === context);
+              const value =
+                relay?.values?.find((entry) => entry.context === context) ??
+                relay?.values?.find((entry) => entry.context === "all");
               if (
                 !relay?.is_secret ||
                 !relay.scopes?.includes("runtime") ||

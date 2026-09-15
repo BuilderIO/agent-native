@@ -123,6 +123,28 @@ describe("Google callback deploy verification guard", () => {
     assert.match(step, /!value/);
     assert.match(step, /Netlify masks secret values/);
     assert.doesNotMatch(step, /netlify env:get/);
+    const metadataScript = step.match(
+      /printf '%s' "\$env_json" \|\n\s*node -e '\n([\s\S]*?)\n\s*' "\$relay_context"/,
+    )?.[1];
+    assert.ok(metadataScript);
+    const runMetadataCheck = (variables: unknown[], context: string) =>
+      execFileSync(process.execPath, ["-e", metadataScript, context], {
+        encoding: "utf8",
+        input: JSON.stringify(variables),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    const allContextRelay = {
+      key: "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
+      is_secret: true,
+      scopes: ["runtime"],
+      values: [{ context: "all" }],
+    };
+    assert.doesNotThrow(() =>
+      runMetadataCheck([allContextRelay], "branch-deploy"),
+    );
+    assert.throws(() =>
+      runMetadataCheck([{ ...allContextRelay, values: [] }], "branch-deploy"),
+    );
     assert.match(
       step,
       /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,
