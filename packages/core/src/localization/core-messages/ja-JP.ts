@@ -398,11 +398,11 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "このモデルのプロバイダーがリクエストを拒否しました。別のモデルを選択して再試行してください。",
   "errorMessages.creditsLimitDaily":
-    "現在のプランの 1 日あたりの Agent Credits の上限に達しました。デイリークレジットは UTC の午前 0 時にリセットされます。",
+    "現在のプランの 1 日あたりの Agent Credits の上限に達しました。",
   "errorMessages.creditsLimitGeneric":
     "現在のプランの Agent Credits の上限に達しました。",
   "errorMessages.creditsLimitMonthly":
-    "現在のプランの月間 Agent Credits の上限に達しました。月間クレジットは毎月 1 日にリセットされます。",
+    "現在のプランの月間 Agent Credits の上限に達しました。",
   "errorMessages.errorPrefix": "エラー：{{message}}",
   "errorMessages.gatewayInternalError":
     "エージェントが応答する前にモデルゲートウェイで内部エラーが発生しました。少し待ってから再試行し、繰り返す場合は下のエラー ID を伝えてください。",

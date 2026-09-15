@@ -31,7 +31,7 @@ describe("builder credit status helpers", () => {
   it("detects the Agent Credits wording core now emits", () => {
     expect(
       isBuilderCreditsExhaustedMessage(
-        "You've reached the daily Agent Credits limit for your current plan. Daily credits reset at midnight UTC.",
+        "You've reached the daily Agent Credits limit for your current plan.",
       ),
     ).toBe(true);
     expect(

@@ -812,7 +812,7 @@ describe("createBuilderEngine", () => {
     // The gateway's own sentence names no allowance and no reset, and calls the
     // balance "AI credits" while the page the CTA opens calls it Agent Credits.
     expect(stop?.error).toBe(
-      "You've reached the monthly Agent Credits limit for your current plan. Monthly credits reset on the first of the month.",
+      "You've reached the monthly Agent Credits limit for your current plan.",
     );
     expect(stop?.error).not.toMatch(/AI credits/i);
   });
@@ -840,7 +840,7 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.error).toBe(
-      "You've used all 25 daily Agent Credits included with the Free plan. Daily credits reset at midnight UTC.",
+      "You've used all 25 daily Agent Credits included with the Free plan.",
     );
   });
 

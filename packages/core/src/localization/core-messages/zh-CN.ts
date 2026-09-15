@@ -370,11 +370,11 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "此模型背后的提供商拒绝了请求。请选择其他模型后重试。",
   "errorMessages.creditsLimitDaily":
-    "您已达到当前套餐的每日 Agent Credits 上限。每日额度在 UTC 午夜重置。",
+    "您已达到当前套餐的每日 Agent Credits 上限。",
   "errorMessages.creditsLimitGeneric":
     "您已达到当前套餐的 Agent Credits 上限。",
   "errorMessages.creditsLimitMonthly":
-    "您已达到当前套餐的每月 Agent Credits 上限。每月额度在每月 1 日重置。",
+    "您已达到当前套餐的每月 Agent Credits 上限。",
   "errorMessages.errorPrefix": "错误：{{message}}",
   "errorMessages.gatewayInternalError":
     "模型网关在智能体作答前发生内部错误。请稍后重试；如果持续出现，请提供下方的错误 ID。",

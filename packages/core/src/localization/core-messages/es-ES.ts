@@ -630,11 +630,11 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "El proveedor de este modelo rechazó la solicitud. Elige otro modelo y vuelve a intentarlo.",
   "errorMessages.creditsLimitDaily":
-    "Has alcanzado el límite diario de Agent Credits de tu plan actual. Los créditos diarios se restablecen a medianoche UTC.",
+    "Has alcanzado el límite diario de Agent Credits de tu plan actual.",
   "errorMessages.creditsLimitGeneric":
     "Has alcanzado el límite de Agent Credits de tu plan actual.",
   "errorMessages.creditsLimitMonthly":
-    "Has alcanzado el límite mensual de Agent Credits de tu plan actual. Los créditos mensuales se restablecen el primer día del mes.",
+    "Has alcanzado el límite mensual de Agent Credits de tu plan actual.",
   "errorMessages.errorPrefix": "Error: {{message}}",
   "errorMessages.gatewayInternalError":
     "La pasarela del modelo tuvo un error interno antes de que el agente pudiera responder. Vuelve a intentarlo en un momento e indica el id de error de abajo si sigue ocurriendo.",

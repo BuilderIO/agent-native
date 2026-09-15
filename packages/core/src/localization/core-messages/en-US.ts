@@ -389,11 +389,11 @@ const messages = {
   "errorMessages.builderModelUnauthorized":
     "The provider behind this model rejected the request. Pick a different model, then retry.",
   "errorMessages.creditsLimitDaily":
-    "You've reached the daily Agent Credits limit for your current plan. Daily credits reset at midnight UTC.",
+    "You've reached the daily Agent Credits limit for your current plan.",
   "errorMessages.creditsLimitGeneric":
     "You've reached the Agent Credits limit for your current plan.",
   "errorMessages.creditsLimitMonthly":
-    "You've reached the monthly Agent Credits limit for your current plan. Monthly credits reset on the first of the month.",
+    "You've reached the monthly Agent Credits limit for your current plan.",
   "errorMessages.errorPrefix": "Error: {{message}}",
   "errorMessages.gatewayInternalError":
     "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",

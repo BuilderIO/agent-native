@@ -394,11 +394,11 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "رفض المزوّد الذي يشغّل هذا النموذج الطلب. اختر نموذجًا آخر، ثم أعد المحاولة.",
   "errorMessages.creditsLimitDaily":
-    "لقد وصلت إلى الحد اليومي من Agent Credits في خطتك الحالية. تتم إعادة تعيين الأرصدة اليومية عند منتصف الليل بتوقيت UTC.",
+    "لقد وصلت إلى الحد اليومي من Agent Credits في خطتك الحالية.",
   "errorMessages.creditsLimitGeneric":
     "لقد وصلت إلى حد Agent Credits في خطتك الحالية.",
   "errorMessages.creditsLimitMonthly":
-    "لقد وصلت إلى الحد الشهري من Agent Credits في خطتك الحالية. تتم إعادة تعيين الأرصدة الشهرية في اليوم الأول من الشهر.",
+    "لقد وصلت إلى الحد الشهري من Agent Credits في خطتك الحالية.",
   "errorMessages.errorPrefix": "خطأ: {{message}}",
   "errorMessages.gatewayInternalError":
     "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
@@ -479,7 +479,8 @@ const messages: AgentChatTranslation = {
   "limit.maxSteps": "الحد الأقصى للخطوات",
   "limit.namedOrganization": "مؤسسة {{organization}}",
   "limit.organization": "المؤسسة",
-  "limit.ownerOnly": "لا يمكن تغيير هذا الحد إلا بواسطة مالكي المؤسسة ومشرفيها.",
+  "limit.ownerOnly":
+    "لا يمكن تغيير هذا الحد إلا بواسطة مالكي المؤسسة ومشرفيها.",
   "limit.reached": "تم بلوغ حد الخطوات",
   "limit.saveAndContinue": "الحفظ والمتابعة",
   "message.actions": "إجراءات الرسالة",
@@ -689,7 +690,8 @@ const messages: AgentChatTranslation = {
   "share.owner": "المالك",
   "share.peopleWithAccess": "الأشخاص الذين لديهم صلاحية الوصول",
   "share.private": "خاص",
-  "share.privateDescription": "يمكن للأشخاص الذين لديهم صلاحية الوصول فقط العرض",
+  "share.privateDescription":
+    "يمكن للأشخاص الذين لديهم صلاحية الوصول فقط العرض",
   "share.public": "عام",
   "share.publicDescription": "يمكن لأي شخص لديه الرابط العرض",
   "share.remove": "إزالة",

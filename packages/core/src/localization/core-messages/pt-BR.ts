@@ -620,11 +620,11 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "O provedor por trás deste modelo rejeitou a solicitação. Escolha um modelo diferente e tente novamente.",
   "errorMessages.creditsLimitDaily":
-    "Você atingiu o limite diário de Agent Credits do seu plano atual. Os créditos diários são redefinidos à meia-noite UTC.",
+    "Você atingiu o limite diário de Agent Credits do seu plano atual.",
   "errorMessages.creditsLimitGeneric":
     "Você atingiu o limite de Agent Credits do seu plano atual.",
   "errorMessages.creditsLimitMonthly":
-    "Você atingiu o limite mensal de Agent Credits do seu plano atual. Os créditos mensais são redefinidos no primeiro dia do mês.",
+    "Você atingiu o limite mensal de Agent Credits do seu plano atual.",
   "errorMessages.errorPrefix": "Erro: {{message}}",
   "errorMessages.gatewayInternalError":
     "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",

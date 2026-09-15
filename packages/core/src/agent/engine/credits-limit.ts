@@ -48,12 +48,23 @@ export function creditsLimitWindowFromCode(
 }
 
 /**
- * A missing or non-finite number is absent, never zero: `0` here would read as
- * "your plan includes no credits" and send the reader to support instead of to
- * the reset they are actually waiting on.
+ * A missing or non-finite allowance is absent, never zero: a `limit` of `0`
+ * would read as "your plan includes no credits" and send the reader to support
+ * instead of to the reset they are actually waiting on.
  */
 function finitePositive(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : undefined;
+}
+
+/**
+ * A consumed count of `0` is real information, unlike a `0` allowance. Dropping
+ * it falls through to the "used all" branch, which reports the opposite of what
+ * the gateway said.
+ */
+function finiteNonNegative(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? value
     : undefined;
 }
@@ -98,8 +109,8 @@ export function parseCreditsLimitInfo(
     ...(finitePositive(usage.limit) !== undefined
       ? { limit: finitePositive(usage.limit) }
       : {}),
-    ...(finitePositive(usage.used) !== undefined
-      ? { used: finitePositive(usage.used) }
+    ...(finiteNonNegative(usage.used) !== undefined
+      ? { used: finiteNonNegative(usage.used) }
       : {}),
     ...(finitePositive(retryAfterMs) !== undefined
       ? { resetsInMs: retryAfterMs }
@@ -152,20 +163,18 @@ function humanizeDuration(ms: number): string | undefined {
 }
 
 /**
- * Builder.io's published reset policy, not a per-plan number: daily credits
- * reset at midnight UTC and monthly credits on the first of the calendar
- * month. Safe to state without knowing the reader's plan.
+ * Reset timing is stated only when `Retry-After` measured it.
+ *
+ * There is no plan-agnostic schedule to fall back on: Builder.io resets free
+ * daily and monthly credits at 12 AM PST, while paid monthly credits track the
+ * subscription's own billing date. "Midnight UTC" or "the first of the month"
+ * would be wrong for most readers, and for the same reason the allowance is not
+ * hardcoded either — the docs CTA is what carries a per-plan answer.
  */
 function resetSentence(info: CreditsLimitInfo): string | undefined {
-  if (info.resetsInMs !== undefined) {
-    const humanized = humanizeDuration(info.resetsInMs);
-    if (humanized) return `They reset in about ${humanized}.`;
-  }
-  if (info.window === "daily") return "Daily credits reset at midnight UTC.";
-  if (info.window === "monthly") {
-    return "Monthly credits reset on the first of the month.";
-  }
-  return undefined;
+  if (info.resetsInMs === undefined) return undefined;
+  const humanized = humanizeDuration(info.resetsInMs);
+  return humanized ? `They reset in about ${humanized}.` : undefined;
 }
 
 /**
@@ -174,9 +183,9 @@ function resetSentence(info: CreditsLimitInfo): string | undefined {
  * only localize copy it can match exactly.
  */
 export const CREDITS_LIMIT_DAILY_MESSAGE =
-  "You've reached the daily Agent Credits limit for your current plan. Daily credits reset at midnight UTC.";
+  "You've reached the daily Agent Credits limit for your current plan.";
 export const CREDITS_LIMIT_MONTHLY_MESSAGE =
-  "You've reached the monthly Agent Credits limit for your current plan. Monthly credits reset on the first of the month.";
+  "You've reached the monthly Agent Credits limit for your current plan.";
 export const CREDITS_LIMIT_GENERIC_MESSAGE =
   "You've reached the Agent Credits limit for your current plan.";
 
@@ -201,7 +210,7 @@ export function formatCreditsLimitMessage(
         : CREDITS_LIMIT_GENERIC_MESSAGE;
       return reset ? `${carried} ${reset}` : carried;
     }
-    if (info.resetsInMs === undefined) {
+    if (reset === undefined) {
       return info.window === "daily"
         ? CREDITS_LIMIT_DAILY_MESSAGE
         : CREDITS_LIMIT_MONTHLY_MESSAGE;

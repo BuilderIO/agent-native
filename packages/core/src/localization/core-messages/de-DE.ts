@@ -624,11 +624,11 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "Der Anbieter hinter diesem Modell hat die Anfrage abgelehnt. Wähle ein anderes Modell und versuche es erneut.",
   "errorMessages.creditsLimitDaily":
-    "Du hast das tägliche Agent-Credits-Limit deines aktuellen Tarifs erreicht. Tägliche Credits werden um Mitternacht UTC zurückgesetzt.",
+    "Du hast das tägliche Agent-Credits-Limit deines aktuellen Tarifs erreicht.",
   "errorMessages.creditsLimitGeneric":
     "Du hast das Agent-Credits-Limit deines aktuellen Tarifs erreicht.",
   "errorMessages.creditsLimitMonthly":
-    "Du hast das monatliche Agent-Credits-Limit deines aktuellen Tarifs erreicht. Monatliche Credits werden am Ersten des Monats zurückgesetzt.",
+    "Du hast das monatliche Agent-Credits-Limit deines aktuellen Tarifs erreicht.",
   "errorMessages.errorPrefix": "Fehler: {{message}}",
   "errorMessages.gatewayInternalError":
     "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",

@@ -30,15 +30,28 @@ describe("parseCreditsLimitInfo", () => {
     ).toBe("unknown");
   });
 
-  // A zero here would be rendered as "your plan includes 0 credits", which is a
-  // different (and wrong) claim from "the gateway did not say".
-  it("treats a missing or zero count as absent, never as a real number", () => {
+  // A zero allowance would be rendered as "your plan includes 0 credits", which
+  // is a different (and wrong) claim from "the gateway did not say".
+  it("treats a missing or zero allowance as absent, never as a real number", () => {
     const info = parseCreditsLimitInfo(
       { usageInfo: { limit: 0, used: null } },
       "credits-limit-daily",
     );
     expect(info.limit).toBeUndefined();
     expect(info.used).toBeUndefined();
+  });
+
+  // A zero consumed count is real, unlike a zero allowance: dropping it falls
+  // through to the "used all" wording, which reports the opposite.
+  it("keeps a zero consumed count", () => {
+    const info = parseCreditsLimitInfo(
+      { usageInfo: { limit: 25, used: 0 } },
+      "credits-limit-daily",
+    );
+    expect(info.used).toBe(0);
+    expect(formatCreditsLimitMessage(info)).toBe(
+      "You've used 0 of 25 daily Agent Credits included with your current plan.",
+    );
   });
 
   it("carries the retry window through as the reset hint", () => {
@@ -64,7 +77,7 @@ describe("formatCreditsLimitMessage", () => {
     expect(
       formatCreditsLimitMessage({ window: "daily", plan: "free", limit: 25 }),
     ).toBe(
-      "You've used all 25 daily Agent Credits included with the Free plan. Daily credits reset at midnight UTC.",
+      "You've used all 25 daily Agent Credits included with the Free plan.",
     );
   });
 
@@ -72,11 +85,26 @@ describe("formatCreditsLimitMessage", () => {
     expect(
       formatCreditsLimitMessage({ window: "monthly", limit: 500, used: 480 }),
     ).toBe(
-      "You've used 480 of 500 monthly Agent Credits included with your current plan. Monthly credits reset on the first of the month.",
+      "You've used 480 of 500 monthly Agent Credits included with your current plan.",
     );
   });
 
-  it("prefers a concrete reset window over the generic policy sentence", () => {
+  // Builder.io resets free credits at 12 AM PST and paid monthly credits on the
+  // subscription's billing date, so no schedule is safe to state without the
+  // reader's plan. Only a measured Retry-After is a fact this module owns.
+  it("never invents a reset schedule the reader's plan may not follow", () => {
+    const unmeasured = [
+      formatCreditsLimitMessage({ window: "daily" }),
+      formatCreditsLimitMessage({ window: "monthly" }),
+      formatCreditsLimitMessage({ window: "daily", plan: "free", limit: 25 }),
+    ];
+    for (const message of unmeasured) {
+      expect(message).not.toMatch(/midnight|UTC|first of the month/i);
+      expect(message).not.toMatch(/reset/i);
+    }
+  });
+
+  it("states the reset only when Retry-After measured it", () => {
     expect(
       formatCreditsLimitMessage({ window: "daily", resetsInMs: 2 * 3600_000 }),
     ).toBe(

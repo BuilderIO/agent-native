@@ -61,13 +61,13 @@ describe("formatChatErrorText", () => {
   // engine's composed sentence, which is the whole point of surfacing a limit.
   it("shows quota copy and both CTAs without error language", () => {
     const text = formatChatErrorText(
-      "You've reached the monthly Agent Credits limit for your current plan. Monthly credits reset on the first of the month.",
+      "You've reached the monthly Agent Credits limit for your current plan.",
       agentNativeUpgradeUrl,
       "credits-limit-monthly",
     );
 
     expect(text).toBe(
-      `You've reached the monthly Agent Credits limit for your current plan. Monthly credits reset on the first of the month.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})\n\n[See your Agent Credits limit](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
+      `You've reached the monthly Agent Credits limit for your current plan.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})\n\n[See your Agent Credits limit](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
     );
     expect(text).not.toMatch(/error|!/i);
   });
