@@ -24,8 +24,9 @@ function firstNonEmpty(
 
 export function resolveSentryClientRelease(
   env: Record<string, string | undefined>,
-): string {
-  return `agent-native-client@${resolveAgentNativeBuildId(env, "development")}`;
+): string | null {
+  const buildId = resolveAgentNativeBuildId(env, "");
+  return buildId ? `agent-native-client@${buildId}` : null;
 }
 
 export interface SentrySourceMapUploadConfig {
@@ -49,13 +50,14 @@ export function resolveSentrySourceMapUploadConfig(
   // option, which wants the project slug. Passing the numeric id would
   // silently target the wrong project instead of cleanly no-oping.
   const project = firstNonEmpty(env.SENTRY_PROJECT, env.SENTRY_CLIENT_PROJECT);
-  if (!org || !project) return null;
+  const release = resolveSentryClientRelease(env);
+  if (!org || !project || !release) return null;
   return {
     authToken,
     org,
     project,
     url: firstNonEmpty(env.SENTRY_URL),
-    release: resolveSentryClientRelease(env),
+    release,
   };
 }
 

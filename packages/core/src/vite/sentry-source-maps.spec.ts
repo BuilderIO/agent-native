@@ -110,6 +110,16 @@ describe("vite/sentry-source-maps", () => {
       ).toBeNull();
     });
 
+    it("returns null when no deployment build id is available", () => {
+      expect(
+        resolveSentrySourceMapUploadConfig({
+          SENTRY_AUTH_TOKEN: "tok",
+          SENTRY_ORG: "acme",
+          SENTRY_PROJECT: "web",
+        }),
+      ).toBeNull();
+    });
+
     it("does not accept the numeric SENTRY_PROJECT_ID as a project slug", () => {
       expect(
         resolveSentrySourceMapUploadConfig({
@@ -143,6 +153,17 @@ describe("vite/sentry-source-maps", () => {
       expect(sentryVitePluginMock).not.toHaveBeenCalled();
     });
 
+    it("does not upload source maps to the development release", () => {
+      expect(
+        createSentrySourceMapUploadPlugin({
+          SENTRY_AUTH_TOKEN: "tok",
+          SENTRY_ORG: "acme",
+          SENTRY_PROJECT: "web",
+        }),
+      ).toEqual([]);
+      expect(sentryVitePluginMock).not.toHaveBeenCalled();
+    });
+
     it("calls sentryVitePlugin with the resolved config when enabled", () => {
       const plugins = createSentrySourceMapUploadPlugin({
         SENTRY_AUTH_TOKEN: "tok",
@@ -173,6 +194,7 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
+        AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
 
       await runViteBuild(entryPath, publishDirectory, plugins);
@@ -196,6 +218,7 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
+        AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
 
       await runViteBuild(entryPath, publishDirectory, plugins);
@@ -217,6 +240,7 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
+        AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
 
       try {
