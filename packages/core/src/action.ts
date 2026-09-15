@@ -13,9 +13,9 @@ import type {
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { ActionAuditConfig } from "./audit/types.js";
 import {
-  assertActionAccess,
+  assertRegisteredActionAccess,
   type ActionAccessConfig,
-} from "./authorization/check-action.js";
+} from "./authorization/action-access-runtime.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 /**
@@ -1355,7 +1355,7 @@ function wrapRunWithAccess(
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function accessCheckedRun(args: any, ctx?: ActionRunContext) {
     if (access) {
-      await assertActionAccess(access, args, ctx);
+      await assertRegisteredActionAccess(access, args, ctx);
     }
     if (authorize) {
       const verdict = await authorize(args, ctx);

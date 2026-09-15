@@ -8,6 +8,7 @@ import {
 import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
+import { registerActionAccessChecker } from "./action-access-runtime.js";
 
 export type ActionAccessScope = "app" | "org" | "resource";
 export type ActionResourceAccessLevel = ShareRole | "owner";
@@ -238,3 +239,5 @@ export async function assertActionAccess(
   if (!decision.allowed) throw new ForbiddenError(decision.reason);
   return decision;
 }
+
+registerActionAccessChecker(assertActionAccess);
