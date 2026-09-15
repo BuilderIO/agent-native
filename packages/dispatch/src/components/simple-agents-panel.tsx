@@ -31,6 +31,7 @@ import {
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { agentEndpointUrlError } from "../lib/agent-endpoint-url.js";
 import {
   AGENT_PACK_FILE_ACCEPT,
   AGENT_PROFILE_FILE_ACCEPT,
@@ -768,6 +769,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
   const [fileName, setFileName] = useState("");
   const [scope, setScope] = useState<"all" | "selected">("all");
   const [url, setUrl] = useState("");
+  const urlError = url.trim() ? agentEndpointUrlError(url) : null;
   const [endpointName, setEndpointName] = useState("");
   const [endpointDescription, setEndpointDescription] = useState("");
   const [packFiles, setPackFiles] = useState<AgentPackFileInput[]>([]);
@@ -1036,7 +1038,19 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://agent.example.com"
+                aria-invalid={!!urlError}
+                aria-describedby={
+                  urlError ? "external-agent-url-error" : undefined
+                }
               />
+              {urlError ? (
+                <p
+                  id="external-agent-url-error"
+                  className="text-xs text-destructive"
+                >
+                  {urlError}
+                </p>
+              ) : null}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
@@ -1078,7 +1092,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                     scope: "shared",
                   })
                 }
-                disabled={!url.trim() || connect.isPending}
+                disabled={!url.trim() || !!urlError || connect.isPending}
               >
                 <IconPlugConnected size={16} />
                 {connect.isPending ? "Connecting..." : "Connect agent"}

@@ -25,6 +25,7 @@ let getDbExec: typeof import("@agent-native/core/db").getDbExec;
 let adapter: Adapter;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let updateDocumentAction: typeof import("../../actions/update-document.js").default;
+let commentThreadDigest: typeof import("./comment-ai.js").commentThreadDigest;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -37,6 +38,7 @@ beforeAll(async () => {
   getDocumentAction = (await import("../../actions/get-document.js")).default;
   updateDocumentAction = (await import("../../actions/update-document.js"))
     .default;
+  commentThreadDigest = (await import("./comment-ai.js")).commentThreadDigest;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
 }, 60_000);
@@ -179,6 +181,68 @@ async function accept(
 }
 
 describe("Content suggested edits Blocks transaction", () => {
+  it("rechecks the bound comment thread inside suggestion creation", async () => {
+    const { documentId } = await seedSystemDatabasePage();
+    const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+      getDocumentAction.run({ id: documentId }),
+    );
+    const now = new Date().toISOString();
+    const comment = {
+      id: `comment-ai-root-${sequence}`,
+      ownerEmail,
+      documentId,
+      threadId: `comment-ai-root-${sequence}`,
+      parentId: null,
+      content: "Please revise this",
+      authorEmail: ownerEmail,
+      quotedText: null,
+      anchorPrefix: null,
+      anchorSuffix: null,
+      anchorStartOffset: null,
+      resolved: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await getDb().insert(schema.documentComments).values(comment);
+    const requestId = crypto.randomUUID();
+    await getDb()
+      .insert(schema.commentAiRequests)
+      .values({
+        id: requestId,
+        ownerEmail,
+        requesterEmail: ownerEmail,
+        documentId,
+        threadId: comment.threadId,
+        rootCommentId: comment.id,
+        fieldId: "body",
+        intent: "suggest",
+        status: "running",
+        threadDigest: commentThreadDigest([comment]),
+        snapshotJson: "[]",
+        baseRevision: before.baseRevision,
+        suggestionRevision: before.baseRevision,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .update(schema.documentComments)
+      .set({ content: "Changed while AI was working" })
+      .where(eq(schema.documentComments.id, comment.id));
+
+    await expect(
+      getDbExec().transaction!(async (tx) =>
+        adapter.validateProposal({
+          resourceType: "document",
+          resourceId: documentId,
+          baseRevision: before.baseRevision,
+          operations: [operation],
+          metadata: { commentAiRequestId: requestId },
+          ctx: { transaction: tx, userEmail: ownerEmail },
+        }),
+      ),
+    ).rejects.toThrow("comment changed");
+  });
+
   it("accepts a system database Page and reconciles its primary Blocks identity", async () => {
     const { documentId, propertyId } = await seedSystemDatabasePage();
     const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>

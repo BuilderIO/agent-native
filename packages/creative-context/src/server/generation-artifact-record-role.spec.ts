@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   hasA2A: vi.fn(),
   callA2A: vi.fn(),
   readAppState: vi.fn(),
+  isCreativeContextLabAvailable: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -22,6 +23,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: mocks.readAppState,
+}));
+
+vi.mock("./labs.js", () => ({
+  isCreativeContextLabAvailable: mocks.isCreativeContextLabAvailable,
 }));
 
 vi.mock("../store/generation.js", () => ({
@@ -94,6 +99,7 @@ describe("generation provenance record role", () => {
     mocks.getRequestUserEmail.mockReturnValue("viewer@example.test");
     mocks.hasA2A.mockReturnValue(false);
     mocks.readAppState.mockResolvedValue({ contextMode: "auto" });
+    mocks.isCreativeContextLabAvailable.mockResolvedValue(true);
     mocks.recordLocal.mockResolvedValue({ id: "ccgr-1" });
     mocks.getLocal.mockResolvedValue(null);
     grantRole("editor");

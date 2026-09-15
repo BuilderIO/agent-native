@@ -362,6 +362,24 @@ describe("loadResourcesForPrompt", () => {
     }
   });
 
+  it("surfaces failures from prompt providers that fail closed", async () => {
+    const unregister = registerPromptContextProvider({
+      id: "creative-context-required-test",
+      failOnError: true,
+      load: async () => {
+        throw new Error("Labs settings unavailable");
+      },
+    });
+
+    try {
+      await expect(
+        loadResourcesForPrompt("user@example.test", false, "slides"),
+      ).rejects.toThrow("Labs settings unavailable");
+    } finally {
+      unregister();
+    }
+  });
+
   it("assembles the same inherited workspace context for every app without sync writes", async () => {
     const analyticsPrompt = await loadResourcesForPrompt(
       "user@example.test",
