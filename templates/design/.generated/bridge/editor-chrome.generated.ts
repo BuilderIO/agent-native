@@ -3616,7 +3616,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.body.appendChild(constraintGuideLayer);
     var sizeBadge = document.createElement("div");
     sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
-    sizeBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+    sizeBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color, #0d99ff);color:var(--design-editor-accent-contrast-color, #ffffff);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.15);";
     document.body.appendChild(sizeBadge);
     var insertionGuide = document.createElement("div");
     insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
