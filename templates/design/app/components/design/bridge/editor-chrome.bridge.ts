@@ -14292,12 +14292,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalSelectedEl = selectedEl;
     var duplicatedForDrag = false;
     var duplicatedSourceNodeIdMap: Array<[string, string]> | undefined;
+    // Client-space vector from the clone's own layout box back to the box the
+    // pointer grabbed. A flow clone is inserted one slot after its source, so
+    // its layout box sits a whole slot away from the grab point; dragGrabRect
+    // below anchors every geometry baseline of this gesture to the grabbed box
+    // instead, so the duplicate drags, previews, and drops from where the user
+    // took hold of it.
+    var duplicateGrabOffset: { x: number; y: number } | null = null;
     if (
       e.altKey &&
       selectedEl &&
       selectedEl !== document.body &&
       selectedEl !== document.documentElement
     ) {
+      var grabbedRect = selectedEl.getBoundingClientRect();
       var clone = selectedEl.cloneNode(true);
       duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
       selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
@@ -14305,6 +14313,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectedEl = clone;
       duplicatedForDrag = true;
       gestureEl = clone;
+      var insertedRect = (clone as Element).getBoundingClientRect();
+      duplicateGrabOffset = {
+        x: grabbedRect.left - insertedRect.left,
+        y: grabbedRect.top - insertedRect.top,
+      };
       positionOverlay(selectionOverlay, selectedEl);
       // No `e` here: this reselects the clone mid-gesture, before the drag's
       // own commit persists it (postVisualDuplicateChange, at gesture end).
@@ -14312,6 +14325,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // the host records every intent-carrying pick as its own undo step —
       // stacking a stray one under this gesture's real content entry.
       postElementSelect(selectedEl);
+    }
+    // Read every drag baseline through this, never getBoundingClientRect
+    // directly: an alt-drag clone must be measured at the box the pointer
+    // grabbed, not at the flow slot it was inserted into. Identity for every
+    // other drag.
+    function dragGrabRect(el: Element): DOMRect {
+      var rect = el.getBoundingClientRect();
+      if (!duplicateGrabOffset || el !== gestureEl) return rect;
+      return new DOMRect(
+        rect.left + duplicateGrabOffset.x,
+        rect.top + duplicateGrabOffset.y,
+        rect.width,
+        rect.height,
+      );
     }
     // Multi-select group move: every member of the current 2+ selection moves
     // with the gesture when the drag started on a member. Alt-drag duplicates
@@ -14403,7 +14430,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // clear-selection postMessage cannot mutate the wrong element mid-drag.
       var reorderEl = gestureEl;
       var reorderGroupStartRects = groupEls.map(function (member) {
-        return member.getBoundingClientRect();
+        return dragGrabRect(member);
       });
       // Capture structural + inline positioning origins before any drop
       // preparation. Control-dragging a flow child calls
@@ -14419,7 +14446,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           prevInlinePositionStyles: snapshotInlinePositionStyles(member),
         };
       });
-      var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+      var reorderGestureStartRect = dragGrabRect(reorderEl);
       var reorderLastTargetKey = null;
       var keepCurrentFlowParent = bridgeSpaceKeyPressed;
       // Ctrl/Cmd overrides auto-layout drag resistance for the WHOLE
@@ -14450,7 +14477,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
       crossScreenClaimedByHost = false;
       var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
-      var reorderRect = reorderEl.getBoundingClientRect();
+      var reorderRect = dragGrabRect(reorderEl);
       var reorderPointerStart = pointerStartParam || e;
       var reorderPointerOffset = {
         x: reorderPointerStart.clientX - reorderRect.left,
@@ -14519,12 +14546,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // Translate FIRST so movement is in screen space (an authored rotate
           // would otherwise send the drag off-axis), composed with the element's
           // own transform (inline OR class/stylesheet) so the drag never wipes
-          // it.
+          // it. The grab offset rides along so an alt-drag clone follows the
+          // cursor from the grabbed box rather than from its inserted slot.
+          var liftDx = dx + (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+          var liftDy = dy + (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
           el.style.transform =
             "translate(" +
-            dx +
+            liftDx +
             "px, " +
-            dy +
+            liftDy +
             "px)" +
             (snap.authoredTransform ? " " + snap.authoredTransform : "");
         });
@@ -14540,6 +14570,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           el.style.pointerEvents = snap.prevPointerEvents;
         });
         reorderLiftedMembers = [];
+      }
+      // Without this the clone renders in the slot it was inserted into until
+      // the first pointer move, so the gesture opens with the element visibly
+      // jumping away from the cursor.
+      if (
+        duplicateGrabOffset &&
+        (duplicateGrabOffset.x !== 0 || duplicateGrabOffset.y !== 0)
+      ) {
+        applyReorderLift(0, 0);
+        positionOverlay(selectionOverlay, selectedEl);
       }
       // Live sibling reflow, restricted to same-container simple-packed flex so
       // a constant per-sibling shift always matches the real drop; ported from
