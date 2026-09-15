@@ -13102,6 +13102,41 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBeUndefined();
   });
 
+  it("keeps a settled call settled across a continuation boundary", () => {
+    // Ids are not reused across attempts, so a replay of a call that already
+    // ran is a replay no matter which side of the boundary it lands on.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+        },
+        {
+          type: "tool_start",
+          tool: "edit-design",
+          id: "edit-1",
+          input: { designId: "d1" },
+        },
+        {
+          type: "tool_done",
+          tool: "edit-design",
+          id: "edit-1",
+          input: { designId: "d1" },
+          result: '{"ok":true}',
+        },
+        { type: "auto_continue", reason: "stream_ended" },
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
   it("keeps a parallel same-tool preparation when its twin starts first", () => {
     // Two distinct calls can share a tool name. The one that never started is
     // exactly the signal this scan exists to surface, so a sibling starting

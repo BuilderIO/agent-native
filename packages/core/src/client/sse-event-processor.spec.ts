@@ -2594,9 +2594,72 @@ describe("SSE event processor error classification", () => {
     );
   });
 
-  // A parallel twin of the same tool is upgraded in place, so its completed
-  // card lands BEFORE the unstarted one. Position is what separates "re-issued
-  // after" from "sibling that ran alongside".
+  // Both twins are announced in this chunk, so neither is inherited from an
+  // earlier one and the unstarted sibling stays reported.
+
+  // The reverse of the case above: the LATER-announced twin runs first. Both
+  // cards were announced in this same chunk, so neither is a superseded
+  // continuation and the unstarted one is still the signal worth reporting.
+  it("still reports an unstarted twin when the later sibling ran first", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing resources action",
+            tool: "resources",
+            id: "res-a",
+          },
+          {
+            type: "activity",
+            label: "Preparing resources action",
+            tool: "resources",
+            id: "res-b",
+          },
+          {
+            type: "tool_start",
+            tool: "resources",
+            id: "res-b",
+            input: { action: "write" },
+          },
+          {
+            type: "tool_done",
+            tool: "resources",
+            id: "res-b",
+            input: { action: "write" },
+            result: "written",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-parallel-reverse",
+      ),
+    );
+
+    const last = results.at(-1) as {
+      metadata?: { custom?: { runError?: { details?: string } } };
+    };
+    expect(last?.metadata?.custom?.runError?.details).toBe(
+      "interrupted_actions: resources",
+    );
+  });
+
   it("still reports an unstarted parallel twin of a tool that did run", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

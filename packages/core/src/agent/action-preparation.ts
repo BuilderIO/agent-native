@@ -97,6 +97,11 @@ export function unfinishedActionPreparations(
    * unfinished and hold the turn open forever. The client drops the same
    * trailing replay for the same reason (`hasCompletedSameTool` in
    * `sse-event-processor.ts`).
+   *
+   * Never cleared, unlike `active`. A turn reset drops open INTENTIONS, but a
+   * call that ran still ran, and ids are not reused across attempts - a
+   * re-issue gets a fresh one. Clearing here would just let a replay straddling
+   * the boundary resurrect it.
    */
   const settled = new Set<string>();
 
@@ -188,7 +193,6 @@ export function unfinishedActionPreparations(
     ) {
       active.clear();
       idlessToolStarts.clear();
-      settled.clear();
     }
   });
 
