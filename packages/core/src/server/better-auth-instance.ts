@@ -494,7 +494,7 @@ function resolveAuthSecret(): string {
   // aren't persistent), and the legacy hardcoded fallback is identical across
   // every deploy that hits it — both are serious enough to fail the boot loudly
   // so the deployer notices.
-  if (deployEnvironment === "production") {
+  if (deployEnvironment !== "local") {
     const report = getRuntimeConfigReport(
       process.env,
       { authEnabled: true, databaseRequired: false },

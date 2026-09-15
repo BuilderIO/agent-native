@@ -107,6 +107,15 @@ describe("resolveAuthSecret", () => {
     expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
   });
 
+  it.each(["beta", "preview"] as const)(
+    "fails closed in the %s deployment environment",
+    (environment) => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = environment;
+      expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+    },
+  );
+
   it("derives a production workspace auth secret from A2A_SECRET", () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_NATIVE_WORKSPACE = "1";
