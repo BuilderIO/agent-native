@@ -378,6 +378,8 @@ const messages: AgentChatTranslation = {
   "error.failed": "代理發生錯誤",
   "error.stopped": "代理在完成前已停止",
   "errorMessages.agentConnection": "代理連線已中斷。請檢查網路連線後重試。",
+  "errorMessages.attachmentPasswordProtected":
+    "此 PDF 受密碼保護，無法讀取。請移除密碼保護或貼上相關文字後重試。",
   "errorMessages.builderAuthentication":
     "Builder 拒絕了已連線的憑證。請在設定中重新連線至 Builder.io，然後重試。",
   "errorMessages.builderModelUnauthorized":

@@ -393,6 +393,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
   "errorMessages.agentConnection":
     "एजेंट का कनेक्शन बाधित हो गया। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
+  "errorMessages.attachmentPasswordProtected":
+    "यह PDF पासवर्ड-सुरक्षित है, इसलिए इसे पढ़ा नहीं जा सकता। पासवर्ड सुरक्षा हटाएँ या संबंधित टेक्स्ट पेस्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderAuthentication":
     "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग्स में Builder.io को दोबारा कनेक्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderModelUnauthorized":

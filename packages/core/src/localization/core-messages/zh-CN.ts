@@ -378,6 +378,8 @@ const messages: AgentChatTranslation = {
   "error.failed": "智能体遇到错误",
   "error.stopped": "智能体在完成前已停止",
   "errorMessages.agentConnection": "智能体连接已中断。请检查网络连接后重试。",
+  "errorMessages.attachmentPasswordProtected":
+    "此 PDF 受密码保护，无法读取。请移除密码保护或粘贴相关文本后重试。",
   "errorMessages.builderAuthentication":
     "Builder 拒绝了已连接的凭据。请在设置中重新连接 Builder.io，然后重试。",
   "errorMessages.builderModelUnauthorized":
