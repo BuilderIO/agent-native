@@ -19,6 +19,16 @@ export const BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY =
 export const BUILDER_CMS_BODY_READABLE_MAP_KEY =
   "__builder.body.readableMapJson";
 export const BUILDER_CMS_BODY_BLOCK_COUNT_KEY = "__builder.body.blockCount";
+export const BUILDER_CMS_WRITE_VERSION_KEY = "__builder.write.version";
+export const BUILDER_CMS_WRITE_CANONICAL_JSON_KEY =
+  "__builder.write.canonicalJson";
+export const BUILDER_CMS_WRITE_EDITABLE_JSON_KEY =
+  "__builder.write.editableJson";
+export const BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY = "__builder.write.autosaveId";
+export const BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY =
+  "__builder.write.autosaveCreatedDate";
+export const BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY =
+  "__builder.write.hasPendingAutosave";
 
 export interface BuilderCmsSourceEntry {
   id: string;

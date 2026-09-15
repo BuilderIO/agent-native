@@ -103,7 +103,7 @@ function nextId(prefix: string) {
 }
 
 async function permanentlyDeleteFixtureDocument(id: string) {
-  return deleteTrashedDocumentSubtree(getDb(), id, OWNER);
+  return deleteTrashedDocumentSubtree(getDb(), id, OWNER, new Set());
 }
 
 function inlineDatabaseBlock(args: {
