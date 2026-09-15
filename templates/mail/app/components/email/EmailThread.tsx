@@ -1294,7 +1294,9 @@ export function EmailThread({
                       <IconArchive className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Archive (E)</TooltipContent>
+                  <TooltipContent>
+                    {t("mail.actions.archive")} (E)
+                  </TooltipContent>
                 </Tooltip>
                 {view !== "trash" && (
                   <Tooltip>
@@ -1306,7 +1308,9 @@ export function EmailThread({
                         <IconTrash className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Move to Trash (D)</TooltipContent>
+                    <TooltipContent>
+                      {t("mail.actions.moveToTrash")} (D / #)
+                    </TooltipContent>
                   </Tooltip>
                 )}
                 <button

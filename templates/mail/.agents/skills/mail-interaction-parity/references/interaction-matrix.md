@@ -1074,6 +1074,9 @@ traffic to any one path.
   Command → Shortcuts reference displays both. Focused list mutation coverage,
   conversation source coverage, and the full Mail suite passed on 2026-09-14
   (963 tests across 112 files).
+  The thread toolbar now advertises the same `D / #` aliases as the local
+  Command → Shortcuts reference; the paired toolbar tooltip appearance and
+  full shortcut replay remain unverified.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

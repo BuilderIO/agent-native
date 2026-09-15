@@ -24,5 +24,6 @@ describe("EmailThread trash shortcuts", () => {
     expect(source).toContain(
       '{ key: "#", shift: "either", handler: handleTrash }',
     );
+    expect(source).toContain('t("mail.actions.moveToTrash")} (D / #)');
   });
 });
