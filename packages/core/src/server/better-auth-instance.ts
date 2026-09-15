@@ -2076,10 +2076,6 @@ async function createBetterAuthInstance(
     baseURL: appUrl,
     database,
     trustedOrigins: [...getConfiguredOriginAllowlist()],
-    // Auth schema relations are intentionally not registered here. Keep the
-    // experimental relational-query path off so a bundled Drizzle adapter
-    // cannot recurse while resolving a session or account join.
-    experimental: { joins: false },
     secret,
     emailAndPassword: {
       enabled: true,
