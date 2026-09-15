@@ -96,6 +96,26 @@ describe("Google callback deploy verification guard", () => {
       /directly with the supported Node loader|only definitive/,
     );
   });
+
+  it("checks the published beta runtime context for the relay secret", () => {
+    const start = reusableSource.indexOf(
+      "      - name: Verify Netlify Google OAuth relay configuration",
+    );
+    const end = reusableSource.indexOf(
+      "      - name: Smoke-test the uploaded deploy",
+      start,
+    );
+    const step = reusableSource.slice(start, end);
+
+    assert.match(step, /DEPLOY_MODE: \$\{\{ inputs\.deploy_mode \}\}/);
+    assert.match(step, /TARGET: \$\{\{ inputs\.target \}\}/);
+    assert.match(
+      step,
+      /if \[\[ \"\$TARGET\" == \"beta\" && \"\$DEPLOY_MODE\" == \"production\" \]\]/,
+    );
+    assert.match(step, /relay_context=production/);
+    assert.match(step, /RELAY_CONTEXT=\"\$relay_context\" node/);
+  });
 });
 
 describe("Netlify PR preview workflow guard", () => {
