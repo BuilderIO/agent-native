@@ -13066,6 +13066,77 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBeUndefined();
   });
 
+  it("does not resurrect a completed call from a replayed preparation heartbeat", () => {
+    // A reconnect can replay the preparation activity AFTER its call finished.
+    // Re-registering it would hold the turn open on work that already landed.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+        {
+          type: "tool_start",
+          tool: "edit-design",
+          id: "edit-1",
+          input: { designId: "d1" },
+        },
+        {
+          type: "tool_done",
+          tool: "edit-design",
+          id: "edit-1",
+          input: { designId: "d1" },
+          result: '{"ok":true}',
+        },
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("keeps a parallel same-tool preparation when its twin starts first", () => {
+    // Two distinct calls can share a tool name. The one that never started is
+    // exactly the signal this scan exists to surface, so a sibling starting
+    // ahead of it must not retire it.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing resources action",
+          tool: "resources",
+          id: "res-a",
+        },
+        {
+          type: "activity",
+          label: "Preparing resources action",
+          tool: "resources",
+          id: "res-b",
+        },
+        {
+          type: "tool_start",
+          tool: "resources",
+          id: "res-b",
+          input: { action: "write" },
+        },
+        {
+          type: "tool_done",
+          tool: "resources",
+          id: "res-b",
+          input: { action: "write" },
+          result: "written",
+        },
+      ]),
+    ).toBe("resources");
+  });
+
   it("drops preparation context superseded by an earlier continuation boundary", () => {
     // A chunk that ended at `auto_continue` was re-prompted, and the resumed
     // model re-issued its work under fresh ids. Naming the pre-boundary tool

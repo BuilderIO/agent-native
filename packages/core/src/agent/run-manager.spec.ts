@@ -2896,50 +2896,6 @@ describe("run manager soft timeout", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
-  // A truncated tool input is retried inside the chunk, so the model announces
-  // the same action again under a fresh call id. Call ids are not comparable
-  // across that re-issue: holding the first announcement open would continue a
-  // turn that had in fact carried the intention out.
-  it("stays terminal when a re-issued action completed under a new call id", async () => {
-    const events: AgentChatEvent[] = [];
-    const run = startRun(
-      "run-superseded-preparation",
-      "thread-superseded-preparation",
-      async (send) => {
-        send({
-          type: "activity",
-          label: "Preparing resources action",
-          tool: "resources",
-          id: "B1",
-        });
-        send({ type: "tool_input_start", tool: "resources", id: "B1" });
-        send({
-          type: "activity",
-          label: "Preparing resources action",
-          tool: "resources",
-          id: "B2",
-        });
-        send({ type: "tool_start", tool: "resources", id: "B2", input: {} });
-        send({
-          type: "tool_done",
-          tool: "resources",
-          id: "B2",
-          input: {},
-          result: "written",
-        });
-        send({ type: "text", text: "Created the skill." });
-        send({ type: "done" });
-      },
-      undefined,
-      { softTimeoutMs: 0 },
-    );
-    run.subscribers.add((event) => events.push(event.event));
-
-    await run.finalized;
-
-    expect(events.at(-1)).toEqual({ type: "done" });
-  });
-
   it("keeps a completed custom UI tool result terminal", async () => {
     const events: AgentChatEvent[] = [];
     const run = startRun(

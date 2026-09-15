@@ -44,27 +44,22 @@ function isPreparingActionActivityEvent(
 }
 
 /**
- * `tool_input_start` forces a matching preparation `activity` today, so these
- * are redundant in practice. They are read anyway so the answer cannot depend
- * on which of the three preparation signals a given engine or activity throttle
- * happened to emit.
+ * Only the preparation `activity` event counts as evidence.
+ *
+ * `tool_input_start` force-sends one, so coverage is identical - but the raw
+ * input events are shaped differently: the activity carries a tool-name
+ * fallback id when the engine supplies none, while the input events carry no id
+ * at all. Reading all three would file one logical call under several id-less
+ * keys, and a single `tool_start` can only retire one of them.
  */
 function preparationEvidence(
   event: AgentChatEvent,
 ): { tool: string; id?: string } | null {
-  if (isPreparingActionActivityEvent(event)) {
-    const tool = event.tool?.trim();
-    if (!tool) return null;
-    const id = event.id?.trim();
-    return id ? { tool, id } : { tool };
-  }
-  if (event.type === "tool_input_start" || event.type === "tool_input_delta") {
-    const tool = event.tool?.trim();
-    if (!tool) return null;
-    const id = event.id?.trim();
-    return id ? { tool, id } : { tool };
-  }
-  return null;
+  if (!isPreparingActionActivityEvent(event)) return null;
+  const tool = event.tool?.trim();
+  if (!tool) return null;
+  const id = event.id?.trim();
+  return id ? { tool, id } : { tool };
 }
 
 /**
@@ -94,6 +89,16 @@ export function unfinishedActionPreparations(
 ): UnfinishedActionPreparation[] {
   const active = new Map<string, UnfinishedActionPreparation>();
   const idlessToolStarts = new Map<string, number>();
+  /**
+   * Calls already seen through to a `tool_start`/`tool_done`.
+   *
+   * A reconnect can replay a preparation heartbeat AFTER the call it belongs to
+   * finished, and re-registering that would resurrect a completed call as
+   * unfinished and hold the turn open forever. The client drops the same
+   * trailing replay for the same reason (`hasCompletedSameTool` in
+   * `sse-event-processor.ts`).
+   */
+  const settled = new Set<string>();
 
   const removeOldestMatchingActivePreparation = (
     tool: string,
@@ -110,37 +115,19 @@ export function unfinishedActionPreparations(
     return Boolean(oldest);
   };
 
-  /**
-   * Once a tool RUNS, any older announcement of that same tool was served.
-   *
-   * Call ids are not comparable across a re-issue: when a truncated tool input
-   * is retried inside one chunk, the model re-announces under a fresh id and
-   * the first announcement would otherwise stay open for the rest of the turn -
-   * continuing a turn that had in fact carried the intention out.
-   */
-  const retireOlderPreparationsForTool = (tool: string, order: number) => {
-    for (const [key, value] of [...active]) {
-      if (value.tool === tool && value.order < order) active.delete(key);
-    }
-  };
-
-  const removeMatchingActivePreparation = (
-    event: {
-      id?: string;
-      tool?: string;
-      type: "tool_done" | "tool_start";
-    },
-    order: number,
-  ) => {
+  const removeMatchingActivePreparation = (event: {
+    id?: string;
+    tool?: string;
+    type: "tool_done" | "tool_start";
+  }) => {
     const id = event.id?.trim();
     const tool = event.tool?.trim();
     if (!tool) return;
+    settled.add(id ? `id:${id}` : `tool:${tool}`);
     if (id) {
       if (!active.delete(`id:${id}`)) {
         removeOldestMatchingActivePreparation(tool, (value) => !value.id);
       }
-      if (event.type === "tool_start")
-        retireOlderPreparationsForTool(tool, order);
       return;
     }
 
@@ -166,6 +153,10 @@ export function unfinishedActionPreparations(
   events.forEach((event, order) => {
     const evidence = preparationEvidence(event);
     if (evidence) {
+      const settledKey = evidence.id
+        ? `id:${evidence.id}`
+        : `tool:${evidence.tool}`;
+      if (settled.has(settledKey)) return;
       const key = evidence.id
         ? `id:${evidence.id}`
         : `tool:${evidence.tool}:${order}`;
@@ -177,7 +168,7 @@ export function unfinishedActionPreparations(
       return;
     }
     if (event.type === "tool_start" || event.type === "tool_done") {
-      removeMatchingActivePreparation(event, order);
+      removeMatchingActivePreparation(event);
       return;
     }
     if (
@@ -197,6 +188,7 @@ export function unfinishedActionPreparations(
     ) {
       active.clear();
       idlessToolStarts.clear();
+      settled.clear();
     }
   });
 
