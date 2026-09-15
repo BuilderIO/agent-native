@@ -308,4 +308,40 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context.length).toBeLessThan(50_000);
     expect(result.context).toContain("filled the reference budget");
   });
+
+  it("does not count a measured design that the budget dropped", async () => {
+    const long = "x".repeat(20_000);
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(
+        async (_action: string, input: { filePath: string }) =>
+          input.filePath.includes("styled")
+            ? pdfResult
+            : {
+                format: "pdf",
+                pageCount: 1,
+                textPageCount: 1,
+                pages: [{ pageNum: 1, text: long }],
+              },
+      );
+
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("long-0.pdf"),
+        uploaded("long-1.pdf"),
+        uploaded("long-2.pdf"),
+        uploaded("styled.pdf"),
+      ],
+      { callActionImpl },
+    );
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    // The styled PDF was read, but its digest never made it into the prompt,
+    // so the caller must keep its styling fallback rather than tell the agent
+    // to match a design it cannot see.
+    expect(result.context).not.toContain("960x540pt, landscape");
+    expect(result.measuredDesignCount).toBe(0);
+    expect(result.context).toContain("one exception to the no-reread rule");
+  });
 });

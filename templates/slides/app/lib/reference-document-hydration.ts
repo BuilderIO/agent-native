@@ -346,16 +346,19 @@ export async function hydrateReferenceDocuments(
   let measuredDesignCount = 0;
   for (const outcome of outcomes) {
     if (outcome.status !== "read") continue;
-    if (outcome.measuredDesign) measuredDesignCount += 1;
     if (budget.remaining <= 0) {
       blocks.push(
-        `### ${outcome.originalName}\nRead successfully, but omitted here because earlier references filled the reference budget. Call \`import-file\` for this one if you need it.`,
+        `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
       );
       continue;
     }
     const block = truncate(outcome.block, budget.remaining);
     budget.remaining -= block.length;
     blocks.push(block);
+    // Counted only once the block survives the budget. A digest dropped for
+    // space cannot be matched, and counting it would suppress the styling
+    // fallback while leaving the agent nothing to follow.
+    if (outcome.measuredDesign) measuredDesignCount += 1;
   }
 
   return {
@@ -365,7 +368,7 @@ export async function hydrateReferenceDocuments(
     context: [
       "",
       "## Attached Reference Documents",
-      "These files were read before this run started. Their content and measured visual language below are the reference; do not re-read them with `import-file` and do not generate as if they were missing.",
+      "These files were read before this run started. Their content and measured visual language below are the reference; do not re-read them with `import-file` unless a section below says the file was omitted for space, and do not generate as if they were missing.",
       "Match the reference's type scale, weights, colors, alignment, and margins when the user asked for a visual or style reference. Take structure and wording from the user's request, not from the reference's own page order.",
       ...blocks,
     ].join("\n\n"),
