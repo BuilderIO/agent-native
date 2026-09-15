@@ -203,18 +203,21 @@ export function isNetlifyDeployPermalinkIdentitySsoClientRequest(
 ): boolean {
   // Netlify exposes the site identity under either name at runtime; accept the
   // immutable deploy URL, not DEPLOY_PRIME_URL's movable Deploy Preview alias.
-  const siteName = (
+  const configuredSiteName = (
     process.env.SITE_NAME?.trim() || process.env.NETLIFY_SITE_NAME?.trim()
   )?.toLowerCase();
   if (
     !host ||
     forwardedProtocol !== "https" ||
-    !siteName ||
-    !NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES.has(siteName)
+    (configuredSiteName &&
+      !NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES.has(configuredSiteName))
   ) {
     return false;
   }
-  return isNetlifyDeployPermalinkIdentitySsoClientHost(host, siteName);
+  return isNetlifyDeployPermalinkIdentitySsoClientHost(
+    host,
+    configuredSiteName,
+  );
 }
 
 function isNetlifyDeployPermalinkIdentitySsoClientHost(

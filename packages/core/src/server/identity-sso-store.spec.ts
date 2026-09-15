@@ -243,6 +243,14 @@ describe("identity SSO feature switch and request classifiers", () => {
         "https",
       ),
     ).toBe(false);
+    delete process.env.SITE_NAME;
+    delete process.env.NETLIFY_SITE_NAME;
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        deployHost,
+        "https",
+      ),
+    ).toBe(true);
   });
 
   it("keeps silent federation available for explicitly configured self-hosted apps", () => {
