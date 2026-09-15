@@ -468,13 +468,11 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify([{ id: "analytics", orgEnabled: false }]), {
-          headers: { "content-type": "application/json" },
-        }),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics", orgEnabled: false }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
