@@ -648,7 +648,7 @@ describe("ComposeModal scheduling", () => {
     expect(container.querySelector('[data-recipient-field="to"]')).toBeNull();
   });
 
-  it("returns to compact mode when switching from a new draft to a saved draft", async () => {
+  it("preserves explicit fullscreen mode when switching draft tabs", async () => {
     const savedDraft: ComposeState = {
       ...draft,
       id: "saved-draft",
@@ -674,11 +674,14 @@ describe("ComposeModal scheduling", () => {
     };
     const { getByRole, rerender } = render(<ComposeModal {...props} />);
 
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.fullScreenCompose" }),
+    );
     expect(
       getByRole("button", {
-        name: "mail.compose.fullScreenCompose",
+        name: "mail.compose.restoreComposeSize",
       }).getAttribute("aria-pressed"),
-    ).toBe("false");
+    ).toBe("true");
 
     rerender(
       <ComposeModal
@@ -691,9 +694,9 @@ describe("ComposeModal scheduling", () => {
     await waitFor(() =>
       expect(
         getByRole("button", {
-          name: "mail.compose.fullScreenCompose",
+          name: "mail.compose.restoreComposeSize",
         }).getAttribute("aria-pressed"),
-      ).toBe("false"),
+      ).toBe("true"),
     );
   });
 

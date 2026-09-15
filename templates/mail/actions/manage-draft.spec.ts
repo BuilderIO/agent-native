@@ -463,8 +463,27 @@ describe("manage-draft deep link", () => {
     const body = match![1];
     expect(body).toContain('app: "mail"');
     expect(body).toContain('view: "inbox"');
+    expect(body).toContain('to: "/inbox"');
+    expect(body).not.toContain("composeFullscreen");
     expect(body).toContain("composeDraftId: draft.id");
     expect(body).not.toContain("compose:");
     expect(body).not.toContain("encode");
+  });
+
+  it("creates an ordinary draft deep link without fullscreen mode", async () => {
+    await action.run({
+      action: "create",
+      id: "compact-draft",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+    });
+
+    expect(mocks.buildDeepLink).toHaveBeenCalledWith({
+      app: "mail",
+      view: "inbox",
+      to: "/inbox",
+      params: { composeDraftId: "compact-draft" },
+    });
   });
 });
