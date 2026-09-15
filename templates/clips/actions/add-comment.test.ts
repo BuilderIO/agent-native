@@ -27,6 +27,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions: unknown[]) => ({ conditions })),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
   sql: vi.fn(),
 }));
@@ -79,5 +80,49 @@ describe("add-comment access", () => {
         videoTimestampMs: 12_000,
       }),
     );
+  });
+
+  it("rejects replies whose parent is outside the recording thread", async () => {
+    const recordingLookup = {
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () => [{ organizationId: "org-1" }]),
+        })),
+      })),
+    };
+    const parentLookup = {
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () => []),
+        })),
+      })),
+    };
+    mockDb.select
+      .mockReturnValueOnce(recordingLookup)
+      .mockReturnValueOnce(parentLookup);
+
+    await expect(
+      addComment.run({
+        recordingId: "recording-1",
+        content: "A reply",
+        videoTimestampMs: 12_000,
+        threadId: "thread-1",
+        parentId: "comment-from-another-recording",
+      }),
+    ).rejects.toThrow("Parent comment does not belong to this recording.");
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects empty reply IDs before looking up a parent", async () => {
+    await expect(
+      addComment.run({
+        recordingId: "recording-1",
+        content: "An orphan reply",
+        videoTimestampMs: 12_000,
+        threadId: "thread-1",
+        parentId: "",
+      }),
+    ).rejects.toThrow("Invalid action parameters");
+    expect(mockDb.select).not.toHaveBeenCalled();
   });
 });

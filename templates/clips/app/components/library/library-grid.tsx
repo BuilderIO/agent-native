@@ -782,12 +782,17 @@ export function LibraryGrid({
                 allSelected={allSelected}
                 onSelectAll={toggleSelectAll}
                 moveTargets={moveTargets}
+                archiveAction={view === "archive" ? "unarchive" : "archive"}
                 onArchive={async () => {
                   setIsBulkPending(true);
                   try {
                     const ids = Array.from(selected);
                     const results = await Promise.allSettled(
-                      ids.map((id) => archiveRecording.mutateAsync({ id })),
+                      ids.map((id) =>
+                        view === "archive"
+                          ? restoreRecording.mutateAsync({ id })
+                          : archiveRecording.mutateAsync({ id }),
+                      ),
                     );
                     const succeededIds = ids.filter(
                       (_, i) => results[i].status === "fulfilled",
@@ -795,9 +800,12 @@ export function LibraryGrid({
                     const failed = ids.length - succeededIds.length;
                     if (succeededIds.length > 0) {
                       toast.success(
-                        t("libraryGrid.clipsArchived", {
-                          count: succeededIds.length,
-                        }),
+                        t(
+                          view === "archive"
+                            ? "trashRoute.clipsRestored"
+                            : "libraryGrid.clipsArchived",
+                          { count: succeededIds.length },
+                        ),
                       );
                       setSelected((prev) => {
                         const next = new Set(prev);
@@ -807,7 +815,12 @@ export function LibraryGrid({
                     }
                     if (failed > 0) {
                       toast.error(
-                        t("libraryGrid.clipsArchiveFailed", { count: failed }),
+                        t(
+                          view === "archive"
+                            ? "trashRoute.clipsRestoreFailed"
+                            : "libraryGrid.clipsArchiveFailed",
+                          { count: failed },
+                        ),
                       );
                     }
                   } finally {
