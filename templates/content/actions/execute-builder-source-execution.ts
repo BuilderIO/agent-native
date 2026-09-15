@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, lt, notInArray, or } from "drizzle-orm";
+import { and, eq, isNull, lt, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -15,6 +15,16 @@ import {
   type ExecuteBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
+  builderExecutionPayloadReference,
+  builderSourceSnapshotReference,
+  BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
+  cleanupBuilderPrivatePayload,
+  deleteBuilderPrivatePayload,
+  putBuilderPrivatePayload,
+  readBuilderExecutionPayload,
+  storeBuilderExecutionPayload,
+} from "./_builder-cms-blob-custody.js";
+import {
   lookupBuilderCmsSafeModelIntent,
   type BuilderCmsIntentMatch,
 } from "./_builder-cms-intent-lookup.js";
@@ -26,7 +36,14 @@ import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
+  BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY,
+  BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY,
+  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
+  BUILDER_CMS_WRITE_VERSION_KEY,
   builderCmsQualifiedId,
+  normalizeBuilderCmsApiEntry,
 } from "./_builder-cms-source-adapter.js";
 import type {
   BuilderCmsExecutionPayload,
@@ -123,10 +140,15 @@ export interface ExecuteBuilderSourceExecutionDeps {
   }) => Promise<void>;
   executeWrite: (args: {
     request: BuilderCmsExecutionPayload["request"];
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
+    requireSourceBinding?: boolean;
   }) => ReturnType<typeof executeBuilderCmsWrite>;
   readLiveEntry: (args: {
     model: string;
     entryId: string;
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
   }) => Promise<BuilderCmsEntryLiveState>;
   reconcileWrite: (args: {
     database: DatabaseRecord;
@@ -141,6 +163,8 @@ export interface ExecuteBuilderSourceExecutionDeps {
     marker?: string;
     exactTitle?: string;
     intendedFields?: Record<string, unknown>;
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
   }) => Promise<{
     count: number;
     matchingIntentCount?: number;
@@ -183,6 +207,28 @@ function successfulStoredWriteResult(
       ? response.body
       : null,
     error: typeof response.error === "string" ? response.error : undefined,
+    committed: response.committed === true ? true : undefined,
+    content: recordValue(response.content) ?? undefined,
+    editableContent: recordValue(response.editableContent) ?? undefined,
+    autosaveIds: Array.isArray(response.autosaveIds)
+      ? response.autosaveIds.filter(
+          (id): id is string => typeof id === "string",
+        )
+      : undefined,
+    writeSnapshot:
+      response.writeSnapshot === null
+        ? null
+        : (recordValue(response.writeSnapshot) ?? undefined),
+    superseded:
+      typeof response.superseded === "boolean"
+        ? response.superseded
+        : undefined,
+    readback:
+      response.readback === "matched" ||
+      response.readback === "changed" ||
+      response.readback === "unavailable"
+        ? response.readback
+        : undefined,
   };
 }
 
@@ -255,6 +301,13 @@ function executionResponsePayload(args: {
       entryId: args.writeResult.entryId,
       body: args.writeResult.responseBody,
       error: args.writeResult.error,
+      committed: args.writeResult.committed,
+      content: args.writeResult.content,
+      editableContent: args.writeResult.editableContent,
+      autosaveIds: args.writeResult.autosaveIds,
+      writeSnapshot: args.writeResult.writeSnapshot,
+      superseded: args.writeResult.superseded,
+      readback: args.writeResult.readback,
     },
   };
 }
@@ -275,6 +328,22 @@ function createDraftIntent(request: BuilderCmsExecutionPayload["request"]) {
     ),
   );
   return { marker, exactTitle, intendedFields };
+}
+
+function guardedWriteNeedsReconciliation(args: {
+  plan: BuilderCmsExecutionPlan;
+  writeResult: BuilderCmsWriteResult;
+}) {
+  const guarded = Object.prototype.hasOwnProperty.call(
+    args.plan.payload.request.body,
+    "__write",
+  );
+  return (
+    guarded &&
+    (args.writeResult.writeSnapshot === null ||
+      args.writeResult.writeSnapshot === undefined ||
+      args.writeResult.superseded === true)
+  );
 }
 
 function recoveredWriteResult(
@@ -360,11 +429,16 @@ function parseSourceValues(
   }
 }
 
-export function builderCmsReconciledSourceValuesJson(args: {
+export async function builderCmsReconciledSourceValuesJson(args: {
   existingSourceValuesJson: string | null | undefined;
   snapshotSourceValues: Record<string, DocumentPropertyValue> | undefined;
+  ownerEmail: string;
+  sourceId: string;
+  sourceRowId: string;
+  sourceModel: string;
   changeSet: ContentDatabaseSourceChangeSet;
   plan: BuilderCmsExecutionPlan;
+  writeResult?: BuilderCmsWriteResult;
 }) {
   const next = {
     ...(args.snapshotSourceValues ?? {}),
@@ -410,6 +484,49 @@ export function builderCmsReconciledSourceValuesJson(args: {
         ).id as string;
       }
     }
+  }
+  const snapshot = recordValue(args.writeResult?.writeSnapshot);
+  if (
+    snapshot &&
+    typeof snapshot.version === "string" &&
+    snapshot.version.trim() &&
+    args.writeResult?.content &&
+    args.writeResult.editableContent &&
+    typeof snapshot.hasPendingAutosave === "boolean"
+  ) {
+    next[BUILDER_CMS_WRITE_VERSION_KEY] = snapshot.version.trim();
+    next[BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY] = await putBuilderPrivatePayload({
+      label: "Builder acknowledged write snapshot",
+      ownerEmail: args.ownerEmail,
+      binding: {
+        ownerEmail: args.ownerEmail,
+        sourceId: args.sourceId,
+        sourceRowId: args.sourceRowId,
+        sourceTable: args.sourceModel,
+        writeVersion: snapshot.version.trim(),
+      },
+      payload: {
+        canonical: args.writeResult.content,
+        editable: args.writeResult.editableContent,
+      },
+    });
+    delete next[BUILDER_CMS_WRITE_CANONICAL_JSON_KEY];
+    delete next[BUILDER_CMS_WRITE_EDITABLE_JSON_KEY];
+    next[BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY] =
+      typeof snapshot.autosaveId === "string" ? snapshot.autosaveId : null;
+    next[BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY] =
+      typeof snapshot.autosaveCreatedDate === "number"
+        ? snapshot.autosaveCreatedDate
+        : null;
+    next[BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY] =
+      snapshot.hasPendingAutosave;
+  }
+  const acknowledgedEditable = normalizeBuilderCmsApiEntry(
+    args.writeResult?.editableContent,
+    args.sourceModel,
+  );
+  if (acknowledgedEditable) {
+    Object.assign(next, acknowledgedEditable.sourceValues);
   }
   return JSON.stringify(next);
 }
@@ -564,91 +681,278 @@ async function reconcileBuilderCmsWrite(args: {
   }
 
   const db = getDb();
-  await db.transaction(async (tx) => {
-    if (args.changeSet.databaseItemId) {
-      await lockDatabaseMemberships(tx, [args.changeSet.databaseItemId]);
-    }
-    const existingRow =
-      args.changeSet.documentId || args.changeSet.databaseItemId
-        ? await tx
-            .select()
-            .from(schema.contentDatabaseSourceRows)
-            .where(
-              and(
-                eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
-                args.changeSet.documentId
-                  ? eq(
-                      schema.contentDatabaseSourceRows.documentId,
-                      args.changeSet.documentId,
-                    )
-                  : eq(
-                      schema.contentDatabaseSourceRows.databaseItemId,
-                      args.changeSet.databaseItemId as string,
-                    ),
-              ),
-            )
-            .limit(1)
-        : [];
+  let previousSnapshotReference: string | null = null;
+  let nextSnapshotReference: string | null = null;
+  let attemptedSourceValuesJson: string | null = null;
+  let committedSnapshotReference = false;
+  try {
+    await db.transaction(async (tx) => {
+      if (args.changeSet.databaseItemId) {
+        await lockDatabaseMemberships(tx, [args.changeSet.databaseItemId]);
+      }
+      const existingRow =
+        args.changeSet.documentId || args.changeSet.databaseItemId
+          ? await tx
+              .select()
+              .from(schema.contentDatabaseSourceRows)
+              .where(
+                and(
+                  eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+                  args.changeSet.documentId
+                    ? eq(
+                        schema.contentDatabaseSourceRows.documentId,
+                        args.changeSet.documentId,
+                      )
+                    : eq(
+                        schema.contentDatabaseSourceRows.databaseItemId,
+                        args.changeSet.databaseItemId as string,
+                      ),
+                ),
+              )
+              .limit(1)
+          : [];
 
-    const [row] = existingRow;
-    const snapshotRow = sourceRowForChangeSet(args.source, args.changeSet);
-    const sourceValuesJson = builderCmsReconciledSourceValuesJson({
-      existingSourceValuesJson: row?.sourceValuesJson,
-      snapshotSourceValues: snapshotRow?.sourceValues,
-      changeSet: args.changeSet,
-      plan: args.plan,
-    });
-    const patchWithValues = {
-      ...patch,
-      sourceValuesJson,
-    };
-    if (row) {
-      await tx
-        .update(schema.contentDatabaseSourceRows)
-        .set(patchWithValues)
-        .where(eq(schema.contentDatabaseSourceRows.id, row.id));
-    } else if (args.changeSet.documentId && args.changeSet.databaseItemId) {
-      await tx.insert(schema.contentDatabaseSourceRows).values({
-        id: crypto.randomUUID(),
+      const [row] = existingRow;
+      previousSnapshotReference = row
+        ? builderSourceSnapshotReference(row.sourceValuesJson)
+        : null;
+      const snapshotRow = sourceRowForChangeSet(args.source, args.changeSet);
+      const sourceValuesJson = await builderCmsReconciledSourceValuesJson({
+        existingSourceValuesJson: row?.sourceValuesJson,
+        snapshotSourceValues: snapshotRow?.sourceValues,
         ownerEmail: args.database.ownerEmail,
         sourceId: args.source.id,
-        databaseItemId: args.changeSet.databaseItemId,
-        documentId: args.changeSet.documentId,
-        createdAt: args.now,
-        ...patchWithValues,
+        sourceRowId: patch.sourceRowId,
+        sourceModel: args.source.sourceTable,
+        changeSet: args.changeSet,
+        plan: args.plan,
+        writeResult: args.writeResult,
       });
-    } else {
-      throw new Error(
-        "Builder write succeeded, but the local source row was missing.",
-      );
-    }
+      attemptedSourceValuesJson = sourceValuesJson;
+      const patchWithValues = {
+        ...patch,
+        sourceValuesJson,
+      };
+      nextSnapshotReference = builderSourceSnapshotReference(sourceValuesJson);
+      if (row) {
+        const result = await tx
+          .update(schema.contentDatabaseSourceRows)
+          .set(patchWithValues)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.id, row.id),
+              eq(
+                schema.contentDatabaseSourceRows.sourceValuesJson,
+                row.sourceValuesJson,
+              ),
+            ),
+          );
+        if (builderExecutionAffectedRows(result) === 0) {
+          throw new Error(
+            "Builder write succeeded, but the local source snapshot changed during reconciliation.",
+          );
+        }
+      } else if (args.changeSet.documentId && args.changeSet.databaseItemId) {
+        await tx.insert(schema.contentDatabaseSourceRows).values({
+          id: crypto.randomUUID(),
+          ownerEmail: args.database.ownerEmail,
+          sourceId: args.source.id,
+          databaseItemId: args.changeSet.databaseItemId,
+          documentId: args.changeSet.documentId,
+          createdAt: args.now,
+          ...patchWithValues,
+        });
+      } else {
+        throw new Error(
+          "Builder write succeeded, but the local source row was missing.",
+        );
+      }
+      committedSnapshotReference = true;
 
-    await tx
-      .update(schema.contentDatabaseSourceFields)
-      .set({
-        freshness: "fresh",
-        lastSyncedAt: args.now,
-        updatedAt: args.now,
-      })
-      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-    await tx
-      .update(schema.contentDatabaseSources)
-      .set({
-        syncState: "idle",
-        freshness: "fresh",
-        lastRefreshedAt: args.now,
-        lastSourceUpdatedAt: patch.lastSourceUpdatedAt,
-        lastError: null,
-        updatedAt: args.now,
-      })
-      .where(eq(schema.contentDatabaseSources.id, args.source.id));
-  });
+      await tx
+        .update(schema.contentDatabaseSourceFields)
+        .set({
+          freshness: "fresh",
+          lastSyncedAt: args.now,
+          updatedAt: args.now,
+        })
+        .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+      await tx
+        .update(schema.contentDatabaseSources)
+        .set({
+          syncState: "idle",
+          freshness: "fresh",
+          lastRefreshedAt: args.now,
+          lastSourceUpdatedAt: patch.lastSourceUpdatedAt,
+          lastError: null,
+          updatedAt: args.now,
+        })
+        .where(eq(schema.contentDatabaseSources.id, args.source.id));
+    });
+  } catch (error) {
+    let currentSourceValuesJson: string | null | undefined;
+    try {
+      const [current] = await db
+        .select({
+          sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+        })
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+            args.changeSet.documentId
+              ? eq(
+                  schema.contentDatabaseSourceRows.documentId,
+                  args.changeSet.documentId,
+                )
+              : eq(
+                  schema.contentDatabaseSourceRows.databaseItemId,
+                  args.changeSet.databaseItemId as string,
+                ),
+          ),
+        )
+        .limit(1);
+      currentSourceValuesJson = current?.sourceValuesJson;
+    } catch {
+      // Inconclusive readback retains both refs.
+    }
+    if (
+      attemptedSourceValuesJson !== null &&
+      currentSourceValuesJson === attemptedSourceValuesJson
+    ) {
+      committedSnapshotReference = true;
+    } else {
+      if (
+        currentSourceValuesJson !== undefined &&
+        nextSnapshotReference &&
+        nextSnapshotReference !== previousSnapshotReference
+      ) {
+        await deleteBuilderPrivatePayload(nextSnapshotReference).catch(
+          () => undefined,
+        );
+      }
+      throw error;
+    }
+  }
+  if (
+    committedSnapshotReference &&
+    previousSnapshotReference &&
+    previousSnapshotReference !== nextSnapshotReference
+  ) {
+    await cleanupBuilderPrivatePayload(
+      previousSnapshotReference,
+      "superseded acknowledged source snapshot",
+    );
+  }
 }
 
 export function realExecutionDeps(
   sourceId?: string,
   changeSetId?: string,
 ): ExecuteBuilderSourceExecutionDeps {
+  const storedPayloadJson = async (executionId: string, payload: unknown) => {
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
+      .limit(1);
+    if (!execution) throw new Error("Builder execution disappeared.");
+    const payloadJson = await storeBuilderExecutionPayload({
+      payload,
+      binding: {
+        ownerEmail: execution.ownerEmail,
+        sourceId: execution.sourceId,
+        changeSetId: execution.changeSetId,
+        executionId: execution.id,
+        idempotencyKey: execution.idempotencyKey,
+      },
+    });
+    return {
+      payloadJson,
+      previousPayloadJson: execution.payloadJson,
+      previousState: execution.state,
+      previousAttemptToken: execution.attemptToken,
+      previousReference: builderExecutionPayloadReference(
+        execution.payloadJson,
+      ),
+      nextReference: builderExecutionPayloadReference(payloadJson),
+    };
+  };
+  const previousAttemptFilter = (prepared: {
+    previousAttemptToken: string | null;
+  }) =>
+    prepared.previousAttemptToken
+      ? eq(
+          schema.contentDatabaseSourceExecutions.attemptToken,
+          prepared.previousAttemptToken,
+        )
+      : isNull(schema.contentDatabaseSourceExecutions.attemptToken);
+  const exactPreviousExecutionFilter = (prepared: {
+    previousPayloadJson: string;
+    previousState: string;
+    previousAttemptToken: string | null;
+  }) =>
+    and(
+      eq(
+        schema.contentDatabaseSourceExecutions.payloadJson,
+        prepared.previousPayloadJson,
+      ),
+      eq(schema.contentDatabaseSourceExecutions.state, prepared.previousState),
+      previousAttemptFilter(prepared),
+    );
+  const discardUncommittedPayload = async (prepared: {
+    nextReference: string | null;
+  }) => {
+    if (prepared.nextReference) {
+      await deleteBuilderPrivatePayload(prepared.nextReference).catch(
+        () => undefined,
+      );
+    }
+  };
+  const cleanupCommittedPrevious = async (prepared: {
+    previousReference: string | null;
+    nextReference: string | null;
+  }) => {
+    if (
+      prepared.previousReference &&
+      prepared.previousReference !== prepared.nextReference
+    ) {
+      await cleanupBuilderPrivatePayload(
+        prepared.previousReference,
+        "superseded execution payload",
+      );
+    }
+  };
+  const resolveAmbiguousPayloadWrite = async (
+    executionId: string,
+    prepared: {
+      payloadJson: string;
+      previousReference: string | null;
+      nextReference: string | null;
+    },
+  ) => {
+    try {
+      const [current] = await getDb()
+        .select({
+          payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+        })
+        .from(schema.contentDatabaseSourceExecutions)
+        .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
+        .limit(1);
+      if (current?.payloadJson === prepared.payloadJson) {
+        await cleanupCommittedPrevious(prepared);
+        return "committed" as const;
+      }
+      if (current) {
+        await discardUncommittedPayload(prepared);
+        return "orphan" as const;
+      }
+    } catch {
+      // coercion-ok: an unavailable readback is explicitly the unknown outcome.
+      // Inconclusive readback retains both refs for a later SQL-truth reload.
+    }
+    return "unknown" as const;
+  };
   return {
     now: () => new Date().toISOString(),
     resolveDatabase: (args) => resolveDatabaseForSourceMutation(args),
@@ -732,82 +1036,244 @@ export function realExecutionDeps(
       ) {
         return null;
       }
-      return execution ?? null;
+      if (!execution) return null;
+      const payload = await readBuilderExecutionPayload({
+        payloadJson: execution.payloadJson,
+        binding: {
+          ownerEmail: execution.ownerEmail,
+          sourceId: execution.sourceId,
+          changeSetId: execution.changeSetId,
+          executionId: execution.id,
+          idempotencyKey: execution.idempotencyKey,
+        },
+      });
+      return { ...execution, payloadJson: JSON.stringify(payload) };
     },
     updateExecutionState: async (args) => {
-      await getDb()
-        .update(schema.contentDatabaseSourceExecutions)
-        .set({
-          state: args.state,
-          summary: args.summary,
-          payloadJson: JSON.stringify(args.payload),
-          lastError: args.lastError,
-          updatedAt: args.now,
-        })
-        .where(eq(schema.contentDatabaseSourceExecutions.id, args.executionId));
+      const prepared = await storedPayloadJson(args.executionId, args.payload);
+      let result;
+      try {
+        result = await getDb()
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: args.state,
+            summary: args.summary,
+            payloadJson: prepared.payloadJson,
+            lastError: args.lastError,
+            updatedAt: args.now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+              eq(
+                schema.contentDatabaseSourceExecutions.payloadJson,
+                prepared.previousPayloadJson,
+              ),
+              eq(
+                schema.contentDatabaseSourceExecutions.state,
+                prepared.previousState,
+              ),
+              previousAttemptFilter(prepared),
+            ),
+          );
+      } catch (error) {
+        if (
+          (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
+          "committed"
+        ) {
+          return;
+        }
+        throw error;
+      }
+      if (builderExecutionAffectedRows(result) === 0) {
+        await discardUncommittedPayload(prepared);
+        throw new Error("Builder execution changed before state update.");
+      }
+      await cleanupCommittedPrevious(prepared);
     },
     claimExecution: async (args) => {
-      const result = await getDb()
-        .update(schema.contentDatabaseSourceExecutions)
-        .set({
-          state: "running",
-          summary: args.summary,
-          payloadJson: JSON.stringify(args.payload),
-          lastError: null,
-          attemptToken: args.attemptToken,
-          updatedAt: args.now,
-        })
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
-            or(
-              notInArray(schema.contentDatabaseSourceExecutions.state, [
-                "running",
-                "succeeded",
-              ]),
-              and(
-                eq(schema.contentDatabaseSourceExecutions.state, "running"),
-                lt(
-                  schema.contentDatabaseSourceExecutions.updatedAt,
-                  args.staleBefore,
+      const prepared = await storedPayloadJson(args.executionId, args.payload);
+      let result;
+      try {
+        result = await getDb()
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: "running",
+            summary: args.summary,
+            payloadJson: prepared.payloadJson,
+            lastError: null,
+            attemptToken: args.attemptToken,
+            updatedAt: args.now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+              eq(
+                schema.contentDatabaseSourceExecutions.payloadJson,
+                prepared.previousPayloadJson,
+              ),
+              eq(
+                schema.contentDatabaseSourceExecutions.state,
+                prepared.previousState,
+              ),
+              previousAttemptFilter(prepared),
+              or(
+                notInArray(schema.contentDatabaseSourceExecutions.state, [
+                  "running",
+                  "succeeded",
+                ]),
+                and(
+                  eq(schema.contentDatabaseSourceExecutions.state, "running"),
+                  lt(
+                    schema.contentDatabaseSourceExecutions.updatedAt,
+                    args.staleBefore,
+                  ),
                 ),
               ),
             ),
-          ),
-        );
+          );
+      } catch (error) {
+        if (
+          (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
+          "committed"
+        ) {
+          return true;
+        }
+        throw error;
+      }
+      if (builderExecutionAffectedRows(result) === 0) {
+        await discardUncommittedPayload(prepared);
+      } else {
+        await cleanupCommittedPrevious(prepared);
+      }
       return builderExecutionAffectedRows(result) > 0;
     },
     checkpointResponse: async (args) => {
-      const result = await getDb()
-        .update(schema.contentDatabaseSourceExecutions)
-        .set({
-          state: "response_received",
-          summary: "Builder response received; reconciling locally.",
-          payloadJson: JSON.stringify(args.payload),
-          lastError: null,
-          updatedAt: args.now,
-        })
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
-            eq(
-              schema.contentDatabaseSourceExecutions.attemptToken,
-              args.attemptToken,
+      const prepared = await storedPayloadJson(args.executionId, args.payload);
+      let result;
+      try {
+        result = await getDb()
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: "response_received",
+            summary: "Builder response received; reconciling locally.",
+            payloadJson: prepared.payloadJson,
+            lastError: null,
+            updatedAt: args.now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+              eq(
+                schema.contentDatabaseSourceExecutions.payloadJson,
+                prepared.previousPayloadJson,
+              ),
+              eq(schema.contentDatabaseSourceExecutions.state, "running"),
+              eq(
+                schema.contentDatabaseSourceExecutions.attemptToken,
+                args.attemptToken,
+              ),
             ),
-          ),
-        );
+          );
+      } catch (error) {
+        if (
+          (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
+          "committed"
+        ) {
+          return true;
+        }
+        throw error;
+      }
+      if (builderExecutionAffectedRows(result) === 0) {
+        await discardUncommittedPayload(prepared);
+      } else {
+        await cleanupCommittedPrevious(prepared);
+      }
       return builderExecutionAffectedRows(result) > 0;
     },
     markExecutionSucceeded: async (args) => {
       const db = getDb();
-      await db.transaction(async (tx) => {
-        const result = await tx
+      const prepared = await storedPayloadJson(args.executionId, args.payload);
+      try {
+        await db.transaction(async (tx) => {
+          const result = await tx
+            .update(schema.contentDatabaseSourceExecutions)
+            .set({
+              state: "succeeded",
+              summary: args.summary,
+              payloadJson: prepared.payloadJson,
+              lastError: null,
+              updatedAt: args.now,
+            })
+            .where(
+              args.attemptToken
+                ? and(
+                    eq(
+                      schema.contentDatabaseSourceExecutions.id,
+                      args.executionId,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.attemptToken,
+                      args.attemptToken,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.payloadJson,
+                      prepared.previousPayloadJson,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.state,
+                      prepared.previousState,
+                    ),
+                  )
+                : and(
+                    eq(
+                      schema.contentDatabaseSourceExecutions.id,
+                      args.executionId,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.payloadJson,
+                      prepared.previousPayloadJson,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.state,
+                      prepared.previousState,
+                    ),
+                    previousAttemptFilter(prepared),
+                  ),
+            );
+          if (builderExecutionAffectedRows(result) === 0) {
+            await discardUncommittedPayload(prepared);
+            throw new Error("Execution lease was reclaimed before completion.");
+          }
+          await tx
+            .update(schema.contentDatabaseSourceChangeSets)
+            .set({ state: "applied", updatedAt: args.now })
+            .where(
+              eq(schema.contentDatabaseSourceChangeSets.id, args.changeSetId),
+            );
+        });
+      } catch (error) {
+        if (
+          (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
+          "committed"
+        ) {
+          return;
+        }
+        throw error;
+      }
+      await cleanupCommittedPrevious(prepared);
+    },
+    markExecutionFailed: async (args) => {
+      const prepared = await storedPayloadJson(args.executionId, args.payload);
+      let result;
+      try {
+        result = await getDb()
           .update(schema.contentDatabaseSourceExecutions)
           .set({
-            state: "succeeded",
+            state: args.state ?? "failed",
             summary: args.summary,
-            payloadJson: JSON.stringify(args.payload),
-            lastError: null,
+            payloadJson: prepared.payloadJson,
+            lastError: args.lastError,
             updatedAt: args.now,
           })
           .where(
@@ -821,41 +1287,45 @@ export function realExecutionDeps(
                     schema.contentDatabaseSourceExecutions.attemptToken,
                     args.attemptToken,
                   ),
+                  eq(
+                    schema.contentDatabaseSourceExecutions.payloadJson,
+                    prepared.previousPayloadJson,
+                  ),
+                  eq(
+                    schema.contentDatabaseSourceExecutions.state,
+                    prepared.previousState,
+                  ),
                 )
-              : eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
-          );
-        if (args.attemptToken && builderExecutionAffectedRows(result) === 0) {
-          throw new Error("Execution lease was reclaimed before completion.");
-        }
-        await tx
-          .update(schema.contentDatabaseSourceChangeSets)
-          .set({ state: "applied", updatedAt: args.now })
-          .where(
-            eq(schema.contentDatabaseSourceChangeSets.id, args.changeSetId),
-          );
-      });
-    },
-    markExecutionFailed: async (args) => {
-      await getDb()
-        .update(schema.contentDatabaseSourceExecutions)
-        .set({
-          state: args.state ?? "failed",
-          summary: args.summary,
-          payloadJson: JSON.stringify(args.payload),
-          lastError: args.lastError,
-          updatedAt: args.now,
-        })
-        .where(
-          args.attemptToken
-            ? and(
-                eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
-                eq(
-                  schema.contentDatabaseSourceExecutions.attemptToken,
-                  args.attemptToken,
+              : and(
+                  eq(
+                    schema.contentDatabaseSourceExecutions.id,
+                    args.executionId,
+                  ),
+                  eq(
+                    schema.contentDatabaseSourceExecutions.payloadJson,
+                    prepared.previousPayloadJson,
+                  ),
+                  eq(
+                    schema.contentDatabaseSourceExecutions.state,
+                    prepared.previousState,
+                  ),
+                  previousAttemptFilter(prepared),
                 ),
-              )
-            : eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
-        );
+          );
+      } catch (error) {
+        if (
+          (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
+          "committed"
+        ) {
+          return;
+        }
+        throw error;
+      }
+      if (builderExecutionAffectedRows(result) === 0) {
+        await discardUncommittedPayload(prepared);
+        throw new Error("Builder execution changed before failure checkpoint.");
+      }
+      await cleanupCommittedPrevious(prepared);
     },
     executeWrite: (args) => executeBuilderCmsWrite(args),
     readLiveEntry: (args) => readBuilderCmsEntryLiveState(args),
@@ -1049,10 +1519,14 @@ export async function executeBuilderSourceExecutionWithDeps(
           ? {
               exactTitle: storedIntent?.exactTitle,
               intendedFields: storedIntent?.intendedFields,
+              expectedSourceSpace: source.metadata.builderSpacePublicKey,
+              expectedSourceConnectionId: source.metadata.connectionId,
             }
           : {
               marker: planIntent.marker,
               intendedFields: planIntent.intendedFields,
+              expectedSourceSpace: source.metadata.builderSpacePublicKey,
+              expectedSourceConnectionId: source.metadata.connectionId,
             },
       );
       const matchingIntentCount = lookup.matchingIntentCount ?? lookup.count;
@@ -1095,6 +1569,24 @@ export async function executeBuilderSourceExecutionWithDeps(
         payload: validatedPayload,
         writeResult: storedWriteResult,
       });
+      if (
+        guardedWriteNeedsReconciliation({
+          plan,
+          writeResult: storedWriteResult,
+        })
+      ) {
+        const lastError =
+          "Builder committed the write, but no current guarded base was acknowledged. Refresh and reconcile before another write.";
+        await deps.markExecutionFailed({
+          executionId: execution.id,
+          state: "reconciliation_required",
+          summary: `Builder ${plan.pushMode} execution requires reconciliation.`,
+          payload: payloadWithResponse,
+          lastError,
+          now: deps.now(),
+        });
+        throw builderExecutionConflict(lastError);
+      }
       const reconciledAt = deps.now();
       try {
         await deps.reconcileWrite({
@@ -1153,6 +1645,8 @@ export async function executeBuilderSourceExecutionWithDeps(
       const liveState = await deps.readLiveEntry({
         model: plan.payload.target.model,
         entryId,
+        expectedSourceSpace: source.metadata.builderSpacePublicKey,
+        expectedSourceConnectionId: source.metadata.connectionId,
       });
       const targetRow = sourceRowForChangeSet(source, changeSet);
       console.info("builder_source_live_preflight", {
@@ -1209,7 +1703,12 @@ export async function executeBuilderSourceExecutionWithDeps(
     timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
 
     const writeResult = await timing.measure("write_dispatch", () =>
-      deps.executeWrite({ request: plan.payload.request }),
+      deps.executeWrite({
+        request: plan.payload.request,
+        expectedSourceSpace: source.metadata.builderSpacePublicKey,
+        expectedSourceConnectionId: source.metadata.connectionId,
+        requireSourceBinding: true,
+      }),
     );
     const payloadWithResponse = executionResponsePayload({
       payload: validatedPayload,
@@ -1263,6 +1762,21 @@ export async function executeBuilderSourceExecutionWithDeps(
         lastError: null,
         now: deps.now(),
       });
+    }
+
+    if (guardedWriteNeedsReconciliation({ plan, writeResult })) {
+      const lastError =
+        "Builder committed the write, but no current guarded base was acknowledged. Refresh and reconcile before another write.";
+      await deps.markExecutionFailed({
+        executionId: execution.id,
+        state: "reconciliation_required",
+        summary: `Builder ${plan.pushMode} execution requires reconciliation.`,
+        payload: payloadWithResponse,
+        lastError,
+        now: deps.now(),
+        attemptToken,
+      });
+      throw builderExecutionConflict(lastError);
     }
 
     const succeededAt = deps.now();

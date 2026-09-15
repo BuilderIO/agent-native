@@ -122,6 +122,8 @@ describe("Builder hosted user OAuth", () => {
         "builder:agents:run",
         "builder:browser:connect",
         "builder:assets:write",
+        "builder:content:read",
+        "builder:content:write",
         "builder:projects:read",
         "builder:projects:write",
         "builder:designsystem:read",
