@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { emailToColor } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -14,9 +13,9 @@ import type {
   ResourceSuggestion,
   SuggestionDecision,
 } from "@agent-native/core/review";
+import type { CommentAiIntent } from "@shared/comment-ai";
 import {
   IconCheck,
-  IconMessageCircle,
   IconArrowUp,
   IconArrowBackUp,
   IconFilter,
@@ -34,6 +33,7 @@ import {
   type RefObject,
   type ReactNode,
 } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
@@ -71,6 +71,11 @@ import {
 } from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
+import {
+  CommentAiThreadActions,
+  latestCommentAiRequest,
+  type CommentAiController,
+} from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   useCommentDraft,
@@ -114,6 +119,22 @@ function renderCommentBody(content: string, mentions: CommentMention[]) {
       content={content}
       inline
       protectedSpans={commentMentionSpans(mentions)}
+      renderLink={(href, children, className) =>
+        href.startsWith("/page/") ? (
+          <Link to={href} className={className}>
+            {children}
+          </Link>
+        ) : (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={className}
+          >
+            {children}
+          </a>
+        )
+      }
     />
   );
 }
@@ -247,6 +268,12 @@ export function findPendingCommentOffset(
 }
 
 type ThreadLayoutIdentity = { threadId: string; comments: readonly unknown[] };
+
+// Stable identities: a fresh `[]` default re-keys every downstream useMemo,
+// which rebuilds the anchor observers on every render.
+const NO_THREADS: CommentThread[] = [];
+const NO_SUGGESTIONS: ResourceSuggestion[] = [];
+const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 
 export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
   return 80 + Math.max(0, thread.comments.length - 1) * 44;
@@ -651,6 +678,8 @@ interface CommentsSidebarOptions {
   ) => Promise<ResourceSuggestion | null>;
   canDecideSuggestions?: boolean;
   decidingSuggestion?: boolean;
+  canSuggest?: boolean;
+  commentAi?: CommentAiController;
   onDecideSuggestion?: (
     suggestion: ResourceSuggestion,
     decision: SuggestionDecision,
@@ -677,7 +706,7 @@ export function CommentsSidebar({
   compact = false,
   replyDrafts,
   documentId,
-  threads = [],
+  threads = NO_THREADS,
   isLoading = false,
   pendingComment,
   pendingTargetValid = true,
@@ -700,11 +729,13 @@ export function CommentsSidebar({
   canResolve = false,
   alignToAnchors = true,
   forceVisible = false,
-  suggestions = [],
-  draftSuggestions = [],
+  suggestions = NO_SUGGESTIONS,
+  draftSuggestions = NO_DRAFT_SUGGESTIONS,
   onMaterializeDraft,
   canDecideSuggestions = false,
   decidingSuggestion = false,
+  canSuggest = false,
+  commentAi,
   onDecideSuggestion,
   visibleThreadId,
   presentation = "inline",
@@ -1066,17 +1097,26 @@ export function CommentsSidebar({
     }
   };
 
-  const handleSendToAI = (thread: CommentThread) => {
-    const commentTexts = thread.comments
-      .map((c) => `${c.author_name ?? c.author_email}: ${c.content}`)
-      .join("\n");
-    const context = thread.quotedText
-      ? `${t("comments.agentRegardingText", { text: thread.quotedText })}\n\n`
-      : "";
-    sendToAgentChat({
-      message: t("comments.agentHelp"),
-      context: `${context}${t("comments.agentThreadHeader")}\n${commentTexts}`,
-    });
+  const handleStartCommentAi = async (
+    thread: CommentThread,
+    intent: CommentAiIntent,
+    requestId?: string,
+  ) => {
+    if (!commentAi) return;
+    const root = thread.comments.find((comment) => comment.parent_id === null);
+    if (!root) return;
+    try {
+      await commentAi.start({
+        threadId: thread.threadId,
+        rootCommentId: root.id,
+        intent,
+        requestId,
+      });
+    } catch (error) {
+      toast.error(t("comments.aiFailed"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
   };
 
   const [threadPositions, setThreadPositions] = useState<
@@ -1105,13 +1145,16 @@ export function CommentsSidebar({
     [],
   );
 
+  // Only the presence of a pending comment moves the lane; its draft text
+  // changes on every keystroke and must not re-key the anchor observers.
+  const hasPendingComment = !!pendingComment;
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     if (!container || inlineThreads.length === 0) {
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setPendingOffset((prev) => {
         const next =
-          pendingComment && alignToAnchors
+          hasPendingComment && alignToAnchors
             ? findPendingCommentOffset(container, sidebarRef.current)
             : null;
         return prev === next ? prev : next;
@@ -1131,7 +1174,7 @@ export function CommentsSidebar({
       if (position) positions.set(thread.threadId, position);
     }
     const nextPendingOffset =
-      pendingComment && alignToAnchors
+      hasPendingComment && alignToAnchors
         ? findPendingCommentOffset(container, layoutContainer)
         : null;
     setThreadPositions((prev) => {
@@ -1152,7 +1195,7 @@ export function CommentsSidebar({
     setPendingOffset((prev) =>
       prev === nextPendingOffset ? prev : nextPendingOffset,
     );
-  }, [alignToAnchors, inlineThreads, pendingComment, scrollContainerRef]);
+  }, [alignToAnchors, inlineThreads, hasPendingComment, scrollContainerRef]);
 
   useEffect(() => {
     const container = scrollContainerRef?.current ?? null;
@@ -1186,7 +1229,7 @@ export function CommentsSidebar({
       window.removeEventListener("resize", schedule);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openThreadKey, pendingComment, recomputeOffsets]);
+  }, [openThreadKey, hasPendingComment, recomputeOffsets]);
 
   useEffect(() => {
     const openIds = new Set(inlineThreads.map((thread) => thread.threadId));
@@ -1326,7 +1369,32 @@ export function CommentsSidebar({
           members={members}
         />
       )}
-      onSendToAI={() => handleSendToAI(thread)}
+      threadActions={
+        <CommentAiThreadActions
+          aria-label={t("comments.askAi")}
+          request={latestCommentAiRequest(
+            commentAi?.requests ?? [],
+            thread.threadId,
+          )}
+          starting={commentAi?.startingThreadIds.has(thread.threadId) ?? false}
+          canSuggest={
+            canSuggest &&
+            thread.comments.some((comment) => comment.parent_id === null)
+          }
+          canReply={
+            canComment &&
+            !thread.resolved &&
+            thread.comments.some((comment) => comment.parent_id === null)
+          }
+          canApply={
+            canResolve &&
+            thread.comments.some((comment) => comment.parent_id === null)
+          }
+          onStart={(intent, requestId) =>
+            handleStartCommentAi(thread, intent, requestId)
+          }
+        />
+      }
       t={t}
     />
   );
@@ -1750,7 +1818,11 @@ function SuggestionOperationSummary({
       | { markdown?: string; changedText?: string }
       | undefined;
     const previousText = before?.changedText;
-    const nextText = after?.changedText;
+    const nextText =
+      operation.kind === "delete_text" &&
+      after?.changedText === "<empty-block/>"
+        ? ""
+        : after?.changedText;
     const key = operation.id ?? index;
     const anchor = operation.anchor as
       | { from?: unknown; to?: unknown }
@@ -1997,6 +2069,10 @@ function SuggestionThreadView({
   onDecide: (decision: SuggestionDecision) => void;
   t: ReturnType<typeof useT>;
 }) {
+  const sourceUrl =
+    typeof suggestion.metadata?.sourceUrl === "string"
+      ? suggestion.metadata.sourceUrl
+      : null;
   const focusTarget = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!focusRequested) return;
@@ -2174,6 +2250,15 @@ function SuggestionThreadView({
                 {t("comments.unanchored")}
               </span>
             ) : null}
+            {sourceUrl ? (
+              <Link
+                className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground hover:underline"
+                to={sourceUrl}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {t("comments.sourceComment")}
+              </Link>
+            ) : null}
           </>
         }
         threadActions={
@@ -2255,7 +2340,6 @@ function ThreadView({
   onResolve,
   canComment,
   canResolve,
-  onSendToAI,
   expandLabel,
   firstEntryBody,
   threadActions,
@@ -2299,7 +2383,6 @@ function ThreadView({
   onResolve: () => void;
   canComment: boolean;
   canResolve: boolean;
-  onSendToAI?: () => void;
   expandLabel?: string;
   firstEntryBody?: ReactNode;
   threadActions?: ReactNode;
@@ -2424,24 +2507,6 @@ function ThreadView({
         {/* Hover actions — top right, Notion style pill */}
         <div className="pointer-events-none absolute top-2 right-2 flex items-center rounded-md bg-accent/80 opacity-0 ring-1 ring-border/50 transition-opacity group-hover/thread:pointer-events-auto group-hover/thread:opacity-100 group-focus-within/thread:pointer-events-auto group-focus-within/thread:opacity-100">
           {threadActions}
-          {onSendToAI ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t("comments.askAi")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSendToAI();
-                  }}
-                  className="p-1.5 text-muted-foreground hover:text-foreground rounded-l-md hover:bg-accent"
-                >
-                  <IconMessageCircle size={14} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("comments.askAi")}</TooltipContent>
-            </Tooltip>
-          ) : null}
           {canResolve ? (
             <Tooltip>
               <TooltipTrigger asChild>

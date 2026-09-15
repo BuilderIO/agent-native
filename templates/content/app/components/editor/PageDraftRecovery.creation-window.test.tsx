@@ -24,11 +24,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ refetchQueries: vi.fn() }),
 }));
+vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
   isDocumentUpdateConflict: () => false,
   usePreviewDocumentDraft: () => ({ ...state.draftQuery, refetch: vi.fn() }),
   useUpdateDocument: () => ({ mutateAsync: vi.fn() }),
+  useResolvePreviewDocumentDraft: () => ({ mutateAsync: vi.fn() }),
   useUpdatePreviewDocumentDraft: () => ({ mutateAsync: vi.fn() }),
 }));
 vi.mock("./DocumentEditorSkeleton", () => ({
