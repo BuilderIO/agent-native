@@ -327,7 +327,7 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   // Variant B is the same brief as a centred statement.
   ".design-variants-mock .kt-b .kt-hero { padding-top: 40px; }",
   ".design-variants-mock .kt-b .kt-hero-copy { align-items: center; text-align: center; }",
-  ".design-variants-mock .kt-b .kt-headline { font-size: 52px; }",
+  ".design-variants-mock .kt-b .kt-headline { font-size: 44px; }",
   ".design-variants-mock .kt-b .kt-subhead { max-width: 380px; }",
   ".design-variants-mock .kt-b .kt-cta { margin-top: 26px; }",
   ".design-variants-mock .kt-plan-row { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 38px 34px 0; }",
