@@ -7,6 +7,8 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
   SSR_QUERY_CACHE_KEY_HEADER,
+  MAX_USER_REGEX_INPUT_LENGTH,
+  compileUserRegex,
   withAgentNativeSocialImageCacheBuster,
 } from "@agent-native/core/shared";
 import { eq } from "drizzle-orm";
@@ -177,6 +179,30 @@ function normalizeOptions(options: unknown): string[] {
  * `javascript:fetch(...)` redirectUrl would execute attacker JS in the
  * form-publisher origin against any anonymous submitter.
  */
+/** Field validation as shipped to the public page: an unsafe `pattern` is
+ *  removed and replaced by `unsafePattern` so the runtime can say so. */
+type PublicFieldValidation = Omit<
+  NonNullable<FormField["validation"]>,
+  "pattern"
+> & { pattern?: string; unsafePattern?: true };
+
+/**
+ * The inline runtime re-checks `validation.pattern` in the respondent browser,
+ * where nothing can abort a regex that backtracks exponentially. Decide safety
+ * here, where the analyzer lives, and ship the respondent either a pattern that
+ * is safe to run or an explicit "cannot check" marker, never a pattern that
+ * freezes their tab.
+ */
+export function publicValidation(
+  validation: FormField["validation"],
+): PublicFieldValidation | undefined {
+  if (!validation) return undefined;
+  if (!validation.pattern) return validation;
+  if (compileUserRegex(validation.pattern).status === "ok") return validation;
+  const { pattern: _unsafe, ...rest } = validation;
+  return { ...rest, unsafePattern: true };
+}
+
 export function safeRedirectUrl(value: unknown): string {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
@@ -465,7 +491,7 @@ function renderFormPage(
   var COMPLETION_REFRESH_MS = ${completionRefreshMilliseconds};
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
-  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional, multiple: f.multiple, accept: f.accept, maxSizeBytes: f.maxSizeBytes, maxFiles: f.maxFiles })))};
+  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: publicValidation(f.validation), label: f.label, conditional: f.conditional, multiple: f.multiple, accept: f.accept, maxSizeBytes: f.maxSizeBytes, maxFiles: f.maxFiles })))};
   var SENSITIVE_QUERY_PARAMS = ${JSON.stringify(SENSITIVE_QUERY_PARAMS)};
 
   function scrubPageUrl(value) {
@@ -702,8 +728,18 @@ function renderFormPage(
           return (f.validation.message || f.label + " must be at least " + f.validation.min);
         if (f.validation.max != null && Number(v) > f.validation.max)
           return (f.validation.message || f.label + " must be at most " + f.validation.max);
-        if (f.validation.pattern && typeof v === "string" && !new RegExp(f.validation.pattern).test(v))
-          return (f.validation.message || f.label + " is invalid");
+        // An absent value never reaches a pattern check in the React client or
+        // the submit handler, so an untouched optional field must not fail here
+        // just because the owner's stored rule is unrunnable.
+        var hasValue = typeof v === "string" ? v !== "" : v !== undefined && v !== null;
+        if (f.validation.unsafePattern && hasValue)
+          return f.label + " has a validation rule that cannot be checked. Ask the form owner to fix it.";
+        if (f.validation.pattern && typeof v === "string" && hasValue) {
+          if (v.length > ${MAX_USER_REGEX_INPUT_LENGTH})
+            return f.label + " is too long to check against this form's rule.";
+          if (!new RegExp(f.validation.pattern).test(v))
+            return (f.validation.message || f.label + " is invalid");
+        }
       }
     }
     return null;

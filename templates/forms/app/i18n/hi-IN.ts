@@ -347,6 +347,8 @@ const messages = {
     responseSubmitted: "जवाब सबमिट हुआ",
     noFields: "इस फॉर्म में अभी कोई फ़ील्ड नहीं है।",
     failedSubmit: "फॉर्म सबमिट करने में विफल",
+    uncheckablePattern:
+      "इस फ़ॉर्म में {label} का नियम जाँचा नहीं जा सकता। कृपया फ़ॉर्म स्वामी से इसे ठीक करने को कहें।",
   },
   responseInsights: {
     unavailable: "इनसाइट उपलब्ध नहीं",

@@ -374,6 +374,8 @@ const messages = {
     responseSubmitted: "Response submitted",
     noFields: "This form has no fields yet.",
     failedSubmit: "Failed to submit form",
+    uncheckablePattern:
+      "This form's rule for {label} can't be checked. Ask the form owner to fix it.",
   },
   responseInsights: {
     unavailable: "Insights unavailable",
