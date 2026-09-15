@@ -122,10 +122,21 @@ const RETRY_REASONING_EFFORTS = new Set([
 
 /** Router-state payload for recovering the new-deck prompt after a failed
  *  generation kickoff forces a navigate away from and back to this route. */
+/**
+ * A reference deck built from an upload, paired with the source file it came
+ * from. Kept together so a retry skips re-reading that file only while the
+ * same reference deck is still selected.
+ */
+interface ImportedReferenceSource {
+  deckId: string;
+  filePath: string;
+}
+
 interface DeckGenerationRetryState {
   retryPrompt?: string;
   retryFiles?: UploadedFile[];
   retryReferenceFilePaths?: string[];
+  retryImportedReference?: ImportedReferenceSource;
   retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
   modelSelection?: DeckModelSelection;
@@ -346,6 +357,8 @@ export default function Index() {
   );
   const [newDeckRetryReferenceFilePaths, setNewDeckRetryReferenceFilePaths] =
     useState<string[]>([]);
+  const [newDeckRetryImportedReference, setNewDeckRetryImportedReference] =
+    useState<ImportedReferenceSource | undefined>();
   const [newDeckRetryContext, setNewDeckRetryContext] = useState<
     string | undefined
   >();
@@ -362,6 +375,7 @@ export default function Index() {
     prompt: string;
     files: UploadedFile[];
     referenceFilePaths: string[];
+    importedReference?: ImportedReferenceSource;
     context?: string;
     attachments: ReadonlyArray<PromptChatAttachment>;
     modelSelection?: DeckModelSelection;
@@ -567,6 +581,7 @@ export default function Index() {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
           setNewDeckRetryReferenceFilePaths([]);
+          setNewDeckRetryImportedReference(undefined);
           setNewDeckRetryContext(undefined);
           setNewDeckRetryPrompt(undefined);
           setNewDeckRetryAttachments([]);
@@ -600,6 +615,7 @@ export default function Index() {
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles([]);
       setNewDeckRetryReferenceFilePaths([]);
+      setNewDeckRetryImportedReference(undefined);
       setNewDeckRetryAttachments(options.attachments ?? []);
       setNewDeckRetryModelSelection(options.modelSelection);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
@@ -695,6 +711,7 @@ export default function Index() {
     }
     setNewDeckRetryFiles(state.retryFiles ?? []);
     setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? []);
+    setNewDeckRetryImportedReference(state.retryImportedReference);
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
@@ -783,6 +800,15 @@ export default function Index() {
     const referenceFilePaths = new Set(
       referenceSelection.referenceFilePaths ?? [],
     );
+    const importedReferenceFilePath =
+      referenceSelection.importedReferenceFilePath;
+    const importedReferenceSource: ImportedReferenceSource | undefined =
+      referenceSelection.referenceDeckId && importedReferenceFilePath
+        ? {
+            deckId: referenceSelection.referenceDeckId,
+            filePath: importedReferenceFilePath,
+          }
+        : undefined;
     const filesForSourceImprovement = filesForGeneration.filter(
       (file) => !referenceFilePaths.has(file.path),
     );
@@ -831,6 +857,7 @@ export default function Index() {
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles(filesForGeneration);
       setNewDeckRetryReferenceFilePaths([...referenceFilePaths]);
+      setNewDeckRetryImportedReference(importedReferenceSource);
       setNewDeckRetryAttachments(attachmentsForGeneration);
       setNewDeckRetryModelSelection(modelSelection);
       deleteDeck(deckId);
@@ -845,6 +872,7 @@ export default function Index() {
             retryPrompt: prompt,
             retryFiles: filesForGeneration,
             retryReferenceFilePaths: [...referenceFilePaths],
+            retryImportedReference: importedReferenceSource,
             retryContext: additionalContext || undefined,
             retryAttachments: attachmentsForGeneration,
             modelSelection,
@@ -890,9 +918,7 @@ export default function Index() {
       filesForGeneration,
       {
         excludePaths: [
-          ...(referenceSelection.importedReferenceFilePath
-            ? [referenceSelection.importedReferenceFilePath]
-            : []),
+          ...(importedReferenceFilePath ? [importedReferenceFilePath] : []),
           ...(importedSourceDeck ? [importedSourceDeck.file.path] : []),
         ],
       },
@@ -920,6 +946,7 @@ export default function Index() {
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
     setNewDeckRetryReferenceFilePaths([]);
+    setNewDeckRetryImportedReference(undefined);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryAttachments([]);
@@ -1157,6 +1184,10 @@ export default function Index() {
         prompt,
         files,
         referenceFilePaths: retryReferenceFilePaths,
+        importedReference:
+          retryReferenceFilePaths.length > 0
+            ? newDeckRetryImportedReference
+            : undefined,
         context: retryContext,
         attachments: [
           ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
@@ -1172,6 +1203,7 @@ export default function Index() {
       });
       setNewDeckRetryPrompt(undefined);
       setNewDeckRetryReferenceFilePaths([]);
+      setNewDeckRetryImportedReference(undefined);
       setNewDeckRetryContext(undefined);
       setNewDeckRetryAttachments([]);
       setNewDeckRetryModelSelection(undefined);
@@ -1182,6 +1214,7 @@ export default function Index() {
       newDeckRetryFiles,
       newDeckRetryAttachments,
       newDeckRetryReferenceFilePaths,
+      newDeckRetryImportedReference,
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
@@ -1194,6 +1227,7 @@ export default function Index() {
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryReferenceFilePaths([]);
+    setNewDeckRetryImportedReference(undefined);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryAttachments([]);
     setNewDeckRetryModelSelection(undefined);
@@ -1350,12 +1384,34 @@ export default function Index() {
           ...(selection.referenceFilePaths ?? []),
         ]),
       ];
+      // A retry re-enters this step with the reference deck from the failed
+      // attempt already in the list rather than freshly imported, so the
+      // selection no longer says which upload it was built from. Without this
+      // the retry re-reads that file, duplicating it alongside the reference
+      // deck and turning any read hiccup into a second hard stop.
+      const carriedImportedReference = pending.importedReference;
+      const carriedDeckSelected =
+        carriedImportedReference !== undefined &&
+        selection.referenceDeckId === carriedImportedReference.deckId;
+      // The reference deck can be deleted between the failed attempt and the
+      // retry. Its id then loads nothing while still reading as a reference,
+      // and its source would stay excluded — leaving the run with neither.
+      const carriedDeckMissing =
+        carriedDeckSelected &&
+        !decks.some((deck) => deck.id === carriedImportedReference.deckId);
+      const importedReferenceFilePath =
+        selection.importedReferenceFilePath ??
+        (carriedDeckSelected && !carriedDeckMissing
+          ? carriedImportedReference.filePath
+          : undefined);
       const generation = runPendingDeckGeneration(
         pending.prompt,
         pending.files,
         {
           ...selection,
           ...(referenceFilePaths.length > 0 ? { referenceFilePaths } : {}),
+          ...(importedReferenceFilePath ? { importedReferenceFilePath } : {}),
+          ...(carriedDeckMissing ? { referenceDeckId: null } : {}),
         },
         pending.context,
         pending.attachments,
@@ -1365,7 +1421,13 @@ export default function Index() {
       setPendingDeck(null);
       await generation;
     },
-    [forgetReference, pendingDeck, rememberReference, runPendingDeckGeneration],
+    [
+      decks,
+      forgetReference,
+      pendingDeck,
+      rememberReference,
+      runPendingDeckGeneration,
+    ],
   );
 
   const handleReferenceImport = useCallback(

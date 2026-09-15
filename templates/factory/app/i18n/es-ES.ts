@@ -121,7 +121,10 @@ const messages = {
         stuck: "Atascado",
         clean: "Limpio",
         ineligible: "No elegible",
+        merged: "Fusionado en GitHub",
         reopened: "Reabierto tras actualización",
+        mergeable_as_of:
+          "Mergeable; Factory no volverá a pingear a Builder en esta rama.",
       },
       slack: {
         claimed: "Reclamado",
@@ -382,6 +385,9 @@ const messages = {
     auditSkipped: "{{count}} omitidos",
     auditStartedCount: "{{count}} iniciados",
     auditSeenBefore: "Ya visto",
+    auditMergedOnGitHub: "Fusionado en GitHub",
+    auditClosedOnGitHub: "Cerrado en GitHub",
+    auditDraftOnGitHub: "Borrador en GitHub",
     auditNewThisRun: "Nuevo",
     auditAlreadyStarted: "Ya iniciado",
     historyTab: "Historial",

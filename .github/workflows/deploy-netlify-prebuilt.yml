@@ -657,7 +657,7 @@ jobs:
       # Beta's artifact producer has deploy=false but receives the inherited
       # Netlify credential; PR preview producers intentionally do not, and
       # their trusted deploy job runs this check before the Netlify upload.
-      - name: Verify Netlify Google OAuth relay configuration
+      - name: Verify Netlify Google OAuth relay metadata
         if: >-
           (inputs.deploy || inputs.target == 'beta') &&
           inputs.migration_only != true &&
@@ -684,6 +684,8 @@ jobs:
             echo "::error::Google OAuth relay validation does not support Netlify context $relay_context."
             exit 1
           fi
+          # Netlify masks secret values in API and CLI responses; this
+          # pre-deploy check can only validate the secret-scoped runtime entry.
           env_json="$(netlify api getEnvVars --data "{\"account_id\":\"$NETLIFY_ACCOUNT_ID\",\"site_id\":\"$NETLIFY_SITE_ID\"}")"
           printf '%s' "$env_json" |
             node -e '
@@ -693,7 +695,9 @@ jobs:
               const relay = variables.find(
                 (variable) => variable.key === "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
               );
-              const value = relay?.values?.find((entry) => entry.context === context);
+              const value =
+                relay?.values?.find((entry) => entry.context === context) ??
+                relay?.values?.find((entry) => entry.context === "all");
               if (
                 !relay?.is_secret ||
                 !relay.scopes?.includes("runtime") ||
@@ -706,26 +710,7 @@ jobs:
                 );
               }
             ' "$relay_context"
-          if ! netlify env:get AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET \
-            --site "$NETLIFY_SITE_ID" \
-            --context "$relay_context" \
-            --scope runtime \
-            --auth "$NETLIFY_AUTH_TOKEN" \
-            --json 2>/dev/null |
-            node -e '
-              const fs = require("node:fs");
-              const resolved = JSON.parse(fs.readFileSync(0, "utf8"));
-              const value = resolved.AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET;
-              if (typeof value !== "string" || value.length === 0) {
-                throw new Error(
-                  "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET does not resolve.",
-                );
-              }
-            '; then
-            echo "::error::AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET does not resolve for $relay_context."
-            exit 1
-          fi
-          echo "Verified Google OAuth relay secret for $relay_context."
+          echo "Verified Google OAuth relay metadata for $relay_context."
 
       - name: Package the prebuilt artifact
         if: inputs.artifact_upload && inputs.migration_only != true
