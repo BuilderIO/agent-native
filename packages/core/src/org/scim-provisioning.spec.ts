@@ -78,7 +78,7 @@ describe("framework SCIM identity bridge", () => {
     resetAppConfigForTests();
   });
 
-  it("links an existing user, creates one owned membership, and is idempotent", async () => {
+  it("links a user and writes the first audit event with the migration-provisioned table", async () => {
     const rows: Record<string, Row[]> = {
       user: [{ id: "user-1", email: "Jane@Example.com" }],
       frameworkOrganization: [{ id: "org-1", name: "Example" }],
@@ -87,6 +87,9 @@ describe("framework SCIM identity bridge", () => {
       appMemberRole: [],
       agentAuditLog: [],
     };
+    // A fresh database has no lazy audit initialization. The strict adapter
+    // models the schema created by org migration 1032 and fails if the SCIM
+    // callback tries to create an undeclared audit relation.
     const database = adapterFor(rows, { requireDeclaredTables: true });
     const identity = createFrameworkSCIMIdentity();
     const input = {
