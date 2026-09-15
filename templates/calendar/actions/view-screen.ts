@@ -100,6 +100,7 @@ export default defineAction({
         viewDay,
         timezone,
         getWeekStartsOn(settings.weekStart),
+        visualPreferences.numberOfDays,
       );
 
       const calendarSourceResult = await listGoogleCalendars(email);

@@ -310,15 +310,37 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
     };
   }, [demo]);
 
-  const update = useCallback((patch: Partial<ViewPreferences>) => {
-    setPrefs((prev) => {
-      const next = normalizeCalendarViewPreferences({ ...prev, ...patch });
-      save(next);
-      window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
-      return next;
-    });
-    callAction("update-calendar-visual-preferences", patch).catch(() => {});
-  }, []);
+  const update = useCallback(
+    (patch: Partial<ViewPreferences>) => {
+      let rollbackPrefs: CalendarViewPreferences | null = null;
+      setPrefs((prev) => {
+        rollbackPrefs = prev;
+        const next = normalizeCalendarViewPreferences({ ...prev, ...patch });
+        save(next);
+        window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
+        return next;
+      });
+      callAction("update-calendar-visual-preferences", patch).catch(() => {
+        setPrefs((current) => {
+          if (!rollbackPrefs) return current;
+          const stillOptimistic = Object.entries(patch).every(
+            ([key, value]) =>
+              current[key as keyof CalendarViewPreferences] === value,
+          );
+          if (!stillOptimistic) return current;
+          save(rollbackPrefs);
+          window.dispatchEvent(
+            new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+          );
+          return rollbackPrefs;
+        });
+        toast.error(
+          `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
+        );
+      });
+    },
+    [t],
+  );
 
   const updateAccountColor = useCallback(
     (accountEmail: string, accountColor: string) => {

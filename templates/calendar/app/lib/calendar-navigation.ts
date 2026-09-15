@@ -1,12 +1,4 @@
-import {
-  addDays,
-  addMonths,
-  addWeeks,
-  startOfWeek,
-  subDays,
-  subMonths,
-  subWeeks,
-} from "date-fns";
+import { addDays, addMonths, startOfWeek, subDays, subMonths } from "date-fns";
 
 import { dateKeyToDate, dateToCalendarDateKey } from "./calendar-timezone";
 
@@ -18,6 +10,7 @@ export function navigateCalendarDate(
   selectedDate: Date,
   direction: CalendarNavigationDirection,
   weekStartsOn: 0 | 1,
+  numberOfDays = 7,
 ): Date {
   switch (viewMode) {
     case "month":
@@ -25,13 +18,15 @@ export function navigateCalendarDate(
         ? addMonths(selectedDate, 1)
         : subMonths(selectedDate, 1);
     case "week": {
-      const navigatedDate =
-        direction === "next"
-          ? addWeeks(selectedDate, 1)
-          : subWeeks(selectedDate, 1);
-      return dateKeyToDate(
-        dateToCalendarDateKey(startOfWeek(navigatedDate, { weekStartsOn })),
+      const displayedDays = Number.isInteger(numberOfDays)
+        ? Math.min(31, Math.max(1, numberOfDays))
+        : 7;
+      const currentWeekStart = dateKeyToDate(
+        dateToCalendarDateKey(startOfWeek(selectedDate, { weekStartsOn })),
       );
+      return direction === "next"
+        ? addDays(currentWeekStart, displayedDays)
+        : subDays(currentWeekStart, displayedDays);
     }
     case "day":
       return direction === "next"

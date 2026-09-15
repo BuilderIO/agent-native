@@ -30,6 +30,19 @@ describe("calendar date navigation", () => {
     ).toBe("2026-09-07");
   });
 
+  it("advances by the configured number of displayed days", () => {
+    expect(
+      dateToCalendarDateKey(
+        navigateCalendarDate("week", selectedDate, "next", 1, 5),
+      ),
+    ).toBe("2026-09-19");
+    expect(
+      dateToCalendarDateKey(
+        navigateCalendarDate("week", selectedDate, "prev", 1, 5),
+      ),
+    ).toBe("2026-09-09");
+  });
+
   it("keeps day and month navigation semantics unchanged", () => {
     expect(
       dateToCalendarDateKey(

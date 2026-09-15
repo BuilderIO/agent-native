@@ -10,12 +10,12 @@ import {
 } from "@tabler/icons-react";
 import {
   startOfWeek,
-  endOfWeek,
   eachDayOfInterval,
   eachHourOfInterval,
   format,
   set,
   addMinutes,
+  addDays,
 } from "date-fns";
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 
@@ -49,6 +49,7 @@ import {
   getEventSegmentForCalendarDay,
   isAllDayCalendarEvent,
 } from "@/lib/calendar-timezone";
+import { normalizeNumberOfDays } from "@/lib/calendar-view-preferences";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
   computeTimedEventLayout,
@@ -113,6 +114,7 @@ interface WeekViewProps {
   onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
   weekStartsOn?: 0 | 1;
+  numberOfDays?: number;
 }
 
 // [startHour, startMin, durationMin, widthPct] per day column (Sun–Sat)
@@ -555,6 +557,7 @@ export const WeekView = memo(function WeekView({
   onDraftDiscard,
   isLoading = false,
   weekStartsOn = 0,
+  numberOfDays = 7,
 }: WeekViewProps) {
   const t = useT();
   const workingLocationLabels = useMemo(
@@ -602,13 +605,14 @@ export const WeekView = memo(function WeekView({
   }, []);
 
   const { prefs } = useViewPreferences();
+  const displayedDayCount = normalizeNumberOfDays(numberOfDays);
   const weekStart = useMemo(
     () => startOfWeek(selectedDate, { weekStartsOn }),
     [selectedDate, weekStartsOn],
   );
   const weekEnd = useMemo(
-    () => endOfWeek(selectedDate, { weekStartsOn }),
-    [selectedDate, weekStartsOn],
+    () => addDays(weekStart, displayedDayCount - 1),
+    [displayedDayCount, weekStart],
   );
   // Stable day/hour arrays — recomputed only when the week or weekend
   // visibility actually changes, so memoized children (event buttons) don't
