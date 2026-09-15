@@ -71,7 +71,12 @@ describe("Mail MCP compose prompts", () => {
 
     expect(
       isSameScheduledDraft(
-        { ...snapshot, savedDraftId: "gmail-draft-1" },
+        {
+          ...snapshot,
+          savedDraftId: "gmail-draft-1",
+          savedDraftBackend: "gmail",
+          savedDraftAccountEmail: "mailbox@example.com",
+        },
         snapshot,
       ),
     ).toBe(true);

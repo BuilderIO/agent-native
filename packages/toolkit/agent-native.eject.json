@@ -303,12 +303,14 @@
       "sourceEntries": ["src/design-tweaks"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@radix-ui/react-dialog",
         "@radix-ui/react-label",
         "@radix-ui/react-popover",
         "@radix-ui/react-select",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "class-variance-authority",
+        "cmdk",
         "clsx",
         "react",
         "tailwind-merge"

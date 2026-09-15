@@ -5,6 +5,7 @@ import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { getCallbackOrigin } from "../frame.js";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
+import { scheduleAfterPaint } from "../use-after-paint.js";
 import { usePollLoop } from "../use-poll-loop.js";
 
 export interface BuilderStatus {
@@ -124,27 +125,42 @@ export function useBuilderStatus({
       return;
     }
     setLoading(true);
-    void fetchStatus();
+    // The Builder card is not visible during first paint; defer the initial
+    // status read past the startup window. Focus/visibility/event refreshes
+    // below stay immediate.
+    let initialFetchRan = false;
+    const cancelInitialFetch = scheduleAfterPaint(() => {
+      initialFetchRan = true;
+      void fetchStatus();
+    });
+    // A focus/visibility/event inside the deferral window consumes the
+    // scheduled initial read, so one status request lands immediately
+    // instead of two when the window elapses.
+    const refreshNow = () => {
+      if (!initialFetchRan) {
+        initialFetchRan = true;
+        cancelInitialFetch();
+      }
+      void fetchStatus();
+    };
 
     function onFocus() {
-      void fetchStatus();
+      refreshNow();
     }
     function onVisibility() {
-      if (document.visibilityState === "visible") void fetchStatus();
+      if (document.visibilityState === "visible") refreshNow();
     }
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
     // Engine connect/disconnect actions (e.g. the Builder disconnect button)
     // dispatch this event so dependent cards refresh without a full reload.
-    window.addEventListener("agent-engine:configured-changed", fetchStatus);
+    window.addEventListener("agent-engine:configured-changed", refreshNow);
     return () => {
       requestGenerationRef.current += 1;
+      cancelInitialFetch();
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener(
-        "agent-engine:configured-changed",
-        fetchStatus,
-      );
+      window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
   }, [enabled, fetchStatus]);
 
@@ -194,6 +210,14 @@ export interface BuilderConnectFlow {
   /** True after at least one successful Builder connection-status response. */
   statusResolved: boolean;
   /**
+   * Increments every time a `retry`/lifecycle status read settles, whether it
+   * resolved or failed. `statusResolved` alone cannot bound a caller waiting
+   * on a read, because a second failure leaves it false with no observable
+   * change. Consumers that queue work on a read need the settle, not the
+   * outcome.
+   */
+  statusReadSettledCount: number;
+  /**
    * True when the deploy has BUILDER_PRIVATE_KEY set as a fallback. Connect
    * is still available so users can override the fallback with their own
    * Builder account.
@@ -231,8 +255,12 @@ export interface BuilderConnectFlow {
   hasFetchedStatus: boolean;
   /** Open the popup and begin polling. Must be called from a user-gesture handler. */
   start: (options?: BuilderConnectStartOptions) => void;
-  /** Retry the status request before choosing a connection path. */
-  retry: () => void;
+  /**
+   * Retry the status request before choosing a connection path. Returns true
+   * when a read actually started. A disabled flow never reads, so a caller
+   * that waits on the result must be able to tell the difference.
+   */
+  retry: () => boolean;
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -646,6 +674,7 @@ export function useBuilderConnectFlow(
   const [accountExists, setAccountExists] = useState(false);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusResolved, setStatusResolved] = useState(false);
+  const [statusReadSettledCount, setStatusReadSettledCount] = useState(0);
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
   // When statusConnectUrl was last fetched. The server signs the embedded
   // _an_connect token with a 10-minute TTL; using an older URL fails the
@@ -660,7 +689,7 @@ export function useBuilderConnectFlow(
   const activePopupRef = useRef<Window | null>(null);
   const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
-  const retryStatusRef = useRef<() => void>(() => {});
+  const retryStatusRef = useRef<() => boolean>(() => false);
   const statusUnavailableRef = useRef(false);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -754,21 +783,28 @@ export function useBuilderConnectFlow(
       setAccountExists(false);
       setHasFetchedStatus(false);
       setStatusResolved(false);
+      setStatusReadSettledCount(0);
       setStatusConnectUrl(null);
       statusConnectUrlAtRef.current = null;
       connectAttemptIdRef.current = null;
-      retryStatusRef.current = () => {};
+      retryStatusRef.current = () => false;
       return;
     }
     mountedRef.current = true;
     let cancelled = false;
+    // Overlapping lifecycle refreshes supersede each other (newest started
+    // wins) so a slow older response cannot overwrite newer connect state.
+    let refreshGeneration = 0;
     const refresh = async () => {
+      const generation = ++refreshGeneration;
+      const isCurrentRefresh = () => generation === refreshGeneration;
       const s = await fetchStatus();
-      if (cancelled || !mountedRef.current) return;
+      if (cancelled || !mountedRef.current || !isCurrentRefresh()) return;
       // Flip `hasFetchedStatus` even when the fetch failed — the caller's
       // "use initial props until the hook has an answer" pattern wants to
       // stop waiting after we've tried, regardless of network outcome.
       setHasFetchedStatus(true);
+      setStatusReadSettledCount((count) => count + 1);
       if (!s) {
         // "Could not read the status" must not render the same as "no status
         // yet". `statusResolved` only flips on success, so without a visible
@@ -823,27 +859,46 @@ export function useBuilderConnectFlow(
         setError(null);
       }
     };
-    retryStatusRef.current = () => void refresh();
-    void refresh();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+    retryStatusRef.current = () => {
+      void refresh();
+      return true;
     };
-    window.addEventListener("focus", refresh);
+    // Connect-CTA cards render above the fold but their status is not needed
+    // for first paint; defer the initial read. Focus/visibility/event
+    // refreshes below stay immediate.
+    let initialRefreshRan = false;
+    const cancelInitialRefresh = scheduleAfterPaint(() => {
+      initialRefreshRan = true;
+      void refresh();
+    });
+    // A focus/visibility/event inside the deferral window consumes the
+    // scheduled initial read, so one status request lands immediately
+    // instead of two when the window elapses.
+    const refreshNow = () => {
+      if (!initialRefreshRan) {
+        initialRefreshRan = true;
+        cancelInitialRefresh();
+      }
+      void refresh();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshNow();
+    };
+    window.addEventListener("focus", refreshNow);
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("agent-engine:configured-changed", refresh);
+    window.addEventListener("agent-engine:configured-changed", refreshNow);
     return () => {
       cancelled = true;
       mountedRef.current = false;
-      retryStatusRef.current = () => {};
-      window.removeEventListener("focus", refresh);
+      cancelInitialRefresh();
+      retryStatusRef.current = () => false;
+      window.removeEventListener("focus", refreshNow);
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("agent-engine:configured-changed", refresh);
+      window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
   }, [enabled, fetchStatus]);
 
-  const retry = useCallback(() => {
-    retryStatusRef.current();
-  }, []);
+  const retry = useCallback(() => retryStatusRef.current(), []);
 
   const start = useCallback(
     (startOptions?: BuilderConnectStartOptions) => {
@@ -1358,6 +1413,7 @@ export function useBuilderConnectFlow(
     configured,
     codeChangeConfigured,
     statusResolved,
+    statusReadSettledCount,
     envManaged,
     credentialSource,
     canDisconnect,

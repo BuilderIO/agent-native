@@ -102,6 +102,76 @@ To edit a slide's content:
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.
 
+## Style-Only Edits
+
+For a request that changes appearance and nothing else — colors, borders,
+shadows, background — set `styleOnly: true` on `update-slide`.
+
+`styleOnly` accepts the structured `edits` array and nothing else. `fullContent`
+and the top-level legacy `find` / `replace` / `objectId` fields are rejected in
+this mode, so even a single replacement goes as one `edits` entry:
+
+```jsonc
+{
+  "deckId": "...", "slideId": "...", "styleOnly": true,
+  "baseContentHash": "<contentHash from get-deck>",
+  "edits": [
+    { "find": "background:#111111", "replace": "background:#f4f0e8", "occurrence": 1 }
+  ]
+}
+```
+
+The action then rejects any result that changes text, markup, element order, or
+protected layout CSS (padding, margin, gap, font-size, line-height, dimensions,
+positioning), so the edit can only move the declarations you targeted.
+
+Use `occurrence: 1` rather than `expectedMatches: 1` when a declaration may
+appear more than once on the slide: the `edits` path refuses an ambiguous
+literal outright, so `expectedMatches` turns a repeated declaration into a
+rejection instead of an edit. Reach for `all: true` when every occurrence on
+that slide really should change.
+
+`objectId` is not a style-edit target. It replaces an element's inner content
+and leaves the element's own `style` attribute untouched, so it cannot move the
+declaration you are usually after.
+
+### Copying one slide's look onto the rest of the deck
+
+"Make every slide match slide 1" is a deck-wide restyle, so it goes through
+**one `patch-deck` call** with a `patch-slide` operation per slide. Do not fan
+out one `update-slide` per slide: that is the batching the agent instructions
+rule out, and because the calls issue in parallel, a mistake in the first one
+repeats across all of them before any rejection comes back.
+
+1. Read the reference slide with `get-deck` (`slideId`, `compact=false`) and
+   take the background declaration off its `.fmd-slide` wrapper — not off a
+   child. `deckStyle` summarizes the whole deck, including interior gradients,
+   so it is not a substitute for the wrapper's own value.
+2. Read the target slides for their exact current declarations, as late as
+   possible before the write.
+3. Send one `patch-deck` call carrying every affected slide, then verify with
+   `get-deck` using `compact=true`.
+
+Reserve `styleOnly` `update-slide` for one slide, or a handful of named slides.
+Two protections only exist on that path, so know what the deck-wide route gives
+up:
+
+- `patch-deck` patches `fields.content` wholesale and gets no style-only
+  invariant, so keep the rest of each slide's HTML byte-identical yourself.
+- `patch-deck` takes no per-slide `baseContentHash`. It serializes on the deck
+  lock and rejects a write when the deck row moved under it, but it cannot tell
+  that a human edited slide 4 between your read and your patch. Read
+  immediately before patching, and verify after.
+
+When a person is actively editing the deck, prefer per-slide `styleOnly`
+`update-slide` with `baseContentHash` and accept the extra round trips.
+
+Either way, change only the `.fmd-slide` wrapper's background. Interior card
+fills, image backgrounds, and gradients are separate visual elements; leave them
+alone unless the user asked for those too. A slide whose wrapper carries no
+background declaration needs one added to the wrapper's `style`, not a
+find/replace against a declaration that is not there.
+
 ## Skipping a Slide
 
 Set a slide's `skipped: true` via a `patch-deck` `patch-slide` operation to

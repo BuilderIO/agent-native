@@ -14,10 +14,10 @@ import {
 
 export default defineAction({
   description:
-    "Query one ordered and filtered page of a content database without reopening its metadata.",
+    "Query one ordered and filtered page of a content collection without reopening its metadata.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     limit: z.coerce
       .number()
       .int()

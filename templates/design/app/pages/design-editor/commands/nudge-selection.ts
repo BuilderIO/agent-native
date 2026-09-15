@@ -166,6 +166,9 @@ export function runNudgeSelection(
 
   const intent = resolveElementNudgeIntent({
     content: activeFile ? getFreshActiveContent() : "",
+    source: activeFile
+      ? { kind: "design-file", fileId: activeFile.id }
+      : undefined,
     selectedElement: nudgeTarget,
     direction,
     largeStep,
@@ -173,12 +176,20 @@ export function runNudgeSelection(
   });
   if (intent.kind === "none") return;
   if (intent.kind === "reorder") {
-    const patch = applyVisualEdit(intent.content, {
-      kind: "moveNode",
-      target: { nodeId: intent.targetNodeId },
-      anchor: { nodeId: intent.anchorNodeId },
-      placement: intent.placement,
-    } satisfies MoveNodeEditIntent);
+    const patch = applyVisualEdit(
+      intent.content,
+      {
+        kind: "moveNode",
+        target: { nodeId: intent.targetNodeId },
+        anchor: { nodeId: intent.anchorNodeId },
+        placement: intent.placement,
+      } satisfies MoveNodeEditIntent,
+      {
+        ...(activeFile
+          ? { source: { kind: "design-file" as const, fileId: activeFile.id } }
+          : {}),
+      },
+    );
     if (patch.result.status !== "applied") return;
     applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
     // A node with no stable `data-agent-native-node-id` has its id derived

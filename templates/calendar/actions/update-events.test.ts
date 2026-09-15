@@ -54,6 +54,100 @@ describe("update-events", () => {
     resolveCalendarEventRangeMock.mockReturnValue(RANGE);
   });
 
+  it("rejects a same-day timed range that collapses to a zero-day all-day span", async () => {
+    // 09:00-10:00 is a valid timed range, but all-day targets take date-only
+    // bounds, so both ends truncate to the same date and Google's exclusive
+    // end would produce an all-day event covering no day at all.
+    listCalendarEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-holiday",
+          googleEventId: "holiday",
+          title: "Company holiday",
+          start: "2026-09-02",
+          end: "2026-09-03",
+          allDay: true,
+          accountEmail: OWNER,
+          source: "google",
+        },
+      ],
+      errors: [],
+    });
+
+    await expect(
+      run({
+        from: "2026-09-01",
+        to: "2026-09-08",
+        start: "2026-09-04T09:00:00.000Z",
+        end: "2026-09-04T10:00:00.000Z",
+      }),
+    ).rejects.toThrow("All-day events need an end date after the start date");
+
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the zero-day all-day collapse in a dry run too", async () => {
+    listCalendarEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-holiday",
+          googleEventId: "holiday",
+          title: "Company holiday",
+          start: "2026-09-02",
+          end: "2026-09-03",
+          allDay: true,
+          accountEmail: OWNER,
+          source: "google",
+        },
+      ],
+      errors: [],
+    });
+
+    await expect(
+      run({
+        from: "2026-09-01",
+        to: "2026-09-08",
+        start: "2026-09-04T09:00:00.000Z",
+        end: "2026-09-04T10:00:00.000Z",
+        dryRun: true,
+      }),
+    ).rejects.toThrow("All-day events need an end date after the start date");
+  });
+
+  it("allows a multi-day range against an all-day target", async () => {
+    listCalendarEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-holiday",
+          googleEventId: "holiday",
+          title: "Company holiday",
+          start: "2026-09-02",
+          end: "2026-09-03",
+          allDay: true,
+          accountEmail: OWNER,
+          source: "google",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-09-01",
+      to: "2026-09-08",
+      start: "2026-09-04T00:00:00.000Z",
+      end: "2026-09-05T00:00:00.000Z",
+      dryRun: true,
+    });
+
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        outcome: "matched",
+        start: "2026-09-04",
+        end: "2026-09-05",
+      }),
+    );
+  });
+
   it("rejects a shared source id before a bulk update can target primary", async () => {
     await expect(
       run({

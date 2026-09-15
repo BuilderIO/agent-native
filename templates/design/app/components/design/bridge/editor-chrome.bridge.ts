@@ -178,6 +178,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
+      // A selection SWITCHING to a different element must not ease the
+      // handle spans through their old target's geometry: the singleton
+      // spans jump straight from one element's clamped hit-zone to
+      // another's, and animating that jump (see applySelectionHandleHitGeometry)
+      // can transiently render an in-between size big enough to cover the
+      // newly selected element's own center. The transition above stays for
+      // same-element chrome-scale eases (zoom settling).
+      "[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}" +
       // Locked layers get a neutral dashed hairline instead of an accent one:
       // accent means "selected" everywhere else in the canvas chrome, and a
       // locked layer is usually neither selected nor selectable. The width
@@ -446,6 +454,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       document.head.insertBefore(document.importNode(node, true), anchor);
     });
+    scheduleScreenRootStyleSnapshot();
   }
 
   function chromeScaleX(): number {
@@ -483,7 +492,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function escapeAttribute(value: unknown): string {
-    return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    var text = String(value);
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(text);
+    }
+    return text.replace(/[\0-\x1f\x7f\\"]/g, function (character) {
+      if (character === "\\" || character === '"') return "\\" + character;
+      return "\\" + character.charCodeAt(0).toString(16) + " ";
+    });
   }
 
   function attributeSelector(el: Element | null, name: string): string {
@@ -513,7 +529,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .join("");
   }
 
-  function selectorPart(el: Element | null): string {
+  function selectorPart(el: Element | null, structuralOnly = false): string {
     if (!el || !el.tagName) return "";
     // A clone's own position is the only thing that distinguishes it from its
     // siblings, and it is a LIVE position: the source-equivalent count below
@@ -537,10 +553,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       attributeSelector(el, "data-layer-id") ||
       attributeSelector(el, "data-builder-id") ||
       attributeSelector(el, "data-loc");
-    if (stableSelector) return el.tagName.toLowerCase() + stableSelector;
-    if (el.id) return "#" + escapeIdent(el.id);
+    if (stableSelector && !structuralOnly)
+      return el.tagName.toLowerCase() + stableSelector;
+    if (el.id && !structuralOnly) return "#" + escapeIdent(el.id);
     var part =
-      el.tagName.toLowerCase() + (stableSelector || classSelectorSuffix(el, 2));
+      el.tagName.toLowerCase() +
+      (structuralOnly ? "" : stableSelector || classSelectorSuffix(el, 2));
     var parent = el.parentElement;
     if (parent) {
       // Count positions the way SOURCE does. Alpine's x-for clones and the
@@ -564,15 +582,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return part;
   }
 
-  function selectorPath(el: Element | null, stopEl?: Element | null): string {
+  function selectorPath(
+    el: Element | null,
+    stopEl?: Element | null,
+    structuralOnly = false,
+  ): string {
     var parts = [];
     var node = el;
     while (node && node.nodeType === 1) {
-      if (node !== stopEl) parts.unshift(selectorPart(node));
+      if (node !== stopEl) parts.unshift(selectorPart(node, structuralOnly));
       if (node === stopEl) break;
       node = node.parentElement;
     }
-    return parts.slice(-5).join(" > ");
+    return (structuralOnly ? parts : parts.slice(-5)).join(" > ");
   }
 
   function getSourceId(el: Element | null): string {
@@ -586,6 +608,119 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       el.id ||
       ""
     );
+  }
+
+  function readSourceDocumentProvenance(): {
+    versionHash?: string;
+    uniqueNodeIds: string[];
+  } {
+    return sourceDocumentProvenanceSnapshot;
+  }
+
+  function isUniqueRenderedSourceId(
+    sourceId: string,
+    expectedElement?: Element | null,
+  ): boolean {
+    if (!sourceId) return false;
+    var selectors = [
+      '[data-agent-native-node-id="' + escapeAttribute(sourceId) + '"]',
+      '[data-code-layer-id="' + escapeAttribute(sourceId) + '"]',
+      '[data-layer-id="' + escapeAttribute(sourceId) + '"]',
+      '[data-builder-id="' + escapeAttribute(sourceId) + '"]',
+      '[data-loc="' + escapeAttribute(sourceId) + '"]',
+      '[id="' + escapeAttribute(sourceId) + '"]',
+    ];
+    var matches = document.querySelectorAll(selectors.join(","));
+    return (
+      matches.length === 1 &&
+      (!expectedElement || matches[0] === expectedElement)
+    );
+  }
+
+  function nodeProvenanceForSourceId(
+    sourceId: string,
+    element: Element | null,
+  ): { versionHash?: string; uniqueNodeId?: string } | undefined {
+    // Only a node that the source morph actually owns can be paired with the
+    // current source version. Alpine template instances are runtime copies,
+    // even when a single rendered row makes their copied authored ID appear
+    // unique in the live document.
+    if (
+      !element ||
+      !isSourceOwned(element) ||
+      isTemplateCloneElement(element)
+    ) {
+      return undefined;
+    }
+    var documentProvenance = readSourceDocumentProvenance();
+    var nodeProvenance: { versionHash?: string; uniqueNodeId?: string } = {};
+    if (documentProvenance.versionHash) {
+      nodeProvenance.versionHash = documentProvenance.versionHash;
+    }
+    if (
+      sourceId &&
+      documentProvenance.uniqueNodeIds.indexOf(sourceId) !== -1 &&
+      isUniqueRenderedSourceId(sourceId, element)
+    ) {
+      nodeProvenance.uniqueNodeId = sourceId;
+    }
+    return nodeProvenance.versionHash || nodeProvenance.uniqueNodeId
+      ? nodeProvenance
+      : undefined;
+  }
+
+  function normalizeSourceDocumentProvenance(
+    value: unknown,
+  ): { versionHash?: string; uniqueNodeIds: string[] } | undefined {
+    if (!value || typeof value !== "object") return undefined;
+    var candidate = value as {
+      versionHash?: unknown;
+      uniqueNodeIds?: unknown;
+    };
+    var uniqueNodeIds: string[] = [];
+    var seenNodeIds = new Set<string>();
+    if (Array.isArray(candidate.uniqueNodeIds)) {
+      candidate.uniqueNodeIds.forEach(function (nodeId) {
+        if (typeof nodeId === "string" && nodeId && !seenNodeIds.has(nodeId)) {
+          seenNodeIds.add(nodeId);
+          uniqueNodeIds.push(nodeId);
+        }
+      });
+    }
+    var provenance: { versionHash?: string; uniqueNodeIds: string[] } = {
+      uniqueNodeIds: uniqueNodeIds,
+    };
+    if (typeof candidate.versionHash === "string" && candidate.versionHash) {
+      provenance.versionHash = candidate.versionHash;
+    }
+    return provenance;
+  }
+
+  function publishSourceDocumentProvenance(
+    sourceProvenance?: { versionHash?: string; uniqueNodeIds: string[] },
+    partialMutation?: boolean,
+  ): void {
+    var uniqueNodeIds = sourceProvenance
+      ? sourceProvenance.uniqueNodeIds
+      : partialMutation
+        ? readSourceDocumentProvenance().uniqueNodeIds
+        : [];
+    var published: { versionHash?: string; uniqueNodeIds: string[] } = {
+      uniqueNodeIds: uniqueNodeIds,
+    };
+    if (sourceProvenance?.versionHash) {
+      published.versionHash = sourceProvenance.versionHash;
+    }
+    sourceDocumentProvenanceSnapshot = published;
+    (window as any).__agentNativeSourceProvenance = published;
+  }
+
+  var sourceDocumentProvenanceSnapshot = normalizeSourceDocumentProvenance(
+    (window as any).__agentNativeSourceProvenance,
+  ) || { uniqueNodeIds: [] };
+  if ((window as any).__agentNativeSourceProvenance) {
+    (window as any).__agentNativeSourceProvenance =
+      sourceDocumentProvenanceSnapshot;
   }
 
   /**
@@ -634,13 +769,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     build: true,
     ".next": true,
     public: true,
+    ".vite": true,
   };
 
-  function isProvenanceNoisePath(path: string): boolean {
+  // React 19 captures _debugStack inside the JSX runtime itself, so its
+  // module is always the top frame; recognised by a runtime module name
+  // INSIDE a Vite optimizer deps directory (`deps`/`deps_ssr`/`deps_temp_*`
+  // — the optimizer always writes pre-bundles there, even under a custom
+  // cacheDir with no node_modules segment) — never by basename alone, since
+  // an authored file that happens to be named react.js or jsx-runtime.js
+  // outside a deps directory is a real local file.
+  var PROVENANCE_REACT_RUNTIME_MODULE_RE =
+    /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\.development|\.production(?:\.min)?)?\.(?:m?js|cjs)$/;
+  var PROVENANCE_VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
+
+  // localServedOutput (a /@fs/ frame) exempts dist/build only — a locally
+  // built package is a real local file. node_modules stays noise even
+  // through /@fs/: Vite resolves symlinks, so a linked workspace package
+  // never carries a node_modules segment, and third-party code always
+  // arrives here by its real path.
+  function isProvenanceNoisePath(
+    path: string,
+    localServedOutput: boolean,
+  ): boolean {
     var segments = path.split("/");
+    for (var i = 0; i < segments.length - 1; i += 1) {
+      if (
+        PROVENANCE_VITE_DEPS_SEGMENT_RE.test(segments[i]!) &&
+        PROVENANCE_REACT_RUNTIME_MODULE_RE.test(segments[i + 1]!)
+      ) {
+        return true;
+      }
+    }
     for (var i = 0; i < segments.length; i += 1) {
-      if (PROVENANCE_NOISE_SEGMENTS[segments[i]!]) return true;
-      if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+      var segment = segments[i]!;
+      if (localServedOutput && (segment === "dist" || segment === "build")) {
+        continue;
+      }
+      if (PROVENANCE_NOISE_SEGMENTS[segment]) return true;
+      if (segment === "_next" && segments[i + 1] === "static") return true;
     }
     return false;
   }
@@ -702,11 +869,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var resolved = resolveProvenanceFrameUrl(match[2]!);
     if (!resolved) return null;
     // A Vite /@fs/ frame is a real local file even when its path contains
-    // dist/ or node_modules/. Ordinary runtime/module frames retain the noise
-    // filter so React internals never become element provenance.
+    // dist/ or build/ — but node_modules stays noise even through /@fs/, so a
+    // classic-transform createElement frame served from a symlinked
+    // dependency (react.development.js) never becomes element provenance.
     if (
-      !resolved.localServedOutput &&
-      isProvenanceNoisePath(resolved.sourceFile)
+      isProvenanceNoisePath(resolved.sourceFile, resolved.localServedOutput)
     ) {
       return null;
     }
@@ -1376,6 +1543,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return false;
     }
+    if (
+      el instanceof HTMLIFrameElement &&
+      !isSourceOwned(el) &&
+      el.getAttribute("aria-hidden") === "true" &&
+      el.offsetWidth === 0 &&
+      el.offsetHeight === 0
+    ) {
+      return false;
+    }
     return !(
       isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]")
     );
@@ -1827,10 +2003,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (isDocumentRootElement(el)) return true;
     if (el.parentElement !== document.body) return false;
     var sourceId = (getSourceId(el) || "").toLowerCase();
-    var layerName = (
-      (el.getAttribute && el.getAttribute("data-agent-native-layer-name")) ||
-      ""
-    ).toLowerCase();
+    var layerName = layerNameForElement(el).toLowerCase();
     return (
       sourceId === "body" || layerName === "body" || layerName === "<body>"
     );
@@ -1849,71 +2022,48 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !!(el && !isDocumentRootElement(el) && getSourceId(el));
   }
 
-  // Detects an Alpine `<template x-for>` runtime clone: Alpine keeps the
-  // `<template>` element itself in the live DOM (as a hidden, zero-size
-  // marker) and inserts every rendered instance as a DIRECT SIBLING of that
-  // template, all still children of the same parent — so `ul > template,
-  // li, li, li` is the live shape for `<ul><template x-for>...</template>
-  // rendering 3 items</ul>`. The static SOURCE HTML the host resolves moves
-  // against only ever contains the single template child, never the N
-  // runtime clones, so structural moves (reorder/reparent) targeting a
-  // clone — or targeting another clone as the anchor — can never resolve on
-  // the host and always come back `applied:false`. Detected once per drag
-  // via an ancestor walk (not just the immediate parent) so nested x-for
-  // clones (e.g. a subtask `<li>` inside a per-task `<ul>` that is itself
-  // x-for'd) are also caught, stopping at the first stable-id ancestor
-  // (anything inside a stamped subtree has a real anchor and is fine).
-  // Template bodies are projected and stamped, so a clone carries the body's
-  // id. Keying cloneness on "has an id" made every clone read as real source.
-  var repeatBodyIdCache = new WeakMap<Element, Set<string>>();
-
-  function repeatBodyIds(template: Element): Set<string> {
-    var cached = repeatBodyIdCache.get(template);
-    if (cached) return cached;
-    var ids = new Set<string>();
-    var body = (template as Element & { content?: DocumentFragment }).content;
-    if (body) {
-      var all = body.querySelectorAll("*");
-      for (var i = 0; i < all.length; i += 1) {
-        var id = all[i].getAttribute("data-agent-native-node-id");
-        if (id) ids.add(id);
-      }
-    }
-    repeatBodyIdCache.set(template, ids);
-    return ids;
-  }
-
-  function repeatBodyRootTag(template: Element): string {
-    var body = (template as Element & { content?: DocumentFragment }).content;
-    var root = body ? body.firstElementChild : null;
-    return root ? root.tagName : "";
-  }
-
+  // Alpine inserts x-for and x-if instances as direct siblings of their
+  // template. Use Alpine's own ownership references rather than guessing from
+  // copied IDs, tag shape, or sibling position: any of those can also describe
+  // an ordinary authored sibling.
   function repeatTemplateOwning(node: Element): Element | null {
     var parent = node.parentElement;
     if (!parent) return null;
-    var ownId = node.getAttribute
-      ? node.getAttribute("data-agent-native-node-id")
-      : null;
     var siblings = parent.children;
     for (var i = 0; i < siblings.length; i += 1) {
       var sib = siblings[i];
       if (
         sib === node ||
         !sib.tagName ||
-        sib.tagName.toLowerCase() !== "template" ||
-        !sib.hasAttribute("x-for")
+        sib.tagName.toLowerCase() !== "template"
       ) {
         continue;
       }
-      if (ownId) {
-        if (repeatBodyIds(sib).has(ownId)) return sib;
+      var alpineTemplate = sib as Element & {
+        _x_lookup?: Map<unknown, Element> | Record<string, Element>;
+        _x_currentIfEl?: Element;
+      };
+      if (alpineTemplate._x_currentIfEl === node) return sib;
+      var lookup = alpineTemplate._x_lookup;
+      if (!lookup) continue;
+      var map = lookup as Map<unknown, Element>;
+      if (typeof map.forEach === "function" && typeof map.get === "function") {
+        var foundInMap = false;
+        map.forEach(function (instance) {
+          if (instance === node) foundInMap = true;
+        });
+        if (foundInMap) return sib;
         continue;
       }
-      // No id to match, so fall back to shape: a clone is a copy of the
-      // template body's root. "Has no id" alone would read any ordinary
-      // element following a repeat as one of its rendered rows.
-      if (node.tagName === repeatBodyRootTag(sib)) return sib;
+      var record = lookup as Record<string, Element>;
+      for (var key in record) {
+        if (
+          Object.prototype.hasOwnProperty.call(record, key) &&
+          record[key] === node
+        ) {
+          return sib;
+        }
+      }
     }
     return null;
   }
@@ -1948,6 +2098,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (node.nodeType === 3 && (node.nodeValue || "").trim()) return true;
     }
     return false;
+  }
+
+  function isWholeTextStyleRoot(el: Element): boolean {
+    if (
+      el === document.body ||
+      el === document.documentElement ||
+      el.getAttribute("data-agent-native-group") === "true" ||
+      el.getAttribute("data-an-primitive") === "frame"
+    ) {
+      return false;
+    }
+    if (el.getAttribute("data-an-primitive") === "text") {
+      return Boolean((el.textContent || "").trim());
+    }
+    return (
+      hasOnlyInlineEditableChildren(el) &&
+      (hasOwnTextContent(el) || isInlineEditableDescendant(el))
+    );
   }
 
   /** Every row this template rendered, in document order. */
@@ -2097,26 +2265,140 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return siblings.length > 0 ? siblings : [el];
   }
 
-  function selectionTargetForHit(hit: Element | null): Element | null {
+  // `data-an-text` is the editor's own wrapper around a painted leaf's bare
+  // text. Selecting it hands the inspector a bare inline span, so a button's
+  // radius, fill and component props all read as absent.
+  function unwrapTextOverlay(hit: Element): Element {
+    if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
+      var textOwner = hit.parentElement;
+      if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+    }
+    return hit;
+  }
+
+  function nativeTextPrimitiveForHit(hit: Element | null): Element | null {
+    if (!hit || !hit.closest) return null;
+    var root = hit.closest('[data-an-primitive="text"]');
+    return root && !isDocumentRootElement(root) ? root : null;
+  }
+
+  function selectionTargetForHit(
+    hit: Element | null,
+    descendIntoGroup = false,
+  ): Element | null {
     if (!hit || isDocumentRootElement(hit)) return hit;
     // A <path>/<polygon> is geometry, not a layer: its tight bbox is 0-height
     // for a horizontal line, and only the outermost <svg> carries the id and a
     // layout box.
     var svgRoot = outermostSvgAncestor(hit);
     if (svgRoot) return svgRoot;
-    // `data-an-text` is the editor's own wrapper around a painted leaf's bare
-    // text. Selecting it hands the inspector a bare inline span, so a button's
-    // radius, fill and component props all read as absent.
-    if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
-      var textOwner = hit.parentElement;
-      if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+    var target = unwrapTextOverlay(hit);
+    var textPrimitive = nativeTextPrimitiveForHit(target);
+    if (textPrimitive) target = textPrimitive;
+    if (!descendIntoGroup) {
+      var group = target;
+      while (group && !isDocumentRootElement(group)) {
+        var groupName =
+          (group.getAttribute &&
+            group.getAttribute("data-agent-native-layer-name")) ||
+          (group.getAttribute && group.getAttribute("data-layer-name")) ||
+          "";
+        var generatedGroupMarker =
+          group.getAttribute &&
+          group.getAttribute("data-agent-native-group-wrapper") === "true" &&
+          group.getAttribute("data-agent-native-clone-root") !== "true";
+        var legacyNodeId =
+          group.getAttribute && group.getAttribute("data-agent-native-node-id");
+        // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
+        var legacyGeneratedGroup =
+          /^an-[a-z0-9]+$/i.test(legacyNodeId || "") &&
+          /^group(?: \d+)?$/i.test(groupName.trim()) &&
+          group.getAttribute("data-agent-native-preserve-styles") === "true" &&
+          group.getAttribute("data-agent-native-clone-root") !== "true";
+        // The dedicated marker survives renames. The fallback recognizes
+        // pre-marker wrappers while excluding style-preserving pasted roots.
+        if (generatedGroupMarker || legacyGeneratedGroup) {
+          return group;
+        }
+        group = group.parentElement;
+      }
     }
-    // Select the deepest element under the pointer on the first click. The
-    // bridge can mint a pending node id and build a source-equivalent selector
-    // for id-less descendants, so climbing to the nearest tagged ancestor is
-    // no longer necessary and makes ordinary list labels select their parent
-    // container instead.
-    return hit;
+    // Select the deepest element under the pointer unless an explicit Group
+    // owns it. Double-click passes descendIntoGroup to reach the child.
+    return target;
+  }
+
+  // Climbs from `el` to the ancestor that is a direct child of `scope`
+  // (inclusive: returns `el` itself when `el === scope`). Bounded at
+  // document.body/documentElement even if `scope` is never reached, so a
+  // stale or detached scope can never walk the climb past the top level.
+  function containerScopeAncestor(el: Element, scope: Element): Element {
+    var node = el;
+    while (
+      node !== scope &&
+      node.parentElement &&
+      node.parentElement !== scope &&
+      node.parentElement !== document.body &&
+      node.parentElement !== document.documentElement
+    ) {
+      node = node.parentElement;
+    }
+    return node;
+  }
+
+  // Figma parity (spec Part 3 + ground truth Round 2): a plain click selects
+  // the outermost child of the CURRENT container scope — the screen root by
+  // default, or the container last drilled into via double-click — instead of
+  // the raw deepest hit under the pointer. A click that lands outside the
+  // drilled container exits drill mode (Figma: clicking elsewhere returns to
+  // top-level selection). Cmd/Ctrl+click deep-selects and must call
+  // selectionTargetForHit directly instead of this.
+  function containerFirstSelectionTarget(
+    hit: Element | null,
+    descendIntoGroup?: boolean,
+  ): Element | null {
+    var resolved = selectionTargetForHit(hit, descendIntoGroup);
+    if (!resolved || isDocumentRootElement(resolved)) return resolved;
+    var scope = selectionContainerScope;
+    if (
+      !scope ||
+      !document.documentElement.contains(scope) ||
+      !scope.contains(resolved)
+    ) {
+      // Falling back out of a stale/unrelated scope IS exiting drill mode.
+      selectionContainerScope = null;
+      scope = document.body;
+    }
+    return containerScopeAncestor(resolved, scope);
+  }
+
+  // Figma "click through": with a container selected, a plain click on one
+  // of its descendants selects the container's child under the pointer, one
+  // level per click, and the scope follows so later clicks stay inside it.
+  // The second click of a double-click is not a click-through: the dblclick
+  // handler drills that one level itself.
+  function clickThroughSelectionTarget(
+    hit: Element | null,
+    ev: MouseEvent,
+  ): Element | null {
+    if (ev.detail > 1) return null;
+    if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+      return null;
+    }
+    if (collectMoveGroupMembers(selectedEl).length > 1) return null;
+    if (!hit || isDocumentRootElement(hit)) return null;
+    // Unlike selectionTargetForHit, this does not promote to an ancestor
+    // group/frame wrapper: a Frame-kind wrapper carries the same
+    // data-agent-native-group-wrapper marker as a Group, so that promotion
+    // would resolve straight back to selectedEl and click-through would
+    // never descend into a selected Frame's children.
+    var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+    raw = nativeTextPrimitiveForHit(raw) || raw;
+    if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
+      return null;
+    }
+    selectionContainerScope = selectedEl;
+    return containerScopeAncestor(raw, selectedEl);
   }
 
   function freshRuntimeNodeId(prefix: string): string {
@@ -2137,8 +2419,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "an-" + String(prefix || "copy") + "-" + random;
   }
 
-  function resetRuntimeStableIds(root: Element | null): void {
-    if (!root || !root.querySelectorAll) return;
+  function resetRuntimeStableIds(
+    root: Element | null,
+  ): Array<[string, string]> {
+    if (!root || !root.querySelectorAll) return [];
+    var sourceNodeIdMap: Array<[string, string]> = [];
     var nodes = [root].concat(
       Array.prototype.slice.call(
         root.querySelectorAll("[data-agent-native-node-id]"),
@@ -2146,12 +2431,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     nodes.forEach(function (node, index) {
       if (node && node.setAttribute) {
-        node.setAttribute(
-          "data-agent-native-node-id",
-          freshRuntimeNodeId(index === 0 ? "copy" : "copy-child"),
+        var sourceNodeId = node.getAttribute("data-agent-native-node-id");
+        var cloneNodeId = freshRuntimeNodeId(
+          index === 0 ? "copy" : "copy-child",
         );
+        node.setAttribute("data-agent-native-node-id", cloneNodeId);
+        if (sourceNodeId) sourceNodeIdMap.push([sourceNodeId, cloneNodeId]);
       }
     });
+    return sourceNodeIdMap;
   }
 
   function getSelector(el: Element | null): string {
@@ -2191,6 +2479,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return raw && raw.trim ? raw.trim() : "";
   }
 
+  function layerNameForElement(el: Element | null): string {
+    if (!el || !el.getAttribute) return "";
+    var canonical = el.getAttribute("data-agent-native-layer-name");
+    if (canonical && canonical.trim) {
+      var trimmedCanonical = canonical.trim();
+      if (trimmedCanonical) return trimmedCanonical;
+    }
+    var legacy = el.getAttribute("data-layer-name");
+    return legacy && legacy.trim ? legacy.trim() : "";
+  }
+
   // Only the annotation. The class/layer-name guess this replaced painted
   // shadcn's `bg-card` violet on canvas while the panel kept it blue, and
   // `btn-group` the other way round — the same element, two colours.
@@ -2210,8 +2509,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var explicit = explicitComponentNameForElement(el);
     if (explicit) return explicit;
     if (!elementLooksLikeComponent(el) || !el || !el.getAttribute) return "";
-    var layerName = el.getAttribute("data-agent-native-layer-name");
-    return layerName && layerName.trim ? layerName.trim() : "";
+    return layerNameForElement(el);
   }
 
   function isAutoLayoutDisplay(display: string | undefined): boolean {
@@ -2224,6 +2522,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function rectInfoForElement(el: Element) {
+    if (el.getAttribute("data-an-primitive") === "boolean-operand") {
+      var geometry = el as SVGGraphicsElement;
+      var box = geometry.getBBox();
+      var matrix = geometry.getScreenCTM();
+      if (box && matrix) {
+        var points = [
+          [box.x, box.y],
+          [box.x + box.width, box.y],
+          [box.x, box.y + box.height],
+          [box.x + box.width, box.y + box.height],
+        ];
+        var xs = points.map(function (point) {
+          return matrix.a * point[0]! + matrix.c * point[1]! + matrix.e;
+        });
+        var ys = points.map(function (point) {
+          return matrix.b * point[0]! + matrix.d * point[1]! + matrix.f;
+        });
+        var scrollX = window.scrollX || window.pageXOffset || 0;
+        var scrollY = window.scrollY || window.pageYOffset || 0;
+        var left = Math.min.apply(null, xs);
+        var top = Math.min.apply(null, ys);
+        return {
+          x: left + scrollX,
+          y: top + scrollY,
+          width: Math.max.apply(null, xs) - left,
+          height: Math.max.apply(null, ys) - top,
+        };
+      }
+    }
     var rect = el.getBoundingClientRect();
     return {
       x: rect.x + (window.scrollX || window.pageXOffset || 0),
@@ -2233,8 +2560,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function designParentForElement(el: Element): Element | null {
+    if (el.getAttribute("data-an-primitive") === "boolean-operand") {
+      return el.closest('svg[data-an-primitive="boolean"]') || el.parentElement;
+    }
+    return el.parentElement;
+  }
+
   function autoLayoutParentInfo(el: Element) {
-    var parent = el.parentElement;
+    var parent = designParentForElement(el);
     if (
       !parent ||
       parent === document.body ||
@@ -2326,6 +2660,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "justifySelf",
     "letterSpacing",
     "lineHeight",
+    "webkitBoxOrient",
+    "webkitLineClamp",
     "margin",
     "marginBottom",
     "marginLeft",
@@ -2356,7 +2692,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "placeContent",
     "placeItems",
     "placeSelf",
-    "position",
+    // "position" is deliberately excluded: the drop/move that carries this
+    // snapshot always decides the landed node's position itself afterward
+    // (setRootLayerPosition / setAbsolutePositioningForNodeInHtml /
+    // removeAbsolutePositioningFromNodeInHtml), and design-editor/
+    // portable-style.ts's applyPortableStyles filters it back out on the
+    // apply side too if it's ever added back here — keep both in sync.
     "rowGap",
     "textAlign",
     "textDecoration",
@@ -2374,15 +2715,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "zIndex",
   ];
 
-  function elementPathFromRoot(root: Element, node: Element): number[] {
-    var path = [];
-    var current: Element | null = node;
-    while (current && current !== root && current.parentElement) {
-      var siblings = Array.prototype.slice.call(current.parentElement.children);
-      path.unshift(Math.max(0, siblings.indexOf(current)));
-      current = current.parentElement;
+  function elementPathsFromRoot(
+    root: Element,
+    descendants: Element[],
+  ): Map<Element, number[]> {
+    var paths = new Map<Element, number[]>();
+    var nextChildIndexes = new Map<Element, number>();
+    paths.set(root, []);
+    for (var index = 0; index < descendants.length; index += 1) {
+      var node = descendants[index];
+      var parent = node.parentElement;
+      if (!parent) continue;
+      var parentPath = paths.get(parent);
+      if (!parentPath) continue;
+      var childIndex = nextChildIndexes.get(parent) || 0;
+      nextChildIndexes.set(parent, childIndex + 1);
+      paths.set(node, parentPath.concat(childIndex));
     }
-    return path;
+    return paths;
   }
 
   // Editor-internal CSS custom-property prefixes — selection chrome colors,
@@ -2410,15 +2760,139 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
+  // Bare-tag baseline for the diff below, measured in a throwaway iframe
+  // with NO author stylesheets — the source document's own `<style>`/
+  // Tailwind rules must never leak into "default", or a bare-tag rule
+  // there (e.g. `button { background: teal }`) matches the probe too and
+  // the diff wrongly reads a real, authored appearance as "just what this
+  // tag renders as anyway", dropping it before it ever reaches the
+  // destination document (which has no such rule). Cached per tag+
+  // namespace since a portable-style snapshot walks up to 80 descendants
+  // per drag.
+  var portableStyleProbeDoc: Document | null | undefined;
+
+  function portableStyleProbeDocument(): Document | null {
+    if (portableStyleProbeDoc !== undefined) return portableStyleProbeDoc;
+    try {
+      var frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.tabIndex = -1;
+      frame.style.cssText =
+        "position:fixed!important;width:0!important;height:0!important;" +
+        "border:0!important;visibility:hidden!important;pointer-events:none!important;";
+      document.body.appendChild(frame);
+      portableStyleProbeDoc = frame.contentDocument;
+    } catch (_err) {
+      portableStyleProbeDoc = null;
+    }
+    return portableStyleProbeDoc;
+  }
+
+  var portableStyleTagDefaultsCache: Record<
+    string,
+    Record<string, string>
+  > = {};
+
+  // `null` means "the probe could not be measured" — a distinct, loud
+  // failure a caller must skip on, never `{}`. `{}` reads as "this tag has
+  // no default styles," which makes every real computed value look
+  // customized and silently falls back to over-carrying ~130 properties
+  // onto every moved/duplicated node (the exact pre-fix bug this guards).
+  function portableStyleTagDefaults(
+    el: Element,
+  ): Record<string, string> | null {
+    var cacheKey = (el.namespaceURI || "") + ":" + el.tagName;
+    var cached = portableStyleTagDefaultsCache[cacheKey];
+    if (cached) return cached;
+    var probeDoc = portableStyleProbeDocument();
+    if (!probeDoc || !probeDoc.body) {
+      dndLog("style:probe-unavailable", { tag: el.tagName });
+      return null;
+    }
+    // Deliberately NOT forced to position:absolute: that changes width's
+    // auto-sizing algorithm (shrink-to-fit vs filling the containing
+    // block), so an ordinary static element would look "different from
+    // default" purely from the probe's own position, not any real
+    // customization. The probe stays in normal flow; the IFRAME around it
+    // (zero-size, hidden, fixed) is what's kept out of visible layout.
+    var probe =
+      el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml"
+        ? probeDoc.createElementNS(el.namespaceURI, el.tagName)
+        : probeDoc.createElement(el.tagName);
+    probeDoc.body.appendChild(probe);
+    var probeWindow = probeDoc.defaultView || window;
+    var probeCs = probeWindow.getComputedStyle(probe);
+    var defaults: Record<string, string> = {};
+    PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
+      defaults[property] =
+        probeCs[property] || probeCs.getPropertyValue(property);
+    });
+    probeDoc.body.removeChild(probe);
+    portableStyleTagDefaultsCache[cacheKey] = defaults;
+    return defaults;
+  }
+
+  // Native computed values preserve auto/%/calc without freezing used layout
+  // pixels or trying to replay the cascade. Like the other snapshot properties,
+  // sizes describe the current computed state, including active animations.
+  // ponytail: font-relative sizes may canonicalize to pixels; preserving authored
+  // units across different stylesheets would require declaration provenance.
+  var PORTABLE_STYLE_BOX_SIZE_PROPERTIES: Record<string, boolean> = {
+    width: true,
+    height: true,
+  };
+
   function collectPortableComputedStyles(
     el: Element | null,
-  ): Record<string, string> {
+  ): Record<string, string> | null {
     if (!el) return {};
     var cs = window.getComputedStyle(el);
+    var defaults = portableStyleTagDefaults(el);
+    if (!defaults) return null;
+    var hostStyle = (el as HTMLElement).style;
     var styles: Record<string, string> = {};
+    var typedElement = el as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap !== "function") {
+      dndLog("style:typed-om-unavailable", { tag: el.tagName });
+      return null;
+    }
+    try {
+      var typedStyles = typedElement.computedStyleMap();
+      for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
+        var typedValue = typedStyles.get(property);
+        if (typedValue == null || !String(typedValue).trim()) {
+          dndLog("style:typed-om-value-missing", { property: property });
+          return null;
+        }
+        var size = String(typedValue).trim();
+        // Explicit auto must replace a losing inline size in the moved markup.
+        if (size !== "auto" || hostStyle?.getPropertyValue(property)) {
+          styles[property] = size;
+        }
+      }
+    } catch (_error) {
+      dndLog("style:typed-om-read-failed", { tag: el.tagName });
+      return null;
+    }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
+      if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
       var value = cs[property] || cs.getPropertyValue(property);
-      if (typeof value === "string" && value.trim()) {
+      var inlineValue = hostStyle && hostStyle.getPropertyValue(property);
+      // Only carry what a class/cascade actually customized on THIS element,
+      // or what it inherited from its old parent chain (an inherited value
+      // differs from the bare probe's un-inherited default too, since the
+      // probe has no parent to inherit from). A value identical to the bare
+      // tag's own rendering is noise: applying it verbatim is how a
+      // duplicate/cross-screen move used to bake ~50 irrelevant properties
+      // (opacity, z-index, box-sizing, transform:none, ...) onto every
+      // dropped copy instead of just what makes it look like the source.
+      if (
+        typeof value === "string" &&
+        value.trim() &&
+        (inlineValue || value !== defaults[property])
+      ) {
         styles[property] = value;
       }
     });
@@ -2440,24 +2914,66 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function collectPortableStyleSnapshot(root: Element | null) {
     if (!root || isDocumentRootElement(root)) return undefined;
+    var maxNodes = 5000;
+    var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
+    var nodeCount = descendants.length + 1;
+    if (nodeCount > maxNodes) {
+      dndLog("style:snapshot-skipped", {
+        el: getSelector(root),
+        reason: "node-limit",
+        count: nodeCount,
+      });
+      return null;
+    }
+    var elementPaths = elementPathsFromRoot(root, descendants);
+    if (elementPaths.size !== nodeCount) {
+      dndLog("style:snapshot-skipped", {
+        el: getSelector(root),
+        reason: "path-unavailable",
+        count: nodeCount,
+      });
+      return null;
+    }
     var nodes = [];
-    var maxNodes = 80;
+    // A failed probe or Typed OM read invalidates the entire capture; never
+    // return a partial snapshot that silently loses appearance.
+    var probeFailed = false;
     function pushNode(node: Element) {
-      if (nodes.length >= maxNodes) return;
+      if (nodes.length >= maxNodes || probeFailed) return;
+      var path = elementPaths.get(node);
+      if (!path) {
+        probeFailed = true;
+        return;
+      }
+      var styles = collectPortableComputedStyles(node);
+      if (styles === null) {
+        probeFailed = true;
+        return;
+      }
       nodes.push({
         sourceId: getSourceId(node) || undefined,
-        path: elementPathFromRoot(root, node),
-        styles: collectPortableComputedStyles(node),
+        path: path,
+        styles: styles,
       });
     }
     pushNode(root);
-    var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
     for (
       var index = 0;
-      index < descendants.length && nodes.length < maxNodes;
+      index < descendants.length && nodes.length < maxNodes && !probeFailed;
       index += 1
     ) {
       pushNode(descendants[index]);
+    }
+    if (probeFailed) {
+      dndLog("style:snapshot-skipped", { el: getSelector(root) });
+      // `null` (not `undefined`) marks CAPTURE FAILED, distinct from a
+      // legitimately absent snapshot (isDocumentRootElement/no root above,
+      // which returns `undefined`). Callers that post this cross-screen must
+      // forward that distinction as its own flag — a probe failure means
+      // "we don't know this element's appearance," not "there is nothing to
+      // carry," and a cross-screen move must refuse rather than silently
+      // drop a class-only appearance it never got to measure.
+      return null;
     }
     return {
       version: 1,
@@ -2482,7 +2998,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "width",
     "height",
     "transform",
+    "display",
+    "overflow",
+    "lineHeight",
+    "webkitBoxOrient",
+    "webkitLineClamp",
+    "--agent-native-truncate-original-display",
+    "--agent-native-truncate-original-overflow",
     "whiteSpace",
+    "backgroundImage",
+    "backgroundColor",
+    "color",
+    "fill",
   ];
 
   function collectInlineStyles(el: Element): Record<string, string> {
@@ -2490,7 +3017,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var inline = (el as HTMLElement).style;
     if (!inline) return styles;
     INLINE_STYLE_PROPERTIES.forEach(function (property) {
-      var value = inline[property as never] as unknown as string;
+      var cssProperty =
+        property === "webkitBoxOrient"
+          ? "-webkit-box-orient"
+          : property === "webkitLineClamp"
+            ? "-webkit-line-clamp"
+            : property;
+      var value =
+        property.indexOf("--") === 0 || property.indexOf("webkit") === 0
+          ? inline.getPropertyValue(cssProperty)
+          : (inline[property as never] as unknown as string);
       if (typeof value === "string" && value !== "") {
         styles[property] = value;
       }
@@ -2536,17 +3072,387 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : "var(--design-editor-accent-contrast-color)";
   }
 
+  function collectComputedStyles(
+    cs: CSSStyleDeclaration,
+    paintCs: CSSStyleDeclaration,
+    strokeCs: CSSStyleDeclaration = paintCs,
+  ) {
+    return {
+      color: cs.color,
+      backgroundColor: cs.backgroundColor,
+      backgroundImage: cs.backgroundImage,
+      backgroundPosition: cs.backgroundPosition,
+      backgroundRepeat: cs.backgroundRepeat,
+      backgroundSize: cs.backgroundSize,
+      backgroundBlendMode: cs.backgroundBlendMode,
+      fontSize: cs.fontSize,
+      fontFamily: cs.fontFamily,
+      fontStyle: cs.fontStyle,
+      fontWeight: cs.fontWeight,
+      lineHeight: cs.lineHeight,
+      letterSpacing: cs.letterSpacing,
+      webkitBoxOrient: cs.getPropertyValue("-webkit-box-orient"),
+      webkitLineClamp: cs.getPropertyValue("-webkit-line-clamp"),
+      textAlign: cs.textAlign,
+      textTransform: cs.textTransform,
+      // Clean longhand for decoration-toggle state (Cmd+U underline /
+      // Cmd+Shift+X strikethrough). Deliberately the longhand, not the
+      // `textDecoration` shorthand — see typography-helpers.ts's
+      // PERSISTENCE GOTCHA comment: reads use this clean value, writes
+      // still commit through the shorthand property name.
+      textDecorationLine: cs.textDecorationLine,
+      display: cs.display,
+      overflow: cs.overflow,
+      flexDirection: cs.flexDirection,
+      justifyContent: cs.justifyContent,
+      alignItems: cs.alignItems,
+      justifyItems: cs.justifyItems,
+      alignSelf: cs.alignSelf,
+      flexGrow: cs.flexGrow,
+      flexShrink: cs.flexShrink,
+      flexBasis: cs.flexBasis,
+      order: cs.order,
+      gridColumn: cs.gridColumn,
+      gridRow: cs.gridRow,
+      gridTemplateColumns: cs.gridTemplateColumns,
+      gridTemplateRows: cs.gridTemplateRows,
+      gridAutoFlow: cs.gridAutoFlow,
+      position: cs.position,
+      top: cs.top,
+      right: cs.right,
+      bottom: cs.bottom,
+      left: cs.left,
+      gap: cs.gap,
+      rowGap: cs.rowGap,
+      columnGap: cs.columnGap,
+      width: cs.width,
+      height: cs.height,
+      minWidth: cs.minWidth,
+      maxWidth: cs.maxWidth,
+      minHeight: cs.minHeight,
+      maxHeight: cs.maxHeight,
+      opacity: cs.opacity,
+      paddingTop: cs.paddingTop,
+      paddingRight: cs.paddingRight,
+      paddingBottom: cs.paddingBottom,
+      paddingLeft: cs.paddingLeft,
+      marginTop: cs.marginTop,
+      marginRight: cs.marginRight,
+      marginBottom: cs.marginBottom,
+      marginLeft: cs.marginLeft,
+      borderWidth: cs.borderWidth,
+      borderStyle: cs.borderStyle,
+      borderColor: cs.borderColor,
+      borderRadius: cs.borderRadius,
+      borderTopLeftRadius: cs.borderTopLeftRadius,
+      borderTopRightRadius: cs.borderTopRightRadius,
+      borderBottomRightRadius: cs.borderBottomRightRadius,
+      borderBottomLeftRadius: cs.borderBottomLeftRadius,
+      outlineWidth: cs.outlineWidth,
+      outlineStyle: cs.outlineStyle,
+      outlineColor: cs.outlineColor,
+      outlineOffset: cs.outlineOffset,
+      // Read off the shape child for a drawn vector (vectorPaintTarget):
+      // the `<svg>` wrapper itself is never painted.
+      fill: paintCs.fill,
+      fillOpacity: paintCs.fillOpacity,
+      stroke: strokeCs.stroke,
+      strokeWidth: strokeCs.strokeWidth,
+      strokeOpacity: strokeCs.strokeOpacity,
+      strokeDasharray: strokeCs.strokeDasharray,
+      strokeDashoffset: strokeCs.strokeDashoffset,
+      strokeLinecap: strokeCs.strokeLinecap,
+      strokeLinejoin: strokeCs.strokeLinejoin,
+      strokeMiterlimit: strokeCs.strokeMiterlimit,
+      vectorOpacity: paintCs.opacity,
+      vectorTransform: paintCs.transform,
+      vectorTransformOrigin: paintCs.transformOrigin,
+      vectorTransformBox: paintCs.transformBox,
+      // Text glyph outline (Figma-parity text "Stroke") — CSS has no
+      // unprefixed alias, so this is read via the vendor-prefixed
+      // longhands directly. See applyStyleEdit/normalizeStyleProperty in
+      // shared/code-layer.ts for the matching write-side allow-list entry.
+      webkitTextStrokeWidth: (
+        cs as unknown as { webkitTextStrokeWidth?: string }
+      ).webkitTextStrokeWidth,
+      webkitTextStrokeColor: (
+        cs as unknown as { webkitTextStrokeColor?: string }
+      ).webkitTextStrokeColor,
+      boxShadow: cs.boxShadow,
+      textShadow: cs.textShadow,
+      filter: cs.filter,
+      mixBlendMode: cs.mixBlendMode,
+      zIndex: cs.zIndex,
+      transform: cs.transform,
+      scale: cs.scale,
+      visibility: cs.visibility,
+      backdropFilter: cs.backdropFilter,
+      webkitBackdropFilter: (cs as unknown as { webkitBackdropFilter?: string })
+        .webkitBackdropFilter,
+      flexWrap: cs.flexWrap,
+      alignContent: cs.alignContent,
+      isolation: cs.isolation,
+      whiteSpace: cs.whiteSpace,
+    };
+  }
+
+  function measureNormalLineHeightPx(
+    el: Element,
+    cs: CSSStyleDeclaration,
+  ): string | undefined {
+    if (
+      !hasOwnTextContent(el) ||
+      cs.lineHeight.trim().toLowerCase() !== "normal" ||
+      !document.body
+    ) {
+      return undefined;
+    }
+
+    var probe = document.createElement("span");
+    probe.textContent = (el.textContent || "Hg").slice(0, 256);
+    probe.setAttribute("aria-hidden", "true");
+    probe.setAttribute("data-agent-native-edit-overlay", "line-height-probe");
+    probe.style.setProperty("all", "initial");
+    probe.style.position = "fixed";
+    probe.style.left = "-10000px";
+    probe.style.top = "0";
+    probe.style.display = "inline-block";
+    probe.style.width = "max-content";
+    probe.style.whiteSpace = "nowrap";
+    probe.style.lineHeight = "normal";
+    probe.style.margin = "0";
+    probe.style.padding = "0";
+    probe.style.border = "0";
+    probe.style.visibility = "hidden";
+    probe.style.fontFamily = cs.fontFamily;
+    probe.style.fontSize = cs.fontSize;
+    probe.style.fontStyle = cs.fontStyle;
+    probe.style.fontWeight = cs.fontWeight;
+    probe.style.fontStretch = cs.fontStretch;
+    probe.style.fontVariant = cs.fontVariant;
+    probe.style.fontKerning = cs.fontKerning;
+    probe.style.fontFeatureSettings = cs.fontFeatureSettings;
+    probe.style.fontVariationSettings = cs.fontVariationSettings;
+    probe.style.fontOpticalSizing = cs.fontOpticalSizing;
+    probe.style.letterSpacing = cs.letterSpacing;
+    probe.style.wordSpacing = cs.wordSpacing;
+    probe.style.textTransform = cs.textTransform;
+    document.body.appendChild(probe);
+    var height = probe.getBoundingClientRect().height;
+    probe.remove();
+    return height > 0 && Number.isFinite(height) ? height + "px" : undefined;
+  }
+
+  function collectTextRangeComputedStyles(
+    target: Element,
+    bookmark: { start: number; end: number; text: string },
+  ): Record<string, string> | null {
+    var values = {
+      color: [] as string[],
+      fontFamily: [] as string[],
+      fontSize: [] as string[],
+      fontStyle: [] as string[],
+      fontWeight: [] as string[],
+      lineHeight: [] as string[],
+      letterSpacing: [] as string[],
+      textDecorationLine: [] as string[],
+      textTransform: [] as string[],
+    };
+    var resolvedNormalLineHeights: string[] = [];
+    var walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+    var textOffset = 0;
+    while (walker.nextNode()) {
+      var text = walker.currentNode as Text;
+      var start = textOffset;
+      var end = start + text.data.length;
+      textOffset = end;
+      if (end <= bookmark.start || start >= bookmark.end) {
+        continue;
+      }
+      var styleTarget = text.parentElement || target;
+      var styles = window.getComputedStyle(styleTarget);
+      values.color.push(styles.color);
+      values.fontFamily.push(styles.fontFamily);
+      values.fontSize.push(styles.fontSize);
+      values.fontStyle.push(styles.fontStyle);
+      values.fontWeight.push(styles.fontWeight);
+      values.lineHeight.push(styles.lineHeight);
+      values.letterSpacing.push(styles.letterSpacing);
+      values.textDecorationLine.push(styles.textDecorationLine);
+      values.textTransform.push(styles.textTransform);
+      var resolvedNormalLineHeight = measureNormalLineHeightPx(
+        styleTarget,
+        styles,
+      );
+      if (resolvedNormalLineHeight) {
+        resolvedNormalLineHeights.push(resolvedNormalLineHeight);
+      }
+    }
+    if (values.color.length === 0) return null;
+    var computed: Record<string, string> = {};
+    Object.keys(values).forEach(function (property) {
+      var propertyValues = values[property as keyof typeof values];
+      computed[property] = propertyValues.every(
+        (value) => value === propertyValues[0],
+      )
+        ? propertyValues[0] || ""
+        : "Mixed";
+    });
+    if (
+      computed.lineHeight === "normal" &&
+      computed.fontFamily !== "Mixed" &&
+      computed.fontSize !== "Mixed" &&
+      computed.fontStyle !== "Mixed" &&
+      computed.fontWeight !== "Mixed" &&
+      resolvedNormalLineHeights.length === values.lineHeight.length &&
+      resolvedNormalLineHeights.every(
+        (value) => value === resolvedNormalLineHeights[0],
+      )
+    ) {
+      computed.resolvedLineHeightPx = resolvedNormalLineHeights[0]!;
+    }
+    return computed;
+  }
+
+  function collectTextRangeInlineStyles(
+    target: Element,
+    bookmark: { start: number; end: number; text: string },
+  ): Record<string, string> | undefined {
+    var lineHeights: string[] = [];
+    var walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+    var textOffset = 0;
+    while (walker.nextNode()) {
+      var text = walker.currentNode as Text;
+      var start = textOffset;
+      var end = start + text.data.length;
+      textOffset = end;
+      if (end <= bookmark.start || start >= bookmark.end) continue;
+      var styleTarget = text.parentElement || target;
+      var inlineStyle = (styleTarget as HTMLElement).style;
+      lineHeights.push(inlineStyle?.lineHeight || "");
+    }
+    if (lineHeights.length === 0) return undefined;
+    var first = lineHeights[0] || "";
+    return lineHeights.every(function (value) {
+      return value === first;
+    })
+      ? { lineHeight: first }
+      : undefined;
+  }
+
+  function textLeafAtCaret(root: Element, range: Range): Text | null {
+    if (!range.collapsed || !rangeBelongsToElement(range, root)) return null;
+    var container = range.startContainer;
+    if (container.nodeType === 3) return container as Text;
+    if (container.nodeType !== 1) return null;
+
+    function firstText(node: Node): Text | null {
+      if (node.nodeType === 3) return node as Text;
+      var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      return (walker.nextNode() as Text | null) || null;
+    }
+
+    function lastText(node: Node): Text | null {
+      if (node.nodeType === 3) return node as Text;
+      var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      var result: Text | null = null;
+      while (walker.nextNode()) result = walker.currentNode as Text;
+      return result;
+    }
+
+    var children = container.childNodes;
+    var offset = range.startOffset;
+    for (var forward = offset; forward < children.length; forward += 1) {
+      var forwardText = firstText(children[forward]!);
+      if (forwardText) return forwardText as Text;
+    }
+    for (var backward = offset - 1; backward >= 0; backward -= 1) {
+      var backwardText = lastText(children[backward]!);
+      if (backwardText) return backwardText as Text;
+    }
+    return null;
+  }
+
+  function collectCaretTextStyles(target: Element): {
+    computedStyles: Record<string, string>;
+    inlineStyles?: Record<string, string>;
+  } | null {
+    var selection: Selection | null = window.getSelection
+      ? window.getSelection()
+      : null;
+    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
+      return null;
+    }
+    var caret = selection.getRangeAt(0);
+    if (!rangeBelongsToElement(caret, target)) return null;
+    var leaf = textLeafAtCaret(target, caret);
+    if (!leaf || leaf.length === 0) return null;
+
+    // Keep the browser's actual text-leaf affinity, including offset zero at
+    // the start of a styled run. Flattening the caret offset loses that owner.
+    var leafRange = document.createRange();
+    leafRange.selectNodeContents(leaf);
+    var bookmark = captureTextRangeBookmark(target, leafRange);
+    if (!bookmark) return null;
+    var computedStyles = collectTextRangeComputedStyles(target, bookmark);
+    if (!computedStyles) return null;
+    return {
+      computedStyles: computedStyles,
+      inlineStyles: collectTextRangeInlineStyles(target, bookmark),
+    };
+  }
+
+  function collectElementComputedStyles(
+    el: Element,
+    cs: CSSStyleDeclaration,
+    paintCs: CSSStyleDeclaration,
+  ): Record<string, string> {
+    var strokeTarget = vectorStrokeTarget(el);
+    var strokeCs = strokeTarget
+      ? window.getComputedStyle(strokeTarget)
+      : paintCs;
+    var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
+      computed.strokeWidth =
+        strokeTarget.getAttribute("data-an-vector-logical-width") ||
+        strokeCs.strokeWidth;
+    }
+    var wholeText: Record<string, string> | null = null;
+    if (isWholeTextStyleRoot(el)) {
+      var fullText = el.textContent || "";
+      wholeText = collectTextRangeComputedStyles(el, {
+        start: 0,
+        end: fullText.length,
+        text: fullText,
+      });
+    }
+    if (wholeText) {
+      computed = { ...computed, ...wholeText };
+    } else {
+      var resolvedLineHeightPx = measureNormalLineHeightPx(el, cs);
+      if (resolvedLineHeightPx) {
+        computed.resolvedLineHeightPx = resolvedLineHeightPx;
+      }
+    }
+    return {
+      ...computed,
+      "--an-vector-stroke-position":
+        el.getAttribute("data-an-vector-stroke-position") || "",
+    };
+  }
+
   function getElementInfo(el: Element): unknown {
     var cs = window.getComputedStyle(el);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
-    var rect = el.getBoundingClientRect();
+    var boundingRect = rectInfoForElement(el);
     // A clone inherits nothing editable from its stamped ancestor: source
     // holds one template body, not this row. Claiming source-backed handed
     // the host a selector that resolves onto a DIFFERENT sibling.
     var componentName = componentNameForElement(el);
     var parentAutoLayout = autoLayoutParentInfo(el);
-    var parentStyles = el.parentElement
-      ? window.getComputedStyle(el.parentElement)
+    var designParent = designParentForElement(el);
+    var parentStyles = designParent
+      ? window.getComputedStyle(designParent)
       : null;
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var sourceBacked =
@@ -2638,6 +3544,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // site; framework runtime metadata fills the React owner call site. The
     // shared resolver crosses ShadowRoot.host for Vue, Svelte, and attributes.
     var provenance: FrameworkDebugProvenance = elementDebugProvenance(el);
+    var portableStyleSnapshot = collectPortableStyleSnapshot(el);
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
@@ -2645,121 +3552,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       sourceId: sourceId,
       repeat: repeatInstanceInfo(el) || undefined,
       hasOwnText: hasOwnTextContent(el),
+      wholeTextStyleRoot: isWholeTextStyleRoot(el),
       pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
-      computedStyles: {
-        color: cs.color,
-        backgroundColor: cs.backgroundColor,
-        backgroundImage: cs.backgroundImage,
-        backgroundPosition: cs.backgroundPosition,
-        backgroundRepeat: cs.backgroundRepeat,
-        backgroundSize: cs.backgroundSize,
-        backgroundBlendMode: cs.backgroundBlendMode,
-        fontSize: cs.fontSize,
-        fontFamily: cs.fontFamily,
-        fontWeight: cs.fontWeight,
-        lineHeight: cs.lineHeight,
-        letterSpacing: cs.letterSpacing,
-        textAlign: cs.textAlign,
-        // Clean longhand for decoration-toggle state (Cmd+U underline /
-        // Cmd+Shift+X strikethrough). Deliberately the longhand, not the
-        // `textDecoration` shorthand — see typography-helpers.ts's
-        // PERSISTENCE GOTCHA comment: reads use this clean value, writes
-        // still commit through the shorthand property name.
-        textDecorationLine: cs.textDecorationLine,
-        display: cs.display,
-        overflow: cs.overflow,
-        flexDirection: cs.flexDirection,
-        justifyContent: cs.justifyContent,
-        alignItems: cs.alignItems,
-        justifyItems: cs.justifyItems,
-        alignSelf: cs.alignSelf,
-        flexGrow: cs.flexGrow,
-        flexShrink: cs.flexShrink,
-        flexBasis: cs.flexBasis,
-        order: cs.order,
-        gridColumn: cs.gridColumn,
-        gridRow: cs.gridRow,
-        gridTemplateColumns: cs.gridTemplateColumns,
-        gridTemplateRows: cs.gridTemplateRows,
-        gridAutoFlow: cs.gridAutoFlow,
-        position: cs.position,
-        top: cs.top,
-        right: cs.right,
-        bottom: cs.bottom,
-        left: cs.left,
-        gap: cs.gap,
-        rowGap: cs.rowGap,
-        columnGap: cs.columnGap,
-        width: cs.width,
-        height: cs.height,
-        opacity: cs.opacity,
-        paddingTop: cs.paddingTop,
-        paddingRight: cs.paddingRight,
-        paddingBottom: cs.paddingBottom,
-        paddingLeft: cs.paddingLeft,
-        marginTop: cs.marginTop,
-        marginRight: cs.marginRight,
-        marginBottom: cs.marginBottom,
-        marginLeft: cs.marginLeft,
-        borderWidth: cs.borderWidth,
-        borderStyle: cs.borderStyle,
-        borderColor: cs.borderColor,
-        borderRadius: cs.borderRadius,
-        borderTopLeftRadius: cs.borderTopLeftRadius,
-        borderTopRightRadius: cs.borderTopRightRadius,
-        borderBottomRightRadius: cs.borderBottomRightRadius,
-        borderBottomLeftRadius: cs.borderBottomLeftRadius,
-        outlineWidth: cs.outlineWidth,
-        outlineStyle: cs.outlineStyle,
-        outlineColor: cs.outlineColor,
-        outlineOffset: cs.outlineOffset,
-        // Read off the shape child for a drawn vector (vectorPaintTarget):
-        // the `<svg>` wrapper itself is never painted.
-        fill: paintCs.fill,
-        fillOpacity: paintCs.fillOpacity,
-        stroke: paintCs.stroke,
-        strokeWidth: paintCs.strokeWidth,
-        strokeOpacity: paintCs.strokeOpacity,
-        // Text glyph outline (Figma-parity text "Stroke") — CSS has no
-        // unprefixed alias, so this is read via the vendor-prefixed
-        // longhands directly. See applyStyleEdit/normalizeStyleProperty in
-        // shared/code-layer.ts for the matching write-side allow-list entry.
-        webkitTextStrokeWidth: (
-          cs as unknown as { webkitTextStrokeWidth?: string }
-        ).webkitTextStrokeWidth,
-        webkitTextStrokeColor: (
-          cs as unknown as { webkitTextStrokeColor?: string }
-        ).webkitTextStrokeColor,
-        boxShadow: cs.boxShadow,
-        textShadow: cs.textShadow,
-        filter: cs.filter,
-        mixBlendMode: cs.mixBlendMode,
-        zIndex: cs.zIndex,
-        transform: cs.transform,
-        scale: cs.scale,
-        visibility: cs.visibility,
-        backdropFilter: cs.backdropFilter,
-        webkitBackdropFilter: (
-          cs as unknown as { webkitBackdropFilter?: string }
-        ).webkitBackdropFilter,
-        flexWrap: cs.flexWrap,
-        alignContent: cs.alignContent,
-        isolation: cs.isolation,
-        whiteSpace: cs.whiteSpace,
-      },
-      inlineStyles: collectInlineStyles(el),
+      computedStyles: collectElementComputedStyles(el, cs, paintCs),
+      inlineStyles: collectElementInlineStyles(el),
       primitiveKind: el.getAttribute("data-an-primitive") || undefined,
-      portableStyleSnapshot: collectPortableStyleSnapshot(el),
-      boundingRect: {
-        x: rect.x + (window.scrollX || window.pageXOffset || 0),
-        y: rect.y + (window.scrollY || window.pageYOffset || 0),
-        width: rect.width,
-        height: rect.height,
-      },
-      parentBoundingRect: el.parentElement
-        ? rectInfoForElement(el.parentElement)
+      isGroup: el.getAttribute("data-agent-native-group") === "true",
+      vectorStrokeCanAlign: vectorStrokeCanAlign(el),
+      portableStyleSnapshot:
+        portableStyleSnapshot === null ? undefined : portableStyleSnapshot,
+      styleSnapshotCaptureFailed:
+        portableStyleSnapshot === null ? true : undefined,
+      boundingRect,
+      parentBoundingRect: designParent
+        ? rectInfoForElement(designParent)
         : undefined,
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       textContentTruncated: el.textContent
@@ -2786,6 +3594,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }, 0),
       provenance: provenance,
     };
+  }
+
+  var lastScreenRootStyleSnapshot = "";
+  var screenRootStyleSnapshotFrame = 0;
+  function postScreenRootStyleSnapshot(): void {
+    if (!document.body) return;
+    var cs = window.getComputedStyle(document.body);
+    var computedStyles = collectComputedStyles(cs, cs);
+    var signature = JSON.stringify(computedStyles);
+    if (signature === lastScreenRootStyleSnapshot) return;
+    lastScreenRootStyleSnapshot = signature;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:screen-root-computed-styles",
+        computedStyles: computedStyles,
+      },
+      "*",
+    );
+  }
+  function scheduleScreenRootStyleSnapshot(): void {
+    if (screenRootStyleSnapshotFrame) return;
+    screenRootStyleSnapshotFrame = window.requestAnimationFrame(function () {
+      screenRootStyleSnapshotFrame = 0;
+      postScreenRootStyleSnapshot();
+    });
   }
 
   // Light hover descriptor: every pointer hover posts one of these instead of
@@ -2843,12 +3676,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     metaKey: boolean;
     ctrlKey: boolean;
   } {
-    var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+    // Figma spec §1: Shift+click is the ADDITIVE gesture (toggles membership).
+    // Cmd/Ctrl+click alone REPLACES the selection with the deep hit — it must
+    // not set `additive`, or a click-select host consumer (runScreenElementSelect)
+    // unions the deep-selected child into the current selection instead of
+    // replacing it. `metaKey`/`ctrlKey` still ride along on the intent for
+    // consumers (like deep-select's own hit resolution) that need to know a
+    // modifier was held without treating it as additive.
+    var shiftHeld = Boolean(e && e.shiftKey);
     return {
-      additive: additive,
-      range: Boolean(e && e.shiftKey),
+      additive: shiftHeld,
+      range: shiftHeld,
       source: "pointer",
-      shiftKey: Boolean(e && e.shiftKey),
+      shiftKey: shiftHeld,
       metaKey: Boolean(e && e.metaKey),
       ctrlKey: Boolean(e && e.ctrlKey),
     };
@@ -2900,10 +3740,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // Every element the click path can reach, not just the id-bearing ones: an id
   // attribute is a persistence detail, and generated markup routinely has none,
   // so keying selectability off it made a marquee miss what a click hits.
-  function collectSelectableElements(): Element[] {
+  // Figma parity: a marquee selects objects at the CURRENT container scope
+  // (the screen root by default, or the container last drilled into) — the
+  // same scope containerFirstSelectionTarget resolves clicks against — never
+  // reaching into a candidate's nested descendants unless Cmd/Ctrl is held
+  // (`deep`), matching Cmd/Ctrl+click's own deep-select.
+  function collectSelectableElements(deep?: boolean): Element[] {
     var nodes = Array.prototype.slice.call(
       document.body ? document.body.querySelectorAll("*") : [],
     ) as Element[];
+    var scope: Element | null = null;
+    if (!deep) {
+      scope = selectionContainerScope;
+      if (!scope || !document.documentElement.contains(scope)) {
+        scope = document.body;
+      }
+    }
     var seen = new Set<Element>();
     var elements: Element[] = [];
     nodes.forEach(function (node) {
@@ -2911,6 +3763,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       var target = selectionTargetForHit(node);
+      if (target && scope && scope.contains(target)) {
+        target = containerScopeAncestor(target, scope);
+      }
       if (
         !target ||
         isDocumentRootElement(target) ||
@@ -2945,8 +3800,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return cs.display === "none" || cs.visibility === "hidden";
   }
 
-  function collectSelectableElementInfos(): unknown[] {
-    return collectSelectableElements().map(function (target) {
+  function collectSelectableElementInfos(deep: boolean): unknown[] {
+    // This answers agent-native:collect-selectable-rects, which the overview
+    // host uses for BOTH the overview marquee (scoped: direct children of
+    // the current container, like the in-iframe marquee) and double-click
+    // drill-in/click-to-pick (deep: needs every descendant to walk one level
+    // further per repeat click) — the caller says which via `deep`.
+    return collectSelectableElements(deep).map(function (target) {
       return getElementInfo(target);
     });
   }
@@ -3321,9 +4181,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Constant-screen-size chrome: pill font/padding/offsets and the
     // component-root outline compensate for the host's iframe scale.
     var line = chromeLineScale();
-    var tagHeight = 22 * line;
-    var tagTop = rect.top - tagHeight - 4 * line;
-    if (tagTop < 4 * line) tagTop = rect.top + 4 * line;
+    var tagHeight = 24 * line;
+    var tagTop = rect.top - tagHeight - 6 * line;
+    // The fallback clears the size badge and outward rotation handles too.
+    if (tagTop < 4 * line) tagTop = rect.bottom + 40 * line;
     componentTagOverlay.style.display = "block";
     componentTagOverlay.style.fontSize = 11 * line + "px";
     componentTagOverlay.style.padding = 2 * line + "px " + 6 * line + "px";
@@ -3420,6 +4281,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function hideSelectionOverlay(): void {
     selectionOverlay.style.display = "none";
+    // The host mirrors this overlay into its own SelectionBox so a board
+    // object's handles can win z-order over an overlapping Screen (see
+    // MultiScreenCanvas). Clearing belongs here, at the single point every
+    // deselect path already funnels through — posting it from one caller
+    // leaves the host chrome floating over nothing after Escape, a marquee
+    // clear, a delete, or an undo.
+    if (designCanvasBoardSurface) {
+      window.parent.postMessage(
+        { type: "agent-native:board-selection-rect", rect: null },
+        "*",
+      );
+    }
     hideSizeBadge();
     hideSpacingOverlay();
     hideGridCellOverlay();
@@ -3430,6 +4303,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
+  // Figma parity: a plain click resolves to the outermost child of this
+  // container (the screen root, i.e. null, by default) rather than the raw
+  // deepest hit. Double-click drilling (beginTextEditingFromEvent's descend
+  // fallback) sets this to the container just drilled into; a plain click
+  // that lands outside it exits drill mode by clearing it back to null. See
+  // containerFirstSelectionTarget.
+  var selectionContainerScope: Element | null = null;
   var selectionGeneration = 0;
   // When true, selection chrome stays hidden through async reflows so a
   // keyboard-nudge burst does not flicker; selection itself is unchanged.
@@ -3479,6 +4359,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     startX: number;
     startY: number;
     additive: boolean;
+    deep: boolean;
     moved: boolean;
     pointerId?: number;
     candidates?: Element[];
@@ -3488,6 +4369,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     onUp: (ev: MouseEvent) => void;
   } | null = null;
   var activeTextEditEl: HTMLElement | null = null;
+  var activeTextEditRange: Range | null = null;
+  var activeTextEditStyleSelector = "";
+  var suspendedTextEditRange: {
+    target: HTMLElement;
+    range: Range;
+    selector: string;
+  } | null = null;
+  var textEditInspectorFocused = false;
   // Session-captured original min-width/min-height for the active text edit
   // (T19): refreshOverlays() re-applies these on every reflow via
   // updateTextEditingChrome, so it needs the real originals rather than "" —
@@ -3514,6 +4403,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     html: string;
     preferredSelector: string;
     selectorCandidates: string[];
+    sourceProvenance?: { versionHash?: string; uniqueNodeIds: string[] };
   } | null = null;
   var textEditPointerState: {
     shield: string;
@@ -3530,8 +4420,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // nodeId and activate the edit the moment it appears. Only the newest
   // command is kept; any user pointerdown or a user-initiated text edit
   // cancels it (the user has moved on — never yank focus later).
+  type BeginTextEditRepeat = { sourceSelector: string; itemIndex: number };
   var pendingBeginTextEdit: {
     nodeId: string;
+    repeat: BeginTextEditRepeat | null;
     force: boolean;
     deadline: number;
     raf: number;
@@ -3627,7 +4519,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // element did not exist before this request, so a rejected/undone
         // round-trip must REMOVE it. Restoring a prevParent it never had is
         // what would leave an orphan node behind after Cmd+Z.
-        | { inserted: true }
+        | { inserted: true; fallbackSelection?: Element }
         | {
             replaced: true;
             originalElement: Element;
@@ -3668,9 +4560,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var spacingHatchNodesByKey: Record<string, Element> = {};
   var spacingOverlayRenderKey = "";
   var activeDragCancel: (() => boolean) | null = null;
+  // Wall-clock (epoch ms) moment the currently-active gesture became active,
+  // so a delayed cancel meant for an earlier gesture can be told apart from
+  // one meant for whatever is active now — see cancelActiveBridgeDragOrPendingCommit.
+  var activeDragStartedAt: number | null = null;
   var bridgeSpaceKeyPressed = false;
   var bridgeSpaceKeyConsumedByDrag = false;
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
+  var activeCrossScreenDragIdentity: {
+    selector: string;
+    sourceId: string;
+    sourceProvenance?: { versionHash?: string; uniqueNodeId?: string };
+  } | null = null;
   var spacingDrag: {
     key: string;
     groupKey: string;
@@ -3689,7 +4590,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var lastEditorPointWasBlocked = false;
 
   function clearRuntimeSelection(): void {
+    window.getSelection?.()?.removeAllRanges();
     selectedEl = null;
+    selectionContainerScope = null;
     clearHoverGate();
     setPassiveSelectionElements([]);
     clearSpacingHoverTimer();
@@ -3711,8 +4614,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function setActiveDragCancel(cancel: () => boolean): void {
+  // `startedAt` should be performance.timeOrigin + <the originating pointer
+  // event>.timeStamp when that event is on hand (real creation time, immune
+  // to any synchronous work done before this call), falling back to Date.now()
+  // for gestures that don't thread the originating event through. Both are the
+  // same epoch-ms wall clock the host's Escape handler stamps its pressedAt
+  // with, so either is comparable against it.
+  function setActiveDragCancel(
+    cancel: () => boolean,
+    startedAt?: number,
+  ): void {
     activeDragCancel = cancel;
+    activeDragStartedAt =
+      typeof startedAt === "number" ? startedAt : Date.now();
     postEditorDragState(true);
   }
 
@@ -3720,6 +4634,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (cancel && activeDragCancel !== cancel) return;
     if (!activeDragCancel) return;
     activeDragCancel = null;
+    activeDragStartedAt = null;
     postEditorDragState(false);
   }
 
@@ -3729,6 +4644,102 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     activeDragCancel = null;
     postEditorDragState(false);
     return cancel();
+  }
+
+  // The host's Escape handler learns of an active drag from THIS document's
+  // own postEditorDragState message and cancels it by posting
+  // "agent-native:cancel-active-drag" back — both hops cross the iframe
+  // boundary as an async postMessage. The mouseup that ends the very same
+  // gesture is dispatched natively, directly to this document, and reliably
+  // finishes (removing this gesture's listeners and committing) before that
+  // cancel message is even delivered here, so `cancelActiveBridgeDrag` above
+  // finds nothing to cancel and the commit that should have been cancelled
+  // stands.
+  //
+  // Kept in a SEPARATE slot from `activeDragCancel` rather than reusing it:
+  // the plain-keydown Escape handler below also calls `cancelActiveBridgeDrag`
+  // directly, synchronously, whenever focus happens to sit in this document
+  // for ANY reason — arming that shared slot here would let an unrelated
+  // LATER Escape undo an already-finished gesture. Only the postMessage path
+  // (the one actually exposed to the race above) consults this slot, via
+  // cancelActiveBridgeDragOrPendingCommit.
+  //
+  // Tagged with the gesture's own id and cleared the moment ANY new gesture
+  // begins (beginPotentialShieldDrag), so a stale revert left over from
+  // gesture A can never fire once the user has moved on to gesture B — it
+  // simply vanishes rather than being left to fire against whatever gesture
+  // is active by the time it would.
+  var MOVE_CANCEL_RACE_GRACE_MS = 200;
+  var dragGestureSequence = 0;
+  var pendingMoveCommitRevert: {
+    gestureId: number;
+    releasedAt: number;
+    revert: () => void;
+  } | null = null;
+  function armPostCommitCancelGrace(
+    gestureId: number,
+    releasedAt: number,
+    revert: () => void,
+  ): void {
+    pendingMoveCommitRevert = {
+      gestureId: gestureId,
+      releasedAt: releasedAt,
+      revert: revert,
+    };
+    window.setTimeout(function () {
+      if (
+        pendingMoveCommitRevert &&
+        pendingMoveCommitRevert.gestureId === gestureId
+      ) {
+        pendingMoveCommitRevert = null;
+      }
+    }, MOVE_CANCEL_RACE_GRACE_MS);
+  }
+
+  // Used ONLY by the "agent-native:cancel-active-drag" message handler, so
+  // the grace window above is never reachable from the plain-keydown Escape
+  // path (which keeps calling cancelActiveBridgeDrag directly, touching only
+  // a genuinely live gesture).
+  //
+  // `pressedAt` is the moment Escape was actually pressed (the host computes
+  // it as performance.timeOrigin + the keydown event's timeStamp — real event
+  // creation time, not message-delivery time), never message-arrival time —
+  // the postMessage round trip means "cancel arrived after the commit" is
+  // true for BOTH an Escape that predates the mouseup (the race this grace
+  // window exists to fix) and one pressed genuinely after the drag already
+  // finished (which must NOT revert it). Per MDN, event creation time is
+  // comparable across browsing contexts as performance.timeOrigin +
+  // event.timeStamp, so both this document's releasedAt/activeDragStartedAt
+  // and the host's pressedAt sit on the same epoch-ms wall clock even though
+  // they're stamped in different documents; only comparing those creation
+  // times — never message arrival order — can tell the two cases apart.
+  //
+  // Gesture identity comes first, before touching the active gesture at all:
+  // an Escape stamped before the CURRENTLY active gesture began belongs to
+  // some earlier gesture (already finished or itself already cancelled) and
+  // must not reach in and cancel whatever the user has since started.
+  function cancelActiveBridgeDragOrPendingCommit(pressedAt?: number): boolean {
+    if (
+      activeDragCancel &&
+      (typeof pressedAt !== "number" ||
+        activeDragStartedAt === null ||
+        activeDragStartedAt <= pressedAt)
+    ) {
+      if (cancelActiveBridgeDrag()) return true;
+    }
+    if (
+      pendingMoveCommitRevert &&
+      typeof pressedAt === "number" &&
+      // Strict: a tie (same-tick release and Escape) is not "Escape predates
+      // the release" and must not revert an already-committed drag.
+      pressedAt < pendingMoveCommitRevert.releasedAt
+    ) {
+      var pending = pendingMoveCommitRevert;
+      pendingMoveCommitRevert = null;
+      pending.revert();
+      return true;
+    }
+    return false;
   }
 
   function removePassiveSelectionOverlays(): void {
@@ -3890,6 +4901,67 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setPassiveSelectionElements([previous].concat(passiveSelectionEls));
   }
 
+  // Figma parity (spec §1): "shift+click on an already-selected object
+  // removes it." A caller must try this BEFORE overwriting `selectedEl` with
+  // the clicked target — once selectedEl already points at the target,
+  // there is no way to tell "reselecting the same primary" apart from
+  // "toggling it off". Returns undefined when shift-click isn't a toggle
+  // here (not shift-held, or target isn't already a member) so the caller
+  // proceeds with its normal add/replace selection logic; otherwise it has
+  // already applied the removal (mutating selectedEl/passiveSelectionEls)
+  // and returns the resulting primary (null when that empties the
+  // selection entirely).
+  function resolveShiftClickToggleOff(
+    target: Element | null,
+    e?: MouseEvent,
+  ): Element | null | undefined {
+    if (!e?.shiftKey || !target) return undefined;
+    if (target === selectedEl) {
+      var promoted = passiveSelectionEls[0] || null;
+      setPassiveSelectionElements(passiveSelectionEls.slice(1));
+      selectedEl = promoted;
+      return promoted;
+    }
+    if (passiveSelectionEls.indexOf(target) !== -1) {
+      setPassiveSelectionElements(
+        passiveSelectionEls.filter(function (el) {
+          return el !== target;
+        }),
+      );
+      return selectedEl;
+    }
+    return undefined;
+  }
+
+  // Reports the FULL resulting selection after resolveShiftClickToggleOff
+  // mutated it, as a replace (non-additive) message. A plain `element-select`
+  // only ever tells the host to ADD one element (its `intent.additive` comes
+  // straight from the click's shiftKey, so a toggle-off's own shift+click
+  // reads as another add) — there is no "remove this one" message, so a
+  // toggle-off can only land on the host as an authoritative replacement
+  // list, the same vocabulary a non-additive marquee already uses.
+  function postToggledSelection(toggledPrimary: Element | null): void {
+    var survivors = (
+      toggledPrimary ? [toggledPrimary] : ([] as Element[])
+    ).concat(passiveSelectionEls);
+    if (toggledPrimary) {
+      positionOverlay(selectionOverlay, toggledPrimary);
+    } else {
+      hideSelectionOverlay();
+    }
+    if (survivors.length > 0) {
+      // No event: the bridge already resolved the toggle, so this is an
+      // authoritative REPLACE, not a fresh gesture for the host to interpret
+      // modifiers on. handleScreenElementMarqueeSelect ORs shiftKey into its
+      // own `additive` (a real shift+marquee is meant to merge, not replace),
+      // so passing this click's actual shiftKey:true would make the host
+      // merge Solo B right back in — the exact bug this toggle exists to fix.
+      postElementMarqueeSelect(survivors, false, undefined);
+    } else {
+      (window.parent as Window).postMessage({ type: "clear-selection" }, "*");
+    }
+  }
+
   function matchesSelectorList(
     el: Element | null,
     selectors: string[],
@@ -3985,6 +5057,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
      *  the unkeyed probe must treat it as doomed even though the key lives on
      *  in the next document. */
     obsolete: Set<string>;
+    repeatCloneTargets?: Map<Element, Element[]>;
+    repeatCloneBaselines?: Map<Element, SourceMeta>;
   }
 
   /**
@@ -4183,7 +5257,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   /** Property-level counterpart to applyClassAttribute: a property the source
-   *  never declared belongs to the runtime (x-show writes display). */
+   *  never declared belongs to the runtime (x-show writes display). Ownership
+   *  is tracked by VALUE, not just name — a property the source has always
+   *  declared can still belong to the runtime for one particular morph if a
+   *  script (a theme toggle, Tailwind's CDN build) set it AFTER the source
+   *  last rendered. Only a source value that is new or has actually changed
+   *  since the previous render may overwrite the live value; an unchanged
+   *  source declaration always defers to whatever is live. */
   function applyStyleAttribute(
     live: Element,
     previousSource: string,
@@ -4193,12 +5273,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     styleDeclarations(previousSource).forEach(function (entry) {
       previousOwned[entry[0]] = entry[1];
     });
+    var nextDeclarations = styleDeclarations(nextSource);
     var nextOwned: Record<string, true> = {};
-    styleDeclarations(nextSource).forEach(function (entry) {
+    nextDeclarations.forEach(function (entry) {
       nextOwned[entry[0]] = true;
     });
     var target = document.createElement("div");
-    target.style.cssText = nextSource || "";
+    // Start from the live value, not the next source: a runtime-set value
+    // this morph doesn't touch must survive by default. Only the two loops
+    // below move it off of that default.
+    target.style.cssText = live.getAttribute("style") ?? "";
+    nextDeclarations.forEach(function (entry) {
+      var wasSource = Object.prototype.hasOwnProperty.call(
+        previousOwned,
+        entry[0],
+      );
+      // Source didn't change this property since last render — leave the
+      // live value (author's or the runtime's) alone rather than resetting
+      // it to the source's own, unchanged value.
+      if (wasSource && previousOwned[entry[0]] === entry[1]) return;
+      target.style.setProperty(entry[0], entry[1], entry[2]);
+    });
     styleDeclarations(live.getAttribute("style") ?? "").forEach(
       function (entry) {
         if (nextOwned[entry[0]]) return;
@@ -4210,8 +5305,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // it is the source's to drop. A live value that has diverged is the
         // runtime's — x-show writing display over an authored one — and
         // dropping it un-hides the element.
-        if (wasSource && previousOwned[entry[0]] === entry[1]) return;
-        target.style.setProperty(entry[0], entry[1], entry[2]);
+        if (wasSource && previousOwned[entry[0]] === entry[1]) {
+          target.style.removeProperty(entry[0]);
+        }
       },
     );
     var value = target.style.cssText;
@@ -4279,6 +5375,189 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function morphNodeKey(node: Node): string | null {
     if (node.nodeType !== 1) return null;
     return (node as Element).getAttribute("data-agent-native-node-id");
+  }
+
+  function snapshotRepeatCloneTargets(
+    template: HTMLTemplateElement,
+    nextTemplate: HTMLTemplateElement,
+  ): { targets: Map<Element, Element[]>; baselines: Map<Element, SourceMeta> } {
+    var targets = new Map<Element, Element[]>();
+    var baselines = new Map<Element, SourceMeta>();
+    var parent = template.parentElement;
+    var sourceRoot = template.content.firstElementChild;
+    var nextRoot = nextTemplate.content.firstElementChild;
+    if (!parent || !sourceRoot || !nextRoot)
+      return { targets: targets, baselines: baselines };
+
+    var templates: Element[] = [];
+    for (var i = 0; i < parent.children.length; i += 1) {
+      var child = parent.children[i]!;
+      if (child.tagName === "TEMPLATE" && child.hasAttribute("x-for"))
+        templates.push(child);
+    }
+
+    function nestedClone(node: Element, row: Element | null): boolean {
+      var current: Element | null = node;
+      while (row && current && current !== row) {
+        var ancestor = current.parentElement;
+        if (!ancestor) return false;
+        for (var i = 0; i < ancestor.children.length; i += 1) {
+          var candidate = ancestor.children[i]!;
+          if (
+            candidate.tagName === "TEMPLATE" &&
+            candidate.hasAttribute("x-for") &&
+            rowKeyFor(candidate, current) !== ""
+          )
+            return true;
+        }
+        current = ancestor;
+      }
+      return false;
+    }
+
+    function children(node: Element, row: Element | null): Element[] {
+      var result: Element[] = [];
+      for (var i = 0; i < node.children.length; i += 1) {
+        var child = node.children[i]!;
+        if (!nestedClone(child, row)) result.push(child);
+      }
+      return result;
+    }
+
+    function sameShape(left: Element, right: Element, clone: boolean): boolean {
+      if (left.tagName !== right.tagName) return false;
+      function ignored(name: string): boolean {
+        return (
+          name === "class" ||
+          name === "style" ||
+          name === "data-agent-native-node-id" ||
+          name === "x-cloak"
+        );
+      }
+      for (var i = 0; i < left.attributes.length; i += 1) {
+        var attr = left.attributes[i]!;
+        if (!ignored(attr.name) && right.getAttribute(attr.name) !== attr.value)
+          return false;
+      }
+      for (var i = 0; i < right.attributes.length; i += 1) {
+        var attr = right.attributes[i]!;
+        if (!ignored(attr.name) && left.getAttribute(attr.name) !== attr.value)
+          return false;
+      }
+      var leftClasses = Array.from(left.classList);
+      var rightClasses = Array.from(right.classList);
+      return clone
+        ? leftClasses.every(function (name) {
+            return rightClasses.indexOf(name) !== -1;
+          })
+        : leftClasses.length === rightClasses.length &&
+            leftClasses.every(function (name) {
+              return rightClasses.indexOf(name) !== -1;
+            });
+    }
+
+    function walkPairs(
+      leftRoot: Element,
+      rightRoot: Element,
+      row: Element | null,
+      onPair: (left: Element, right: Element) => void,
+    ): void {
+      function visit(left: Element, right: Element): void {
+        if (left.tagName !== right.tagName) return;
+        onPair(left, right);
+        if (
+          left.tagName === "TEMPLATE" ||
+          left.hasAttribute("x-for") ||
+          declaresRuntimeChildren(left)
+        )
+          return;
+        var leftChildren = children(left, null);
+        var rightChildren = children(right, row);
+        var used = new Set<Element>();
+        for (var i = 0; i < leftChildren.length; i += 1) {
+          var source = leftChildren[i]!;
+          var id = source.getAttribute("data-agent-native-node-id");
+          var idTargets = id
+            ? rightChildren.filter(function (candidate) {
+                return (
+                  candidate.getAttribute("data-agent-native-node-id") === id
+                );
+              })
+            : [];
+          var target: Element | null =
+            idTargets.length === 1 &&
+            leftChildren.filter(function (candidate) {
+              return candidate.getAttribute("data-agent-native-node-id") === id;
+            }).length === 1
+              ? idTargets[0]!
+              : null;
+          if (!target) {
+            // ponytail: unkeyed clones need unique unchanged markup; source IDs are required for dynamic reshaping.
+            var leftMatches = leftChildren.filter(function (candidate) {
+              return sameShape(source, candidate, false);
+            });
+            var rightMatches = rightChildren.filter(function (candidate) {
+              return (
+                !used.has(candidate) &&
+                sameShape(source, candidate, row !== null)
+              );
+            });
+            if (leftMatches.length === 1 && rightMatches.length === 1)
+              target = rightMatches[0]!;
+          }
+          if (!target || used.has(target)) continue;
+          used.add(target);
+          visit(source, target);
+        }
+      }
+      visit(leftRoot, rightRoot);
+    }
+
+    var rows: Element[] = [];
+    for (var i = 0; i < parent.children.length; i += 1) {
+      var row = parent.children[i]!;
+      if (row === template || isSourceOwned(row)) continue;
+      var owners = templates.filter(function (candidate) {
+        return rowKeyFor(candidate, row) !== "";
+      });
+      if (owners.length === 1 && owners[0] === template) rows.push(row);
+    }
+
+    rows.forEach(function (row) {
+      walkPairs(sourceRoot, row, row, function (source, clone) {
+        var matches = targets.get(source);
+        if (matches) matches.push(clone);
+        else targets.set(source, [clone]);
+      });
+    });
+    walkPairs(sourceRoot, nextRoot, null, function (source, next) {
+      var matches = targets.get(source);
+      var baseline = sourceMetaFor(source);
+      if (matches && baseline) {
+        targets.set(next, matches);
+        baselines.set(next, baseline);
+      }
+    });
+    return { targets: targets, baselines: baselines };
+  }
+
+  function replayRepeatTemplatePaint(
+    next: Element,
+    previous: SourceMeta,
+    targets: Element[],
+  ): void {
+    var nextClass = next.getAttribute("class") ?? "";
+    if (previous.className !== nextClass) {
+      targets.forEach(function (target) {
+        applyClassAttribute(target, previous.className, nextClass);
+      });
+    }
+    var nextStyle = next.getAttribute("style") ?? "";
+    if (previous.style !== nextStyle) {
+      targets.forEach(function (target) {
+        applyStyleAttribute(target, previous.style, nextStyle);
+      });
+    }
   }
 
   function morphAttributes(live: Element, next: Element): void {
@@ -4480,19 +5759,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // decide whether the SOURCE default changed. Run it after and a dirty
     // input never sees an explicit source edit.
     morphFormState(live, next);
+    var previousSource = sourceMetaFor(live);
     morphAttributes(live, next);
+    if (context.repeatCloneTargets) {
+      var repeatTargets = context.repeatCloneTargets.get(live);
+      var repeatBaseline = previousSource;
+      if (repeatTargets === undefined) {
+        repeatTargets = context.repeatCloneTargets.get(next);
+        repeatBaseline = context.repeatCloneBaselines?.get(next);
+      }
+      if (repeatTargets && repeatBaseline) {
+        replayRepeatTemplatePaint(next, repeatBaseline, repeatTargets);
+      }
+    }
     if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
     var liveTemplate = templateContentOf(live);
     var nextTemplate = templateContentOf(next);
     if (liveTemplate && nextTemplate) {
       // Its own key scope: a node id can legitimately appear both inside a
       // template and in the instantiated body, and the outer map must not
-      // hand the live one over to the template.
-      morphChildren(
-        liveTemplate,
-        nextTemplate,
-        scopedMorphContext(liveTemplate, nextTemplate),
+      // hand the live one over to the template. Snapshot repeat rows before
+      // morphing the inert children so unkeyed paths cannot shift mid-walk.
+      var templateContext = scopedMorphContext(liveTemplate, nextTemplate);
+      var repeatCloneSnapshot = snapshotRepeatCloneTargets(
+        live as HTMLTemplateElement,
+        next as HTMLTemplateElement,
       );
+      templateContext.repeatCloneTargets = repeatCloneSnapshot.targets;
+      templateContext.repeatCloneBaselines = repeatCloneSnapshot.baselines;
+      morphChildren(liveTemplate, nextTemplate, templateContext);
       return;
     }
     morphChildren(live, next, context);
@@ -4545,8 +5840,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selectorCandidates: string[],
     forceFullDocument?: boolean,
     preserveTextEditingSession?: boolean,
+    sourceProvenanceValue?: unknown,
   ): void {
     if (typeof html !== "string") return;
+    var sourceProvenance = normalizeSourceDocumentProvenance(
+      sourceProvenanceValue,
+    );
+    var hasSourceProvenance =
+      sourceProvenanceValue !== undefined && sourceProvenanceValue !== null;
+    // A document revision proof only describes a complete source document.
+    // Inline source edits carrying proof therefore use the body morph even if
+    // the legacy selected-subtree optimization would otherwise apply.
+    var requiresFullDocumentMorph =
+      Boolean(forceFullDocument) || hasSourceProvenance;
     // T23: a session whose element was already detached (earlier patch,
     // delete-element, in-page reactivity) can never end via blur/Escape —
     // buffering behind it would freeze this surface's content forever. Exit
@@ -4555,6 +5861,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // finish() runs before we continue; this newer payload then supersedes
     // its result, preserving ordering.)
     exitStaleTextEditSession();
+    var rangeStateBeforeMorph = suspendedTextEditRange;
+    var rangeBookmarkBeforeMorph = rangeStateBeforeMorph
+      ? captureTextRangeBookmark(
+          rangeStateBeforeMorph.target,
+          rangeStateBeforeMorph.range,
+        )
+      : null;
+    var rangeTargetSelectorBeforeMorph = rangeStateBeforeMorph
+      ? getSelector(rangeStateBeforeMorph.target)
+      : "";
     if (
       activeTextEditEl &&
       (!forceFullDocument || preserveTextEditingSession)
@@ -4569,6 +5885,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         selectorCandidates: Array.isArray(selectorCandidates)
           ? selectorCandidates
           : [],
+        sourceProvenance: sourceProvenance,
       };
       applyLayerStateSelectors();
       refreshOverlays();
@@ -4638,7 +5955,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // The subtree path rewrites one selector's match. A forced replacement can
     // have changed any number of nodes, so taking it leaves the rest stale.
     if (
-      !forceFullDocument &&
+      !requiresFullDocumentMorph &&
       nextHeadHtml === currentHeadHtml &&
       activeCandidates.length > 0
     ) {
@@ -4691,10 +6008,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentMatch &&
         currentMatch !== document.body &&
         currentMatch !== document.documentElement &&
-        !isOverlayElement(currentMatch)
+        !isOverlayElement(currentMatch) &&
+        !suspendedTextEditRange
       ) {
         if (nextMatch) {
-          currentMatch.replaceWith(document.importNode(nextMatch, true));
+          if (
+            isSourceOwned(currentMatch) &&
+            currentMatch.nodeName === nextMatch.nodeName &&
+            currentMatch.namespaceURI === nextMatch.namespaceURI &&
+            !scopeDirectiveChanged(currentMatch, nextMatch)
+          ) {
+            morphElement(
+              currentMatch,
+              nextMatch,
+              scopedMorphContext(currentMatch, nextMatch),
+            );
+          } else {
+            var replacement = document.importNode(nextMatch, true);
+            currentMatch.replaceWith(replacement);
+            recordSourceSubtree(replacement);
+          }
         } else if (
           currentMatch !== document.body &&
           currentMatch !== document.documentElement
@@ -4723,6 +6056,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         highlightOverlay.style.display = "none";
         hideMeasurements();
         refreshOverlays();
+        publishSourceDocumentProvenance(undefined, true);
         return;
       }
     }
@@ -4737,6 +6071,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (node.parentNode) node.parentNode.removeChild(node);
     });
     morphRuntimeBody(nextDoc.body);
+    publishSourceDocumentProvenance(sourceProvenance);
+    if (suspendedTextEditRange) {
+      var suspendedRangeState = suspendedTextEditRange;
+      var rangeTargetAfterMorph = suspendedRangeState.target.isConnected
+        ? suspendedRangeState.target
+        : rangeTargetSelectorBeforeMorph
+          ? (findRuntimeTarget(rangeTargetSelectorBeforeMorph, [
+              rangeTargetSelectorBeforeMorph,
+            ]) as HTMLElement | null)
+          : null;
+      var restoredRange =
+        rangeBookmarkBeforeMorph && rangeTargetAfterMorph
+          ? restoreTextRangeBookmark(
+              rangeTargetAfterMorph,
+              rangeBookmarkBeforeMorph,
+            )
+          : null;
+      if (restoredRange && rangeTargetAfterMorph) {
+        suspendedRangeState.target = rangeTargetAfterMorph;
+        suspendedRangeState.range = restoredRange;
+        var selection = window.getSelection ? window.getSelection() : null;
+        if (selection) {
+          selection.removeAllRanges();
+          selection.addRange(restoredRange.cloneRange());
+        }
+      } else {
+        clearSuspendedTextEditRange();
+      }
+    }
     persistentNodes.forEach(function (node) {
       document.body.appendChild(node);
     });
@@ -4751,7 +6114,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // A structural replace can have deleted the selected node, and a stale
     // positional candidate then matches whichever sibling shifted into its
     // place — so only whole-selector stable identity may re-anchor one.
-    var reanchorCandidates = forceFullDocument
+    var reanchorCandidates = requiresFullDocumentMorph
       ? activeCandidates.filter(isStableIdentitySelector)
       : activeCandidates;
     for (var i = 0; i < reanchorCandidates.length && !selectedEl; i += 1) {
@@ -5768,6 +7131,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  // The element applySelectionHandleHitGeometry last sized handles for.
+  // Compared by reference on every call so a genuine selection SWITCH (a
+  // different element, including the very first real selection after the
+  // null-element page-load call) can suppress the handles' geometry
+  // transition for that one write — see the CSS rule this toggles above.
+  var lastHandleGeometryTargetEl: Element | null = null;
+
   // Sizes the selection overlay's edge/corner handles for the current chrome
   // scale, clamping each handle's inward reach against the overlaid
   // element's own rect. Called from applyEditorChromeScale (scale changes)
@@ -5777,6 +7147,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // exactly: edge bars 10*scale thick centered on the edge, corner squares
   // 7*scale offset -4*scale.
   function applySelectionHandleHitGeometry(el) {
+    // The handle spans are singletons reused across every selection. Easing
+    // them from the PREVIOUS target's geometry to this one is meaningless
+    // for hit-testing (the two targets are unrelated), and the transient
+    // in-between value — up to the fully unclamped nominal reach, since the
+    // null-element page-load call never clamps — can cover this element's
+    // entire body and steal its first click as a resize instead of a move.
+    // Only ease when the SAME element is resizing under a live chrome-scale
+    // change, which is what the transition exists for.
+    var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
+    lastHandleGeometryTargetEl = el || null;
+    if (isNewSelectionTarget) {
+      selectionOverlay.setAttribute(
+        "data-agent-native-suppress-handle-transition",
+        "",
+      );
+    }
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
@@ -5839,6 +7225,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           handle.style.right = inwardX - sizeX + "px";
         }
       });
+
+    if (isNewSelectionTarget) {
+      // Force layout so the instant geometry above is committed under the
+      // transition:none rule before removing it, or removing it on the same
+      // tick would let the transition pick up mid-write and still animate.
+      void selectionOverlay.offsetHeight;
+      selectionOverlay.removeAttribute(
+        "data-agent-native-suppress-handle-transition",
+      );
+    }
   }
 
   function applyEditorChromeScale() {
@@ -5942,7 +7338,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setSelectionOverlayResizeChromeVisible(
       !readOnly && !activeTextEditEl && members.length < 2,
     );
-    if (members.length < 2 || selectionChromeHidden) {
+    if (members.length === 0 || selectionChromeHidden) {
       if (multiSelectionBoundsOverlay) {
         multiSelectionBoundsOverlay.style.display = "none";
       }
@@ -5975,6 +7371,33 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return r.bottom;
       }),
     );
+    if (designCanvasBoardSurface && selectedEl) {
+      window.parent.postMessage(
+        {
+          type: "agent-native:board-selection-bounds",
+          screenId: designCanvasScreenId,
+          selector: getSelector(selectedEl),
+          memberSelectors: members.map(getSelector),
+          memberSourceIds: members.map(getSourceId),
+          contentOffsetX: designCanvasContentOffsetX,
+          contentOffsetY: designCanvasContentOffsetY,
+          rect: {
+            left: left,
+            top: top,
+            width: Math.max(0, right - left),
+            height: Math.max(0, bottom - top),
+          },
+          rotationDeg: 0,
+        },
+        "*",
+      );
+    }
+    if (members.length < 2) {
+      if (multiSelectionBoundsOverlay) {
+        multiSelectionBoundsOverlay.style.display = "none";
+      }
+      return;
+    }
     var overlay = ensureMultiSelectionBoundsOverlay();
     overlay.style.display = "block";
     overlay.style.transform = "none";
@@ -6021,6 +7444,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       updateComponentTag(el, rect);
       updateParentAutoLayoutOverlay(el);
       showSizeBadge(el);
+      // Board objects live inside this iframe, but the board wrapper is
+      // pinned below Screens (z-index 0) so an overlapping Screen can occlude
+      // this overlay's own handles both visually and for hit-testing. The
+      // host renders its own SelectionBox above every Screen and forwards
+      // gestures back into startResize() (see beginBoardElementResize); it
+      // needs this overlay's just-computed unrotated local box (left/top/
+      // width/height are set the same way by both branches above) plus the
+      // rotation separately, not the rotated bounding box.
+      if (designCanvasBoardSurface) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:board-selection-rect",
+            screenId: designCanvasScreenId,
+            selector: getSelector(el),
+            sourceId: getSourceId(el),
+            // Carry the iframe's own render-window offset with this geometry.
+            // A delayed local rect must not be paired with a newer host window.
+            contentOffsetX: designCanvasContentOffsetX,
+            contentOffsetY: designCanvasContentOffsetY,
+            rect: {
+              left: parseFloat(overlay.style.left) || 0,
+              top: parseFloat(overlay.style.top) || 0,
+              width: parseFloat(overlay.style.width) || 0,
+              height: parseFloat(overlay.style.height) || 0,
+            },
+            rotationDeg: currentRotation(el),
+          },
+          "*",
+        );
+      }
     } else {
       applyElementOverlayChrome(overlay, el);
     }
@@ -6213,15 +7666,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function frameLabelText(frame: Element): string {
     var name =
-      frame.getAttribute("data-agent-native-layer-name") ||
-      frame.getAttribute("aria-label") ||
-      "";
+      layerNameForElement(frame) || frame.getAttribute("aria-label") || "";
     return name.trim() || "Frame" /* i18n-ignore canvas frame label */;
   }
 
   function selectFrameFromLabel(frame: Element, e: MouseEvent): void {
     if (isLayerInteractionBlocked(frame)) return;
     blurActiveTextEditor();
+    var toggled = resolveShiftClickToggleOff(frame, e);
+    if (toggled !== undefined) {
+      postToggledSelection(toggled);
+      return;
+    }
     var previousSelectedEl = selectedEl;
     selectedEl = frame;
     positionOverlay(selectionOverlay, selectedEl);
@@ -7087,7 +8543,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // useDesignHotkeys.ts. A chord absent here is dead for anyone whose focus
     // is in the canvas iframe — where it lands the moment you click a layer.
     if (e.altKey) {
-      if (e.shiftKey) return false;
+      if (e.shiftKey) return normalized === "s";
       // Alt+A/D/W/S/H/V align selection; Alt+1/Alt+2 navigation panels.
       return (
         ["a", "d", "w", "s", "h", "v"].indexOf(normalized) !== -1 ||
@@ -7283,9 +8739,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hit === document.documentElement
     )
       return null;
+    var nativeTextRoot = nativeTextPrimitiveForHit(hit);
+    if (nativeTextRoot) return nativeTextRoot;
     var selectedContainsHit =
       selectedEl && selectedEl.contains && selectedEl.contains(hit);
-    if (selectedContainsHit && hasOnlyInlineEditableChildren(selectedEl))
+    // Generated Group wrappers are selection boundaries, not text targets.
+    var selectedGroupOwnsHit = !!(
+      selectedContainsHit &&
+      selectionTargetForHit(hit) === selectedEl &&
+      selectionTargetForHit(hit, true) !== selectedEl
+    );
+    if (
+      selectedContainsHit &&
+      hasOnlyInlineEditableChildren(selectedEl) &&
+      !selectedGroupOwnsHit
+    )
       return selectedEl;
 
     var candidate = null;
@@ -7296,6 +8764,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       node !== document.body &&
       node !== document.documentElement
     ) {
+      if (selectedGroupOwnsHit && node === selectedEl) break;
       if (hasOnlyInlineEditableChildren(node)) {
         candidate = node;
       }
@@ -7336,8 +8805,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     hoveredSpacingHandleKey = "";
+    // Cmd/Ctrl+click skips the container-first step and deep-selects the raw
+    // hit (spec Part 3); this fallback path has no stack-cycling of its own
+    // (that lives in beginPotentialShieldDrag's onUp), so it deep-selects the
+    // literal element under the pointer instead.
+    var resolvedClickTarget =
+      e.metaKey || e.ctrlKey
+        ? selectionTargetForHit(target)
+        : containerFirstSelectionTarget(target);
+    var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
+    if (toggled !== undefined) {
+      postToggledSelection(toggled);
+      return;
+    }
     var previousSelectedEl = selectedEl;
-    selectedEl = selectionTargetForHit(target);
+    selectedEl = resolvedClickTarget;
     if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
       selectedEl = null;
       hideSelectionOverlay();
@@ -7429,6 +8911,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     elements: Element[],
     additive: boolean,
     e,
+    final?: boolean,
   ): void {
     (window.parent as Window).postMessage(
       {
@@ -7444,13 +8927,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           shiftKey: Boolean(e && e.shiftKey),
           metaKey: Boolean(e && e.metaKey),
           ctrlKey: Boolean(e && e.ctrlKey),
+          // A live drag reports a changed hit-set on every mousemove tick;
+          // only the mouseup report (see beginMarqueeSelection's onUp) sets
+          // this, so the host records ONE selection-history entry per
+          // gesture instead of one per tick (coalesceMarqueeSelectionHistory).
+          final: final === true,
         },
       },
       "*",
     );
   }
 
-  function updateMarqueeSelection(e): void {
+  function updateMarqueeSelection(e, final?: boolean): void {
     if (!activeMarqueeSelection) return;
     var rect = marqueeRectFromPoints(
       activeMarqueeSelection.startX,
@@ -7467,7 +8955,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Collected once per gesture: this runs on every pointermove, and a
     // generated screen can hold thousands of nodes.
     if (!activeMarqueeSelection.candidates) {
-      activeMarqueeSelection.candidates = collectSelectableElements();
+      activeMarqueeSelection.candidates = collectSelectableElements(
+        activeMarqueeSelection.deep,
+      );
     }
     var hitElements = activeMarqueeSelection.candidates.filter(function (el) {
       var bounds = selectableBounds(el);
@@ -7498,7 +8988,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     setPassiveSelectionElements(hitElements);
-    postElementMarqueeSelect(hitElements, activeMarqueeSelection.additive, e);
+    postElementMarqueeSelect(
+      hitElements,
+      activeMarqueeSelection.additive,
+      e,
+      final,
+    );
   }
 
   function beginMarqueeSelection(e): void {
@@ -7531,7 +9026,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var didMove = Boolean(activeMarqueeSelection?.moved);
       if (didMove) {
         stopNativeInteraction(ev);
-        updateMarqueeSelection(ev);
+        updateMarqueeSelection(ev, true);
         suppressNextShieldClickBriefly();
       }
       marqueeSelectionOverlay.style.display = "none";
@@ -7541,6 +9036,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       startX: e.clientX,
       startY: e.clientY,
       additive: additive,
+      deep: Boolean(e && (e.metaKey || e.ctrlKey)),
       moved: false,
       pointerId: e.pointerId,
       move: events.move,
@@ -7555,6 +9051,111 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
+  }
+
+  // Attributes checked (in order) before falling back to text/tag, mirroring
+  // shared/code-layer.ts's semanticLayerNameFor. Kept in sync by hand: the
+  // bridge runs against live DOM and can't import the HTML-source parser.
+  var LAYER_LABEL_SEMANTIC_ATTRIBUTES = [
+    "aria-label",
+    "title",
+    "data-code-layer-id",
+    "data-layer-id",
+    "data-name",
+    "data-component",
+    "data-screen",
+    "data-testid",
+    "data-test-id",
+  ];
+
+  // Mirrors shared/code-layer.ts's fallbackTagLayerName so a container with no
+  // explicit/semantic name reads the same tag-derived name everywhere it's
+  // shown, instead of the raw lowercase tag.
+  function fallbackTagLayerLabel(tag: string): string {
+    switch (tag) {
+      case "article":
+        return "Article";
+      case "aside":
+        return "Aside";
+      case "body":
+        return "Body";
+      case "button":
+        return "Button";
+      case "div":
+        return "Frame";
+      case "footer":
+        return "Footer";
+      case "form":
+        return "Form";
+      case "header":
+        return "Header";
+      case "a":
+        return "Link";
+      case "img":
+      case "picture":
+        return "Image";
+      case "input":
+        return "Input";
+      case "label":
+        return "Label";
+      case "main":
+        return "Main";
+      case "select":
+        return "Select";
+      case "textarea":
+        return "Text area";
+      case "nav":
+        return "Navigation";
+      case "section":
+        return "Section";
+      case "svg":
+        return "Vector";
+      case "ul":
+      case "ol":
+        return "List";
+      case "li":
+        return "List item";
+      case "em":
+      case "h1":
+      case "h2":
+      case "h3":
+      case "h4":
+      case "h5":
+      case "h6":
+      case "p":
+      case "span":
+      case "strong":
+        return "Text";
+      default:
+        return tag.toUpperCase();
+    }
+  }
+
+  // The name shown for a node must be the same string everywhere it's shown
+  // (Layers panel, "Select layer", "Edit with AI"). Mirrors layerNameFor's
+  // priority order (shared/code-layer.ts): explicit name -> semantic
+  // attribute -> [leaf only] own text -> tag fallback. A container is named
+  // by what it IS, not by its subtree's text — reversing that named a plain
+  // wrapper div after its child span's content instead of "Frame".
+  function layerCandidateLabelFor(
+    candidate: Element,
+    candidateInfo: { componentName?: string },
+  ): string {
+    var explicitLabel = layerNameForElement(candidate);
+    if (explicitLabel) return explicitLabel;
+    if (candidateInfo.componentName) return candidateInfo.componentName;
+    for (var i = 0; i < LAYER_LABEL_SEMANTIC_ATTRIBUTES.length; i += 1) {
+      var semanticValue =
+        candidate.getAttribute &&
+        candidate.getAttribute(LAYER_LABEL_SEMANTIC_ATTRIBUTES[i]);
+      if (semanticValue) return semanticValue;
+    }
+    if (candidate.id) return candidate.id;
+    if (candidate.children.length === 0) {
+      var textLabel = (candidate.textContent || "").trim().replace(/\s+/g, " ");
+      if (textLabel && textLabel.length <= 48) return textLabel;
+    }
+    return fallbackTagLayerLabel(candidate.tagName.toLowerCase());
   }
 
   // Returns the full z-stack of selectable layers under a point (topmost
@@ -7603,17 +9204,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       elements.push(candidate);
       var candidateInfo = getElementInfo(candidate);
-      var explicitLabel =
-        (candidate.getAttribute &&
-          candidate.getAttribute("data-agent-native-layer-name")) ||
-        "";
-      var textLabel = (candidate.textContent || "").trim().replace(/\s+/g, " ");
-      var label =
-        explicitLabel ||
-        candidateInfo.componentName ||
-        candidate.id ||
-        (textLabel && textLabel.length <= 48 ? textLabel : "") ||
-        candidate.tagName.toLowerCase();
+      var label = layerCandidateLabelFor(candidate, candidateInfo);
       var identity =
         candidateInfo.sourceId ||
         candidateInfo.selector ||
@@ -7807,6 +9398,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       session.proposalId,
     );
     parent.insertBefore(nextElement, session.endMarker);
+    publishSourceDocumentProvenance(undefined, true);
     session.currentElement = nextElement;
     if (session.selectedWasInside) selectedEl = nextElement;
     if (session.hoveredWasInside) hoveredEl = nextElement;
@@ -7884,6 +9476,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     parent.insertBefore(startMarker, target);
     parent.insertBefore(endMarker, target.nextSibling);
     parent.replaceChild(nextElement, target);
+    publishSourceDocumentProvenance(undefined, true);
     activeNodeHtmlPreview = {
       proposalId: proposalId,
       originalElement: target,
@@ -8016,6 +9609,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
     if (target.parentElement) target.parentElement.removeChild(target);
+    publishSourceDocumentProvenance(undefined, true);
     // T23: the removed subtree may contain the active text-edit element —
     // its blur/keydown listeners are gone with it, so exit the session
     // through the canonical cleanup instead of leaking it.
@@ -8772,6 +10366,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function postTextContentChange(el, value, html, originalValue, originalHtml) {
     claimContentAsSource(el);
+    publishSourceDocumentProvenance(undefined, true);
     (window.parent as Window).postMessage(
       {
         type: "text-content-change",
@@ -8788,25 +10383,65 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function postTextEditingState(el: Element | null, active: boolean): void {
-    var selection: Selection | null = window.getSelection
-      ? window.getSelection()
-      : null;
+  function postTextEditingState(
+    el: Element | null,
+    active: boolean,
+    selectorOverride?: string,
+    hasRangeOverride?: boolean,
+  ): void {
+    var range = active
+      ? activeTextEditRange
+      : suspendedTextEditRange?.target === el
+        ? suspendedTextEditRange.range
+        : null;
+    var hasRange =
+      hasRangeOverride ??
+      Boolean(range && !range.collapsed && rangeBelongsToElement(range, el));
+    var selector =
+      selectorOverride ||
+      (active
+        ? activeTextEditStyleSelector
+        : suspendedTextEditRange?.target === el
+          ? suspendedTextEditRange.selector
+          : activeTextEditStyleSelector) ||
+      (el ? getSelector(el) : "");
+    var computedStyles: Record<string, string> | undefined;
+    var inlineStyles: Record<string, string> | undefined;
+    if (el && range && hasRange && rangeBelongsToElement(range, el)) {
+      var bookmark = captureTextRangeBookmark(el, range);
+      if (bookmark) {
+        computedStyles =
+          collectTextRangeComputedStyles(el, bookmark) || undefined;
+        if (computedStyles) {
+          inlineStyles = collectTextRangeInlineStyles(el, bookmark);
+        }
+      }
+    } else if (el && active) {
+      var caretStyles = collectCaretTextStyles(el);
+      if (caretStyles) {
+        computedStyles = caretStyles.computedStyles;
+        inlineStyles = caretStyles.inlineStyles;
+      }
+    }
     (window.parent as Window).postMessage(
       {
         type: "text-editing-state",
         active: !!active,
-        selector: el ? getSelector(el) : "",
-        hasRange: !!(
-          active &&
-          selection &&
-          selection.rangeCount > 0 &&
-          !selection.isCollapsed &&
-          selectionBelongsToElement(selection, el)
-        ),
+        selector,
+        sourceId: el ? getSourceId(el) || undefined : undefined,
+        hasRange,
+        computedStyles,
+        inlineStyles,
       },
       "*",
     );
+  }
+
+  function clearSuspendedTextEditRange(): void {
+    if (!suspendedTextEditRange) return;
+    var suspended = suspendedTextEditRange;
+    suspendedTextEditRange = null;
+    postTextEditingState(suspended.target, false, suspended.selector, false);
   }
 
   function insertPlainTextAtSelection(text: string): void {
@@ -8895,13 +10530,120 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     el: Element | null,
   ): boolean {
     if (!selection || !el || selection.rangeCount === 0) return false;
-    var range = selection.getRangeAt(0);
+    return rangeBelongsToElement(selection.getRangeAt(0), el);
+  }
+
+  function rangeBelongsToElement(
+    range: Range | null,
+    el: Element | null,
+  ): boolean {
+    if (!range || !el) return false;
     var ancestor = range.commonAncestorContainer;
     var ancestorEl =
       ancestor && ancestor.nodeType === 1
         ? ancestor
         : ancestor && ancestor.parentElement;
     return !!(ancestorEl && (ancestorEl === el || el.contains(ancestorEl)));
+  }
+
+  // Source echoes can replace a selected Range's boundary nodes during a
+  // document morph, so preserve its text offsets only while the text is equal.
+  function textOffsetInElement(
+    root: Element,
+    node: Node,
+    offset: number,
+  ): number | null {
+    if (node !== root && !root.contains(node)) return null;
+    var prefix = document.createRange();
+    prefix.selectNodeContents(root);
+    try {
+      prefix.setEnd(node, offset);
+      return prefix.toString().length;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "IndexSizeError") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  function captureTextRangeBookmark(
+    root: Element,
+    range: Range,
+  ): { start: number; end: number; text: string } | null {
+    if (range.collapsed || !rangeBelongsToElement(range, root)) return null;
+    var start = textOffsetInElement(
+      root,
+      range.startContainer,
+      range.startOffset,
+    );
+    var end = textOffsetInElement(root, range.endContainer, range.endOffset);
+    if (start === null || end === null || end <= start) return null;
+    return { start: start, end: end, text: root.textContent || "" };
+  }
+
+  function textPointAtElementOffset(
+    root: Element,
+    offset: number,
+  ): { node: Text; offset: number } | null {
+    if (!Number.isFinite(offset) || offset < 0) return null;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    var remaining = offset;
+    var lastText: Text | null = null;
+    while (walker.nextNode()) {
+      var text = walker.currentNode as Text;
+      var length = text.data.length;
+      if (remaining <= length) return { node: text, offset: remaining };
+      remaining -= length;
+      lastText = text;
+    }
+    return remaining === 0 && lastText
+      ? { node: lastText, offset: lastText.data.length }
+      : null;
+  }
+
+  function restoreTextRangeBookmark(
+    root: Element,
+    bookmark: { start: number; end: number; text: string },
+  ): Range | null {
+    if ((root.textContent || "") !== bookmark.text) return null;
+    var start = textPointAtElementOffset(root, bookmark.start);
+    var end = textPointAtElementOffset(root, bookmark.end);
+    if (!start || !end) return null;
+    var range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    return !range.collapsed && rangeBelongsToElement(range, root)
+      ? range
+      : null;
+  }
+
+  function captureActiveTextEditRange(target: HTMLElement): void {
+    var selection: Selection | null = window.getSelection
+      ? window.getSelection()
+      : null;
+    if (
+      !selection ||
+      selection.rangeCount === 0 ||
+      selection.isCollapsed ||
+      !selectionBelongsToElement(selection, target)
+    ) {
+      return;
+    }
+    activeTextEditRange = selection.getRangeAt(0).cloneRange();
+  }
+
+  function clearActiveTextEditRangeIfCollapsed(target: HTMLElement): void {
+    if (document.activeElement !== target) return;
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (
+      !selection ||
+      selection.rangeCount === 0 ||
+      selection.isCollapsed ||
+      !selectionBelongsToElement(selection, target)
+    ) {
+      activeTextEditRange = null;
+    }
   }
 
   function normalizeCssPropertyName(property: unknown): string {
@@ -8919,12 +10661,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function vectorPaintTarget(el: Element | null): Element | null {
     if (!el || el.tagName.toLowerCase() !== "svg") return null;
     var kind = el.getAttribute("data-an-primitive") || "";
+    if (kind === "boolean") {
+      return el.querySelector(':scope > use[data-an-boolean-result="true"]');
+    }
+    if (kind === "boolean-operand") {
+      return el.querySelector(":scope > rect");
+    }
     if (
       kind !== "path" &&
       kind !== "line" &&
       kind !== "arrow" &&
       kind !== "polygon" &&
-      kind !== "star"
+      kind !== "star" &&
+      kind !== "rect" &&
+      kind !== "rectangle" &&
+      kind !== "ellipse" &&
+      kind !== "circle"
     ) {
       return null;
     }
@@ -8932,8 +10684,273 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
     // this in step with code-layer's childIndexes walk.
     return el.querySelector(
-      ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
+      ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline",
     );
+  }
+
+  function collectElementInlineStyles(el: Element): Record<string, string> {
+    var styles = collectInlineStyles(el);
+    var paintTarget = vectorPaintTarget(el);
+    if (!paintTarget) return styles;
+    var authoredFill = (paintTarget as HTMLElement).style.getPropertyValue(
+      "fill",
+    );
+    if (!authoredFill) authoredFill = paintTarget.getAttribute("fill") || "";
+    if (el.getAttribute("data-an-primitive") === "boolean") {
+      authoredFill = (el as HTMLElement).style.getPropertyValue(
+        "--boolean-mask-fill",
+      );
+    }
+    if (authoredFill) styles.fill = authoredFill;
+    return styles;
+  }
+
+  function vectorStrokeTarget(el: Element | null): Element | null {
+    if (!el || el.tagName.toLowerCase() !== "svg") return null;
+    return (
+      el.querySelector(":scope > use[data-an-vector-stroke-overlay]") ||
+      vectorPaintTarget(el)
+    );
+  }
+
+  function vectorStrokeCanAlign(el: Element | null): boolean {
+    if (!el || el.tagName.toLowerCase() !== "svg") return false;
+    var kind = el.getAttribute("data-an-primitive") || "";
+    var shape = vectorPaintTarget(el);
+    if (!shape) return false;
+    var shapeTag = shape.tagName.toLowerCase();
+    if ((kind === "rect" || kind === "rectangle") && shapeTag === "rect") {
+      return true;
+    }
+    if (
+      (kind === "ellipse" || kind === "circle") &&
+      (shapeTag === "ellipse" || shapeTag === "circle")
+    ) {
+      return true;
+    }
+    if (kind === "polygon" || kind === "star") {
+      return (
+        shapeTag === "polygon" ||
+        (shapeTag === "path" && /z/i.test(shape.getAttribute("d") || ""))
+      );
+    }
+    if (kind !== "path") return false;
+    return !!(
+      shape &&
+      shapeTag === "path" &&
+      /z/i.test(shape.getAttribute("d") || "")
+    );
+  }
+
+  function scaledVectorStrokeWidth(value: string, scale: number): string {
+    var match = value
+      .trim()
+      .match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i);
+    if (!match) return scale === 1 ? value : "";
+    return String(Number(match[1]) * scale) + match[2];
+  }
+
+  function applyVectorStrokePosition(el: Element, position: string): boolean {
+    if (
+      !["inside", "center", "outside"].includes(position) ||
+      !vectorStrokeCanAlign(el)
+    ) {
+      return false;
+    }
+    var shape = vectorPaintTarget(el);
+    if (!shape) return false;
+    var oldOverlay = vectorStrokeTarget(el);
+    var oldIsOverlay =
+      oldOverlay && oldOverlay.hasAttribute("data-an-vector-stroke-overlay");
+    var shapeStyle = window.getComputedStyle(shape);
+    var paintStyle = oldIsOverlay
+      ? window.getComputedStyle(oldOverlay!)
+      : shapeStyle;
+    var overlayOpacity = oldIsOverlay
+      ? (oldOverlay as SVGElement).style.getPropertyValue("opacity") ||
+        oldOverlay!.getAttribute("opacity")
+      : "";
+    var logicalWidth = oldIsOverlay
+      ? oldOverlay!.getAttribute("data-an-vector-logical-width") ||
+        paintStyle.strokeWidth
+      : paintStyle.strokeWidth;
+    var paint = {
+      opacity: overlayOpacity ? paintStyle.opacity : shapeStyle.opacity,
+      stroke: paintStyle.stroke,
+      strokeOpacity: paintStyle.strokeOpacity,
+      strokeDasharray: paintStyle.strokeDasharray,
+      strokeDashoffset: paintStyle.strokeDashoffset,
+      strokeLinecap: paintStyle.strokeLinecap,
+      strokeLinejoin: paintStyle.strokeLinejoin,
+      strokeMiterlimit: paintStyle.strokeMiterlimit,
+    };
+    var actualWidth = scaledVectorStrokeWidth(
+      logicalWidth,
+      position === "center" ? 1 : 2,
+    );
+    if (!actualWidth) return false;
+
+    var viewBox = (el.getAttribute("viewBox") || "0 0 300 150")
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    if (
+      viewBox.length !== 4 ||
+      !viewBox.every(Number.isFinite) ||
+      viewBox[2]! <= 0 ||
+      viewBox[3]! <= 0
+    ) {
+      return false;
+    }
+    var wrapperStyle = (el as HTMLElement).style;
+    var savedOverflow = el.getAttribute(
+      "data-an-vector-stroke-original-overflow",
+    );
+    if (position === "outside") {
+      if (savedOverflow === null) {
+        el.setAttribute(
+          "data-an-vector-stroke-original-overflow",
+          wrapperStyle.getPropertyValue("overflow"),
+        );
+        el.setAttribute(
+          "data-an-vector-stroke-original-overflow-priority",
+          wrapperStyle.getPropertyPriority("overflow"),
+        );
+      }
+      wrapperStyle.setProperty("overflow", "visible", "important");
+    } else if (savedOverflow !== null) {
+      var overflowPriority =
+        el.getAttribute("data-an-vector-stroke-original-overflow-priority") ||
+        "";
+      if (savedOverflow) {
+        wrapperStyle.setProperty("overflow", savedOverflow, overflowPriority);
+      } else {
+        wrapperStyle.removeProperty("overflow");
+      }
+      el.removeAttribute("data-an-vector-stroke-original-overflow");
+      el.removeAttribute("data-an-vector-stroke-original-overflow-priority");
+    }
+    var miterlimit = Math.max(parseFloat(paint.strokeMiterlimit) || 4, 1);
+    var pad = Math.max(((parseFloat(actualWidth) || 0) * miterlimit) / 2, 1);
+    var x = viewBox[0]! - pad;
+    var y = viewBox[1]! - pad;
+    var width = viewBox[2]! + pad * 2;
+    var height = viewBox[3]! + pad * 2;
+
+    var svgNs = "http://www.w3.org/2000/svg";
+    Array.from(
+      el.querySelectorAll(":scope > defs[data-an-vector-stroke-defs]"),
+    ).forEach(function (generatedDefs) {
+      generatedDefs.remove();
+    });
+    Array.from(
+      el.querySelectorAll(":scope > use[data-an-vector-stroke-overlay]"),
+    ).forEach(function (generatedOverlay) {
+      generatedOverlay.remove();
+    });
+
+    var id = freshRuntimeNodeId("vector-stroke");
+    while (document.getElementById(id + "-geometry")) {
+      id = freshRuntimeNodeId("vector-stroke");
+    }
+    var geometryId = id + "-geometry";
+    var clipId = id + "-inside";
+    var maskId = id + "-outside";
+    var geometry = shape.cloneNode(false) as SVGElement;
+    Array.from(geometry.attributes).forEach(function (attribute) {
+      if (
+        ![
+          "d",
+          "points",
+          "x",
+          "y",
+          "width",
+          "height",
+          "rx",
+          "ry",
+          "cx",
+          "cy",
+          "r",
+          "fill-rule",
+          "clip-rule",
+        ].includes(attribute.name.toLowerCase())
+      ) {
+        geometry.removeAttribute(attribute.name);
+      }
+    });
+    var geometryStyle = window.getComputedStyle(shape);
+    if (geometryStyle.transform !== "none") {
+      geometry.style.setProperty("transform", geometryStyle.transform);
+    }
+    geometry.style.setProperty(
+      "transform-origin",
+      geometryStyle.transformOrigin,
+    );
+    geometry.style.setProperty("transform-box", geometryStyle.transformBox);
+    geometry.setAttribute("id", geometryId);
+    geometry.setAttribute("data-an-vector-stroke-geometry", "");
+
+    var defs = document.createElementNS(svgNs, "defs");
+    defs.setAttribute("data-an-vector-stroke-defs", "");
+    defs.appendChild(geometry);
+    var clip = document.createElementNS(svgNs, "clipPath");
+    clip.setAttribute("id", clipId);
+    clip.setAttribute("clipPathUnits", "userSpaceOnUse");
+    var clipUse = document.createElementNS(svgNs, "use");
+    clipUse.setAttribute("href", "#" + geometryId);
+    clip.appendChild(clipUse);
+    defs.appendChild(clip);
+    var mask = document.createElementNS(svgNs, "mask");
+    mask.setAttribute("id", maskId);
+    mask.setAttribute("maskUnits", "userSpaceOnUse");
+    mask.setAttribute("maskContentUnits", "userSpaceOnUse");
+    mask.setAttribute("mask-type", "luminance");
+    mask.setAttribute("x", String(x));
+    mask.setAttribute("y", String(y));
+    mask.setAttribute("width", String(width));
+    mask.setAttribute("height", String(height));
+    var maskRect = document.createElementNS(svgNs, "rect");
+    maskRect.setAttribute("x", String(x));
+    maskRect.setAttribute("y", String(y));
+    maskRect.setAttribute("width", String(width));
+    maskRect.setAttribute("height", String(height));
+    maskRect.setAttribute("fill", "white");
+    var maskUse = document.createElementNS(svgNs, "use");
+    maskUse.setAttribute("href", "#" + geometryId);
+    maskUse.setAttribute("fill", "black");
+    mask.appendChild(maskRect);
+    mask.appendChild(maskUse);
+    defs.appendChild(mask);
+
+    var overlay = document.createElementNS(svgNs, "use");
+    overlay.setAttribute("href", "#" + geometryId);
+    overlay.setAttribute("data-an-vector-stroke-overlay", "");
+    overlay.setAttribute("data-an-vector-logical-width", logicalWidth);
+    overlay.setAttribute("pointer-events", "none");
+    overlay.setAttribute("aria-hidden", "true");
+    var overlayStyle = (overlay as unknown as HTMLElement).style;
+    overlayStyle.setProperty("fill", "none");
+    overlayStyle.setProperty("opacity", paint.opacity);
+    overlayStyle.setProperty("stroke", paint.stroke);
+    overlayStyle.setProperty("stroke-width", actualWidth);
+    overlayStyle.setProperty("stroke-opacity", paint.strokeOpacity);
+    overlayStyle.setProperty("stroke-dasharray", paint.strokeDasharray);
+    overlayStyle.setProperty("stroke-dashoffset", paint.strokeDashoffset);
+    overlayStyle.setProperty("stroke-linecap", paint.strokeLinecap);
+    overlayStyle.setProperty("stroke-linejoin", paint.strokeLinejoin);
+    overlayStyle.setProperty("stroke-miterlimit", paint.strokeMiterlimit);
+    if (position === "inside") {
+      overlayStyle.setProperty("clip-path", "url(#" + clipId + ")");
+    } else if (position === "outside") {
+      overlayStyle.setProperty("mask", "url(#" + maskId + ")");
+    }
+
+    var nextSibling = shape.nextSibling;
+    el.insertBefore(defs, nextSibling);
+    el.insertBefore(overlay, defs.nextSibling);
+    (shape as unknown as HTMLElement).style.setProperty("stroke", "none");
+    el.setAttribute("data-an-vector-stroke-position", position);
+    return true;
   }
 
   function isVectorPaintProperty(cssProperty: string): boolean {
@@ -8971,15 +10988,48 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || !property) return false;
     var cssProperty = normalizeCssPropertyName(property);
     if (!cssProperty) return false;
+    if (cssProperty === "--an-vector-stroke-position") {
+      return applyVectorStrokePosition(el, String(value));
+    }
     var target: Element = el;
+    var strokeOverlay: Element | null = null;
+    var useOverlay = false;
     if (isVectorPaintProperty(cssProperty)) {
       var shape = vectorPaintTarget(el);
       if (shape) {
-        target = shape;
+        strokeOverlay = vectorStrokeTarget(el);
+        useOverlay =
+          cssProperty.indexOf("stroke") === 0 &&
+          !!strokeOverlay &&
+          strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
+        target = useOverlay ? strokeOverlay! : shape;
         clearVectorWrapperPaint(el);
+        if (useOverlay && cssProperty === "stroke-width") {
+          var logicalWidth = String(value);
+          var position =
+            el.getAttribute("data-an-vector-stroke-position") || "center";
+          var actualWidth = scaledVectorStrokeWidth(
+            logicalWidth,
+            position === "center" ? 1 : 2,
+          );
+          if (!actualWidth) return false;
+          strokeOverlay!.setAttribute(
+            "data-an-vector-logical-width",
+            logicalWidth,
+          );
+          value = actualWidth;
+        }
       }
     }
     (target as HTMLElement).style.setProperty(cssProperty, String(value));
+    var strokePosition = el.getAttribute("data-an-vector-stroke-position");
+    if (
+      useOverlay &&
+      (cssProperty === "stroke-width" ||
+        (cssProperty === "stroke-miterlimit" && strokePosition === "outside"))
+    ) {
+      return applyVectorStrokePosition(el, strokePosition || "center");
+    }
     return true;
   }
 
@@ -9028,14 +11078,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function applyTextRangeStyle(property: unknown, value: unknown): boolean {
-    if (!activeTextEditEl || !property) return false;
+    var target = activeTextEditEl || suspendedTextEditRange?.target || null;
+    if (!target || !property) return false;
     var selection: Selection | null = window.getSelection
       ? window.getSelection()
       : null;
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed)
+    if (!selection) return false;
+    var range =
+      selection.rangeCount > 0 &&
+      !selection.isCollapsed &&
+      selectionBelongsToElement(selection, target)
+        ? selection.getRangeAt(0)
+        : activeTextEditEl === target
+          ? activeTextEditRange
+          : suspendedTextEditRange?.target === target
+            ? suspendedTextEditRange.range
+            : null;
+    if (!range || range.collapsed || !rangeBelongsToElement(range, target)) {
       return false;
-    if (!selectionBelongsToElement(selection, activeTextEditEl)) return false;
-    var range = selection.getRangeAt(0);
+    }
+    if (
+      selection.rangeCount === 0 ||
+      selection.isCollapsed ||
+      !selectionBelongsToElement(selection, target)
+    ) {
+      selection.removeAllRanges();
+      selection.addRange(range.cloneRange());
+      range = selection.getRangeAt(0);
+    }
     var reused = exactCoverSpanForRange(range);
     if (reused) {
       if (!applyInlineStyleProperty(reused, property, value)) return false;
@@ -9043,6 +11113,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var reusedRange = document.createRange();
       reusedRange.selectNodeContents(reused);
       selection.addRange(reusedRange);
+      if (activeTextEditEl === target) {
+        activeTextEditRange = reusedRange.cloneRange();
+      } else if (suspendedTextEditRange?.target === target) {
+        suspendedTextEditRange.range = reusedRange.cloneRange();
+      }
       return true;
     }
     var span = document.createElement("span");
@@ -9059,6 +11134,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var nextRange = document.createRange();
     nextRange.selectNodeContents(span);
     selection.addRange(nextRange);
+    if (activeTextEditEl === target) {
+      activeTextEditRange = nextRange.cloneRange();
+    } else if (suspendedTextEditRange?.target === target) {
+      suspendedTextEditRange.range = nextRange.cloneRange();
+    }
     return true;
   }
 
@@ -9364,6 +11444,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || el === document.body || el === document.documentElement) {
       return false;
     }
+    if (isAutoLayoutElement(el)) return false;
     if (window.getComputedStyle(el).position === "static") return false;
     var children = el.children;
     if (children.length === 0) return false;
@@ -9380,6 +11461,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
     if (!el || el.nodeType !== 1) return false;
     if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
+    if (isAutoLayoutElement(el)) return false;
     var primitive = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
@@ -9390,13 +11472,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // other drawn shapes stay leaves, matching what
       // appendCanvasPrimitiveToHtml enforces on draw.
       if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
-    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+    } else if (!hasAbsolutePositionedChild(el)) {
       // Unmarked markup is judged by how it positions its CHILDREN, not by its
       // own position: an absolutely positioned card whose children are in
       // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
     }
     var cs = window.getComputedStyle(el);
+    if (primitive === "frame" && cs.position === "relative") return true;
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
@@ -9605,6 +11688,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
     if (phase === "cancel") {
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenDragIdentity = null;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
         "*",
@@ -9614,7 +11698,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (phase === "start") {
       activeCrossScreenStyleSnapshot =
         options?.styleSnapshot ?? collectPortableStyleSnapshot(el ?? null);
+      var startSourceId = getSourceId(el ?? null);
+      var startProvenance = nodeProvenanceForSourceId(
+        startSourceId,
+        el ?? null,
+      );
+      // A duplicated authored ID needs its exact position. Only the frozen,
+      // source-owned static revision permits this fallback; runtime clone
+      // selectors keep their existing authored-template semantics.
+      var needsStructuralSelector =
+        startSourceId &&
+        startProvenance?.versionHash &&
+        !startProvenance.uniqueNodeId;
+      activeCrossScreenDragIdentity = {
+        selector: needsStructuralSelector
+          ? selectorPath(el ?? null, undefined, true)
+          : getSelector(el ?? null),
+        sourceId: startSourceId,
+        sourceProvenance: startProvenance,
+      };
     }
+    var dragIdentity = activeCrossScreenDragIdentity;
     var rect = options?.elementRect ?? (el ? el.getBoundingClientRect() : null);
     var pointerOffset =
       options?.pointerOffset ??
@@ -9630,8 +11734,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         phase,
         screenId: designCanvasScreenId,
         boardSurface: designCanvasBoardSurface,
-        selector: getSelector(el ?? null),
-        sourceId: getSourceId(el ?? null),
+        selector: dragIdentity?.selector ?? getSelector(el ?? null),
+        sourceId: dragIdentity?.sourceId ?? getSourceId(el ?? null),
+        sourceProvenance: dragIdentity?.sourceProvenance,
         iframeX: ev?.clientX ?? 0,
         iframeY: ev?.clientY ?? 0,
         viewportW: window.innerWidth,
@@ -9646,6 +11751,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : undefined,
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
+        // Explicit sibling flag, not just `styleSnapshot === null` — the
+        // host must not have to infer capture-failed from a value shape
+        // that could change; see collectPortableStyleSnapshot's doc.
+        styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         duplicate: options?.duplicate === true ? true : undefined,
         sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
       },
@@ -9653,6 +11762,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     if (phase === "end") {
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenDragIdentity = null;
     }
   }
 
@@ -9991,6 +12101,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           dropMode: "flow-insert",
         };
       }
+      // A hit on a label or icon is below its flow item. Reuse the same
+      // ancestor resolver used for free-element drops so the anchor remains
+      // at the nearest container's child level.
+      var hasAutoLayoutAncestor = false;
+      var ancestor = hit.parentElement;
+      while (ancestor && ancestor !== document.body) {
+        if (isAutoLayoutElement(ancestor)) {
+          hasAutoLayoutAncestor = true;
+          break;
+        }
+        if (isContainerDropTarget(ancestor) && !isTextBearingLeaf(ancestor)) {
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (hit.parentElement !== el.parentElement && hasAutoLayoutAncestor) {
+        var descendantTarget = autoLayoutInsertionTargetForPoint(
+          el,
+          clientX,
+          clientY,
+          excludeEls,
+        );
+        if (descendantTarget) return descendantTarget;
+      }
       var hitParent = hit.parentElement;
       if (hitParent) {
         var hitAxis = parentFlowAxis(hitParent);
@@ -10080,6 +12214,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientY > parentRect.bottom;
 
     if (keepCurrentParent && pointerOutsideCurrentParent) {
+      // Figma parity: an auto-layout parent cannot host a freely
+      // (absolutely) positioned child at all, so "keep current parent,
+      // position free" while the pointer is off dragging far away must
+      // escape every auto-layout ancestor (the object's own row, the
+      // screen's own auto-layout root, ...) up to the nearest one that
+      // isn't — never just the object's immediate DOM parent, which may
+      // be a small auto-layout group nested deep inside a big auto-layout
+      // screen. Stops one level short of document.body: body itself has
+      // no node-id for persistence to anchor on (see the body-container
+      // fallback below), so the screen's own top-level wrapper is the
+      // outermost usable anchor.
+      var freeParent = currentParent;
+      while (
+        freeParent &&
+        freeParent.parentElement &&
+        freeParent.parentElement !== document.body &&
+        isAutoLayoutElement(freeParent)
+      ) {
+        freeParent = freeParent.parentElement;
+      }
+      if (freeParent !== currentParent) {
+        return {
+          anchor: freeParent,
+          placement: "after",
+          axis: "y",
+          dropMode: "flow-insert",
+        };
+      }
       var retainedSlot = nearestChildInsertionTarget(
         currentParent,
         clientX,
@@ -10662,27 +12824,54 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function stripAbsolutePositioningForFlowInsert(el: Element, target): void {
     if (!target || target.dropMode !== "flow-insert") return;
     var htmlEl = el as HTMLElement;
+    var primitive = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    var keepsContainingBlock = primitive === "frame";
     var cs = window.getComputedStyle(htmlEl);
-    if (cs.position !== "absolute" && cs.position !== "fixed") return;
+    if (
+      !keepsContainingBlock &&
+      cs.position !== "absolute" &&
+      cs.position !== "fixed"
+    ) {
+      return;
+    }
     for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
       htmlEl.style.removeProperty(ABS_POSITION_INLINE_PROPS[i]);
     }
-    // Utility classes and authored stylesheets can still resolve the member
-    // to absolute/fixed after the inline properties are removed. The host
-    // strips those source declarations in the same structural history step,
-    // but waiting for its in-place document round-trip leaves one rendered
-    // frame where the optimistically reparented node is still absolute and
-    // appears to jump or overlap. Override only that residual computed state
-    // until the source replacement arrives. Inline-authored absolute nodes
-    // naturally compute as static after the removal and keep the historical
-    // empty-inline-style behavior.
+    if (keepsContainingBlock) {
+      htmlEl.style.setProperty("position", "relative");
+      htmlEl.style.setProperty("left", "auto");
+      htmlEl.style.setProperty("top", "auto");
+      htmlEl.style.setProperty("right", "auto");
+      htmlEl.style.setProperty("bottom", "auto");
+    }
+    // A Frame remains the containing block for its absolute descendants. If
+    // an authored stylesheet overrides the inline relative reset, persist the
+    // same important override as the host. Other nodes only need this fallback
+    // while a stylesheet still keeps them absolute/fixed after the strip.
     var afterRemoval = window.getComputedStyle(htmlEl).position;
-    if (afterRemoval === "absolute" || afterRemoval === "fixed") {
+    var needsPositionOverride = keepsContainingBlock
+      ? afterRemoval !== "relative"
+      : afterRemoval === "absolute" || afterRemoval === "fixed";
+    if (needsPositionOverride) {
       // An authored stylesheet may carry !important, so the optimistic
       // override must match that priority. Tell the host to persist the same
       // narrow override; otherwise its source round-trip would re-apply the
       // stylesheet and pop the newly-flowed child back out of auto layout.
-      htmlEl.style.setProperty("position", "static", "important");
+      htmlEl.style.setProperty(
+        "position",
+        keepsContainingBlock ? "relative" : "static",
+        "important",
+      );
+      if (keepsContainingBlock) {
+        htmlEl.style.setProperty("left", "auto", "important");
+        htmlEl.style.setProperty("top", "auto", "important");
+        htmlEl.style.setProperty("right", "auto", "important");
+        htmlEl.style.setProperty("bottom", "auto", "important");
+      }
       target.forceFlowPositionOverride = true;
     }
   }
@@ -10954,6 +13143,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
+    // The optimistic DOM order/reparent now diverges from authored source.
+    // Keep known unique IDs, but invalidate the complete-source revision.
+    publishSourceDocumentProvenance(undefined, true);
   }
 
   function postVisualStructureChange(
@@ -11004,15 +13196,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function postVisualDuplicateChange(originalEl, cloneEl, target) {
+  function postVisualDuplicateChange(
+    originalEl,
+    cloneEl,
+    target,
+    sourceNodeIdMap?: Array<[string, string]>,
+  ) {
     if (!originalEl || !cloneEl) return;
     // The host immediately pushes the persisted clone back through the source
     // morph. Claim the optimistic clone first so that round-trip reuses it
     // instead of importing a second copy beside it.
     recordSourceSubtree(cloneEl);
+    var requestId =
+      "duplicate-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    pendingStructureMoves[requestId] = {
+      requestId: requestId,
+      el: cloneEl,
+      target: target || null,
+      origin: { inserted: true, fallbackSelection: originalEl },
+    };
     (window.parent as Window).postMessage(
       {
         type: "visual-duplicate-change",
+        requestId: requestId,
         selector: getSelector(originalEl),
         sourceId: getSourceId(originalEl),
         anchorSelector:
@@ -11020,6 +13226,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         anchorSourceId:
           target && target.anchor ? getSourceId(target.anchor) : "",
         placement: target && target.placement ? target.placement : "after",
+        sourceNodeIdMap: Array.isArray(sourceNodeIdMap)
+          ? sourceNodeIdMap
+          : undefined,
         cloneHtml: cloneEl.outerHTML,
         payload: getElementInfo(cloneEl),
       },
@@ -12075,9 +14284,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    var moveGestureId = ++dragGestureSequence;
+    // Real creation time of the mousedown that started this gesture, not the
+    // moment this handler happened to run — see cancelActiveBridgeDragOrPendingCommit.
+    var gestureStartedAt = performance.timeOrigin + e.timeStamp;
     var events = dragEventNames(e);
     var originalSelectedEl = selectedEl;
     var duplicatedForDrag = false;
+    var duplicatedSourceNodeIdMap: Array<[string, string]> | undefined;
     if (
       e.altKey &&
       selectedEl &&
@@ -12085,13 +14299,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectedEl !== document.documentElement
     ) {
       var clone = selectedEl.cloneNode(true);
-      resetRuntimeStableIds(clone);
+      duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
       selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
+      publishSourceDocumentProvenance(undefined, true);
       selectedEl = clone;
       duplicatedForDrag = true;
       gestureEl = clone;
       positionOverlay(selectionOverlay, selectedEl);
-      postElementSelect(selectedEl, e);
+      // No `e` here: this reselects the clone mid-gesture, before the drag's
+      // own commit persists it (postVisualDuplicateChange, at gesture end).
+      // Passing the mousedown event would tag it a real "pointer" pick, and
+      // the host records every intent-carrying pick as its own undo step —
+      // stacking a stray one under this gesture's real content entry.
+      postElementSelect(selectedEl);
     }
     // Multi-select group move: every member of the current 2+ selection moves
     // with the gesture when the drag started on a member. Alt-drag duplicates
@@ -12202,19 +14422,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var reorderGestureStartRect = reorderEl.getBoundingClientRect();
       var reorderLastTargetKey = null;
       var keepCurrentFlowParent = bridgeSpaceKeyPressed;
+      // Ctrl/Cmd overrides auto-layout drag resistance for the WHOLE
+      // gesture (unique-paths-5): captured once here, not re-read per move
+      // tick, so releasing the modifier mid-drag can't hand the gesture to
+      // the host's cross-screen tracking partway through. Held, this skips
+      // every postCrossScreenDrag below so the host never installs its
+      // own board-level pointer listeners for this drag at all — those
+      // listeners have no ctrl-awareness and reparent the element onto the
+      // board the moment the pointer crosses the screen's rendered edge,
+      // stealing the gesture from the (already-correct) in-iframe free-move
+      // path below before it can ever run.
+      var reorderIgnoresAutoLayout = Boolean(e.ctrlKey || e.metaKey);
       var currentTarget = flowMoveTargetForPoint(
         reorderEl,
         e.clientX,
         e.clientY,
         groupOthers,
         keepCurrentFlowParent,
-        Boolean(e.ctrlKey),
+        reorderIgnoresAutoLayout,
       );
       showInsertionGuideFor(currentTarget);
       dndLog("start:reorder", {
         el: getSelector(reorderEl),
         isGroup: isGroupDrag,
-        ctrl: Boolean(e.ctrlKey),
+        ctrl: reorderIgnoresAutoLayout,
         target: dndTarget(currentTarget),
       });
       crossScreenClaimedByHost = false;
@@ -12225,7 +14456,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         x: reorderPointerStart.clientX - reorderRect.left,
         y: reorderPointerStart.clientY - reorderRect.top,
       };
-      if (!isGroupDrag) {
+      if (!isGroupDrag && !reorderIgnoresAutoLayout) {
         postCrossScreenDrag("start", reorderEl, reorderPointerStart, {
           duplicate: duplicatedForDrag,
           elementRect: {
@@ -12394,6 +14625,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // free x/y without leaving the layout, which would collapse it. Ctrl
       // "ignore auto layout" is the explicit free-place escape.
       function resolveReorderOrFreeTarget(cx, cy, ctrlKey) {
+        // Re-sync from the live global on every call: this document's own
+        // onReorderKeyDown/KeyUp keep keepCurrentFlowParent current when
+        // Space lands here, but the host's forwarded
+        // "agent-native:set-space-held" (see the message listener) only
+        // ever updates bridgeSpaceKeyPressed — never reaching this drag's
+        // own key listeners — so a "held" forward would otherwise be
+        // invisible to the one gesture that needs it.
+        if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
         return flowMoveTargetForPoint(
           reorderEl,
           cx,
@@ -12591,8 +14830,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Always notify the host frame so it can track the cursor position,
         // render the ghost, and highlight the target screen. Group drags stay
         // in-iframe (the host's cross-screen drop moves a single element and
-        // would tear the group apart), so they never arm the host.
-        if (!isGroupDrag) {
+        // would tear the group apart), so they never arm the host. Same for
+        // a ctrl/cmd auto-layout-override drag (see reorderIgnoresAutoLayout
+        // above): the host's board-level listeners have no ctrl-awareness.
+        if (!isGroupDrag && !reorderIgnoresAutoLayout) {
           postCrossScreenDrag(
             "move",
             reorderEl,
@@ -12615,9 +14856,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           clearReorderReflow();
           showTransformBadge("Move layer", cx, cy);
         } else {
-          // Back inside: the host stops receiving cross-screen moves, so its
-          // claim goes stale and a release here would commit nowhere.
-          crossScreenClaimedByHost = false;
+          // NOT reset here: postCrossScreenDrag above runs every tick
+          // regardless of inside/outside, so crossScreenClaimedByHost tracks
+          // only the host's own "agent-native:cross-screen-claim" reply (see
+          // the matching comment in the free-drag onMove above for why this
+          // `outside` check cannot be used to invalidate it).
           // Cursor is inside this iframe — use existing in-iframe behavior,
           // stabilized (hysteresis) and previewed with live sibling reflow when
           // liveReflowEnabled. stabilizeReorderTarget / applyReorderReflow are
@@ -12669,6 +14912,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // in the final slot with no back-to-origin flicker.
         clearReorderLift();
         clearReorderReflow();
+        // See cleanupMoveDrag's matching call: the mousedown that started
+        // this reorder still owes the browser a trailing native click on
+        // mouseup, which would otherwise reselect the reordered element with
+        // a real pointer intent right after this gesture's own commit.
+        suppressNextShieldClickBriefly();
       }
       function onReorderVisibilityChange() {
         if (document.visibilityState === "hidden") onReorderEscape();
@@ -12706,7 +14954,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       function onReorderKeyUp(ev) {
         if (ev.code !== "Space" && ev.key !== " ") return;
-        keepCurrentFlowParent = false;
+        // Deliberately NOT resetting keepCurrentFlowParent here. onReorderUp
+        // re-resolves the drop target from the release point (see its own
+        // comment) instead of reusing the last onReorderMove preview, so a
+        // release with no further pointer move before mouseup (Figma
+        // parity: press Space mid-drag, release it, drop without moving
+        // again) would otherwise re-read this as false and reparent anyway
+        // — exactly the bug this flag exists to prevent. Once Space has
+        // protected the current parent during a gesture, that protection
+        // holds for the rest of the gesture.
         ev.preventDefault();
       }
       function onReorderUp(ev) {
@@ -12729,17 +14985,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var cx = ev.clientX;
         var cy = ev.clientY;
         var outsideOnDrop =
-          cx < 0 ||
-          cy < 0 ||
-          cx > vw ||
-          cy > vh ||
+          // A ctrl/cmd auto-layout-override drag never arms the host (see
+          // onReorderMove/reorderIgnoresAutoLayout above), so the numeric
+          // outside-the-iframe check below — which exists only to defer to
+          // the host's cross-screen drop — must not apply to it either, or
+          // the in-iframe commit below is skipped with nothing to take its
+          // place.
+          (!reorderIgnoresAutoLayout &&
+            (cx < 0 || cy < 0 || cx > vw || cy > vh)) ||
           // Claimed by the host: committing here too would write the node
           // twice, from two different ideas of where it landed.
           crossScreenClaimedByHost;
         // Post the end message so the host can finalize a cross-screen drop.
         // Group drags never armed the host (see onReorderMove), so posting
         // end here would trigger a bogus single-element cross-screen move.
-        if (!isGroupDrag) {
+        // Same for a ctrl/cmd auto-layout-override drag (unique-paths-5).
+        if (!isGroupDrag && !reorderIgnoresAutoLayout) {
           postCrossScreenDrag(
             "end",
             reorderEl,
@@ -12828,6 +15089,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             originalSelectedEl,
             reorderEl,
             currentTarget,
+            duplicatedSourceNodeIdMap,
           );
           postCrossScreenDrag("cancel");
         } else if (isGroupDrag) {
@@ -13139,10 +15401,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
       } else {
-        // Back inside: the host stops receiving cross-screen moves here, so its
-        // claim is about to go stale. Reclaim the gesture or the release commits
-        // nowhere.
-        crossScreenClaimedByHost = false;
+        // NOT reset here: scheduleCrossScreenDragMove above runs every tick
+        // regardless of inside/outside, so the host always sees a fresh point
+        // and its "agent-native:cross-screen-claim" reply is the only source
+        // of truth for crossScreenClaimedByHost. Every per-screen iframe
+        // renders oversized relative to its screen's visible card, so
+        // isOutsideIframeViewport reads false even while the pointer sits
+        // squarely over a DIFFERENT screen — resetting the flag here on that
+        // signal clobbered a true claim the host had just granted, and the
+        // host only resends a claim message on a claimed-value CHANGE, so
+        // once clobbered it stayed false for the rest of the drag with no
+        // further message ever arriving to correct it.
         currentAutoLayoutTarget =
           !duplicatedForDrag && !bridgeSpaceKeyPressed
             ? autoLayoutInsertionTargetForPoint(
@@ -13220,6 +15489,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // after this gesture's "end"/"cancel" phase has already gone out.
       crossScreenDragMoveScheduled = false;
       crossScreenDragMovePendingEv = null;
+      // The mousedown that started this gesture still owes the browser a
+      // trailing native "click" on mouseup — unsuppressed, it reaches
+      // selectElementAtEvent as an ordinary standalone pick of whatever now
+      // sits under the pointer (the moved element, the duplicate's clone),
+      // tags it a real pointer intent, and the host records that as its own
+      // undo step stacked on top of this gesture's own commit. Every onUp
+      // exit — commit or cancel — runs this cleanup first, so suppressing
+      // here covers all of them instead of each commit branch needing its
+      // own call (the cancel branches already added theirs ad hoc).
+      suppressNextShieldClickBriefly();
     }
     function cancelMoveDrag() {
       bridgeMoveController.cancel();
@@ -13341,7 +15620,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       if (duplicatedForDrag) {
-        postVisualDuplicateChange(originalSelectedEl, dragEl);
+        postVisualDuplicateChange(
+          originalSelectedEl,
+          dragEl,
+          null,
+          duplicatedSourceNodeIdMap,
+        );
         postCrossScreenDrag("cancel");
       } else if (currentAutoLayoutTarget) {
         // Nest-on-drop: a free element nests as an absolute child of a plain
@@ -13410,56 +15694,422 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             },
             "*",
           );
+          // This position is now the source's own value (the host persists
+          // it as-is, runtimeApplied, with no re-morph of this element) —
+          // record it as the last-known source baseline. Skipping this left
+          // __anSourceMeta pinned to the PRE-drag position, so a later
+          // full-document reconcile (e.g. undo back to that same pre-drag
+          // value) matched the stale cache and left the dragged position
+          // rendered instead of reverting.
+          recordSourceOwnership(state.el);
         });
+        armPostCommitCancelGrace(
+          moveGestureId,
+          // Real creation time of the mouseup, not of this handler running —
+          // any synchronous work above (auto-layout resolution, DOM writes)
+          // would otherwise inflate the apparent release time.
+          performance.timeOrigin + (ev ? ev.timeStamp : performance.now()),
+          function () {
+            memberStates.forEach(function (state) {
+              state.el.style.position = state.originalPosition;
+              state.el.style.left = state.originalLeft;
+              state.el.style.top = state.originalTop;
+              var revertStyles = {
+                position: state.originalPosition,
+                left: state.originalLeft,
+                top: state.originalTop,
+              };
+              (window.parent as Window).postMessage(
+                {
+                  type: "visual-style-change",
+                  selector: getSelector(state.el),
+                  styles: revertStyles,
+                  originalStyles: originalInlineStylesForPatch(
+                    state.el,
+                    revertStyles,
+                  ),
+                  payload: getElementInfo(state.el),
+                },
+                "*",
+              );
+              // Same reasoning as the commit above: this grace-period revert
+              // is the new source baseline too, so the cache must follow it
+              // back rather than staying pinned to the just-cancelled commit.
+              recordSourceOwnership(state.el);
+            });
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            refreshOverlays();
+          },
+        );
         if (!isGroupDrag) postCrossScreenDrag("cancel");
       }
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onMoveKeyDown, true);
-    setActiveDragCancel(cancelMoveDrag);
+    setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
   }
 
-  /**
-   * K-scale descendant text (Figma scales the type inside a frame too). Only
-   * elements carrying their OWN size are listed: an inherited size is already
-   * covered by the root's font-size write and a relative inline unit tracks
-   * its parent, so writing either here would scale it twice.
-   */
-  function collectScaleFontTargets(root: Element) {
+  var KSCALE_LENGTH_PROPERTIES = [
+    "width",
+    "height",
+    "min-width",
+    "max-width",
+    "min-height",
+    "max-height",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "row-gap",
+    "column-gap",
+    "flex-basis",
+    "font-size",
+    "line-height",
+    "letter-spacing",
+    "word-spacing",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
+    "outline-width",
+    "outline-offset",
+    "box-shadow",
+    "text-shadow",
+  ];
+
+  function scaleKScaleLengthValue(value: string, factor: number) {
+    return value.replace(/(-?\d*\.?\d+)px\b/gi, function (_token, number) {
+      return (Number(number) * factor).toFixed(2).replace(/\.00$/, "") + "px";
+    });
+  }
+
+  function isInsideScaledSvgViewBox(el: Element) {
+    var svgViewport = el instanceof SVGSVGElement ? el : el.closest("svg");
+    var outerSvgViewport = svgViewport?.parentElement?.closest("svg");
+    return Boolean(
+      (svgViewport?.hasAttribute("viewBox") && svgViewport !== el) ||
+      outerSvgViewport?.hasAttribute("viewBox"),
+    );
+  }
+
+  function rawKScaleValue(
+    el: Element,
+    property: string,
+    typedStyleMap: StylePropertyMap | null,
+  ) {
+    var inlineValue = (el as HTMLElement).style?.getPropertyValue(property);
+    return typedStyleMap
+      ? typedStyleMap.get(property)?.toString() || inlineValue || ""
+      : inlineValue || "";
+  }
+
+  function typedKScaleValue(
+    el: Element,
+    property: string,
+    typedStyleMap: StylePropertyMap | null,
+  ) {
+    var value = rawKScaleValue(el, property, typedStyleMap);
+    if (!/[-+]?\d*\.?\d+px\b/i.test(value)) return "";
+    return value;
+  }
+
+  function collectKScaleStyleTargets(
+    root: Element,
+    includeRootFontSize: boolean,
+  ) {
     var targets: Array<{
       el: HTMLElement;
-      originFontSize: number;
-      originalInlineFontSize: string;
+      selector: string;
+      sourceId?: string;
+      originalStyles: Record<string, { value: string; priority: string }>;
+      scaledStyles: Record<string, string>;
+      preservedStyles: Record<string, string>;
     }> = [];
-    var nodes = root.querySelectorAll("*");
-    for (var i = 0; i < nodes.length; i += 1) {
-      var el = nodes[i] as HTMLElement;
-      if (isOverlayElement(el)) continue;
-      var inlineFontSize = el.style.fontSize || "";
-      if (inlineFontSize && !/px\s*$/i.test(inlineFontSize)) continue;
+    var elements = [root].concat(
+      Array.prototype.slice.call(root.querySelectorAll("*")),
+    );
+
+    function isFlexibleMainAxisFill(el: HTMLElement, property: string) {
+      if (property !== "width" && property !== "height") return false;
       var parent = el.parentElement;
-      var cs = window.getComputedStyle(el);
+      if (!parent) return false;
+      var parentStyle = window.getComputedStyle(parent);
       if (
-        !inlineFontSize &&
-        parent &&
-        window.getComputedStyle(parent).fontSize === cs.fontSize
+        parentStyle.display !== "flex" &&
+        parentStyle.display !== "inline-flex"
+      ) {
+        return false;
+      }
+      var isMainAxis =
+        (property === "width" &&
+          parentStyle.flexDirection !== "column" &&
+          parentStyle.flexDirection !== "column-reverse") ||
+        (property === "height" &&
+          (parentStyle.flexDirection === "column" ||
+            parentStyle.flexDirection === "column-reverse"));
+      if (!isMainAxis) return false;
+      var itemStyle = window.getComputedStyle(el);
+      return (
+        Number(itemStyle.flexGrow) > 0 ||
+        itemStyle.flexBasis === "0%" ||
+        itemStyle.flexBasis === "0px"
+      );
+    }
+
+    for (var index = 0; index < elements.length; index += 1) {
+      var el = elements[index] as HTMLElement;
+      if (
+        (!(el instanceof HTMLElement) && !(el instanceof SVGElement)) ||
+        !isRuntimeLayerVisualNode(el)
+      )
+        continue;
+      var isRoot = el === root;
+      var originalStyles: Record<string, { value: string; priority: string }> =
+        {};
+      var scaledStyles: Record<string, string> = {};
+      var preservedStyles: Record<string, string> = {};
+      var typedStyleMap =
+        typeof (el as Element & { computedStyleMap?: () => StylePropertyMap })
+          .computedStyleMap === "function"
+          ? (
+              el as Element & { computedStyleMap: () => StylePropertyMap }
+            ).computedStyleMap()
+          : null;
+      var svgViewport = el instanceof SVGSVGElement ? el : el.closest("svg");
+      var hasSvgViewBox = Boolean(svgViewport?.hasAttribute("viewBox"));
+      var outerSvgViewport = svgViewport?.parentElement?.closest("svg");
+      var isSvgViewBoxRoot = Boolean(
+        el instanceof SVGSVGElement &&
+        hasSvgViewBox &&
+        !outerSvgViewport?.hasAttribute("viewBox"),
+      );
+      var isSvgViewBoxContent = isInsideScaledSvgViewBox(el);
+      var borderWidthProperties = [
+        "border-top-width",
+        "border-right-width",
+        "border-bottom-width",
+        "border-left-width",
+      ];
+      if (isSvgViewBoxRoot) {
+        ["font-size", "line-height", "letter-spacing", "word-spacing"].forEach(
+          function (property) {
+            var value = rawKScaleValue(el, property, typedStyleMap);
+            if (!value) return;
+            preservedStyles[property] = value;
+            originalStyles[property] = {
+              value: el.style.getPropertyValue(property),
+              priority: el.style.getPropertyPriority(property),
+            };
+          },
+        );
+      }
+      for (
+        var propertyIndex = 0;
+        propertyIndex < KSCALE_LENGTH_PROPERTIES.length;
+        propertyIndex += 1
+      ) {
+        var property = KSCALE_LENGTH_PROPERTIES[propertyIndex];
+        if (isSvgViewBoxContent) continue;
+        if (
+          isSvgViewBoxRoot &&
+          (property === "font-size" ||
+            property === "line-height" ||
+            property === "letter-spacing" ||
+            property === "word-spacing")
+        ) {
+          continue;
+        }
+        var authoredValue = typedKScaleValue(el, property, typedStyleMap);
+        if (!authoredValue) continue;
+        if (
+          isRoot &&
+          (property === "width" ||
+            property === "height" ||
+            property === "left" ||
+            property === "right" ||
+            property === "top" ||
+            property === "bottom" ||
+            (!includeRootFontSize && property === "font-size"))
+        ) {
+          continue;
+        }
+        if (isFlexibleMainAxisFill(el, property)) continue;
+        var lengthTokens = authoredValue.match(/[-+]?\d*\.?\d+px\b/gi) || [];
+        if (
+          lengthTokens.length === 0 ||
+          lengthTokens.every(function (token) {
+            return Number.parseFloat(token) === 0;
+          })
+        ) {
+          continue;
+        }
+        originalStyles[property] = {
+          value: el.style.getPropertyValue(property),
+          priority: el.style.getPropertyPriority(property),
+        };
+        scaledStyles[property] = authoredValue;
+      }
+
+      if (!isSvgViewBoxContent) {
+        var borderWidthValues = borderWidthProperties.map(function (property) {
+          return typedKScaleValue(el, property, typedStyleMap);
+        });
+        if (
+          borderWidthValues.every(function (value) {
+            return /^[-+]?\d*\.?\d+px$/i.test(value);
+          }) &&
+          borderWidthValues.some(function (value) {
+            return Number.parseFloat(value) !== 0;
+          })
+        ) {
+          originalStyles["border-width"] = {
+            value: el.style.getPropertyValue("border-width"),
+            priority: el.style.getPropertyPriority("border-width"),
+          };
+          scaledStyles["border-width"] = borderWidthValues.join(" ");
+        }
+      }
+
+      if (
+        Object.keys(scaledStyles).length === 0 &&
+        Object.keys(preservedStyles).length === 0
       ) {
         continue;
       }
-      var originFontSize = readPx(inlineFontSize || cs.fontSize);
-      if (!(originFontSize > 0)) continue;
-      // The revert baseline is recorded on first sight, and the commit is too
-      // late: by then the preview has already written the scaled size.
       rememberLiveVisualEditOriginalStyles(el);
       targets.push({
         el: el,
-        originFontSize: originFontSize,
-        originalInlineFontSize: el.style.fontSize,
+        selector: getSelector(el),
+        sourceId: getSourceId(el) || undefined,
+        originalStyles: originalStyles,
+        scaledStyles: scaledStyles,
+        preservedStyles: preservedStyles,
       });
     }
     return targets;
   }
+
+  function applyKScaleStyleTargets(targets, factor: number) {
+    targets.forEach(function (target) {
+      Object.keys(target.preservedStyles).forEach(function (property) {
+        var original = target.originalStyles[property];
+        target.el.style.setProperty(
+          property,
+          target.preservedStyles[property],
+          original ? original.priority : "",
+        );
+      });
+      Object.keys(target.scaledStyles).forEach(function (property) {
+        var scaledValue = scaleKScaleLengthValue(
+          target.scaledStyles[property],
+          factor,
+        );
+        if (scaledValue === target.scaledStyles[property]) return;
+        target.el.style.setProperty(
+          property,
+          scaledValue,
+          target.originalStyles[property]
+            ? target.originalStyles[property].priority
+            : "",
+        );
+      });
+    });
+  }
+
+  function restoreKScaleStyleTargets(targets) {
+    targets.forEach(function (target) {
+      Object.keys(target.originalStyles).forEach(function (property) {
+        var original = target.originalStyles[property];
+        if (original.value) {
+          target.el.style.setProperty(
+            property,
+            original.value,
+            original.priority,
+          );
+        } else {
+          target.el.style.removeProperty(property);
+        }
+      });
+    });
+  }
+
+  function kScaleStyleChanges(targets, factor: number) {
+    return targets.flatMap(function (target) {
+      var styles: Record<string, string> = {};
+      Object.keys(target.scaledStyles).forEach(function (property) {
+        var scaledValue = scaleKScaleLengthValue(
+          target.scaledStyles[property],
+          factor,
+        );
+        if (scaledValue !== target.scaledStyles[property])
+          styles[property] = scaledValue;
+      });
+      Object.keys(target.preservedStyles).forEach(function (property) {
+        styles[property] = target.preservedStyles[property];
+      });
+      if (Object.keys(styles).length === 0) return [];
+      return [
+        {
+          selector: target.selector,
+          sourceId: target.sourceId,
+          styles: styles,
+          originalStyles: Object.keys(target.originalStyles).reduce(
+            function (result, property) {
+              result[property] = target.originalStyles[property].value;
+              return result;
+            },
+            {} as Record<string, string>,
+          ),
+          preserveSelection: true,
+        },
+      ];
+    });
+  }
+
+  var externalKScaleTargets = null as ReturnType<
+    typeof collectKScaleStyleTargets
+  > | null;
+  (window as any).__designCanvasScaleContents = function (
+    factor: number,
+    phase: "begin" | "preview" | "commit" | "cancel" | "accept",
+  ) {
+    if (phase === "begin") {
+      externalKScaleTargets = document.body
+        ? collectKScaleStyleTargets(document.body, true)
+        : [];
+      return [];
+    }
+    if (!externalKScaleTargets) {
+      externalKScaleTargets = document.body
+        ? collectKScaleStyleTargets(document.body, true)
+        : [];
+    }
+    if (phase === "cancel") {
+      restoreKScaleStyleTargets(externalKScaleTargets);
+      externalKScaleTargets = null;
+      return [];
+    }
+    if (phase === "accept") {
+      externalKScaleTargets = null;
+      return [];
+    }
+    applyKScaleStyleTargets(externalKScaleTargets, factor);
+    if (phase === "commit") {
+      var changes = kScaleStyleChanges(externalKScaleTargets, factor);
+      return changes;
+    }
+    return [];
+  };
 
   function startResize(handle, e) {
     if (readOnly) return;
@@ -13476,7 +16126,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalInlineTop = resizeEl.style.top;
     var originalInlineWidth = resizeEl.style.width;
     var originalInlineHeight = resizeEl.style.height;
-    var originalInlineBorderWidth = resizeEl.style.borderWidth;
     var originalInlineFontSize = resizeEl.style.fontSize;
     ensurePositionable(resizeEl);
     var cs = window.getComputedStyle(resizeEl);
@@ -13498,23 +16147,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     //      unit-agnostic.
     var originW = readPx(cs.width);
     var originH = readPx(cs.height);
-    // K-scale (Figma "Scale" tool) parity: capture the element's own border
-    // width and font size once at drag-start so a uniform per-tick scale
-    // factor (derived from width/height growth, see nextRect below) can
-    // multiply them proportionally, exactly like Figma's Scale tool resizes
-    // stroke weight and text size along with the box — a *normal* resize
-    // (scaleToolEnabled false) never touches either. Uses the CSS
-    // borderWidth/fontSize shorthand (not per-side border-*-width) since
-    // canvas-primitive-style.ts / appendCanvasPrimitiveToHtml only ever set a
-    // uniform border on these elements; a hand-authored per-side border is
-    // left untouched (readPx on the shorthand returns 0 for mixed values,
-    // which multiplies to 0 — an explicit non-goal edge case, not silently
-    // wrong: scaleToolEnabled is opt-in and mixed-width borders on a
-    // draggable primitive are not part of this app's authored shapes).
-    var originBorderWidth = readPx(
-      resizeEl.style.borderWidth || cs.borderWidth,
-    );
+    // K-scale captures border widths with the other authored length styles so
+    // asymmetric sides keep their proportions.
     var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
+    var svgViewBoxScalesFont =
+      (resizeEl instanceof SVGSVGElement && resizeEl.hasAttribute("viewBox")) ||
+      isInsideScaledSvgViewBox(resizeEl);
     var origin = {
       left: readPx(resizeEl.style.left || cs.left),
       top: readPx(resizeEl.style.top || cs.top),
@@ -13580,14 +16218,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var heightTouched = false;
     // Captured on the first K-scale tick, not at drag start: the host can arm
     // scale-tool-mode mid-gesture.
-    var scaledTextTargetsCache: ReturnType<
-      typeof collectScaleFontTargets
+    var scaledStyleTargetsCache: ReturnType<
+      typeof collectKScaleStyleTargets
     > | null = null;
-    function scaledTextTargets() {
-      if (!scaledTextTargetsCache) {
-        scaledTextTargetsCache = collectScaleFontTargets(resizeEl);
+    function scaledStyleTargets() {
+      if (!scaledStyleTargetsCache) {
+        scaledStyleTargetsCache = collectKScaleStyleTargets(resizeEl, false);
       }
-      return scaledTextTargetsCache;
+      return scaledStyleTargetsCache;
     }
     function nextRect(ev) {
       var screenDx = ev.clientX - startX;
@@ -13694,6 +16332,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       if (controllerMove.phase !== "active") return;
       if (!resizeEl) return;
+      var kScaleTargetsForMove = scaleToolEnabled ? scaledStyleTargets() : null;
       var rect = nextRect(ev);
       if (rect.touchesWidth) widthTouched = true;
       if (rect.touchesHeight) heightTouched = true;
@@ -13714,25 +16353,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // height/origin.height agree (barring the min-size clamp's rounding)
         // — width is the simpler, always-defined choice.
         var kScaleFactor = rect.width / Math.max(1, origin.width);
-        if (originBorderWidth > 0) {
-          resizeEl.style.borderWidth =
-            Math.max(
-              0,
-              Math.round(originBorderWidth * kScaleFactor * 100) / 100,
-            ) + "px";
-        }
-        if (originFontSize > 0) {
+        if (originFontSize > 0 && !svgViewBoxScalesFont) {
           resizeEl.style.fontSize =
             Math.max(1, Math.round(originFontSize * kScaleFactor * 100) / 100) +
             "px";
         }
-        scaledTextTargets().forEach(function (target) {
-          target.el.style.fontSize =
-            Math.max(
-              1,
-              Math.round(target.originFontSize * kScaleFactor * 100) / 100,
-            ) + "px";
-        });
+        applyKScaleStyleTargets(kScaleTargetsForMove || [], kScaleFactor);
       }
       showTransformBadge(
         Math.round(rect.width) + " x " + Math.round(rect.height),
@@ -13749,10 +16375,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
       if (widthTouched) previewStyles.width = resizeEl.style.width;
       if (heightTouched) previewStyles.height = resizeEl.style.height;
-      if (scaleToolEnabled && originBorderWidth > 0) {
-        previewStyles.borderWidth = resizeEl.style.borderWidth;
-      }
-      if (scaleToolEnabled && originFontSize > 0) {
+      if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         previewStyles.fontSize = resizeEl.style.fontSize;
       }
       (window.parent as Window).postMessage(
@@ -13783,11 +16406,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.top = originalInlineTop;
         resizeEl.style.width = originalInlineWidth;
         resizeEl.style.height = originalInlineHeight;
-        resizeEl.style.borderWidth = originalInlineBorderWidth;
         resizeEl.style.fontSize = originalInlineFontSize;
-        (scaledTextTargetsCache || []).forEach(function (target) {
-          target.el.style.fontSize = target.originalInlineFontSize;
-        });
+        restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
         // Cancellation restores the iframe DOM without a commit packet. Send
@@ -13834,11 +16454,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       cleanupResizeDrag();
       hideTransformBadge();
       if (!resizeEl) return;
-      var styles: Record<string, string> = {
-        position: resizeEl.style.position,
-        left: resizeEl.style.left,
-        top: resizeEl.style.top,
-      };
+      var styles: Record<string, string> = {};
+      if (resizeEl.style.position) styles.position = resizeEl.style.position;
+      if (resizeEl.style.left) styles.left = resizeEl.style.left;
+      if (resizeEl.style.top) styles.top = resizeEl.style.top;
       // Only commit width/height for an axis this gesture actually touched
       // (see widthTouched/heightTouched above) — a pure vertical or
       // horizontal edge-drag must not also commit a px value for the axis
@@ -13846,46 +16465,63 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // `width: 100%` to a fixed px width.
       if (widthTouched) styles.width = resizeEl.style.width;
       if (heightTouched) styles.height = resizeEl.style.height;
-      // Only include borderWidth/fontSize when the K-scale tool actually
-      // changed them (originBorderWidth/originFontSize > 0 AND
-      // scaleToolEnabled) — a normal resize must never introduce these keys,
-      // matching the "normal resize unchanged" requirement.
-      if (scaleToolEnabled && originBorderWidth > 0) {
-        styles.borderWidth = resizeEl.style.borderWidth;
-      }
-      if (scaleToolEnabled && originFontSize > 0) {
+      // Only include fontSize when the K-scale tool actually changed it — a
+      // normal resize must never introduce this key.
+      if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         styles.fontSize = resizeEl.style.fontSize;
       }
-      (window.parent as Window).postMessage(
-        {
-          type: "visual-style-change",
-          phase: "commit",
-          selector: getSelector(resizeEl),
-          styles: styles,
-          originalStyles: originalInlineStylesForPatch(resizeEl, styles),
-          payload: getElementInfo(resizeEl),
-        },
-        "*",
-      );
       if (scaleToolEnabled) {
-        (scaledTextTargetsCache || []).forEach(function (target) {
-          var textStyles: Record<string, string> = {
-            fontSize: target.el.style.fontSize,
-          };
-          (window.parent as Window).postMessage(
-            {
-              type: "visual-style-change",
-              selector: getSelector(target.el),
-              styles: textStyles,
-              originalStyles: originalInlineStylesForPatch(
-                target.el,
-                textStyles,
-              ),
-              payload: getElementInfo(target.el),
-              preserveSelection: true,
-            },
-            "*",
+        var finalScaleFactor =
+          readPx(
+            resizeEl.style.width || window.getComputedStyle(resizeEl).width,
+          ) / Math.max(1, origin.width);
+        var changes = kScaleStyleChanges(
+          scaledStyleTargetsCache || [],
+          finalScaleFactor,
+        );
+        var rootSelector = getSelector(resizeEl);
+        var rootChange = changes.find(function (change) {
+          return change.selector === rootSelector;
+        });
+        if (rootChange) {
+          rootChange.styles = Object.assign({}, rootChange.styles, styles);
+          rootChange.originalStyles = Object.assign(
+            {},
+            rootChange.originalStyles || {},
+            originalInlineStylesForPatch(resizeEl, styles),
           );
+        } else {
+          changes.unshift({
+            selector: rootSelector,
+            sourceId: getSourceId(resizeEl) || undefined,
+            styles: styles,
+            originalStyles: originalInlineStylesForPatch(resizeEl, styles),
+            preserveSelection: true,
+          });
+        }
+        (window.parent as Window).postMessage(
+          { type: "visual-style-batch-change", changes: changes },
+          "*",
+        );
+      } else {
+        (window.parent as Window).postMessage(
+          {
+            type: "visual-style-change",
+            phase: "commit",
+            selector: getSelector(resizeEl),
+            styles: styles,
+            originalStyles: originalInlineStylesForPatch(resizeEl, styles),
+            payload: getElementInfo(resizeEl),
+          },
+          "*",
+        );
+      }
+      // Let the next undo/redo morph compare against the committed inline
+      // values instead of the pre-resize snapshot.
+      recordSourceOwnership(resizeEl);
+      if (scaleToolEnabled) {
+        (scaledStyleTargetsCache || []).forEach(function (target) {
+          recordSourceOwnership(target.el);
         });
       }
     }
@@ -13923,8 +16559,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         originalInlineTop: el.style.top,
         originalInlineWidth: el.style.width,
         originalInlineHeight: el.style.height,
-        originalInlineBorderWidth: el.style.borderWidth,
-        originalInlineFontSize: el.style.fontSize,
         originLeft: 0,
         originTop: 0,
         originWidth: 0,
@@ -13934,9 +16568,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // would scale it to the wrong place.
         originCenterX: 0,
         originCenterY: 0,
-        originBorderWidth: 0,
-        originFontSize: 0,
-        textTargets: null as ReturnType<typeof collectScaleFontTargets> | null,
       };
       rememberLiveVisualEditOriginalStyles(el);
       ensurePositionable(el);
@@ -13952,10 +16583,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       snapshot.originHeight = readPx(cs.height);
       snapshot.originCenterX = rect.left + rect.width / 2;
       snapshot.originCenterY = rect.top + rect.height / 2;
-      snapshot.originBorderWidth = readPx(
-        el.style.borderWidth || cs.borderWidth,
-      );
-      snapshot.originFontSize = readPx(el.style.fontSize || cs.fontSize);
       return snapshot;
     });
     var groupWidth = Math.max(1, groupRight - groupLeft);
@@ -14049,11 +16676,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    function memberTextTargets(state) {
-      if (!state.textTargets) {
-        state.textTargets = collectScaleFontTargets(state.el);
+    var groupKScaleStyleTargetsCache: ReturnType<
+      typeof collectKScaleStyleTargets
+    > | null = null;
+    var lastKScaleFactor = 1;
+    function groupKScaleStyleTargets() {
+      if (!groupKScaleStyleTargetsCache) {
+        var targetsByElement = new Map();
+        memberStates.forEach(function (state) {
+          collectKScaleStyleTargets(state.el, true).forEach(function (target) {
+            targetsByElement.set(target.el, target);
+          });
+        });
+        groupKScaleStyleTargetsCache = Array.from(targetsByElement.values());
       }
-      return state.textTargets;
+      return groupKScaleStyleTargetsCache;
     }
 
     function onMove(ev) {
@@ -14061,49 +16698,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bridgeGesturePointer(ev),
       );
       if (controllerMove.phase !== "active") return;
+      var kScaleTargetsForMove = scaleToolEnabled
+        ? groupKScaleStyleTargets()
+        : null;
       var factor = groupFactors(ev);
+      if (kScaleTargetsForMove) lastKScaleFactor = factor.x;
       memberStates.forEach(function (state) {
         var nextCenterX = anchorX + (state.originCenterX - anchorX) * factor.x;
         var nextCenterY = anchorY + (state.originCenterY - anchorY) * factor.y;
         var nextWidth = state.originWidth * factor.x;
         var nextHeight = state.originHeight * factor.y;
+        var nextLeft =
+          state.originLeft +
+          (nextCenterX - state.originCenterX) -
+          (nextWidth - state.originWidth) / 2;
+        var nextTop =
+          state.originTop +
+          (nextCenterY - state.originCenterY) -
+          (nextHeight - state.originHeight) / 2;
         state.el.style.left =
-          Math.round(
-            state.originLeft +
-              (nextCenterX - state.originCenterX) -
-              (nextWidth - state.originWidth) / 2,
-          ) + "px";
+          (scaleToolEnabled ? nextLeft : Math.round(nextLeft)) + "px";
         state.el.style.top =
-          Math.round(
-            state.originTop +
-              (nextCenterY - state.originCenterY) -
-              (nextHeight - state.originHeight) / 2,
-          ) + "px";
-        state.el.style.width = Math.round(nextWidth) + "px";
-        state.el.style.height = Math.round(nextHeight) + "px";
-        if (!scaleToolEnabled) return;
-        if (state.originBorderWidth > 0) {
-          state.el.style.borderWidth =
-            Math.max(
-              0,
-              Math.round(state.originBorderWidth * factor.x * 100) / 100,
-            ) + "px";
-        }
-        if (state.originFontSize > 0) {
-          state.el.style.fontSize =
-            Math.max(
-              1,
-              Math.round(state.originFontSize * factor.x * 100) / 100,
-            ) + "px";
-        }
-        memberTextTargets(state).forEach(function (target) {
-          target.el.style.fontSize =
-            Math.max(
-              1,
-              Math.round(target.originFontSize * factor.x * 100) / 100,
-            ) + "px";
-        });
+          (scaleToolEnabled ? nextTop : Math.round(nextTop)) + "px";
+        state.el.style.width =
+          (scaleToolEnabled ? nextWidth : Math.round(nextWidth)) + "px";
+        state.el.style.height =
+          (scaleToolEnabled ? nextHeight : Math.round(nextHeight)) + "px";
       });
+      if (kScaleTargetsForMove) {
+        applyKScaleStyleTargets(kScaleTargetsForMove, factor.x);
+      }
       showTransformBadge(
         Math.round(groupWidth * factor.x) +
           " x " +
@@ -14132,12 +16756,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         state.el.style.top = state.originalInlineTop;
         state.el.style.width = state.originalInlineWidth;
         state.el.style.height = state.originalInlineHeight;
-        state.el.style.borderWidth = state.originalInlineBorderWidth;
-        state.el.style.fontSize = state.originalInlineFontSize;
-        (state.textTargets || []).forEach(function (target) {
-          target.el.style.fontSize = target.originalInlineFontSize;
-        });
       });
+      restoreKScaleStyleTargets(groupKScaleStyleTargetsCache || []);
       suppressNextShieldClickBriefly();
       refreshOverlays();
       return true;
@@ -14156,9 +16776,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       cleanupGroupResizeDrag();
       hideTransformBadge();
       if (!controllerEnd.committed) return;
-      // One style-change message per member, in order — the host composes
-      // them against its same-tick content refs exactly like a group move.
-      memberStates.forEach(function (state) {
+      var rootStylesForMember = function (state, omitEmpty) {
         var styles: Record<string, string> = {
           position: state.el.style.position,
           left: state.el.style.left,
@@ -14166,45 +16784,71 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           width: state.el.style.width,
           height: state.el.style.height,
         };
-        if (scaleToolEnabled && state.originBorderWidth > 0) {
-          styles.borderWidth = state.el.style.borderWidth;
+        if (omitEmpty) {
+          Object.keys(styles).forEach(function (property) {
+            if (styles[property] === "") delete styles[property];
+          });
         }
-        if (scaleToolEnabled && state.originFontSize > 0) {
-          styles.fontSize = state.el.style.fontSize;
-        }
+        return styles;
+      };
+      if (groupKScaleStyleTargetsCache) {
+        var changes = kScaleStyleChanges(
+          groupKScaleStyleTargetsCache,
+          lastKScaleFactor,
+        );
+        memberStates.forEach(function (state) {
+          var selector = getSelector(state.el);
+          var styles = rootStylesForMember(state, true);
+          var originalStyles = originalInlineStylesForPatch(state.el, styles);
+          var rootChange = changes.find(function (change) {
+            return change.selector === selector;
+          });
+          if (rootChange) {
+            rootChange.styles = Object.assign({}, rootChange.styles, styles);
+            rootChange.originalStyles = Object.assign(
+              {},
+              rootChange.originalStyles || {},
+              originalStyles,
+            );
+          } else {
+            changes.unshift({
+              selector: selector,
+              sourceId: getSourceId(state.el) || undefined,
+              styles: styles,
+              originalStyles: originalStyles,
+              preserveSelection: true,
+            });
+          }
+        });
         (window.parent as Window).postMessage(
-          {
-            type: "visual-style-change",
-            selector: getSelector(state.el),
-            styles: styles,
-            originalStyles: originalInlineStylesForPatch(state.el, styles),
-            payload: getElementInfo(state.el),
-          },
+          { type: "visual-style-batch-change", changes: changes },
           "*",
         );
-        if (!scaleToolEnabled) return;
-        (state.textTargets || []).forEach(function (target) {
-          var textStyles: Record<string, string> = {
-            fontSize: target.el.style.fontSize,
-          };
+        memberStates.forEach(function (state) {
+          recordSourceOwnership(state.el);
+        });
+        groupKScaleStyleTargetsCache.forEach(function (target) {
+          recordSourceOwnership(target.el);
+        });
+      } else {
+        // Normal multi-resize keeps the existing one-style-change-per-member
+        // history path. K-scale uses one batch so every descendant edit is
+        // applied atomically with the selected roots.
+        memberStates.forEach(function (state) {
+          var styles = rootStylesForMember(state, false);
           (window.parent as Window).postMessage(
             {
               type: "visual-style-change",
-              selector: getSelector(target.el),
-              styles: textStyles,
-              originalStyles: originalInlineStylesForPatch(
-                target.el,
-                textStyles,
-              ),
-              payload: getElementInfo(target.el),
-              // A scaled descendant is a side effect of the gesture, not the
-              // object the user is holding.
-              preserveSelection: true,
+              selector: getSelector(state.el),
+              styles: styles,
+              originalStyles: originalInlineStylesForPatch(state.el, styles),
+              payload: getElementInfo(state.el),
             },
             "*",
           );
+          recordSourceOwnership(state.el);
         });
-      });
+      }
     }
 
     document.addEventListener(events.move, onMove, true);
@@ -14289,6 +16933,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         },
         "*",
       );
+      recordSourceOwnership(rotateEl);
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
@@ -14335,6 +16980,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectedEl.contains &&
       selectedEl.contains(hitRaw)
     ) {
+      // Figma: a drag that starts inside the selected container moves the
+      // container; a child only drags once a click has selected it.
       return selectedEl;
     }
     if (args.preferSelected && selectedEl && selectedAlive) {
@@ -14368,11 +17015,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   // Figma parity: a drag on a container's own background rubber-bands its
   // children. A leaf object, or one already selected, still moves.
-  function isContainerBackgroundHit(el: Element | null): boolean {
+  function isContainerBackgroundHit(
+    el: Element | null,
+    rawHit: Element | null = null,
+  ): boolean {
     if (!el || el === selectedEl) return false;
+    if (rawHit && rawHit !== el) return false;
     if (isDocumentRootElement(el)) return false;
     if (outermostSvgAncestor(el) === el) return false;
-    return Boolean(el.firstElementChild);
+    var child = el.firstElementChild;
+    // A lone `data-an-text` span is the editor's own wrapper around a
+    // painted leaf's bare text (see selectionTargetForHit) — not a real
+    // design child, so a plain text leaf must never read as a container
+    // with rubber-band-selectable children just because its own text got
+    // wrapped for editing.
+    if (
+      child &&
+      child === el.lastElementChild &&
+      child.hasAttribute &&
+      child.hasAttribute("data-an-text")
+    ) {
+      return false;
+    }
+    return Boolean(child);
   }
 
   // The board surface iframe spans the whole canvas, screens included, so
@@ -14382,6 +17047,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function beginPotentialShieldDrag(e) {
     stopNativeInteraction(e);
+    // A new interaction starting is unambiguous proof the previous gesture is
+    // over — a stale post-commit revert from it must never fire against
+    // whatever this new one turns out to be.
+    pendingMoveCommitRevert = null;
     if (e.button !== 0) return;
     // T23: a stale session self-heals and the drag proceeds; only a LIVE
     // session (connected element) blocks shield drags.
@@ -14394,7 +17063,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hit === document.body ||
       hit === document.documentElement ||
       isBoardRootMarqueeSurface(hitTarget) ||
-      isContainerBackgroundHit(hitTarget)
+      isContainerBackgroundHit(hitTarget, hit)
     ) {
       beginMarqueeSelection(e);
       return;
@@ -14414,7 +17083,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       point: { x: e.clientX, y: e.clientY },
       preferSelected: selectedLayerDragPriorityEnabled,
     });
-    var clickTarget = hitTarget;
+    // NOTE: the eventual plain-click selection (onUp below) resolves its own
+    // container-first target from `hit` lazily, only when the gesture turns
+    // out to be a click (not a drag) — see clickTarget there. Drag-target
+    // resolution above keeps the raw hitTarget so a click-drag on an
+    // unselected nested child still moves that child.
     if ((window as any).__DND_DEBUG)
       dndLog("shield:down", {
         hit: getSelector(hit),
@@ -14444,13 +17117,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         shieldOverlay.setPointerCapture(e.pointerId);
       } catch (_err) {}
     }
-    if (!readOnly && !e.altKey) {
+    // unique-paths-5: a ctrl/cmd-held drag on a flow-reorder candidate
+    // (isFlowReorderCandidate) is about to be routed to the ctrl-aware
+    // auto-layout-override path below (reorderIgnoresAutoLayout) — arming
+    // the host's cross-screen tracking here, before that routing decision
+    // even runs, would let its ctrl-unaware board-level listeners steal the
+    // gesture the moment the pointer crosses the screen's rendered edge.
+    // Every other drag (no ctrl, or ctrl on an already-absolute element,
+    // where ctrl carries no auto-layout meaning) arms the host exactly as
+    // before.
+    var suppressCrossScreenStartForCtrlReorder =
+      Boolean(e.ctrlKey || e.metaKey) && isFlowReorderCandidate(dragTarget);
+    if (!readOnly && !e.altKey && !suppressCrossScreenStartForCtrlReorder) {
       postCrossScreenDrag("start", dragTarget, e);
     }
     var startX = e.clientX;
     var startY = e.clientY;
     var didStartDrag = false;
-    function selectTarget(target, ev?: MouseEvent) {
+    function selectTarget(target, ev?: MouseEvent, isClick?: boolean) {
+      // Shift+click toggle-off only applies to an actual click (onUp below),
+      // never to a drag-start reselect (onMove) — shift-dragging an
+      // already-selected member must move the group, not deselect it.
+      if (isClick) {
+        var toggled = resolveShiftClickToggleOff(target, ev);
+        if (toggled !== undefined) {
+          postToggledSelection(toggled);
+          return;
+        }
+      }
       var previousSelectedEl = selectedEl;
       selectedEl = target;
       positionOverlay(selectionOverlay, selectedEl);
@@ -14510,17 +17204,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Cmd/Ctrl+click (no Shift) deep-selects the next layer below the current
       // selection in the z-stack under the pointer, wrapping at the bottom.
       // Runs here (not in selectElementAtEvent) because a shield click resolves
-      // selection in this onUp and then suppresses the click handler. Selected
-      // plain (no ev) so it replaces the selection rather than adding to it;
-      // Shift-click stays additive via the normal path below.
+      // selection in this onUp and then suppresses the click handler.
       var cycledEl =
         !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey
           ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
           : null;
+      // Cmd/Ctrl+click always deep-selects the raw hit (spec Part 3), even
+      // when stackCycleTarget above declines (nothing was selected yet to
+      // cycle from) — container-first resolution must never win a
+      // modified click just because there was no prior selection to cycle.
+      var primaryClickTarget =
+        !readOnly && (e.metaKey || e.ctrlKey)
+          ? selectionTargetForHit(hit)
+          : (!readOnly && !e.shiftKey
+              ? clickThroughSelectionTarget(hit, ev)
+              : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
-        selectTarget(cycledEl);
+        // Real event (not undefined): selectionIntentFromEvent now reports
+        // Cmd/Ctrl-alone as non-additive, so the intent this carries already
+        // replaces rather than unions — passing it lets the host tell a real
+        // deep-select from a driftless bridge echo (DesignCanvas.tsx's
+        // `e.data.intent` check) instead of reading as one.
+        selectTarget(cycledEl, ev, true);
       } else {
-        selectTarget(clickTarget || dragTarget, ev);
+        selectTarget(primaryClickTarget || dragTarget, ev, true);
       }
       suppressNextShieldClickBriefly();
     }
@@ -14654,7 +17361,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bridgeSpaceKeyPressed = true;
         if (activeDragCancel) {
           bridgeSpaceKeyConsumedByDrag = true;
-          stopNativeInteraction(e);
+          // Not stopNativeInteraction: this listener is registered before
+          // the active drag's own onReorderKeyDown (added at drag start), so
+          // stopImmediatePropagation here would keep that later listener
+          // from ever seeing Space and setting keepCurrentFlowParent — the
+          // Figma-parity "Space suppresses reparenting" gesture would only
+          // ever see whatever Space was doing at drag START. preventDefault
+          // alone still blocks the browser's default (page scroll) and the
+          // early return still skips host-hotkey forwarding below.
+          if (e.cancelable) e.preventDefault();
           return;
         }
       }
@@ -14806,7 +17521,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       bridgeSpaceKeyPressed = false;
       if (bridgeSpaceKeyConsumedByDrag) {
         bridgeSpaceKeyConsumedByDrag = false;
-        stopNativeInteraction(e);
+        // Not stopNativeInteraction — see the matching keydown listener's
+        // comment: the active drag's own onReorderKeyUp (registered later)
+        // must still see this keyup to clear keepCurrentFlowParent, or
+        // releasing Space mid-drag would never re-enable reparenting.
+        if (e.cancelable) e.preventDefault();
         return;
       }
       if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
@@ -15033,7 +17752,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return tag === "img" || tag === "svg" || tag === "canvas";
   }
 
-  function beginTextEditingFromEvent(e, forceTextEditing) {
+  function beginTextEditingFromEvent(
+    e,
+    forceTextEditing,
+    resumeBookmark?: { start: number; end: number; text: string },
+  ) {
     if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target))
       return;
     if (!textEditingEnabled && !forceTextEditing) {
@@ -15058,6 +17781,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // shield pointer-passthrough state and posted text-editing-state(false)
     // UNDERNEATH the new session, corrupting both.
     if (activeTextEditEl && finishActiveTextEdit) finishActiveTextEdit(true);
+    clearSuspendedTextEditRange();
     var eventTarget =
       e && e.target && e.target.nodeType === 1 ? e.target : null;
     // The raw `eventTarget` fallback (no findTextEditTarget resolution at
@@ -15092,15 +17816,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         findTextEditTarget(eventTarget) ||
         rawTargetFallback;
     if (!target || target.nodeType !== 1) {
-      // Figma parity: double-clicking a non-text element descends one level
-      // into the current selection instead of doing nothing — select the
-      // hit-tested element under the pointer (selectionTargetForHit already
-      // returns the raw, deeper hit when it falls inside the current
-      // selection, and climbs to the nearest stable-source ancestor
-      // otherwise, so this reuses the same selection-filtering rules a
-      // normal click uses). Skip this for the programmatic path: there is no
-      // real pointer position to hit-test, and we already tried the explicit
-      // target above.
+      // Figma parity: double-clicking a non-text element drills one level
+      // into the current selection instead of doing nothing. The previously
+      // selected element becomes the new container scope (so the resolved
+      // target is its direct child on the path to the pointer, per spec Part
+      // 3's "double-click drills one level in"), and the plain-click
+      // container-first rules resolve the target from there. Skip this for
+      // the programmatic path: there is no real pointer position to
+      // hit-test, and we already tried the explicit target above.
       if (!programmaticFlag) {
         var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
         if (
@@ -15110,7 +17833,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           !isLayerInteractionBlocked(descendHit)
         ) {
           var previousSelectedElForDescend = selectedEl;
-          var descendTarget = selectionTargetForHit(descendHit);
+          if (
+            previousSelectedElForDescend &&
+            document.documentElement.contains(previousSelectedElForDescend) &&
+            previousSelectedElForDescend.contains(descendHit)
+          ) {
+            selectionContainerScope = previousSelectedElForDescend;
+          }
+          var descendTarget = containerFirstSelectionTarget(descendHit, true);
           if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
             selectedEl = descendTarget;
             positionOverlay(selectionOverlay, selectedEl);
@@ -15182,11 +17912,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalHtml = target.innerHTML || "";
     var originalMinWidth = target.style.minWidth;
     var originalMinHeight = target.style.minHeight;
+    var originalLineClamp = target.style.getPropertyValue("-webkit-line-clamp");
+    var originalLineClampPriority =
+      target.style.getPropertyPriority("-webkit-line-clamp");
+    var originalOverflow = target.style.getPropertyValue("overflow");
+    var originalOverflowPriority = target.style.getPropertyPriority("overflow");
+    var originalHeight = target.style.getPropertyValue("height");
+    var originalHeightPriority = target.style.getPropertyPriority("height");
+    var computedTextStyle = window.getComputedStyle(target);
+    var hasLineClamp = /^\d+$/.test(
+      computedTextStyle.getPropertyValue("-webkit-line-clamp").trim(),
+    );
+    var clampedTextEditHeight = "";
+    if (hasLineClamp) {
+      var verticalInset =
+        computedTextStyle.boxSizing === "border-box"
+          ? 0
+          : parseFloat(computedTextStyle.paddingTop || "0") +
+            parseFloat(computedTextStyle.paddingBottom || "0") +
+            parseFloat(computedTextStyle.borderTopWidth || "0") +
+            parseFloat(computedTextStyle.borderBottomWidth || "0");
+      // offsetHeight is in layout coordinates, unlike the transformed client
+      // rect. It reports whole CSS pixels, so fractional auto-height boxes can
+      // be quantized for this transient editing session.
+      clampedTextEditHeight =
+        Math.max(0, target.offsetHeight - verticalInset) + "px";
+    }
     var originalBorderColor = target.style.borderColor;
     var originalOutline = target.style.outline;
     var originalOutlineOffset = target.style.outlineOffset;
     var committed = false;
     activeTextEditEl = target;
+    activeTextEditRange = null;
+    activeTextEditStyleSelector = getSelector(selectedEl);
     // T19: publish this session's captured originals so refreshOverlays()
     // (which runs on ResizeObserver/MutationObserver ticks during the edit,
     // not just from inside this closure) can pass the real values instead of
@@ -15204,6 +17962,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       window.requestAnimationFrame(function () {
         chromeUpdateScheduled = false;
         if (committed) return;
+        captureActiveTextEditRange(target);
         updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
         postTextEditingState(target, true);
       });
@@ -15226,17 +17985,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "*",
       );
     }
+    if (hasLineClamp) {
+      // Keep the native text box dimensions while exposing its full text for
+      // editing. Only the active DOM session changes; finish() restores these
+      // inline declarations before the source-backed edit is committed.
+      target.style.setProperty("-webkit-line-clamp", "none", "important");
+      target.style.setProperty("overflow", "visible", "important");
+      target.style.setProperty("height", clampedTextEditHeight, "important");
+    }
     postTextEditingState(target, true);
 
-    function finish(commit) {
+    function finish(commit, preserveRangeForInspector) {
       if (committed) return;
       committed = true;
+      var preserveForInspector =
+        preserveRangeForInspector || textEditInspectorFocused;
+      var preservedRange =
+        commit &&
+        preserveForInspector &&
+        activeTextEditRange &&
+        !activeTextEditRange.collapsed &&
+        rangeBelongsToElement(activeTextEditRange, target)
+          ? activeTextEditRange.cloneRange()
+          : null;
       target.removeEventListener("blur", onBlur, true);
       target.removeEventListener("keydown", onKeyDown, true);
       target.removeEventListener("paste", onPaste, true);
       target.removeEventListener("input", onInput, true);
-      target.removeEventListener("keyup", onSelectionChange, true);
-      target.removeEventListener("mouseup", onSelectionChange, true);
+      target.removeEventListener("keyup", onKeyUp, true);
+      target.removeEventListener("mouseup", onMouseUp, true);
       document.removeEventListener("selectionchange", onSelectionChange);
       window.removeEventListener("blur", onWindowBlur, true);
       target.removeAttribute("contenteditable");
@@ -15249,13 +18026,58 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.style.outlineOffset = originalOutlineOffset;
       target.style.minWidth = originalMinWidth;
       target.style.minHeight = originalMinHeight;
+      if (hasLineClamp) {
+        if (originalLineClamp) {
+          target.style.setProperty(
+            "-webkit-line-clamp",
+            originalLineClamp,
+            originalLineClampPriority,
+          );
+        } else {
+          target.style.removeProperty("-webkit-line-clamp");
+        }
+        if (originalOverflow) {
+          target.style.setProperty(
+            "overflow",
+            originalOverflow,
+            originalOverflowPriority,
+          );
+        } else {
+          target.style.removeProperty("overflow");
+        }
+        if (originalHeight) {
+          target.style.setProperty(
+            "height",
+            originalHeight,
+            originalHeightPriority,
+          );
+        } else {
+          target.style.removeProperty("height");
+        }
+      }
       target.style.borderColor = originalBorderColor;
       setTextEditingPointerPassthrough(false);
       setSelectionOverlayResizeChromeVisible(true);
+      var nativeSelection = window.getSelection ? window.getSelection() : null;
+      if (nativeSelection) nativeSelection.removeAllRanges();
       if (activeTextEditEl === target) activeTextEditEl = null;
+      activeTextEditRange = null;
+      suspendedTextEditRange = preservedRange
+        ? {
+            target: target,
+            range: preservedRange,
+            selector: activeTextEditStyleSelector,
+          }
+        : null;
       // T4: this session no longer owns the active-edit slot.
       if (finishActiveTextEdit === finish) finishActiveTextEdit = null;
-      postTextEditingState(target, false);
+      postTextEditingState(
+        target,
+        false,
+        activeTextEditStyleSelector,
+        Boolean(preservedRange),
+      );
+      activeTextEditStyleSelector = "";
       if (!commit) {
         target.innerHTML = originalHtml;
         claimContentAsSource(target);
@@ -15298,6 +18120,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           pending.preferredSelector,
           pending.selectorCandidates,
           true,
+          false,
+          pending.sourceProvenance,
         );
       }
     }
@@ -15329,7 +18153,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function onBlur() {
       if (refocusEmptyProgrammaticEdit()) return;
-      finish(true);
+      finish(true, true);
     }
 
     // Moving focus from a child browsing context back to the host canvas does
@@ -15347,14 +18171,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // the character. keyCode 229 is the legacy signal browsers send for
       // composition keydowns that don't set isComposing.
       if (ev.isComposing || ev.keyCode === 229) return;
-      if (ev.key === "Escape") {
+      var metaOrCtrl = ev.metaKey || ev.ctrlKey;
+      if (
+        ev.key === "Escape" ||
+        (ev.key === "Enter" && metaOrCtrl && !ev.altKey && !ev.shiftKey)
+      ) {
         ev.preventDefault();
+        ev.stopPropagation();
         finish(true);
         target.blur();
         return;
       }
       // T2: Enter inserts a line break while editing (Figma convention);
-      // Escape or blur (click-out) is what commits and exits the session.
+      // Escape, Cmd/Ctrl+Enter, or blur commits and exits the session.
       if (ev.key === "Enter" && !ev.shiftKey) {
         ev.preventDefault();
         insertLineBreak();
@@ -15365,7 +18194,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // session to execCommand bold/italic/underline on the current selection.
       // normalizeNestedIdenticalSpans (T12) cleans up any span nesting
       // execCommand leaves behind when the session commits.
-      var metaOrCtrl = ev.metaKey || ev.ctrlKey;
       // A just-created text layer is one editor transaction, not an isolated
       // native contenteditable history island. Chromium consumes Cmd/Ctrl+Z
       // locally even when the empty editable has nothing to undo, so the host
@@ -15403,10 +18231,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
 
     function onInput() {
+      captureActiveTextEditRange(target);
+      clearActiveTextEditRangeIfCollapsed(target);
       scheduleTextEditingChromeUpdate();
     }
 
     function onSelectionChange() {
+      captureActiveTextEditRange(target);
+      scheduleTextEditingChromeUpdate();
+    }
+
+    function onKeyUp(ev) {
+      captureActiveTextEditRange(target);
+      if (document.activeElement === target && !ev.shiftKey) {
+        clearActiveTextEditRangeIfCollapsed(target);
+      }
+      scheduleTextEditingChromeUpdate();
+    }
+
+    function onMouseUp() {
+      captureActiveTextEditRange(target);
+      clearActiveTextEditRangeIfCollapsed(target);
       scheduleTextEditingChromeUpdate();
     }
 
@@ -15414,12 +18259,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     target.addEventListener("keydown", onKeyDown, true);
     target.addEventListener("paste", onPaste, true);
     target.addEventListener("input", onInput, true);
-    target.addEventListener("keyup", onSelectionChange, true);
-    target.addEventListener("mouseup", onSelectionChange, true);
+    target.addEventListener("keyup", onKeyUp, true);
+    target.addEventListener("mouseup", onMouseUp, true);
     document.addEventListener("selectionchange", onSelectionChange);
     window.addEventListener("blur", onWindowBlur, true);
     target.focus();
-    if (programmaticTextEdit) {
+    if (resumeBookmark) {
+      var resumedRange = restoreTextRangeBookmark(target, resumeBookmark);
+      var resumedSelection = window.getSelection ? window.getSelection() : null;
+      if (!resumedRange || !resumedSelection) {
+        if (finishActiveTextEdit) finishActiveTextEdit(false);
+        return;
+      }
+      resumedSelection.removeAllRanges();
+      resumedSelection.addRange(resumedRange);
+    } else if (programmaticTextEdit) {
       // The synthesized point sits at the (0×0) node's edge and resolves to the
       // parent element, so caretRangeFromPoint would drop the caret OUTSIDE the
       // editable node. Collapse to the end of the target's own contents instead.
@@ -15427,22 +18281,74 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } else {
       placeTextCaretFromPoint(target, e.clientX, e.clientY);
     }
+    captureActiveTextEditRange(target);
+    postTextEditingState(target, true);
   }
 
   // T22: shared programmatic activation used by the begin-text-edit message
   // handler — both for an immediately-resolvable node and for one that lands
   // later via the deferred-retry window below.
-  function queryBeginTextEditNode(nodeId: string): HTMLElement | null {
-    var node: Element | null = document.querySelector(
+  function beginTextEditRepeatFromMessage(
+    value: unknown,
+  ): BeginTextEditRepeat | null {
+    if (!value || typeof value !== "object") return null;
+    var candidate = value as {
+      sourceSelector?: unknown;
+      itemIndex?: unknown;
+    };
+    if (
+      typeof candidate.sourceSelector !== "string" ||
+      !candidate.sourceSelector ||
+      typeof candidate.itemIndex !== "number" ||
+      !Number.isInteger(candidate.itemIndex) ||
+      candidate.itemIndex < 0
+    ) {
+      return null;
+    }
+    return {
+      sourceSelector: candidate.sourceSelector,
+      itemIndex: candidate.itemIndex,
+    };
+  }
+  function sameBeginTextEditRepeat(
+    left: BeginTextEditRepeat | null,
+    right: BeginTextEditRepeat | null,
+  ): boolean {
+    return (
+      left === right ||
+      (!!left &&
+        !!right &&
+        left.sourceSelector === right.sourceSelector &&
+        left.itemIndex === right.itemIndex)
+    );
+  }
+  function queryBeginTextEditNode(
+    nodeId: string,
+    repeat: BeginTextEditRepeat | null,
+  ): HTMLElement | null {
+    var nodes = document.querySelectorAll(
       '[data-agent-native-node-id="' +
         nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
         '"]',
     );
-    return node && node.nodeType === 1 ? (node as HTMLElement) : null;
+    for (var i = 0; i < nodes.length; i += 1) {
+      var node = nodes[i];
+      if (!repeat) return node as HTMLElement;
+      var info = repeatInstanceInfo(node);
+      if (
+        info &&
+        info.sourceSelector === repeat.sourceSelector &&
+        info.itemIndex === repeat.itemIndex
+      ) {
+        return node as HTMLElement;
+      }
+    }
+    return null;
   }
   function activateProgrammaticTextEdit(
     textTarget: HTMLElement,
     force: boolean,
+    resumeBookmark?: { start: number; end: number; text: string },
   ): void {
     // The host canvas can reclaim keyboard focus while React settles a newly
     // created layer. In that case this document still reports the same
@@ -15451,6 +18357,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // user's first keystroke hits host shortcuts. Re-focus the existing
     // session instead of rebuilding it.
     if (activeTextEditEl && activeTextEditEl === textTarget) {
+      if (resumeBookmark) {
+        var activeResumeRange = restoreTextRangeBookmark(
+          textTarget,
+          resumeBookmark,
+        );
+        var activeResumeSelection = window.getSelection
+          ? window.getSelection()
+          : null;
+        if (!activeResumeRange || !activeResumeSelection) return;
+        textTarget.focus();
+        activeResumeSelection.removeAllRanges();
+        activeResumeSelection.addRange(activeResumeRange);
+        captureActiveTextEditRange(textTarget);
+        postTextEditingState(textTarget, true);
+        return;
+      }
       if (document.activeElement !== textTarget || !document.hasFocus()) {
         textTarget.focus();
         collapseSelectionIntoContents(textTarget);
@@ -15476,12 +18398,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         stopImmediatePropagation: function () {},
       } as unknown as MouseEvent,
       force,
+      resumeBookmark,
     );
   }
   function pumpPendingBeginTextEdit(): void {
     if (!pendingBeginTextEdit) return;
     var entry = pendingBeginTextEdit;
-    var node = queryBeginTextEditNode(entry.nodeId);
+    var node = queryBeginTextEditNode(entry.nodeId, entry.repeat);
     if (node) {
       pendingBeginTextEdit = null;
       // The user may have started their own edit meanwhile — never steal it.
@@ -15503,12 +18426,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
   }
-  function scheduleBeginTextEditRetry(nodeId: string, force: boolean): void {
+  function scheduleBeginTextEditRetry(
+    nodeId: string,
+    repeat: BeginTextEditRepeat | null,
+    force: boolean,
+  ): void {
     // DesignEditor's own T6 loop re-posts begin-text-edit for the SAME node
     // every few hundred ms until it activates — those re-posts must extend
     // the wait, not reset it (a reset would drop keystrokes already buffered
     // for this node).
-    if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === nodeId) {
+    if (
+      pendingBeginTextEdit &&
+      pendingBeginTextEdit.nodeId === nodeId &&
+      sameBeginTextEditRepeat(pendingBeginTextEdit.repeat, repeat)
+    ) {
       pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
       pendingBeginTextEdit.deadline = Date.now() + 2000;
       return;
@@ -15516,6 +18447,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     cancelPendingBeginTextEdit();
     pendingBeginTextEdit = {
       nodeId: nodeId,
+      repeat: repeat,
       force: force,
       deadline: Date.now() + 2000,
       raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
@@ -15538,11 +18470,63 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     true,
   );
 
+  // Meta/Ctrl held while hovering previews Cmd-click's deep-select: the
+  // outline jumps to the innermost object under the pointer instead of its
+  // container. Re-resolved on modifier keydown/keyup too (see below), so
+  // pressing/releasing the key while the pointer sits still still updates
+  // the outline without requiring a move.
+  var lastHoverClientPoint: { x: number; y: number } | null = null;
+  function resolveHoverTarget(
+    clientX: number,
+    clientY: number,
+    deepSelect: boolean,
+  ): Element | null {
+    var rawHit = elementFromEditorPoint(clientX, clientY);
+    return deepSelect
+      ? selectionTargetForHit(rawHit)
+      : containerFirstSelectionTarget(rawHit);
+  }
+  function reresolveHoverAtLastPoint(deepSelect: boolean): void {
+    if (!lastHoverClientPoint) return;
+    hoveredEl = resolveHoverTarget(
+      lastHoverClientPoint.x,
+      lastHoverClientPoint.y,
+      deepSelect,
+    );
+    if (!hoveredEl || hoveredEl === selectedEl) {
+      highlightOverlay.style.display = "none";
+    } else {
+      positionOverlay(highlightOverlay, hoveredEl);
+    }
+  }
+  document.addEventListener(
+    "keydown",
+    function (e) {
+      if (e.key === "Meta" || e.key === "Control") {
+        reresolveHoverAtLastPoint(true);
+      }
+    },
+    true,
+  );
+  document.addEventListener(
+    "keyup",
+    function (e) {
+      if (e.key === "Meta" || e.key === "Control") {
+        reresolveHoverAtLastPoint(false);
+      }
+    },
+    true,
+  );
   shieldOverlay.addEventListener(
     "pointermove",
     function (e) {
       stopNativeInteraction(e);
-      hoveredEl = elementFromEditorPoint(e.clientX, e.clientY);
+      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
+      hoveredEl = resolveHoverTarget(
+        e.clientX,
+        e.clientY,
+        e.metaKey || e.ctrlKey,
+      );
       if (!hoveredEl) {
         highlightOverlay.style.display = "none";
         if (!spacingDrag) {
@@ -15694,6 +18678,52 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // future message type needs payload-sourced fields, extract them
     // explicitly inside that type's own branch below instead of reintroducing
     // a blanket hoist.
+    if (e.data.type === "resume-text-edit") {
+      var resumeScreenId =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      var resumeSelector =
+        typeof e.data.selector === "string" ? e.data.selector : "";
+      var resumeSourceId =
+        typeof e.data.sourceId === "string" ? e.data.sourceId : undefined;
+      var suspendedForResume = suspendedTextEditRange;
+      if (
+        !resumeScreenId ||
+        resumeScreenId !== designCanvasScreenId ||
+        readOnly ||
+        !textEditingEnabled ||
+        !textEditInspectorFocused ||
+        !resumeSelector ||
+        !suspendedForResume ||
+        !suspendedForResume.target.isConnected ||
+        suspendedForResume.selector !== resumeSelector ||
+        (resumeSourceId !== undefined &&
+          (getSourceId(suspendedForResume.target) || undefined) !==
+            resumeSourceId)
+      ) {
+        return;
+      }
+      var resumeBookmark = captureTextRangeBookmark(
+        suspendedForResume.target,
+        suspendedForResume.range,
+      );
+      if (!resumeBookmark) return;
+      var resumeTarget = suspendedForResume.target;
+      suspendedTextEditRange = null;
+      textEditInspectorFocused = false;
+      activateProgrammaticTextEdit(resumeTarget, false, resumeBookmark);
+      return;
+    }
+    if (e.data.type === "text-edit-inspector-focus") {
+      if (typeof e.data.focused !== "boolean") return;
+      textEditInspectorFocused = e.data.focused;
+      if (!textEditInspectorFocused) {
+        clearSuspendedTextEditRange();
+        if (activeTextEditEl && finishActiveTextEdit) {
+          finishActiveTextEdit(true);
+        }
+      }
+      return;
+    }
     // set-read-only: toggle the bridge's readOnly state in-place without a reload.
     // When readOnly becomes true the shield/selection/drag/edit entry points are
     // gated so the surface is safe for background/inactive display use.
@@ -15766,19 +18796,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var nodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
       if (!nodeId) return;
+      var beginTextEditRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
+      if (e.data.repeat !== undefined && !beginTextEditRepeat) return;
       // Edit the EXACT node identified by nodeId. Do NOT run it through
       // findTextEditTarget here — that helper climbs UP to the highest
       // inline-editable ancestor, which for a text node inside a text-heavy
       // screen resolves all the way to <main>, putting the ENTIRE screen into
       // edit mode instead of this node (keystrokes land in the wrong element).
-      var textTarget = queryBeginTextEditNode(nodeId);
+      var textTarget = queryBeginTextEditNode(nodeId, beginTextEditRepeat);
       if (!textTarget) {
         // T22: the node hasn't landed in this document yet — the command won
         // the race against the replace-document-content round trip that
         // carries the freshly-created element. Defer instead of dropping,
         // so the caret is live the moment the node appears. Tell the host so
         // it buffers HOST-focused keystrokes for the same window (T25).
-        scheduleBeginTextEditRetry(nodeId, forceBeginTextEdit);
+        scheduleBeginTextEditRetry(
+          nodeId,
+          beginTextEditRepeat,
+          forceBeginTextEdit,
+        );
         postTextEditPending(nodeId, true);
         return;
       }
@@ -15950,8 +18986,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       crossScreenClaimedByHost = Boolean(e.data.claimed);
       return;
     }
+    if (e.data.type === "agent-native:set-space-held") {
+      // Figma parity (unique-paths): the host forwards Space here when ITS
+      // OWN window — not this document — received the native key event
+      // (the pointer-down that starts an on-canvas drag does not always
+      // move focus into this iframe). resolveReorderOrFreeTarget reads
+      // bridgeSpaceKeyPressed on every move/commit tick, so this has the
+      // same effect as this document's own keydown/keyup listener seeing it.
+      bridgeSpaceKeyPressed = Boolean(e.data.held);
+      return;
+    }
     if (e.data.type === "agent-native:cancel-active-drag") {
-      cancelActiveBridgeDrag();
+      cancelActiveBridgeDragOrPendingCommit(
+        typeof e.data.pressedAt === "number" ? e.data.pressedAt : undefined,
+      );
       return;
     }
     if (e.data.type === "agent-native:reset-live-visual-edit-baselines") {
@@ -15967,6 +19015,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // During marquee drag, empty hit sets are replayed back from the host as a
       // clear-selection state. Keep the drag-owned rectangle alive until pointer-up.
       if (activeMarqueeSelection) return;
+      clearSuspendedTextEditRange();
       clearRuntimeSelection();
       return;
     }
@@ -16015,7 +19064,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             typeof e.data.correlationId === "string"
               ? e.data.correlationId
               : "",
-          payload: collectSelectableElementInfos(),
+          payload: collectSelectableElementInfos(Boolean(e.data.deep)),
         },
         "*",
       );
@@ -16033,26 +19082,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof e.data.correlationId === "string" ? e.data.correlationId : "";
       var textEditStatusNodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      var textEditStatusRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
       // "missing" (this document has no such node) stays distinct from a bare
       // `false` (node is here, just not being edited). The host's retry ladder
       // needs the difference: the first is a still-propagating insert or the
       // wrong iframe, the second means the user has not typed yet.
       var textEditStatus: "active" | "done" | "missing" | false = "missing";
-      if (textEditStatusNodeId) {
-        var escapedTextEditStatusNodeId = textEditStatusNodeId
-          .replace(/\\/g, "\\\\")
-          .replace(/"/g, '\\"');
-        var textEditStatusNode: Element | null = document.querySelector(
-          '[data-agent-native-node-id="' + escapedTextEditStatusNodeId + '"]',
-        );
-        var textEditStatusEditingEl: Element | null = document.querySelector(
-          '[data-agent-native-node-id="' +
-            escapedTextEditStatusNodeId +
-            '"][data-agent-native-text-editing]',
+      if (
+        textEditStatusNodeId &&
+        (e.data.repeat === undefined || textEditStatusRepeat)
+      ) {
+        var textEditStatusNode = queryBeginTextEditNode(
+          textEditStatusNodeId,
+          textEditStatusRepeat,
         );
         if (
-          textEditStatusEditingEl &&
-          document.activeElement === textEditStatusEditingEl &&
+          textEditStatusNode?.hasAttribute("data-agent-native-text-editing") &&
+          document.activeElement === textEditStatusNode &&
           document.hasFocus()
         ) {
           textEditStatus = "active";
@@ -16186,6 +19232,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // badge flash, i.e. "the value box never shows"). A same-element
       // replay must be a no-op for hover state.
       var selectionChangedByHost = target !== selectedEl;
+      if (
+        suspendedTextEditRange &&
+        !matchesExactSelectorList(suspendedTextEditRange.target, candidates)
+      ) {
+        clearSuspendedTextEditRange();
+      }
+      if (
+        selectionChangedByHost &&
+        activeTextEditEl &&
+        !matchesExactSelectorList(activeTextEditEl, candidates) &&
+        finishActiveTextEdit
+      ) {
+        finishActiveTextEdit(true);
+      }
       if (selectionChangedByHost) {
         hoveredSpacingHandleKey = "";
       }
@@ -16601,8 +19661,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // since it now renders at the flow position of a detached style
         // instead of either its original spot or the intended drop slot.
         if (moveWasInsert) {
+          var selectionBelongsToRejectedClone = Boolean(
+            move.el &&
+            selectedEl &&
+            (selectedEl === move.el || move.el.contains(selectedEl)),
+          );
           if (move.el && move.el.isConnected) move.el.remove();
-          if (selectedEl === move.el) selectedEl = null;
+          if (
+            selectionBelongsToRejectedClone &&
+            move.origin &&
+            "inserted" in move.origin &&
+            move.origin.fallbackSelection &&
+            move.origin.fallbackSelection.isConnected
+          ) {
+            selectedEl = move.origin.fallbackSelection;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+          } else if (selectedEl === move.el) {
+            selectedEl = null;
+          }
           if (hoveredEl === move.el) hoveredEl = null;
           refreshOverlays();
           return;
@@ -16638,6 +19715,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         e.data.selectorCandidates,
         Boolean(e.data.forceFullDocument),
         Boolean(e.data.preserveTextEditingSession),
+        e.data.sourceProvenance,
       );
       return;
     }
@@ -16674,6 +19752,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           typeof e.data.value === "string" ? e.data.value : "";
       }
       claimContentAsSource(textTarget);
+      publishSourceDocumentProvenance(undefined, true);
       refreshOverlays();
       return;
     }
@@ -16707,21 +19786,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // activeTextEditEl lives inside (the panel is targeting "the thing the
     // user double-clicked into", which is this edit session, even though the
     // selector re-anchored to its stable container).
+    var textEditStyleTarget =
+      activeTextEditEl || suspendedTextEditRange?.target || null;
+    var textEditStyleSelector = activeTextEditEl
+      ? activeTextEditStyleSelector
+      : suspendedTextEditRange?.selector || "";
     var styleChangeTargetsActiveTextEdit =
-      !!activeTextEditEl &&
+      !!textEditStyleTarget &&
       !!el &&
-      (el === activeTextEditEl || el.contains(activeTextEditEl));
+      (el === textEditStyleTarget || el.contains(textEditStyleTarget)) &&
+      (!!activeTextEditEl ||
+        !textEditStyleSelector ||
+        candidatesForStyle.indexOf(textEditStyleSelector) !== -1);
     if (
       prop &&
       styleChangeTargetsActiveTextEdit &&
       applyTextRangeStyle(prop, val)
     ) {
       postTextContentChange(
-        activeTextEditEl,
-        activeTextEditEl!.textContent || "",
-        activeTextEditEl!.innerHTML || "",
+        textEditStyleTarget,
+        textEditStyleTarget!.textContent || "",
+        textEditStyleTarget!.innerHTML || "",
         undefined,
         undefined,
+      );
+      postTextEditingState(
+        textEditStyleTarget,
+        !!activeTextEditEl,
+        textEditStyleSelector,
+        true,
       );
       refreshOverlays();
       return;
@@ -16908,6 +20001,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "class",
         "data-agent-native-component",
         "data-agent-native-layer-name",
+        "data-layer-name",
         "data-an-primitive",
         "data-component-name",
         "data-source-column",
@@ -16944,6 +20038,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       attributes: true,
       attributeFilter: [
         "data-agent-native-layer-name",
+        "data-layer-name",
         "data-an-primitive",
         "class",
         "style",
@@ -16956,6 +20051,72 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   captureInitialSourceOwnership();
   if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
+  if (document.readyState === "complete") {
+    scheduleScreenRootStyleSnapshot();
+  } else {
+    window.addEventListener("load", scheduleScreenRootStyleSnapshot, {
+      once: true,
+    });
+  }
+  window.addEventListener("resize", scheduleScreenRootStyleSnapshot);
+  if (typeof MutationObserver !== "undefined" && document.body) {
+    new MutationObserver(scheduleScreenRootStyleSnapshot).observe(
+      document.body,
+      { attributes: true, attributeFilter: ["class", "style"] },
+    );
+  }
+
+  var fontMetadataRefreshFrame = 0;
+  function refreshSelectedTextAfterFontsLoad(): void {
+    if (fontMetadataRefreshFrame) return;
+    fontMetadataRefreshFrame = window.requestAnimationFrame(function () {
+      fontMetadataRefreshFrame = 0;
+      var currentSelection = selectedEl;
+      if (
+        !currentSelection ||
+        !currentSelection.isConnected ||
+        !document.documentElement.contains(currentSelection) ||
+        passiveSelectionEls.length > 0
+      ) {
+        return;
+      }
+      if (isWholeTextStyleRoot(currentSelection)) {
+        // No intent marks this as a metadata echo; the host keeps user history
+        // untouched and does not replace an active multi-selection.
+        postElementSelect(currentSelection);
+      }
+
+      var textEditTarget =
+        activeTextEditEl || suspendedTextEditRange?.target || null;
+      if (
+        !textEditTarget ||
+        !textEditTarget.isConnected ||
+        !document.documentElement.contains(textEditTarget) ||
+        (textEditTarget !== currentSelection &&
+          !currentSelection.contains(textEditTarget) &&
+          !textEditTarget.contains(currentSelection))
+      ) {
+        return;
+      }
+      var active = activeTextEditEl === textEditTarget;
+      if (
+        active &&
+        !textEditTarget.hasAttribute("data-agent-native-text-editing")
+      ) {
+        return;
+      }
+      var selector = active
+        ? activeTextEditStyleSelector
+        : suspendedTextEditRange?.selector || "";
+      postTextEditingState(textEditTarget, active, selector);
+    });
+  }
+  if (document.fonts && typeof document.fonts.addEventListener === "function") {
+    document.fonts.addEventListener(
+      "loadingdone",
+      refreshSelectedTextAfterFontsLoad,
+    );
+  }
 
   // One-time ready signal: tells the host that every message listener above is
   // now attached, so one-shot commands (begin-text-edit, set-editor-chrome-scale,

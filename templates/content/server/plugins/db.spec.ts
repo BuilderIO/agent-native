@@ -130,6 +130,16 @@ describe("content db.ts migration entries follow the naming convention", () => {
     expect(missingNames).toEqual([]);
   });
 
+  it("runs comment AI migrations after a deployed v92 ledger", () => {
+    const byName = new Map(entries.map((entry) => [entry.name, entry.version]));
+    expect(byName.get("content-comment-ai-requests-and-actor")).toBeGreaterThan(
+      92,
+    );
+    expect(
+      byName.get("content-comment-ai-active-thread-index"),
+    ).toBeGreaterThan(92);
+  });
+
   it("keeps Builder source refresh hot-path indexes in migrations", () => {
     expect(dbTsSource).toContain(
       "content_database_source_rows_source_item_idx",

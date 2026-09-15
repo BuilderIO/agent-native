@@ -26,14 +26,11 @@ import {
   triageRiskSchema,
   triageSourceSchema,
 } from "../server/triage/contracts.js";
+import { deriveInboxPresentation } from "../server/triage/inbox-presentation.js";
 import {
-  metadataString,
-  parseTriageMetadata,
   triageItemAuthor,
   triageItemAuthorId,
 } from "../server/triage/metadata.js";
-import { babysitLeavesReviewWindow } from "../server/triage/pr-babysit.js";
-import { slackFeedbackLeavesReviewWindow } from "../server/triage/slack-review-window.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
@@ -152,26 +149,11 @@ export default defineAction({
         }
         if (
           needsReview &&
-          source === "github" &&
-          babysitLeavesReviewWindow(
-            metadataString(
-              parseTriageMetadata(item.metadataJson),
-              "prBabysitState",
-            ),
-          )
-        ) {
-          continue;
-        }
-        if (
-          needsReview &&
-          source === "slack" &&
-          slackFeedbackLeavesReviewWindow({
+          deriveInboxPresentation({
+            source: item.source,
             status: item.status,
-            slackReactionName: metadataString(
-              parseTriageMetadata(item.metadataJson),
-              "slackReactionName",
-            ),
-          })
+            metadataJson: item.metadataJson,
+          }).leavesReviewWindow
         ) {
           continue;
         }
@@ -220,6 +202,11 @@ export default defineAction({
 
     const listedItems = page.map((item) => {
       const latestDecision = latestByItem.get(item.id);
+      const inboxPresentation = deriveInboxPresentation({
+        source: item.source,
+        status: item.status,
+        metadataJson: item.metadataJson,
+      });
       return {
         id: item.id,
         itemId: item.id,
@@ -239,6 +226,7 @@ export default defineAction({
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         userLabels: readStoredUserLabels(item.metadataJson),
+        inboxPresentation,
         reason: latestDecision?.reason ?? null,
         decisionSummary: latestDecision?.reason ?? null,
         latestDecision: latestDecision

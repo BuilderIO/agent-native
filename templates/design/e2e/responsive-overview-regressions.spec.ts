@@ -395,6 +395,102 @@ test("multiple generated variation groups reserve breakpoint rows without overla
   }
 });
 
+test("adding a breakpoint reflows screen rows before their previews overlap", async ({
+  page,
+  request,
+}) => {
+  const { designId, fileIds } = await createDesign(request, 2);
+  const [firstFileId, secondFileId] = fileIds;
+  try {
+    await action(request, "update-design", {
+      id: designId,
+      dataOperations: [
+        ...fileIds.map((fileId) => ({
+          op: "set",
+          path: ["screenMetadata", fileId],
+          value: { sourceType: "inline", width: 1280, height: 900 },
+        })),
+        {
+          op: "set",
+          path: ["canvasFrames", firstFileId!],
+          value: { x: 400, y: 200, width: 1280, height: 900, z: 0 },
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", secondFileId!],
+          value: { x: 1776, y: 200, width: 1280, height: 900, z: 1 },
+        },
+      ],
+    });
+    await gotoEditor(page, designId);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
+    expect(
+      (await designData(request, designId)).canvasFrames?.[secondFileId!]?.x,
+    ).toBe(1776);
+
+    await page
+      .locator(
+        '[data-breakpoint-device-control] button[title="Add breakpoint"]',
+      )
+      .first()
+      .click();
+    await page
+      .getByRole("button", { name: /Phone.*390/ })
+      .last()
+      .click();
+
+    await expect
+      .poll(async () => {
+        const data = await designData(request, designId);
+        return data.breakpointSet?.breakpoints?.map(
+          (breakpoint: { widthPx: number }) => breakpoint.widthPx,
+        );
+      })
+      .toContain(390);
+    await expect
+      .poll(async () => {
+        const data = await designData(request, designId);
+        return data.canvasFrames?.[secondFileId!]?.x ?? 0;
+      })
+      .toBeGreaterThan(1776);
+
+    const overlappingPairs = async () => {
+      const boxes = await page
+        .locator("[data-screen-shell]")
+        .evaluateAll((shells) =>
+          shells.map((shell) => {
+            const cards = Array.from(
+              shell.querySelectorAll<HTMLElement>("[data-screen-card]"),
+            ).map((card) => card.getBoundingClientRect());
+            return {
+              left: Math.min(...cards.map((box) => box.left)),
+              top: Math.min(...cards.map((box) => box.top)),
+              right: Math.max(...cards.map((box) => box.right)),
+              bottom: Math.max(...cards.map((box) => box.bottom)),
+            };
+          }),
+        );
+      const pairs: string[] = [];
+      for (let a = 0; a < boxes.length; a += 1) {
+        for (let b = a + 1; b < boxes.length; b += 1) {
+          const first = boxes[a]!;
+          const second = boxes[b]!;
+          const overlaps =
+            first.left < second.right - 1 &&
+            first.right > second.left + 1 &&
+            first.top < second.bottom - 1 &&
+            first.bottom > second.top + 1;
+          if (overlaps) pairs.push(`${a + 1}/${b + 1}`);
+        }
+      }
+      return pairs;
+    };
+    await expect.poll(overlappingPairs).toEqual([]);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
 // Redo does not restore the screen undo removed: after Cmd+Shift+Z the
 // overview still shows 2 shells instead of 3. The frame-draw half of this
 // test now passes; this is the remaining defect, same family as
@@ -615,5 +711,60 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
     await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(presetId);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("breakpoint width menus preserve invalid drafts for correction", async ({
+  page,
+  request,
+}) => {
+  const { designId, fileIds } = await createDesign(request);
+  try {
+    await configureResponsiveDesign(request, designId, fileIds);
+    await gotoEditor(page, designId);
+    const control = page.locator("[data-breakpoint-device-control]");
+    await control.getByRole("button", { name: "390", exact: true }).click();
+    await control.getByRole("button", { name: "Breakpoint options" }).click();
+    const width = page.getByRole("spinbutton", { name: "Change width" });
+    await width.fill("300");
+    await width.press("Enter");
+    await expect(width).toBeVisible();
+    await expect(width).toHaveAttribute("aria-invalid", "true");
+    await expect(width).toHaveValue("300");
+    await width.fill("768");
+    await width.press("Enter");
+    await expect(width).toBeVisible();
+    await expect(width).toHaveAttribute("aria-invalid", "true");
+    await width.fill("420");
+    await width.press("Enter");
+    await expect(width).toBeHidden();
+    await expect(
+      control.getByRole("button", { name: "420", exact: true }),
+    ).toBeVisible();
+    await expect
+      .poll(async () => {
+        const data = await designData(request, designId);
+        return data.breakpointSet.breakpoints
+          .map((bp: { widthPx: number }) => bp.widthPx)
+          .sort((a: number, b: number) => a - b);
+      })
+      .toEqual([420, 768]);
+
+    await control
+      .getByRole("button", { name: "Add breakpoint", exact: true })
+      .click();
+    const custom = page.getByPlaceholder("Custom width");
+    await custom.fill("420");
+    await custom.press("Enter");
+    await expect(custom).toBeVisible();
+    await expect(custom).toHaveAttribute("aria-invalid", "true");
+    await custom.fill("430");
+    await custom.press("Enter");
+    await expect(custom).toBeHidden();
+    await expect(
+      control.getByRole("button", { name: "430", exact: true }),
+    ).toBeVisible();
+  } finally {
+    await action(request, "delete-design", { id: designId });
   }
 });

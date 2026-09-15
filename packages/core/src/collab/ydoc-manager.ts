@@ -34,7 +34,6 @@ import {
   loadYDocRecord,
   loadYDocState,
   loadYDocVersion,
-  saveYDocState,
   trySaveYDocState,
   trySaveYDocStateWithClient,
 } from "./storage.js";
@@ -710,11 +709,21 @@ export async function seedFromText(
     if (existing && existing.length > 0) return; // Already seeded
 
     const { doc, state } = initYDocWithText(fieldName, text);
-    await saveYDocState(docId, state, text);
+    let saved: boolean;
+    try {
+      saved = await trySaveYDocState(docId, state, text, null);
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+    if (!saved) {
+      doc.destroy();
+      return;
+    }
 
     // Cache the doc
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: null });
+    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: 0 });
   });
 }
 
@@ -804,11 +813,21 @@ export async function seedFromJson(
     if (existing && existing.length > 0) return; // Already seeded
 
     const { doc, state } = initYDocWithJson(fieldName, json, type);
-    await saveYDocState(docId, state, JSON.stringify(json));
+    let saved: boolean;
+    try {
+      saved = await trySaveYDocState(docId, state, JSON.stringify(json), null);
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+    if (!saved) {
+      doc.destroy();
+      return;
+    }
 
     // Cache the doc
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: null });
+    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: 0 });
   });
 }
 

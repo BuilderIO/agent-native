@@ -661,7 +661,7 @@ describe("buildUserContentWithAttachments", () => {
       type: "image",
       name: "huge.png",
       contentType: "image/png",
-      data: `data:image/png;base64,${"A".repeat(1_000_001)}`,
+      data: `data:image/png;base64,${"A".repeat(5_000_001)}`,
       url: "https://cdn.example.com/huge.png",
     };
     const parts = buildUserContentWithAttachments({
@@ -671,7 +671,49 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "image")).toBe(false);
     const text = parts.map((p: any) => p.text ?? "").join("\n");
     expect(text).toContain("https://cdn.example.com/huge.png");
-    expect(text).toContain("too large to send inline");
+    expect(text).toContain("per-image limit");
+  });
+
+  // The file_url cap is an OpenAI limit on a different field. Applying it to
+  // images made an ordinary phone photo unreadable: the user was told the
+  // image was too large AND that storage had to be connected, neither of which
+  // was actionable. A photo this size is vision input and needs no storage.
+  it("inlines a multi-megabyte photo with no upload URL and no storage configured", () => {
+    const att: any = {
+      type: "image",
+      name: "camera_photo.jpg",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${"A".repeat(2_500_000)}`,
+      storageRequired: true,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "add these places to Wednesday",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(true);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).not.toMatch(/too large/i);
+    expect(text).not.toMatch(/smaller/i);
+  });
+
+  // Over the real image ceiling the model must get the number, or it invents
+  // one and then contradicts itself when the user asks what the limit is.
+  it("quotes the actual image limit and rules out storage as the cause", () => {
+    const att: any = {
+      type: "image",
+      name: "enormous.jpg",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${"A".repeat(5_000_001)}`,
+      storageRequired: true,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "read this",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("3.6 MB");
+    expect(text).toContain("not a storage-configuration problem");
   });
 
   it("still inlines an image that fits", () => {
@@ -705,7 +747,8 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "file")).toBe(false);
     const text = parts.map((p: any) => p.text ?? "").join("\n");
     expect(text).toContain("huge.pdf");
-    expect(text).toContain("no upload URL");
+    expect(text).toContain("per-file limit");
+    expect(text).toContain("not a storage-configuration problem");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
@@ -1812,6 +1855,7 @@ describe("createProductionAgentHandler", () => {
 
   it("limits each request to the action names returned by resolveActionSurface", async () => {
     const seenTools: string[][] = [];
+    const seenScopes: unknown[] = [];
     const lifecycle: string[] = [];
     const engine: AgentEngine = {
       name: "test",
@@ -1828,6 +1872,7 @@ describe("createProductionAgentHandler", () => {
       async *stream(opts): AsyncIterable<EngineEvent> {
         lifecycle.push("stream");
         seenTools.push(opts.tools.map((tool) => tool.name));
+        seenScopes.push(getRequestRunContext()?.actionScope);
         yield {
           type: "assistant-content",
           parts: [{ type: "text", text: "done" }],
@@ -1839,22 +1884,31 @@ describe("createProductionAgentHandler", () => {
       systemPrompt: "Test",
       engine,
       actions: {
-        allowed: actionEntry({}),
+        allowed: { ...actionEntry({}), deferLoading: true },
         denied: actionEntry({}),
         "tool-search": actionEntry({}),
       },
+      initialToolNames: ["denied"],
       prepareRequest: async () => {
         lifecycle.push("prepare");
       },
-      resolveActionSurface: async ({ threadId, availableActionNames }) => {
+      resolveActionSurface: async ({
+        threadId,
+        actionScope,
+        availableActionNames,
+      }) => {
         lifecycle.push("surface");
         expect(threadId).toBe("thread-allowed");
+        expect(actionScope).toEqual({
+          kind: "content-comment-ai",
+          requestId: "request-1",
+        });
         expect(availableActionNames).toEqual([
           "allowed",
           "denied",
           "tool-search",
         ]);
-        return { allowedActionNames: ["allowed"] };
+        return { allowedActionNames: ["allowed"], actionScope };
       },
     });
     const event = mockEvent(
@@ -1864,6 +1918,10 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "Use the configured agent",
           threadId: "thread-allowed",
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "request-1",
+          },
         }),
       }),
     );
@@ -1880,8 +1938,88 @@ describe("createProductionAgentHandler", () => {
     await vi.waitFor(() => {
       expect(seenTools).toEqual([["allowed"]]);
     });
+    expect(seenScopes).toEqual([
+      { kind: "content-comment-ai", requestId: "request-1" },
+    ]);
     expect(lifecycle).toEqual(["prepare", "surface", "stream"]);
     expect(getRequestRunContext()).toBeUndefined();
+  });
+
+  it("rejects invalid action scopes before invoking the resolver", async () => {
+    const resolver = vi.fn(async () => ({
+      allowedActionNames: ["allowed"],
+      actionScope: {},
+    }));
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield { type: "stop", reason: "end_turn" };
+        },
+      },
+      actions: { allowed: actionEntry({}) },
+      resolveActionSurface: resolver,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          actionScope: { value: "x".repeat(9_000) },
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(response).toEqual({
+      error: "actionScope must be at most 8192 bytes",
+    });
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects a scoped request when no action-surface resolver is configured", async () => {
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      actions: { allowed: actionEntry({}) },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "request-1",
+          },
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(response).toEqual({
+      error: "actionScope requires resolveActionSurface",
+    });
   });
 
   it("uses the normal initial tool surface when the resolver selects the default", async () => {
@@ -2206,8 +2344,16 @@ describe("filterActionsByAllowedNames", () => {
     expect(
       normalizeAgentActionSurfaceResolution({
         allowedActionNames: ["allowed", "allowed"],
+        actionScope: { kind: "content-comment-ai", requestId: "request-1" },
       }),
-    ).toEqual({ mode: "allowlist", allowedActionNames: ["allowed"] });
+    ).toEqual({
+      mode: "allowlist",
+      allowedActionNames: ["allowed"],
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
     expect(() =>
       normalizeAgentActionSurfaceResolution({
         mode: "default",
@@ -2233,6 +2379,12 @@ describe("filterActionsByAllowedNames", () => {
         allowedActionNames: "allowed",
       }),
     ).toThrow("resolveActionSurface returned an invalid action surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: ["allowed"],
+        actionScope: { value: "x".repeat(9_000) },
+      }),
+    ).toThrow("actionScope must be at most 8192 bytes");
   });
 
   it("treats an explicit empty allowlist as no actions", () => {
@@ -2320,6 +2472,40 @@ describe("filterActionsByAllowedNames", () => {
         "__resolvedActionSurface",
       ),
     ).toEqual({ orgId: null, allowedActionNames: ["allowed"] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            allowedActionNames: ["allowed"],
+            actionScope: {
+              kind: "content-comment-ai",
+              requestId: "request-1",
+            },
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({
+      orgId: "org-123",
+      allowedActionNames: ["allowed"],
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            allowedActionNames: ["allowed"],
+            actionScope: { value: "x".repeat(9_000) },
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
     expect(
       readPersistedActionSurface(
         {
@@ -3229,6 +3415,64 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
         "update-extension": {
+          ...actionEntry({ readOnly: false }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events).not.toContainEqual({ type: "done" });
+  });
+
+  it("auto-continues when assistant text follows partial action input", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "should not execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit",
+          name: "edit-design",
+        };
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit",
+          text: '{"designId":"design-1",',
+        };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "I will update the template now." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "edit-design": {
           ...actionEntry({ readOnly: false }),
           run,
         },
@@ -4210,7 +4454,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps a fresh read-only input id streaming after an abandoned zero-byte id", async () => {
@@ -4287,7 +4534,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps a different tool streaming after an abandoned zero-byte tool", async () => {
@@ -4363,7 +4613,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps assembling a large action input while bytes keep streaming", async () => {
@@ -4431,7 +4684,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("serializes tool calls when a turn includes mutating actions", async () => {

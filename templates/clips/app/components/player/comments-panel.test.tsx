@@ -5,25 +5,39 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type Comment, CommentsPanel, relativeTime } from "./comments-panel";
+import {
+  collectCommentSubtreeIds,
+  type Comment,
+  CommentsPanel,
+  relativeTime,
+} from "./comments-panel";
+import { TimestampedCommentBar } from "./timestamped-comment-button";
 
 const actionMocks = vi.hoisted(() => ({
   addComment: vi.fn(),
   updateComment: vi.fn(),
   otherMutation: vi.fn(),
+  mutationOptions: new Map<string, any>(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
-  useActionMutation: (name: string) => ({
-    mutate:
-      name === "add-comment"
-        ? actionMocks.addComment
-        : name === "update-comment"
-          ? actionMocks.updateComment
-          : actionMocks.otherMutation,
-  }),
+  useActionMutation: (name: string, options?: any) => {
+    actionMocks.mutationOptions.set(name, options);
+    return {
+      mutate: (vars: any) => {
+        void options?.onMutate?.(vars);
+        return (
+          name === "add-comment"
+            ? actionMocks.addComment
+            : name === "update-comment"
+              ? actionMocks.updateComment
+              : actionMocks.otherMutation
+        )(vars);
+      },
+    };
+  },
   useAvatarUrl: () => null,
 }));
 
@@ -210,6 +224,7 @@ describe("CommentsPanel reply composer", () => {
     container.remove();
     vi.unstubAllGlobals();
     notifyResize = undefined;
+    actionMocks.mutationOptions.clear();
     vi.clearAllMocks();
   });
 
@@ -228,32 +243,148 @@ describe("CommentsPanel reply composer", () => {
     expect(container.textContent).toContain("www.example.org/help.");
   });
 
-  it("keeps the compact comment composer text inset without an outer border", () => {
+  it("keeps reactions on one compact action row as secondary buttons", () => {
+    renderPanel("viewer@example.com", [
+      {
+        ...rootComment,
+        emojiReactionsJson: JSON.stringify({
+          "👍": ["viewer@example.com"],
+          "💡": ["other@example.com"],
+        }),
+      },
+    ]);
+
+    const actionRow = container.querySelector<HTMLElement>(
+      "[data-comment-actions]",
+    );
+    const reactionButtons = actionRow?.querySelectorAll<HTMLButtonElement>(
+      'button[aria-pressed="true"], button[aria-pressed="false"]',
+    );
+
+    expect(actionRow?.className).toContain("flex-nowrap");
+    expect(reactionButtons).toHaveLength(2);
+    expect(reactionButtons?.[0].className).toContain("bg-secondary");
+    expect(reactionButtons?.[0].className).toContain("h-7");
+    expect(reactionButtons?.[1].className).toContain("bg-secondary");
+    act(() => reactionButtons?.[0].click());
+    expect(actionMocks.otherMutation).toHaveBeenCalledWith({
+      commentId: "comment-1",
+      emoji: "👍",
+    });
+  });
+
+  it("gives comment actions shadcn hover feedback", () => {
+    const replyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "commentsPanel.reply",
+    );
+    const reactionButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="commentsPanel.react"]',
+    );
+
+    expect(replyButton?.className).toContain("hover:bg-accent");
+    expect(replyButton?.className).toContain("hover:text-accent-foreground");
+    expect(reactionButton?.className).toContain("hover:bg-accent");
+    expect(reactionButton?.className).toContain("hover:text-accent-foreground");
+
+    renderPanel("author@example.com");
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      '[data-comment-actions] [aria-haspopup="menu"]',
+    );
+    expect(menuTrigger?.className).toContain("hover:bg-accent");
+    expect(menuTrigger?.className).toContain("hover:text-accent-foreground");
+  });
+
+  it("treats legacy resolved comments like regular comments", () => {
+    renderPanel("viewer@example.com", [{ ...rootComment, resolved: true }]);
+
+    expect(container.textContent).not.toContain("commentsPanel.resolved");
+    expect(container.querySelector(".opacity-60")).toBeNull();
+    expect(container.querySelector("[data-comment-actions]")).not.toBeNull();
+  });
+
+  it("keeps the compact comment composer inside a quiet filled surface", () => {
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
 
-    expect(composer?.className).toContain("px-3 py-2");
-    expect(composer?.parentElement?.className).not.toContain("border");
+    expect(composer?.className).toContain("px-0 py-1");
+    const composerShell = composer?.closest(".rounded-xl");
+    expect(composerShell?.className).toContain("bg-muted/60");
+    expect(composerShell?.querySelectorAll("button")).toHaveLength(1);
+    expect(
+      composerShell?.querySelector('button[aria-label="commentsPanel.react"]'),
+    ).toBeNull();
+    expect(
+      composerShell?.querySelector('button[aria-label="commentsPanel.reply"]'),
+    ).toBeNull();
+    expect(
+      composerShell?.querySelector(
+        'button[aria-label="commentsPanel.commentButton"]',
+      ),
+    ).not.toBeNull();
   });
 
-  it("keeps the inline composer in the page flow and reveals its action on input", () => {
+  it("docks the inline composer below the feed with a compact arrow action", () => {
     renderPanel("viewer@example.com", [rootComment], "inline");
 
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
-    const composerShell = composer?.closest(".border-b");
+    const composerShell = composer?.closest(".rounded-xl");
     const comment = Array.from(container.querySelectorAll("p")).find(
       (element) => element.textContent?.includes("Please take a look"),
     );
 
     expect(composerShell).not.toBeNull();
-    expect(composerShell?.className).not.toContain("rounded-md");
-    expect(container.textContent).not.toContain("commentsPanel.commentButton");
+    expect(composerShell?.className).toContain("rounded-xl");
+    expect(composerShell?.className).toContain(
+      "border-[hsl(var(--comment-input-border))]",
+    );
+    expect(composerShell?.className).toContain(
+      "shadow-[var(--comment-input-shadow)]",
+    );
+    expect(composerShell?.querySelectorAll("button")).toHaveLength(1);
+    expect(
+      composerShell?.querySelector('button[aria-label="commentsPanel.react"]'),
+    ).toBeNull();
+    expect(
+      composerShell?.querySelector('button[aria-label="commentsPanel.reply"]'),
+    ).toBeNull();
+    expect(composerShell?.parentElement?.className).toContain(
+      "comment-widget-shadow",
+    );
+    expect(composerShell?.className).toContain("focus-within:border-ring");
+    expect(composer?.className).toContain("min-h-[54px]");
+    expect(composer?.className).toContain("max-h-[54px]");
+    expect(composer?.className).toContain("overflow-y-auto");
+    const composerDock = composerShell?.closest(".shrink-0");
+    expect(composerDock?.className).toContain("relative");
+    expect(composerDock?.className).toContain("z-10");
+    expect(composerDock?.className).toContain("bg-transparent");
+    expect(composerDock?.className).toContain("-mt-16");
+    expect(composerDock?.className).toContain("pt-16");
+    const fade = composerDock?.querySelector('[aria-hidden="true"]');
+    expect(fade?.className).toContain("absolute");
+    expect(fade?.className).toContain("top-0");
+    expect(fade?.className).toContain("z-0");
+    expect(fade?.className).toContain("bg-gradient-to-b");
+    expect(fade?.className).toContain("lg:to-background");
+    expect(composerDock?.lastElementChild?.className).toContain(
+      "relative z-10",
+    );
+    expect(composerDock?.lastElementChild?.className).toContain(
+      "bg-background",
+    );
+    expect(composerDock?.className).not.toContain("border-t");
+    const submit = container.querySelector<HTMLButtonElement>(
+      "button[data-comment-submit]",
+    );
+    expect(submit?.className).toContain("size-[22px]");
+    expect(submit?.querySelector(".tabler-icon-arrow-up")).not.toBeNull();
+    expect(submit?.disabled).toBe(true);
     expect(comment).toBeDefined();
     expect(
-      composer!.compareDocumentPosition(comment as Node) &
+      (comment as Node).compareDocumentPosition(composer!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
@@ -262,8 +393,8 @@ describe("CommentsPanel reply composer", () => {
       setTextareaValue(composer, "A new comment");
     });
 
-    expect(container.textContent).toContain("commentsPanel.commentButton");
-    expect(container.querySelector("kbd")?.textContent).toBe("Enter");
+    expect(submit?.disabled).toBe(false);
+    expect(container.querySelector("kbd")).toBeNull();
   });
 
   it("keeps inline comments scrollable with the composer available, at every width", () => {
@@ -278,6 +409,7 @@ describe("CommentsPanel reply composer", () => {
 
     const panel = container.firstElementChild as HTMLElement | null;
     const listRegion = container.querySelector("ul")?.parentElement;
+    const commentList = container.querySelector("ul");
 
     expect(panel?.className).toContain("h-full");
     expect(panel?.className).not.toMatch(/\blg:h-full\b/);
@@ -285,6 +417,15 @@ describe("CommentsPanel reply composer", () => {
     expect(listRegion?.className).not.toMatch(/\blg:overflow-y-auto\b/);
     expect(listRegion?.className).toContain("overscroll-contain");
     expect(listRegion?.className).not.toMatch(/\blg:overscroll-contain\b/);
+    expect(commentList?.className).toContain("pb-16");
+    expect(
+      Array.from(commentList?.querySelectorAll(":scope > li") ?? []).every(
+        (item) => !item.className.includes("min-h-[140px]"),
+      ),
+    ).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("[data-comment-actions]")).length,
+    ).toBeGreaterThan(0);
   });
 
   it("scrolls the default (sidebar) preset at every width too", () => {
@@ -323,9 +464,9 @@ describe("CommentsPanel reply composer", () => {
 
     expect(composer).toBeDefined();
     expect(composer?.className).not.toContain("border-input");
-    expect(composer?.querySelector(".border-b")?.className).toContain(
-      "border-border",
-    );
+    const composerShell = composer?.querySelector("span.rounded-xl");
+    expect(composerShell?.className).toContain("rounded-xl");
+    expect(composerShell?.className).toContain("border-transparent");
     expect(container.textContent).not.toContain("commentsPanel.beFirst");
     act(() => composer?.click());
     expect(onUnauthenticated).toHaveBeenCalledWith("comment");
@@ -355,8 +496,8 @@ describe("CommentsPanel reply composer", () => {
     const reply = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("commentsPanel.reply"),
     );
-    const react = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("commentsPanel.react"),
+    const react = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="commentsPanel.react"]',
     );
 
     expect(reply).toBeDefined();
@@ -365,7 +506,7 @@ describe("CommentsPanel reply composer", () => {
     expect(onUnauthenticated).toHaveBeenCalledWith("comment");
   });
 
-  it("grows comment textareas to fit their content without scrolling", () => {
+  it("caps a growing comment composer before it overwhelms the thread", () => {
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
@@ -380,8 +521,8 @@ describe("CommentsPanel reply composer", () => {
       setTextareaValue(composer, "A comment long enough to wrap");
     });
 
-    expect(composer?.style.height).toBe("144px");
-    expect(composer?.className).toContain("overflow-y-hidden");
+    expect(composer?.style.height).toBe("128px");
+    expect(composer?.style.overflowY).toBe("auto");
   });
 
   it("regrows comment textareas when their width changes wrapping", () => {
@@ -396,7 +537,8 @@ describe("CommentsPanel reply composer", () => {
 
     act(() => notifyResize?.());
 
-    expect(composer?.style.height).toBe("192px");
+    expect(composer?.style.height).toBe("128px");
+    expect(composer?.style.overflowY).toBe("auto");
   });
 
   it("renders inline Markdown while flattening headings", () => {
@@ -464,11 +606,20 @@ describe("CommentsPanel reply composer", () => {
     expect(inlineReply).not.toBeNull();
     expect(document.activeElement).toBe(inlineReply);
     expect(newComment?.value).toBe("Keep this draft");
+    const inlineReplyShell = inlineReply?.parentElement?.parentElement;
+    expect(inlineReplyShell?.className).toContain("rounded-[16px]");
+    expect(inlineReplyShell?.className).toContain("border-transparent");
+    expect(inlineReplyShell?.className).toContain("focus-within:border-ring");
+    expect(inlineReplyShell?.className).not.toContain("focus-within:ring-ring");
+    expect(inlineReplyShell?.className).toContain("p-[3px]");
+    expect(inlineReply?.className).toContain("min-h-6");
+    const inlineReplySubmit = inlineReplyShell?.querySelector("button");
+    expect(inlineReplySubmit?.className).toContain("size-[22px]");
     expect(
       inlineReply!.compareDocumentPosition(newComment as Node) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(inlineReply?.closest(".ml-12")).not.toBeNull();
+    expect(inlineReply?.closest(".border-s")).toBeNull();
   });
 
   it("inserts organization member mentions from autocomplete", async () => {
@@ -501,7 +652,11 @@ describe("CommentsPanel reply composer", () => {
       composer?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
     );
     act(() =>
-      container.querySelector<HTMLButtonElement>("button.size-8")?.click(),
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="commentsPanel.commentButton"]',
+        )
+        ?.click(),
     );
 
     expect(actionMocks.addComment).toHaveBeenCalledWith({
@@ -533,7 +688,11 @@ describe("CommentsPanel reply composer", () => {
     const sendReply = container.querySelector<HTMLButtonElement>(
       'button[aria-label="commentsPanel.writeReply"]',
     );
-    act(() => sendReply?.click());
+    expect(sendReply?.querySelector(".tabler-icon-arrow-up")).not.toBeNull();
+    await act(async () => {
+      sendReply?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
 
     expect(actionMocks.addComment).toHaveBeenCalledWith({
       recordingId: "recording-1",
@@ -542,6 +701,248 @@ describe("CommentsPanel reply composer", () => {
       threadId: "thread-1",
       parentId: "comment-1",
     });
+    expect(container.textContent).toContain("Inline response");
+  });
+
+  it("nests replies two levels deep and caps further reply affordances", async () => {
+    const firstReply: Comment = {
+      ...rootComment,
+      id: "comment-1-reply-1",
+      parentId: rootComment.id,
+      authorName: "First Reply",
+      content: "A first-level reply.",
+      createdAt: "2026-07-10T12:01:00.000Z",
+      updatedAt: "2026-07-10T12:01:00.000Z",
+    };
+    const secondReply: Comment = {
+      ...rootComment,
+      id: "comment-1-reply-2",
+      parentId: firstReply.id,
+      authorName: "Second Reply",
+      content: "A second-level reply.",
+      createdAt: "2026-07-10T12:02:00.000Z",
+      updatedAt: "2026-07-10T12:02:00.000Z",
+    };
+    renderPanel(
+      "viewer@example.com",
+      [rootComment, firstReply, secondReply],
+      "share",
+    );
+
+    const rootList = container.querySelector("ul");
+    const rootItem = rootList?.querySelector(":scope > li");
+    const firstLevelList = rootItem?.querySelector(":scope > ul");
+    const firstReplyItem = firstLevelList?.querySelector(":scope > li");
+    const secondLevelList = firstReplyItem?.querySelector(":scope > ul");
+    const secondReplyItem = secondLevelList?.querySelector(":scope > li");
+
+    expect(firstReplyItem?.textContent).toContain("A first-level reply.");
+    expect(secondReplyItem?.textContent).toContain("A second-level reply.");
+    expect(secondReplyItem?.parentElement).toBe(secondLevelList);
+
+    const replyButtons = Array.from(
+      container.querySelectorAll("[data-comment-actions] button"),
+    ).filter((button) => button.textContent?.trim() === "commentsPanel.reply");
+    expect(replyButtons).toHaveLength(2);
+
+    const firstReplyButton = Array.from(
+      firstReplyItem?.querySelectorAll("button") ?? [],
+    ).find((button) => button.textContent?.trim() === "commentsPanel.reply");
+    await act(async () => {
+      firstReplyButton?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const nestedComposer = firstReplyItem?.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.writeReply"]',
+    );
+    expect(nestedComposer).not.toBeNull();
+    act(() => {
+      if (!nestedComposer) return;
+      setTextareaValue(nestedComposer, "A nested response.");
+    });
+    act(() =>
+      firstReplyItem
+        ?.querySelector<HTMLButtonElement>(
+          'button[aria-label="commentsPanel.writeReply"]',
+        )
+        ?.click(),
+    );
+
+    expect(actionMocks.addComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "A nested response.",
+        threadId: rootComment.threadId,
+        parentId: firstReply.id,
+      }),
+    );
+    expect(
+      Array.from(secondReplyItem?.querySelectorAll("button") ?? []).some(
+        (button) => button.textContent?.trim() === "commentsPanel.reply",
+      ),
+    ).toBe(false);
+  });
+
+  it("collects every nested reply for optimistic deletion", () => {
+    const firstReply = {
+      ...rootComment,
+      id: "reply-1",
+      parentId: rootComment.id,
+    };
+    const secondReply = {
+      ...rootComment,
+      id: "reply-2",
+      parentId: firstReply.id,
+    };
+
+    expect(
+      collectCommentSubtreeIds(
+        [rootComment, firstReply, secondReply],
+        rootComment.id,
+      ),
+    ).toEqual(new Set([rootComment.id, firstReply.id, secondReply.id]));
+  });
+
+  it("rolls back one failed reaction without discarding another optimistic reaction", async () => {
+    renderPanel("viewer@example.com");
+    const options = actionMocks.mutationOptions.get("react-to-comment");
+    expect(options).toBeDefined();
+
+    const first = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+    const second = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "💡",
+    });
+
+    await act(async () => {
+      options.onError?.(
+        new Error("reaction failed"),
+        {
+          commentId: rootComment.id,
+          emoji: "👍",
+        },
+        first,
+      );
+      await Promise.resolve();
+    });
+
+    const commentText = container.textContent ?? "";
+    expect(commentText).toContain("💡 1");
+    expect(commentText).not.toContain("👍 1");
+    expect(second).toMatchObject({ type: "reaction", emoji: "💡" });
+  });
+
+  it("keeps same-emoji toggles ordered when both requests fail", async () => {
+    renderPanel("viewer@example.com");
+    const options = actionMocks.mutationOptions.get("react-to-comment");
+    expect(options).toBeDefined();
+
+    const first = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+    const second = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+
+    await act(async () => {
+      options.onError?.(
+        new Error("first reaction failed"),
+        { commentId: rootComment.id, emoji: "👍" },
+        first,
+      );
+      options.onError?.(
+        new Error("second reaction failed"),
+        { commentId: rootComment.id, emoji: "👍" },
+        second,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("👍 1");
+  });
+
+  it("ignores an older reaction response after a newer toggle", async () => {
+    renderPanel("viewer@example.com");
+    const options = actionMocks.mutationOptions.get("react-to-comment");
+    expect(options).toBeDefined();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    const first = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+    const second = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+
+    await act(async () => {
+      options.onSuccess?.(
+        { reactions: {} },
+        { commentId: rootComment.id, emoji: "👍" },
+        second,
+      );
+      await Promise.resolve();
+    });
+    expect(container.textContent).not.toContain("👍 1");
+    expect(invalidateQueries).not.toHaveBeenCalled();
+
+    await act(async () => {
+      options.onSuccess?.(
+        { reactions: { "👍": ["viewer@example.com"] } },
+        { commentId: rootComment.id, emoji: "👍" },
+        first,
+      );
+      await Promise.resolve();
+    });
+    expect(container.textContent).not.toContain("👍 1");
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["recording", "recording-1"],
+    });
+  });
+
+  it("restores the confirmed edit when every overlapping edit fails", async () => {
+    renderPanel("author@example.com");
+    const options = actionMocks.mutationOptions.get("update-comment");
+    expect(options).toBeDefined();
+
+    const first = await options.onMutate({
+      id: rootComment.id,
+      content: "Rejected edit A",
+    });
+    const second = await options.onMutate({
+      id: rootComment.id,
+      content: "Rejected edit B",
+    });
+
+    await act(async () => {
+      options.onError?.(
+        new Error("first edit failed"),
+        { id: rootComment.id, content: "Rejected edit A" },
+        first,
+      );
+      options.onError?.(
+        new Error("second edit failed"),
+        { id: rootComment.id, content: "Rejected edit B" },
+        second,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "common.cancel")
+        ?.click();
+    });
+
+    expect(container.textContent).toContain(rootComment.content);
+    expect(container.textContent).not.toContain("Rejected edit A");
+    expect(container.textContent).not.toContain("Rejected edit B");
   });
 
   it("only offers comment editing to the comment author", () => {
@@ -549,7 +950,15 @@ describe("CommentsPanel reply composer", () => {
 
     renderPanel("AUTHOR@example.com");
 
-    expect(container.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      '[aria-haspopup="menu"]',
+    );
+    expect(menuTrigger).not.toBeNull();
+    expect(menuTrigger?.className).toContain("opacity-0");
+    expect(menuTrigger?.className).toContain("group-hover/comment:opacity-100");
+    expect(menuTrigger?.className).toContain(
+      "group-focus-within/comment:opacity-100",
+    );
   });
 
   it("prefills and saves an author's comment inline", async () => {
@@ -740,5 +1149,30 @@ describe("CommentsPanel reply composer", () => {
     });
 
     expect(actionMocks.addComment).not.toHaveBeenCalled();
+  });
+
+  it("keeps the timestamped composer bounded with a compact send action", () => {
+    act(() => {
+      root.render(
+        <TimestampedCommentBar
+          recordingId="recording-1"
+          atMs={34_000}
+          onClose={vi.fn()}
+        />,
+      );
+    });
+
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.composerPlaceholder"]',
+    );
+    const send = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="commentsPanel.commentAt 0:34"]',
+    );
+
+    expect(composer?.getAttribute("rows")).toBe("1");
+    expect(composer?.className).toContain("max-h-32");
+    expect(composer?.closest(".max-w-lg")).not.toBeNull();
+    expect(send?.className).toContain("size-7");
+    expect(send?.querySelector(".tabler-icon-arrow-up")).not.toBeNull();
   });
 });

@@ -38,6 +38,7 @@ Read the relevant skill before deeper work in that area.
 | `add-localhost-screens` / `update-screen-source` | Add route/state screens or switch one selected screen between live URL and static HTML |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames on the canvas |
 | `edit-design` | Adapt an existing or copied design/screen in place |
+| `apply-visual-edit` | Make deterministic layer edits; `booleanSubtract` creates an editable mask from supported selected sibling shapes |
 | `create-design` | Start a new design (empty shell, `renderable: false`) |
 | `generate-design` | Generate a fresh screen — never for a copied template screen |
 | `present-design-variants` | Generate 2-5 variants for the user to pick and refine |
@@ -62,6 +63,11 @@ Read the relevant skill before deeper work in that area.
   calling a design "ready".
 - Treat `data-agent-native-locked="true"` as authoritative — see
   `design-generation` for locked-subtree rules.
+- Use `apply-visual-edit` with `intent.kind="booleanSubtract"` for two or more
+  consecutive sibling rectangles or ellipses with absolute pixel geometry and
+  solid fills. The first layer in source order supplies the result paint; the original
+  operands remain editable under the Subtract layer. Other shapes, custom
+  markup, non-solid paints, and non-sibling selections are not converted.
 - Design source modes are `inline`, `localhost`, and `fusion` — see
   `full-app-build`. Public `/visual-edit` and `/design/:id` links can render
   read-only without a session. Only the short-lived,

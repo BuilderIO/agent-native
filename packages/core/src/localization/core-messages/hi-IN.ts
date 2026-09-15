@@ -167,6 +167,7 @@ const messages: AgentChatTranslation = {
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
   "composer.connectAbove": "जारी रखने के लिए ऊपर AI कनेक्ट करें...",
   "composer.connectBuilder": "Builder.io कनेक्ट करें",
+  "composer.connectKeys": "कुंजियाँ कनेक्ट करें",
   "composer.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है…",
   "composer.costHigher": "अधिक लागत",
   "composer.costLower": "कम लागत",
@@ -291,7 +292,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "यह ब्राउज़र रीयल-टाइम वॉइस बातचीत का समर्थन नहीं करता।",
   "voiceMode.hideChat": "चैट छिपाएँ",
-  "voiceMode.keepDictating": "बोलकर लिखें",
+  "voiceMode.keepDictating": "संदेश बोलकर लिखें",
   "voiceMode.promptDescription":
     "जब एजेंट नेविगेट करता है और कार्रवाई करता है, तब वॉइस मोड सुनता रहता है।",
   "voiceMode.promptTitle": "अपनी आवाज़ का उपयोग करें",
@@ -333,7 +334,7 @@ const messages: AgentChatTranslation = {
     "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस का उपयोग करने के लिए Builder.io कनेक्ट करें, या अपनी कुंजियाँ जोड़ें।",
   "voiceMode.setupTitle": "वॉइस मोड सेट अप करें",
   "voiceMode.showChat": "चैट दिखाएँ",
-  "voiceMode.start": "रीयल-टाइम वॉइस",
+  "voiceMode.start": "वॉइस चैट शुरू करें",
   "voiceMode.startWithOpenAiKey": "OpenAI कुंजी से शुरू करें",
   "voiceMode.status.connecting": "कनेक्ट किया जा रहा है",
   "voiceMode.status.ending": "वॉइस मोड समाप्त हो रहा है",
@@ -362,6 +363,7 @@ const messages: AgentChatTranslation = {
     "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
+  "errorMessages.creditsLimitReached": "आपने अपने AI क्रेडिट की सीमा पूरी कर ली है।",
   "errorMessages.inactivityTimeout":
     "एजेंट का कनेक्शन काम पूरा होने से पहले समय सीमा पर पहुँच गया। आप आंशिक काम से जारी रख सकते हैं या फिर से प्रयास कर सकते हैं।",
   "errorMessages.invalidToolSchema":
@@ -387,6 +389,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "उपयोगी नहीं",
   "feedback.placeholder": "बताएं कि क्या गलत हुआ...",
   "feedback.submit": "जमा करें",
+  "feedback.submitted": "फ़ीडबैक सबमिट किया गया",
   "feedback.thumbsDown": "नापसंद",
   "feedback.thumbsUp": "पसंद",
   "feedback.tooSlow": "बहुत धीमा",

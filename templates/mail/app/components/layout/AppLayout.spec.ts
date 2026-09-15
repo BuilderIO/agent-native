@@ -12,7 +12,27 @@ function appLayoutSource(): string {
   return readFileSync(new URL("./AppLayout.tsx", import.meta.url), "utf8");
 }
 
+function commandPaletteFocusSource(): string {
+  return readFileSync(
+    new URL("./use-command-palette-focus.ts", import.meta.url),
+    "utf8",
+  );
+}
+
 describe("AppLayout inbox tab bar", () => {
+  it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'aria-current={tab.isActive ? "page" : undefined}',
+    );
+    expect(source).toContain(
+      "rounded-md px-3 py-1.5 text-[13px] transition-colors",
+    );
+    expect(source).toContain('"bg-accent text-foreground font-semibold"');
+    expect(source).toContain("hover:bg-accent/50 hover:text-foreground/80");
+  });
+
   it("reads the whole-mailbox unread count off the synced label list, not loaded rows", () => {
     const source = appLayoutSource();
 
@@ -76,6 +96,61 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain('params.set("filter", filter)');
   });
 
+  it("opens search from the command palette through the existing focus path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'onSearch={() => document.getElementById("mail-search")?.focus()}',
+    );
+    expect(source).toContain("onFocus={() => setSearchFocused(true)}");
+  });
+
+  it("accepts Shift when an international layout types the Search slash", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain('key: "/",\n      shift: "either",');
+  });
+
+  it("keeps global triage mutations scoped to the focused mailbox account", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'accountEmail: targetEmail.accountEmail,\n    });\n    toast(t("mail.toasts.reportedSpam"))',
+    );
+    expect(source).toContain(
+      "senderEmail: targetEmail.from.email,\n      accountEmail: targetEmail.accountEmail,",
+    );
+    expect(source).toContain(
+      "muteThread.mutate({\n      threadId: tid,\n      accountEmail: targetEmail?.accountEmail,\n    });",
+    );
+  });
+
+  it("labels the hidden keyboard-shortcut target for Search", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'id="mail-search"\n              aria-label={t("mail.search.label")}\n              className="sr-only"',
+    );
+  });
+
+  it("restores the invoking control's focus after Escape closes the palette", () => {
+    const appLayout = appLayoutSource();
+    const focusHook = commandPaletteFocusSource();
+
+    expect(appLayout).toContain("onCloseAutoFocus={restorePaletteFocus}");
+    expect(appLayout).toContain(
+      "} = useCommandPaletteFocus(paletteOpen, setPaletteOpen);",
+    );
+    expect(focusHook).toContain(
+      "escapeDismissRef.current = !commandInput?.value",
+    );
+    expect(focusHook).toContain(
+      "const focusTarget = returnFocusTarget?.isConnected",
+    );
+    expect(focusHook).toContain("document.getElementById(returnFocusTargetId)");
+    expect(focusHook).toContain("focusTarget.focus({ preventScroll: true })");
+  });
+
   it("uses the tab cog to persist and apply the combined inbox preference", () => {
     const source = appLayoutSource();
 
@@ -120,7 +195,31 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("handler: () => cycleTab(true)");
     expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
     expect(source).toContain("canCycleTab");
-    expect(source).toContain("data-mail-tab-list");
+    expect(source).toContain("shouldCycleMailTab(event.target)");
+    expect(
+      source.match(/key: "Tab",[\s\S]{0,200}?skipInInput: false/g),
+    ).toHaveLength(2);
+  });
+
+  it("routes G+A to All Mail without changing the separate Archive route", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      '{ keys: ["g", "a"], handler: () => navigate("/all") },',
+    );
+    expect(source).toContain(
+      '{ keys: ["g", "e"], handler: () => navigate("/archive") },',
+    );
+  });
+
+  it("closes the captured popout drafts through the save-aware close-all path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "compose.closeAll(\n                popoutDrafts.map((draft) => draft.id),\n              )",
+    );
+    expect(source).toContain("compose.setActiveId(snapshot.id)");
+    expect(source).toContain("compose.discard(snapshot.id)");
   });
 
   it("no longer runs a client-side per-tab prefetch loop", () => {

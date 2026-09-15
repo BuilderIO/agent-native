@@ -133,3 +133,43 @@ describe("/_agent-native/health alerts block", () => {
     expect(statusIndex).toBeLessThan(alertsIndex);
   });
 });
+
+/**
+ * The Builder connect trampoline is the other route a brand-new signup hits
+ * within seconds of a cold start, so it reads like the identity-callback 404
+ * the readiness gate opened. It is not the same failure: `/builder/connect`
+ * and `/connection-status/builder` are NOT gate-excluded, so `trackPluginInit`
+ * holds those requests until init finishes rather than dispatching them into
+ * an unmounted router.
+ *
+ * That is only true while they stay out of `excludedPaths`. Adding either one
+ * there without also hoisting its registration above the plugin's first
+ * `await` would reintroduce exactly the cold-start 404 on the provider-linking
+ * path, which is why this is asserted rather than assumed.
+ */
+describe("Builder connect routes are gated, not hoisted", () => {
+  it("keeps provider-linking routes out of the readiness-gate exclusion list", () => {
+    const source = pluginSource();
+    const excludedBlock = source.slice(
+      source.indexOf("excludedPaths: ["),
+      source.indexOf("});", source.indexOf("excludedPaths: [")),
+    );
+    expect(excludedBlock).not.toContain("builder/connect");
+    expect(excludedBlock).not.toContain("connection-status");
+    expect(excludedBlock).not.toContain("builder/status");
+  });
+
+  it("registers the Builder connect and status routes after awaitBootstrap", () => {
+    const source = pluginSource();
+    const [awaitBootstrapCall, statusAliases, builderConnect] = indexOfAll(
+      source,
+      [
+        "await awaitBootstrap(nitroApp);",
+        "mountBuilderStatusRouteAliases(",
+        "`${P}/builder/connect`,",
+      ],
+    );
+    expect(statusAliases).toBeGreaterThan(awaitBootstrapCall);
+    expect(builderConnect).toBeGreaterThan(awaitBootstrapCall);
+  });
+});

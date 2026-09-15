@@ -90,6 +90,8 @@ const messages = {
       cancel: "Abbrechen",
       code: "Code",
       deleteDraft: "Entwurf löschen",
+      deleteDrafts: "Entwürfe löschen",
+      reopenDraft: "Wieder öffnen",
       discardDraft: "Entwurf verwerfen",
       enterLinkUrl: "Gib die URL für den Link ein.",
       forward: "Forward",
@@ -199,12 +201,19 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Geplanten Versand abbrechen",
+      dateInput: "Datum und Uhrzeit",
+      noDateMatch: "Keine passende zukünftige Zeit",
+      inputPlaceholder: "Versuche: 8 Uhr, 3 Tage, 7. Aug.",
+      scheduleAt: "Am {{date}}",
+      scheduledFor: "Geplant für {{date}}",
       pickDateTime: "Datum und Uhrzeit wählen...",
       scheduleSend: "Versand planen",
       sendNow: "Jetzt senden",
 
       laterToday: "Später heute",
       tomorrowMorning: "Morgen früh",
+      tomorrowAfternoon: "Morgen Nachmittag",
+      weekdayMorning: "{{weekday}} morgens",
       nextWeek: "Nächste Woche",
     },
     snooze: {
@@ -277,6 +286,12 @@ const messages = {
       archivedMany: "Archived {{count}} conversations.",
       archiveFailed:
         "Archivierung fehlgeschlagen. Die Unterhaltung wurde wiederhergestellt.",
+      moveFailed:
+        "Verschieben fehlgeschlagen. Die Unterhaltung wurde wiederhergestellt.",
+      movePartialFailed:
+        "{{succeeded}} von {{total}} Unterhaltungen verschoben; {{failed}} fehlgeschlagen.",
+      moveSucceeded: "Nach {{label}} verschoben.",
+      moveManySucceeded: "{{count}} Unterhaltungen nach {{label}} verschoben.",
       trashed: "In den Papierkorb verschoben.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Geplante E-Mail gesendet.",
@@ -286,8 +301,13 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Nachricht gesendet.",
+      failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",
+      failedToDeleteDraft: "Entwurf konnte nicht gelöscht werden.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "Füge den Empfänger hinzu oder lösche den Text, bevor du sendest.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",
@@ -298,6 +318,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Entwurf geschlossen.",
+      draftsClosed: "{{count}} Entwürfe geschlossen.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -585,6 +607,10 @@ const messages = {
     signatureImageUploadFailed:
       "Das Signaturbild konnte nicht hochgeladen werden",
     writingStyle: "Schreibstil",
+    autocomplete: "Autovervollständigung",
+    sendAndMarkDone: "Senden und als erledigt markieren",
+    autocompleteSaveFailed:
+      "Die Autovervollständigungseinstellung konnte nicht gespeichert werden.",
     writingStylePlaceholder:
       "Kurz, konkret, warm. Vermeide formelle Füllwörter.",
     saveDraftingSettings: "Entwurfseinstellungen speichern",
@@ -671,8 +697,11 @@ const messages = {
     goToStarred: "Zu Markierten",
     goToSent: "Zu Gesendet",
     goToDrafts: "Zu Entwurfen",
+    goToAllMail: "Zu allen E-Mails",
     goToArchive: "Zum Archiv",
     goToTrash: "Zum Papierkorb",
+    enableAutocomplete: "Autovervollständigung aktivieren",
+    disableAutocomplete: "Autovervollständigung deaktivieren",
     privacy: "Datenschutz",
     imagesShowAll: "Bilder: alle anzeigen",
     imagesBlockTrackers: "Bilder: bekannte Tracker blockieren",
@@ -681,6 +710,23 @@ const messages = {
     toggleLight: "Hellen Modus umschalten",
     toggleDark: "Dunklen Modus umschalten",
     actions: "Aktionen",
+    shortcuts: "Tastenkürzel",
+    shortcutsGlobal: "Allgemein",
+    shortcutsList: "Nachrichtenliste",
+    shortcutsThread: "Konversation",
+    shortcutsCompose: "Verfassen",
+    backToCommands: "Zurück zu den Befehlen",
+    backToMessageList: "Zur Nachrichtenliste zurückkehren",
+    cycleTabs: "Zwischen Tabs wechseln",
+    extendSelection: "Auswahl erweitern",
+    moveSelection: "Auswahl verschieben",
+    nextPreviousConversation: "Nächste / vorherige Unterhaltung",
+    nextPreviousMessage: "Nächste / vorherige Nachricht",
+    openMessage: "Nachricht öffnen",
+    selectAllConversations: "Alle Unterhaltungen auswählen",
+    sendAndMarkDone: "Senden und als erledigt markieren",
+    toggleMessageExpansion: "Nachricht ein- / ausklappen",
+    toggleReadState: "Lesestatus umschalten",
   },
 };
 

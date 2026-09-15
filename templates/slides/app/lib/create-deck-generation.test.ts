@@ -150,6 +150,28 @@ describe("startDeckGeneration", () => {
   });
 
   it("keeps an ordinary attached PDF as agent reference material", async () => {
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "import-file"
+        ? {
+            format: "pdf",
+            pageCount: 2,
+            textPageCount: 2,
+            pages: [{ pageNum: 1, text: "REFERENCE_PAGE_ONE" }],
+            styleDigest: {
+              pageCount: 2,
+              pageWidthPt: 960,
+              pageHeightPt: 540,
+              orientation: "landscape",
+              aspectRatio: 1.778,
+              backgroundColors: [],
+              typeScale: [],
+              paragraphAlignments: [],
+              textMarginsPt: null,
+              pagesWithImages: 0,
+            },
+          }
+        : undefined,
+    );
     const deck = {
       id: "deck-1",
       title: "Untitled Deck",
@@ -201,10 +223,26 @@ describe("startDeckGeneration", () => {
     ).resolves.toBe("started");
 
     expect(deck.slides).toEqual([]);
+    // Read as a reference before the run, never imported into the deck.
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "import-file",
+      expect.objectContaining({
+        filePath: "/uploads/reference.pdf",
+        format: "pdf",
+      }),
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
     expect(mockCallAction).not.toHaveBeenCalledWith(
       "import-file",
+      expect.objectContaining({ importIntoDeck: true }),
       expect.anything(),
-      expect.anything(),
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "## Attached Reference Documents",
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain("REFERENCE_PAGE_ONE");
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "Measured visual language",
     );
     expect(agentSubmit).toHaveBeenCalledOnce();
     expect(agentSubmit.mock.calls[0]?.[0]).toBe(
@@ -291,9 +329,7 @@ describe("startDeckGeneration", () => {
 
     const context = agentSubmit.mock.calls[0]?.[1] as string;
     expect(context).toContain("REFERENCE_STYLE_CONTEXT");
-    expect(context).toContain(
-      "Follow its visual language as the source of truth",
-    );
+    expect(context).toContain("Follow its measured visual language");
     expect(context).not.toContain("Before generating a bare or on-brand deck");
     expect(context).not.toContain("use a light warm-neutral canvas");
   });
@@ -326,6 +362,7 @@ describe("startDeckGeneration", () => {
         referenceSelection: {
           referenceDeckId: "reference-deck-1",
           referenceFilePaths: ["/uploads/reference.pdf"],
+          importedReferenceFilePath: "/uploads/reference.pdf",
         },
         designSystems: [],
         createDeck: vi.fn(() => deck),
@@ -352,9 +389,21 @@ describe("startDeckGeneration", () => {
     );
   });
 
-  it("keeps every imported reference file out of source-preserving mode", async () => {
-    mockCallAction.mockClear();
-    mockCallAction.mockResolvedValue(undefined);
+  it("hydrates reference-import documents that were not imported into the deck", async () => {
+    // The import controls accept several files but import only one. The rest
+    // are in referenceFilePaths yet represented nowhere, so they still need
+    // reading — excluding the whole list silently dropped them.
+    mockCallAction.mockReset();
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "import-file"
+        ? {
+            format: "pdf",
+            pageCount: 1,
+            textPageCount: 1,
+            pages: [{ pageNum: 1, text: "SECOND_REFERENCE_TEXT" }],
+          }
+        : undefined,
+    );
     const deck = {
       id: "deck-multiple-reference-files",
       title: "Untitled Deck",
@@ -390,6 +439,7 @@ describe("startDeckGeneration", () => {
             "/uploads/reference.pptx",
             "/uploads/reference.pdf",
           ],
+          importedReferenceFilePath: "/uploads/reference.pptx",
         },
         designSystems: [],
         createDeck: vi.fn(() => deck),
@@ -403,11 +453,18 @@ describe("startDeckGeneration", () => {
       }),
     ).resolves.toBe("started");
 
+    // The imported PPTX is already represented by the reference deck.
     expect(mockCallAction).not.toHaveBeenCalledWith(
       "import-file",
-      expect.anything(),
+      expect.objectContaining({ filePath: "/uploads/reference.pptx" }),
       expect.anything(),
     );
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "import-file",
+      expect.objectContaining({ filePath: "/uploads/reference.pdf" }),
+      expect.anything(),
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain("SECOND_REFERENCE_TEXT");
     expect(agentSubmit.mock.calls[0]?.[1]).not.toContain(
       "Source-preserving improvement mode",
     );
@@ -561,6 +618,286 @@ describe("startDeckGeneration", () => {
       "Source-preserving improvement mode",
     );
     expect(agentSubmit.mock.calls[0]?.[1]).toContain("Do not call add-slide");
+  });
+
+  it("lets a hydrated PDF reference, not the generic fallback, steer styling", async () => {
+    mockCallAction.mockReset();
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "import-file"
+        ? {
+            format: "pdf",
+            pageCount: 1,
+            textPageCount: 1,
+            pages: [{ pageNum: 1, text: "Investor update" }],
+            styleDigest: {
+              pageCount: 1,
+              pageWidthPt: 960,
+              pageHeightPt: 540,
+              orientation: "landscape",
+              aspectRatio: 1.778,
+              backgroundColors: [{ color: "#0b1020", pageCount: 1 }],
+              typeScale: [
+                {
+                  fontSizePt: 56,
+                  fontFamily: "GT Super",
+                  bold: true,
+                  color: "#f7f5ef",
+                  runCount: 4,
+                  sample: "Investor update",
+                },
+              ],
+              paragraphAlignments: [{ alignment: "left", blockCount: 6 }],
+              textMarginsPt: { left: 72, right: 72, top: 56, bottom: 56 },
+              pagesWithImages: 1,
+            },
+          }
+        : undefined,
+    );
+    const deck = {
+      id: "deck-styled-reference",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a deck styled like the attached presentation",
+        files: [
+          {
+            path: "/uploads/styled.pdf",
+            originalName: "styled.pdf",
+            filename: "styled.pdf",
+            type: "application/pdf",
+            size: 4096,
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    const context = agentSubmit.mock.calls[0]?.[1] as string;
+    expect(context).toContain("56pt GT Super bold #f7f5ef");
+    expect(context).toContain("#0b1020");
+    expect(context).toContain("Follow its measured visual language");
+    // The exact instructions that made a referenced deck come out identical to
+    // an unreferenced one.
+    expect(context).not.toContain("use a light warm-neutral canvas");
+    expect(context).not.toContain("Before generating a bare or on-brand deck");
+    expect(context).not.toContain(
+      "When no reference deck or hydrated design system is available",
+    );
+  });
+
+  it("keeps the styling fallback for a reference that carries no design", async () => {
+    // A DOCX is readable content, not a visual language. Suppressing the
+    // workspace default and the fallback for it would leave the deck with no
+    // styling guidance at all.
+    mockCallAction.mockReset();
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "import-file"
+        ? {
+            format: "docx",
+            sections: [
+              { heading: "Overview", textPreview: "Why this matters" },
+            ],
+            textLength: 400,
+          }
+        : undefined,
+    );
+    const deck = {
+      id: "deck-docx-reference",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Turn this brief into a deck",
+        files: [
+          {
+            path: "/uploads/brief.docx",
+            originalName: "brief.docx",
+            filename: "brief.docx",
+            type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            size: 2048,
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    const context = agentSubmit.mock.calls[0]?.[1] as string;
+    expect(context).toContain("Overview: Why this matters");
+    expect(context).toContain("Before generating a bare or on-brand deck");
+    expect(context).toContain(
+      "When no reference deck or hydrated design system is available",
+    );
+  });
+
+  it("keeps the generic fallback when no reference is attached", async () => {
+    mockCallAction.mockReset();
+    mockCallAction.mockResolvedValue(undefined);
+    const deck = {
+      id: "deck-no-reference",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a deck about our roadmap",
+        files: [],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    const context = agentSubmit.mock.calls[0]?.[1] as string;
+    expect(context).toContain("use a light warm-neutral canvas");
+    expect(context).toContain(
+      "When no reference deck or hydrated design system is available",
+    );
+  });
+
+  it("blocks generation when an attached reference cannot be read", async () => {
+    mockCallAction.mockReset();
+    mockCallAction.mockImplementation(async (name: string) => {
+      if (name === "import-file") {
+        throw new Error(
+          "Access denied: uploaded file reference is not valid for this user or organization",
+        );
+      }
+      return undefined;
+    });
+    const deck = {
+      id: "deck-unreadable-reference",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+    const deleteDeck = vi.fn();
+    const onSetupFailure = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a deck that matches the attached reference exactly",
+        files: [
+          {
+            path: "/uploads/reference.pdf",
+            originalName: "reference.pdf",
+            filename: "reference.pdf",
+            type: "application/pdf",
+            size: 1024,
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck,
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+        onSetupFailure,
+      }),
+    ).resolves.toBe("failed");
+
+    // The reported failure: the run started anyway and the dropped reference
+    // was mentioned in prose after an unrelated deck had been generated.
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith(deck.id);
+    const failure = onSetupFailure.mock.calls[0]?.[2] as Error;
+    expect(failure.message).toContain("reference.pdf");
+    expect(failure.message).toContain("Access denied");
+    expect(failure.message).toContain("Generation was stopped");
+  });
+
+  it("blocks generation when an attached reference yields no readable content", async () => {
+    mockCallAction.mockReset();
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "import-file"
+        ? { format: "pdf", pageCount: 3, textPageCount: 0, pages: [] }
+        : undefined,
+    );
+    const deck = {
+      id: "deck-empty-reference",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+    const onSetupFailure = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Use the attached PDF as the visual reference",
+        files: [
+          {
+            path: "/uploads/scanned.pdf",
+            originalName: "scanned.pdf",
+            filename: "scanned.pdf",
+            type: "application/pdf",
+            size: 1024,
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+        onSetupFailure,
+      }),
+    ).resolves.toBe("failed");
+
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect((onSetupFailure.mock.calls[0]?.[2] as Error).message).toContain(
+      "scanned.pdf",
+    );
   });
 
   it("passes lightweight attachment chips into the generation", async () => {

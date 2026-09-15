@@ -17,13 +17,25 @@ export const sourceLocationBridgeScript: string = `"use strict";
       dist: true,
       build: true,
       ".next": true,
-      public: true
+      public: true,
+      ".vite": true
     };
-    function isNoisePath(path) {
+    var REACT_RUNTIME_MODULE_RE = /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\\.development|\\.production(?:\\.min)?)?\\.(?:m?js|cjs)$/;
+    var VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
+    function isNoisePath(path, localServedOutput) {
       var segments = path.split("/");
+      for (var i = 0; i < segments.length - 1; i += 1) {
+        if (VITE_DEPS_SEGMENT_RE.test(segments[i]) && REACT_RUNTIME_MODULE_RE.test(segments[i + 1])) {
+          return true;
+        }
+      }
       for (var i = 0; i < segments.length; i += 1) {
-        if (NOISE_SEGMENTS[segments[i]]) return true;
-        if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+        var segment = segments[i];
+        if (localServedOutput && (segment === "dist" || segment === "build")) {
+          continue;
+        }
+        if (NOISE_SEGMENTS[segment]) return true;
+        if (segment === "_next" && segments[i + 1] === "static") return true;
       }
       return false;
     }
@@ -54,7 +66,7 @@ export const sourceLocationBridgeScript: string = `"use strict";
       var rawUrl = match[2];
       var resolved = resolveFrameUrl(rawUrl);
       if (!resolved) return null;
-      if (!resolved.localServedOutput && isNoisePath(resolved.sourceFile)) {
+      if (isNoisePath(resolved.sourceFile, resolved.localServedOutput)) {
         return null;
       }
       var lineNumber = Number(match[3]);

@@ -181,6 +181,7 @@ export default function FactoryRoute() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [auditRefreshToken, setAuditRefreshToken] = useState(0);
+  const [auditFetching, setAuditFetching] = useState(false);
   const draftRevisionRef = useRef(0);
 
   function setActiveTab(tab: WorkspaceTab) {
@@ -668,9 +669,14 @@ export default function FactoryRoute() {
               className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
               aria-label={t("factoryRoute.auditRefresh")}
               title={t("factoryRoute.auditRefresh")}
+              disabled={auditFetching}
               onClick={() => setAuditRefreshToken((current) => current + 1)}
             >
-              <IconRefresh className="size-4" />
+              {auditFetching ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : (
+                <IconRefresh className="size-4" />
+              )}
             </Button>
           )}
         </div>
@@ -754,6 +760,7 @@ export default function FactoryRoute() {
           <FactoryAuditView
             factoryId={factoryId}
             refreshToken={auditRefreshToken}
+            onFetchingChange={setAuditFetching}
           />
         ) : activeTab === "history" ? (
           <FactoryHistoryView

@@ -20,11 +20,13 @@ import {
   IconArrowsUpDown,
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
+  IconBoxMultiple,
   IconBorderRadius,
   IconBorderStyle,
   IconDots,
   IconGridDots,
   IconItalic,
+  IconMessageCircle,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -38,6 +40,7 @@ import {
   IconSpacingVertical,
   IconStackBack,
   IconStackFront,
+  IconUnlink,
   IconBolt,
   IconUnderline,
   IconZoomIn,
@@ -68,6 +71,7 @@ import type { SlideListKind } from "./list-editing";
 import type {
   SlideObjectAlignment,
   SlideObjectDistribution,
+  SlideObjectZOrderTarget,
 } from "./slide-object-interactions";
 import {
   backgroundCssValue,
@@ -152,11 +156,17 @@ export function SlideContextToolbar({
   animationsOpen = false,
   hasSelectedElement = Boolean(snapshot),
   onOpenAnimations,
+  canComment = false,
+  onComment,
   onChange,
   onBackgroundChange,
   onArrange,
+  onGroup,
+  onUngroup,
   onToggleList,
   objectSelectionCount = 0,
+  canGroup = false,
+  canUngroup = false,
   onAlignObjects,
   onDistributeObjects,
   zoomControls,
@@ -173,11 +183,19 @@ export function SlideContextToolbar({
   animationsOpen?: boolean;
   /** Open transitions for the current canvas selection. */
   onOpenAnimations?: () => void;
+  /** Whether the current user can add comments to this deck. */
+  canComment?: boolean;
+  /** Start a comment anchored to the selected slide object. */
+  onComment?: () => void;
   onChange: (patch: SlideStylePatch) => void;
   onBackgroundChange: (background: string) => void;
-  onArrange?: (target: "front" | "back") => void;
+  onArrange?: (target: SlideObjectZOrderTarget) => void;
+  onGroup?: () => void;
+  onUngroup?: () => void;
   onToggleList?: (kind: SlideListKind) => void;
   objectSelectionCount?: number;
+  canGroup?: boolean;
+  canUngroup?: boolean;
   onAlignObjects?: (alignment: SlideObjectAlignment) => void;
   onDistributeObjects?: (distribution: SlideObjectDistribution) => void;
   zoomControls?: {
@@ -289,6 +307,65 @@ export function SlideContextToolbar({
             </TooltipTrigger>
             <TooltipContent>{t("animations.title")}</TooltipContent>
           </Tooltip>
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {hasSelectedElement && canComment && onComment && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={MENU_BUTTON_CLASS}
+                aria-label={t("comments.addComment")}
+                onClick={onComment}
+              >
+                <IconMessageCircle className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("comments.addComment")}</TooltipContent>
+          </Tooltip>
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {(canGroup || canUngroup) && (
+        <>
+          {canGroup && onGroup && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={MENU_BUTTON_CLASS}
+                  aria-label={t("styleInspector.group")}
+                  onClick={onGroup}
+                >
+                  <IconBoxMultiple className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.group")}</TooltipContent>
+            </Tooltip>
+          )}
+          {canUngroup && onUngroup && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={MENU_BUTTON_CLASS}
+                  aria-label={t("styleInspector.ungroup")}
+                  onClick={onUngroup}
+                >
+                  <IconUnlink className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.ungroup")}</TooltipContent>
+            </Tooltip>
+          )}
           <div className={TOOLBAR_DIVIDER} />
         </>
       )}
@@ -761,7 +838,7 @@ export function SlideContextToolbar({
             </Popover>
           )}
 
-          {snapshot.isAbsolute && onArrange && (
+          {(snapshot.isAbsolute || objectSelectionCount >= 2) && onArrange && (
             <>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -787,6 +864,23 @@ export function SlideContextToolbar({
                     variant="ghost"
                     size="icon"
                     className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("backward")}
+                    aria-label={t("styleInspector.sendBackward")}
+                  >
+                    <IconStackBack className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.sendBackward")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
                     onClick={() => onArrange("front")}
                     aria-label={t("styleInspector.bringToFront")}
                   >
@@ -795,6 +889,23 @@ export function SlideContextToolbar({
                 </TooltipTrigger>
                 <TooltipContent>
                   {t("styleInspector.bringToFront")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("forward")}
+                    aria-label={t("styleInspector.bringForward")}
+                  >
+                    <IconStackFront className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.bringForward")}
                 </TooltipContent>
               </Tooltip>
             </>

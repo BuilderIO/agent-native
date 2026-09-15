@@ -41,12 +41,26 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+} from "../server/source-workspace.js";
+import {
   BOARD_FILENAME,
   backfillBoardPrimitiveMarkers,
   boardObjectEntryToHtmlFragment,
   emptyBoardHtml,
 } from "../shared/board-file.js";
 import { parseBoardObjects } from "../shared/board-objects.js";
+
+const sourceFileColumns = {
+  id: schema.designFiles.id,
+  designId: schema.designFiles.designId,
+  filename: schema.designFiles.filename,
+  fileType: schema.designFiles.fileType,
+  content: schema.designFiles.content,
+  createdAt: schema.designFiles.createdAt,
+  updatedAt: schema.designFiles.updatedAt,
+};
 
 export default defineAction({
   description:
@@ -114,13 +128,14 @@ export default defineAction({
       const existingBoardFileId = parsed["boardFileId"] as string;
 
       const [boardFileRow] = await db
-        .select({ content: schema.designFiles.content })
+        .select(sourceFileColumns)
         .from(schema.designFiles)
         .where(eq(schema.designFiles.id, existingBoardFileId))
         .limit(1);
 
       if (boardFileRow) {
-        const originalContent = boardFileRow.content ?? "";
+        const live = await readLiveSourceFile(boardFileRow);
+        const originalContent = live.content;
         // Only run backfill when the board file has node-id elements but is
         // missing at least one data-an-primitive marker.
         const needsBackfill =
@@ -130,18 +145,12 @@ export default defineAction({
         if (needsBackfill) {
           const backfilledContent =
             backfillBoardPrimitiveMarkers(originalContent);
-          const now = new Date().toISOString();
-          await db
-            .update(schema.designFiles)
-            .set({ content: backfilledContent, updatedAt: now })
-            .where(eq(schema.designFiles.id, existingBoardFileId));
-
-          // Best-effort collab re-seed.
-          try {
-            await seedFromText(existingBoardFileId, backfilledContent);
-          } catch {
-            // Non-fatal.
-          }
+          await writeInlineSourceFile({
+            designId,
+            file: boardFileRow,
+            content: backfilledContent,
+            expectedVersionHash: live.versionHash,
+          });
 
           return {
             designId,
@@ -196,7 +205,7 @@ export default defineAction({
         ? parsed.boardFileMigrationId
         : proposedBoardFileId;
     const [existingBoardFile] = await db
-      .select({ id: schema.designFiles.id })
+      .select(sourceFileColumns)
       .from(schema.designFiles)
       .where(
         and(
@@ -208,10 +217,13 @@ export default defineAction({
     const boardFileId = existingBoardFile?.id ?? reservationId;
 
     if (existingBoardFile) {
-      await db
-        .update(schema.designFiles)
-        .set({ content: boardHtml, updatedAt: now })
-        .where(eq(schema.designFiles.id, boardFileId));
+      const live = await readLiveSourceFile(existingBoardFile);
+      await writeInlineSourceFile({
+        designId,
+        file: existingBoardFile,
+        content: boardHtml,
+        expectedVersionHash: live.versionHash,
+      });
     } else {
       try {
         await db.insert(schema.designFiles).values({
@@ -231,6 +243,11 @@ export default defineAction({
           .limit(1);
         if (!concurrentBoardFile) throw error;
       }
+
+      // Seed the new board's live document before finalizing the migration
+      // marker. A failed seed leaves boardFileMigrationId in place so a retry
+      // can resume without claiming that SQL and the live document are synced.
+      await seedFromText(boardFileId, boardHtml);
     }
 
     await mutateDesignData({
@@ -249,14 +266,6 @@ export default defineAction({
       },
       isApplied: (current) => current.boardFileId === boardFileId,
     });
-
-    // ── 5. Seed collab state for the new board file ───────────────────────
-    // (Best-effort: collab seeding after the file row is committed.)
-    try {
-      await seedFromText(boardFileId, boardHtml);
-    } catch {
-      // Non-fatal — the board file still renders from SQL content.
-    }
 
     return {
       designId,

@@ -1610,7 +1610,7 @@ function AgentPanelInner({
           <DropdownMenuContent
             align="end"
             sideOffset={6}
-            className="w-48"
+            className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-48 overflow-y-auto"
             onCloseAutoFocus={(event) => {
               // A sibling overlay owns focus next; restoring it to the menu
               // trigger would dismiss that overlay as an outside interaction.
@@ -1722,11 +1722,12 @@ function AgentPanelInner({
                         event,
                         closeHeaderMenuForOverlay,
                         () => setShareFromMenuOpen(true),
+                        "timeout",
                       )
                     }
                   >
                     <IconShare3 size={14} className="shrink-0" />
-                    Share
+                    {t("agentChat.share.share", { defaultValue: "Share" })}
                   </DropdownMenuItem>
                 );
               })()}

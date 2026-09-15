@@ -13,8 +13,11 @@ export default defineConfig({
 });
 ```
 
-新鷹架可能會將匯入的函式命名為 `agentNativePlugins` 並展開其結果，以保持
-Vite 套件型別一致。它就是同一個 `agentNative` 外掛，接受相同的選項。
+產生的 Chat scaffold 仍然匯入 `agentNative`。設定會透過型別斷言將它指派給本機別名
+`agentNativePlugins`，再展開傳回的外掛陣列，以配合 Vite 套件型別。此別名接受與上方
+`agentNative` 範例相同的選項。若要將此 scaffold 部署至 Netlify，請在現有
+`agentNativePlugins({ ... })` 呼叫的選項中加入 `nitro: { preset: "netlify" }`。保留其他
+Chat 專用外掛、選項與別名。
 
 ……或者在建置時設定 `NITRO_PRESET=netlify`。
 

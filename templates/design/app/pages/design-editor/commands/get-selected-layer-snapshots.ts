@@ -1,6 +1,8 @@
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
+  type CodeLayerNode,
+  type CodeLayerProjection,
 } from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -19,6 +21,20 @@ import type {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { shouldUseRuntimeLayerProjection } from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+function getSourceParentNodeId(
+  projection: CodeLayerProjection,
+  node: CodeLayerNode,
+): string | undefined {
+  if (!node.parentId) return undefined;
+  const parent = projection.nodes.find(
+    (candidate) => candidate.id === node.parentId,
+  );
+  if (parent?.dataAttributes["data-agent-native-group-wrapper"] !== "true") {
+    return undefined;
+  }
+  return parent.dataAttributes["data-agent-native-node-id"];
+}
 
 export interface GetSelectedLayerSnapshotsArgs {
   activeFile: DesignFile;
@@ -73,6 +89,9 @@ export function runGetSelectedLayerSnapshots({
     const runtimeSnapshot = runtimeProjectionEligible
       ? runtimeLayerSnapshotsById[file.id]
       : undefined;
+    const source = runtimeProjectionEligible
+      ? { kind: "inline-html" as const, fileId: file.id }
+      : { kind: "design-file" as const, fileId: file.id };
     const content = resolveClipboardLayerSourceHtml({
       runtimeProjectionEligible,
       runtimeSnapshot,
@@ -80,7 +99,7 @@ export function runGetSelectedLayerSnapshots({
       storedContent: getScreenContent(file.id),
     });
     if (!content) continue;
-    const projection = buildCodeLayerProjection(content);
+    const projection = buildCodeLayerProjection(content, { source });
     const tree = buildCodeLayerTree(projection);
     for (const layerId of candidateIds) {
       const node = projection.nodes.find(
@@ -96,11 +115,19 @@ export function runGetSelectedLayerSnapshots({
         selectedElement?.portableStyleSnapshot
           ? selectedElement.portableStyleSnapshot
           : undefined;
+      const styleSnapshotCaptureFailed =
+        selectedElementLayerId &&
+        node.id === selectedElementLayerId &&
+        selectedElement?.styleSnapshotCaptureFailed
+          ? true
+          : undefined;
       snapshots.push({
         html,
         rootNodeId: node.dataAttributes["data-agent-native-node-id"] ?? node.id,
+        sourceParentNodeId: getSourceParentNodeId(projection, node),
         sourceFileId: file.id,
         portableStyleSnapshot,
+        styleSnapshotCaptureFailed,
         managedStyleSnapshot: extractDesignClipboardManagedStyles(
           content,
           html,
@@ -121,13 +148,16 @@ export function runGetSelectedLayerSnapshots({
     const runtimeSnapshot = runtimeProjectionEligible
       ? runtimeLayerSnapshotsById[activeFile.id]
       : undefined;
+    const source = runtimeProjectionEligible
+      ? { kind: "inline-html" as const, fileId: activeFile.id }
+      : { kind: "design-file" as const, fileId: activeFile.id };
     const content = resolveClipboardLayerSourceHtml({
       runtimeProjectionEligible,
       runtimeSnapshot,
       liveSnapshotHtml: liveScreenSnapshotsById[activeFile.id]?.html,
       storedContent: getFreshActiveContent(),
     });
-    const projection = buildCodeLayerProjection(content);
+    const projection = buildCodeLayerProjection(content, { source });
     const tree = buildCodeLayerTree(projection);
     const node = resolveCodeLayerNodeFromElementInfo(
       projection,
@@ -143,8 +173,10 @@ export function runGetSelectedLayerSnapshots({
           node.dataAttributes["data-agent-native-node-id"] ??
           selectedElement.sourceId ??
           selectedElement.id,
+        sourceParentNodeId: getSourceParentNodeId(projection, node),
         sourceFileId: activeFile.id,
         portableStyleSnapshot: selectedElement.portableStyleSnapshot,
+        styleSnapshotCaptureFailed: selectedElement.styleSnapshotCaptureFailed,
         managedStyleSnapshot: extractDesignClipboardManagedStyles(
           content,
           html,

@@ -17,7 +17,8 @@ export const CLIPS_MEETINGS = defineLab({
 export const CLIPS_WISPRFLOW = defineLab({
   key: "clips.wisprflow",
   displayName: "Voice dictation",
-  description: "Try the new voice dictation feature.",
+  description: "Show or hide voice dictation in Clips Desktop.",
+  defaultEnabled: true,
   keywords: "dictate dictation voice speech microphone",
 });
 

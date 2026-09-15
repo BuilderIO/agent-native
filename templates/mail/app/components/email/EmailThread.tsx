@@ -52,7 +52,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  applyDraftSaveResult,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import {
   useThreadMessages,
   useArchiveEmail,
@@ -69,13 +72,17 @@ import {
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { setUndoAction } from "@/hooks/use-undo";
+import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import {
   decodeHtmlEntities,
   processHtmlImages,
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import {
+  buildForwardDraft,
+  buildReplyDraft,
+} from "@/lib/message-draft-builders";
 import { getResolvedTheme } from "@/lib/theme";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import type { ThreadSummary } from "@/lib/threads";
@@ -708,16 +715,18 @@ export function EmailThread({
         unarchiveEmail.mutate({ id: t.id, accountEmail: t.accountEmail });
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
-    setUndoAction(undo);
-    toast(
+    const consumeUndo = setUndoAction(undo);
+    const toastId = toast(
       targets.length > 1
-        ? `Archived ${targets.length} conversations.`
-        : "Archived.",
+        ? t("mail.toasts.archivedMany", { count: targets.length })
+        : t("mail.toasts.archived"),
       {
-        action: { label: "UNDO", onClick: undo },
+        action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+        duration: UNDO_DURATION,
         position: isMobile ? "top-center" : undefined,
       },
     );
+    setUndoToastId(toastId);
     advanceOrGoBack();
     for (const t of targets) {
       archiveEmail.mutate({
@@ -765,13 +774,17 @@ export function EmailThread({
         untrashEmail.mutate({ id: t.id, accountEmail: t.accountEmail });
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
-    setUndoAction(undo);
-    toast(
+    const consumeUndo = setUndoAction(undo);
+    const toastId = toast(
       targets.length > 1
-        ? `Trashed ${targets.length} conversations.`
-        : "Moved to Trash.",
-      { action: { label: "UNDO", onClick: undo } },
+        ? t("mail.toasts.trashedMany", { count: targets.length })
+        : t("mail.toasts.trashed"),
+      {
+        action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+        duration: UNDO_DURATION,
+      },
     );
+    setUndoToastId(toastId);
     advanceOrGoBack();
     for (const t of targets)
       trashEmail.mutate({ id: t.id, accountEmail: t.accountEmail });
@@ -812,27 +825,6 @@ export function EmailThread({
     (d) => d.inline && d.replyToThreadId === threadId,
   );
 
-  const buildReplyQuote = (target: EmailMessage) =>
-    `\n\n\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
-      .split("\n")
-      .map((l) => `> ${l}`)
-      .join("\n")}`;
-
-  // Determine which of our accounts the email was sent to (for reply-from)
-  const findReplyAccount = useCallback(
-    (target: EmailMessage): string | undefined => {
-      // First check accountEmail on the message itself
-      if (target.accountEmail) return target.accountEmail;
-      // Otherwise scan to/cc for one of our connected accounts
-      const allAddrs = [
-        ...target.to.map((r) => r.email.toLowerCase()),
-        ...(target.cc || []).map((r) => r.email.toLowerCase()),
-      ];
-      return allAddrs.find((e) => myEmails.has(e));
-    },
-    [myEmails],
-  );
-
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
       // If inline draft exists and no specific message, just focus it
@@ -848,25 +840,9 @@ export function EmailThread({
 
       const target = msg ?? email;
       if (!target) return;
-      // If the message is from me, reply to the first "to" recipient instead
-      const isFromMe = myEmails.has(target.from.email.toLowerCase());
-      const replyTo = isFromMe
-        ? (target.to[0]?.email ?? target.from.email)
-        : target.from.email;
-      compose.open({
-        to: replyTo,
-        subject: target.subject.startsWith("Re:")
-          ? target.subject
-          : `Re: ${target.subject}`,
-        body: buildReplyQuote(target),
-        mode: "reply",
-        replyToId: target.id,
-        replyToThreadId: target.threadId,
-        accountEmail: findReplyAccount(target),
-        inline: true,
-      });
+      compose.open(buildReplyDraft(target, myEmails, { inline: true }));
     },
-    [email, compose, myEmails, findReplyAccount, threadId],
+    [email, compose, myEmails, threadId],
   );
 
   const handleReplyAll = useCallback(
@@ -883,34 +859,11 @@ export function EmailThread({
 
       const target = msg ?? email;
       if (!target) return;
-      const isFromMe = myEmails.has(target.from.email.toLowerCase());
-      // Collect all recipients, excluding all of my accounts
-      const allRecipients = [
-        ...(isFromMe ? [] : [target.from.email]),
-        ...target.to.map((r) => r.email),
-        ...(target.cc || []).map((r) => r.email),
-      ];
-      const uniqueTo = [
-        ...new Set(
-          allRecipients
-            .map((e) => e.toLowerCase())
-            .filter((e) => !myEmails.has(e)),
-        ),
-      ];
-      compose.open({
-        to: uniqueTo.join(", "),
-        subject: target.subject.startsWith("Re:")
-          ? target.subject
-          : `Re: ${target.subject}`,
-        body: buildReplyQuote(target),
-        mode: "reply",
-        replyToId: target.id,
-        replyToThreadId: target.threadId,
-        accountEmail: findReplyAccount(target),
-        inline: true,
-      });
+      compose.open(
+        buildReplyDraft(target, myEmails, { replyAll: true, inline: true }),
+      );
     },
-    [email, compose, myEmails, findReplyAccount, threadId],
+    [email, compose, myEmails, threadId],
   );
 
   const handleForwardMsg = useCallback(
@@ -919,20 +872,9 @@ export function EmailThread({
         (d) => d.inline && d.replyToThreadId === threadId,
       );
       if (existing) compose.discard(existing.id);
-      compose.open({
-        to: "",
-        subject: msg.subject.startsWith("Fwd:")
-          ? msg.subject
-          : `Fwd: ${msg.subject}`,
-        body: `\n\n\n\n— Forwarded message —\nFrom: ${msg.from.name} <${msg.from.email}>\n\n${msg.body}`,
-        mode: "forward",
-        replyToId: msg.id,
-        replyToThreadId: msg.threadId,
-        accountEmail: findReplyAccount(msg),
-        inline: true,
-      });
+      compose.open(buildForwardDraft(msg, myEmails, { inline: true }));
     },
-    [compose, findReplyAccount, threadId],
+    [compose, myEmails, threadId],
   );
 
   const handleForward = useCallback(() => {
@@ -977,6 +919,7 @@ export function EmailThread({
       },
       { key: "e", handler: handleArchive },
       { key: "d", handler: handleTrash },
+      { key: "#", shift: "either", handler: handleTrash },
       { key: "s", handler: handleStar },
       {
         key: "r",
@@ -1167,6 +1110,46 @@ export function EmailThread({
     }
   }, [t, unsubscribeInfo]);
 
+  const handleCloseInlineDraft = (id: string) => {
+    const draft = compose.drafts.find((item) => item.id === id);
+    const hasContent = !!(
+      draft?.to?.trim() ||
+      draft?.cc?.trim() ||
+      draft?.bcc?.trim() ||
+      draft?.subject?.trim() ||
+      draft?.body?.trim()
+    );
+    const snapshot = draft ? { ...draft } : null;
+    const savePromise = compose.close(id);
+    if (!hasContent || !snapshot) return;
+
+    toast(t("mail.toasts.draftClosed"), {
+      action: {
+        label: t("mail.compose.reopenDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          const { id: _id, ...reopenData } = savedSnapshot;
+          compose.open({ ...reopenData, inline: true });
+        },
+      },
+      cancel: {
+        label: t("mail.compose.deleteDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          if (savedSnapshot.savedDraftId) {
+            await compose.deleteSavedDraft(savedSnapshot);
+          }
+        },
+      },
+    });
+  };
+
   if (!threadId) return null;
 
   if (!email) {
@@ -1311,7 +1294,9 @@ export function EmailThread({
                       <IconArchive className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Archive (E)</TooltipContent>
+                  <TooltipContent>
+                    {t("mail.actions.archive")} (E)
+                  </TooltipContent>
                 </Tooltip>
                 {view !== "trash" && (
                   <Tooltip>
@@ -1323,7 +1308,9 @@ export function EmailThread({
                         <IconTrash className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Move to Trash (D)</TooltipContent>
+                    <TooltipContent>
+                      {t("mail.actions.moveToTrash")} (D / #)
+                    </TooltipContent>
                   </Tooltip>
                 )}
                 <button
@@ -1501,45 +1488,7 @@ export function EmailThread({
                       messages={messages}
                       onUpdate={compose.update}
                       onDiscard={compose.discard}
-                      onClose={(id) => {
-                        const drafts = compose.drafts ?? [];
-                        const draft = drafts.find((d: any) => d.id === id);
-                        const hasContent = !!(
-                          draft?.to?.trim() ||
-                          draft?.cc?.trim() ||
-                          draft?.bcc?.trim() ||
-                          draft?.subject?.trim() ||
-                          draft?.body?.trim()
-                        );
-                        const snapshot = draft ? { ...draft } : null;
-                        compose.close(id);
-                        if (hasContent && snapshot) {
-                          toast("Draft saved.", {
-                            action: {
-                              label: "REOPEN",
-                              onClick: () => {
-                                const { id: _id, ...reopenData } = snapshot;
-                                compose.open({ ...reopenData, inline: true });
-                              },
-                            },
-                            cancel: {
-                              label: "DELETE DRAFT",
-                              onClick: () => {
-                                if (snapshot.savedDraftId) {
-                                  void fetch(
-                                    appApiPath(
-                                      `/api/emails/${snapshot.savedDraftId}`,
-                                    ),
-                                    {
-                                      method: "DELETE",
-                                    },
-                                  );
-                                }
-                              },
-                            },
-                          });
-                        }
-                      }}
+                      onClose={handleCloseInlineDraft}
                       onPopOut={(id) => compose.update(id, { inline: false })}
                       onFlush={compose.flush}
                       onReopen={(state) =>
@@ -1562,45 +1511,7 @@ export function EmailThread({
                   messages={messages}
                   onUpdate={compose.update}
                   onDiscard={compose.discard}
-                  onClose={(id) => {
-                    const drafts = compose.drafts ?? [];
-                    const draft = drafts.find((d: any) => d.id === id);
-                    const hasContent = !!(
-                      draft?.to?.trim() ||
-                      draft?.cc?.trim() ||
-                      draft?.bcc?.trim() ||
-                      draft?.subject?.trim() ||
-                      draft?.body?.trim()
-                    );
-                    const snapshot = draft ? { ...draft } : null;
-                    compose.close(id);
-                    if (hasContent && snapshot) {
-                      toast("Draft saved.", {
-                        action: {
-                          label: "REOPEN",
-                          onClick: () => {
-                            const { id: _id, ...reopenData } = snapshot;
-                            compose.open({ ...reopenData, inline: true });
-                          },
-                        },
-                        cancel: {
-                          label: "DELETE DRAFT",
-                          onClick: () => {
-                            if (snapshot.savedDraftId) {
-                              void fetch(
-                                appApiPath(
-                                  `/api/emails/${snapshot.savedDraftId}`,
-                                ),
-                                {
-                                  method: "DELETE",
-                                },
-                              );
-                            }
-                          },
-                        },
-                      });
-                    }
-                  }}
+                  onClose={handleCloseInlineDraft}
                   onPopOut={(id) => compose.update(id, { inline: false })}
                   onFlush={compose.flush}
                   onReopen={(state) => compose.open({ ...state, inline: true })}

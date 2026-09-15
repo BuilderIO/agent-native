@@ -7,8 +7,9 @@ replies, and update mail state through actions and application state.
 
 Read the relevant skill before deeper work:
 
-- `inbox-reads-and-triage` for listing/searching mail, inventory coverage,
-  refreshing after mutations, and bulk unread cleanup.
+- `inbox-reads-and-triage` for listing/searching mail, coverage, refresh, and
+  bulk unread cleanup.
+- `mail-interaction-parity` for the Superhuman matrix and safe send testing.
 - `email-drafts` for composing, signatures, style, attachments, sending,
   scheduled sends, tracking, and aliases.
 - `draft-queue` for org and Slack draft review/send workflows.
@@ -39,9 +40,8 @@ Read the relevant skill before deeper work:
   call `refresh-list` unless the action itself writes `refresh-signal`.
 - Inventory reads report per-account success, empty, exhaustion, or error.
   Never describe partial coverage as complete.
-- Provider-specific actions are shortcuts, not limits: escalate to
-  `provider-api-catalog`/`-docs`/`-request` for exact endpoints, filters, or
-  API versions.
+- Provider actions are shortcuts; use `provider-api-catalog`/`-docs`/`-request`
+  for exact endpoints, filters, or API versions.
 - `get-hubspot-contact` is the only first-class CRM action; Gong, Pylon, and
   Apollo are UI-only — say so rather than implying `provider-api-request`
   reaches them. Aliases and provider API keys are Settings-UI only.
@@ -67,8 +67,9 @@ Read the relevant skill before deeper work:
 | `get-hubspot-contact` | HubSpot contact + deals + tickets by email. |
 | `create-attachment-upload` | Short-lived upload URL for an attachment. |
 | `manage-draft` | Create/update/delete a `compose-{id}` draft. |
-| `send-email` / `send-queued-drafts` | Approval-gated real sends; not registered as page-local WebMCP tools. Hand sends to the in-app agent or MCP rather than `provider-api-request`. |
-| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts` | Teammate/Slack draft review. |
+| `send-email` / `send-queued-drafts` | Approval-gated real sends; use the in-app agent/MCP, not `provider-api-request`. |
+| `create-scheduled-send` | Schedule a future send (`payload.to`, `.subject`, `.body` required). |
+| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` | Teammate/Slack draft review. |
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
 | `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |
 | `manage-gmail-filters` | Gmail-native filters. |
@@ -76,7 +77,7 @@ Read the relevant skill before deeper work:
 | `manage-email-rules` / `trigger-automations` | Inbox automation rules. |
 | `get-ai-filter` / `apply-ai-filter` | Reversible AI filtering, feedback, and learned instructions. |
 | `respond-calendar-invite` | Accept/decline/tentative an invite. |
-| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Signature and writing style. |
+| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Drafting preferences, including Send + Mark Done. |
 | `manage-snippets` | Saved reply snippets. |
 | `get-tracking` | Open/click stats for a sent message. |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw Gmail/Calendar/HubSpot API calls. |

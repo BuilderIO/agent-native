@@ -55,6 +55,7 @@ import { cn } from "./utils.js";
 interface CommandMenuContextValue {
   search: string;
   onOpenChange: (open: boolean) => void;
+  registerNestedDialog: (dismiss: () => void) => () => void;
 }
 
 const CommandMenuContext = createContext<CommandMenuContextValue | null>(null);
@@ -63,6 +64,17 @@ function useCommandMenuContext() {
   const ctx = useContext(CommandMenuContext);
   if (!ctx) throw new Error("CommandMenu.* must be used inside <CommandMenu>");
   return ctx;
+}
+
+export function useCommandMenuNestedDialog(dismiss: (() => void) | null) {
+  const { registerNestedDialog } = useCommandMenuContext();
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
+
+  useEffect(() => {
+    if (!dismiss) return;
+    return registerNestedDialog(() => dismissRef.current?.());
+  }, [dismiss !== null, registerNestedDialog]);
 }
 
 // ─── Hooks ──────────────────────────────────────────────────────────────────
@@ -262,12 +274,26 @@ export interface CommandMenuProps {
   children: ReactNode;
   /** Render app-specific dynamic results from the current search value. */
   renderResults?: (search: string) => ReactNode;
+  /**
+   * Compose app controls around the listbox while retaining this menu's search
+   * and command state. `renderList` must be rendered exactly once.
+   */
+  renderContent?: (options: {
+    search: string;
+    renderList: (results?: ReactNode) => ReactNode;
+  }) => ReactNode;
   /** Placeholder text for the search input */
   placeholder?: string;
+  /** Accessible label for the search input. Defaults to the placeholder. */
+  inputLabel?: string;
   /** Text shown when no results match (before showing agent fallback) */
   emptyText?: string;
   /** Whether to show the "Ask AI" fallback when no commands match. Default: true */
   showAgentFallback?: boolean;
+  /** Clear the current command query on Escape before dismissing the menu. */
+  clearSearchOnEscape?: boolean;
+  /** Customize focus restoration when the dialog closes. */
+  onCloseAutoFocus?: (event: Event) => void;
   /** Custom class for the dialog content */
   className?: string;
   /**
@@ -298,9 +324,13 @@ export function CommandMenu({
   onOpenChange,
   children,
   renderResults,
+  renderContent,
   placeholder = "Type a command or ask AI...",
+  inputLabel = placeholder,
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
+  clearSearchOnEscape = false,
+  onCloseAutoFocus,
   className,
   changelog,
   changelogLabel = "What's new",
@@ -310,7 +340,16 @@ export function CommandMenu({
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const nestedDialogsRef = useRef<Array<() => void>>([]);
   const t = useT();
+  const registerNestedDialog = useCallback((dismiss: () => void) => {
+    nestedDialogsRef.current.push(dismiss);
+    return () => {
+      nestedDialogsRef.current = nestedDialogsRef.current.filter(
+        (registered) => registered !== dismiss,
+      );
+    };
+  }, []);
 
   // Built-in "What's new" changelog surface (only active when `changelog` is
   // passed). The dialog is rendered alongside the menu so it survives the menu
@@ -486,14 +525,106 @@ export function CommandMenu({
       (child.type === CommandGroup || child.type === CommandDocsGroup),
   );
   const dynamicResults = open ? renderResults?.(search) : null;
-  const hasDynamicResults = Boolean(dynamicResults);
+
+  const renderList = (results: ReactNode = dynamicResults) => (
+    <CommandListPrimitive>
+      {results}
+      {hasResults && filteredChildren}
+
+      {showChangelogRow && (
+        <>
+          {hasResults && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={openChangelog}
+            >
+              <IconHistory className="h-4 w-4 text-muted-foreground" />
+              <span>{changelogLabel}</span>
+              {changelogUnseen && (
+                <span
+                  className="ms-auto h-2 w-2 rounded-full bg-primary"
+                  aria-label="New updates available"
+                />
+              )}
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showAboutRow && (
+        <>
+          {(hasResults || showChangelogRow) && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={openAbout}
+            >
+              <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
+              <span>{aboutLabel}</span>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showAgentFallback && (
+        <>
+          {(hasResults ||
+            showChangelogRow ||
+            showAboutRow ||
+            Boolean(results)) && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={handleSubmitToAgent}
+            >
+              <IconMessage className="h-4 w-4 text-muted-foreground" />
+              <span>
+                {search.trim() ? (
+                  <>
+                    Ask AI:{" "}
+                    <span className="text-muted-foreground">"{search}"</span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Ask AI anything...
+                  </span>
+                )}
+              </span>
+              {search.trim() && (
+                <span className="ms-auto text-xs text-muted-foreground">↵</span>
+              )}
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+    </CommandListPrimitive>
+  );
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && nestedDialogsRef.current.length > 0) return;
+          onOpenChange(nextOpen);
+        }}
+      >
         <DialogContent
           ref={containerRef}
           aria-describedby={undefined}
+          onEscapeKeyDown={(event) => {
+            const dismissNested = nestedDialogsRef.current.at(-1);
+            if (dismissNested) {
+              event.preventDefault();
+              queueMicrotask(dismissNested);
+              return;
+            }
+            if (clearSearchOnEscape && search.length > 0) {
+              event.preventDefault();
+              setSearch("");
+            }
+          }}
           hideClose
           motion="instant"
           overlayClassName="fixed inset-0 backdrop-blur-none transition-none"
@@ -508,6 +639,7 @@ export function CommandMenu({
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
+          onCloseAutoFocus={onCloseAutoFocus}
           style={{
             animation: "none",
             transition: "none",
@@ -519,95 +651,21 @@ export function CommandMenu({
             shouldFilter={false}
             className="h-auto rounded-lg"
           >
-            <CommandMenuContext.Provider value={{ search, onOpenChange }}>
+            <CommandMenuContext.Provider
+              value={{ search, onOpenChange, registerNestedDialog }}
+            >
               {/* Search input */}
               <CommandInputPrimitive
                 ref={inputRef}
                 value={search}
                 onValueChange={setSearch}
                 placeholder={placeholder}
+                aria-label={inputLabel}
               />
 
-              {/* Command list */}
-              <CommandListPrimitive>
-                {dynamicResults}
-                {hasResults && filteredChildren}
-
-                {/* What's new — built-in changelog entry */}
-                {showChangelogRow && (
-                  <>
-                    {hasResults && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={openChangelog}
-                      >
-                        <IconHistory className="h-4 w-4 text-muted-foreground" />
-                        <span>{changelogLabel}</span>
-                        {changelogUnseen && (
-                          <span
-                            className="ms-auto h-2 w-2 rounded-full bg-primary"
-                            aria-label="New updates available"
-                          />
-                        )}
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-
-                {/* About Agent-Native — built-in framework diagnostics entry */}
-                {showAboutRow && (
-                  <>
-                    {(hasResults || showChangelogRow) && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={openAbout}
-                      >
-                        <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
-                        <span>{aboutLabel}</span>
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-
-                {/* Ask AI — always visible at the bottom */}
-                {showAgentFallback && (
-                  <>
-                    {(hasResults ||
-                      showChangelogRow ||
-                      showAboutRow ||
-                      hasDynamicResults) && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={handleSubmitToAgent}
-                      >
-                        <IconMessage className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {search.trim() ? (
-                            <>
-                              Ask AI:{" "}
-                              <span className="text-muted-foreground">
-                                "{search}"
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">
-                              Ask AI anything...
-                            </span>
-                          )}
-                        </span>
-                        {search.trim() && (
-                          <span className="ms-auto text-xs text-muted-foreground">
-                            ↵
-                          </span>
-                        )}
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-              </CommandListPrimitive>
+              {open && renderContent
+                ? renderContent({ search, renderList })
+                : open && renderList()}
             </CommandMenuContext.Provider>
           </CommandPrimitive>
         </DialogContent>
@@ -670,19 +728,37 @@ export function openCommandMenu() {
  */
 export function useCommandMenuShortcut(
   onOpen: () => void,
-  options: { allowContentEditable?: boolean } = {},
+  options: {
+    allowContentEditable?: boolean;
+    /** Return false to leave an editable shortcut untouched for its local handler. */
+    shouldHandleContentEditable?: (event: KeyboardEvent) => boolean;
+  } = {},
 ) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        e.key.toLowerCase() === "k"
+      ) {
+        const target = e.target instanceof HTMLElement ? e.target : null;
+        const isContentEditable = target?.isContentEditable;
+        if (
+          isContentEditable &&
+          options.allowContentEditable &&
+          options.shouldHandleContentEditable &&
+          !options.shouldHandleContentEditable(e)
+        ) {
+          return;
+        }
+
         // Claim the shortcut before checking the focused element so an outer
         // host cannot open its own command menu while this one is focused.
         e.preventDefault();
         e.stopPropagation();
 
         // Don't trigger if user is typing in a native form control.
-        const target = e.target instanceof HTMLElement ? e.target : null;
-        const isContentEditable = target?.isContentEditable;
         if (
           target?.tagName === "INPUT" ||
           target?.tagName === "TEXTAREA" ||
@@ -702,7 +778,11 @@ export function useCommandMenuShortcut(
       document.removeEventListener("keydown", handleKeyDown, useCapture);
       window.removeEventListener(COMMAND_MENU_OPEN_EVENT, handleOpenRequest);
     };
-  }, [onOpen, options.allowContentEditable]);
+  }, [
+    onOpen,
+    options.allowContentEditable,
+    options.shouldHandleContentEditable,
+  ]);
 }
 
 export type {

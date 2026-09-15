@@ -8,12 +8,12 @@ import {
 } from "./design-editor/editor-state";
 
 describe("shouldSendKeepalive (§stale-mirror keepalive guard)", () => {
-  it("sends when collab is not live, regardless of whether a hash is known", () => {
+  it("sends when collab is not live", () => {
     expect(shouldSendKeepalive(false, false)).toBe(true);
     expect(shouldSendKeepalive(true, false)).toBe(true);
   });
 
-  it("sends when collab is live but a known acked hash can guard the write", () => {
+  it("sends when collab is live and the queued source hash guards the write", () => {
     expect(shouldSendKeepalive(true, true)).toBe(true);
   });
 
@@ -30,6 +30,7 @@ describe("flushPendingFileContentSavesOnCleanup", () => {
       syncCollab: true,
       operationSource: "tab-a",
       operationRevision: 1,
+      expectedVersionHash: "source-a",
     };
     const second = {
       id: "file-b",
@@ -37,6 +38,7 @@ describe("flushPendingFileContentSavesOnCleanup", () => {
       syncCollab: false,
       operationSource: "tab-a",
       operationRevision: 1,
+      expectedVersionHash: "source-b",
     };
     const events: string[] = [];
 
@@ -68,6 +70,7 @@ describe("flushFileContentSavesOnBackground", () => {
           syncCollab: true,
           operationSource: "tab-a",
           operationRevision: 2,
+          expectedVersionHash: "source-newest",
         },
       },
       {
@@ -77,6 +80,7 @@ describe("flushFileContentSavesOnBackground", () => {
           syncCollab: true,
           operationSource: "tab-a",
           operationRevision: 1,
+          expectedVersionHash: "source-older",
         },
         "file-b": {
           id: "file-b",
@@ -84,6 +88,7 @@ describe("flushFileContentSavesOnBackground", () => {
           syncCollab: false,
           operationSource: "tab-a",
           operationRevision: 3,
+          expectedVersionHash: "source-file-b",
         },
       },
       [11, 22],
@@ -110,6 +115,7 @@ describe("shouldClearLatestUnloadSave", () => {
     syncCollab: true,
     operationSource: "tab-a",
     operationRevision: 1,
+    expectedVersionHash: "source-a",
   };
 
   it("retires an unload retry after that exact save is acknowledged", () => {

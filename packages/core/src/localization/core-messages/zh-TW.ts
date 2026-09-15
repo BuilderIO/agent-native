@@ -162,6 +162,7 @@ const messages: AgentChatTranslation = {
   "composer.configureProviderKeys": "設定 Anthropic、OpenAI 或其他供應商",
   "composer.connectAbove": "請在上方連線 AI 以繼續...",
   "composer.connectBuilder": "連線至 Builder.io",
+  "composer.connectKeys": "連線金鑰",
   "composer.connectingBuilder": "正在連線至 Builder.io…",
   "composer.costHigher": "較高費用",
   "composer.costLower": "較低費用",
@@ -278,7 +279,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.sessionFailed": "即時語音工作階段發生錯誤。",
   "voiceMode.errors.unsupported": "這個瀏覽器不支援即時語音對話。",
   "voiceMode.hideChat": "隱藏聊天",
-  "voiceMode.keepDictating": "聽寫",
+  "voiceMode.keepDictating": "聽寫訊息",
   "voiceMode.promptDescription": "語音模式會在代理導覽和執行操作時持續聆聽。",
   "voiceMode.promptTitle": "使用語音",
   "voiceMode.rememberPreference": "記住我的偏好設定",
@@ -319,7 +320,7 @@ const messages: AgentChatTranslation = {
     "連線至 Builder.io 以使用含免費額度的代管語音，或加入您自己的金鑰。",
   "voiceMode.setupTitle": "設定語音模式",
   "voiceMode.showChat": "顯示聊天",
-  "voiceMode.start": "即時語音",
+  "voiceMode.start": "開始語音對話",
   "voiceMode.startWithOpenAiKey": "使用 OpenAI 金鑰啟動",
   "voiceMode.status.connecting": "正在連線",
   "voiceMode.status.ending": "正在結束語音模式",
@@ -347,6 +348,7 @@ const messages: AgentChatTranslation = {
     "模型閘道在代理回答前發生內部錯誤。請稍後重試；若持續發生，請提供下方的錯誤 ID。",
   "errorMessages.gatewayNoDetails":
     "模型閘道未傳回錯誤詳細資訊，聊天無法復原。請稍候再試；如果問題持續發生，請開始新聊天。",
+  "errorMessages.creditsLimitReached": "你已達到 AI 點數額度上限。",
   "errorMessages.inactivityTimeout":
     "代理連線在完成前逾時。您可以從已完成的部分繼續，也可以重試。",
   "errorMessages.invalidToolSchema":
@@ -372,6 +374,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "沒有幫助",
   "feedback.placeholder": "告訴我們哪裡出了問題……",
   "feedback.submit": "送出",
+  "feedback.submitted": "意見回饋已送出",
   "feedback.thumbsDown": "不喜歡",
   "feedback.thumbsUp": "喜歡",
   "feedback.tooSlow": "太慢",

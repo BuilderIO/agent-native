@@ -64,6 +64,33 @@ describe("local Figma QA upload provider", () => {
     expect(localFigmaQaAssetMimeType(assetId)).toBe("image/png");
   });
 
+  it("stores SVG images in the same owner-isolated QA route", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "design-figma-qa-"));
+    roots.push(rootDir);
+    const provider = createLocalFigmaQaUploadProvider({
+      rootDir,
+      enabled: () => true,
+    });
+    const bytes = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>',
+    );
+
+    const result = await provider.upload({
+      data: bytes,
+      mimeType: "image/svg+xml",
+      filename: "sonora-play-button.svg",
+      ownerEmail: "qa@example.test",
+    });
+    const assetId = result.id!;
+    const filepath = localFigmaQaAssetPath("qa@example.test", assetId, rootDir);
+
+    expect(result.url).toBe(`/api/qa-figma-import-assets/${assetId}`);
+    expect(assetId).toMatch(/\.svg$/);
+    expect(filepath).not.toBeNull();
+    expect(await readFile(filepath!)).toEqual(Buffer.from(bytes));
+    expect(localFigmaQaAssetMimeType(assetId)).toBe("image/svg+xml");
+  });
+
   it("rejects missing owners, unsupported types, oversized data, and path traversal", async () => {
     const provider = createLocalFigmaQaUploadProvider({
       enabled: () => true,

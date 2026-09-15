@@ -4,15 +4,29 @@ import type { ReactNode } from "react";
 import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { agentSidebarMock, useDecksMock } = vi.hoisted(() => ({
-  agentSidebarMock: vi.fn(),
-  useDecksMock: vi.fn(),
-}));
+const { agentSidebarMock, useDecksMock, creativeContextLabEnabled } =
+  vi.hoisted(() => ({
+    agentSidebarMock: vi.fn(),
+    useDecksMock: vi.fn(),
+    creativeContextLabEnabled: { value: false },
+  }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: ({ children, ...props }: { children: ReactNode }) => {
+  AgentSidebar: ({
+    children,
+    ...props
+  }: {
+    children: ReactNode;
+    composerSlot?: ReactNode;
+    [key: string]: unknown;
+  }) => {
     agentSidebarMock(props);
-    return <div data-testid="agent-sidebar">{children}</div>;
+    return (
+      <div data-testid="agent-sidebar">
+        {props.composerSlot}
+        {children}
+      </div>
+    );
   },
   focusAgentChat: vi.fn(),
   isAgentChatHomeHandoffActive: vi.fn(() => false),
@@ -27,7 +41,10 @@ vi.mock("@agent-native/core/client/org", () => ({
   InvitationBanner: () => <div data-testid="invitation-banner" />,
 }));
 vi.mock("@agent-native/creative-context/client", () => ({
-  CreativeContextComposerChip: () => null,
+  CreativeContextComposerChip: () => (
+    <div data-testid="creative-context-composer-chip" />
+  ),
+  useCreativeContextLab: () => creativeContextLabEnabled.value,
 }));
 vi.mock("@agent-native/toolkit/app-shell", () => ({
   HeaderActionsProvider: ({ children }: { children: ReactNode }) => children,
@@ -90,6 +107,17 @@ describe("Slides Layout", () => {
   beforeEach(() => {
     agentSidebarMock.mockClear();
     useDecksMock.mockReturnValue({ decks: [], loading: false });
+    creativeContextLabEnabled.value = false;
+  });
+
+  it("hides the Creative Context composer chip until its lab is enabled", () => {
+    const offRender = renderLayout("/");
+    expect(screen.queryByTestId("creative-context-composer-chip")).toBeNull();
+    offRender.unmount();
+
+    creativeContextLabEnabled.value = true;
+    renderLayout("/");
+    expect(screen.getByTestId("creative-context-composer-chip")).toBeTruthy();
   });
 
   it("enables agent-panel auto-open only during a run", () => {

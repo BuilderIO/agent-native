@@ -16,4 +16,19 @@ describe("SearchBar saved-filter flow", () => {
     expect(source).toContain("await onSaveSearch");
     expect(source).not.toContain("window.prompt");
   });
+
+  it("keeps contact and local results in one keyboard-scrollable listbox", () => {
+    const source = searchBarSource();
+
+    expect(source).toContain('role="combobox"');
+    expect(source).toContain(
+      'showDropdown ? "mail-search-suggestions" : undefined',
+    );
+    expect(source).toContain('id="mail-search-suggestions"');
+    expect(source).toContain("getActiveDescendantId(");
+    expect(source).toContain('role="listbox"');
+    expect(source).toContain("data-search-item");
+    expect(source).toContain('querySelectorAll("[data-search-item]")');
+    expect(source).not.toContain('querySelectorAll("[data-contact-item]")');
+  });
 });

@@ -235,7 +235,9 @@ function paintedControlValue(element: HTMLElement): string {
   const tag = element.tagName;
   if (tag === "INPUT") {
     const input = element as HTMLInputElement;
-    if (/^(?:password|hidden)$/i.test(input.type)) return "";
+    if (input.type === "hidden" || (input.type === "password" && input.value)) {
+      return "";
+    }
     return input.value || input.placeholder || "";
   }
   if (tag === "TEXTAREA") {
@@ -247,6 +249,24 @@ function paintedControlValue(element: HTMLElement): string {
     return select.options[select.selectedIndex]?.text ?? "";
   }
   return "";
+}
+
+export function getHtml2CanvasPlaceholderStyle(
+  element: Element,
+  view: Window,
+): CSSStyleDeclaration | null {
+  if (element.tagName === "INPUT") {
+    const input = element as HTMLInputElement;
+    if (input.type === "hidden" || input.value || !input.placeholder)
+      return null;
+  } else if (element.tagName === "TEXTAREA") {
+    const textarea = element as HTMLTextAreaElement;
+    if (textarea.value || !textarea.placeholder) return null;
+  } else {
+    return null;
+  }
+
+  return view.getComputedStyle(element, "::placeholder");
 }
 
 function directText(element: HTMLElement): string {
@@ -310,7 +330,13 @@ export function collectFontRequests(doc: Document): FontRequest[] {
     if (NON_RENDERED_TAGS.has(element.tagName)) continue;
     const ownText = `${directText(element)}${paintedControlValue(element)}`;
     if (ownText.trim() !== "") {
-      record(fontSpecFrom(view.getComputedStyle(element)), ownText);
+      record(
+        fontSpecFrom(
+          getHtml2CanvasPlaceholderStyle(element, view) ??
+            view.getComputedStyle(element),
+        ),
+        ownText,
+      );
     }
     for (const pseudo of ["::before", "::after"]) {
       let style: CSSStyleDeclaration | null = null;
