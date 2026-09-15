@@ -1389,6 +1389,14 @@ export function DesignCanvas({
   // "Preparing live editor..." with no explanation and no way to recover
   // short of reloading the whole page.
   const bridgeRegistrationRetryAttemptRef = useRef(0);
+  const bridgeRegistrationRetryTimerRef = useRef<number | undefined>(undefined);
+  // Two registration attempts can be in flight at once — the automatic
+  // effect-driven one and a manually-triggered "Connect" click (see
+  // attemptBridgeRegistration/handleConnectLocalNetworkAccess below) — and
+  // they can resolve out of order. Only the most recent attempt's result may
+  // ever be written to state, or an earlier failure resolving after a later
+  // success would incorrectly flip the UI back to "still blocked".
+  const bridgeRegistrationAttemptGenerationRef = useRef(0);
   const [bridgeRegistrationRetryNonce, setBridgeRegistrationRetryNonce] =
     useState(0);
   const [bridgeRegistrationError, setBridgeRegistrationError] = useState<{
@@ -1835,6 +1843,104 @@ export function DesignCanvas({
   // null forever (console.warn only, no retry, no error UI), pinning
   // waitingForLiveEditBridge true with no way to recover short of a full
   // page reload.
+  const scheduleBridgeRegistrationRetry = useCallback(() => {
+    const delay = getSnapshotRetryDelayMs(
+      bridgeRegistrationRetryAttemptRef.current,
+    );
+    bridgeRegistrationRetryAttemptRef.current += 1;
+    bridgeRegistrationRetryTimerRef.current = window.setTimeout(() => {
+      setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
+    }, delay);
+  }, []);
+  // Single source of truth for a registration attempt, shared by the
+  // automatic effect below and the manual "Connect" button (see
+  // handleConnectLocalNetworkAccess) — see bridgeRegistrationAttemptGeneration
+  // Ref's comment for why a shared, generation-guarded function is required
+  // instead of each caller firing its own independent fetch.
+  // Returns true/false for a definite, still-applicable outcome, or null when
+  // a newer attempt (effect-driven or manual) has already superseded this
+  // one — callers must treat null as "nothing to do", not as a failure, or a
+  // stale attempt could schedule a redundant retry after a later attempt
+  // already succeeded.
+  const attemptBridgeRegistration = useCallback(async (): Promise<
+    boolean | null
+  > => {
+    if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
+      return null;
+    }
+    const generation = ++bridgeRegistrationAttemptGenerationRef.current;
+    const isCurrent = () =>
+      bridgeRegistrationAttemptGenerationRef.current === generation;
+    const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-design-preview-token": previewToken,
+        },
+        body: JSON.stringify({
+          script: liveEditBridgeScript,
+          bridgeKey: liveEditBridgeKey,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Bridge registration failed (${response.status})`);
+      }
+      const payload = (await response.json().catch(() => null)) as {
+        bridgeInstanceId?: string;
+      } | null;
+      if (payload && typeof payload.bridgeInstanceId === "string") {
+        // Cache the instance id from THIS successful registration so a
+        // later suspected-restart probe (see handleSuspectedBridgeRestart)
+        // can tell a genuinely restarted bridge process apart from the same
+        // process rejecting a stale key.
+        bridgeInstanceIdRef.current = payload.bridgeInstanceId;
+      }
+      if (!isCurrent()) return null;
+      bridgeRegistrationRetryAttemptRef.current = 0;
+      if (registrationHandoffKey) {
+        liveEditRegistrationHandoff.set(registrationHandoffKey, Date.now());
+      }
+      // liveEditRestartAttemptRef is intentionally NOT reset here: a
+      // successful registration POST only proves the bridge accepted the
+      // script, not that the live document actually loaded it (that's what
+      // the ready-handshake watchdog below still has to confirm). Resetting
+      // the restart budget on every registration success — rather than only
+      // on a genuine agent-native:editor-chrome-ready — would let a
+      // pathological bridge that keeps minting a new bridgeInstanceId
+      // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
+      setBridgeRegistrationError(null);
+      setBridgeRegistrationFailureKind(null);
+      setConnectingLocalNetworkAccess(false);
+      lateLiveEditReadyRecoveryRef.current = null;
+      setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
+      return true;
+    } catch (error) {
+      if (!isCurrent()) return null;
+      if (registrationHandoffKey) {
+        liveEditRegistrationHandoff.delete(registrationHandoffKey);
+      }
+      console.warn("live-edit bridge registration failed", error);
+      setRegisteredLiveEditBridgeKey(null);
+      setBridgeRegistrationError({
+        bridgeKey: liveEditBridgeKey,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      setConnectingLocalNetworkAccess(false);
+      void classifyBridgeRegistrationFailure().then((kind) => {
+        if (isCurrent()) setBridgeRegistrationFailureKind(kind);
+      });
+      return false;
+    }
+  }, [
+    bridgeUrl,
+    liveEditBridgeKey,
+    liveEditBridgeScript,
+    previewToken,
+    registrationHandoffKey,
+    usesLiveEditInjectedBridge,
+  ]);
   useEffect(() => {
     if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
       bridgeRegistrationRetryAttemptRef.current = 0;
@@ -1852,96 +1958,31 @@ export function DesignCanvas({
       lateLiveEditReadyRecoveryRef.current = null;
       return;
     }
-    let cancelled = false;
-    let retryTimer: number | undefined;
     setRegisteredLiveEditBridgeKey((current) =>
       current === liveEditBridgeKey ? current : null,
     );
-    const scheduleRetry = () => {
-      if (cancelled) return;
-      const delay = getSnapshotRetryDelayMs(
-        bridgeRegistrationRetryAttemptRef.current,
-      );
-      bridgeRegistrationRetryAttemptRef.current += 1;
-      retryTimer = window.setTimeout(() => {
-        setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
-      }, delay);
-    };
-    void (async () => {
-      const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
-      try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-design-preview-token": previewToken,
-          },
-          body: JSON.stringify({
-            script: liveEditBridgeScript,
-            bridgeKey: liveEditBridgeKey,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error(`Bridge registration failed (${response.status})`);
-        }
-        const payload = (await response.json().catch(() => null)) as {
-          bridgeInstanceId?: string;
-        } | null;
-        if (payload && typeof payload.bridgeInstanceId === "string") {
-          // Cache the instance id from THIS successful registration so a
-          // later suspected-restart probe (see handleSuspectedBridgeRestart)
-          // can tell a genuinely restarted bridge process apart from the same
-          // process rejecting a stale key.
-          bridgeInstanceIdRef.current = payload.bridgeInstanceId;
-        }
-        if (cancelled) return;
-        bridgeRegistrationRetryAttemptRef.current = 0;
-        if (registrationHandoffKey) {
-          liveEditRegistrationHandoff.set(registrationHandoffKey, Date.now());
-        }
-        // liveEditRestartAttemptRef is intentionally NOT reset here: a
-        // successful registration POST only proves the bridge accepted the
-        // script, not that the live document actually loaded it (that's what
-        // the ready-handshake watchdog below still has to confirm). Resetting
-        // the restart budget on every registration success — rather than only
-        // on a genuine agent-native:editor-chrome-ready — would let a
-        // pathological bridge that keeps minting a new bridgeInstanceId
-        // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
-        setBridgeRegistrationError(null);
-        setBridgeRegistrationFailureKind(null);
-        setConnectingLocalNetworkAccess(false);
-        lateLiveEditReadyRecoveryRef.current = null;
-        setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
-      } catch (error) {
-        if (!cancelled) {
-          if (registrationHandoffKey) {
-            liveEditRegistrationHandoff.delete(registrationHandoffKey);
-          }
-          console.warn("live-edit bridge registration failed", error);
-          setRegisteredLiveEditBridgeKey(null);
-          setBridgeRegistrationError({
-            bridgeKey: liveEditBridgeKey,
-            message: error instanceof Error ? error.message : String(error),
-          });
-          setConnectingLocalNetworkAccess(false);
-          void classifyBridgeRegistrationFailure().then((kind) => {
-            if (!cancelled) setBridgeRegistrationFailureKind(kind);
-          });
-          scheduleRetry();
-        }
-      }
-    })();
+    let cancelled = false;
+    void attemptBridgeRegistration().then((result) => {
+      // result === false is a definite, still-applicable failure; null means
+      // a newer attempt already superseded this one (see
+      // attemptBridgeRegistration's return-type comment) and must not
+      // schedule a redundant retry.
+      if (result === false && !cancelled) scheduleBridgeRegistrationRetry();
+    });
     return () => {
       cancelled = true;
-      if (retryTimer) window.clearTimeout(retryTimer);
+      if (bridgeRegistrationRetryTimerRef.current !== undefined) {
+        window.clearTimeout(bridgeRegistrationRetryTimerRef.current);
+        bridgeRegistrationRetryTimerRef.current = undefined;
+      }
     };
   }, [
+    attemptBridgeRegistration,
     bridgeRegistrationRetryNonce,
     bridgeUrl,
     liveEditBridgeKey,
-    liveEditBridgeScript,
     previewToken,
-    registrationHandoffKey,
+    scheduleBridgeRegistrationRetry,
     usesLiveEditInjectedBridge,
   ]);
 
@@ -1968,12 +2009,18 @@ export function DesignCanvas({
     lateLiveEditReadyRecoveryRef.current = null;
   }, [liveEditBridgeKey]);
 
-  // Manual retry (offline-state "Retry" button): reset the backoff so the
-  // user-initiated attempt fires immediately, mirroring
-  // handleManualSnapshotRetry below. Also clears the non-destructive
-  // same-instance-id stalled-error card and its escalation state, since a
-  // manual retry (from either error card) should start every counter fresh.
-  const handleManualBridgeRegistrationRetry = useCallback(() => {
+  // Chrome only offers its Local Network Access permission dialog for a
+  // fetch made within an active user-gesture window, so this calls the
+  // SAME attemptBridgeRegistration used by the automatic retry effect
+  // directly and synchronously — not through a nonce bump, which would
+  // defer the actual fetch() past the click's gesture window and lose the
+  // ability to trigger Chrome's permission prompt. Also resets the backoff
+  // and same-instance escalation state, mirroring the offline-state "Retry"
+  // buttons elsewhere in this file, so the user-initiated attempt starts
+  // every counter fresh and any already-scheduled auto-retry doesn't fire a
+  // second, redundant attempt shortly after this one.
+  const handleConnectLocalNetworkAccess = useCallback(() => {
+    setConnectingLocalNetworkAccess(true);
     bridgeRegistrationRetryAttemptRef.current = 0;
     liveEditRestartAttemptRef.current = 0;
     liveEditSameInstanceElapsedMsRef.current = 0;
@@ -1983,42 +2030,12 @@ export function DesignCanvas({
       liveEditSameInstanceRearmTimerRef.current = undefined;
     }
     setLiveEditSameInstanceStalledError(null);
-    setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
-  }, []);
-
-  // Chrome only offers its Local Network Access permission dialog for a
-  // fetch made within an active user-gesture window. handleManualBridge
-  // RegistrationRetry above only bumps a nonce — by the time the retry
-  // effect re-runs and calls fetch(), the click's gesture has already
-  // expired, so the permission prompt (and this whole retry) silently fails
-  // forever. Firing an extra, best-effort fetch synchronously from the
-  // "Connect" button's own click handler keeps a live gesture in scope for
-  // Chrome to prompt against; the retry effect (still triggered via the
-  // nonce bump below) remains the single source of truth for registration
-  // state either way.
-  const handleConnectLocalNetworkAccess = useCallback(() => {
-    setConnectingLocalNetworkAccess(true);
-    if (bridgeUrl) {
-      void fetch(new URL("/live-edit-bridge", bridgeUrl).toString(), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-design-preview-token": previewToken ?? "",
-        },
-        body: JSON.stringify({
-          script: liveEditBridgeScript,
-          bridgeKey: liveEditBridgeKey,
-        }),
-      }).catch(() => {});
+    if (bridgeRegistrationRetryTimerRef.current !== undefined) {
+      window.clearTimeout(bridgeRegistrationRetryTimerRef.current);
+      bridgeRegistrationRetryTimerRef.current = undefined;
     }
-    handleManualBridgeRegistrationRetry();
-  }, [
-    bridgeUrl,
-    previewToken,
-    liveEditBridgeScript,
-    liveEditBridgeKey,
-    handleManualBridgeRegistrationRetry,
-  ]);
+    void attemptBridgeRegistration();
+  }, [attemptBridgeRegistration]);
   const handleDismissLocalNetworkAccessPrompt = useCallback(() => {
     setLocalNetworkAccessDismissedForKey(liveEditBridgeKey);
   }, [liveEditBridgeKey]);
@@ -2183,8 +2200,8 @@ export function DesignCanvas({
 
   // Manual retry for the NON-destructive same-instance-id stalled card only
   // (see liveEditSameInstanceStalledError below): unlike
-  // handleManualBridgeRegistrationRetry, registeredLiveEditBridgeKey was
-  // never nulled here, so bumping bridgeRegistrationRetryNonce would not
+  // handleConnectLocalNetworkAccess, registeredLiveEditBridgeKey was never
+  // nulled here, so calling attemptBridgeRegistration again would not
   // reschedule a fresh watchdog probe (liveEditBridgeRegistered never flips
   // false→true to rearm that effect). Reset the backoff and probe /health
   // again directly instead.
@@ -5002,7 +5019,7 @@ export function DesignCanvas({
         // server, so this stays a small, dismissible corner card rather than
         // hiding working content behind an indefinite "preparing" screen.
         <LocalNetworkAccessPrompt
-          kind={bridgeRegistrationFailureKind ?? "unreachable"}
+          kind={bridgeRegistrationFailureKind ?? "maybePermissionBlocked"}
           connecting={connectingLocalNetworkAccess}
           onConnect={handleConnectLocalNetworkAccess}
           onDismiss={handleDismissLocalNetworkAccessPrompt}

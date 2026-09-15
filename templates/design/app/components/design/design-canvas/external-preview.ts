@@ -54,31 +54,35 @@ export function resolveLiveEditPreviewUrl(args: {
  * - Chrome's Local Network Access permission (a same-origin-policy-adjacent
  *   browser security feature, distinct from CORS) is blocking the request
  *   because this page's origin hasn't been granted permission to reach a
- *   loopback address. This is the common case for the hosted Design app
- *   reaching a developer's `127.0.0.1` bridge, and it needs a different,
- *   actionable UI: a permission is missing, not a downed server.
+ *   loopback address.
  *
- * `navigator.permissions.query({ name: "local-network-access" })` is the one
- * signal that tells these apart. It's only supported in newer Chrome and is
- * not yet in TypeScript's lib.dom.d.ts, hence the cast. Any failure to query
- * it (unsupported browser, disabled flag) falls back to the generic
- * "unreachable" classification, which preserves today's messaging.
+ * `navigator.permissions.query({ name: "local-network-access" })` is a signal,
+ * not proof: it reports the SITE's standing permission grant, not why THIS
+ * particular fetch failed — a `"prompt"` state is also the default on a first
+ * visit regardless of whether the dev server happens to be reachable, so it
+ * does not establish that permission was the actual cause. Only `"granted"`
+ * is unambiguous (permission is definitely fine, so it's definitely not the
+ * cause). Everything else — `"prompt"`, an unsupported browser, or the query
+ * throwing — stays in the same "maybePermissionBlocked" bucket, which the UI
+ * must present as a possibility to try, never as a diagnosed fact.
  */
 export type BridgeRegistrationFailureKind =
-  | "local-network-access"
+  | "maybePermissionBlocked"
   | "unreachable";
 
 export async function classifyBridgeRegistrationFailure(): Promise<BridgeRegistrationFailureKind> {
   try {
     if (typeof navigator === "undefined" || !navigator.permissions?.query) {
-      return "unreachable";
+      return "maybePermissionBlocked";
     }
     const status = await navigator.permissions.query({
       name: "local-network-access" as PermissionName,
     });
-    return status.state === "granted" ? "unreachable" : "local-network-access";
+    return status.state === "granted"
+      ? "unreachable"
+      : "maybePermissionBlocked";
   } catch {
-    return "unreachable";
+    return "maybePermissionBlocked";
   }
 }
 

@@ -27,7 +27,11 @@ export function LocalNetworkAccessPrompt({
   onConnect: () => void;
   onDismiss: () => void;
 }) {
-  const isPermission = kind === "local-network-access";
+  // "unreachable" is the one confident case (permission is confirmed
+  // granted, so it's confirmed NOT the cause) — every other kind is
+  // deliberately hedged copy, never a diagnosed permission claim. See
+  // classifyBridgeRegistrationFailure's doc comment for why.
+  const isConfirmedUnreachable = kind === "unreachable";
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
       <div className="pointer-events-auto relative flex w-full max-w-[22rem] flex-col items-start gap-3 rounded-lg border bg-card p-4 shadow-md">
@@ -46,25 +50,25 @@ export function LocalNetworkAccessPrompt({
           </span>
         </Button>
         <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent">
-          {isPermission ? (
-            <IconPlugConnected className="size-4 text-accent-foreground" />
-          ) : (
+          {isConfirmedUnreachable ? (
             <IconPlugConnectedX className="size-4 text-accent-foreground" />
+          ) : (
+            <IconPlugConnected className="size-4 text-accent-foreground" />
           )}
         </div>
         <div className="flex flex-col gap-0.5 pr-4">
           <div className="text-sm font-medium text-foreground">
             {
-              isPermission
-                ? "Connect to your local dev server" /* i18n-ignore local dev connect card title */
-                : "Local dev server unreachable" /* i18n-ignore local dev connect card title */
+              isConfirmedUnreachable
+                ? "Local dev server unreachable" /* i18n-ignore local dev connect card title */
+                : "Can't reach your local dev server" /* i18n-ignore local dev connect card title */
             }
           </div>
           <div className="text-xs text-muted-foreground">
             {
-              isPermission
-                ? "Your browser needs permission to reach localhost before this screen can be edited live." /* i18n-ignore local dev connect card body */
-                : "Is it still running?" /* i18n-ignore local dev connect card body */
+              isConfirmedUnreachable
+                ? "Is it still running?" /* i18n-ignore local dev connect card body */
+                : "Your browser may need permission to connect to localhost — or the dev server may be offline." /* i18n-ignore local dev connect card body */
             }
           </div>
         </div>
@@ -77,9 +81,9 @@ export function LocalNetworkAccessPrompt({
           {
             connecting
               ? "Connecting…" /* i18n-ignore local dev connect card button, transient */
-              : isPermission
-                ? "Connect" /* i18n-ignore local dev connect card button */
-                : "Retry" /* i18n-ignore local dev connect card button */
+              : isConfirmedUnreachable
+                ? "Retry" /* i18n-ignore local dev connect card button */
+                : "Connect" /* i18n-ignore local dev connect card button */
           }
         </Button>
       </div>
