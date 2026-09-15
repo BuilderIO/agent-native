@@ -206,7 +206,12 @@ describe("tryForwardToDevServer", () => {
       );
       expect(fetchMock).toHaveBeenCalledWith(
         `${origin}/_agent-native/dev/action`,
-        expect.objectContaining({ method: "POST" }),
+        expect.objectContaining({
+          method: "POST",
+          ...(origin.startsWith("https:")
+            ? { dispatcher: expect.anything() }
+            : {}),
+        }),
       );
       expect(exit).toHaveBeenCalledWith(0);
     },
