@@ -21,6 +21,8 @@ Com `AUTH_SIGNUP=invited`, uma conta nova precisa de um convite pendente, um dom
 
 O primeiro administrador de bootstrap a entrar cria a organização canônica e se torna proprietário. Se já houver uma organização, ele será adicionado como proprietário. Se houver várias, o sistema não escolhe. Depois configure o domínio permitido e convide a equipe em **Team settings**.
 
+Com `ORG_CREATION=closed`, a criação de organizações é recusada até que `AUTH_BOOTSTRAP_ADMINS` liste pelo menos um administrador verificado, que cria a organização canônica no primeiro login.
+
 ## Chaves e funções da empresa
 
 Um proprietário ou administrador pode salvar uma chave LLM da organização. A chave pessoal tem prioridade até o membro escolher a chave da organização. As funções de aplicativo valem dentro de um aplicativo e cada membro pode ter várias. Administradores podem mapear permissões declaradas no código para funções sem novo deploy.

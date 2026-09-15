@@ -18,6 +18,7 @@ export interface BabysitAuditDetailsInput {
   because: string;
   decision?: BabysitAgentDecision | null;
   veto?: string | null;
+  appliedAction?: string | null;
   pingReason?: string | null;
   builderActive?: boolean;
   builderActiveUntil?: string | null;
@@ -46,6 +47,7 @@ export function buildBabysitAuditDetails(
     ...(input.decision ? { decision: input.decision } : {}),
     ...(input.decision ? { agentMatchedRecommendation: agentMatched } : {}),
     ...(input.veto ? { veto: input.veto } : {}),
+    ...(input.appliedAction ? { appliedAction: input.appliedAction } : {}),
     ...(input.pingReason ? { pingReason: input.pingReason } : {}),
     builderActive: input.builderActive ?? false,
     ...(input.builderActiveUntil
