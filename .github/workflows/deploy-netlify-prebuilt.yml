@@ -654,9 +654,13 @@ jobs:
           set -euo pipefail
           node scripts/check-function-size-baseline.mjs --site "$SITE" --dir "$FUNCTIONS_DIRECTORY"
 
+      # Beta's artifact producer has deploy=false but receives the inherited
+      # Netlify credential; PR preview producers intentionally do not, and
+      # their trusted deploy job runs this check before the Netlify upload.
       - name: Verify Netlify Google OAuth relay configuration
         if: >-
-          inputs.deploy && inputs.migration_only != true &&
+          (inputs.deploy || inputs.target == 'beta') &&
+          inputs.migration_only != true &&
           ((inputs.target == 'preview' &&
           contains(' analytics assets brain calendar chat clips content crm design dispatch factory forms mail plan slides ',
           format(' {0} ', steps.target.outputs.source_template))) ||

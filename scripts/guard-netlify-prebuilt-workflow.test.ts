@@ -98,15 +98,21 @@ describe("Google callback deploy verification guard", () => {
   });
 
   it("checks the published beta runtime context for the relay secret", () => {
-    const start = reusableSource.indexOf(
-      "      - name: Verify Netlify Google OAuth relay configuration",
-    );
-    const end = reusableSource.indexOf(
-      "      - name: Smoke-test the uploaded deploy",
-      start,
-    );
+    const relayStep =
+      "      - name: Verify Netlify Google OAuth relay configuration";
+    const packageStep = "      - name: Package the prebuilt artifact";
+    const uploadStep = "      - name: Upload the prebuilt artifact";
+    const smokeStep = "      - name: Smoke-test the uploaded deploy";
+    assert.equal(reusableSource.split(relayStep).length, 2);
+    assert.equal(reusableSource.split(packageStep).length, 2);
+    assert.equal(reusableSource.split(uploadStep).length, 2);
+    assert.equal(reusableSource.split(smokeStep).length, 2);
+    const start = reusableSource.indexOf(relayStep);
+    const end = reusableSource.indexOf(smokeStep, start);
+    assert.ok(start >= 0 && end > start);
     const step = reusableSource.slice(start, end);
 
+    assert.match(step, /\(inputs\.deploy \|\| inputs\.target == 'beta'\)/);
     assert.match(step, /DEPLOY_MODE: \$\{\{ inputs\.deploy_mode \}\}/);
     assert.match(step, /TARGET: \$\{\{ inputs\.target \}\}/);
     assert.match(
@@ -118,15 +124,9 @@ describe("Google callback deploy verification guard", () => {
       step,
       /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,
     );
-    const relayIndex = reusableSource.indexOf(
-      "      - name: Verify Netlify Google OAuth relay configuration",
-    );
-    const packageIndex = reusableSource.indexOf(
-      "      - name: Package the prebuilt artifact",
-    );
-    const uploadIndex = reusableSource.indexOf(
-      "      - name: Upload the prebuilt artifact",
-    );
+    const relayIndex = reusableSource.indexOf(relayStep);
+    const packageIndex = reusableSource.indexOf(packageStep);
+    const uploadIndex = reusableSource.indexOf(uploadStep);
     assert.ok(
       relayIndex >= 0 && relayIndex < packageIndex && relayIndex < uploadIndex,
     );
