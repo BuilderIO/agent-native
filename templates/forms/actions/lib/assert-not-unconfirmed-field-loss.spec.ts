@@ -65,6 +65,33 @@ describe("detectMassFieldLoss", () => {
     ).toBeNull();
   });
 
+  it("counts duplicate labels one-to-one rather than letting one cover them all", () => {
+    expect(
+      detectMassFieldLoss(
+        [
+          field("other_1", "Other"),
+          field("other_2", "Other"),
+          field("other_3", "Other"),
+          field("email", "Email"),
+        ],
+        [field("other", "Other"), field("room_type", "Room Type")],
+      ),
+    ).toMatchObject({ droppedCount: 3, retainedCount: 1 });
+  });
+
+  it("does not let an id match double as a label match for a duplicate", () => {
+    expect(
+      detectMassFieldLoss(
+        [
+          field("name", "Name"),
+          field("name_2", "Name"),
+          field("rating", "Rating"),
+        ],
+        [field("name", "Name")],
+      ),
+    ).toMatchObject({ droppedCount: 2, retainedCount: 1 });
+  });
+
   it("ignores an empty existing schema", () => {
     expect(detectMassFieldLoss([], [field("a"), field("b")])).toBeNull();
   });

@@ -47,15 +47,37 @@ export function detectMassFieldLoss(
 ): FieldLossReport | null {
   if (existing.length < MIN_EXISTING_FIELDS) return null;
 
-  const incomingIds = new Set(incoming.map((field) => field.id));
-  const incomingLabels = new Set(
-    incoming.map((field) => normalizeLabel(field.label)).filter(Boolean),
+  const incomingLabelById = new Map(
+    incoming.map((field) => [field.id, normalizeLabel(field.label)]),
   );
 
+  // Budget, not a membership set: labels are not unique, so one incoming
+  // "Name" must cover exactly one existing "Name". A set lets a single field
+  // stand in for every duplicate and hides the rest of the loss.
+  const availableLabels = new Map<string, number>();
+  for (const label of incomingLabelById.values()) {
+    if (label)
+      availableLabels.set(label, (availableLabels.get(label) ?? 0) + 1);
+  }
+
+  function consumeLabel(label: string): boolean {
+    const remaining = availableLabels.get(label) ?? 0;
+    if (remaining <= 0) return false;
+    availableLabels.set(label, remaining - 1);
+    return true;
+  }
+
+  // An id match consumes that incoming field outright, so its label is no
+  // longer available to cover a different existing field.
+  for (const field of existing) {
+    const matchedLabel = incomingLabelById.get(field.id);
+    if (matchedLabel) consumeLabel(matchedLabel);
+  }
+
   const dropped = existing.filter((field) => {
-    if (incomingIds.has(field.id)) return false;
+    if (incomingLabelById.has(field.id)) return false;
     const label = normalizeLabel(field.label);
-    return !(label && incomingLabels.has(label));
+    return !(label && consumeLabel(label));
   });
 
   if (dropped.length < MIN_DROPPED_FIELDS) return null;
