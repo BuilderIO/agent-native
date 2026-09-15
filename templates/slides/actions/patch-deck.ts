@@ -610,10 +610,15 @@ export function slideSignatures(deck: any): Map<string, string> {
   const signatures = new Map<string, string>();
   for (const slide of Array.isArray(deck?.slides) ? deck.slides : []) {
     if (typeof slide?.id === "string") {
-      // layoutFitRevision is derived bookkeeping, re-minted by every
-      // intermediate edit. Counting it makes an ordered round-trip
-      // (A to B, then back to A) look like an edit the user can see.
-      const { layoutFitRevision: _layoutFitRevision, ...material } = slide;
+      // layoutFitRevision and layoutWarningDismissed are bookkeeping the
+      // replay re-mints or clears on every intermediate edit. Counting them
+      // makes an ordered round-trip (A to B, then back to A) look like an
+      // edit the user can see.
+      const {
+        layoutFitRevision: _layoutFitRevision,
+        layoutWarningDismissed: _layoutWarningDismissed,
+        ...material
+      } = slide;
       signatures.set(slide.id, deckVersionContentSignature(material));
     }
   }
@@ -797,8 +802,9 @@ export default defineAction({
     "Then call get-deck with compact=true to verify the persisted slide IDs, " +
     "count, and animation metadata before reporting success. Only the slide " +
     "IDs in updatedSlideIds actually changed: a slide echoed back in " +
-    "unchangedSlideIds matched the stored content exactly and must never be " +
-    "described as edited. A batch in which every patched slide is unchanged " +
+    "unchangedSlideIds came out identical to the stored slide, was not " +
+    "written, and must never be described as edited. A batch in which every " +
+    "patched slide is unchanged " +
     "is rejected, so re-read those slides and send content that differs " +
     "instead of retrying the same HTML. Content writes " +
     "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
@@ -962,6 +968,23 @@ export default defineAction({
       const deletedSlideIds = new Set<string>();
       const signaturesBeforeOperations = slideSignatures(deck);
       const contentsBeforeOperations = slideContents(deck);
+      const derivedBeforeOperations = new Map<
+        string,
+        { layoutFitRevision: unknown; layoutWarningDismissed: unknown }
+      >(
+        (Array.isArray(deck.slides) ? deck.slides : [])
+          .filter((slide: { id?: unknown }) => typeof slide.id === "string")
+          .map(
+            (slide: Record<string, unknown>) =>
+              [
+                slide.id as string,
+                {
+                  layoutFitRevision: slide.layoutFitRevision,
+                  layoutWarningDismissed: slide.layoutWarningDismissed,
+                },
+              ] as const,
+          ),
+      );
       for (const op of operations) {
         const existedBeforeDelete =
           op.op === "delete-slide" &&
@@ -1058,6 +1081,47 @@ export default defineAction({
             contentsAfterOperations.get(slideId),
         ),
       );
+      // A slide deleted and re-added under the same id inside one batch is a
+      // replacement, even when the new fields happen to match the old ones:
+      // the persisted slide and its position were both rewritten.
+      for (const slideId of requestedSlideIds) {
+        if (deletedSlideIds.has(slideId)) changedSlideIds.add(slideId);
+      }
+
+      // Replay mints a fit revision and clears a dismissed overflow warning on
+      // every intermediate edit. When the batch nets out to the same material
+      // slide, none of that was earned, so revert it rather than persist a
+      // reset warning and schedule a re-measure for content nobody changed. An
+      // explicit dismissal in this batch is a real request and is left alone.
+      const explicitWarningSlideIds = new Set(
+        operations.flatMap((operation) =>
+          (operation.op === "patch-slide" || operation.op === "add-slide") &&
+          (operation.fields as { layoutWarningDismissed?: unknown })
+            .layoutWarningDismissed !== undefined
+            ? [operation.slideId]
+            : [],
+        ),
+      );
+      for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
+        if (typeof slide.id !== "string") continue;
+        if (changedSlideIds.has(slide.id)) continue;
+        const derived = derivedBeforeOperations.get(slide.id);
+        if (!derived) continue;
+        if (derived.layoutFitRevision === undefined) {
+          delete slide.layoutFitRevision;
+        } else {
+          slide.layoutFitRevision = derived.layoutFitRevision;
+        }
+        if (!explicitWarningSlideIds.has(slide.id)) {
+          if (derived.layoutWarningDismissed === undefined) {
+            delete slide.layoutWarningDismissed;
+          } else {
+            slide.layoutWarningDismissed = derived.layoutWarningDismissed;
+          }
+        }
+        layoutFitSlideIds.delete(slide.id);
+      }
+
       const unchangedSlideIds = requestedSlideIds.filter(
         (slideId) => !changedSlideIds.has(slideId),
       );
@@ -1332,7 +1396,9 @@ export default defineAction({
       // Only slides whose rendered geometry actually changed can newly overflow. The editor
       // measures these asynchronously; return their hashes so a later
       // get-layout-overflows call can reject stale browser measurements.
-      const layoutFitSlideIdList = [...layoutFitSlideIds];
+      const layoutFitSlideIdList = [...layoutFitSlideIds].filter((slideId) =>
+        signaturesAfterOperations.has(slideId),
+      );
       const finalSlides: Array<{
         id?: unknown;
         content?: unknown;
@@ -1355,7 +1421,7 @@ export default defineAction({
           ? {
               unchangedSlideIds,
               partial: true,
-              message: `Applied, but ${unchangedSlideIds.join(", ")} matched the existing slide content exactly and were left unchanged — do not report those slides as edited.`,
+              message: `Applied, but ${unchangedSlideIds.join(", ")} came out identical to the stored slide and were not written — do not report those slides as edited.`,
             }
           : {}),
         ...(sourceRewriteRequested ? { sourceRewritten: true } : {}),

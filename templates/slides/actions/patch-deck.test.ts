@@ -2176,3 +2176,148 @@ describe("run() — a content round-trip is not an edit", () => {
     expect(result.unchangedSlideIds).toEqual(["slide-1"]);
   });
 });
+
+describe("run() — derived state and lifecycle around net-zero edits", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutFitRevision: "rev-1",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("keeps derived fit and warning state across a content round-trip", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Interim</div>" },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-2"]);
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    const slide1 = persisted.slides.find(
+      (slide: { id: string }) => slide.id === "slide-1",
+    );
+    expect(slide1.layoutFitRevision).toBe("rev-1");
+    expect(slide1.layoutWarningDismissed).toBe(true);
+    const fitSlideIds = (
+      (result.layoutFit as { slides: Array<{ slideId: string }> }).slides ?? []
+    ).map((entry) => entry.slideId);
+    expect(fitSlideIds).toEqual(["slide-2"]);
+  });
+
+  it("still honours an explicit warning dismissal on an unchanged slide", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: "<div>One</div>",
+              layoutWarningDismissed: false,
+            },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    const slide1 = persisted.slides.find(
+      (slide: { id: string }) => slide.id === "slide-1",
+    );
+    expect(slide1.layoutWarningDismissed).toBe(false);
+  });
+
+  it("reports an identical delete-and-readd as a replacement", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          { op: "delete-slide", slideId: "slide-1" },
+          {
+            op: "add-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    expect(result.deletedSlideIds).toEqual([]);
+  });
+
+  it("schedules no layout-fit work for an added-then-deleted slide", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "add-slide",
+            slideId: "slide-3",
+            fields: { content: "<div>Three</div>" },
+          },
+          { op: "delete-slide", slideId: "slide-3" },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    const fitSlideIds = (
+      (result.layoutFit as { slides: Array<{ slideId: string }> }).slides ?? []
+    ).map((entry) => entry.slideId);
+    expect(fitSlideIds).toEqual(["slide-2"]);
+  });
+});
