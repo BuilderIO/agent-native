@@ -7879,13 +7879,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       postTextEditingState(suspended.target, false, suspended.selector, false);
     }
     function insertPlainTextAtSelection(text) {
-      if (!text) return;
+      if (!text) return false;
       if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
-        document.execCommand("insertText", false, text);
-        return;
+        var executed = false;
+        try {
+          executed = document.execCommand("insertText", false, text) === true;
+        } catch (_err) {
+          executed = false;
+        }
+        if (executed) return true;
       }
       var selection = window.getSelection ? window.getSelection() : null;
-      if (!selection || selection.rangeCount === 0) return;
+      if (!selection || selection.rangeCount === 0) return false;
       var range = selection.getRangeAt(0);
       range.deleteContents();
       var textNode = document.createTextNode(text);
@@ -7894,6 +7899,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       range.setEndAfter(textNode);
       selection.removeAllRanges();
       selection.addRange(range);
+      return textNode.isConnected === true;
     }
     function insertLineBreak() {
       if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
@@ -12467,6 +12473,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
             var pendingKey = e.key || "";
             if (pendingKey === "Escape") {
+              if (pendingBeginTextEdit.buffer) {
+                pendingBeginTextEdit.commitImmediately = true;
+                stopNativeInteraction(e);
+                return;
+              }
               var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
               cancelPendingBeginTextEdit();
               postTextEditPending(abandonedPendingNodeId, false, "escape");
@@ -13139,12 +13150,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!activeTextEditEl) {
           activateProgrammaticTextEdit(node, entry.force);
           if (entry.buffer) {
-            if (activeTextEditEl === node) {
-              insertPlainTextAtSelection(entry.buffer);
-              postTextEditInsertResult(entry.nodeId, true);
-            } else {
-              postTextEditInsertResult(entry.nodeId, false);
-            }
+            postTextEditInsertResult(
+              entry.nodeId,
+              activeTextEditEl === node && insertPlainTextAtSelection(entry.buffer)
+            );
           }
           if (entry.commitImmediately) {
             if (activeTextEditEl === node && finishActiveTextEdit) {
@@ -13467,12 +13476,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
         var tookTarget = activeTextEditEl === textTarget;
         if (beginInsertText) {
-          if (tookTarget) {
-            insertPlainTextAtSelection(beginInsertText);
-            postTextEditInsertResult(nodeId, true);
-          } else {
-            postTextEditInsertResult(nodeId, false);
-          }
+          postTextEditInsertResult(
+            nodeId,
+            tookTarget && insertPlainTextAtSelection(beginInsertText)
+          );
         }
         if (beginCommitImmediately) {
           if (tookTarget && finishActiveTextEdit) {
@@ -13493,6 +13500,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           postTextEditInsertResult(bufferedNodeId, false);
           return;
         }
+        if (bufferedNodeId && getSourceId(activeTextEditEl) !== bufferedNodeId) {
+          postTextEditInsertResult(bufferedNodeId, false);
+          return;
+        }
         var bufferedActive = document.activeElement;
         if (!bufferedActive || bufferedActive !== activeTextEditEl && !activeTextEditEl.contains(bufferedActive)) {
           try {
@@ -13504,9 +13515,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           activeTextEditEl,
           true
         );
-        insertPlainTextAtSelection(bufferedText);
+        var bufferedInserted = insertPlainTextAtSelection(bufferedText);
         if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
-        postTextEditInsertResult(bufferedNodeId, true);
+        postTextEditInsertResult(bufferedNodeId, bufferedInserted);
         return;
       }
       if (e.data.type === "set-editor-chrome-scale") {

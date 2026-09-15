@@ -367,7 +367,7 @@ test("board target: abandoning a creation by pointing away, then creating anothe
       .toBe(true);
     // Let the abandoned creation's retry ladder exhaust, so a node it left
     // behind would have been persisted by now.
-    await page.waitForTimeout(6_000);
+    await page.waitForTimeout(6_000); // e2e-harness-ignore negative assertion: the abandoned creation must leave nothing behind, so its ladder has to actually exhaust
 
     const primitives = await textPrimitives(
       page,
@@ -446,7 +446,7 @@ test("board target: two committed text creations in a row keep their own text an
     await createBoardText(cardBox.y + 360, "Beta");
 
     // Past both retry ladders and the empty-node cleanup retry.
-    await page.waitForTimeout(6_000);
+    await page.waitForTimeout(6_000); // e2e-harness-ignore negative assertion: no third primitive may appear after both ladders and the cleanup retry
     const primitives = await textPrimitives(
       page,
       await fileContent(page, designId, "__board__.html"),
@@ -509,7 +509,7 @@ test("board target: Escape right after typing keeps the text, with nothing typed
     await page.keyboard.press("Escape");
 
     // Past both retry ladders and the empty-node cleanup retry.
-    await page.waitForTimeout(8_000);
+    await page.waitForTimeout(8_000); // e2e-harness-ignore negative assertion: an Escaped empty creation must persist nothing once the ladder and cleanup are done
     const primitives = await textPrimitives(
       page,
       await fileContent(page, designId, "__board__.html"),
@@ -601,7 +601,7 @@ test("board target: undo before the board canvas mounts leaves no node and swall
     ).toHaveAttribute("aria-pressed", "true");
 
     // Past the retry ladder and the empty-node cleanup retry.
-    await page.waitForTimeout(6_000);
+    await page.waitForTimeout(6_000); // e2e-harness-ignore negative assertion: the undone node must never be persisted, so the ladder must exhaust first
     const boardHtml = await fileContent(page, designId, "__board__.html");
     expect(await textPrimitives(page, boardHtml)).toEqual([]);
   } finally {

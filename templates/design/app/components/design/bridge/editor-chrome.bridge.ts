@@ -10486,19 +10486,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     postTextEditingState(suspended.target, false, suspended.selector, false);
   }
 
-  function insertPlainTextAtSelection(text: string): void {
-    if (!text) return;
+  /** Whether the text actually landed in the document. The host holds the only
+   *  copy until it hears that it did, so reporting a success execCommand
+   *  refused released those keystrokes into nothing. */
+  function insertPlainTextAtSelection(text: string): boolean {
+    if (!text) return false;
     if (
       document.queryCommandSupported &&
       document.queryCommandSupported("insertText")
     ) {
-      document.execCommand("insertText", false, text);
-      return;
+      var executed = false;
+      try {
+        executed = document.execCommand("insertText", false, text) === true;
+      } catch (_err) {
+        executed = false;
+      }
+      // A refusal is not yet a failure to report: fall through to the manual
+      // range path, and answer for what actually happened.
+      if (executed) return true;
     }
     var selection: Selection | null = window.getSelection
       ? window.getSelection()
       : null;
-    if (!selection || selection.rangeCount === 0) return;
+    if (!selection || selection.rangeCount === 0) return false;
     var range = selection.getRangeAt(0);
     range.deleteContents();
     var textNode = document.createTextNode(text);
@@ -10507,6 +10517,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     range.setEndAfter(textNode);
     selection.removeAllRanges();
     selection.addRange(range);
+    return textNode.isConnected === true;
   }
 
   // T2: Figma-style text editing treats Enter as a line break while editing
@@ -17426,6 +17437,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
           var pendingKey = e.key || "";
           if (pendingKey === "Escape") {
+            // Escape KEEPS what was typed (Figma). Characters typed into this
+            // frame while the node was still arriving exist nowhere else, so
+            // the request stays alive and commits them the moment the node
+            // appears; only an empty one is abandoned.
+            if (pendingBeginTextEdit.buffer) {
+              pendingBeginTextEdit.commitImmediately = true;
+              stopNativeInteraction(e);
+              return;
+            }
             var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
             cancelPendingBeginTextEdit();
             postTextEditPending(abandonedPendingNodeId, false, "escape");
@@ -18465,12 +18485,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // session is focused with the caret at the content end, so this
         // lands exactly where the user expects their first characters.
         if (entry.buffer) {
-          if (activeTextEditEl === node) {
-            insertPlainTextAtSelection(entry.buffer);
-            postTextEditInsertResult(entry.nodeId, true);
-          } else {
-            postTextEditInsertResult(entry.nodeId, false);
-          }
+          postTextEditInsertResult(
+            entry.nodeId,
+            activeTextEditEl === node &&
+              insertPlainTextAtSelection(entry.buffer),
+          );
         }
         if (entry.commitImmediately) {
           if (activeTextEditEl === node && finishActiveTextEdit) {
@@ -18932,13 +18951,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var tookTarget = activeTextEditEl === textTarget;
       if (beginInsertText) {
         // The host keeps owing these keystrokes until this frame says they
-        // landed: a target it could not take over never received them.
-        if (tookTarget) {
-          insertPlainTextAtSelection(beginInsertText);
-          postTextEditInsertResult(nodeId, true);
-        } else {
-          postTextEditInsertResult(nodeId, false);
-        }
+        // landed: a target it could not take over, or an insert the document
+        // refused, never received them.
+        postTextEditInsertResult(
+          nodeId,
+          tookTarget && insertPlainTextAtSelection(beginInsertText),
+        );
       }
       if (beginCommitImmediately) {
         // Only ever finish THIS target. Without the guard a session the user
@@ -18972,6 +18990,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         postTextEditInsertResult(bufferedNodeId, false);
         return;
       }
+      if (bufferedNodeId && getSourceId(activeTextEditEl) !== bufferedNodeId) {
+        // A queued insert for a node that is no longer the live session.
+        // Writing it here spliced one creation's keystrokes into another's
+        // node AND told the host the first one had landed.
+        postTextEditInsertResult(bufferedNodeId, false);
+        return;
+      }
       var bufferedActive = document.activeElement;
       if (
         !bufferedActive ||
@@ -18989,9 +19014,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         activeTextEditEl,
         true,
       );
-      insertPlainTextAtSelection(bufferedText);
+      var bufferedInserted = insertPlainTextAtSelection(bufferedText);
       if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
-      postTextEditInsertResult(bufferedNodeId, true);
+      postTextEditInsertResult(bufferedNodeId, bufferedInserted);
       return;
     }
     if (e.data.type === "set-editor-chrome-scale") {

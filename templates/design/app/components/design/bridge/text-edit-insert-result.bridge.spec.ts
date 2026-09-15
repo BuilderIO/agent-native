@@ -142,3 +142,100 @@ describe("the frame reports whether handed-over text landed", () => {
     },
   );
 });
+
+describe("the frame never acknowledges text it did not place", () => {
+  it(
+    "answers dropped when the document refuses the insertion",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await startFrame(page);
+        await mountTextNode(page, "text-refused");
+        await page.evaluate(() =>
+          window.postMessage(
+            { type: "begin-text-edit", nodeId: "text-refused", force: true },
+            "*",
+          ),
+        );
+        await page.waitForFunction(
+          () => !!document.querySelector("[data-agent-native-text-editing]"),
+        );
+
+        // execCommand refuses, and the manual range fallback has no selection
+        // to work with: nothing lands, so nothing may be acknowledged.
+        await page.evaluate(() => {
+          document.execCommand = () => false;
+          window.getSelection = () => null as unknown as Selection;
+        });
+        await postInsertText(page, "text-refused", "Sta");
+        await page.waitForFunction(
+          () =>
+            ((window as Window & { __results?: unknown[] }).__results ?? [])
+              .length > 0,
+        );
+
+        const all = await results(page);
+        expect(all[all.length - 1]).toEqual({
+          type: "text-edit-insert-result",
+          nodeId: "text-refused",
+          inserted: false,
+        });
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "refuses an insert for a node that is not the live session",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await startFrame(page);
+        await mountTextNode(page, "text-a");
+        await mountTextNode(page, "text-b");
+        await page.evaluate(() =>
+          window.postMessage(
+            { type: "begin-text-edit", nodeId: "text-b", force: true },
+            "*",
+          ),
+        );
+        await page.waitForFunction(
+          () => !!document.querySelector("[data-agent-native-text-editing]"),
+        );
+
+        // A's queued keystrokes arrive after B took the session. Inserting
+        // them here corrupted B and told the host A had landed.
+        await postInsertText(page, "text-a", "Sta");
+        await page.waitForFunction(
+          () =>
+            ((window as Window & { __results?: unknown[] }).__results ?? [])
+              .length > 0,
+        );
+
+        const all = await results(page);
+        expect(all[all.length - 1]).toEqual({
+          type: "text-edit-insert-result",
+          nodeId: "text-a",
+          inserted: false,
+        });
+        expect(
+          await page.evaluate(() => ({
+            a:
+              document.querySelector('[data-agent-native-node-id="text-a"]')
+                ?.textContent ?? "",
+            b:
+              document.querySelector('[data-agent-native-node-id="text-b"]')
+                ?.textContent ?? "",
+          })),
+        ).toEqual({ a: "", b: "" });
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+});
