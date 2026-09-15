@@ -738,6 +738,14 @@ export function widenInPlace(element: HTMLElement, width: number) {
   element.style.width = `${width}px`;
   element.style.marginLeft = `${marginLeft - extra * share}px`;
   element.style.marginRight = `${marginRight - extra * (1 - share)}px`;
+  // Chrome reports a grid item's auto margins as 0px, so pinning them in
+  // pixels drops the centring they applied; move the box back by what it drifted.
+  const drift =
+    element.getBoundingClientRect().left - (rect.left - extra * share);
+  if (Math.abs(drift) > 0.5) {
+    element.style.marginLeft = `${marginLeft - extra * share - drift}px`;
+    element.style.marginRight = `${marginRight - extra * (1 - share) + drift}px`;
+  }
 }
 
 function normalizeSingleLineText(

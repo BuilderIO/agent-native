@@ -1162,4 +1162,18 @@ describe("widenInPlace", () => {
       expect(element.style.marginRight).toBe(marginRight);
     },
   );
+
+  it("moves a box back to its aligned edge when pinning its margins shifts it, as a grid item's auto margins do", () => {
+    document.body.innerHTML =
+      '<p style="text-align: left; margin-left: 0px; margin-right: 0px">Label</p>';
+    const element = document.querySelector<HTMLElement>("p")!;
+    vi.spyOn(element, "getBoundingClientRect")
+      .mockReturnValueOnce({ left: 170, width: 60 } as DOMRect)
+      .mockReturnValueOnce({ left: 0, width: 80 } as DOMRect);
+
+    widenInPlace(element, 80);
+
+    expect(element.style.marginLeft).toBe("170px");
+    expect(element.style.marginRight).toBe("-190px");
+  });
 });
