@@ -711,7 +711,17 @@ jobs:
             --context "$relay_context" \
             --scope runtime \
             --auth "$NETLIFY_AUTH_TOKEN" \
-            --json >/dev/null 2>/dev/null; then
+            --json 2>/dev/null |
+            node -e '
+              const fs = require("node:fs");
+              const resolved = JSON.parse(fs.readFileSync(0, "utf8"));
+              const value = resolved.AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET;
+              if (typeof value !== "string" || value.length === 0) {
+                throw new Error(
+                  "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET does not resolve.",
+                );
+              }
+            '; then
             echo "::error::AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET does not resolve for $relay_context."
             exit 1
           fi
