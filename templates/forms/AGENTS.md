@@ -42,6 +42,8 @@ Read the relevant skill before deeper work:
   schema is authoritative when a parameter is unclear.
 - Use `view-screen` when the active form, selected field, publish state, or
   response table is unclear.
+- One request, one form: the open form is context, not a default write target,
+  so a prompt naming a different form is `create-form`, never `update-form`.
 - For response analytics and setup previews, follow `form-responses`
   (`response-insights` displayMode, `preview-form`); never invent SQL.
 - For product usage, agent-native signup, conversion, app-wide event, or other
@@ -52,10 +54,8 @@ Read the relevant skill before deeper work:
   app's database.
 - For publishing, `publicUrl`, `slug`, and anonymous-mode rules, follow
   `form-publishing`; always copy the returned `publicUrl` verbatim.
-- `settings.emailOnNewResponses: true` (via `create-form`/`update-form`) emails
-  the form owner per response through the configured email provider
-  (`RESEND_API_KEY`/`SENDGRID_API_KEY`); a submission can still succeed if
-  delivery fails, so check server logs when debugging.
+- `settings.emailOnNewResponses: true` emails the form owner per response;
+  delivery details follow `form-publishing`.
 - Conditional-field rules (`conditional: { fieldId, operator, value }`) and
   hidden-field handling follow `form-building`.
 - Form integrations (webhook/Slack/Discord/Google Sheets) follow

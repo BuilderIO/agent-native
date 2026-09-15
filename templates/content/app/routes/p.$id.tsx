@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildPublicDocumentDescription } from "@shared/og-description";
-import { IconLock, IconMessageCircle } from "@tabler/icons-react";
+import { IconLayoutSidebarRight, IconLock } from "@tabler/icons-react";
 import { eq } from "drizzle-orm";
 import { useEffect, useState } from "react";
 import type {
@@ -349,7 +349,7 @@ export default function PublicDocumentPage() {
           onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
           className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
         >
-          <IconMessageCircle size={16} />
+          <IconLayoutSidebarRight size={16} />
           {t("publicDocument.chat")}
         </button>
       </div>

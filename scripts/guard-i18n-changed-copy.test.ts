@@ -58,9 +58,7 @@ describe("changed copy localization coverage", () => {
     );
   });
 
-  it("accepts a wrapper that re-exports the locale instead of spreading it", () => {
-    // templates/calendar and templates/brain use this shape. It forwards the
-    // inline block just as directly as the spread form.
+  it("accepts a wrapper that re-exports the inline locale block", () => {
     const source = "/catalog/i18n-data.ts";
     assert.equal(
       hasForwardedInlineLocaleUpdate(
