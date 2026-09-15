@@ -222,11 +222,29 @@ const MARKDOWN_PATTERNS = [
 ];
 
 function hasDelimitedText(text: string, delimiter: string): boolean {
-  const start = text.indexOf(delimiter);
-  return (
-    start !== -1 &&
-    text.indexOf(delimiter, start + delimiter.length) > start + delimiter.length
-  );
+  let start = -1;
+  for (let index = 0; index <= text.length - delimiter.length; index++) {
+    if (text.slice(index, index + delimiter.length) !== delimiter) continue;
+
+    const before = text[index - 1];
+    const after = text[index + delimiter.length];
+    if (start === -1) {
+      if ((!before || /[\s([{"']/.test(before)) && after && !/\s/.test(after)) {
+        start = index;
+      }
+      continue;
+    }
+
+    if (
+      index > start + delimiter.length &&
+      before &&
+      !/\s/.test(before) &&
+      (!after || /[\s).,!?:;\]}"']/.test(after))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function hasMarkdownLink(text: string): boolean {
@@ -312,6 +330,27 @@ function parsePlainTextClipboardSlice(
   });
 }
 
+function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
+  const from = view.state.selection.from;
+  const insertion = view.state.tr
+    .replaceSelection(slice)
+    .scrollIntoView()
+    .setMeta("paste", true)
+    .setMeta("uiEvent", "paste");
+  const expected = insertion.doc;
+  view.dispatch(insertion);
+
+  // Tiptap keys generic paste rules off uiEvent and may append a transaction
+  // that reinterprets syntax inside content this path promises to keep literal.
+  if (!view.state.doc.eq(expected)) {
+    view.dispatch(
+      view.state.tr
+        .replaceRange(from, view.state.selection.from, slice)
+        .setMeta("addToHistory", false),
+    );
+  }
+}
+
 /**
  * ProseMirror plugin that intercepts paste events and converts markdown
  * plain text into rich editor content, similar to Notion's paste behavior.
@@ -357,6 +396,19 @@ const MarkdownPasteDetection = Extension.create({
             const html = clipboardData.getData("text/html");
             const plainText = clipboardData.getData("text/plain");
 
+            // Tiptap's generic paste rules would otherwise reinterpret literal
+            // asterisks even after the Markdown detector rejects the text.
+            if (!html && plainText && !looksLikeMarkdown(plainText)) {
+              const slice = parsePlainTextClipboardSlice(
+                editor,
+                plainText,
+                context,
+              );
+              event.preventDefault();
+              dispatchLiteralPaste(view, slice);
+              return true;
+            }
+
             // Text-only clipboard data is handled by clipboardTextParser above.
             // This path handles code editors that also provide an HTML wrapper.
             if (!html || !plainText || !looksLikeMarkdown(plainText)) {
@@ -368,14 +420,53 @@ const MarkdownPasteDetection = Extension.create({
             const div = document.createElement("div");
             div.innerHTML = html;
             const hasRichStructure = div.querySelector(
-              "h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, a, strong, b, em, i, u, s, img, picture, video, audio, iframe, object, embed, svg",
+              "h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, a, strong, b, em, i, u, s, code, img, picture, video, audio, iframe, object, embed, svg",
             );
-            // But allow interception if the HTML is just a code/pre wrapper
-            // (from code editors or terminals)
+            // Code editors commonly wrap plain Markdown in exactly pre > code.
+            // Inline code is rich content and must stay on the native HTML path.
+            const wrapper = div.firstElementChild;
             const isCodeWrapper =
-              div.querySelector("pre, code") !== null && !hasRichStructure;
+              div.childElementCount === 1 &&
+              wrapper?.tagName === "PRE" &&
+              wrapper.childElementCount === 1 &&
+              wrapper.firstElementChild?.tagName === "CODE";
 
             if (hasRichStructure && !isCodeWrapper) {
+              if (div.querySelector("code")) {
+                const protectedCode: string[] = [];
+                div.querySelectorAll("code").forEach((code) => {
+                  const text = code.textContent ?? "";
+                  if (!text) return;
+                  const index = protectedCode.push(text) - 1;
+                  code.textContent = `\uE000${index}\uE001`;
+                });
+                const parsed = ProseMirrorDOMParser.fromSchema(
+                  editor.schema,
+                ).parseSlice(div, { context });
+                const restoreCode = (fragment: Fragment): Fragment =>
+                  Fragment.fromArray(
+                    fragment.content.map((node) => {
+                      if (!node.isText)
+                        return node.copy(restoreCode(node.content));
+                      const text = node.text?.replace(
+                        /\uE000(\d+)\uE001/g,
+                        (_, index: string) =>
+                          protectedCode[Number(index)] ?? "",
+                      );
+                      return text === node.text
+                        ? node
+                        : editor.schema.text(text ?? "", node.marks);
+                    }),
+                  );
+                const slice = new Slice(
+                  restoreCode(parsed.content),
+                  parsed.openStart,
+                  parsed.openEnd,
+                );
+                event.preventDefault();
+                dispatchLiteralPaste(view, slice);
+                return true;
+              }
               return false;
             }
 
@@ -388,7 +479,11 @@ const MarkdownPasteDetection = Extension.create({
 
             event.preventDefault();
             view.dispatch(
-              view.state.tr.replaceSelection(slice).scrollIntoView(),
+              view.state.tr
+                .replaceSelection(slice)
+                .scrollIntoView()
+                .setMeta("paste", true)
+                .setMeta("uiEvent", "paste"),
             );
             return true;
           },

@@ -493,6 +493,59 @@ describe("markdown clipboard parsing", () => {
     }
   });
 
+  it.each(["Formula: 2*3*4", "Use * asterisk * literally"])(
+    "keeps ordinary asterisk text literal: %s",
+    (text) => {
+      const editor = createFullEditor();
+      try {
+        expect(parseMarkdownClipboardSlice(editor, text)).toBeNull();
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps ordinary asterisks literal through the paste event", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/plain",
+      "Formula: 2*3*4\n\nUse * asterisk * literally",
+    );
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged && transaction.getMeta("paste")) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.textContent).toBe(
+        "Formula: 2*3*4Use * asterisk * literally",
+      );
+      expect(
+        editor.state.doc.firstChild?.firstChild?.marks.map(
+          (mark) => mark.type.name,
+        ),
+      ).toEqual([]);
+      expect(editor.state.doc.lastChild?.firstChild?.marks).toHaveLength(0);
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("rejects large unmatched link delimiters without reparsing", () => {
     const editor = createFullEditor();
     try {
@@ -593,6 +646,92 @@ describe("markdown clipboard parsing", () => {
       expect(editor.state.doc.textContent).toContain("# Literal heading");
       expect(editor.state.doc.textContent).toContain("**literal bold**");
       expect(editor.state.doc.firstChild?.firstChild?.marks).toHaveLength(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves inline code HTML instead of reparsing its text", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code>**literal**</code></p>");
+    clipboardData.setData("text/plain", "**literal**");
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged && transaction.getMeta("paste")) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      const text = editor.state.doc.firstChild?.firstChild;
+      expect(text?.text).toBe("**literal**");
+      expect(text?.marks.map((mark) => mark.type.name)).toEqual(["code"]);
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("accepts empty inline code HTML without creating an empty text node", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code></code></p>");
+    clipboardData.setData("text/plain", "**literal**");
+
+    try {
+      expect(() =>
+        editor.view.dom.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      ).not.toThrow();
+      expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("marks intercepted code-wrapper Markdown as a paste transaction", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<pre><code># Heading</code></pre>");
+    clipboardData.setData("text/plain", "# Heading");
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
     } finally {
       editor.destroy();
     }
