@@ -20,6 +20,7 @@ import {
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
+import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
   SUPPORTED_SUGGESTION_BLOCKS,
   SUPPORTED_SUGGESTION_MARKS,
@@ -30,6 +31,7 @@ import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
 import { schema } from "../db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
+import { commentThreadDigest } from "./comment-ai.js";
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
 
@@ -408,6 +410,70 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
             sourcePath: row.source_path,
           }
         : undefined;
+      const commentAiRequestId = input.metadata?.commentAiRequestId;
+      if (typeof commentAiRequestId === "string") {
+        const request = (
+          await transaction.execute({
+            sql: `SELECT id,document_id,thread_id,requester_email,thread_digest
+                  FROM comment_ai_requests
+                  WHERE id = ? AND document_id = ? AND requester_email = ? AND intent = 'suggest'
+                  FOR UPDATE`,
+            args: [
+              commentAiRequestId,
+              input.resourceId,
+              typeof input.ctx?.userEmail === "string"
+                ? input.ctx.userEmail
+                : "",
+            ],
+          })
+        ).rows[0];
+        if (!request)
+          throw new Error("The bound comment AI request is unavailable");
+        const comments = (
+          await transaction.execute({
+            sql: `SELECT id,parent_id,content,resolved,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset
+                  FROM document_comments
+                  WHERE document_id = ? AND thread_id = ?
+                  FOR UPDATE`,
+            args: [request.document_id, request.thread_id],
+          })
+        ).rows.map((comment) => ({
+          id: String(comment.id),
+          parentId:
+            comment.parent_id == null ? null : String(comment.parent_id),
+          content: String(comment.content),
+          resolved: Number(comment.resolved),
+          quotedText:
+            comment.quoted_text == null ? null : String(comment.quoted_text),
+          anchorPrefix:
+            comment.anchor_prefix == null
+              ? null
+              : String(comment.anchor_prefix),
+          anchorSuffix:
+            comment.anchor_suffix == null
+              ? null
+              : String(comment.anchor_suffix),
+          anchorStartOffset:
+            comment.anchor_start_offset == null
+              ? null
+              : Number(comment.anchor_start_offset),
+        }));
+        const receiptId = commentIdForIdempotency(
+          String(request.requester_email),
+          String(request.document_id),
+          `comment-ai:${commentAiRequestId}:receipt`,
+        );
+        if (
+          commentThreadDigest(
+            comments.filter((comment) => comment.id !== receiptId),
+          ) !== request.thread_digest
+        ) {
+          fail("The comment changed before this suggestion was committed.", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
+          });
+        }
+      }
     }
     if (!document) throw new Error("Document access context is unavailable");
     if (document.trashedAt)

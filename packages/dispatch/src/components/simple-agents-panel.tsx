@@ -14,6 +14,7 @@ import {
   IconEdit,
   IconFileImport,
   IconFolder,
+  IconInfoCircle,
   IconLayoutGrid,
   IconMessageCircle,
   IconPlugConnected,
@@ -31,6 +32,7 @@ import {
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { agentEndpointUrlError } from "../lib/agent-endpoint-url.js";
 import {
   AGENT_PACK_FILE_ACCEPT,
   AGENT_PROFILE_FILE_ACCEPT,
@@ -116,6 +118,36 @@ interface AgentPackFileInput {
   content: string;
 }
 
+type AgentPackRead =
+  | {
+      ok: true;
+      root: string;
+      files: (WorkspaceAgentResource & { kind: string })[];
+    }
+  | { ok: false; loaded: boolean };
+
+/**
+ * A pack that failed to load or came back without its `files` array is
+ * unreadable, not empty. Spreading it threw during render and took the whole
+ * page down with the router error boundary; reporting it as an empty pack
+ * instead would let the dialog write a new file into a guessed root.
+ */
+export function readAgentPack(
+  data: AgentPackResponse | undefined,
+  failed = false,
+): AgentPackRead {
+  if (failed) return { ok: false, loaded: true };
+  if (!data) return { ok: false, loaded: false };
+  if (!data.profile || !Array.isArray(data.files) || !data.root) {
+    return { ok: false, loaded: true };
+  }
+  return {
+    ok: true,
+    root: data.root,
+    files: [{ ...data.profile, kind: "agent" as const }, ...data.files],
+  };
+}
+
 const MAX_LISTED_SKIPPED_FILES = 3;
 
 /**
@@ -140,7 +172,7 @@ export function summarizeSkippedPackFiles(
       ? `${listed.join(", ")}, and ${remaining} more`
       : listed.join(", ");
   return [
-    `Skipped ${skipped.length} non-text ${skipped.length === 1 ? "file" : "files"}: ${names}.`,
+    `Skipped ${skipped.length} non-text ${skipped.length === 1 ? "file" : "files"}: ${names}. The rest of the folder will still be imported.`,
   ];
 }
 
@@ -491,9 +523,8 @@ function AgentPackDialog({
     onError: (error) => toast.error(error.message),
   });
 
-  const files = query.data
-    ? [{ ...query.data.profile, kind: "agent" as const }, ...query.data.files]
-    : [];
+  const pack = readAgentPack(query.data, query.isError);
+  const files = pack.ok ? pack.files : [];
   const selected = files.find((file) => file.id === selectedId) ?? files[0];
 
   useEffect(() => {
@@ -508,6 +539,12 @@ function AgentPackDialog({
   }, [selected?.id, selected?.content]);
 
   function addFile() {
+    if (!pack.ok) {
+      toast.error(
+        "This agent pack could not be read, so files cannot be added",
+      );
+      return;
+    }
     const relativePath = newPath.trim().replaceAll("\\", "/");
     if (
       !relativePath ||
@@ -526,7 +563,7 @@ function AgentPackDialog({
     create.mutate({
       kind: newKind,
       name,
-      path: `${query.data?.root || `agents/${slugifyAgentName(resource.name)}`}/${packPath}`,
+      path: `${pack.root}/${packPath}`,
       content: newContent,
       scope: resource.scope,
     });
@@ -558,6 +595,12 @@ function AgentPackDialog({
             to this agent.
           </DialogDescription>
         </DialogHeader>
+        {!pack.ok && pack.loaded ? (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            This agent pack could not be read. Retry, and if it keeps failing
+            the pack contents may need repair.
+          </div>
+        ) : null}
         <div className="grid min-h-0 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
           <div className="flex min-w-0 flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
@@ -621,7 +664,7 @@ function AgentPackDialog({
                   <DialogFooter>
                     <Button
                       onClick={addFile}
-                      disabled={!newPath.trim() || create.isPending}
+                      disabled={!pack.ok || !newPath.trim() || create.isPending}
                     >
                       {create.isPending ? "Adding..." : "Add file"}
                     </Button>
@@ -642,7 +685,7 @@ function AgentPackDialog({
                     onClick={() => setSelectedId(file.id)}
                   >
                     <span className="min-w-0 truncate text-xs">
-                      {file.path.replace(`${query.data?.root || ""}/`, "")}
+                      {file.path.replace(`${pack.ok ? pack.root : ""}/`, "")}
                     </span>
                   </Button>
                 ))}
@@ -727,6 +770,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
   const [fileName, setFileName] = useState("");
   const [scope, setScope] = useState<"all" | "selected">("all");
   const [url, setUrl] = useState("");
+  const urlError = url.trim() ? agentEndpointUrlError(url) : null;
   const [endpointName, setEndpointName] = useState("");
   const [endpointDescription, setEndpointDescription] = useState("");
   const [packFiles, setPackFiles] = useState<AgentPackFileInput[]>([]);
@@ -959,8 +1003,16 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
               </span>
             </div>
             {packWarnings.length > 0 ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                {packWarnings.join(" ")}
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+              >
+                <IconInfoCircle
+                  size={16}
+                  className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+                />
+                <span>{packWarnings.join(" ")}</span>
               </div>
             ) : null}
             <div className="flex flex-col gap-2">
@@ -995,7 +1047,19 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://agent.example.com"
+                aria-invalid={!!urlError}
+                aria-describedby={
+                  urlError ? "external-agent-url-error" : undefined
+                }
               />
+              {urlError ? (
+                <p
+                  id="external-agent-url-error"
+                  className="text-xs text-destructive"
+                >
+                  {urlError}
+                </p>
+              ) : null}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
@@ -1037,7 +1101,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                     scope: "shared",
                   })
                 }
-                disabled={!url.trim() || connect.isPending}
+                disabled={!url.trim() || !!urlError || connect.isPending}
               >
                 <IconPlugConnected size={16} />
                 {connect.isPending ? "Connecting..." : "Connect agent"}

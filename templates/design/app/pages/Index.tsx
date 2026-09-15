@@ -10,6 +10,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
+  useCreativeContextLab,
   useCreativeContexts,
   useCreativeContextState,
 } from "@agent-native/creative-context/client";
@@ -228,8 +229,14 @@ export default function Index() {
       })),
     [templatesData?.templates],
   );
-  const creativeContextsQuery = useCreativeContexts();
-  const creativeContextState = useCreativeContextState();
+  const creativeContextEnabled = useCreativeContextLab();
+  const creativeContextsQuery = useCreativeContexts(
+    {},
+    { enabled: creativeContextEnabled },
+  );
+  const creativeContextState = useCreativeContextState({
+    enabled: creativeContextEnabled,
+  });
   const creativeContextOptions = useMemo(
     () =>
       parseCreativeContexts(creativeContextsQuery.data)
@@ -1055,21 +1062,23 @@ export default function Index() {
                     </TooltipTrigger>
                     <TooltipContent>{t("home.clearSelection")}</TooltipContent>
                   </Tooltip>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setContextDesigns(
-                        designs.filter((design) =>
-                          selectedDesignIds.has(design.id),
-                        ),
-                      )
-                    }
-                    className="cursor-pointer"
-                  >
-                    <IconPlus className="w-3.5 h-3.5" />
-                    {t("creativeContext.addToContext" /* i18n-key-ignore */)}
-                  </Button>
+                  {creativeContextEnabled ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setContextDesigns(
+                          designs.filter((design) =>
+                            selectedDesignIds.has(design.id),
+                          ),
+                        )
+                      }
+                      className="cursor-pointer"
+                    >
+                      <IconPlus className="w-3.5 h-3.5" />
+                      {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+                    </Button>
+                  ) : null}
                   <Button
                     variant="destructive"
                     size="sm"
@@ -1215,18 +1224,20 @@ export default function Index() {
                             <IconCopy className="w-3.5 h-3.5 me-2" />
                             {t("home.duplicate")}
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={(event) => {
-                              event.preventDefault();
-                              setContextDesigns([design]);
-                            }}
-                            className="cursor-pointer"
-                          >
-                            <IconPlus className="w-3.5 h-3.5 me-2" />
-                            {t(
-                              "creativeContext.addToContext" /* i18n-key-ignore */,
-                            )}
-                          </DropdownMenuItem>
+                          {creativeContextEnabled ? (
+                            <DropdownMenuItem
+                              onSelect={(event) => {
+                                event.preventDefault();
+                                setContextDesigns([design]);
+                              }}
+                              className="cursor-pointer"
+                            >
+                              <IconPlus className="w-3.5 h-3.5 me-2" />
+                              {t(
+                                "creativeContext.addToContext" /* i18n-key-ignore */,
+                              )}
+                            </DropdownMenuItem>
+                          ) : null}
                           <DropdownMenuItem
                             onClick={() =>
                               setTimeout(() => setDeleteId(design.id))
@@ -1283,20 +1294,22 @@ export default function Index() {
         )}
       </main>
 
-      <CreativeContextShareSheet
-        open={contextDesigns.length > 0}
-        onOpenChange={(open) => {
-          if (!open) setContextDesigns([]);
-        }}
-        resources={contextDesigns.map((design) => ({
-          appId: "design",
-          resourceType: "design",
-          resourceId: design.id,
-          title: design.title,
-          updatedAt: design.updatedAt ?? design.createdAt,
-          preview: { kind: "document", label: "Design" },
-        }))}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={contextDesigns.length > 0}
+          onOpenChange={(open) => {
+            if (!open) setContextDesigns([]);
+          }}
+          resources={contextDesigns.map((design) => ({
+            appId: "design",
+            resourceType: "design",
+            resourceId: design.id,
+            title: design.title,
+            updatedAt: design.updatedAt ?? design.createdAt,
+            preview: { kind: "document", label: "Design" },
+          }))}
+        />
+      ) : null}
 
       <PromptPopover
         open={showNewPrompt}
@@ -1325,12 +1338,18 @@ export default function Index() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={handleNewDesignSystemChange}
-        creativeContexts={creativeContextOptions}
-        creativeContextsLoading={creativeContextsQuery.isLoading}
-        selectedCreativeContextId={
-          creativeContextState.state.selectedContextId ?? null
+        creativeContexts={creativeContextEnabled ? creativeContextOptions : []}
+        creativeContextsLoading={
+          creativeContextEnabled && creativeContextsQuery.isLoading
         }
-        onCreativeContextChange={handleCreativeContextChange}
+        selectedCreativeContextId={
+          creativeContextEnabled
+            ? (creativeContextState.state.selectedContextId ?? null)
+            : undefined
+        }
+        onCreativeContextChange={
+          creativeContextEnabled ? handleCreativeContextChange : undefined
+        }
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
