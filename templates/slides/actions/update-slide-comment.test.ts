@@ -101,7 +101,7 @@ import action from "./update-slide-comment";
 
 function run(args: {
   id: string;
-  deckId?: string;
+  deckId: string;
   content?: string;
   resolved?: boolean;
 }) {
@@ -140,45 +140,54 @@ beforeEach(() => {
 });
 
 describe("update-slide-comment", () => {
-  it("resolves the whole thread and requires editor access", async () => {
-    const result = await run({ id: "c-1", resolved: true });
+  it("resolves the whole thread with commenter access", async () => {
+    const result = await run({ id: "c-1", deckId: "deck-1", resolved: true });
 
     expect(result).toEqual({ ok: true, resolved: true });
-    expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "deck",
+      "deck-1",
+      "commenter",
+    );
     expect(state.rows[0].resolved).toBe(true);
     expect(state.rows[1].resolved).toBe(true); // reply in the same thread also resolved
   });
 
-  it("reopens the whole thread and requires editor access even for the comment's own author", async () => {
+  it("reopens the whole thread with commenter access", async () => {
     state.rows.forEach((r) => (r.resolved = true));
     mockGetUserEmail.mockReturnValue("author@example.com"); // author of c-1
 
-    const result = await run({ id: "c-1", resolved: false });
+    const result = await run({ id: "c-1", deckId: "deck-1", resolved: false });
 
     expect(result).toEqual({ ok: true, resolved: false });
-    // This is the crux of the permission-parity fix: reopening a thread you
-    // authored still requires editor, matching the resolve path and matching
-    // the content update-comment action.
-    expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "deck",
+      "deck-1",
+      "commenter",
+    );
     expect(state.rows[0].resolved).toBe(false);
     expect(state.rows[1].resolved).toBe(false); // reply in the same thread also reopened
   });
 
-  it("rejects reopening for a non-author with only viewer access", async () => {
+  it("rejects reopening when the caller has viewer access", async () => {
     mockGetUserEmail.mockReturnValue("outsider@example.com");
     mockAssertAccess.mockImplementation(
       (_type: string, _id: string, role: string) => {
-        if (role === "editor") throw new Error("Forbidden");
+        if (role === "commenter") throw new Error("Forbidden");
       },
     );
 
-    await expect(run({ id: "c-1", resolved: false })).rejects.toThrow(
-      "Forbidden",
-    );
+    await expect(
+      run({ id: "c-1", deckId: "deck-1", resolved: false }),
+    ).rejects.toThrow("Forbidden");
   });
 
   it("allows the author to edit their own comment content with commenter access", async () => {
-    const result = await run({ id: "c-1", content: "Updated text" });
+    const result = await run({
+      id: "c-1",
+      deckId: "deck-1",
+      content: "Updated text",
+    });
 
     expect(result).toEqual({ ok: true });
     expect(mockAssertAccess).toHaveBeenCalledWith(
@@ -193,18 +202,37 @@ describe("update-slide-comment", () => {
   it("requires editor access to edit someone else's comment content", async () => {
     mockGetUserEmail.mockReturnValue("outsider@example.com");
 
-    await run({ id: "c-1", content: "Hijacked" });
+    await run({ id: "c-1", deckId: "deck-1", content: "Hijacked" });
 
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
   });
 
   it("throws when the comment does not exist", async () => {
-    await expect(run({ id: "missing" })).rejects.toThrow("Comment not found");
+    await expect(
+      run({ id: "missing", deckId: "deck-1", content: "still missing" }),
+    ).rejects.toThrow("Comment not found");
   });
 
   it("throws when deckId is provided but does not match", async () => {
-    await expect(run({ id: "c-1", deckId: "deck-2" })).rejects.toThrow(
-      "Comment not found",
-    );
+    await expect(
+      run({ id: "c-1", deckId: "deck-2", content: "wrong deck" }),
+    ).rejects.toThrow("Comment not found");
+  });
+
+  it("rejects string values for the resolved flag", () => {
+    expect(
+      (action as any).schema.safeParse({
+        id: "c-1",
+        deckId: "deck-1",
+        resolved: "false",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires the deck scope for comment updates", () => {
+    expect(
+      (action as any).schema.safeParse({ id: "c-1", content: "Changed" })
+        .success,
+    ).toBe(false);
   });
 });

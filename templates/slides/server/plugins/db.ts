@@ -339,6 +339,11 @@ WHERE change_group IS NOT NULL`,
         ALTER TABLE IF EXISTS design_system_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
+    {
+      version: 29,
+      name: "slides-comment-emoji-reactions",
+      sql: `ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS emoji_reactions_json TEXT NOT NULL DEFAULT '{}'`,
+    },
   ],
   { table: "slides_migrations" },
 );

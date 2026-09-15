@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hashSlideContent } from "../shared/slide-fit";
 
 let mockRows: unknown[] = [];
+let mockCommentRows: unknown[] = [];
 let navigationState: Record<string, unknown> | null = null;
 let slidesSelectionState: Record<string, unknown> | null = null;
 let slideFitState: Record<string, unknown> | null = null;
@@ -11,7 +12,18 @@ let deckFitState: Record<string, unknown> | null = null;
 const limitFn = vi.fn(async () => mockRows);
 const orderByFn = vi.fn(async () => mockRows);
 const whereFn = vi.fn(() => ({ limit: limitFn, orderBy: orderByFn }));
-const fromFn = vi.fn(() => ({ where: whereFn }));
+const fromFn = vi.fn((table: unknown) => ({
+  where: (condition: unknown) =>
+    typeof table === "object" &&
+    table !== null &&
+    Object.values(table).includes("comment_id_col")
+      ? {
+          orderBy: () => ({
+            limit: async () => mockCommentRows,
+          }),
+        }
+      : whereFn(condition),
+}));
 const selectFn = vi.fn((..._args: unknown[]) => ({ from: fromFn }));
 const mockDb = { select: selectFn };
 
@@ -23,6 +35,20 @@ vi.mock("../server/db/index.js", () => ({
       title: "title_col",
       ownerEmail: "owner_email_col",
       updatedAt: "updated_at_col",
+    },
+    slideComments: {
+      id: "comment_id_col",
+      slideId: "comment_slide_id_col",
+      deckId: "comment_deck_id_col",
+      threadId: "comment_thread_id_col",
+      parentId: "comment_parent_id_col",
+      content: "comment_content_col",
+      quotedText: "comment_quoted_text_col",
+      anchor: "comment_anchor_col",
+      emojiReactionsJson: "comment_reactions_col",
+      authorEmail: "comment_author_email_col",
+      resolved: "comment_resolved_col",
+      createdAt: "comment_created_at_col",
     },
     deckShares: {},
   },
@@ -49,6 +75,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => ({ and: values }),
+  asc: (value: unknown) => ({ asc: value }),
   desc: (value: unknown) => ({ desc: value }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
   sql: vi.fn((strings: unknown, ...values: unknown[]) => ({ strings, values })),
@@ -69,6 +96,7 @@ import action from "./view-screen";
 beforeEach(() => {
   vi.clearAllMocks();
   mockRows = [];
+  mockCommentRows = [];
   navigationState = null;
   slidesSelectionState = null;
   slideFitState = null;

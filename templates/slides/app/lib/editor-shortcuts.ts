@@ -1,5 +1,6 @@
 interface EditorShortcutEvent {
   key: string;
+  code?: string;
   altKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
@@ -35,6 +36,24 @@ function isEditableOrBlockingTarget(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
     target.closest(EDITABLE_OR_BLOCKING_SELECTOR) !== null
+  );
+}
+
+function isFormControlTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest("input, textarea, select") !== null
+  );
+}
+
+export function isGoogleSlidesCommentShortcut(event: EditorShortcutEvent) {
+  return (
+    !event.repeat &&
+    !event.isComposing &&
+    !event.shiftKey &&
+    (event.key.toLowerCase() === "m" || event.code === "KeyM") &&
+    event.altKey &&
+    (event.ctrlKey || event.metaKey)
   );
 }
 
@@ -78,24 +97,57 @@ export function shouldActivateSlidesCommentShortcut(
     blockingSurfaceOpen: boolean;
   },
 ): boolean {
-  if (
-    !canComment ||
-    event.defaultPrevented ||
-    event.repeat ||
-    event.isComposing ||
-    event.shiftKey ||
-    blockingSurfaceOpen ||
-    isEditableOrBlockingTarget(event.target) ||
-    isEditableOrBlockingTarget(activeElement)
-  ) {
+  if (!canComment || blockingSurfaceOpen) {
     return false;
   }
 
   const key = event.key.toLowerCase();
   const plainCanvasShortcut =
     key === "c" && !event.altKey && !event.ctrlKey && !event.metaKey;
-  const googleShortcut =
-    key === "m" && event.altKey && (event.ctrlKey || event.metaKey);
+  if (isGoogleSlidesCommentShortcut(event)) {
+    return (
+      focusedCanvas &&
+      !isFormControlTarget(event.target) &&
+      !isFormControlTarget(activeElement)
+    );
+  }
 
-  return googleShortcut || (plainCanvasShortcut && focusedCanvas);
+  return (
+    !event.defaultPrevented &&
+    !event.repeat &&
+    !event.isComposing &&
+    !event.shiftKey &&
+    plainCanvasShortcut &&
+    focusedCanvas &&
+    !isEditableOrBlockingTarget(event.target) &&
+    !isEditableOrBlockingTarget(activeElement)
+  );
+}
+
+export function shouldCreateSlideWithShortcut(
+  event: EditorShortcutEvent,
+  {
+    canEdit,
+    activeElement,
+    blockingSurfaceOpen,
+  }: {
+    canEdit: boolean;
+    activeElement: Element | null;
+    blockingSurfaceOpen: boolean;
+  },
+): boolean {
+  return (
+    canEdit &&
+    !event.defaultPrevented &&
+    !event.repeat &&
+    !event.isComposing &&
+    event.key.toLowerCase() === "m" &&
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    !blockingSurfaceOpen &&
+    !isEditableOrBlockingTarget(event.target) &&
+    !isEditableOrBlockingTarget(activeElement)
+  );
 }

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -9,40 +9,51 @@ import { getDb, schema } from "../server/db/index.js";
 export default defineAction({
   description:
     "Update a slide comment. Comment text supports inline Markdown without headings. Resolving or reopening a comment applies to the full thread.",
-  schema: z.object({
-    id: z.string().describe("Comment ID"),
-    deckId: z.string().optional().describe("Deck ID"),
-    content: z.string().optional().describe("New comment text"),
-    resolved: z.coerce.boolean().optional().describe("Resolved state"),
-  }),
+  schema: z
+    .object({
+      id: z.string().describe("Comment ID"),
+      deckId: z.string().describe("Deck ID"),
+      content: z.string().trim().min(1).optional().describe("New comment text"),
+      resolved: z.boolean().optional().describe("Resolved state"),
+    })
+    .refine(
+      (args) => args.content !== undefined || args.resolved !== undefined,
+      "Provide comment content or a resolved state",
+    ),
   run: async (args) => {
+    await assertAccess("deck", args.deckId, "commenter");
     const db = getDb();
     const [comment] = await db
       .select({
         deckId: schema.slideComments.deckId,
+        slideId: schema.slideComments.slideId,
         threadId: schema.slideComments.threadId,
         authorEmail: schema.slideComments.authorEmail,
       })
       .from(schema.slideComments)
-      .where(eq(schema.slideComments.id, args.id))
+      .where(
+        and(
+          eq(schema.slideComments.id, args.id),
+          eq(schema.slideComments.deckId, args.deckId),
+        ),
+      )
       .limit(1);
 
-    if (!comment || (args.deckId && comment.deckId !== args.deckId)) {
-      throw new Error(`Comment not found: ${args.id}`);
+    if (!comment) {
+      fail(`Comment not found: ${args.id}`, {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
     }
 
-    const userEmail = getRequestUserEmail();
-    // Resolving or reopening changes state for the whole thread (every
-    // author's comments), not just the caller's own row, so it always
-    // requires editor access — matching content's update-comment action.
+    const userEmail = getRequestUserEmail()?.trim().toLowerCase();
+    // Google Slides lets commenters close and reopen threads; content edits
+    // still require authorship unless the caller is an editor.
     if (
-      args.resolved === true ||
-      args.resolved === false ||
-      comment.authorEmail !== userEmail
+      args.resolved === undefined &&
+      comment.authorEmail.trim().toLowerCase() !== userEmail
     ) {
       await assertAccess("deck", comment.deckId, "editor");
-    } else {
-      await assertAccess("deck", comment.deckId, "commenter");
     }
 
     const updatedAt = new Date().toISOString();
@@ -54,6 +65,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.slideComments.deckId, comment.deckId),
+            eq(schema.slideComments.slideId, comment.slideId),
             eq(schema.slideComments.threadId, comment.threadId),
           ),
         );
@@ -67,6 +79,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.slideComments.deckId, comment.deckId),
+            eq(schema.slideComments.slideId, comment.slideId),
             eq(schema.slideComments.threadId, comment.threadId),
           ),
         );

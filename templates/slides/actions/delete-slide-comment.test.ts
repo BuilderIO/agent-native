@@ -5,6 +5,8 @@ type Row = {
   deckId: string;
   slideId: string;
   authorEmail: string;
+  threadId: string;
+  parentId: string | null;
 };
 
 const state = vi.hoisted(() => ({ rows: [] as Row[] }));
@@ -46,6 +48,8 @@ vi.mock("../server/db/index.js", () => {
       deckId: col("deckId"),
       slideId: col("slideId"),
       authorEmail: col("authorEmail"),
+      threadId: col("threadId"),
+      parentId: col("parentId"),
     },
   };
 
@@ -81,7 +85,7 @@ vi.mock("../server/db/index.js", () => {
 
 import action from "./delete-slide-comment";
 
-function run(args: { id: string; deckId?: string }) {
+function run(args: { id: string; deckId: string }) {
   return (action as any).run(args);
 }
 
@@ -94,19 +98,31 @@ beforeEach(() => {
       deckId: "deck-1",
       slideId: "slide-1",
       authorEmail: "author@example.com",
+      threadId: "c-1",
+      parentId: null,
     },
     {
       id: "c-2",
       deckId: "deck-1",
       slideId: "slide-1",
       authorEmail: "other@example.com",
+      threadId: "c-1",
+      parentId: "c-1",
+    },
+    {
+      id: "c-3",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      authorEmail: "other@example.com",
+      threadId: "c-3",
+      parentId: null,
     },
   ];
 });
 
 describe("delete-slide-comment", () => {
   it("lets the author delete their own comment with commenter access", async () => {
-    const result = await run({ id: "c-1" });
+    const result = await run({ id: "c-1", deckId: "deck-1" });
 
     expect(result).toEqual({ ok: true });
     expect(mockAssertAccess).toHaveBeenCalledWith(
@@ -114,14 +130,22 @@ describe("delete-slide-comment", () => {
       "deck-1",
       "commenter",
     );
-    expect(state.rows.map((r) => r.id)).toEqual(["c-2"]);
+    expect(state.rows.map((r) => r.id)).toEqual(["c-3"]);
   });
 
   it("requires editor access to delete someone else's comment", async () => {
-    await run({ id: "c-2" });
+    await run({ id: "c-3", deckId: "deck-1" });
 
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
-    expect(state.rows.map((r) => r.id)).toEqual(["c-1"]);
+    expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2"]);
+  });
+
+  it("deletes only the selected reply and keeps the thread root", async () => {
+    mockGetUserEmail.mockReturnValue("other@example.com");
+
+    await run({ id: "c-2", deckId: "deck-1" });
+
+    expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-3"]);
   });
 
   it("propagates a Forbidden failure when the caller lacks the required role", async () => {
@@ -130,12 +154,28 @@ describe("delete-slide-comment", () => {
       throw new Error("Forbidden");
     });
 
-    await expect(run({ id: "c-2" })).rejects.toThrow("Forbidden");
+    await expect(run({ id: "c-3", deckId: "deck-1" })).rejects.toThrow(
+      "Forbidden",
+    );
     // Row is untouched since assertAccess rejected before the delete.
-    expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2"]);
+    expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2", "c-3"]);
   });
 
   it("throws when the comment does not exist", async () => {
-    await expect(run({ id: "missing" })).rejects.toThrow("Comment not found");
+    await expect(run({ id: "missing", deckId: "deck-1" })).rejects.toThrow(
+      "Comment not found",
+    );
+  });
+
+  it("does not find a comment outside the authorized deck", async () => {
+    await expect(run({ id: "c-1", deckId: "deck-2" })).rejects.toThrow(
+      "Comment not found",
+    );
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "deck",
+      "deck-2",
+      "commenter",
+    );
+    expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2", "c-3"]);
   });
 });

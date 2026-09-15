@@ -79,6 +79,9 @@ export const slideComments = table("slide_comments", {
   content: text("content").notNull(),
   quotedText: text("quoted_text"),
   anchor: text("anchor"),
+  // JSON map of emoji -> authenticated author emails. Kept on the comment row
+  // so toggling a reaction can use a compare-and-swap update.
+  emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
   authorEmail: text("author_email").notNull(),
   authorName: text("author_name"),
   resolved: boolean("resolved").notNull().default(false),

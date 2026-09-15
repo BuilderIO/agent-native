@@ -65,6 +65,9 @@ export default defineAction({
             eq(schema.deckVersions.ownerEmail, owner),
           ),
         );
+      await db
+        .delete(schema.slideComments)
+        .where(eq(schema.slideComments.deckId, id));
       const result = await db
         .delete(schema.decks)
         .where(eq(schema.decks.id, id))
