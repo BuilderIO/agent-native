@@ -19,11 +19,14 @@ import {
   buildDeckPptxBlob,
   exportDeckAsPptx,
   gradientPaint,
+  markWrappedLines,
   materializeClipPathShapes,
   patchBulletIndentsInPptxBlob,
+  pinRenderedFontFamilies,
   pptxExportScale,
   replaceInlineSvgsWithImages,
 } from "./export-pptx-client";
+import { WRAP_MARK } from "./pptx-google-slides";
 
 async function buildMinimalPptxBlob(slideCount = 1): Promise<Blob> {
   const zip = new JSZip();
@@ -995,5 +998,86 @@ describe("retypeThemeFonts", () => {
   it("leaves east-asian and complex-script faces alone", () => {
     const original = '<a:minorFont><a:ea typeface="MS Gothic"/></a:minorFont>';
     expect(retypeThemeFonts(original, "Geist")).toBe(original);
+  });
+});
+
+describe("pinRenderedFontFamilies", () => {
+  it("is a no-op in happy-dom, where the canvas probe cannot distinguish fonts", () => {
+    const root = document.createElement("div");
+    // A generic family the function would otherwise retype to a concrete face
+    // (see GENERIC_EXPORT_FACES) — a meaningful no-op check, not just an
+    // absence of a crash.
+    root.innerHTML = '<p style="font-family: sans-serif;">Some text</p>';
+    document.body.appendChild(root);
+    const paragraph = root.querySelector("p")!;
+
+    expect(() => pinRenderedFontFamilies(root, "google-slides")).not.toThrow();
+
+    expect(paragraph.style.fontFamily).toBe("sans-serif");
+    root.remove();
+  });
+});
+
+/**
+ * happy-dom lays out nothing, so `Range.getClientRects()` always answers
+ * empty — every stubbed test below fakes layout by keying the rect's `top` off
+ * which text node (and offset) the walk is currently ranging over.
+ */
+describe("markWrappedLines", () => {
+  it("inserts a wrap mark immediately before the text that starts a new line", () => {
+    document.body.innerHTML = "<div><p>alpha beta gamma</p></div>";
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const top = this.startOffset < 11 ? 0 : 24;
+        return [
+          { bottom: top + 20, height: 20, top, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(1);
+    expect(root.querySelector("p")?.textContent).toBe(
+      `alpha beta ${WRAP_MARK}gamma`,
+    );
+  });
+
+  it("does not mark a line that starts after an explicit <br>", () => {
+    document.body.innerHTML = "<div><p>alpha<br>beta</p></div>";
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const top = (this.startContainer as Text).data === "beta" ? 24 : 0;
+        return [
+          { bottom: top + 20, height: 20, top, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(0);
+    expect(root.querySelector("p")?.textContent).toBe("alphabeta");
+  });
+
+  it("skips text inside an aria-hidden subtree even when it looks wrapped", () => {
+    document.body.innerHTML =
+      '<div><p aria-hidden="true">alpha beta gamma</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const top = this.startOffset < 11 ? 0 : 24;
+        return [
+          { bottom: top + 20, height: 20, top, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(0);
+    expect(root.querySelector("p")?.textContent).toBe("alpha beta gamma");
   });
 });
