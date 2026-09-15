@@ -72,13 +72,13 @@ import {
 } from "@/lib/editor-agent-handoff";
 import { downloadImage } from "@/lib/image-download";
 import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
-import { slideCommentAnchorAtPoint } from "@/lib/slide-comment-anchor";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
   getPersistedElementPath,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
+import { slideCommentAnchorAtPoint } from "@/lib/slide-comment-anchor";
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
@@ -903,10 +903,7 @@ interface SlideEditorProps {
    *  when they target the currently-active slide. */
   recentEdits?: AttributedRecentEdit[];
   /** Called when the user selects text and clicks the comment button */
-  onComment?: (
-    quotedText: string,
-    anchor?: SlideCommentAnchor,
-  ) => void;
+  onComment?: (quotedText: string, anchor?: SlideCommentAnchor) => void;
   /** Existing persisted threads used to render slide-positioned markers. */
   comments?: CommentThread[];
   /** Zero-based index of the current slide */
@@ -2339,11 +2336,9 @@ export default function SlideEditor({
       if (!hadObjectId) {
         const html = readCurrentSlideContentHtml();
         if (html !== null) {
-          onUpdateSlideRef.current(
-            { content: html },
-            undefined,
-            { persistence: "immediate" },
-          );
+          onUpdateSlideRef.current({ content: html }, undefined, {
+            persistence: "immediate",
+          });
         }
       }
       return objectId;
