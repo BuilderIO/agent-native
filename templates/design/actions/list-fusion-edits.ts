@@ -2,14 +2,15 @@
  * list-fusion-edits — read-only list of queued fusion edit instructions for a
  * design.
  *
- * Viewer access is sufficient since this is a read. Returns edits ordered
+ * Editor access is required because queued instructions and dispatch errors
+ * are private, even when the rendered design is public. Returns edits ordered
  * oldest-first (the order apply-fusion-edits will present them to the app
  * agent) plus a pendingCount convenience field.
  */
 
 import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
-import { accessFilter } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -49,26 +50,9 @@ export default defineAction({
       throw new Error("Full app building is not enabled");
     }
 
+    await assertAccess("design", designId, "editor");
+
     const db = getDb();
-
-    const [design] = await db
-      .select({ id: schema.designs.id })
-      .from(schema.designs)
-      .where(
-        and(
-          accessFilter(schema.designs, schema.designShares),
-          eq(schema.designs.id, designId),
-        ),
-      )
-      .limit(1);
-    if (!design) {
-      const err = new Error("Design not found") as Error & {
-        statusCode: number;
-      };
-      err.statusCode = 404;
-      throw err;
-    }
-
     const conditions = [eq(schema.designFusionEdits.designId, designId)];
     if (status) conditions.push(eq(schema.designFusionEdits.status, status));
 

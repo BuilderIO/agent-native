@@ -679,6 +679,21 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
   });
 
+  it("keeps the overflow menu scrollable within the viewport", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+
+    expect(overflowMenu).toContain(
+      "max-h-[var(--radix-dropdown-menu-content-available-height)]",
+    );
+    expect(overflowMenu).toContain("overflow-y-auto");
+  });
+
   it("offers sharing from the sidebar overflow for an active chat", () => {
     const source = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
@@ -694,6 +709,12 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain("activeTabMessageCount <= 0");
     expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
     expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
+    // Regression: without the "timeout" timing, the animation-frame handoff
+    // races with the dropdown's own close/focus-restore cycle and the share
+    // popover never opens (same failure mode fixed for "All chats" in #4644).
+    expect(overflowMenu).toContain(
+      'setShareFromMenuOpen(true),\n                        "timeout"',
+    );
   });
 
   it("keeps chat headers persistent while switching app surfaces", () => {

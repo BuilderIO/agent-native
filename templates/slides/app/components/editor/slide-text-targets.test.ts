@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   findSmartBlock,
+  getSlideCanvasTraversalElements,
   isRichTextBlock,
+  isSlideCanvasShortcutTarget,
   isSlideTextEditingTarget,
   isTextLeaf,
   resolveRichTextEditingBlock,
@@ -13,6 +15,45 @@ import {
 } from "./slide-text-targets";
 
 describe("slide text targets", () => {
+  it("traverses flow-layout roots and groups without selecting renderer shells or members", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide" data-builder-id="frame">
+        <div data-fmd-autofit-content data-builder-id="autofit">
+          <h1 data-builder-id="title">Flow title</h1>
+          <div class="fmd-slide-group" data-builder-id="group" data-slide-object-id="group-id">
+            <div data-builder-id="member" data-slide-object-id="member-id">Shape</div>
+          </div>
+          <div class="fmd-layout-spacer" data-builder-id="spacer"></div>
+        </div>
+      </div>
+    `;
+
+    expect(
+      getSlideCanvasTraversalElements(root).map((element) =>
+        element.getAttribute("data-builder-id"),
+      ),
+    ).toEqual(["title", "group"]);
+    expect(
+      shouldStampBuilderId(
+        root.querySelector<HTMLElement>(".fmd-slide-group")!,
+      ),
+    ).toBe(true);
+  });
+
+  it("routes canvas shortcuts only while focus is inside the slide canvas", () => {
+    const canvas = document.createElement("div");
+    const selectedObject = document.createElement("div");
+    const toolbarButton = document.createElement("button");
+    const activeElement = document.createElement("div");
+    canvas.append(selectedObject);
+
+    expect(isSlideCanvasShortcutTarget(selectedObject, canvas)).toBe(true);
+    expect(isSlideCanvasShortcutTarget(toolbarButton, canvas)).toBe(false);
+    expect(isSlideCanvasShortcutTarget(activeElement, null)).toBe(false);
+    expect(isSlideCanvasShortcutTarget(null, canvas)).toBe(false);
+  });
+
   it("keeps inline style runs inside their containing text block", () => {
     const root = document.createElement("div");
     root.className = "slide-content";

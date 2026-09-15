@@ -5,12 +5,14 @@ import {
   type CodeLayerTreeNode,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { isComponentInstance } from "@shared/component-model";
 import {
   ELEMENT_PROVENANCE_METHODS,
   type ElementProvenanceFramework,
   type ElementProvenanceMethod,
 } from "@shared/source-mode";
+
 export {
   renameFilenamePreservingExtension,
   replaceDataScreenReferences,
@@ -499,6 +501,7 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     // layers panel, post-draw overview) fall back to tag heuristics, so a
     // drawn vector was styled as a plain box.
     primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
+    vectorStrokeCanAlign: node.style["--an-vector-stroke-can-align"] === "true",
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
     hasOwnText: node.paintsOwnText,
@@ -571,6 +574,16 @@ function fontShorthandLonghands(value: string): Record<string, string> {
   return longhands;
 }
 
+// A canvas-drawn shape/frame primitive (canvas-primitive-insert.ts) and hand-
+// authored markup both commit a plain solid fill through the `background`
+// shorthand rather than the `background-color` longhand. Only expand it to
+// `backgroundColor` when the whole value parses as one color — an authored
+// `background: url(...) center/cover` or a gradient is a real shorthand this
+// must not misread as a solid fill.
+function backgroundShorthandColor(value: string): string | undefined {
+  return parseCssColorExtended(value.trim()) ? value.trim() : undefined;
+}
+
 export function cssStyleAliases(
   styles: Record<string, string>,
 ): Record<string, string> {
@@ -579,6 +592,9 @@ export function cssStyleAliases(
     // Expanded in source order so a later explicit longhand still wins.
     if (property === "font") {
       Object.assign(result, fontShorthandLonghands(value));
+    } else if (property === "background") {
+      const color = backgroundShorthandColor(value);
+      if (color) result.backgroundColor = color;
     }
     result[property] = value;
     if (property.includes("-")) {
@@ -832,6 +848,9 @@ export function canonicalElementInfoForCodeLayerNode(
 ): ElementInfo {
   return {
     ...info,
+    vectorStrokeCanAlign:
+      info.vectorStrokeCanAlign ||
+      node.style["--an-vector-stroke-can-align"] === "true",
     // Keep the bridge's own identity before overwriting it — it is the only
     // one that resolves in a live document. Idempotent: re-canonicalizing an
     // already-canonicalized info must not overwrite it with the source id.
@@ -892,15 +911,31 @@ export function elementInfoIsRuntimeOnly(
  * shared/code-layer.ts), and sourceKey differs between the runtime and
  * source projection parses of the very same content, so `id` never lines up
  * even for the identical element — the stamped DOM attribute does.
+ * Runtime snapshot ids (`runtime-<base36 hash>`) are editor-minted, not source
+ * identity; snapshots can make them appear in a projection that is otherwise
+ * treated as source, so compare them against the persisted screen content.
  */
 export function isCodeLayerNodeRuntimeOnly(args: {
   fileIsRuntimeProjected: boolean;
   nodeIdAttr: string | undefined;
   sourceNodeIdAttrs: ReadonlySet<string>;
 }): boolean {
-  if (!args.fileIsRuntimeProjected) return false;
-  if (!args.nodeIdAttr) return true;
-  return !args.sourceNodeIdAttrs.has(args.nodeIdAttr);
+  if (!args.nodeIdAttr) return args.fileIsRuntimeProjected;
+  if (args.sourceNodeIdAttrs.has(args.nodeIdAttr)) return false;
+  return (
+    args.fileIsRuntimeProjected || /^runtime-[a-z0-9]+$/i.test(args.nodeIdAttr)
+  );
+}
+
+/** Runtime/external projections are not a source-id inventory for movement. */
+export function codeLayerSourceNodeIdAttrs(
+  content: string,
+): ReadonlySet<string> {
+  return new Set(
+    buildCodeLayerProjection(content)
+      .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+      .filter((value): value is string => Boolean(value)),
+  );
 }
 
 /**
@@ -930,7 +965,7 @@ export function codeLayerPatchMessage(
   fallback: string,
 ): string {
   if (!message) return fallback;
-  return message.includes("did not match a code layer node")
+  return /code layer node|data-agent-native-node-id/i.test(message)
     ? fallback
     : message;
 }
@@ -1147,16 +1182,23 @@ export function findCodeLayerSiblingOrder(
   return null;
 }
 
-// L25: matches the auto-generated wrapper name pattern from
-// nextSequentialGroupName in shared/code-layer.ts ("Group", "Group 2", ...).
-// Used to identify wrappers that were CREATED by the group action (as opposed
-// to a user's own named container) so we only auto-clean up ones we made.
-export const GENERATED_GROUP_NAME_PATTERN = /^Group(?: \d+)?$/;
-
 export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
-  const layerNameAttr = node.dataAttributes["data-agent-native-layer-name"];
-  return Boolean(
-    layerNameAttr && GENERATED_GROUP_NAME_PATTERN.test(layerNameAttr.trim()),
+  if (node.dataAttributes["data-agent-native-clone-root"] === "true") {
+    return false;
+  }
+  if (node.dataAttributes["data-agent-native-group-wrapper"] === "true") {
+    return true;
+  }
+  const layerName =
+    node.dataAttributes["data-agent-native-layer-name"] ??
+    node.dataAttributes["data-layer-name"] ??
+    "";
+  const nodeId = node.dataAttributes["data-agent-native-node-id"] ?? "";
+  // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
+  return (
+    /^an-[a-z0-9]+$/i.test(nodeId) &&
+    /^group(?: \d+)?$/i.test(layerName.trim()) &&
+    node.dataAttributes["data-agent-native-preserve-styles"] === "true"
   );
 }
 
@@ -1175,13 +1217,12 @@ export function removeEmptyGeneratedGroupWrappers(
   candidateParentAttrIds: ReadonlySet<string>,
 ): string {
   if (candidateParentAttrIds.size === 0) return content;
-  // Both are necessary conditions for isGeneratedGroupWrapperNode to ever
-  // match. Checking them on the raw string first keeps a document with no
-  // generated groups — the common case — from paying for a full projection of
-  // post-edit content on every structural edit.
+  // Checking for either current or legacy markers keeps a document with no
+  // generated groups — the common case — from paying for a full projection
+  // of post-edit content on every structural edit.
   if (
-    !content.includes("data-agent-native-layer-name") ||
-    !content.includes("Group")
+    !content.includes("data-agent-native-group-wrapper") &&
+    !content.includes("data-agent-native-preserve-styles")
   ) {
     return content;
   }

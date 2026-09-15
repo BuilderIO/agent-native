@@ -617,4 +617,210 @@ describe("ThumbsFeedback localization", () => {
     expect(document.body.querySelector("textarea")).not.toBeNull();
     expect(document.body.textContent).toContain("The answer was not useful.");
   });
+
+  it("reflects the pressed vote via aria-pressed and clears the other button", async () => {
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const up = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs up"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    const down = container.querySelector(
+      '[aria-label="Thumbs down"]',
+    ) as HTMLButtonElement;
+
+    expect(up.getAttribute("aria-pressed")).toBe("false");
+    expect(down.getAttribute("aria-pressed")).toBe("false");
+
+    act(() => up.click());
+
+    await vi.waitFor(() =>
+      expect(up.getAttribute("aria-pressed")).toBe("true"),
+    );
+    expect(down.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("announces confirmation through a live region distinct from the hover/selected state", async () => {
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const up = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs up"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    const liveRegion = container.querySelector(
+      '[aria-live="polite"]',
+    ) as HTMLElement;
+    expect(liveRegion.textContent).toBe("");
+
+    act(() => up.click());
+
+    await vi.waitFor(() =>
+      expect(liveRegion.textContent).toBe("Feedback submitted"),
+    );
+    await vi.waitFor(() => expect(up.className).toContain("scale-110"));
+  });
+
+  it("does not resubmit when clicking the already-applied vote again", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const up = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs up"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+
+    act(() => up.click());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    act(() => up.click());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a stale thumbs-up response after the user already switched to thumbs-down", async () => {
+    let resolveUpRequest: ((value: { ok: boolean }) => void) | undefined;
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveUpRequest = resolve;
+        }),
+    );
+
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const up = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs up"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    const down = container.querySelector(
+      '[aria-label="Thumbs down"]',
+    ) as HTMLButtonElement;
+
+    // Click up, then switch to down before the up request resolves.
+    act(() => up.click());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    act(() => down.click());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    expect(down.getAttribute("aria-pressed")).toBe("true");
+    expect(up.getAttribute("aria-pressed")).toBe("false");
+
+    // The stale up request now resolves successfully. It must not flash the
+    // up button's confirmation state or steal the live-region announcement
+    // from the newer, still-in-flight down vote.
+    act(() => resolveUpRequest?.({ ok: true }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(up.className).not.toContain("scale-110");
+    expect(up.getAttribute("aria-pressed")).toBe("false");
+    expect(down.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("ignores a stale failed thumbs-down response after the user switched back to thumbs-up", async () => {
+    let rejectDownRequest: (() => void) | undefined;
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectDownRequest = () => reject(new Error("network error"));
+        }),
+    );
+
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const down = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs down"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    const up = container.querySelector(
+      '[aria-label="Thumbs up"]',
+    ) as HTMLButtonElement;
+
+    // Click down (request hangs), then switch back to up before it resolves.
+    act(() => down.click());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    act(() => up.click());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    expect(up.getAttribute("aria-pressed")).toBe("true");
+
+    // The stale down request now fails. It must not clear the newer,
+    // already-applied up selection.
+    act(() => rejectDownRequest?.());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(up.getAttribute("aria-pressed")).toBe("true");
+    expect(down.getAttribute("aria-pressed")).toBe("false");
+  });
 });

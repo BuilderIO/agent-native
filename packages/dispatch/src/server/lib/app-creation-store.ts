@@ -97,6 +97,18 @@ class AppCreationSettingsAuthorizationError extends Error {
   }
 }
 
+class WorkspaceAppsGatewayAuthorizationError extends Error {
+  constructor(statusCode: 401 | 403) {
+    super(
+      `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
+    );
+    this.name = "WorkspaceAppsGatewayAuthorizationError";
+    this.statusCode = statusCode;
+  }
+
+  statusCode: 401 | 403;
+}
+
 type WorkspaceAppAudience = "internal" | "public";
 type WorkspaceAppVisibility = "private" | "org";
 
@@ -1724,6 +1736,9 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       ...protectedRedirect,
       signal: controller.signal,
     });
+    if (actionResponse.status === 401 || actionResponse.status === 403) {
+      throw new WorkspaceAppsGatewayAuthorizationError(actionResponse.status);
+    }
     if (!actionResponse.ok) return null;
     const apps = parseWorkspaceAppsManifest(
       // coercion-ok: malformed gateway JSON is an unavailable registry and
@@ -1731,7 +1746,8 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       await actionResponse.json().catch(() => null),
     );
     return apps ? { apps, authoritative: false } : null;
-  } catch {
+  } catch (error) {
+    if (error instanceof WorkspaceAppsGatewayAuthorizationError) throw error;
     return null;
   } finally {
     clearTimeout(timeout);

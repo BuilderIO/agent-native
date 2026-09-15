@@ -330,10 +330,10 @@ export function builderMetadataForSourceField(args: {
 
 export default defineAction({
   description:
-    "Create a local database property from an unmapped source field and bind the source field to that property.",
+    "Create a local collection property from an unmapped source field and bind the source field to that property.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceFieldId: z.string().describe("Source field mapping ID"),
     sourceId: z
       .string()

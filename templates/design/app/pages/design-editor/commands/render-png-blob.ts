@@ -13,7 +13,8 @@ import {
   PngCaptureError,
   cropCanvasToRect,
   renderExportDocumentCanvas,
-  resolveExportCropRect,
+  resolveBoardExportCropRect,
+  resolveExportCropTarget,
 } from "@/pages/design-editor/png-export-render";
 
 export interface RenderPngBlobArgs {
@@ -161,20 +162,30 @@ export async function runRenderPngBlob(
     }
   } else {
     const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
+    const cropTarget = resolveExportCropTarget(doc, cropSelection);
+    const selectionCropRect =
+      cropTarget.kind === "rect" ? cropTarget.rect : null;
+    const boardCropRect =
+      scope === "document" && !selectionCropRect
+        ? resolveBoardExportCropRect(doc, iframe)
+        : null;
     const rendered = await renderExportDocumentCanvas({
       doc,
       iframe,
       exportScale: requestedExportScale,
+      cropRect: boardCropRect,
       render: html2canvas,
     });
-    const cropRect = resolveExportCropRect(doc, cropSelection);
-    const cropped = cropRect
-      ? cropCanvasToRect(rendered.canvas, cropRect, rendered.scale)
+    const cropped = selectionCropRect
+      ? cropCanvasToRect(rendered.canvas, selectionCropRect, rendered.scale)
       : null;
     // An element capture that silently widens to the whole document is a
     // preview of something the user did not ask to export, and nothing
-    // downstream can tell it apart from a real one.
-    if (scope === "element" && !cropped) {
+    // downstream can tell it apart from a real one. Selecting the screen
+    // itself is not that case: the whole screen is what that selection
+    // exports, so failing it made the inspector's export preview permanently
+    // unavailable for every frame-level selection.
+    if (scope === "element" && cropTarget.kind !== "whole-screen" && !cropped) {
       throw new PngCaptureError("no-preview");
     }
     // Render the whole page first, then crop, so ancestor backgrounds show

@@ -59,6 +59,7 @@ export interface PromptContextProviderContribution {
 
 export interface PromptContextProvider {
   id: string;
+  failOnError?: boolean;
   load(
     context: PromptContextProviderContext,
   ):
@@ -110,8 +111,11 @@ async function loadPromptContextProviderBlocks(
     })),
   );
   const blocks: string[] = [];
-  for (const result of settled) {
-    if (result.status !== "fulfilled") continue;
+  for (const [index, result] of settled.entries()) {
+    if (result.status === "rejected") {
+      if (providers[index]?.failOnError) throw result.reason;
+      continue;
+    }
     const { provider, contribution } = result.value;
     if (!contribution) continue;
     const content = contribution.content.trim();

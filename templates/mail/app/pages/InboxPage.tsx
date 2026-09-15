@@ -48,6 +48,7 @@ import {
   inboxThreadKey,
   savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
+import { savedEmailDraftMetadata } from "@/lib/saved-draft";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 
@@ -992,7 +993,7 @@ export function InboxPage() {
         mode: "compose",
         replyToId: (email as any).replyToId,
         replyToThreadId: (email as any).replyToThreadId,
-        savedDraftId: email.id,
+        ...savedEmailDraftMetadata(email),
       });
     },
     [compose],

@@ -49,6 +49,7 @@ import { mcpIntegrationLogo } from "../resources/mcp-integration-logos.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
+  isMcpServersPending,
   useCreateMcpServer,
   useDeleteMcpServer,
   useMcpServers,
@@ -684,7 +685,9 @@ function useMcpIntegrationsController({
 }: {
   integrations?: DefaultMcpIntegration[];
 } = {}) {
-  const serversQuery = useMcpServers();
+  // Settings surface: mounted while the panel itself may still be off-screen,
+  // so it waits out the paint window.
+  const serversQuery = useMcpServers({ defer: true });
   const createServer = useCreateMcpServer();
   const deleteServer = useDeleteMcpServer();
   const reconnectServer = useReconnectMcpServer();
@@ -713,9 +716,11 @@ function useMcpIntegrationsController({
   const connectedServers = servers.filter(
     (server) => server.status.state === "connected",
   );
-  const hasOrg = Boolean(serversQuery.data?.orgId);
+  const serversPending = isMcpServersPending(serversQuery);
+  const hasOrg = !serversPending && Boolean(serversQuery.data?.orgId);
   const canCreateOrgMcp = Boolean(
     hasOrg &&
+    !serversPending &&
     (serversQuery.data?.role === "owner" ||
       serversQuery.data?.role === "admin"),
   );

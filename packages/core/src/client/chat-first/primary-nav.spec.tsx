@@ -23,7 +23,12 @@ describe("ChatFirstPrimaryNavigation", () => {
     vi.unstubAllGlobals();
   });
 
-  it("marks the selected navigation tab without selecting Search", () => {
+  const tabByLabel = (label: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+      (tab) => tab.textContent?.includes(label),
+    );
+
+  it("marks exactly one navigation tab as selected", () => {
     act(() => {
       root.render(
         <ChatFirstPrimaryNavigation
@@ -36,25 +41,82 @@ describe("ChatFirstPrimaryNavigation", () => {
       );
     });
 
-    const tabs = container.querySelectorAll('[role="tab"]');
-    expect(tabs).toHaveLength(3);
-    const activeTab = container.querySelector(
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(4);
+    const selected = container.querySelectorAll(
       '[role="tab"][aria-selected="true"]',
     );
-    expect(activeTab?.textContent).toContain("Integrations");
-    expect(activeTab?.className).toContain("bg-sidebar-accent");
-    expect(activeTab?.className).not.toContain("border-sidebar-foreground/45");
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.textContent).toContain("Integrations");
+    expect(selected[0]?.className.split(" ")).toContain("bg-sidebar-accent");
     expect(
       container.querySelector('[role="tab"][aria-selected="false"]')?.className,
     ).toContain("code-agents-primary-new-chat");
-    const searchButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent?.includes("Search"),
-    );
-    expect(searchButton?.getAttribute("role")).toBeNull();
     expect(container.querySelector('[role="tablist"]')).not.toBeNull();
   });
 
-  it("keeps Search as an action and calls each navigation handler", () => {
+  it("selects Search with the same treatment as every other tab", () => {
+    act(() => {
+      root.render(
+        <ChatFirstPrimaryNavigation
+          activeTab="search"
+          onNewChat={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+          onOpenScheduled={vi.fn()}
+          onSearch={vi.fn()}
+        />,
+      );
+    });
+
+    const search = tabByLabel("Search");
+    expect(search?.getAttribute("aria-selected")).toBe("true");
+    expect(search?.className.split(" ")).toContain("bg-sidebar-accent");
+    expect(
+      container.querySelectorAll('[role="tab"][aria-selected="true"]'),
+    ).toHaveLength(1);
+    for (const label of ["New chat", "Integrations", "Scheduled"]) {
+      expect(tabByLabel(label)?.getAttribute("aria-selected")).toBe("false");
+    }
+  });
+
+  it("leaves Search unselected while another surface owns the rail", () => {
+    act(() => {
+      root.render(
+        <ChatFirstPrimaryNavigation
+          activeTab="scheduled"
+          onNewChat={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+          onOpenScheduled={vi.fn()}
+          onSearch={vi.fn()}
+        />,
+      );
+    });
+
+    const search = tabByLabel("Search");
+    expect(search?.getAttribute("aria-selected")).toBe("false");
+    expect(search?.className.split(" ")).not.toContain("bg-sidebar-accent");
+    expect(tabByLabel("Scheduled")?.className.split(" ")).toContain(
+      "bg-sidebar-accent",
+    );
+  });
+
+  it("keeps every tab unselected when no surface is resolved", () => {
+    act(() => {
+      root.render(
+        <ChatFirstPrimaryNavigation
+          onNewChat={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+          onOpenScheduled={vi.fn()}
+          onSearch={vi.fn()}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelectorAll('[role="tab"][aria-selected="true"]'),
+    ).toHaveLength(0);
+  });
+
+  it("calls each navigation handler, Search included", () => {
     const handlers = {
       newChat: vi.fn(),
       integrations: vi.fn(),
@@ -105,6 +167,9 @@ describe("ChatFirstPrimaryNavigation", () => {
     expect(
       container.querySelector('[role="tablist"]')?.textContent,
     ).not.toContain("New chat");
+    expect(container.querySelector('[role="tablist"]')?.textContent).toContain(
+      "Search",
+    );
     expect(container.querySelector(".code-agents-nav-list")).not.toBeNull();
   });
 

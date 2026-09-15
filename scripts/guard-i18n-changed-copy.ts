@@ -137,15 +137,15 @@ function collectCatalogSurfaces(
         continue;
       }
 
-      // Some catalogs keep the English source inline but moved locale
-      // messages to sibling per-locale files (e.g. content's i18n-data.ts
-      // + i18n/<locale>.ts). The source file itself no longer imports them,
-      // so resolve targets by locale file presence in the catalog dir.
-      const localeFile = path.join(catalogDir, `${locale}.ts`);
-      if (existsSync(localeFile)) {
-        const target = relative(localeFile);
+      // Locale data may live in sibling per-locale files (e.g. an
+      // i18n-data.ts split where each <locale>.ts imports from the source
+      // rather than the source importing the locale). The source itself does
+      // not import them, so the import scan cannot see them.
+      const siblingFile = path.join(catalogDir, `${locale}.ts`);
+      if (existsSync(siblingFile) && siblingFile !== sourceWrapper) {
+        const target = relative(siblingFile);
         targets.push(target);
-        if (changedFiles.has(localeFile)) changedTargets.add(target);
+        if (changedFiles.has(absolute(target))) changedTargets.add(target);
         continue;
       }
 

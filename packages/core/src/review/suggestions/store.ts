@@ -54,6 +54,7 @@ export async function ensureSuggestionTables(
             ["author_email", "TEXT"],
             ["actor_kind", "TEXT"],
             ["request_hash", "TEXT"],
+            ["receipt_version", "INTEGER NOT NULL DEFAULT 1"],
           ],
         ],
       ] as const) {
@@ -80,7 +81,11 @@ export interface SuggestionCreationReceipt {
   authorEmail: string | null;
   actorKind: ResourceSuggestion["actorKind"] | null;
   requestHash: string | null;
+  // 1 = written before the suggestionActorKind classifier rollout; 2 = after.
+  receiptVersion: number;
 }
+
+export const SUGGESTION_RECEIPT_VERSION = 2;
 
 export async function getSuggestionByCreationKey(
   client: DbExec,
@@ -88,7 +93,7 @@ export async function getSuggestionByCreationKey(
 ): Promise<SuggestionCreationReceipt | null> {
   const row = (
     await client.execute({
-      sql: "SELECT suggestion_id,author_email,actor_kind,request_hash FROM agent_review_suggestion_creations WHERE idempotency_key = ?",
+      sql: "SELECT suggestion_id,author_email,actor_kind,request_hash,receipt_version FROM agent_review_suggestion_creations WHERE idempotency_key = ?",
       args: [idempotencyKey],
     })
   ).rows[0];
@@ -121,6 +126,8 @@ export async function getSuggestionByCreationKey(
     authorEmail: row.author_email as string | null,
     actorKind: row.actor_kind as ResourceSuggestion["actorKind"] | null,
     requestHash: row.request_hash as string | null,
+    receiptVersion:
+      typeof row.receipt_version === "number" ? row.receipt_version : 1,
   };
 }
 
@@ -133,7 +140,7 @@ export async function recordSuggestionCreation(
   requestHash: string,
 ): Promise<SuggestionCreationReceipt> {
   await client.execute({
-    sql: "INSERT INTO agent_review_suggestion_creations (idempotency_key,suggestion_id,author_email,actor_kind,request_hash,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT (idempotency_key) DO NOTHING",
+    sql: "INSERT INTO agent_review_suggestion_creations (idempotency_key,suggestion_id,author_email,actor_kind,request_hash,created_at,receipt_version) VALUES (?,?,?,?,?,?,?) ON CONFLICT (idempotency_key) DO NOTHING",
     args: [
       idempotencyKey,
       suggestion.id,
@@ -141,6 +148,7 @@ export async function recordSuggestionCreation(
       actorKind,
       requestHash,
       new Date().toISOString(),
+      SUGGESTION_RECEIPT_VERSION,
     ],
   });
   const receipt = await getSuggestionByCreationKey(client, idempotencyKey);

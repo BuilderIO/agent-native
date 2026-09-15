@@ -42,7 +42,7 @@ An editor filters a Page's History to one agent run, expands its logical Revisio
 ## Product contract
 
 - History is an access-scoped projection over committed Events, logical Revisions, recovery snapshots, and execution receipts.
-- It supports filtering, grouping, sorting, stable links, and typed comparison in the normal Page/Database renderer.
+- It supports filtering, grouping, sorting, stable links, and typed comparison in the normal Page/Collection renderer.
 - Events are atomic facts; Revisions are causal review units; snapshots are recovery mechanics; named Versions are deliberate alternatives. History preserves those distinctions.
 - Recovery invokes shared Actions and creates attributable new change rather than rewriting the past.
 - Inaccessible history is denial or omission according to access context, never a successful empty timeline.
@@ -71,13 +71,13 @@ Page history groups title/body recovery checkpoints by an explicit human editor 
 
 This Page recovery surface is narrower than the capability above: it does not supply cross-object Event queries, typed diffs, selective field recovery, or named Page Versions. Independent acceptance of those contracts remains required before changing the capability state.
 
-Page recovery replays serialized title/body content, including references. Inline databases omitted by the restored body follow ordinary save removal semantics; restoring an older reference does not recover a separately deleted database object or its data.
+Page recovery replays serialized title/body content, including references. Inline collections omitted by the restored body follow ordinary save removal semantics; restoring an older reference does not recover a separately deleted collection object or its data.
 
 Linked local files keep their file as the source of truth. Their checkpoints remain readable, but this SQL restore action rejects replacement until a revision-guarded source write and history reconciliation protocol is available; changing only the SQL mirror must never be reported as restoring the file.
 
 ## Proof plan
 
-1. Query and compare Events, Revisions, snapshots, and receipts across Page, Database, source, and agent work.
+1. Query and compare Events, Revisions, snapshots, and receipts across Page, Collection, source, and agent work.
 2. Test filters, grouping, sort, links, pagination, access changes, and private data closure.
 3. Restore fields and whole states under conflict, undo, and concurrent editing.
 4. Verify UI and Actions with keyboard and assistive-technology paths.

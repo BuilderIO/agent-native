@@ -25,10 +25,10 @@ const SOURCE_TAG_PROPERTY_NAME = "Source";
 
 export default defineAction({
   description:
-    "Bind a source field to an existing database column (row-union per-source field binding), or unbind it. Binding routes the source's per-row values into the shared column; types must be compatible. Pass propertyId: null to unbind.",
+    "Bind a source field to an existing collection column (row-union per-source field binding), or unbind it. Binding routes the source's per-row values into the shared column; types must be compatible. Pass propertyId: null to unbind.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceFieldId: z.string().describe("Source field mapping ID"),
     propertyId: z
       .string()

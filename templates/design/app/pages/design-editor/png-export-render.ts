@@ -8,7 +8,11 @@ import {
   unionExportCropRects,
   waitForExportReady,
 } from "./export-capture";
-import { mirrorPreviewWebFonts } from "./export-font-mirror";
+import type { ExportCropRect } from "./export-capture";
+import {
+  getHtml2CanvasPlaceholderStyle,
+  mirrorPreviewWebFonts,
+} from "./export-font-mirror";
 import { isScreenRootElementInfo } from "./selection-state";
 
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
@@ -30,6 +34,20 @@ const HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES = [
   "background-image",
   "border-image-source",
   "list-style-image",
+] as const;
+const HTML2CANVAS_PLACEHOLDER_TEXT_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-variant",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-align",
+  "text-indent",
+  "text-transform",
+  "word-spacing",
 ] as const;
 
 export function blurActiveDesignEditableTarget() {
@@ -148,6 +166,24 @@ function sanitizeHtml2CanvasClone(
       if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
       clonedStyle.setProperty(property, "none", "important");
     }
+
+    // html2canvas paints a placeholder as the input value, using the input's
+    // styles instead of the styles attached to ::placeholder.
+    const placeholderStyle = getHtml2CanvasPlaceholderStyle(
+      sourceElement,
+      sourceView,
+    );
+    if (placeholderStyle) {
+      for (const property of HTML2CANVAS_PLACEHOLDER_TEXT_PROPERTIES) {
+        const value = placeholderStyle.getPropertyValue(property);
+        if (!value) continue;
+        clonedStyle.setProperty(
+          property,
+          property === "color" ? normalizeHtml2CanvasColor(value) : value,
+          "important",
+        );
+      }
+    }
   });
 }
 
@@ -171,21 +207,35 @@ export function sanitizeSerializedXmlForSvg(value: string): string {
   );
 }
 
+export type ExportCropTarget =
+  /** Crop the render to this document-space rect. */
+  | {
+      kind: "rect";
+      rect: { x: number; y: number; width: number; height: number };
+    }
+  /** Nothing narrows the render: no selection, or the selection *is* the
+   *  screen. The whole screen is the honest capture of that selection. */
+  | { kind: "whole-screen" }
+  /** A selection was made, but none of it resolves in the live document, so
+   *  what would be captured is not what the caller asked for. */
+  | { kind: "unresolved" };
+
 /**
- * Resolve the document-space rect of the currently selected element inside the
- * preview iframe so image exports (PNG/SVG) can crop to just that frame instead
- * of the whole screen. Returns null — meaning "export the whole screen" — when
- * there is no element selection, when the selection is the screen root
- * (BODY/HTML, which is the whole screen anyway), or when the element can no
- * longer be resolved in the live document.
+ * Resolve the document-space rect of one selected element inside the preview
+ * iframe so image exports (PNG/SVG) can crop to just that frame instead of the
+ * whole screen.
+ *
+ * `whole-screen` and `unresolved` are deliberately different results. Callers
+ * that widen to the full render on `whole-screen` would be exporting something
+ * the user never selected if they also widened on `unresolved`.
  */
-function resolveElementExportCropRect(
+function resolveElementExportCropTarget(
   doc: Document,
   selected: ElementInfo,
-): { x: number; y: number; width: number; height: number } | null {
-  if (isScreenRootElementInfo(selected)) return null;
+): ExportCropTarget {
+  if (isScreenRootElementInfo(selected)) return { kind: "whole-screen" };
   const view = doc.defaultView;
-  if (!view) return null;
+  if (!view) return { kind: "unresolved" };
   let element: Element | null = null;
   if (selected.sourceId) {
     try {
@@ -203,34 +253,118 @@ function resolveElementExportCropRect(
       element = null;
     }
   }
-  if (!element) return null;
+  if (!element) return { kind: "unresolved" };
   const rect = element.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
+  if (rect.width <= 0 || rect.height <= 0) return { kind: "unresolved" };
   // getBoundingClientRect is viewport-relative; add the iframe scroll offset so
   // coordinates match the full-document render (which starts at the page top).
   return {
-    x: rect.left + (view.scrollX ?? 0),
-    y: rect.top + (view.scrollY ?? 0),
-    width: rect.width,
-    height: rect.height,
+    kind: "rect",
+    rect: {
+      x: rect.left + (view.scrollX ?? 0),
+      y: rect.top + (view.scrollY ?? 0),
+      width: rect.width,
+      height: rect.height,
+    },
   };
 }
 
-export function resolveExportCropRect(
+export function resolveExportCropTarget(
   doc: Document,
   selected: ElementInfo | readonly ElementInfo[] | null | undefined,
-): { x: number; y: number; width: number; height: number } | null {
+): ExportCropTarget {
   const selections = Array.isArray(selected)
     ? selected
     : selected
       ? [selected]
       : [];
-  return unionExportCropRects(
-    selections.flatMap((selection) => {
-      const rect = resolveElementExportCropRect(doc, selection);
-      return rect ? [rect] : [];
+  if (selections.length === 0) return { kind: "whole-screen" };
+  const targets = selections.map((selection) =>
+    resolveElementExportCropTarget(doc, selection),
+  );
+  // The screen root contains every other selectable node, so a selection that
+  // includes it unions to the whole screen. Cropping to a co-selected child
+  // would export less than was selected.
+  if (targets.some((target) => target.kind === "whole-screen")) {
+    return { kind: "whole-screen" };
+  }
+  const rect = unionExportCropRects(
+    targets.flatMap((target) => (target.kind === "rect" ? [target.rect] : [])),
+  );
+  return rect ? { kind: "rect", rect } : { kind: "unresolved" };
+}
+
+/**
+ * Rect-or-null view of {@link resolveExportCropTarget} for the whole-screen
+ * export paths (PDF page sizing, SVG), where an unresolvable selection and a
+ * screen-level selection both correctly mean "size to the whole screen".
+ */
+export function resolveExportCropRect(
+  doc: Document,
+  selected: ElementInfo | readonly ElementInfo[] | null | undefined,
+): { x: number; y: number; width: number; height: number } | null {
+  const target = resolveExportCropTarget(doc, selected);
+  return target.kind === "rect" ? target.rect : null;
+}
+
+/**
+ * Board preview iframes are finite windows around the infinite canvas. Export
+ * their placed nodes, not the mostly-empty render window; keep a small bleed
+ * so strokes and shadows at the outer edge are not clipped. DesignCanvas marks
+ * ordinary screen frames with data-screen-iframe-id; board previews omit it.
+ */
+export function resolveBoardExportCropRect(
+  doc: Document,
+  iframe: HTMLIFrameElement,
+): ExportCropRect | null {
+  if (iframe.hasAttribute("data-screen-iframe-id")) return null;
+  const view = doc.defaultView;
+  if (!view || !doc.body) return null;
+
+  const contentBounds = unionExportCropRects(
+    Array.from(
+      doc.body.querySelectorAll<HTMLElement>("[data-agent-native-node-id]"),
+    ).flatMap((element) => {
+      if (element.closest(EDITOR_CHROME_OVERLAY_SELECTOR)) return [];
+      const style = view.getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") return [];
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return [];
+      return [
+        {
+          x: rect.left + (view.scrollX ?? 0),
+          y: rect.top + (view.scrollY ?? 0),
+          width: rect.width,
+          height: rect.height,
+        },
+      ];
     }),
   );
+  if (!contentBounds) return null;
+
+  const documentWidth = Math.max(
+    doc.documentElement.scrollWidth,
+    doc.body.scrollWidth,
+    iframe.clientWidth,
+  );
+  const documentHeight = Math.max(
+    doc.documentElement.scrollHeight,
+    doc.body.scrollHeight,
+    iframe.clientHeight,
+  );
+  const padding = 16;
+  const x = Math.max(0, contentBounds.x - padding);
+  const y = Math.max(0, contentBounds.y - padding);
+  const right = Math.min(
+    documentWidth,
+    contentBounds.x + contentBounds.width + padding,
+  );
+  const bottom = Math.min(
+    documentHeight,
+    contentBounds.y + contentBounds.height + padding,
+  );
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
 }
 
 /**
@@ -268,11 +402,13 @@ export async function renderExportDocumentCanvas({
   doc,
   iframe,
   exportScale,
+  cropRect,
   render,
 }: {
   doc: Document;
   iframe: HTMLIFrameElement;
   exportScale: number;
+  cropRect?: ExportCropRect | null;
   render: (typeof import("html2canvas"))["default"];
 }): Promise<{ canvas: HTMLCanvasElement; scale: number }> {
   // A freshly loaded preview iframe (new generation, screen switch, or just a
@@ -302,14 +438,17 @@ export async function renderExportDocumentCanvas({
     doc.body?.scrollHeight ?? 0,
     iframe.clientHeight,
   );
+  const renderWidth = cropRect?.width ?? width;
+  const renderHeight = cropRect?.height ?? height;
   const effectiveScale = resolveRasterExportScale({
-    width,
-    height,
+    width: renderWidth,
+    height: renderHeight,
     requestedScale: exportScale,
   });
   const options = {
-    width,
-    height,
+    ...(cropRect ? { x: cropRect.x, y: cropRect.y } : {}),
+    width: renderWidth,
+    height: renderHeight,
     windowWidth: width,
     windowHeight: height,
     scale: effectiveScale,

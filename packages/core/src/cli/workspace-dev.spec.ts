@@ -268,6 +268,7 @@ describe("workspace dev startup", () => {
 
     const env = fake.calls()[0]?.options?.env;
     expect(env?.WORKSPACE_GATEWAY_URL).toMatch(/^http:\/\/127\.0\.0\.1:/);
+    expect(env?.APP_URL).toBe(env?.WORKSPACE_GATEWAY_URL);
     expect(env?.VITE_WORKSPACE_GATEWAY_URL).toBe(env?.WORKSPACE_GATEWAY_URL);
     expect(env?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
       env?.AGENT_NATIVE_WORKSPACE_APPS_JSON,

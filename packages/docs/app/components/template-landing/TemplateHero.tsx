@@ -71,10 +71,12 @@ export function TemplateHero({
       <div className="relative overflow-hidden border-x border-[var(--docs-border)]">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 hidden lg:grid lg:grid-cols-3"
+          // gap-px plus the pulled-back borders put these lines in the same
+          // places as the page gridlines below the hero; see GridLines.
+          className="pointer-events-none absolute inset-0 hidden lg:grid lg:grid-cols-3 lg:gap-px"
         >
           <div />
-          <div className="border-x border-[var(--docs-border)]" />
+          <div className="-mx-px border-x border-[var(--docs-border)]" />
           <div />
         </div>
 
