@@ -7,7 +7,7 @@
 grid controls (colour, show/hide) for those same peers.
 
 **Architecture:** The overlay list (`calendar-overlay-people`) serves two jobs — it
-renders peer events on the grid *and* gates whether a booking-link co-host's real
+renders peer events on the grid _and_ gates whether a booking-link co-host's real
 working hours are used. Splitting the surfaces by job: the booking-links page owns
 add/remove/reciprocity/request, the sidebar keeps colour + visibility only. No
 server or data-model changes; both surfaces already read the same action.
