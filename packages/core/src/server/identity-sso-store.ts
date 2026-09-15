@@ -43,7 +43,6 @@ const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
   "https://design.agent-native.com",
   "https://dispatch.agent-native.com",
   "https://forms.agent-native.com",
-  "https://macros.agent-native.com",
   "https://mail.agent-native.com",
   "https://plan.agent-native.com",
   "https://slides.agent-native.com",
