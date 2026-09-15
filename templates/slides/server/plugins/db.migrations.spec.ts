@@ -181,6 +181,21 @@ describe("Slides share migrations", () => {
       { name: "deck_versions_deck_owner_change_group_uidx" },
     ]);
 
+    const { rows: commentIndexes } = await exec.execute(
+      `SELECT indexname AS name
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname IN (
+           'slide_comments_deck_created_idx',
+           'slide_comments_deck_slide_created_idx'
+         )
+       ORDER BY indexname`,
+    );
+    expect(commentIndexes).toEqual([
+      { name: "slide_comments_deck_created_idx" },
+      { name: "slide_comments_deck_slide_created_idx" },
+    ]);
+
     await expect(
       exec.execute({
         sql: `INSERT INTO deck_shares

@@ -311,16 +311,7 @@ test.describe.serial("rare-but-real unique paths", () => {
         steps: 10,
       },
     );
-    await page.evaluate(() =>
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: " ",
-          code: "Space",
-          bubbles: true,
-          cancelable: true,
-        }),
-      ),
-    );
+    await page.keyboard.down("Space");
     await page.mouse.move(
       sectionBox.x + sectionBox.width / 2,
       sectionBox.y + sectionBox.height / 2,
@@ -328,17 +319,8 @@ test.describe.serial("rare-but-real unique paths", () => {
         steps: 10,
       },
     );
+    await page.keyboard.up("Space");
     await page.mouse.up();
-    await page.evaluate(() =>
-      window.dispatchEvent(
-        new KeyboardEvent("keyup", {
-          key: " ",
-          code: "Space",
-          bubbles: true,
-          cancelable: true,
-        }),
-      ),
-    );
 
     await expect.poll(() => getFileHtml(page)).not.toBe(beforeHtml);
 

@@ -122,3 +122,7 @@ Esta es la misma canalización utilizada para el alcance por usuario. Para conoc
 - [**Authentication**](/docs/authentication#organizations) — sesiones, proveedores sociales y la superficie de gestión de la organización
 - [**Security — Data Scoping**](/docs/security#data-scoping) — aislamiento de nivel SQL, contrato `ownableColumns()` y protecciones de acceso
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — aloja múltiples aplicaciones Agent-Native en un monorepo con autenticación compartida y RBAC
+
+## Modelo de aislamiento
+
+Usa `accessFilter()` y `assertAccess()` para las lecturas y escrituras del servidor. El aislamiento de SQL del agente crea vistas temporales filtradas para las tablas con propietario. `pnpm guards` incluye la comprobación de consultas sin ámbito. RLS no es actualmente una capa activa y está prevista como refuerzo posterior a 1.0. Consulta [Despliegues administrados](/docs/administered-deployments).

@@ -122,3 +122,7 @@ Este é o mesmo pipeline usado para escopo por usuário. Para a mecânica de ní
 - [**Authentication**](/docs/authentication#organizations) — sessões, provedores sociais e superfície de gerenciamento organizacional
 - [**Security — Data Scoping**](/docs/security#data-scoping) — isolamento no nível SQL, contrato `ownableColumns()` e proteções de acesso
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — hospede vários aplicativos Agent-Native em um monorepo com autenticação compartilhada e RBAC
+
+## Modelo de isolamento
+
+Use `accessFilter()` e `assertAccess()` para leituras e gravações no servidor. O escopo SQL do agente cria views temporárias filtradas para tabelas próprias. `pnpm guards` inclui a verificação de consultas sem escopo. RLS ainda não é uma camada ativa e está planejado como reforço após a versão 1.0. Consulte [Implantações administradas](/docs/administered-deployments).

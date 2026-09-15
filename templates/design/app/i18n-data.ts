@@ -335,6 +335,9 @@ const enUS = {
       detailsTab: "Details",
       decorationLabel: "Decoration",
       caseLabel: "Case",
+      truncateText: "Truncate text",
+      maxLines: "Max lines",
+      restoreError: "Could not restore the original text layout.",
     },
     flexDirections: {
       row: "Row",
@@ -457,6 +460,14 @@ const enUS = {
       swappedFor: 'Swapped for "{{name}}".',
       openPanelNudge: "Use the Swap instance picker in the Component panel.",
       openPanelFailed: "Could not open the component panel.",
+      linkedStructureUnsupported:
+        "Changing linked component layer structure is not supported yet.",
+      linkedEditScopeUnsupported:
+        "Linked component edits are available only at the base breakpoint and default interaction state.",
+      linkedEditSourceUnsupported:
+        "Linked component edits aren't available for this source mode yet.",
+      linkedEditTargetsUnavailable:
+        "This linked edit couldn't be resolved for every selected layer. No changes were made.",
     },
     makeItRealCard: {
       open: "Open",
@@ -861,6 +872,7 @@ const enUS = {
         ellipse: "Ellipse",
         line: "Line",
         arrow: "Arrow",
+        booleanSubtract: "Subtract",
         selectAll: "Select all",
         selectParent: "Select parent",
         enterSelection: "Enter selection",
@@ -1149,6 +1161,8 @@ const enUS = {
       designStateLiveScreen:
         "Design states can't preview on a live screen — its content is the running app, not a document.",
       layerMoveFailed: "Could not move that layer",
+      groupFillApplyFailed:
+        "Could not apply this fill to every layer in the group.",
       layerMoveRedirected:
         "Moved next to its original spot — the exact drop target isn't editable",
       duplicateElementFailed: "Could not duplicate that element",
@@ -1169,12 +1183,17 @@ const enUS = {
       saveConflict:
         "This screen changed elsewhere. Your last edit was not saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
+      booleanSubtractUnsupported:
+        "Select adjacent rectangles or ellipses with solid fills to subtract them.",
+      booleanSubtractFailed: "Could not subtract those layers.",
       reactSourceAnchorsLoading:
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
       reactSourceAnchorsUnavailable:
         "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
       screenSourceUpdated: "Screen source updated",
       screenSourceUpdateFailed: "Could not update screen source",
+      vectorEditUnsupported:
+        "Vector editing isn't available for this shape or transform.",
     },
   },
   layersPanel: {
@@ -1211,6 +1230,8 @@ const enUS = {
     frameSelection: "Frame selection",
     flipHorizontal: "Flip horizontal",
     flipVertical: "Flip vertical",
+    booleanOperations: "Boolean operations",
+    subtract: "Subtract",
     dragGhostCount: "{{count}} layers",
   },
   designCanvas: {
@@ -1927,6 +1948,9 @@ const designLocaleOverrides = {
         detailsTab: "详细信息",
         decorationLabel: "装饰",
         caseLabel: "大小写",
+        truncateText: "截断文本",
+        maxLines: "最大行数",
+        restoreError: "无法恢复原始文本布局。",
       },
       flexDirections: {
         row: "排",
@@ -2366,6 +2390,9 @@ const designLocaleOverrides = {
         detailsTab: "Detalles",
         decorationLabel: "Decoración",
         caseLabel: "Mayúsculas y minúsculas",
+        truncateText: "Recortar texto",
+        maxLines: "Máximo de líneas",
+        restoreError: "No se pudo restaurar el diseño original del texto.",
       },
       flexDirections: {
         row: "Fila",
@@ -2832,6 +2859,10 @@ const designLocaleOverrides = {
         detailsTab: "Détails",
         decorationLabel: "Décoration",
         caseLabel: "Casse",
+        truncateText: "Tronquer le texte",
+        maxLines: "Nombre maximal de lignes",
+        restoreError:
+          "Impossible de restaurer la mise en page d’origine du texte.",
       },
       flexDirections: {
         row: "Rangée",
@@ -3302,6 +3333,10 @@ const designLocaleOverrides = {
         detailsTab: "Details",
         decorationLabel: "Dekoration",
         caseLabel: "Groß-/Kleinschreibung",
+        truncateText: "Text kürzen",
+        maxLines: "Maximale Zeilen",
+        restoreError:
+          "Das ursprüngliche Textlayout konnte nicht wiederhergestellt werden.",
       },
       flexDirections: {
         row: "Reihe",
@@ -3772,6 +3807,9 @@ const designLocaleOverrides = {
         detailsTab: "詳細",
         decorationLabel: "装飾",
         caseLabel: "大文字/小文字",
+        truncateText: "テキストを省略",
+        maxLines: "最大行数",
+        restoreError: "元のテキストレイアウトを復元できませんでした。",
       },
       flexDirections: {
         row: "行",
@@ -4237,6 +4275,9 @@ const designLocaleOverrides = {
         detailsTab: "세부 정보",
         decorationLabel: "장식",
         caseLabel: "대소문자",
+        truncateText: "텍스트 자르기",
+        maxLines: "최대 줄 수",
+        restoreError: "원래 텍스트 레이아웃을 복원할 수 없습니다.",
       },
       flexDirections: {
         row: "열",
@@ -4694,6 +4735,9 @@ const designLocaleOverrides = {
         detailsTab: "Detalhes",
         decorationLabel: "Decoração",
         caseLabel: "Maiúsculas e minúsculas",
+        truncateText: "Truncar texto",
+        maxLines: "Máximo de linhas",
+        restoreError: "Não foi possível restaurar o layout original do texto.",
       },
       flexDirections: {
         row: "Linha",
@@ -5159,6 +5203,9 @@ const designLocaleOverrides = {
         detailsTab: "विवरण",
         decorationLabel: "सजावट",
         caseLabel: "बड़े/छोटे अक्षर",
+        truncateText: "पाठ छोटा करें",
+        maxLines: "अधिकतम पंक्तियाँ",
+        restoreError: "पाठ का मूल लेआउट पुनर्स्थापित नहीं हो सका।",
       },
       flexDirections: {
         row: "पंक्ति",
@@ -5612,6 +5659,9 @@ const designLocaleOverrides = {
         detailsTab: "التفاصيل",
         decorationLabel: "زخرفة",
         caseLabel: "حالة الأحرف",
+        truncateText: "اقتطاع النص",
+        maxLines: "الحد الأقصى للأسطر",
+        restoreError: "تعذرت استعادة تخطيط النص الأصلي.",
       },
       flexDirections: {
         row: "صف",
@@ -10258,6 +10308,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "属性已粘贴",
         primitiveInsertFailed: "无法将该图层添加到画面",
         layerMoveFailed: "无法移动该图层",
+        groupFillApplyFailed: "无法将此填充应用到组中的所有图层。",
         layerMoveRedirected: "已移动到原位置附近——精确的放置目标不可编辑",
         duplicateElementFailed: "无法复制该元素",
         repeatListNotEditable: "无法更新此重复列表",
@@ -10365,6 +10416,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propiedades pegadas",
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
         layerMoveFailed: "No se pudo mover esa capa",
+        groupFillApplyFailed:
+          "No se pudo aplicar este relleno a todas las capas del grupo.",
         layerMoveRedirected:
           "Se movió cerca de su lugar original — el destino exacto no es editable",
         duplicateElementFailed: "No se pudo duplicar ese elemento",
@@ -10477,6 +10530,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriétés collées",
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
         layerMoveFailed: "Impossible de déplacer ce calque",
+        groupFillApplyFailed:
+          "Impossible d’appliquer ce remplissage à tous les calques du groupe.",
         layerMoveRedirected:
           "Déplacé à proximité de son emplacement d’origine — la cible exacte n’est pas modifiable",
         duplicateElementFailed: "Impossible de dupliquer cet élément",
@@ -10590,6 +10645,8 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed:
           "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
         layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
+        groupFillApplyFailed:
+          "Diese Füllung konnte nicht auf alle Ebenen der Gruppe angewendet werden.",
         layerMoveRedirected:
           "In die Nähe der ursprünglichen Stelle verschoben — das genaue Ziel ist nicht bearbeitbar",
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
@@ -10700,6 +10757,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "プロパティを貼り付けました",
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
         layerMoveFailed: "そのレイヤーを移動できませんでした",
+        groupFillApplyFailed:
+          "この塗りをグループ内のすべてのレイヤーに適用できませんでした。",
         layerMoveRedirected:
           "元の位置の近くに移動しました — 正確なドロップ先は編集できません",
         duplicateElementFailed: "その要素を複製できませんでした",
@@ -10808,6 +10867,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "속성이 붙여넣어짐",
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
         layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
+        groupFillApplyFailed:
+          "그룹의 모든 레이어에 이 채우기를 적용할 수 없습니다.",
         layerMoveRedirected:
           "원래 위치 근처로 이동되었습니다 — 정확한 놓기 대상은 편집할 수 없습니다",
         duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
@@ -10917,6 +10978,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriedades coladas",
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
         layerMoveFailed: "Não foi possível mover essa camada",
+        groupFillApplyFailed:
+          "Não foi possível aplicar este preenchimento a todas as camadas do grupo.",
         layerMoveRedirected:
           "Movido para perto do local original — o destino exato não é editável",
         duplicateElementFailed: "Não foi possível duplicar esse elemento",
@@ -11026,6 +11089,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "गुण चिपकाए गए",
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
         layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
+        groupFillApplyFailed: "यह भराव समूह की सभी परतों पर लागू नहीं किया जा सका।",
         layerMoveRedirected:
           "मूल स्थान के पास ले जाया गया — सटीक ड्रॉप लक्ष्य संपादन योग्य नहीं है",
         duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
@@ -11134,6 +11198,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "تم لصق الخصائص",
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
         layerMoveFailed: "تعذر نقل تلك الطبقة",
+        groupFillApplyFailed:
+          "تعذر تطبيق هذا التعبئة على جميع الطبقات في المجموعة.",
         layerMoveRedirected:
           "تم النقل بالقرب من الموضع الأصلي — الهدف الدقيق للإفلات غير قابل للتحرير",
         duplicateElementFailed: "تعذّر تكرار هذا العنصر",
@@ -14259,6 +14325,10 @@ const designAlignmentOverrides = {
     designEditor: {
       toasts: {
         autoLayoutScreensUnsupported: "自动布局不适用于屏幕",
+        booleanSubtractUnsupported:
+          "请选择相邻且使用纯色填充的矩形或椭圆以执行减去操作。",
+        booleanSubtractFailed: "无法减去所选图层。",
+        vectorEditUnsupported: "此形状或变换目前无法进行向量编辑。",
       },
     },
     layersPanel: {
@@ -14266,6 +14336,8 @@ const designAlignmentOverrides = {
       frameSelection: "创建画框",
       flipHorizontal: "水平翻转",
       flipVertical: "垂直翻转",
+      booleanOperations: "布尔运算",
+      subtract: "减去",
     },
   },
   "es-ES": {
@@ -14273,6 +14345,11 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Agregar diseño automático no se aplica a las pantallas",
+        booleanSubtractUnsupported:
+          "Selecciona rectángulos o elipses adyacentes con rellenos sólidos para restarlos.",
+        booleanSubtractFailed: "No se pudieron restar esas capas.",
+        vectorEditUnsupported:
+          "La edición vectorial no está disponible para esta forma o transformación.",
       },
     },
     layersPanel: {
@@ -14280,6 +14357,8 @@ const designAlignmentOverrides = {
       frameSelection: "Enmarcar selección",
       flipHorizontal: "Voltear horizontalmente",
       flipVertical: "Voltear verticalmente",
+      booleanOperations: "Operaciones booleanas",
+      subtract: "Restar",
     },
   },
   "fr-FR": {
@@ -14287,6 +14366,11 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Ajouter une disposition automatique ne s'applique pas aux écrans",
+        booleanSubtractUnsupported:
+          "Sélectionnez des rectangles ou des ellipses adjacents avec un remplissage uni pour les soustraire.",
+        booleanSubtractFailed: "Impossible de soustraire ces calques.",
+        vectorEditUnsupported:
+          "L’édition vectorielle n’est pas disponible pour cette forme ou transformation.",
       },
     },
     layersPanel: {
@@ -14294,6 +14378,8 @@ const designAlignmentOverrides = {
       frameSelection: "Encadrer la sélection",
       flipHorizontal: "Retourner horizontalement",
       flipVertical: "Retourner verticalement",
+      booleanOperations: "Opérations booléennes",
+      subtract: "Soustraire",
     },
   },
   "de-DE": {
@@ -14301,6 +14387,11 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Auto-Layout hinzufügen gilt nicht für Bildschirme",
+        booleanSubtractUnsupported:
+          "Wähle benachbarte Rechtecke oder Ellipsen mit einfarbiger Füllung aus, um sie zu subtrahieren.",
+        booleanSubtractFailed: "Diese Ebenen konnten nicht subtrahiert werden.",
+        vectorEditUnsupported:
+          "Vektorbearbeitung ist für diese Form oder Transformation nicht verfügbar.",
       },
     },
     layersPanel: {
@@ -14308,6 +14399,8 @@ const designAlignmentOverrides = {
       frameSelection: "Auswahl rahmen",
       flipHorizontal: "Horizontal spiegeln",
       flipVertical: "Vertikal spiegeln",
+      booleanOperations: "Boolesche Operationen",
+      subtract: "Subtrahieren",
     },
   },
   "ja-JP": {
@@ -14315,6 +14408,11 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "オートレイアウトの追加は画面には適用されません",
+        booleanSubtractUnsupported:
+          "減算するには、隣接する単色塗りの長方形または楕円を選択してください。",
+        booleanSubtractFailed: "選択したレイヤーを減算できませんでした。",
+        vectorEditUnsupported:
+          "この形状または変形はベクター編集に対応していません。",
       },
     },
     layersPanel: {
@@ -14322,6 +14420,8 @@ const designAlignmentOverrides = {
       frameSelection: "選択範囲をフレーム化",
       flipHorizontal: "水平方向に反転",
       flipVertical: "垂直方向に反転",
+      booleanOperations: "ブール演算",
+      subtract: "減算",
     },
   },
   "ko-KR": {
@@ -14329,6 +14429,11 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "오토 레이아웃 추가는 화면에 적용되지 않습니다",
+        booleanSubtractUnsupported:
+          "빼기 작업을 하려면 단색으로 채워진 인접한 사각형이나 타원을 선택하세요.",
+        booleanSubtractFailed: "선택한 레이어를 빼지 못했습니다.",
+        vectorEditUnsupported:
+          "이 도형이나 변형은 벡터 편집을 지원하지 않습니다.",
       },
     },
     layersPanel: {
@@ -14336,6 +14441,8 @@ const designAlignmentOverrides = {
       frameSelection: "선택 영역 프레임화",
       flipHorizontal: "수평 뒤집기",
       flipVertical: "수직 뒤집기",
+      booleanOperations: "불리언 연산",
+      subtract: "빼기",
     },
   },
   "pt-BR": {
@@ -14343,6 +14450,11 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Adicionar layout automático não se aplica a telas",
+        booleanSubtractUnsupported:
+          "Selecione retângulos ou elipses adjacentes com preenchimento sólido para subtraí-los.",
+        booleanSubtractFailed: "Não foi possível subtrair essas camadas.",
+        vectorEditUnsupported:
+          "A edição vetorial não está disponível para esta forma ou transformação.",
       },
     },
     layersPanel: {
@@ -14350,12 +14462,19 @@ const designAlignmentOverrides = {
       frameSelection: "Enquadrar seleção",
       flipHorizontal: "Inverter horizontalmente",
       flipVertical: "Inverter verticalmente",
+      booleanOperations: "Operações booleanas",
+      subtract: "Subtrair",
     },
   },
   "hi-IN": {
     designEditor: {
       toasts: {
         autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ें स्क्रीन पर लागू नहीं होता",
+        booleanSubtractUnsupported:
+          "घटाने के लिए पास-पास रखे ठोस रंग वाले आयत या दीर्घवृत्त चुनें।",
+        booleanSubtractFailed: "चुनी गई परतों को घटाया नहीं जा सका।",
+        vectorEditUnsupported:
+          "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
       },
     },
     layersPanel: {
@@ -14363,6 +14482,8 @@ const designAlignmentOverrides = {
       frameSelection: "चयन को फ़्रेम करें",
       flipHorizontal: "क्षैतिज रूप से फ़्लिप करें",
       flipVertical: "लंबवत रूप से फ़्लिप करें",
+      booleanOperations: "बूलियन ऑपरेशन",
+      subtract: "घटाएँ",
     },
   },
   "ar-SA": {
@@ -14370,6 +14491,10 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "إضافة التخطيط التلقائي لا تنطبق على الشاشات",
+        booleanSubtractUnsupported:
+          "اختر مستطيلات أو أشكالًا بيضاوية متجاورة ذات تعبئة بلون ثابت لطرحها.",
+        booleanSubtractFailed: "تعذر طرح هذه الطبقات.",
+        vectorEditUnsupported: "تحرير المتجهات غير متاح لهذا الشكل أو التحويل.",
       },
     },
     layersPanel: {
@@ -14377,6 +14502,8 @@ const designAlignmentOverrides = {
       frameSelection: "تأطير التحديد",
       flipHorizontal: "قلب أفقيًا",
       flipVertical: "قلب رأسيًا",
+      booleanOperations: "العمليات المنطقية",
+      subtract: "طرح",
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
@@ -15793,6 +15920,12 @@ const designComponentInstanceOverrides = {
         swappedFor: "已交换为“{{name}}”。",
         openPanelNudge: "请使用“组件”面板中的“交换实例”选择器。",
         openPanelFailed: "无法打开组件面板。",
+        linkedStructureUnsupported: "目前尚不支持更改链接组件的图层结构。",
+        linkedEditScopeUnsupported:
+          "链接组件编辑目前仅支持基础断点和默认交互状态。",
+        linkedEditSourceUnsupported: "此来源模式目前不支持链接组件编辑。",
+        linkedEditTargetsUnavailable:
+          "无法为每个选中图层解析此链接编辑。未进行任何更改。",
       },
     },
   },
@@ -15818,6 +15951,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "Usa el selector Intercambiar instancia del panel Componente.",
         openPanelFailed: "No se pudo abrir el panel Componente.",
+        linkedStructureUnsupported:
+          "Aún no se admite cambiar la estructura de capas de los componentes vinculados.",
+        linkedEditScopeUnsupported:
+          "Los cambios en componentes vinculados solo están disponibles en el punto de interrupción base y el estado de interacción predeterminado.",
+        linkedEditSourceUnsupported:
+          "Este modo de origen aún no admite cambios en componentes vinculados.",
+        linkedEditTargetsUnavailable:
+          "No se pudo resolver este cambio vinculado para todas las capas seleccionadas. No se realizaron cambios.",
       },
     },
   },
@@ -15843,6 +15984,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "Utilisez le sélecteur Permuter l’instance dans le panneau Composant.",
         openPanelFailed: "Impossible d’ouvrir le panneau Composant.",
+        linkedStructureUnsupported:
+          "La modification de la structure des calques des composants liés n’est pas encore prise en charge.",
+        linkedEditScopeUnsupported:
+          "Les modifications des composants liés sont disponibles uniquement au point d’arrêt de base et dans l’état d’interaction par défaut.",
+        linkedEditSourceUnsupported:
+          "Ce mode source ne prend pas encore en charge les modifications des composants liés.",
+        linkedEditTargetsUnavailable:
+          "Impossible de résoudre cette modification liée pour tous les calques sélectionnés. Aucune modification n’a été effectuée.",
       },
     },
   },
@@ -15867,6 +16016,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "Verwende die Auswahl „Instanz austauschen“ im Komponentenbereich.",
         openPanelFailed: "Der Komponentenbereich konnte nicht geöffnet werden.",
+        linkedStructureUnsupported:
+          "Das Ändern der Ebenenstruktur verknüpfter Komponenten wird noch nicht unterstützt.",
+        linkedEditScopeUnsupported:
+          "Verknüpfte Komponenten können nur am Basis-Breakpoint und im Standard-Interaktionszustand bearbeitet werden.",
+        linkedEditSourceUnsupported:
+          "Dieser Quellmodus unterstützt Änderungen an verknüpften Komponenten noch nicht.",
+        linkedEditTargetsUnavailable:
+          "Diese Änderung konnte nicht für alle ausgewählten Ebenen aufgelöst werden. Es wurden keine Änderungen vorgenommen.",
       },
     },
   },
@@ -15892,6 +16049,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "コンポーネントパネルの「インスタンスを入れ替え」を使用してください。",
         openPanelFailed: "コンポーネントパネルを開けませんでした。",
+        linkedStructureUnsupported:
+          "リンクされたコンポーネントのレイヤー構造の変更はまだサポートされていません。",
+        linkedEditScopeUnsupported:
+          "リンクされたコンポーネントの編集は、ベースのブレークポイントと既定のインタラクション状態でのみ使用できます。",
+        linkedEditSourceUnsupported:
+          "このソースモードでは、リンクされたコンポーネントの編集はまだ利用できません。",
+        linkedEditTargetsUnavailable:
+          "選択したすべてのレイヤーでリンクされた編集を解決できませんでした。変更は行われていません。",
       },
     },
   },
@@ -15914,6 +16079,14 @@ const designComponentInstanceOverrides = {
         swappedFor: '"{{name}}"(으)로 교체했습니다.',
         openPanelNudge: "컴포넌트 패널의 인스턴스 교체 선택기를 사용하세요.",
         openPanelFailed: "컴포넌트 패널을 열 수 없습니다.",
+        linkedStructureUnsupported:
+          "연결된 컴포넌트의 레이어 구조 변경은 아직 지원되지 않습니다.",
+        linkedEditScopeUnsupported:
+          "연결된 컴포넌트 편집은 기본 중단점과 기본 상호작용 상태에서만 사용할 수 있습니다.",
+        linkedEditSourceUnsupported:
+          "이 소스 모드에서는 연결된 컴포넌트 편집을 아직 사용할 수 없습니다.",
+        linkedEditTargetsUnavailable:
+          "선택한 모든 레이어에서 연결된 편집을 확인할 수 없습니다. 변경 사항은 적용되지 않았습니다.",
       },
     },
   },
@@ -15938,6 +16111,14 @@ const designComponentInstanceOverrides = {
         swappedFor: 'Trocada por "{{name}}".',
         openPanelNudge: "Use o seletor Trocar instância no painel Componente.",
         openPanelFailed: "Não foi possível abrir o painel Componente.",
+        linkedStructureUnsupported:
+          "Ainda não é possível alterar a estrutura das camadas de componentes vinculados.",
+        linkedEditScopeUnsupported:
+          "Edições de componentes vinculados só estão disponíveis no breakpoint base e no estado de interação padrão.",
+        linkedEditSourceUnsupported:
+          "Este modo de origem ainda não permite edições de componentes vinculados.",
+        linkedEditTargetsUnavailable:
+          "Não foi possível resolver esta edição vinculada para todas as camadas selecionadas. Nenhuma alteração foi feita.",
       },
     },
   },
@@ -15960,6 +16141,14 @@ const designComponentInstanceOverrides = {
         swappedFor: '"{{name}}" से बदल दिया गया।',
         openPanelNudge: "कॉम्पोनेंट पैनल में इंस्टेंस बदलें चयनकर्ता का उपयोग करें।",
         openPanelFailed: "कॉम्पोनेंट पैनल नहीं खोला जा सका।",
+        linkedStructureUnsupported:
+          "लिंक किए गए कॉम्पोनेंट की लेयर संरचना बदलना अभी समर्थित नहीं है।",
+        linkedEditScopeUnsupported:
+          "लिंक किए गए कॉम्पोनेंट संपादन केवल बेस ब्रेकपॉइंट और डिफ़ॉल्ट इंटरैक्शन स्थिति में उपलब्ध हैं।",
+        linkedEditSourceUnsupported:
+          "इस सोर्स मोड में लिंक किए गए कॉम्पोनेंट संपादन अभी उपलब्ध नहीं हैं।",
+        linkedEditTargetsUnavailable:
+          "चुनी गई सभी लेयरों के लिए यह लिंक किया गया संपादन हल नहीं हो सका। कोई बदलाव नहीं किया गया।",
       },
     },
   },
@@ -15982,6 +16171,14 @@ const designComponentInstanceOverrides = {
         swappedFor: 'تم التبديل إلى "{{name}}".',
         openPanelNudge: "استخدم منتقي تبديل النسخة في لوحة المكوّن.",
         openPanelFailed: "تعذر فتح لوحة المكوّن.",
+        linkedStructureUnsupported:
+          "تغيير بنية طبقات المكوّنات المرتبطة غير مدعوم حتى الآن.",
+        linkedEditScopeUnsupported:
+          "تعديلات المكوّنات المرتبطة متاحة فقط عند نقطة التوقف الأساسية وفي حالة التفاعل الافتراضية.",
+        linkedEditSourceUnsupported:
+          "وضع المصدر هذا لا يدعم تعديلات المكوّنات المرتبطة بعد.",
+        linkedEditTargetsUnavailable:
+          "تعذر حل هذا التعديل المرتبط لكل الطبقات المحددة. لم يتم إجراء أي تغييرات.",
       },
     },
   },

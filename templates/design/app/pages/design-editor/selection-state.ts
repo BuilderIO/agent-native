@@ -1,4 +1,7 @@
-import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import type {
+  CanvasFrameGeometry,
+  CanvasFrameGeometryById,
+} from "@shared/canvas-frames";
 import type { CodeLayerNode, CodeLayerProjection } from "@shared/code-layer";
 import type { DesignSourceType } from "@shared/source-mode";
 
@@ -11,6 +14,11 @@ import type {
 import { prettyScreenName } from "@/lib/screen-names";
 import { elementInfoFromCodeLayerNode } from "@/pages/design-editor/code-layer-state";
 
+import {
+  clampScreenFrameSize,
+  readScreenSizeConstraints,
+  type ScreenSizeConstraints,
+} from "../../components/design/multi-screen/screen-sizing";
 import type { GeometryHistorySelection } from "./history";
 import type { DesignTool, EditorMode } from "./types";
 
@@ -212,9 +220,11 @@ export function shouldIgnoreOverviewLayerCreationEcho(args: {
   // any other element must still replace the panel selection immediately.
   const echoedLayerId =
     args.info?.sourceId ?? args.info?.id ?? args.info?.pendingNodeId;
+  // Projection ids are file-scoped; authored DOM ids can repeat across Screens.
   return (
     args.resolvedLayerId === args.pendingLayerId ||
-    echoedLayerId === args.pendingLayerId
+    (args.pendingScreenId === args.screenId &&
+      echoedLayerId === args.pendingLayerId)
   );
 }
 
@@ -248,6 +258,71 @@ export function resolveAvailableActiveFileId(args: {
     : null;
 }
 
+export interface OverviewScreenGeometrySource {
+  id: string;
+  width?: number;
+  height?: number;
+  heightMode?: ScreenGeometrySelection["heightMode"];
+  sizeConstraints?: ScreenSizeConstraints;
+}
+
+type ResolvedScreenFrameGeometry = CanvasFrameGeometry &
+  Required<Pick<CanvasFrameGeometry, "x" | "y" | "width" | "height">>;
+
+export function resolveOverviewScreenFrameGeometry(args: {
+  screen: OverviewScreenGeometrySource;
+  screenIndex: number;
+  canvasFrameGeometryById: CanvasFrameGeometryById;
+  naturalHeight?: number;
+  sizeConstraints?: ScreenSizeConstraints;
+}): ResolvedScreenFrameGeometry {
+  const fallbackGeometry = getInitialFrameGeometry(args.screenIndex, {
+    width: args.screen.width ?? 1280,
+    height: args.screen.height ?? 2560,
+  });
+  const persistedGeometry = args.canvasFrameGeometryById[args.screen.id] ?? {};
+  const geometry = {
+    ...fallbackGeometry,
+    ...persistedGeometry,
+    x: persistedGeometry.x ?? fallbackGeometry.x,
+    y: persistedGeometry.y ?? fallbackGeometry.y,
+    width: persistedGeometry.width ?? fallbackGeometry.width,
+    height: persistedGeometry.height ?? fallbackGeometry.height,
+  };
+  if (
+    args.screen.heightMode === "hug" &&
+    typeof args.naturalHeight === "number" &&
+    Number.isFinite(args.naturalHeight) &&
+    args.naturalHeight > 0
+  ) {
+    geometry.height = args.naturalHeight;
+  }
+  return args.sizeConstraints
+    ? clampScreenFrameSize(geometry, args.sizeConstraints)
+    : geometry;
+}
+
+export function getOverviewScreenExportGeometryById(args: {
+  overviewScreens: OverviewScreenGeometrySource[];
+  canvasFrameGeometryById: CanvasFrameGeometryById;
+  naturalHeightsById?: Record<string, number>;
+  screenRootComputedStylesById?: Record<string, Record<string, string>>;
+}): CanvasFrameGeometryById {
+  const geometryById: CanvasFrameGeometryById = {};
+  args.overviewScreens.forEach((screen, screenIndex) => {
+    geometryById[screen.id] = resolveOverviewScreenFrameGeometry({
+      screen,
+      screenIndex,
+      canvasFrameGeometryById: args.canvasFrameGeometryById,
+      naturalHeight: args.naturalHeightsById?.[screen.id],
+      sizeConstraints: readScreenSizeConstraints(
+        args.screenRootComputedStylesById?.[screen.id],
+      ),
+    });
+  });
+  return geometryById;
+}
+
 export function getSelectedScreenGeometryForInspector(args: {
   selectedInspectorElementCount: number;
   selectedScreenIds: string[];
@@ -257,8 +332,11 @@ export function getSelectedScreenGeometryForInspector(args: {
     title?: string;
     width?: number;
     height?: number;
+    heightMode?: ScreenGeometrySelection["heightMode"];
   }>;
   canvasFrameGeometryById: CanvasFrameGeometryById;
+  naturalHeightsById?: Record<string, number>;
+  screenRootComputedStylesById?: Record<string, Record<string, string>>;
 }): ScreenGeometrySelection | null {
   if (args.selectedInspectorElementCount > 0) return null;
   if (args.selectedScreenIds.length !== 1) return null;
@@ -270,15 +348,15 @@ export function getSelectedScreenGeometryForInspector(args: {
   if (screenIndex < 0) return null;
   const screen = args.overviewScreens[screenIndex];
   if (!screen) return null;
-  const fallbackGeometry = getInitialFrameGeometry(screenIndex, {
-    width: screen.width ?? 1280,
-    height: screen.height ?? 2560,
+  const geometry = resolveOverviewScreenFrameGeometry({
+    screen,
+    screenIndex,
+    canvasFrameGeometryById: args.canvasFrameGeometryById,
+    naturalHeight: args.naturalHeightsById?.[screenId],
+    sizeConstraints: readScreenSizeConstraints(
+      args.screenRootComputedStylesById?.[screenId],
+    ),
   });
-  const persistedGeometry = args.canvasFrameGeometryById[screenId] ?? {};
-  const geometry = {
-    ...fallbackGeometry,
-    ...persistedGeometry,
-  };
   return {
     id: screen.id,
     title: screen.title ?? prettyScreenName(screen.filename),
@@ -286,6 +364,10 @@ export function getSelectedScreenGeometryForInspector(args: {
     y: geometry.y,
     width: geometry.width,
     height: geometry.height,
+    heightMode: screen.heightMode,
+    sizeConstraints: readScreenSizeConstraints(
+      args.screenRootComputedStylesById?.[screenId],
+    ),
   };
 }
 

@@ -1,6 +1,7 @@
 import {
   readRepeatData,
   repeatBindingTarget,
+  repeatIndexVariable,
   repeatItemVariable,
 } from "@shared/repeat-data";
 import {
@@ -64,6 +65,25 @@ export function runRepeatItemEdit(args: {
     return setValue(args.content, target, args.operation);
   }
 
+  let duplicateKeyField: string | undefined;
+  if (args.operation.kind === "duplicate" && target.keyExpression) {
+    const itemVariable = repeatItemVariable(target.xFor);
+    const keyTarget = itemVariable
+      ? repeatBindingTarget(target.keyExpression, itemVariable)
+      : null;
+    if (keyTarget?.kind === "field") {
+      duplicateKeyField = keyTarget.field;
+    } else if (
+      repeatIndexVariable(target.xFor) !== target.keyExpression.trim()
+    ) {
+      return {
+        status: "refused",
+        refusal: "unwritable",
+        reason: `"${target.keyExpression}" is not a direct item field or the repeat index, so a unique duplicate key cannot be written.`,
+      };
+    }
+  }
+
   const write =
     args.operation.kind === "remove"
       ? removeRepeatItem({
@@ -76,6 +96,7 @@ export function runRepeatItemEdit(args: {
             html: args.content,
             xFor: target.xFor,
             index: target.itemIndex,
+            ...(duplicateKeyField ? { keyField: duplicateKeyField } : {}),
           })
         : moveRepeatItem({
             html: args.content,

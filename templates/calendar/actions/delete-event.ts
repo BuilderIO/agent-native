@@ -5,7 +5,7 @@ import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
-import { isGoogleNotFoundError } from "../server/lib/google-api.js";
+import { isGoogleEventAbsentError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
@@ -104,7 +104,7 @@ export default defineAction({
         );
       }
     } catch (error) {
-      if (!isGoogleNotFoundError(error)) throw error;
+      if (!isGoogleEventAbsentError(error)) throw error;
 
       return {
         success: true,

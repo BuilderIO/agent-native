@@ -70,6 +70,7 @@ import {
   isCanonicalIdentitySsoClientRequest,
   isCanonicalIdentitySsoClientConfigured,
   isIdentitySsoAvailableForRequest,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
 } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
@@ -1104,6 +1105,8 @@ export interface OnboardingHtmlOptions {
    * If Google OAuth env vars are not configured, an error message is shown.
    */
   googleOnly?: boolean;
+  /** Additional provider scopes require the direct OAuth flow to persist tokens. */
+  googleScopes?: string[];
   /** Authentication surface to render. Defaults to the existing password flow. */
   authMode?: "magic-link" | "password";
   /** Render the quiet, centered auth surface used when the app has an initial prompt. */
@@ -1277,6 +1280,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const identitySsoRequestHost =
     opts.identitySsoRequestHost ?? opts.requestHost;
   const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const googleViaIdentitySso =
+    !opts.googleScopes?.length &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    );
   const identitySsoEnabled = isIdentitySsoAvailableForRequest({
     requestHost: identitySsoRequestHost,
     requestProtocol: identitySsoRequestProtocol,
@@ -1691,12 +1700,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     brandMarkLightSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
     showGoogle,
+    organizationSsoEnabled: getAppConfig().access.sso.enabled,
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
     identitySsoEnabled,
+    googleViaIdentitySso,
     identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
@@ -2057,6 +2068,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-full-options[hidden] { display: none; }
   .full-auth-options { margin-top: 1rem; }
   .full-auth-options[hidden] { display: none; }
+  .sso-signin { margin-top: 0.75rem; }
   .legal-note {
     margin-top: 0.375rem;
     margin-bottom: 0.875rem;

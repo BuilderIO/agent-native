@@ -459,6 +459,7 @@ function SettingsTabsPageContent({
   }, [tabs]);
   const tabGroupLabels: Record<string, string> = {
     app: "Personal",
+    automation: "Automation",
     integrations: "Integrations",
     workspace: "Workspace",
     agent: "Agent",

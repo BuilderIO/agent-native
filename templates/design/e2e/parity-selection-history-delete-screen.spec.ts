@@ -94,7 +94,13 @@ async function fileIdByFilename(
  * lastSelectedLayers helper). */
 async function lastSelectedLayers(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const entries = (window as any).__designTrace?.entries?.() ?? [];
+    const trace = (window as any).__designTrace;
+    if (!trace || typeof trace.entries !== "function") {
+      throw new Error(
+        "Design selection trace was not initialized; set __DESIGN_TRACE before app navigation",
+      );
+    }
+    const entries = trace.entries();
     const selects = entries.filter(
       (entry: { area: string }) => entry.area === "select",
     );
@@ -107,6 +113,11 @@ async function lastSelectedLayers(page: Page): Promise<string[]> {
 test("undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id", async ({
   page,
 }) => {
+  // The immutable E2E bundle runs the production trace branch, which is off unless opted in.
+  await page.addInitScript(() => {
+    (window as any).__DESIGN_TRACE = true;
+  });
+
   const consoleErrors: string[] = [];
   page.on("console", (msg) => {
     if (msg.type() === "error") consoleErrors.push(msg.text());

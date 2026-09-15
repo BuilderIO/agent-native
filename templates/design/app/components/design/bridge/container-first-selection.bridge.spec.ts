@@ -1,5 +1,5 @@
 import { chromium } from "@playwright/test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
@@ -65,7 +65,7 @@ describe("container-first click selection", () => {
 
       // Kid A sits at (56,56)-(166,136) in page coordinates; click its center.
       await page.mouse.click(111, 96);
-      await page.waitForTimeout(50);
+      await vi.waitFor(() => expect(selected.length).toBeGreaterThan(0));
 
       expect(selected[selected.length - 1]).toBe("card");
       expect(selected).not.toContain("kid-a");

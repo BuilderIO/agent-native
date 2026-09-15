@@ -133,6 +133,38 @@ describe("useLabels", () => {
   });
 });
 
+describe("account-scoped triage mutations", () => {
+  it("forwards the selected account through spam, block, and mute requests", () => {
+    const source = emailsHookSource();
+    const reportSpam = source.slice(
+      source.indexOf("export function useReportSpam()"),
+      source.indexOf("export function useBlockSender()"),
+    );
+    const blockSender = source.slice(
+      source.indexOf("export function useBlockSender()"),
+      source.indexOf("export function useMuteThread()"),
+    );
+    const muteThread = source.slice(
+      source.indexOf("export function useMuteThread()"),
+      source.indexOf(
+        "// ─── Contacts",
+        source.indexOf("export function useMuteThread()"),
+      ),
+    );
+
+    expect(reportSpam).toContain("accountEmail?: string");
+    expect(reportSpam).toContain(
+      "body: JSON.stringify({ accountEmail, threadId })",
+    );
+    expect(blockSender).toContain("accountEmail?: string");
+    expect(blockSender).toContain(
+      "body: JSON.stringify({ senderEmail, accountEmail })",
+    );
+    expect(muteThread).toContain("accountEmail?: string");
+    expect(muteThread).toContain("body: JSON.stringify({ accountEmail })");
+  });
+});
+
 describe("useEmails query warming", () => {
   it("shares the infinite-query fetcher with tab prefetches", () => {
     const source = emailsHookSource();
@@ -448,4 +480,36 @@ describe("inbox-thread cache rollback on mutation error", () => {
       expect(hook).toContain("restoreInboxThreadsOptimistic(qc, context");
     },
   );
+
+  it("treats a partial move as an error and keeps only successful threads removed", () => {
+    const source = emailsHookSource();
+    const start = source.indexOf("export function useMoveEmail()");
+    const end = source.indexOf("export function useSaveDraft()", start);
+    const hook = source.slice(start, end);
+
+    expect(hook).toContain('result.status === "partial"');
+    expect(hook).toContain("throw new MoveEmailPartialFailure(result)");
+    expect(hook).toContain(
+      "restoreInboxThreadsOptimistic(qc, context.inboxSnapshot)",
+    );
+    expect(hook).toContain(
+      "removeInboxThreadsOptimistic(qc, succeededThreadIds)",
+    );
+    expect(hook).toContain(
+      "context.previous.forEach(([key, data]) =>\n          qc.setQueryData(",
+    );
+  });
+
+  it("passes per-target account and thread hints to the Move action", () => {
+    const source = emailsHookSource();
+    const start = source.indexOf("export function useMoveEmail()");
+    const end = source.indexOf("export function useSaveDraft()", start);
+    const hook = source.slice(start, end);
+
+    expect(hook).toContain("accountEmails?: string");
+    expect(hook).toContain("threadIds?: string");
+    expect(hook).toContain("accountEmails,");
+    expect(hook).toContain("threadIds,");
+    expect(hook).toContain('callAction("move-email", {');
+  });
 });

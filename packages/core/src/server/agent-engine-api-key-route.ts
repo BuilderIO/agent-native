@@ -183,6 +183,35 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
   };
 }
 
+export function normalizeAgentEngineApiKeyDeletePayload(
+  body: unknown,
+):
+  | { ok: true; key: string; endpointKey?: string }
+  | { ok: false; statusCode: number; error: string } {
+  const provider =
+    body &&
+    typeof body === "object" &&
+    typeof (body as any).provider === "string"
+      ? (body as any).provider.trim()
+      : "";
+  const key =
+    provider === "ollama"
+      ? OLLAMA_BASE_URL_ENV_VAR
+      : (PROVIDER_TO_ENV_VAR.get(provider) ?? "");
+  if (!key) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "Choose a supported agent engine provider.",
+    };
+  }
+  return {
+    ok: true,
+    key,
+    ...(provider === "openai" ? { endpointKey: OPENAI_BASE_URL_ENV_VAR } : {}),
+  };
+}
+
 export async function resolveAgentEngineApiKeyWriteTarget(
   event: H3Event,
   scope: AgentEngineApiKeyScope,
@@ -222,6 +251,44 @@ export async function resolveAgentEngineApiKeyWriteTarget(
 
 export function createAgentEngineApiKeyHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    if (getMethod(event) === "DELETE") {
+      let body: unknown;
+      try {
+        body = await readBody(event);
+      } catch (error) {
+        console.warn("[agent-engine] malformed delete payload", error);
+        body = undefined;
+      }
+      const payload = normalizeAgentEngineApiKeyDeletePayload(body);
+      if (!payload.ok) {
+        setResponseStatus(event, payload.statusCode);
+        return { error: payload.error };
+      }
+      let session: Awaited<ReturnType<typeof getSession>> | null = null;
+      try {
+        session = await getSession(event);
+      } catch (error) {
+        console.warn("[agent-engine] could not read session for delete", error);
+      }
+      if (!session?.email) {
+        setResponseStatus(event, 401);
+        return { error: "Authentication required" };
+      }
+      await deleteAppSecret({
+        key: payload.key,
+        scope: "user",
+        scopeId: session.email,
+      });
+      if (payload.endpointKey) {
+        await deleteAppSecret({
+          key: payload.endpointKey,
+          scope: "user",
+          scopeId: session.email,
+        });
+      }
+      return { ok: true, key: payload.key, scope: "user" };
+    }
+
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };

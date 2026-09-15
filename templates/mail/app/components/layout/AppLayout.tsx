@@ -46,7 +46,10 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { ComposeModal } from "@/components/email/ComposeModal";
+import {
+  ComposeModal,
+  type ComposePaletteCommands,
+} from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -95,6 +98,7 @@ import {
   useInboxThreads,
 } from "@/hooks/use-inbox-threads";
 import {
+  shouldCycleMailTab,
   useKeyboardShortcuts,
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
@@ -113,6 +117,7 @@ import { isKnownMailView } from "@/routes/$view";
 import { CommandPalette } from "./CommandPalette";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
+import { useCommandPaletteFocus } from "./use-command-palette-focus";
 
 const BARE_ROUTES = new Set(["/email"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
@@ -352,6 +357,42 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [t]);
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOpenedFromCompose, setPaletteOpenedFromCompose] =
+    useState(false);
+  const [composeCommandsAvailable, setComposeCommandsAvailable] =
+    useState(false);
+  const composePaletteCommandsRef = useRef<ComposePaletteCommands | null>(null);
+  const registerComposePaletteCommands = useCallback(
+    (commands: ComposePaletteCommands | null) => {
+      composePaletteCommandsRef.current = commands;
+      setComposeCommandsAvailable(commands !== null);
+    },
+    [],
+  );
+  const sendComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.send();
+  }, []);
+  const scheduleComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendLater();
+  }, []);
+  const sendAndMarkDoneFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendAndMarkDone();
+  }, []);
+  const {
+    openPalette: rememberAndOpenPalette,
+    handleOpenChange: handlePaletteOpenChange,
+    restoreFocusAfterEscape: restorePaletteFocus,
+  } = useCommandPaletteFocus(paletteOpen, setPaletteOpen);
+  const openPalette = useCallback(() => {
+    if (!paletteOpen) {
+      const activeElement = document.activeElement;
+      setPaletteOpenedFromCompose(
+        activeElement instanceof HTMLElement &&
+          Boolean(activeElement.closest("[data-mail-compose]")),
+      );
+    }
+    rememberAndOpenPalette();
+  }, [paletteOpen, rememberAndOpenPalette]);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   // When the user requests snooze from the list, we need to snooze the live
   // focused/selected rows — not whatever is currently in navigation state.
@@ -805,6 +846,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     reportSpam.mutate({
       id: targetEmail.id,
       threadId: targetEmail.threadId || targetEmail.id,
+      accountEmail: targetEmail.accountEmail,
     });
     toast(t("mail.toasts.reportedSpam"));
   }, [targetEmail, reportSpam, dismissEmail, t]);
@@ -819,6 +861,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       id: targetEmail.id,
       threadId: targetEmail.threadId || targetEmail.id,
       senderEmail: targetEmail.from.email,
+      accountEmail: targetEmail.accountEmail,
     });
     toast(
       t("mail.toasts.reportedSpamBlocked", { email: targetEmail.from.email }),
@@ -834,7 +877,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     if (targetEmail) dismissEmail(targetEmail.id);
-    muteThread.mutate(tid);
+    muteThread.mutate({
+      threadId: tid,
+      accountEmail: targetEmail?.accountEmail,
+    });
     toast(t("mail.toasts.threadMuted"));
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
 
@@ -1042,37 +1088,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const canCycleTab = useCallback(
     (event: KeyboardEvent) => {
       if (topBarTabs.length < 2) return false;
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target) return true;
-
-      // Keep native Tab behavior inside modal/dialog popups where focus trapping is required
-      if (
-        target.closest(
-          '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]',
-        ) !== null
-      ) {
-        return false;
-      }
-
-      // Preserve native Tab traversal when focused on interactive controls outside the tab bar
-      // (buttons, links, checkboxes, selects, etc.), except for the tab bar itself or body/main view.
-      if (target.closest("[data-mail-tab-list]") !== null) {
-        return true;
-      }
-
-      const isInteractive =
-        target.matches(
-          'button, a[href], select, [role="button"], [role="checkbox"], [role="menuitem"], [role="option"], [tabindex]:not([tabindex="-1"])',
-        ) ||
-        target.closest(
-          'button, a[href], select, [role="button"], [role="checkbox"], [role="menuitem"], [role="option"]',
-        ) !== null;
-
-      if (isInteractive) {
-        return false;
-      }
-
-      return true;
+      return shouldCycleMailTab(event.target);
     },
     [topBarTabs.length],
   );
@@ -1123,11 +1139,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     {
       key: "k",
       meta: true,
-      handler: () => setPaletteOpen(true),
+      handler: openPalette,
       skipInInput: false,
     },
     {
       key: "/",
+      shift: "either",
       handler: () => {
         document.getElementById("mail-search")?.focus();
       },
@@ -1163,11 +1180,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   ]);
 
   useEffect(() => {
-    const handler = () => setPaletteOpen(true);
+    const handler = openPalette;
     window.addEventListener("agent-native:open-command-menu", handler);
     return () =>
       window.removeEventListener("agent-native:open-command-menu", handler);
-  }, []);
+  }, [openPalette]);
 
   // Sequence shortcuts (g + key = go to view)
   useSequenceShortcuts([
@@ -1183,7 +1200,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { keys: ["g", "s"], handler: () => navigate("/starred") },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },
-    { keys: ["g", "a"], handler: () => navigate("/archive") },
+    { keys: ["g", "a"], handler: () => navigate("/all") },
     { keys: ["g", "e"], handler: () => navigate("/archive") },
     { keys: ["g", "#"], handler: () => navigate("/trash") },
   ]);
@@ -1490,6 +1507,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {!searchFocused && !activeSearchQuery && (
             <input
               id="mail-search"
+              aria-label={t("mail.search.label")}
               className="sr-only"
               tabIndex={-1}
               onFocus={() => setSearchFocused(true)}
@@ -2161,18 +2179,37 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             onNewDraft={handleCompose}
             onFlush={compose.flush}
             onInitialExpandedConsumed={clearComposeInitialExpanded}
+            onRegisterComposeCommands={registerComposePaletteCommands}
           />
         );
       })()}
       <CommandPalette
         open={paletteOpen}
-        onOpenChange={setPaletteOpen}
+        onOpenChange={handlePaletteOpenChange}
+        onCloseAutoFocus={restorePaletteFocus}
         onCompose={handleCompose}
+        onSearch={() => document.getElementById("mail-search")?.focus()}
         onSnooze={targetEmail ? handleSnooze : undefined}
         onSpam={handleSpam}
         onBlockSender={handleBlockSender}
         onMuteThread={handleMuteThread}
         hasEmail={!!targetEmail}
+        isComposeContext={paletteOpenedFromCompose}
+        onSend={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendComposeFromCommandPalette
+            : undefined
+        }
+        onSendLater={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? scheduleComposeFromCommandPalette
+            : undefined
+        }
+        onSendAndMarkDone={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendAndMarkDoneFromCommandPalette
+            : undefined
+        }
       />
       <SnoozeModal
         open={snoozeOpen}

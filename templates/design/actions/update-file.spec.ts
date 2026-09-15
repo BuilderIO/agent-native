@@ -9,8 +9,8 @@
  * the action reports `skippedStaleMirror: true` — while filename/fileType
  * updates in the same call still apply. A caller whose hash matches the
  * current mirror is the mirror column's own lineage (mirror-lineage rescue):
- * it writes the mirror normally AND diff-merges its content into the live
- * collab doc.
+ * it writes the mirror normally while the client retains ownership of its
+ * CRDT operations, even when their transport is delayed.
  *
  * Uses the same harness shape as apply-source-edit.interleave.spec.ts (which
  * already exercises update-file.js directly): a fake Drizzle app-DB backing
@@ -516,20 +516,16 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
   });
 
-  // Regression for the sequential-edit data-loss bug (mirror-lineage rescue,
-  // verified live): the client's Yjs pipe can lag or silently die, leaving
-  // the live collab doc frozen at an old state while the guarded HTTP saves
-  // keep advancing the SQL mirror. Each later save's expectedVersionHash then
-  // matches the MIRROR it was actually computed from but not the frozen live
-  // text — the old live-only comparison mis-classified that as a divergent
-  // writer and silently dropped every save after the first.
-  it("9. dead transport: live collab doc frozen at base while sequential HTTP saves advance the mirror — second save (hash == mirror tip) writes normally AND diff-merges into the live doc", async () => {
-    // Live collab doc exists but stays frozen at the base document (dead
-    // client Yjs pipe: no further updates ever arrive on that transport).
-    await applyText(FILE_ID, buildDoc(), "content", "agent");
+  it("9. delayed client updates converge after two mirror-only SQL saves", async () => {
+    const server = getOrCreateDoc(FILE_ID);
+    server.getText("content").insert(0, buildDoc());
+    const client = new Y.Doc();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server), "remote");
+    const delayed: Uint8Array[] = [];
+    client.on("update", (update: Uint8Array) => delayed.push(update));
 
-    // Edit one: hash matches the live text (== base), proceeds normally.
     const editOne = buildDoc(" edit-one-");
+    applyTextDiff(client, editOne);
     await updateFileAction.run({
       id: FILE_ID,
       content: editOne,
@@ -537,30 +533,24 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       expectedVersionHash: sourceContentHash(buildDoc()),
     } as never);
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(editOne);
-    // The dead pipe never delivered edit one to the live doc.
-    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
-      buildDoc(),
-    );
+    expect(server.getText("content").toString()).toBe(buildDoc());
 
-    // Edit two: computed from the mirror tip (edit one). Its hash matches
-    // NEITHER the frozen live text NOR the content being written, but DOES
-    // match the current mirror — the mirror-lineage rescue must write it.
     const editTwo = buildDoc(" edit-one-and-two-");
+    applyTextDiff(client, editTwo);
     const result = await updateFileAction.run({
       id: FILE_ID,
       content: editTwo,
       syncCollab: false,
       expectedVersionHash: sourceContentHash(editOne),
     } as never);
-
     expect(result).toEqual({ id: FILE_ID, updated: true });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(editTwo);
-    // Mirror-lineage collab sync: the rescue also pushes the caller's content
-    // through the collab layer (exactly like syncCollab:true), so the live
-    // doc receives the second edit instead of staying silently frozen.
-    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toContain(
-      "edit-one-and-two-",
-    );
+
+    for (const update of delayed) Y.applyUpdate(server, update, "remote");
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server), "remote");
+    expect(server.getText("content").toString()).toBe(editTwo);
+    expect(client.getText("content").toString()).toBe(editTwo);
+    client.destroy();
   });
 
   it("10. caller matching NEITHER the mirror NOR the live text (genuinely stale writer): still skipped", async () => {
@@ -590,7 +580,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(liveText).not.toContain("genuinely-stale-caller-");
   });
 
-  it("11. mirror-tip caller with a DIVERGENT live doc (concurrent live-only editor): mirror advances and the caller's change is diff-merged into the live doc", async () => {
+  it("11. mirror-tip caller preserves a divergent live document while advancing SQL", async () => {
     // A live-only editor's edit sits in the collab doc...
     await applyText(
       FILE_ID,
@@ -614,17 +604,9 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(result).toEqual({ id: FILE_ID, updated: true });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(callerContent);
 
-    // The caller's change is pushed through the collab layer as a char-diff
-    // merge. NOTE: with this fixture shape both editors' markers occupy the
-    // SAME single interpolation slot in buildDoc — the one divergent region
-    // of the document — so the prefix/suffix-trim char-diff resolves them as
-    // one replacement rather than keeping both. A real keep-both CRDT outcome
-    // requires edits in DISJOINT regions, which buildDoc cannot express, so
-    // assert that the merge ran (live doc received the caller's marker)
-    // instead of a vanity keep-both assertion this fixture can't honestly
-    // make.
-    const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
-    expect(liveText).toContain("mirror-state-plus-mine-");
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
+      buildDoc(" other-editors-live-only-edit-"),
+    );
   });
 
   it("12. delete-race after the access lookup: inner missing-file guard returns 404 (not a bare 500) so the outbox drops it", async () => {

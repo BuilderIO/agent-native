@@ -66,6 +66,16 @@ pnpm action create-document --title "Research" --description "Evidence and sourc
 pnpm action create-document --title "Placeholder 1" --spaceName "Foobar"
 ```
 
+When a user asks for a Page in an interactive Content conversation, creation is
+not a complete handoff. After `create-document` succeeds, call `navigate` with
+the returned document `id`, then call `view-screen` and compare its document ID
+with the create result. Navigation is asynchronous: if `view-screen` still
+reports the previous Page, repeat `navigate` and `view-screen` up to two more
+times. Say the Page is open only after the IDs match. If they never match, say
+the Page was created but navigation could not be verified, and provide the
+stable Page link from the create result. Do not navigate for background, batch,
+or API creation unless the caller explicitly asked to open the result.
+
 When the user names a workspace ("in my Foobar workspace"), pass `spaceName`
 (or a `spaceId` from `list-content-spaces`). A named workspace that does not
 resolve is an error, never a silent fall back. With no `parentId`, `spaceId`,
@@ -265,6 +275,11 @@ Documents form a tree via `parent_id`:
 - Deleting a parent recursively deletes all children
 - Position determines ordering within the same parent
 
+To reorganize the tree, move each subtree with `move-document` using ids from
+a prior action result. When the plan calls for a target page that does not
+exist yet — a new section, a grouping page — create it first with
+`create-document` and use the returned id as `parentId`.
+
 Descriptions are owned; context is inherited. `get-document` and `view-screen`
 return the focused page's own description plus a computed root-to-parent
 `contextPath`. Use that path to understand where the page lives, but never copy
@@ -282,10 +297,16 @@ after `create-document` or `navigate`).
 IDs for edits always come from `<current-screen>` or a prior action result —
 never guessed.
 
+When a move or edit target does not exist yet, create it first and use the
+returned id. A rejection saying `not found` means the id is absent: create the
+missing page or list documents to find the right id. Never retry the same id
+or invent a similar-looking one — fabricated ids cannot resolve, and repeated
+failures stop the run.
+
 | User request              | What to do                                                                        |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
-| "Create a page about X"   | `create-document --title "X" --content "# X\n\n..."`                              |
+| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
 | "Delete this page"        | ID from `<current-screen>`, `delete-document --id ...`                            |
 
@@ -293,7 +314,7 @@ never guessed.
 
 | User says                    | What to do                                                                          |
 | ---------------------------- | ----------------------------------------------------------------------------------- |
-| "Create a page about X"      | `create-document --title "X" --content "# X\n\n..."`                                |
+| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
 | "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
 | "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
