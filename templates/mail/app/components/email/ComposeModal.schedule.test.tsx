@@ -700,6 +700,55 @@ describe("ComposeModal scheduling", () => {
     );
   });
 
+  it("preserves explicit fullscreen mode when opening a new draft", async () => {
+    const secondDraft: ComposeState = {
+      ...draft,
+      id: "second-draft",
+      to: "second@example.com",
+    };
+    const props = {
+      drafts: [draft],
+      activeId: draft.id,
+      activeDraft: draft,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard: vi.fn(),
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+    };
+    const { getByRole, rerender } = render(<ComposeModal {...props} />);
+
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.fullScreenCompose" }),
+    );
+    expect(
+      getByRole("button", {
+        name: "mail.compose.restoreComposeSize",
+      }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[draft, secondDraft]}
+        activeId={secondDraft.id}
+        activeDraft={secondDraft}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        getByRole("button", {
+          name: "mail.compose.restoreComposeSize",
+        }).getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+  });
+
   it("reveals and focuses Bcc with the compose keyboard shortcut", async () => {
     const onUpdate = vi.fn();
     const { container } = render(

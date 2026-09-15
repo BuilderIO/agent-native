@@ -325,8 +325,7 @@ export function ComposeModal({
       return;
     }
     setMinimized(false);
-    setIsExpanded(shouldStartComposeExpanded(initialExpanded));
-  }, [activeDraft?.id, drafts, initialExpanded]);
+  }, [activeDraft?.id, drafts]);
 
   // Focus editor when reply/forward opens
   useEffect(() => {
