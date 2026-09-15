@@ -115,12 +115,10 @@ vi.mock("./RecipientInput", () => ({
     field,
     value = "",
     onChange,
-    autoFocus,
   }: {
     field: string;
     value?: string;
     onChange?: (value: string) => void;
-    autoFocus?: boolean;
   }) => (
     <>
       <input
@@ -133,7 +131,6 @@ vi.mock("./RecipientInput", () => ({
         data-recipient-field={field}
         data-pending-recipient-field={field}
         defaultValue=""
-        autoFocus={autoFocus}
       />
     </>
   ),
@@ -290,15 +287,28 @@ describe("ComposeModal scheduling", () => {
       onNewDraft: vi.fn(),
       onFlush: vi.fn(),
     };
-    const { container, rerender } = render(<ComposeModal {...props} />);
+    const { container, getByTestId, rerender } = render(
+      <>
+        <button data-testid="compose-opener" type="button">
+          Compose
+        </button>
+        <ComposeModal {...props} />
+      </>,
+    );
+    getByTestId("compose-opener").focus();
 
     rerender(
-      <ComposeModal
-        {...props}
-        drafts={[draft, secondDraft]}
-        activeId={secondDraft.id}
-        activeDraft={secondDraft}
-      />,
+      <>
+        <button data-testid="compose-opener" type="button">
+          Compose
+        </button>
+        <ComposeModal
+          {...props}
+          drafts={[draft, secondDraft]}
+          activeId={secondDraft.id}
+          activeDraft={secondDraft}
+        />
+      </>,
     );
 
     await waitFor(() => {
