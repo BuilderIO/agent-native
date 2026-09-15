@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { StarfieldBackground } from "../StarfieldBackground.js";
 import { HeroOceanBackground } from "./hero-ocean-background.js";
