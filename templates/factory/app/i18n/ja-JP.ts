@@ -120,7 +120,10 @@ const messages = {
         stuck: "停滞",
         clean: "問題なし",
         ineligible: "対象外",
+        merged: "GitHub でマージ済み",
         reopened: "更新後に再開",
+        mergeable_as_of:
+          "マージ可能。このブランチで Factory は Builder に再 ping しません。",
       },
       slack: {
         claimed: "対応中",
@@ -370,6 +373,9 @@ const messages = {
     auditSkipped: "{{count}} 件スキップ",
     auditStartedCount: "{{count}} 件開始",
     auditSeenBefore: "既出",
+    auditMergedOnGitHub: "GitHub でマージ済み",
+    auditClosedOnGitHub: "GitHub でクローズ",
+    auditDraftOnGitHub: "GitHub でドラフト",
     auditNewThisRun: "新規",
     auditAlreadyStarted: "作業済み",
     historyTab: "履歴",

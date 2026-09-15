@@ -6,7 +6,12 @@ import {
 } from "node:crypto";
 
 import type { H3Event } from "h3";
-import { getHeader, getRequestIP } from "h3";
+import {
+  getHeader,
+  getRequestIP,
+  setResponseHeader,
+  setResponseStatus,
+} from "h3";
 
 import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
@@ -2082,6 +2087,41 @@ export function createBuilderBrowserCallbackErrorPage(
     </script>
   </body>
 </html>`;
+}
+
+/**
+ * Status to report when a Builder upstream dependency (account provisioning,
+ * the preview relay, the waitlist form) fails.
+ *
+ * Deliberately not 502/504: Cloudflare replaces an origin gateway status with
+ * its own "Bad gateway" page, so the body never reaches the client. For a
+ * popup that costs the human-readable reason and the BroadcastChannel handoff
+ * that stops the opener's polling loop; for a JSON route it costs the error
+ * payload the caller parses.
+ */
+export const BUILDER_UPSTREAM_FAILURE_STATUS = 503;
+
+const CDN_REPLACED_GATEWAY_STATUSES = new Set([502, 504]);
+
+export function cdnSafeOriginStatus(status: number): number {
+  return CDN_REPLACED_GATEWAY_STATUSES.has(status)
+    ? BUILDER_UPSTREAM_FAILURE_STATUS
+    : status;
+}
+
+/**
+ * The only supported way to emit a Builder connect/callback popup error page.
+ * Centralised so a call site cannot pick a status the CDN will swallow.
+ */
+export function sendBuilderPopupErrorPage(
+  event: H3Event,
+  status: number,
+  message: string,
+  opts: Parameters<typeof createBuilderBrowserCallbackErrorPage>[1] = {},
+): string {
+  setResponseStatus(event, cdnSafeOriginStatus(status));
+  setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+  return createBuilderBrowserCallbackErrorPage(message, opts);
 }
 
 export interface BuilderAgentUploadAttachment {
