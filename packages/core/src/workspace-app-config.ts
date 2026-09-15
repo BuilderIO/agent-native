@@ -16,7 +16,30 @@ export function inferWorkspaceAppRootHomePath(appDir: string): "/" | undefined {
   return hasRootRoute && !hasHomeRoute ? "/" : undefined;
 }
 
-export async function readConfiguredWorkspaceAppHomePath(
+// ponytail: one process-global queue is the smallest safe isolation; replace
+// it with per-app loaders only if discovery throughput becomes measurable.
+const workspaceAppConfigGlobals = globalThis as typeof globalThis & {
+  __agentNativeWorkspaceAppConfigReadQueue?: Promise<void>;
+};
+
+export function readConfiguredWorkspaceAppHomePath(
+  appDir: string,
+): Promise<string | undefined> {
+  const previous =
+    workspaceAppConfigGlobals.__agentNativeWorkspaceAppConfigReadQueue ??
+    Promise.resolve();
+  const result = previous.then(() =>
+    readConfiguredWorkspaceAppHomePathUnserialized(appDir),
+  );
+  workspaceAppConfigGlobals.__agentNativeWorkspaceAppConfigReadQueue =
+    result.then(
+      () => undefined,
+      () => undefined,
+    );
+  return result;
+}
+
+async function readConfiguredWorkspaceAppHomePathUnserialized(
   appDir: string,
 ): Promise<string | undefined> {
   const pluginsDir = path.join(appDir, "server", "plugins");
