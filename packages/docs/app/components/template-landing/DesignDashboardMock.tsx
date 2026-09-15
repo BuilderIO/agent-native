@@ -63,10 +63,6 @@ const QUEUE_ROWS = [
   { id: "INV-4817", account: "Halcyon Labs", amount: "$3,980", age: "5d" },
   { id: "INV-4802", account: "Redpine Freight", amount: "$28,150", age: "9d" },
   { id: "INV-4795", account: "Owl & Oak", amount: "$1,220", age: "14d" },
-  { id: "INV-4788", account: "Marlow Studio", amount: "$7,640", age: "18d" },
-  { id: "INV-4771", account: "Cedar & Vine", amount: "$2,905", age: "23d" },
-  { id: "INV-4756", account: "Bellweather Co", amount: "$15,300", age: "27d" },
-  { id: "INV-4740", account: "Grove Logistics", amount: "$4,115", age: "31d" },
 ];
 
 const TYPE_SCALE = [
@@ -161,7 +157,7 @@ function SystemPanel() {
       </div>
 
       <div className="dd-section">
-        <span className="dd-section-label">Colour</span>
+        <span className="dd-section-label">Color</span>
         <div className="dd-swatches">
           {TOKEN_SWATCHES.map((token) => (
             <div key={token.name} className="dd-swatch-row">
@@ -301,9 +297,6 @@ const DESIGN_DASHBOARD_MOCK_CSS = [
   // near mobile. Stays last so it wins on source order.
   "@media (max-width: 1320px) { .design-dashboard-mock { --dd-scale: 0.3; } .design-dashboard-mock .dd-canvas { padding: 18px 12px 0; } }",
   "@media (max-width: 560px) { .design-dashboard-mock { --dd-scale: 0.22; } .design-dashboard-mock .dd-panel { width: 124px; } }",
-  // Below 480 the board and the system panel cannot both fit in the media
-  // cell at the step above.
-  "@media (max-width: 480px) { .design-dashboard-mock { --dd-scale: 0.15; } .design-dashboard-mock .dd-panel { width: 104px; } }",
 ].join("\n");
 
 export function DesignDashboardMock({
@@ -324,7 +317,7 @@ export function DesignDashboardMock({
         <div className="dd-canvas">
           <div className="dd-board">
             <div className="dd-board-label">
-              <span>Ops console</span>
+              <span>Billing overview</span>
               <span className="dd-board-width">{BOARD_WIDTH}px</span>
             </div>
             <div className="dd-board-body">
