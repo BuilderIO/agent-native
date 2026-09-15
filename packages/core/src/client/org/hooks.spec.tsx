@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OrgInfo } from "../../org/types.js";
-import { useOrgMembers } from "./hooks.js";
+import { useOrg, useOrgMembers } from "./hooks.js";
 
 const org: OrgInfo = {
   email: "admin@example.test",
@@ -34,7 +34,6 @@ describe("useOrgMembers", () => {
         mutations: { retry: false },
       },
     });
-    queryClient.setQueryData(["org-me"], org);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -48,6 +47,7 @@ describe("useOrgMembers", () => {
   });
 
   it("normalizes member search into the request and cache key", async () => {
+    queryClient.setQueryData(["org-me"], org);
     const fetchMock = vi.fn(async () =>
       Response.json({
         members: [],
@@ -87,5 +87,26 @@ describe("useOrgMembers", () => {
         "morgan@example.test",
       ]),
     ).toBeDefined();
+  });
+
+  it("does not fetch the active org when the query is disabled", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    function Probe() {
+      useOrg({ enabled: false });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -7,6 +7,7 @@ import {
   isConnectionError,
   getPgliteClient,
   loadPgliteDrizzle,
+  pgliteDrizzleClient,
   pgPoolOptions,
   neonPoolOptions,
   guardNeonPool,
@@ -225,9 +226,22 @@ export function buildResilientNeonPool<
       if (prop === "query") return resilientQuery;
       if (prop === "connect") {
         return (...args: any[]) =>
-          (target as any)
-            .connect(...args)
-            .then((client: any) => guardNeonTransactionClient(client));
+          retryOnConnectionError(async () => {
+            let acquireTimedOut = false;
+            const client = await withDbTimeout<any>(
+              "connect",
+              () =>
+                (target as any).connect(...args).then((client: any) => {
+                  if (acquireTimedOut) client.release();
+                  return client;
+                }),
+              dbOpTimeoutMs(),
+              () => {
+                acquireTimedOut = true;
+              },
+            );
+            return guardNeonTransactionClient(client);
+          });
       }
       const val = (target as any)[prop];
       return typeof val === "function" ? val.bind(target) : val;
@@ -367,7 +381,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     if (isPgliteUrl(url)) {
       _dbReady = loadPgliteDrizzle().then(async ({ drizzle }) => {
         const client = await getPgliteClient(url);
-        _db = drizzle({ client, schema });
+        _db = drizzle({ client: pgliteDrizzleClient(url, client), schema });
         return _db;
       });
       return _dbReady;

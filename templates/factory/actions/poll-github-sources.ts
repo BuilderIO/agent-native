@@ -6,7 +6,6 @@ import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
 import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
 import { authorMatchesFilter } from "../server/lib/factory-automation-config.js";
-import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import { factoryRepositoryFromSources } from "../server/lib/factory-repository-scope.js";
 import {
   factoryIdSchema,
@@ -43,8 +42,11 @@ import {
 } from "../server/triage/metadata.js";
 import {
   babysitLeavesReviewWindow,
+  botReviewBodyKeys,
+  deferBabysitQuietWindowExpired,
   countHumanReviewBodies,
   countHumanReviewComments,
+  detectBotErrorAfterPing,
   hasHumanChangesRequested,
   hasNewDefiniteMergeConflict,
   resolveStickyMergeability,
@@ -126,9 +128,11 @@ export async function collectOpenItems<T>(
 type ParkedRecheck = {
   humanReviewCommentCount: number;
   humanReviewBodyCount: number;
+  botReviewBodyKeys: string[];
   commentsTruncated: boolean;
   reviewsTruncated: boolean;
   changesRequested: boolean;
+  botErrorAfterPing: boolean;
   mergeable: boolean | null;
   mergeableState: string | null;
 };
@@ -184,6 +188,7 @@ export function parkedRecheckEvidencePatch(
     ...base,
     prBabysitHumanReviewCommentCount: recheck.humanReviewCommentCount,
     prBabysitHumanReviewBodyCount: recheck.humanReviewBodyCount,
+    prBabysitBotReviewBodyKeys: recheck.botReviewBodyKeys,
     prBabysitCommentsTruncated: recheck.commentsTruncated,
     prBabysitReviewsTruncated: recheck.reviewsTruncated,
     prBabysitChangesRequested: recheck.changesRequested,
@@ -202,7 +207,11 @@ function parkedRecheckPollMetadataPatch(
       checkedAt,
     }),
     ...(reopenParked
-      ? { prBabysitState: "queued", prBabysitPendingReopen: true }
+      ? {
+          prBabysitState: "queued",
+          prBabysitPendingReopen: true,
+          prBabysitBuilderActiveUntil: null,
+        }
       : {}),
   };
 }
@@ -241,16 +250,28 @@ export function buildPullRequestPollMetadataJson(
   return metadata;
 }
 
+function readStoredStringArray(
+  metadata: TriageMetadata,
+  key: string,
+): readonly string[] {
+  const value = metadata[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
 function shouldReopenFromRecheck(
   existingMetadata: TriageMetadata,
   recheck: ParkedRecheck | undefined,
   parked: boolean,
   parkedState?: string | null,
+  nowMs: number = Date.now(),
 ): boolean {
+  if (deferBabysitQuietWindowExpired(existingMetadata, nowMs)) return true;
   const stored = storedMergeability(existingMetadata);
   return shouldReopenParkedBabysit({
     parked,
     parkedState,
+    botErrorAfterPing: recheck?.botErrorAfterPing === true,
     newDefiniteMergeConflict: recheck
       ? hasNewDefiniteMergeConflict({
           storedMergeConflict: stored.mergeConflict,
@@ -277,6 +298,11 @@ function shouldReopenFromRecheck(
     storedReviewsTruncated:
       metadataBoolean(existingMetadata, "prBabysitReviewsTruncated") === true,
     nextReviewsTruncated: recheck?.reviewsTruncated === true,
+    storedBotReviewBodyKeys: readStoredStringArray(
+      existingMetadata,
+      "prBabysitBotReviewBodyKeys",
+    ),
+    nextBotReviewBodyKeys: recheck?.botReviewBodyKeys,
   });
 }
 
@@ -399,7 +425,6 @@ export default defineAction({
     );
     const db = getDb();
     const config = await readTriageConfigRow(db, orgId, factoryId);
-    await repairFactoryAutomationsFromConfig(userEmail, orgId, factoryId);
     const job = await readCallingFactoryAutomation(context, {
       userEmail,
       orgId,
@@ -563,19 +588,35 @@ export default defineAction({
           if (summary.state !== "open") return;
           const headSha = summary.headSha || row.headSha;
           if (!headSha) return;
-          const evidence = await client.getPullRequestEvidence(
-            repository,
-            number,
-            headSha,
+          const [evidence, issueComments] = await Promise.all([
+            client.getPullRequestEvidence(repository, number, headSha),
+            client.listIssueComments(repository, number),
+          ]);
+          const rowMetadata = parseTriageMetadata(row.metadataJson ?? "{}");
+          const lastCommentAt = metadataString(
+            rowMetadata,
+            "prBabysitLastCommentAt",
           );
+          const lastCommentAtMs = lastCommentAt
+            ? Date.parse(lastCommentAt)
+            : null;
           parkedRechecks.set(number, {
             humanReviewCommentCount: countHumanReviewComments(
               evidence.comments,
             ),
             humanReviewBodyCount: countHumanReviewBodies(evidence.reviews),
+            botReviewBodyKeys: botReviewBodyKeys(evidence.comments),
             commentsTruncated: evidence.commentsTruncated,
             reviewsTruncated: evidence.reviewsTruncated,
             changesRequested: hasHumanChangesRequested(evidence.reviews),
+            botErrorAfterPing: detectBotErrorAfterPing({
+              comments: evidence.comments,
+              issueComments: issueComments.comments,
+              lastCommentAtMs:
+                lastCommentAtMs !== null && Number.isFinite(lastCommentAtMs)
+                  ? lastCommentAtMs
+                  : null,
+            }),
             mergeable: summary.mergeable,
             mergeableState: summary.mergeableState,
           });

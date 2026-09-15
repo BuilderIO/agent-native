@@ -8,6 +8,13 @@ const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceListContentMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
+const recordFactoryGovernanceAuditMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
+
+vi.mock("../triage/audit.js", () => ({
+  recordFactoryGovernanceAudit: recordFactoryGovernanceAuditMock,
+}));
 
 vi.mock("@agent-native/core/event-bus", () => ({
   subscribe: vi.fn(),
@@ -130,17 +137,133 @@ Babysit pull requests.
     expect(saved).toMatch(/^template: pr-babysit$/m);
   });
 
+  it("preserves automation display name, channel, and author filter during repair", async () => {
+    const path = "jobs/factories/product-an-feedback/factory-slack-feedback.md";
+    const content = `---
+schedule: "* * * * *"
+enabled: true
+orgId: org-1
+appId: factory
+template: slack-feedback
+source: slack
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+slackChannelName: product-feedback
+authorMode: exclude
+authorIds: U096KN3EL2Y
+model: claude-sonnet-4-20250514
+maxIterations: 20
+maxRunInputTokens: 200000
+---
+Classify Slack feedback.
+`;
+    resourceListContentMock.mockResolvedValue([
+      {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+      },
+    ]);
+    resourceGetByPathMock.mockImplementation((_owner: string, p: string) => {
+      if (p !== path) return null;
+      return {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+        updatedAt: 1,
+      };
+    });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "slack-feedback" });
+
+    await ensureFactoryAutomations(
+      "owner@example.com",
+      "org-1",
+      "product-an-feedback",
+    );
+
+    const saved = resourcePutIfCurrentMock.mock.calls.find(
+      (call) => call[0]?.path === path,
+    )?.[0]?.content as string | undefined;
+    expect(saved).toBeDefined();
+    expect(saved).toContain("displayName: Product feedback");
+    expect(saved).toContain("slackChannelId: C0ATH3CCZT4");
+    expect(saved).toContain("authorIds: U096KN3EL2Y");
+    expect(saved).toContain("Classify Slack feedback.");
+    expect(recordFactoryGovernanceAuditMock).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.objectContaining({
+        action: "repair-factory-automation-metadata",
+        kind: "governance",
+        factoryId: "product-an-feedback",
+      }),
+    );
+  });
+
+  it("does not rewrite the automation prompt body during metadata repair", async () => {
+    const path = "jobs/factories/product-an-feedback/factory-slack-feedback.md";
+    const customPrompt = "Only triage messages from paying customers.";
+    const content = `---
+schedule: "* * * * *"
+enabled: true
+orgId: org-1
+appId: factory
+template: slack-feedback
+source: slack
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+model: claude-sonnet-4-20250514
+maxIterations: 20
+maxRunInputTokens: 200000
+---
+${customPrompt}
+`;
+    resourceListContentMock.mockResolvedValue([
+      {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+      },
+    ]);
+    resourceGetByPathMock.mockImplementation((_owner: string, p: string) => {
+      if (p !== path) return null;
+      return {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+        updatedAt: 1,
+      };
+    });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "slack-feedback" });
+
+    await ensureFactoryAutomations(
+      "owner@example.com",
+      "org-1",
+      "product-an-feedback",
+    );
+
+    const saved = resourcePutIfCurrentMock.mock.calls.find(
+      (call) => call[0]?.path === path,
+    )?.[0]?.content as string | undefined;
+    expect(saved).toBeDefined();
+    expect(saved).toContain(customPrompt);
+    expect(saved).not.toContain("# Factory Slack feedback triage");
+  });
+
   it("keeps the Slack template prompt lean and names the reaction argument", () => {
     const prompt = factoryAutomationTemplatePrompt("slack-feedback", "slack");
-    expect(prompt).toContain("reaction robot_face 🤖");
+    expect(prompt).toContain("MUST pass reaction eyes");
     expect(prompt).toContain("get-slack-feedback-context");
     expect(prompt).toContain("productUxImplications false");
     expect(prompt).toContain("visual/UI defects");
-    expect(prompt).toContain("already has eyes 👀 or robot_face 🤖");
+    expect(prompt).toContain("already has eyes 👀");
     expect(prompt).toContain("alreadyClaimed true");
     expect(prompt).toContain("clearBug may be omitted");
-    expect(prompt).toContain("neither eyes nor robot_face");
     expect(prompt).toContain("omit reaction");
+    expect(prompt).not.toContain("robot_face");
     expect(prompt).not.toContain("limit 20");
     expect(prompt).not.toContain("that action adds 👀");
   });
@@ -151,9 +274,8 @@ Babysit pull requests.
     expect(prompt).toContain("babysit-factory-pull-request");
     expect(prompt).toContain("already_asked");
     expect(prompt).toContain("stuck");
-    expect(prompt).toContain("is not new work");
+    expect(prompt).toContain("mergeability alone do not");
     expect(prompt).not.toContain("It owns GitHub");
-    expect(prompt).not.toContain("the quiet window");
     expect(prompt).not.toContain("A changed commit, new unresolved");
     expect(prompt).not.toContain("2 minutes");
     expect(prompt).not.toContain("Do not ask the bot to poll");

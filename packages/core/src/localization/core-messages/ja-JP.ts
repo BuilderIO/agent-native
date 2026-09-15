@@ -145,6 +145,7 @@ const messages: AgentChatTranslation = {
     "このチャットを使用するにはデスクトップ版を開いてください。",
   "composer.removeAttachment": "{{name}} を削除",
   "composer.scrollToBottom": "一番下までスクロール",
+  "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",
   "composer.subAgentReadOnly":
     "オーケストレーターチャットにメッセージを送信してください。このサブエージェントは自動的に実行されます",
@@ -173,6 +174,7 @@ const messages: AgentChatTranslation = {
     "Anthropic、OpenAI、または別のプロバイダーを設定",
   "composer.connectAbove": "続行するには上で AI に接続してください...",
   "composer.connectBuilder": "Builder.io に接続",
+  "composer.connectKeys": "キーを接続",
   "composer.connectingBuilder": "Builder.io に接続中…",
   "composer.costHigher": "高コスト",
   "composer.costLower": "低コスト",
@@ -302,7 +304,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "このブラウザーはリアルタイム音声会話に対応していません。",
   "voiceMode.hideChat": "チャットを非表示",
-  "voiceMode.keepDictating": "音声入力",
+  "voiceMode.keepDictating": "メッセージを音声入力",
   "voiceMode.promptDescription":
     "音声モードでは、エージェントが画面を移動して操作している間も音声を聞き続けます。",
   "voiceMode.promptTitle": "音声を使用",
@@ -344,7 +346,7 @@ const messages: AgentChatTranslation = {
     "Builder.io に接続して無料クレジット付きの管理音声を使用するか、独自のキーを追加します。",
   "voiceMode.setupTitle": "音声モードを設定",
   "voiceMode.showChat": "チャットを表示",
-  "voiceMode.start": "リアルタイム音声",
+  "voiceMode.start": "音声チャットを開始",
   "voiceMode.startWithOpenAiKey": "OpenAI キーで開始",
   "voiceMode.status.connecting": "接続中",
   "voiceMode.status.ending": "音声モードを終了中",
@@ -373,6 +375,7 @@ const messages: AgentChatTranslation = {
     "エージェントが応答する前にモデルゲートウェイで内部エラーが発生しました。少し待ってから再試行し、繰り返す場合は下のエラー ID を伝えてください。",
   "errorMessages.gatewayNoDetails":
     "モデルゲートウェイからエラーの詳細が返されず、チャットを復旧できませんでした。少し待ってから再試行し、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.creditsLimitReached": "AIクレジットの上限に達しました。",
   "errorMessages.inactivityTimeout":
     "エージェントとの接続が完了前にタイムアウトしました。途中までの作業から続行するか、再試行できます。",
   "errorMessages.invalidToolSchema":
@@ -390,6 +393,8 @@ const messages: AgentChatTranslation = {
     "モデルプロバイダーに接続できませんでした。接続を確認して再試行してください。",
   "errorMessages.providerRateLimit":
     "現在、モデルプロバイダーがこのチャットのリクエスト数を制限しています。少し待ってから再試行してください。",
+  "errorMessages.providerTransientRejection":
+    "AIプロバイダーがこのリクエストを一時的に拒否しました。通常は1分以内に解消するので、再試行してください。",
   "errorMessages.startNewChat": "新しいチャットを開始",
   "errorMessages.upgradeAtBuilder": "Builder.io でアップグレード",
   "feedback.inaccurate": "不正確",
@@ -397,6 +402,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "役に立たない",
   "feedback.placeholder": "問題点を教えてください…",
   "feedback.submit": "送信",
+  "feedback.submitted": "フィードバックを送信しました",
   "feedback.thumbsDown": "低評価",
   "feedback.thumbsUp": "高評価",
   "feedback.tooSlow": "遅すぎる",
@@ -528,6 +534,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "キューから削除",
   "queue.sendNow": "今すぐ送信",
   "queue.sendNowHint": "今すぐ送信（現在の応答を停止します）",
+  "queue.steer": "ステア",
+  "queue.steerHint": "このメッセージを次に送信",
+  "queue.moreActions": "その他のアクション",
+  "queue.moveToTop": "先頭に移動",
   "recovery.connectingBuilder": "Builder.io に接続中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",

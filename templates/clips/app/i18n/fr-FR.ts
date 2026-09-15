@@ -67,6 +67,8 @@ const messages = {
     recordings: "Enregistrements",
     newFolder: "Nouveau dossier",
     noSpaces: "Aucun espace pour le moment",
+    noSpacesAdminCta:
+      "Demandez à un administrateur de l’organisation de créer le premier espace.",
     desktopCta: "Obtenir l’app de bureau",
     desktopTitle: "Obtenez l’app de bureau Clips.",
     desktopBody:
@@ -674,9 +676,11 @@ const messages = {
     downloadAgain: "Cela n’a pas fonctionné ? Réessayez de télécharger",
     alsoFor: "Également disponible pour {{platform}}",
     backToLibrary: "Retour à la bibliothèque",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Télécharger Clips",
     stable: "Stable",
     nightly: "Nightly",
+    allPlatforms: "Toutes les plateformes",
+    releaseChannel: "Canal de publication",
     switchToNightly: "Passer aux versions Nightly",
     switchToStable: "Passer aux versions stables",
     retry: "Réessayer",
@@ -727,17 +731,17 @@ const messages = {
     agentTitle: "Gérer l’agent",
     title: "Paramètres",
     pageTitle: "Paramètres · Clips",
-    experiments: "Expériences",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
-    experimentVideoEditing: "Montage vidéo",
-    experimentVideoEditingDescription: "Essayez le nouvel éditeur vidéo.",
-    experimentMeetings: "Réunions et transcription",
-    experimentMeetingsDescription:
+    labVideoEditing: "Montage vidéo",
+    labVideoEditingDescription: "Essayez le nouvel éditeur vidéo.",
+    labMeetings: "Réunions et transcription",
+    labMeetingsDescription:
       "Essayez la capture et la transcription automatiques des réunions.",
-    experimentWisprFlow: "Dictée vocale",
-    experimentWisprFlowDescription:
-      "Essayez la nouvelle fonction de dictée vocale.",
+    labWisprFlow: "Dictée vocale",
+    labWisprFlowDescription:
+      "Afficher ou masquer la dictée vocale dans Clips Desktop.",
     intro: "Préférences et services connectés pour cet espace Clips.",
     preferencesTitle: "Préférences",
     languageTitle: "Langue",
@@ -975,6 +979,8 @@ const messages = {
     renameFailed: "Échec du renommage du clip",
     renameClip: "Renommer le clip",
     clipTitle: "Titre du clip",
+    archiveAction: "Archiver",
+    moveToTrashAction: "Déplacer vers la corbeille",
     movedToTrash: "Déplacé vers la corbeille",
     restoredFromArchive: "Restauré depuis l’archive",
     archived: "Archivé",
@@ -1370,14 +1376,14 @@ const messages = {
     title: "Choose your recorder (Localisé)",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (Localisé)",
-    chromeTitle: "Chrome extension (Localisé)",
+    chromeTitle: "Get Chrome extension",
     chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (Localisé)",
+      "Capturez les onglets du navigateur avec l’extension Chrome.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (Localisé)",
-    desktopTitle: "Desktop app (Localisé)",
+    desktopTitle: "Download desktop app",
     desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Localisé)",
+      "Enregistrez avec des raccourcis globaux et l’audio du système.",
     openDesktopApp: "Open desktop app (Localisé)",
     chromeHoverTitle: "Extension Chrome",
     chromeHoverDescription:
@@ -1587,7 +1593,7 @@ const messages = {
     betterInDesktop: "Better in the desktop app (Localisé)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (Localisé)",
-    downloadDesktopApp: "Download desktop app (Localisé)",
+    downloadDesktopApp: "Record on desktop",
     downloadLabel: "Télécharger",
     technicalDetails: "Technical details (Localisé)",
     whatToCheck: "What to check (Localisé)",
@@ -1878,6 +1884,7 @@ const messages = {
       "{{consoleCount}} problèmes de console · {{networkCount}} requêtes échouées",
     noFailures: "Aucun échec détecté",
     failuresPresent: "Des erreurs de navigateur ont été détectées",
+    unviewedCount: "{{count}} non consultés",
     captureSuccessful: "Diagnostics capturés avec succès",
     capturedFrom: "Capturé depuis {{source}}",
     browserCapture: "Capture du navigateur",

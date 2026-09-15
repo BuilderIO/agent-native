@@ -8,11 +8,17 @@ import {
   isKnownFontWeight,
   isTextDecorationLineActive,
   nextTextDecorationLineValue,
+  parseLineHeightInput,
   parseTextDecorationLineTokens,
+  resolveLineHeightFieldValue,
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
   resolveFontFamilySelectValue,
   splitFontFamilyList,
+  TEXT_TRUNCATION_ORIGINAL_DISPLAY,
+  TEXT_TRUNCATION_ORIGINAL_OVERFLOW,
+  textTruncationLineCount,
+  textTruncationStyleChanges,
   TEXT_CASE_OPTIONS,
 } from "./typography-helpers";
 
@@ -216,6 +222,90 @@ describe("resolveFixedResizeDimension", () => {
   });
 });
 
+describe("line-height field values", () => {
+  it("preserves authored px and percent values across the computed px fallback", () => {
+    expect(resolveLineHeightFieldValue("30%", "24px", "16px")).toEqual({
+      text: "30%",
+      value: 30,
+      unit: "%",
+    });
+    expect(resolveLineHeightFieldValue("30px", "24px", "16px")).toEqual({
+      text: "30px",
+      value: 30,
+      unit: "px",
+    });
+  });
+
+  it("shows legacy unitless ratios as percentages without changing them", () => {
+    expect(resolveLineHeightFieldValue("1.5", "24px", "16px")).toEqual({
+      text: "150%",
+      value: 150,
+      unit: "%",
+    });
+  });
+
+  it("uses computed pixels for Auto scrub steps and accepts Figma input units", () => {
+    const auto = resolveLineHeightFieldValue("normal", "19.2px", "16px");
+    expect(auto).toEqual({ text: "Auto", value: 19.2, unit: "px" });
+    expect(parseLineHeightInput("30", auto)).toMatchObject({
+      text: "30px",
+      value: 30,
+      unit: "px",
+      cssValue: "30px",
+    });
+    expect(parseLineHeightInput("150%", auto)).toMatchObject({
+      text: "150%",
+      value: 150,
+      unit: "%",
+      cssValue: "150%",
+    });
+    expect(parseLineHeightInput("Auto", auto)).toMatchObject({
+      text: "Auto",
+      cssValue: "normal",
+    });
+  });
+
+  it("uses a measured normal line box when computed CSS remains Auto", () => {
+    expect(
+      resolveLineHeightFieldValue("normal", "normal", "16px", "19px"),
+    ).toEqual({ text: "Auto", value: 19, unit: "px" });
+  });
+
+  it("defaults bare input to pixels from percentage mode", () => {
+    expect(parseLineHeightInput("30", { value: 150, unit: "%" })).toMatchObject(
+      {
+        text: "30px",
+        value: 30,
+        unit: "px",
+        cssValue: "30px",
+      },
+    );
+    expect(parseLineHeightInput("0", { value: 125, unit: "%" })).toMatchObject({
+      text: "0px",
+      value: 0,
+      unit: "px",
+      cssValue: "0px",
+    });
+    expect(parseLineHeightInput("+5", { value: 150, unit: "%" })).toMatchObject(
+      {
+        text: "5px",
+        value: 5,
+        unit: "px",
+        cssValue: "5px",
+      },
+    );
+    expect(
+      parseLineHeightInput("150%", { value: 19, unit: "px" }),
+    ).toMatchObject({
+      text: "150%",
+      value: 150,
+      unit: "%",
+      cssValue: "150%",
+    });
+    expect(parseLineHeightInput("nope", { value: 125, unit: "%" })).toBeNull();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // parseTextDecorationLineTokens / isTextDecorationLineActive /
 // nextTextDecorationLineValue — underline/strikethrough toggle state must be
@@ -312,5 +402,115 @@ describe("TEXT_CASE_OPTIONS", () => {
       "lowercase",
       "capitalize",
     ]);
+  });
+});
+
+describe("text truncation styles", () => {
+  const requireStyleChanges = (
+    changes: Record<string, string> | null,
+  ): Record<string, string> => {
+    if (!changes) throw new Error("Expected truncation style changes");
+    return changes;
+  };
+
+  it("reads only positive integer clamp values", () => {
+    expect(textTruncationLineCount("1")).toBe(1);
+    expect(textTruncationLineCount("12")).toBe(12);
+    expect(textTruncationLineCount("none")).toBeNull();
+    expect(textTruncationLineCount("0")).toBeNull();
+    expect(textTruncationLineCount("1.5")).toBeNull();
+  });
+
+  it("keeps original inline display and overflow across disable and re-enable", () => {
+    const enabled = requireStyleChanges(
+      textTruncationStyleChanges(true, 3, {
+        display: "inline-block",
+        overflow: "clip",
+      }),
+    );
+    expect(enabled).toMatchObject({
+      display: "-webkit-box",
+      webkitBoxOrient: "vertical",
+      webkitLineClamp: "3",
+      overflow: "hidden",
+      [TEXT_TRUNCATION_ORIGINAL_DISPLAY]: '"inline-block"',
+      [TEXT_TRUNCATION_ORIGINAL_OVERFLOW]: '"clip"',
+    });
+
+    const disabled = requireStyleChanges(
+      textTruncationStyleChanges(false, 3, enabled),
+    );
+    expect(disabled).toMatchObject({
+      display: "inline-block",
+      webkitBoxOrient: "horizontal",
+      webkitLineClamp: "none",
+      overflow: "clip",
+      [TEXT_TRUNCATION_ORIGINAL_DISPLAY]: "initial",
+      [TEXT_TRUNCATION_ORIGINAL_OVERFLOW]: "initial",
+    });
+
+    const enabledAgain = requireStyleChanges(
+      textTruncationStyleChanges(true, 2, {
+        ...disabled,
+        display: "grid",
+        overflow: "scroll",
+      }),
+    );
+    expect(enabledAgain).toMatchObject({
+      [TEXT_TRUNCATION_ORIGINAL_DISPLAY]: '"grid"',
+      [TEXT_TRUNCATION_ORIGINAL_OVERFLOW]: '"scroll"',
+    });
+
+    expect(textTruncationStyleChanges(false, 2, enabledAgain)).toMatchObject({
+      display: "grid",
+      overflow: "scroll",
+    });
+  });
+
+  it("restores CSS-wide values and falls back to the stylesheet for absent values", () => {
+    const enabled = requireStyleChanges(
+      textTruncationStyleChanges(true, 1, {
+        display: "initial",
+        overflow: "clip",
+      }),
+    );
+    expect(enabled).toMatchObject({
+      [TEXT_TRUNCATION_ORIGINAL_DISPLAY]: '"initial"',
+    });
+    expect(textTruncationStyleChanges(false, 1, enabled)).toMatchObject({
+      display: "initial",
+      overflow: "clip",
+    });
+
+    const classBacked = requireStyleChanges(
+      textTruncationStyleChanges(true, 1, {}),
+    );
+    expect(classBacked).toMatchObject({
+      [TEXT_TRUNCATION_ORIGINAL_DISPLAY]: '""',
+      [TEXT_TRUNCATION_ORIGINAL_OVERFLOW]: '""',
+    });
+    expect(textTruncationStyleChanges(false, 1, classBacked)).toEqual({
+      display: "revert-layer",
+      webkitBoxOrient: "horizontal",
+      webkitLineClamp: "none",
+      overflow: "revert-layer",
+      [TEXT_TRUNCATION_ORIGINAL_DISPLAY]: "initial",
+      [TEXT_TRUNCATION_ORIGINAL_OVERFLOW]: "initial",
+    });
+  });
+
+  it("refuses malformed restore metadata instead of guessing", () => {
+    expect(
+      textTruncationStyleChanges(false, 1, {
+        [TEXT_TRUNCATION_ORIGINAL_DISPLAY]: "not-json",
+        [TEXT_TRUNCATION_ORIGINAL_OVERFLOW]: '"hidden"',
+      }),
+    ).toBeNull();
+    expect(
+      textTruncationStyleChanges(false, 1, {
+        [TEXT_TRUNCATION_ORIGINAL_DISPLAY]: '"block"',
+      }),
+    ).toBeNull();
+    expect(textTruncationStyleChanges(true, 0, {})).toBeNull();
   });
 });

@@ -11,7 +11,18 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "width",
   "height",
   "transform",
+  "lineHeight",
+  "display",
+  "overflow",
+  "webkitBoxOrient",
+  "webkitLineClamp",
+  "--agent-native-truncate-original-display",
+  "--agent-native-truncate-original-overflow",
   "whiteSpace",
+  "backgroundImage",
+  "backgroundColor",
+  "color",
+  "fill",
 ] as const;
 
 /** Patch authored values onto an existing inline-style snapshot. A commit that

@@ -4,6 +4,7 @@ import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
+import { normalizeLocaleCode } from "../../localization/shared.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
@@ -64,10 +65,13 @@ export interface AuthPageProps {
   marketing?: AuthMarketingProps;
   marketingLocales: Record<string, AuthMarketingProps>;
   brandMarkSrc: string;
+  brandMarkLightSrc?: string;
   githubUrl: string;
   showGoogle: boolean;
-  /** @deprecated Browser SSO entry points were removed. */
+  /** Whether identity SSO is available for this request. */
   identitySsoEnabled?: boolean;
+  /** Whether Google sign-in should start through the preview identity hub. */
+  googleViaIdentitySso?: boolean;
   /** @deprecated Automatic browser SSO handoff was removed. */
   identitySsoAuto?: boolean;
   signupLegalNotice?: AuthLegalNotice;
@@ -128,20 +132,12 @@ function resolveLocale(
   defaultLocale: string,
 ): string {
   if (!value || value === "system") return defaultLocale;
-  const exact = localeOptions.find((option) => option.value === value);
-  if (exact) return exact.value;
-  try {
-    const canonical = Intl.getCanonicalLocales(value)[0]?.toLowerCase();
-    const match = localeOptions.find(
-      (option) =>
-        option.value.toLowerCase() === canonical ||
-        option.value.split("-")[0]?.toLowerCase() === canonical?.split("-")[0],
-    );
-    return match?.value ?? defaultLocale;
-  } catch {
-    // coercion-ok: malformed locale input falls back to the configured locale.
-    return defaultLocale;
-  }
+  return (
+    normalizeLocaleCode(
+      value,
+      localeOptions.map((option) => option.value),
+    ) ?? defaultLocale
+  );
 }
 
 function resolveSystemLocale(
@@ -564,6 +560,23 @@ export function resolveGoogleAuthUrlPath(input: {
     : `${input.runtimeAppBasePath}${GOOGLE_AUTH_URL_PATH}`;
 }
 
+export function shouldUseIdentitySsoForGoogle(input: {
+  googleViaIdentitySso: boolean;
+  currentOrigin: string;
+}): boolean {
+  if (!input.googleViaIdentitySso) return false;
+  try {
+    const url = new URL(input.currentOrigin);
+    return (
+      url.protocol === "https:" &&
+      /^[a-f0-9]{24}--agent-native-[a-z0-9-]+\.netlify\.app$/.test(url.hostname)
+    );
+  } catch {
+    // coercion-ok: an invalid browser origin cannot select the preview flow.
+    return false;
+  }
+}
+
 function createFlowId(): string {
   try {
     if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -675,8 +688,10 @@ export function AuthPage(props: AuthPageProps) {
     marketing,
     marketingLocales,
     brandMarkSrc,
+    brandMarkLightSrc,
     githubUrl,
     showGoogle,
+    googleViaIdentitySso = false,
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl,
@@ -1461,6 +1476,18 @@ export function AuthPage(props: AuthPageProps) {
       // coercion-ok: analytics session storage is optional.
     }
     const target = resumeHref();
+    if (
+      !isBuilderPreview() &&
+      !isAgentNativeDesktop() &&
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso,
+        currentOrigin: window.location.origin,
+      })
+    ) {
+      const params = new URLSearchParams({ return: target });
+      window.location.replace(`${identityHref}?${params.toString()}`);
+      return;
+    }
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
@@ -1591,13 +1618,15 @@ export function AuthPage(props: AuthPageProps) {
   }, [
     googleAuthUrlPath,
     googleBusy,
+    identityHref,
     identityBootstrapHref,
+    googleViaIdentitySso,
     resolveGoogleFlow,
     resumeHref,
+    setNotice,
     showGoogle,
     startOAuthExchange,
     stopNativeOAuth,
-    stopOAuthPolling,
     t,
     trackingApp,
     view,
@@ -2822,12 +2851,20 @@ export function AuthPage(props: AuthPageProps) {
       ) : (
         <div className="marketing-content">
           <h2 className="app-name">
-            <img
-              className="brand-mark"
-              src={brandMarkSrc}
-              alt=""
-              aria-hidden="true"
-            />
+            <picture>
+              {brandMarkLightSrc ? (
+                <source
+                  media="(prefers-color-scheme: light)"
+                  srcSet={brandMarkLightSrc}
+                />
+              ) : null}
+              <img
+                className="brand-mark"
+                src={brandMarkSrc}
+                alt=""
+                aria-hidden="true"
+              />
+            </picture>
             <span>{marketingCopy.appName}</span>
           </h2>
           <p className="app-tagline" data-marketing-field="tagline">

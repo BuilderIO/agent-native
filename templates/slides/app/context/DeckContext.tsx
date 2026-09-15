@@ -4,7 +4,10 @@ import {
   type LocalOpUndoController,
   type LocalOpUndoEntry,
 } from "@agent-native/core/client/collab";
-import { callAction } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  callActionWithRetry,
+} from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useOrg } from "@agent-native/core/client/org";
 import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
@@ -22,6 +25,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   useSyncExternalStore,
@@ -1392,10 +1396,15 @@ export function deriveInverseOp(
  * kicks the user out of the editor and shows the "Create your first deck"
  * empty state, even though their decks still exist on the server. The 200/[]
  * case still means the user has no decks and is returned as `[]`.
+ *
+ * `callActionWithRetry` spends the shared transient budget before returning
+ * that `null`: a hard refresh against a cold backend used to turn one gateway
+ * blip into a settled "Couldn't load your content" pane over decks that were
+ * about to arrive.
  */
 async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   try {
-    const result = await callAction<DeckListActionResult>(
+    const result = await callActionWithRetry<DeckListActionResult>(
       "list-decks",
       { light: "true", includePreview: "true" },
       { method: "GET" },
@@ -1420,7 +1429,7 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
  */
 async function fetchDeckListLightFromAPI(): Promise<{ id: string }[] | null> {
   try {
-    const result = await callAction<DeckListActionResult>(
+    const result = await callActionWithRetry<DeckListActionResult>(
       "list-decks",
       { light: "true" },
       { method: "GET" },
@@ -1443,52 +1452,26 @@ async function fetchDeckListLightFromAPI(): Promise<{ id: string }[] | null> {
   }
 }
 
-const DECK_FETCH_RETRY_ATTEMPTS = 3;
-const DECK_FETCH_RETRY_DELAY_MS = 400;
-
 // `get-deck` returns a real 404/403 only when the deck is genuinely gone or
 // the caller genuinely lacks access (see actions/get-deck.ts). A network blip
-// or 5xx is transient and must not be coerced into the same "not found" null
-// the caller uses to show the owner-facing "deck unavailable" pane — that
-// flashed a wrong message on brief server hiccups even though the deck still
-// existed.
-function isConfirmedDeckAbsence(err: unknown): boolean {
-  const status = (err as { status?: unknown } | null)?.status;
-  return status === 404 || status === 403;
-}
-
-// A timeout already made the caller wait the full action timeout window once
-// (see DEFAULT_ACTION_TIMEOUT_MS in use-action.ts); retrying would multiply
-// that wait instead of surfacing the failure — same reasoning as
-// `isActionTimeout` in the shared action-query retry policy.
-function isDeckFetchTimeout(err: unknown): boolean {
-  return (err as { timedOut?: unknown } | null)?.timedOut === true;
-}
-
+// or gateway 5xx is transient and must not be coerced into the same "not
+// found" null the caller uses to show the owner-facing "deck unavailable"
+// pane — that flashed a wrong message on brief server hiccups even though the
+// deck still existed. `callActionWithRetry` already refuses to retry 404/403
+// and timeouts, so this read gets the transient budget without spending it on
+// answers the server already gave.
 async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
-  for (let attempt = 1; attempt <= DECK_FETCH_RETRY_ATTEMPTS; attempt++) {
-    try {
-      const result = await callAction<unknown>(
-        "get-deck",
-        { id },
-        { method: "GET" },
-      );
-      return normalizeActionDeck(result);
-    } catch (err) {
-      if (
-        isConfirmedDeckAbsence(err) ||
-        isDeckFetchTimeout(err) ||
-        attempt === DECK_FETCH_RETRY_ATTEMPTS
-      ) {
-        console.error(`Failed to fetch deck ${id}:`, err);
-        return null;
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, attempt * DECK_FETCH_RETRY_DELAY_MS),
-      );
-    }
+  try {
+    const result = await callActionWithRetry<unknown>(
+      "get-deck",
+      { id },
+      { method: "GET" },
+    );
+    return normalizeActionDeck(result);
+  } catch (err) {
+    console.error(`Failed to fetch deck ${id}:`, err);
+    return null;
   }
-  return null;
 }
 
 export function deckIdFromPathname(pathname: string): string | null {
@@ -1504,6 +1487,15 @@ export function deckIdFromPathname(pathname: string): string | null {
 function currentOpenDeckIdFromWindow(): string | null {
   if (typeof window === "undefined") return null;
   return deckIdFromPathname(window.location.pathname);
+}
+
+function replaceOpenDeckRouteWithDeckList(): void {
+  if (typeof window === "undefined") return;
+  const deckSegmentIndex = window.location.pathname.indexOf("/deck/");
+  if (deckSegmentIndex < 0) return;
+  const nextPath = `${window.location.pathname.slice(0, deckSegmentIndex)}/home`;
+  window.history.replaceState(window.history.state, "", nextPath);
+  window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
 export async function includeOpenDeckIfMissing(
@@ -1825,7 +1817,11 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
 
 export function DeckProvider({ children }: { children: ReactNode }) {
   const { data: org, isLoading: orgLoading } = useOrg();
+  const activeOrgId = org?.orgId ?? null;
   const [decks, setDecks] = useState<Deck[]>([]);
+  const [deckScopeOrgId, setDeckScopeOrgId] = useState<
+    string | null | undefined
+  >(undefined);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const decksRef = useRef<Deck[]>([]);
@@ -1859,6 +1855,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     >
   >(new Map());
   const serverSnapshotGenerationRef = useRef(0);
+  const deckScopeGenerationRef = useRef(0);
   const deckBaselineRequestIdRef = useRef(0);
   const deckListRequestIdRef = useRef(0);
   const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
@@ -2082,14 +2079,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const deleteDeckAfterPendingCreate = useCallback(
     (deckId: string, onFailure?: () => void) => {
+      const scopeGeneration = deckScopeGenerationRef.current;
+      const deleteInCurrentScope = () => {
+        if (scopeGeneration !== deckScopeGenerationRef.current) {
+          return Promise.resolve();
+        }
+        return deleteDeckFromAPI(deckId);
+      };
       const pendingCreate = pendingCreatePromisesRef.current.get(deckId);
       const deletion = pendingCreate
-        ? pendingCreate.then(
-            () => deleteDeckFromAPI(deckId),
-            () => deleteDeckFromAPI(deckId),
-          )
-        : deleteDeckFromAPI(deckId);
+        ? pendingCreate.then(deleteInCurrentScope, deleteInCurrentScope)
+        : deleteInCurrentScope();
       void deletion.catch((err) => {
+        if (scopeGeneration !== deckScopeGenerationRef.current) return;
         console.error(`Failed to delete deck ${deckId}:`, err);
         onFailure?.();
       });
@@ -2347,7 +2349,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     // A null result means the fetch failed (network error or non-2xx). Skip
     // the diff so we don't wipe local state on a transient failure.
     if (fresh === null) return;
-    setLoadError(false);
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
     const freshIds = new Set(fresh.map((d) => d.id));
@@ -2364,12 +2365,25 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         !freshIds.has(d.id) && !isNewerThanSnapshot(d.id, createSeqAtRequest),
     );
     for (const id of freshIds) localCreateSeqByIdRef.current.delete(id);
-    if (addedIds.length === 0 && removed.length === 0) return;
+    // Nothing to hydrate, so local state already matches the server and the
+    // error pane can go. When there IS something to hydrate, the error has to
+    // survive until `setDecks` below: clearing it here left `loading` false,
+    // `loadError` false, and `decks` still empty for the length of the body
+    // reads, which rendered "no decks yet" over a user who has decks.
+    if (addedIds.length === 0 && removed.length === 0) {
+      setLoadError(false);
+      return;
+    }
 
-    const addedDecks = (
-      await Promise.all(addedIds.map((id) => fetchDeckFromAPI(id)))
-    ).filter((d): d is Deck => d !== null);
+    const addedResults = await Promise.all(
+      addedIds.map((id) => fetchDeckFromAPI(id)),
+    );
     if (requestId !== deckListRequestIdRef.current) return;
+    const addedDecks = addedResults.filter((d): d is Deck => d !== null);
+    // The server named these ids; a body we could not read back is a truncated
+    // reconcile, not a completed one. Clearing the error here would assert
+    // "no decks yet" on a list the server just said is non-empty.
+    const hydratedEveryAddedDeck = addedDecks.length === addedIds.length;
 
     lastExternalUpdateRef.current = Date.now();
     const removedIds = new Set(removed.map((d) => d.id));
@@ -2385,6 +2399,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
+    if (hydratedEveryAddedDeck) setLoadError(false);
   }, [isNewerThanSnapshot]);
 
   // Re-fetch the currently-open deck's full slide data and reconcile it.
@@ -2590,7 +2605,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           openDeckRequestId !==
             openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId))
       ) {
-        setLoading(false);
+        if (requestId === deckBaselineRequestIdRef.current) setLoading(false);
         return "stale";
       }
       if (loaded === null) {
@@ -2608,6 +2623,51 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const reloadDecks = useCallback(async () => {
     await reloadDecksWithStatus();
   }, [reloadDecksWithStatus]);
+
+  const resetDeckScope = useCallback((nextOrgId: string | null) => {
+    deckScopeGenerationRef.current += 1;
+    const scopedDeckIds = new Set([
+      ...decksRef.current.map((deck) => deck.id),
+      ...pendingCreateIdsRef.current,
+      ...pendingCreatePromisesRef.current.keys(),
+      ...pendingDuplicateSourceIdsRef.current,
+      ...dirtyDeckIdsRef.current,
+      ...localCreateSeqByIdRef.current.keys(),
+      ...openDeckRequestIdByDeckRef.current.keys(),
+      ...pendingSaves.keys(),
+      ...pendingOpsQueue.keys(),
+      ...inFlightSaves,
+      ...failedSaveDecks,
+      ...activeInlineEditSlides.keys(),
+    ]);
+    for (const deckId of scopedDeckIds) {
+      discardPendingDeckOps(deckId);
+      deckLocalWriteSeq.delete(deckId);
+      slideLocalWriteSequences.delete(deckId);
+      activeInlineEditSlides.delete(deckId);
+    }
+
+    ++deckBaselineRequestIdRef.current;
+    ++deckListRequestIdRef.current;
+    ++serverSnapshotGenerationRef.current;
+    openDeckRequestIdByDeckRef.current.clear();
+    pendingCreateIdsRef.current.clear();
+    pendingCreatePromisesRef.current.clear();
+    pendingDuplicateSourceIdsRef.current.clear();
+    dirtyDeckIdsRef.current.clear();
+    deletedSlideTombstonesRef.current.clear();
+    slideDeleteGenerationsRef.current.clear();
+    successfulReplacementTombstoneBoundariesRef.current.clear();
+    localCreateSeqRef.current = 0;
+    localCreateSeqByIdRef.current.clear();
+    undoControllerRef.current?.clear();
+    lastExternalUpdateRef.current = Date.now();
+    decksRef.current = [];
+    setDeckScopeOrgId(nextOrgId);
+    setDecks([]);
+    setLoadError(false);
+    setLoading(true);
+  }, []);
 
   // Load decks from API on mount
   useEffect(() => {
@@ -2630,7 +2690,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           openDeckRequestId !==
             openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId))
       ) {
-        setLoading(false);
+        if (requestId === deckBaselineRequestIdRef.current) setLoading(false);
         return;
       }
       // Initial fetch failed — start empty so the UI can render. The fallback
@@ -2644,22 +2704,24 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     });
   }, [nextOpenDeckRequestId, orgLoading, resetDeckBaseline]);
 
-  // Switching orgs re-scopes list-decks server-side but leaves this context's
-  // in-memory list untouched, so the previous org's decks linger. Reload when
-  // the org id actually changes; skip the first observed id so we don't double
-  // up on the mount fetch above.
+  // Organization changes are a hard access boundary. Clear the previous
+  // scope before loading the next one so optimistic state and stale responses
+  // cannot keep prior-organization decks visible.
   const lastOrgIdRef = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (orgLoading) return;
     const orgId = org?.orgId ?? null;
     if (lastOrgIdRef.current === undefined) {
       lastOrgIdRef.current = orgId;
+      setDeckScopeOrgId(orgId);
       return;
     }
     if (lastOrgIdRef.current === orgId) return;
     lastOrgIdRef.current = orgId;
+    replaceOpenDeckRouteWithDeckList();
+    resetDeckScope(orgId);
     void reloadDecks();
-  }, [org?.orgId, orgLoading, reloadDecks]);
+  }, [org?.orgId, orgLoading, reloadDecks, resetDeckScope]);
 
   // Fallback polling for deck list + open-deck changes. SSE is the primary
   // path; this catches agent/db writes that bypass it without hammering idle
@@ -3036,6 +3098,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       title?: string,
       onFailure?: () => void,
     ): Promise<Deck | null> => {
+      const scopeGeneration = deckScopeGenerationRef.current;
       if (pendingDuplicateSourceIdsRef.current.has(sourceDeckId)) return null;
       pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
       let source = decks.find((d) => d.id === sourceDeckId);
@@ -3051,6 +3114,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
         source = hydrated;
       }
+      if (scopeGeneration !== deckScopeGenerationRef.current) return null;
 
       const now = new Date().toISOString();
       const newTitle = title || `Copy of ${source.title}`;
@@ -3121,11 +3185,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);
       duplicatePromise
         .catch(async (err) => {
+          if (scopeGeneration !== deckScopeGenerationRef.current) return;
           // A rejected request is not proof the row is missing: a timeout or
           // dropped response can land after the server committed the insert.
           // Discarding the copy then would delete work that actually exists
           // and tell the user it failed, so confirm against the server first.
           const probe = await probeDeckPersisted(newId);
+          if (scopeGeneration !== deckScopeGenerationRef.current) return;
           if (probe.persisted) {
             console.warn(
               `Duplicate request for ${newId} failed but the deck persisted:`,
@@ -3142,6 +3208,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           onFailure?.();
         })
         .finally(() => {
+          if (scopeGeneration !== deckScopeGenerationRef.current) return;
           pendingCreateIdsRef.current.delete(newId);
           if (
             pendingCreatePromisesRef.current.get(newId) === duplicatePromise
@@ -3171,11 +3238,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const deleteDeck = useCallback(
     (id: string) => {
+      const scopeGeneration = deckScopeGenerationRef.current;
       const beforeDeck = decksRef.current.find((deck) => deck.id === id);
       const beforeIndex = decksRef.current.findIndex((deck) => deck.id === id);
       discardPendingDeckOps(id);
       deleteDeckAfterPendingCreate(id, () => {
-        if (!beforeDeck) return;
+        if (scopeGeneration !== deckScopeGenerationRef.current || !beforeDeck) {
+          return;
+        }
         setDecks((prev) => {
           if (prev.some((deck) => deck.id === id)) return prev;
           const next = [...prev];
@@ -3268,9 +3338,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [markDeckDirty, recordUndo, reconcilePersistedLayoutFit],
   );
 
+  const deckScopeMatchesOrg =
+    !orgLoading &&
+    deckScopeOrgId !== undefined &&
+    deckScopeOrgId === activeOrgId;
+  const scopedDecks = deckScopeMatchesOrg ? decks : [];
   const getDeck = useCallback(
-    (id: string) => decks.find((d) => d.id === id),
-    [decks],
+    (id: string) => scopedDecks.find((d) => d.id === id),
+    [scopedDecks],
   );
 
   const addSlide = useCallback(
@@ -3811,8 +3886,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   return (
     <DeckContext.Provider
       value={{
-        decks,
-        loading,
+        decks: scopedDecks,
+        loading: loading || !deckScopeMatchesOrg,
         loadError,
         createDeck,
         ensureDeckPersisted,

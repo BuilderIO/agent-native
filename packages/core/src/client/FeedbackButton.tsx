@@ -578,6 +578,7 @@ function FeedbackPopoverButton({
           </TooltipPrimitive.Trigger>
           <TooltipPrimitive.Portal>
             <TooltipPrimitive.Content
+              side={side ?? "right"}
               sideOffset={6}
               className="z-[100040] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95 origin-[var(--radix-tooltip-content-transform-origin)]"
             >

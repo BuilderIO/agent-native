@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mcpMocks = vi.hoisted(() => ({
+  isMcpServersPending: vi.fn(() => false),
   useCreateMcpServer: vi.fn(),
   useDeleteMcpServer: vi.fn(),
   useMcpServers: vi.fn(),
@@ -220,6 +221,19 @@ describe("IntegrationsPanel MCP connection errors", () => {
         'button[aria-label="Manage Slack (agent in channels)"]',
       ),
     ).not.toBeNull();
+  });
+
+  it("warns Slack webhook users to disable Socket Mode", async () => {
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const connectSlack = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect Slack (agent in channels)"]',
+    );
+    await act(async () => connectSlack?.click());
+
+    expect(container.textContent).toContain("Turn off Socket Mode");
   });
 
   it.each([

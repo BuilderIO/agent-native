@@ -229,6 +229,40 @@ describe("view-screen", () => {
     });
   });
 
+  it("does not report JSX support files as overview screens", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        activeFileId: "support",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+      {
+        id: "support",
+        filename: "support.jsx",
+        fileType: "jsx",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design.activeScreen).toBeNull();
+    expect(
+      result.design.screens.map((file: { id: string }) => file.id),
+    ).toEqual(["file_index"]);
+  });
+
   it("lists candidate reviews waiting on any design screen", async () => {
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({

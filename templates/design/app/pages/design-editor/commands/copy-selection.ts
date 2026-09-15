@@ -68,8 +68,10 @@ export async function runCopySelection({
   const entries = getSelectedLayerSnapshots().map((snapshot) => ({
     html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
     rootNodeId: snapshot.rootNodeId,
+    sourceParentNodeId: snapshot.sourceParentNodeId,
     sourceFileId: snapshot.sourceFileId,
     portableStyleSnapshot: snapshot.portableStyleSnapshot,
+    styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
     managedStyleSnapshot: snapshot.managedStyleSnapshot,
   }));
   // Whole-screen copy (U6): getSelectedLayerSnapshots explicitly excludes

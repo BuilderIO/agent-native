@@ -171,6 +171,7 @@ import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
   readDesktopSso,
   writeDesktopSso,
@@ -193,6 +194,10 @@ import {
   oauthErrorPage,
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
+  decodeNetlifyPreviewGoogleOAuthRelayState,
+  isNetlifyPreviewGoogleOAuthCallbackUrl,
+  isNetlifyPreviewGoogleOAuthRelayState,
+  wrapNetlifyPreviewGoogleOAuthState,
 } from "./google-oauth.js";
 import { clearIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import {
@@ -200,6 +205,7 @@ import {
   isCanonicalIdentitySsoClientRequest,
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
 } from "./identity-sso-store.js";
 import { healUndecryptableJwks } from "./jwks-secret-rotation.js";
 import {
@@ -578,26 +584,81 @@ async function enrichLegacySessionIdentity(
   };
 }
 
+/**
+ * Delete one framework auth cookie from every jar this app could have written
+ * it into.
+ *
+ * A cookie's identity is name + domain + path + partition key, and a delete
+ * only removes an exact match, so two axes have to be swept:
+ *
+ * - **Domain**: a host-only cookie and a `Domain=` cookie of the same name are
+ *   separate entries, so a stale shared-domain cookie keeps shadowing the
+ *   isolated app session.
+ * - **Partition**: under CHIPS a `Partitioned` cookie lives in a jar keyed by
+ *   the top-level site, entirely separate from the unpartitioned cookie of the
+ *   same name. Framework auth cookies are written through
+ *   `crossSiteCookieAttrs`, which sets `Partitioned` on HTTPS, so a delete
+ *   without it empties the wrong jar and the browser keeps sending a revoked
+ *   session token. The reverse misses too: a cookie stored before CHIPS, or
+ *   over plain HTTP on a host later served over HTTPS, sits unpartitioned and
+ *   survives a `Partitioned`-only delete.
+ *
+ * `crossSiteCookieAttrs` is applied here rather than left to callers because a
+ * mismatched delete fails silently: the logout response still looks
+ * successful, and the surviving cookie only surfaces later as the previous
+ * account coming back for as long as any instance's session-email cache still
+ * resolves the revoked token.
+ */
 function deleteCookieFromEveryScope(
   event: H3Event,
   name: string,
   attributes: Parameters<typeof deleteCookie>[2] = {},
 ): void {
+  const scoped = { ...crossSiteCookieAttrs(event), ...attributes, path: "/" };
   // Clear host-only cookies first. Then clear any configured domain scope so
   // stale shared cookies stop shadowing isolated app sessions.
-  deleteCookie(event, name, { ...attributes, path: "/" });
+  deleteCookieFromBothPartitions(event, name, scoped);
   for (const domain of AUTH_COOKIE_NAMESPACE.frameworkCookieDomainsToClear) {
-    deleteCookie(event, name, { ...attributes, path: "/", domain });
+    deleteCookieFromBothPartitions(event, name, { ...scoped, domain });
+  }
+}
+
+/**
+ * Emit the partitioned AND unpartitioned delete for one name/domain/path.
+ *
+ * h3 dedupes `set-cookie` on name/domain/path and ignores `Partitioned`, so
+ * two `deleteCookie` calls that differ only by partition can collapse into
+ * one. It is not consistent about it — the eviction fires for a host-only
+ * cookie and misses when a `Domain` is present, because the scan side of the
+ * dedupe recovers the key from a re-parsed header rather than from the
+ * options — so this cannot rely on either outcome. Let h3 serialize the
+ * unpartitioned delete (cookie-es validates the name, the domain, and the
+ * `Partitioned`-requires-`Secure` pairing), then put it back only if the
+ * partitioned delete actually evicted it.
+ */
+function deleteCookieFromBothPartitions(
+  event: H3Event,
+  name: string,
+  scope: Parameters<typeof deleteCookie>[2],
+): void {
+  if (!scope?.partitioned) {
+    deleteCookie(event, name, scope);
+    return;
+  }
+  deleteCookie(event, name, { ...scope, partitioned: false });
+  const unpartitioned = event.res.headers.getSetCookie().at(-1);
+  deleteCookie(event, name, scope);
+  if (
+    unpartitioned &&
+    !event.res.headers.getSetCookie().includes(unpartitioned)
+  ) {
+    event.res.headers.append("set-cookie", unpartitioned);
   }
 }
 
 export function clearFrameworkSessionHintCookies(event: H3Event): void {
   for (const name of frameworkSessionCookieNamesToClear()) {
-    deleteCookieFromEveryScope(
-      event,
-      frameworkSessionHintCookieName(name),
-      crossSiteCookieAttrs(event),
-    );
+    deleteCookieFromEveryScope(event, frameworkSessionHintCookieName(name));
   }
 }
 
@@ -2000,6 +2061,7 @@ function getOnboardingHtmlOptions(
   return {
     authMode,
     googleOnly: options.googleOnly,
+    googleScopes: options.googleScopes,
     marketing: options.marketing,
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
@@ -2772,6 +2834,59 @@ function getRequestPathAndSearch(event: H3Event): {
   };
 }
 
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_HOST =
+  "beta.dispatch.agent-native.com";
+
+function previewGoogleOAuthRelayError(status: number): Response {
+  return new Response("Preview Google sign-in could not be completed.", {
+    status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+      "referrer-policy": "no-referrer",
+    },
+  });
+}
+
+function netlifyPreviewGoogleOAuthCallbackRelayResponse(
+  event: H3Event,
+): Response | undefined {
+  const { rawPath, search } = getRequestPathAndSearch(event);
+  const normalizedPath = stripAppBasePath(rawPath);
+  if (
+    getHeader(event, "host")?.trim().toLowerCase() !==
+      NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_HOST ||
+    getHeader(event, "x-forwarded-proto") !== "https" ||
+    normalizedPath !== "/_agent-native/google/callback"
+  ) {
+    return undefined;
+  }
+
+  const params = new URLSearchParams(
+    search.startsWith("?") ? search.slice(1) : search,
+  );
+  const outerState = params.get("state");
+  if (!isNetlifyPreviewGoogleOAuthRelayState(outerState)) return undefined;
+
+  const relay = decodeNetlifyPreviewGoogleOAuthRelayState(outerState);
+  if (!relay || !isNetlifyPreviewGoogleOAuthCallbackUrl(relay.callbackUri)) {
+    return previewGoogleOAuthRelayError(400);
+  }
+
+  params.set("state", relay.state);
+  const target = new URL(relay.callbackUri);
+  target.search = params.toString();
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "cache-control": "no-store",
+      location: target.href,
+      "referrer-policy": "no-referrer",
+    },
+  });
+}
+
 function workspaceOAuthCallbackRelayResponse(
   event: H3Event,
 ): Response | undefined {
@@ -3407,6 +3522,9 @@ function createAuthGuardFn(
     const requestPath = queryStart >= 0 ? url : rawPath;
     const p = stripAppBasePath(rawPath);
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
+    const previewCallbackRelay =
+      await netlifyPreviewGoogleOAuthCallbackRelayResponse(event);
+    if (previewCallbackRelay) return previewCallbackRelay;
     const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
     if (callbackRelay) return callbackRelay;
 
@@ -3612,9 +3730,9 @@ function createAuthGuardFn(
     // 401-for-/_agent-native/*: they resolve / mint the browser session
     // themselves and verify a signature-bound, single-use, CSRF-stated
     // hub token — not a cookie. The handler fails closed with 404 unless
-    // direct web SSO is configured or the request is from an exact canonical
-    // hosted app origin. Keeping the bypass exact avoids exposing any other
-    // identity subpath.
+    // direct web SSO is configured, the request is from an exact canonical
+    // hosted app origin, or it is an entry request on an immutable Netlify
+    // deploy URL. Keeping the bypass exact avoids exposing other subpaths.
     const isIdentitySsoEntryPath =
       p === "/_agent-native/identity/login" ||
       p === "/_agent-native/identity/callback" ||
@@ -3633,11 +3751,19 @@ function createAuthGuardFn(
         getHeader(event, "host"),
         getHeader(event, "x-forwarded-proto"),
       );
+    const isNetlifyPreviewFederationEntry =
+      (p === "/_agent-native/identity/login" ||
+        p === "/_agent-native/identity/callback") &&
+      isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      );
     if (
       isIdentitySsoEntryPath &&
       (isIdentitySsoExplicitlyEnabled() ||
         isDesktopIdentityRequest ||
-        isCanonicalHostedIdentityRequest)
+        isCanonicalHostedIdentityRequest ||
+        isNetlifyPreviewFederationEntry)
     ) {
       return;
     }
@@ -3685,20 +3811,20 @@ function createAuthGuardFn(
     // (never the session) keeps this decision request-independent, so "/" falls
     // through to the anonymous app shell and the client session gate owns
     // sign-in.
+    const loginHtml =
+      config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
+
     if (
       config.rootAuth &&
       p === "/" &&
       resolveAppHomePath(getAppConfig().app) !== "/" &&
       isHtmlDocumentRequest(event, p)
     ) {
-      return loginHtmlResponse(config.loginHtml, event, {
+      return loginHtmlResponse(loginHtml, event, {
         includeRootAuthRedirect: true,
         requestIndependent: true,
       });
     }
-
-    const loginHtml =
-      config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query. The clean
@@ -3774,6 +3900,16 @@ function createAuthGuardFn(
     // health exposes only aggregate readiness and a trivial `SELECT 1`.
     // Without this bypass the gate below 401s anonymous /_agent-native/*
     // requests before either probe can run.
+    // `pnpm action` forwarding target (dev-action-bridge.ts). The route
+    // verifies its own per-process token; the gate here only has to stop
+    // 401ing a loopback dev request before that check can run.
+    if (
+      p === "/_agent-native/dev/action" &&
+      resolveDeployEnvironment() !== "production" &&
+      isLoopbackRequest(event)
+    ) {
+      return;
+    }
     if (
       p === "/_agent-native/ping" ||
       p === "/_agent-native/health" ||
@@ -4772,7 +4908,13 @@ async function mountBetterAuthRoutes(
         // `/_agent-native/...`). Reject anything else so an attacker can't
         // smuggle a different already-registered redirect URI past Google's
         // host-prefix matching. See HIGH-1 in 09-oauth-session.md.
-        const redirectUri = resolveOAuthRedirectUri(event);
+        const redirectUri = resolveOAuthRedirectUri(
+          event,
+          "/_agent-native/google/callback",
+          {
+            useNetlifyPreviewGoogleOAuthRelay: true,
+          },
+        );
         if (redirectUri === null) {
           setResponseStatus(event, 400);
           return { error: AUTH_GOOGLE_START_FALLBACK };
@@ -4850,6 +4992,7 @@ async function mountBetterAuthRoutes(
           signupAttribution,
           signupAnonymousId,
         });
+        const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
           desktop,
@@ -4868,7 +5011,7 @@ async function mountBetterAuthRoutes(
           scope: googleScopes,
           access_type: "online",
           prompt: "select_account",
-          state,
+          state: oauthState,
         });
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
         if (q.redirect === "1") {
@@ -4897,6 +5040,9 @@ async function mountBetterAuthRoutes(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        const previewCallbackRelay =
+          await netlifyPreviewGoogleOAuthCallbackRelayResponse(event);
+        if (previewCallbackRelay) return previewCallbackRelay;
         const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
         if (callbackRelay) return callbackRelay;
         let callbackFlowId: string | undefined;
@@ -4972,7 +5118,11 @@ async function mountBetterAuthRoutes(
           // redirect_uri. Re-validate against the same allowlist used at
           // auth-url time so the token exchange is always sent to a URI we
           // own.
-          if (!isAllowedOAuthRedirectUri(redirectUri, event)) {
+          if (
+            !isAllowedOAuthRedirectUri(redirectUri, event, getOrigin(event), {
+              useNetlifyPreviewGoogleOAuthRelay: true,
+            })
+          ) {
             const msg = AUTH_GOOGLE_START_FALLBACK;
             if (flowId) {
               setDesktopExchangeError(flowId, {

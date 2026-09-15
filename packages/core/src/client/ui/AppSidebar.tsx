@@ -4,43 +4,26 @@ import {
   AppSidebarFooter as ToolkitAppSidebarFooter,
   useAppSidebar,
   type AppSidebarLinkComponent,
+  type AppSidebarLinkProps,
   type AppSidebarProps as ToolkitAppSidebarProps,
   type AppSidebarHeaderProps as ToolkitAppSidebarHeaderProps,
   type AppSidebarFooterProps as ToolkitAppSidebarFooterProps,
 } from "@agent-native/toolkit/app-shell";
-import { forwardRef, type MouseEvent, type ReactNode } from "react";
+import { forwardRef } from "react";
 import { Link } from "react-router";
 
 import { AgentNativeIcon } from "../components/icons/AgentNativeIcon.js";
 import { EnvironmentBadge } from "../EnvironmentBadge.js";
 import { FeedbackButton } from "../FeedbackButton.js";
 
-function RouterSidebarLink({
-  to,
-  href,
-  className,
-  onClick,
-  children,
-  "aria-label": ariaLabel,
-}: {
-  to?: string;
-  href?: string;
-  className?: string;
-  onClick?: (event: MouseEvent) => void;
-  children?: ReactNode;
-  "aria-label"?: string;
-}) {
-  return (
-    <Link
-      to={to ?? href ?? "/"}
-      className={className}
-      onClick={onClick}
-      aria-label={ariaLabel}
-    >
+const RouterSidebarLink = forwardRef<HTMLAnchorElement, AppSidebarLinkProps>(
+  ({ to, href, children, ...props }, ref) => (
+    <Link ref={ref} to={to ?? href ?? "/"} {...props}>
       {children}
     </Link>
-  );
-}
+  ),
+);
+RouterSidebarLink.displayName = "RouterSidebarLink";
 
 export interface AppSidebarHeaderProps extends ToolkitAppSidebarHeaderProps {
   badgeText?: string;
@@ -59,10 +42,13 @@ export const AppSidebarHeader = forwardRef<
       showBadge = true,
       brandLink,
       brandHref = "/",
+      collapsed: propCollapsed,
       ...props
     },
     ref,
   ) => {
+    const context = useAppSidebar();
+    const collapsed = propCollapsed ?? context.collapsed;
     const resolvedBrandIcon = brandIcon ?? (
       <AgentNativeIcon
         aria-hidden="true"
@@ -73,7 +59,11 @@ export const AppSidebarHeader = forwardRef<
     const resolvedBadge =
       badge ??
       (showBadge ? (
-        <EnvironmentBadge placement="inline" badgeText={badgeText} />
+        <EnvironmentBadge
+          placement="inline"
+          badgeText={badgeText}
+          collapsed={collapsed}
+        />
       ) : undefined);
 
     return (
@@ -81,6 +71,7 @@ export const AppSidebarHeader = forwardRef<
         ref={ref}
         brandIcon={resolvedBrandIcon}
         badge={resolvedBadge}
+        collapsed={collapsed}
         brandHref={brandHref}
         {...props}
       />
@@ -175,4 +166,5 @@ export {
   type AppSidebarItemDefinition,
   type AppSidebarContextValue,
   type AppSidebarLinkComponent,
+  type AppSidebarLinkProps,
 } from "@agent-native/toolkit/app-shell";

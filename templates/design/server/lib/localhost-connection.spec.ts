@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRequestOrgId = vi.hoisted(() => vi.fn<() => string | undefined>());
+const mockRequestAuthCapability = vi.hoisted(() =>
+  vi.fn<() => string | undefined>(),
+);
 const mockResolveOrgIdForEmail = vi.hoisted(() =>
   vi.fn<(email: string) => Promise<string | null>>(),
 );
 const mockUserEmail = vi.hoisted(() => vi.fn<() => string | undefined>());
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => mockRequestAuthCapability(),
   getRequestOrgId: () => mockRequestOrgId(),
   getRequestUserEmail: () => mockUserEmail(),
 }));
@@ -54,6 +58,7 @@ const SCOPE = { connectionId: "conn_1", ownerEmail: "user@example.com" };
 
 beforeEach(() => {
   selectResults = [];
+  mockRequestAuthCapability.mockReturnValue(undefined);
   mockUserEmail.mockReturnValue("user@example.com");
   mockRequestOrgId.mockReturnValue(undefined);
   mockResolveOrgIdForEmail.mockResolvedValue(null);

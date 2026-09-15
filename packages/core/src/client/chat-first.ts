@@ -422,6 +422,8 @@ export interface ChatFirstAppRegistration {
   devUrl?: string | null;
   /** Mounted path used when an app has no absolute URL. */
   path?: string | null;
+  /** Authenticated landing path relative to the app mount. */
+  homePath?: string | null;
 }
 
 export interface ChatFirstAppTarget {

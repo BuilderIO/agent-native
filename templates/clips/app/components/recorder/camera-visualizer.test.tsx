@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
-      "cameraVisualizer.bubble": "translated:camera-bubble",
       "cameraVisualizer.live": "translated:camera-live",
       "cameraVisualizer.waiting": "translated:camera-waiting",
       "cameraVisualizer.opening": "translated:camera-opening",
@@ -30,7 +29,10 @@ vi.mock("@/lib/camera-blur", () => ({
   createBackgroundBlurStream: vi.fn(),
 }));
 
-import { CameraVisualizer } from "./camera-visualizer";
+import {
+  CameraVisualizer,
+  type CameraVisualizerHandle,
+} from "./camera-visualizer";
 
 class MockTrack extends EventTarget {
   stop = vi.fn();
@@ -49,6 +51,7 @@ describe("CameraVisualizer", () => {
   let track: MockTrack;
   let getUserMedia: ReturnType<typeof vi.fn>;
   let permissionState: PermissionState;
+  let visualizerRef: React.RefObject<CameraVisualizerHandle | null>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -95,6 +98,7 @@ describe("CameraVisualizer", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    visualizerRef = React.createRef<CameraVisualizerHandle>();
   });
 
   afterEach(() => {
@@ -108,7 +112,9 @@ describe("CameraVisualizer", () => {
     props: Partial<React.ComponentProps<typeof CameraVisualizer>> = {},
   ) {
     await act(async () => {
-      root.render(<CameraVisualizer deviceId={null} {...props} />);
+      root.render(
+        <CameraVisualizer ref={visualizerRef} deviceId={null} {...props} />,
+      );
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();

@@ -69,8 +69,10 @@ export interface CodingHandoffResult {
 export interface CanvasLayerClipboardEntry {
   html: string;
   rootNodeId?: string;
+  sourceParentNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 

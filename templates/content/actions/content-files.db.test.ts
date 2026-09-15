@@ -46,6 +46,11 @@ beforeAll(async () => {
   getDocumentAction = (await import("./get-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  // The db plugin schedules post-boot maintenance fire-and-forget; joining the
+  // memoized run here keeps this file's unseeded-Files fixtures deterministic.
+  const { scheduleStartupMaintenance } =
+    await import("../server/lib/startup-maintenance.js");
+  await scheduleStartupMaintenance();
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
     identity_authority TEXT, identity_id TEXT

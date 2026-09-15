@@ -59,8 +59,16 @@ test.describe("reparenting and reordering", () => {
     const first = (await node(page, "chip-1").boundingBox())!;
     const third = (await node(page, "chip-3").boundingBox())!;
     // Select on the canvas, not via the tree: the bridge owns drag state and
-    // a Layers-panel selection does not arm it.
+    // a Layers-panel selection does not arm it. A plain click is
+    // container-first (Figma parity: it selects Row, the outermost child of
+    // scope) — drilling into the chip itself needs the double-click that
+    // descends one level, same as structure-selection.spec.ts.
     await page.mouse.click(
+      first.x + first.width / 2,
+      first.y + first.height / 2,
+    );
+    await page.waitForTimeout(600);
+    await page.mouse.dblclick(
       first.x + first.width / 2,
       first.y + first.height / 2,
     );
@@ -95,12 +103,15 @@ test.describe("reparenting and reordering", () => {
     ).toBeGreaterThan(html.indexOf("chip-3"));
   });
 
+  // "Container" in the fixture is an empty painted div, which projects as a
+  // shape — the panel deliberately offers no inside-drop zone on a leaf, so
+  // the container this exercises is the flex Row that really holds children.
   test("dragging a layer row onto a container row reparents it", async ({
     page,
   }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
-    await layerRow(page, "Box A").dragTo(layerRow(page, "Container"));
+    await layerRow(page, "Box A").dragTo(layerRow(page, "Row"));
     await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     const nested = await page
@@ -110,16 +121,15 @@ test.describe("reparenting and reordering", () => {
       .locator("body")
       .evaluate(() => {
         const parent = document.querySelector(
-          '[data-agent-native-node-id="frame-a"]',
+          '[data-agent-native-node-id="row"]',
         );
         const child = document.querySelector(
           '[data-agent-native-node-id="box-a"]',
         );
         return !!parent && !!child && parent.contains(child);
       });
-    expect(
-      nested,
-      "dragging the layer row onto Container did not reparent",
-    ).toBe(true);
+    expect(nested, "dragging the layer row onto Row did not reparent").toBe(
+      true,
+    );
   });
 });

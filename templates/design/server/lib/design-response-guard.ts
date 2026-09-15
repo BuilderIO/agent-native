@@ -86,6 +86,62 @@ const DESIGN_SKILL_DOMAIN_PREPOSITIONS = new Set([
   "with",
 ]);
 const DESIGN_SKILL_CLAUSE_BOUNDARIES = new Set(["also", "and", "but", "then"]);
+const DESIGN_AMBIGUOUS_VERB = /^(?:design|designing)$/i;
+const DESIGN_REQUEST_LEAD_IN =
+  /\b(?:please|kindly|also|and|then|now|to|let'?s)$|\b(?:can|could|would|will)\s+you(?:\s+please)?$|\bi(?:'d|\s+would)?\s+(?:like|want|need)\s+(?:you\s+)?to$/i;
+const DESIGN_FINITE_VERB_FOLLOWS =
+  /^\s*(?:is|are|was|were|be|been|being|has|have|had|will|would|can|could|should|may|might|must|does|do|did)\b/i;
+
+function matchSpans(pattern: RegExp, text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    spans.push([start, start + match[0].length]);
+  }
+  return spans;
+}
+
+/**
+ * `design` is the only token in both the verb and the object pattern, and in
+ * this app it is far more often the noun. Let it supply the verb only where a
+ * verb can stand: opening the message or a clause, or after a request lead-in,
+ * and never in front of a finite verb of its own ("design is ..." is a
+ * statement about designs). Every other mutation verb is unambiguous.
+ */
+function suppliesMutationVerb(
+  text: string,
+  [start, end]: [number, number],
+): boolean {
+  if (!DESIGN_AMBIGUOUS_VERB.test(text.slice(start, end))) return true;
+  if (DESIGN_FINITE_VERB_FOLLOWS.test(text.slice(end))) return false;
+  const prefix = text.slice(0, start).replace(/\s+$/, "");
+  if (prefix === "" || /[.!?,;:]$/.test(prefix)) return true;
+  return DESIGN_REQUEST_LEAD_IN.test(prefix);
+}
+
+/**
+ * Testing the verb and object patterns independently let a single `design`
+ * token satisfy both halves of the conjunction, so every message that merely
+ * mentioned a design read as a request that had to persist one — including
+ * this guard's own save-failure notice, which is why pasting it back produced
+ * the same notice again.
+ */
+function hasDistinctVerbAndObject(text: string): boolean {
+  const verbs = matchSpans(
+    new RegExp(DESIGN_MUTATION_VERBS.source, "gi"),
+    text,
+  ).filter((span) => suppliesMutationVerb(text, span));
+  if (verbs.length === 0) return false;
+  return matchSpans(
+    new RegExp(DESIGN_MUTATION_OBJECTS.source, "gi"),
+    text,
+  ).some(([objectStart, objectEnd]) =>
+    verbs.some(
+      ([verbStart, verbEnd]) =>
+        verbEnd <= objectStart || objectEnd <= verbStart,
+    ),
+  );
+}
 
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
@@ -447,12 +503,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   const mutationText = removeAdvisorySkillsClauses(normalized);
   if (DESIGN_TEST_REQUEST.test(mutationText)) {
     const remainingMutationText = removeDesignTestRequests(mutationText);
-    if (
-      !DESIGN_MUTATION_VERBS.test(remainingMutationText) ||
-      !DESIGN_MUTATION_OBJECTS.test(remainingMutationText)
-    ) {
-      return false;
-    }
+    if (!hasDistinctVerbAndObject(remainingMutationText)) return false;
   }
 
   const advisoryMatch = DESIGN_ADVISORY_WORDS.exec(mutationText);
@@ -470,10 +521,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
     }
   }
 
-  return (
-    DESIGN_MUTATION_VERBS.test(mutationText) &&
-    DESIGN_MUTATION_OBJECTS.test(mutationText)
-  );
+  return hasDistinctVerbAndObject(mutationText);
 }
 
 /**
@@ -515,6 +563,13 @@ export function designFinalResponseGuard(
       "If an image or asset is involved, finish with `insert-asset` when placement is needed. " +
       "Do not claim the design is created, updated, or ready until the action result proves " +
       "that content was persisted.",
+    // Intent is read from the user's prose, so it will always misfire on some
+    // turn. Discarding the draft made every miss a dead end that told the user
+    // nothing and left them nothing to act on; labelling it keeps the
+    // correction honest without throwing away a real answer. The fallback
+    // below is still what a genuinely empty turn gets.
+    exhaustedDraftPrefix:
+      "Unverified — no Design action saved content in this turn, so nothing below is confirmed to exist in your design.",
     fallbackMessage:
       "I couldn't confirm that a Design artifact was saved, so I haven't marked this request complete. Please retry.",
     maxRetries: 1,

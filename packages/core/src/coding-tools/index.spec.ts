@@ -355,17 +355,22 @@ describe("structuredMeta side-channel via onToolMetadata", () => {
       },
     });
 
-    await registry.edit.run({
+    const args = {
       path: "greet.txt",
       oldText: "hello world",
       newText: "hi world",
-    });
+    };
+    await registry.edit.run(args);
 
     const editMeta = doneMetas[0];
     expect(editMeta?.toolKind).toBe("edit");
     expect(editMeta?.filePath).toBe("greet.txt");
     expect(editMeta?.oldText).toContain("hello world");
     expect(editMeta?.newText).toContain("hi world");
+    expect(registry.edit.fileMutationProof?.(args)).toMatchObject({
+      path: "greet.txt",
+      contentSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
   });
 
   it("calls onToolMetadata for write with content/lineCount on done", async () => {
@@ -378,13 +383,18 @@ describe("structuredMeta side-channel via onToolMetadata", () => {
       },
     });
 
-    await registry.write.run({ path: "new.txt", content: "line1\nline2\n" });
+    const args = { path: "new.txt", content: "line1\nline2\n" };
+    await registry.write.run(args);
 
     const writeMeta = doneMetas[0];
     expect(writeMeta?.toolKind).toBe("write");
     expect(writeMeta?.filePath).toBe("new.txt");
     expect(writeMeta?.lineCount).toBe(3);
     expect(writeMeta?.content).toContain("line1");
+    expect(registry.write.fileMutationProof?.(args)).toMatchObject({
+      path: "new.txt",
+      contentSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
   });
 });
 

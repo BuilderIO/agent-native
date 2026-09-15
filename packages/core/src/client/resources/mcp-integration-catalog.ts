@@ -3,7 +3,13 @@ import {
   type McpIntegrationsConfigInput,
   type NormalizedMcpIntegrationsConfig,
 } from "../../shared/mcp-integration-config.js";
+import {
+  hostMatches,
+  MCP_LINK_HOSTS,
+  normalizeMcpUrl,
+} from "../../shared/mcp-provider-hosts.js";
 import { mergeDefinitionsById } from "../../shared/merge-by-id.js";
+import { markMcpConnectionPending } from "./mcp-connection-refresh.js";
 import { mcpIntegrationLogo } from "./mcp-integration-logos.js";
 
 export type McpIntegrationAuthMode = "none" | "headers" | "oauth";
@@ -52,6 +58,12 @@ export interface DefaultMcpIntegration {
    * semantics are verified.
    */
   supportsOrganizationScope?: boolean;
+  /**
+   * The server refuses personal connections, so the workspace connection is the
+   * only one that can succeed. Builder Publish is org-only because its OAuth
+   * grant is shared with Content database sources rather than held by one user.
+   */
+  organizationScopeOnly?: boolean;
   docsUrl?: string;
   setupNoteKey?: string;
   apiFallback?: {
@@ -797,7 +809,11 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   },
   {
     id: "builder-cms",
-    name: "Builder.io",
+    // Not plain "Builder.io": onboarding connects a Builder.io *account* for
+    // model credits one screen earlier, and a row labelled "Builder.io —
+    // Connect" right after reads as that account failing to connect. This is
+    // the separate Publish content grant.
+    name: "Builder.io Publish",
     provider: "builder",
     description: "Search Builder Publish and Hybrid Space content.",
     descriptionKey: "mcpIntegrations.catalog.builder.description",
@@ -812,6 +828,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     logoUrl: mcpIntegrationLogo("builder-cms"),
     docsUrl: "https://www.builder.io/c/docs/mcp-builder-server/",
     setupNoteKey: "mcpIntegrations.catalog.builder.setupNote",
+    organizationScopeOnly: true,
     keywords: [
       "Builder",
       "content",
@@ -961,6 +978,22 @@ export function mcpIntegrationAuthLabel(mode: McpIntegrationAuthMode): string {
   return "OAuth";
 }
 
+/**
+ * Mirrors `resolveMcpOAuthScope` on the server, which keys its org-only rule on
+ * the server URL rather than on a catalog entry. Matching by URL also covers
+ * custom servers pasted by hand, which have no catalog entry to carry a flag.
+ */
+export function mcpUrlRequiresOrganizationScope(rawUrl: string): boolean {
+  if (!URL.canParse(rawUrl)) return false;
+  const url = new URL(rawUrl);
+  return (
+    url.origin === "https://mcp.builder.io" &&
+    url.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !url.search &&
+    !url.hash
+  );
+}
+
 export function buildMcpOAuthStartUrl({
   name,
   url,
@@ -972,7 +1005,9 @@ export function buildMcpOAuthStartUrl({
     name,
     url,
     description,
-    scope,
+    // Every client OAuth start is built here, so this is the one place that can
+    // keep a personal scope off a server that only accepts a workspace one.
+    scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
   });
   return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
@@ -985,6 +1020,9 @@ export function navigateToMcpOAuthStart(url: string): boolean {
     if (!popup) return false;
     popup.opener = null;
     popup.location.replace(url);
+    // The callback redirects the popup, not this window, so this marker is the
+    // only thing that tells the opener its cached server list is now suspect.
+    markMcpConnectionPending();
     return true;
   } catch (error) {
     console.error("Failed to open MCP OAuth popup.", error);
@@ -1022,6 +1060,26 @@ export function supportsMcpIntegrationOrganizationScope(
   );
 }
 
+/**
+ * Mirrors the server's org-only rule in `resolveMcpOAuthScope`. Offering a
+ * personal connection the server will reject is what produced the misleading
+ * scope error users hit on Builder.io.
+ */
+export function requiresMcpIntegrationOrganizationScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return (
+    integration.organizationScopeOnly === true ||
+    mcpUrlRequiresOrganizationScope(integration.url)
+  );
+}
+
+export function allowsMcpIntegrationPersonalScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return !requiresMcpIntegrationOrganizationScope(integration);
+}
+
 export function shouldOfferMcpIntegrationOrganizationScope(
   integration: DefaultMcpIntegration,
   hasOrg: boolean,
@@ -1054,58 +1112,6 @@ export function filterMcpIntegrations(
       .toLowerCase();
     return haystack.includes(needle);
   });
-}
-
-const MCP_LINK_HOSTS: Record<string, string[]> = {
-  amplitude: ["amplitude.com"],
-  apollo: ["apollo.io"],
-  "common-room": ["commonroom.io"],
-  context7: ["context7.com"],
-  exa: ["exa.ai"],
-  sentry: ["sentry.io", "sentry.dev"],
-  gong: ["gong.io"],
-  grafana: ["grafana.com", "grafana.net"],
-  "builder-cms": ["builder.io"],
-  sigma: ["sigmacomputing.com"],
-  notion: ["notion.so", "notion.site"],
-  granola: ["granola.ai"],
-  semgrep: ["semgrep.dev", "semgrep.com"],
-  canva: ["canva.com", "canva.ai"],
-  figma: ["figma.com"],
-  linear: ["linear.app"],
-  atlassian: ["atlassian.com", "atlassian.net", "jira.com", "confluence.com"],
-  supabase: ["supabase.com"],
-  neon: ["neon.tech"],
-  stripe: ["stripe.com"],
-  cloudflare: ["cloudflare.com"],
-  github: ["github.com", "github.dev"],
-  gitlab: ["gitlab.com"],
-  slack: ["slack.com"],
-  asana: ["asana.com"],
-  hubspot: ["hubspot.com"],
-  intercom: ["intercom.com"],
-  pylon: ["usepylon.com", "pylon.com"],
-  monday: ["monday.com"],
-  webflow: ["webflow.com"],
-  paypal: ["paypal.com"],
-  box: ["box.com"],
-  netlify: ["netlify.com"],
-  vercel: ["vercel.com"],
-  zapier: ["zapier.com"],
-};
-
-function hostMatches(hostname: string, domain: string): boolean {
-  return hostname === domain || hostname.endsWith(`.${domain}`);
-}
-
-function normalizeMcpUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
 }
 
 export function isMcpIntegrationUrl(
@@ -1239,7 +1245,7 @@ export function isMcpConnectionSuggestionText(text: string): boolean {
       normalized,
     );
   const hasRequiredConnection =
-    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|needed|missing|unavailable)\b/i.test(
+    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|requires?|needed|missing|unavailable)\b/i.test(
       normalized,
     );
   const hasRequiredAccess =

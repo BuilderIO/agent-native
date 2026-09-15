@@ -17,3 +17,13 @@ describe("EmailThread read state action", () => {
     expect(source).toContain('<IconMailOpened className="h-4 w-4" />');
   });
 });
+
+describe("EmailThread trash shortcuts", () => {
+  it("keeps both the Gmail and Superhuman aliases on the same action", () => {
+    expect(source).toContain('{ key: "d", handler: handleTrash }');
+    expect(source).toContain(
+      '{ key: "#", shift: "either", handler: handleTrash }',
+    );
+    expect(source).toContain('t("mail.actions.moveToTrash")} (D / #)');
+  });
+});

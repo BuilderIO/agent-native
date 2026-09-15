@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconMessagePlus } from "@tabler/icons-react";
+import { IconArrowUp, IconMessagePlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -92,9 +92,9 @@ export function TimestampedCommentBar({
   return (
     <div
       data-player-ui
-      className={cn("absolute inset-x-0 bottom-0 z-30 p-3", className)}
+      className={cn("absolute inset-x-0 bottom-0 z-30 p-3 sm:p-4", className)}
     >
-      <div className="rounded-xl border-0 bg-background/95 p-3 shadow-lg backdrop-blur">
+      <div className="mx-auto w-full max-w-lg rounded-xl bg-background/95 p-2 shadow-lg ring-1 ring-foreground/10 backdrop-blur">
         <Textarea
           ref={textareaRef}
           value={draft}
@@ -110,22 +110,34 @@ export function TimestampedCommentBar({
             }
           }}
           placeholder={t("commentsPanel.composerPlaceholder")}
-          rows={2}
-          className="min-h-[3rem] resize-none border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          rows={1}
+          aria-label={t("commentsPanel.composerPlaceholder")}
+          className="min-h-9 max-h-32 resize-none border-0 bg-transparent px-2 py-1.5 text-base leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm"
         />
-        <div className="mt-2 flex items-center justify-end">
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+        <div className="mt-1 flex items-center justify-between border-t border-border px-1 pt-1.5">
+          <span className="ps-1 text-[11px] text-muted-foreground">
+            {t("commentsPanel.commentAt")}{" "}
+            <span className="font-mono tabular-nums">{msToClock(atMs)}</span>
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
+              onClick={onClose}
+            >
               {t("common.cancel")}
             </Button>
             <Button
               type="button"
-              size="sm"
-              className="rounded-full"
+              size="icon"
+              className="size-7 rounded-full"
               disabled={!draft.trim() || addComment.isPending}
               onClick={submit}
+              aria-label={`${t("commentsPanel.commentAt")} ${msToClock(atMs)}`}
             >
-              {t("commentsPanel.commentAt")} {msToClock(atMs)}
+              <IconArrowUp className="size-4" />
             </Button>
           </div>
         </div>

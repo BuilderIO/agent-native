@@ -37,12 +37,14 @@ export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
+  callActionWithRetry,
   tryCallActionKeepalive,
   useActionQuery,
   useActionMutation,
   type ActionRegistry,
   type ClientActionCallOptions,
   type ClientActionMethod,
+  type RetriedActionCallOptions,
   type KeepaliveActionCallRejectionReason,
   type KeepaliveActionCallResult,
 } from "../use-action.js";
@@ -84,3 +86,4 @@ export {
   type UsePollLoopOptions,
   type UsePollLoopHandle,
 } from "../use-poll-loop.js";
+export { useAfterPaint, scheduleAfterPaint } from "../use-after-paint.js";

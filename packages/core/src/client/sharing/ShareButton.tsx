@@ -60,6 +60,9 @@ export interface ShareButtonProps {
   hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
+  /** Optional compact trigger content for dense host toolbars. The accessible
+   * label remains the localized Share label. */
+  triggerContent?: ReactNode;
   /** Notified when the share popover opens or closes. Hosts that render the
    *  button next to an iframe use this to disable the iframe's pointer events
    *  while the popover is open, so popover hover/clicks aren't swallowed. */
@@ -320,7 +323,7 @@ export function ShareButton(props: ShareButtonProps) {
     <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
       <PopoverTrigger asChild>
         <ShareTrigger
-          label={triggerLabel}
+          label={props.triggerContent ?? triggerLabel}
           className={props.triggerClassName}
           aria-label={triggerLabel}
           title={triggerLabel}

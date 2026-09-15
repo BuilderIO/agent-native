@@ -125,6 +125,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FilterTriggerIndicator } from "@/components/ui/filter-trigger";
 import {
   Popover,
   PopoverTrigger,
@@ -339,6 +340,7 @@ function SidebarSectionSettingsPopover({
 }) {
   const t = useT();
   const settingsLabel = t("sidebar.sectionSettings", { label });
+  const viewFiltered = visibilityFilter !== "all" || showHidden === true;
   const segmentedItemClass =
     "h-7 rounded px-2 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground data-[state=on]:bg-sidebar-accent data-[state=on]:text-foreground data-[state=on]:shadow-sm";
   return (
@@ -348,10 +350,15 @@ function SidebarSectionSettingsPopover({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
+              className={cn(
+                "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100",
+                viewFiltered ? "text-foreground opacity-100" : "opacity-0",
+              )}
               aria-label={settingsLabel}
             >
-              <IconFilter className="h-3.5 w-3.5" />
+              <FilterTriggerIndicator active={viewFiltered}>
+                <IconFilter className="h-3.5 w-3.5" />
+              </FilterTriggerIndicator>
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
@@ -2348,7 +2355,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             <nav className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3">
               {/* Ask section */}
               <div className="order-1 group/section min-w-0 space-y-0.5">
-                <div>
+                <div className="flex w-full min-w-0 items-center">
                   <Link
                     to="/ask"
                     onClick={handleAskClick}

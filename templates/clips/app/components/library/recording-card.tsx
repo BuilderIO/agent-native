@@ -341,8 +341,10 @@ export function RecordingCard({
                 checked={selected}
                 onClick={handleCheckbox}
                 className={cn(
-                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-background/80 bg-foreground/25 text-background opacity-70 shadow-sm backdrop-blur-sm transition-[background-color,border-color,opacity] hover:bg-foreground/45 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",
-                  (selectionMode || selected) && "opacity-100",
+                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-background/80 bg-foreground/25 text-background opacity-70 shadow-sm backdrop-blur-sm transition-[background-color,border-color,opacity] hover:bg-foreground/45",
+                  selectionMode || selected
+                    ? "opacity-100 sm:opacity-100"
+                    : "sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",
                   selected &&
                     "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
                 )}
@@ -556,7 +558,7 @@ export function RecordingCard({
                       ) : (
                         <DropdownMenuItem onSelect={() => onArchive(recording)}>
                           <IconArchive className="h-4 w-4 me-2" />{" "}
-                          {t("navigation.archive")}
+                          {t("libraryGrid.archiveAction")}
                         </DropdownMenuItem>
                       ))}
                     {onTrash && (
@@ -568,7 +570,7 @@ export function RecordingCard({
                         className="text-destructive focus:text-destructive"
                       >
                         <IconTrash className="h-4 w-4 me-2" />{" "}
-                        {t("navigation.trash")}
+                        {t("libraryGrid.moveToTrashAction")}
                       </DropdownMenuItem>
                     )}
                   </DropdownMenuContent>
@@ -717,7 +719,7 @@ export function RecordingCard({
           ) : (
             <ContextMenuItem onSelect={() => onArchive(recording)}>
               <IconArchive className="h-4 w-4 me-2" />
-              {t("navigation.archive")}
+              {t("libraryGrid.archiveAction")}
             </ContextMenuItem>
           ))}
         {onTrash && (
@@ -728,7 +730,7 @@ export function RecordingCard({
             className="text-destructive focus:text-destructive"
           >
             <IconTrash className="h-4 w-4 me-2" />
-            {t("navigation.trash")}
+            {t("libraryGrid.moveToTrashAction")}
           </ContextMenuItem>
         )}
       </ContextMenuContent>

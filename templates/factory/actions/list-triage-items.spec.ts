@@ -275,6 +275,12 @@ describe("list-triage-items automation limits", () => {
     ]);
     expect(result.hasMore).toBe(false);
     expect(result.nextCursor).toBeNull();
+    for (const entry of result.items) {
+      expect(entry.inboxPresentation?.routing.labelKey).toMatch(
+        /^triage\.inboxRouting\./,
+      );
+      expect(entry.inboxPresentation).toHaveProperty("leavesReviewWindow");
+    }
   });
 
   it("drops started and already-marked Slack items from the review window", async () => {
@@ -295,7 +301,7 @@ describe("list-triage-items automation limits", () => {
     });
     const rows = [
       slackItem("started", "automation_started"),
-      slackItem("marked", "received", "robot_face"),
+      slackItem("marked", "received", "eyes"),
       slackItem("fresh", "received"),
     ];
     let selectCalls = 0;

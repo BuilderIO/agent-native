@@ -8,7 +8,7 @@ order: 22
 roadmap_status: "partially_implemented"
 summary: "Use Charts, Pivots, grouping, measures, and drill-down without creating a separate analytics datastore."
 example_workflow: "A marketing analyst groups campaigns by channel, compares spend and conversions in a Chart and Pivot, then drills into one surprising aggregate to inspect the canonical campaigns behind it."
-works_today: "Database calculations, grouping, rollup foundations, and chart tooling elsewhere in the Agent-Native framework provide useful implementation donors."
+works_today: "Collection calculations, grouping, rollup foundations, and chart tooling elsewhere in the Agent-Native framework provide useful implementation donors."
 remains: "Content needs typed aggregations, multi-dimensional grouping, Pivot, a shared Chart specification and renderer library, saved Chart Views, embeddable Chart Blocks, and drill-down to canonical records."
 required_capabilities:
   [

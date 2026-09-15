@@ -83,6 +83,7 @@ describe("EnvironmentBadge render", () => {
     );
     expect(badge?.className).toContain("bottom-3");
     expect(badge?.className).toContain("left-3");
+    expect(badge?.className).toContain("pointer-events-none");
     expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
   });
@@ -112,6 +113,29 @@ describe("EnvironmentBadge render", () => {
     expect(badge?.className).toContain("h-5");
     expect(badge?.className).not.toContain("fixed");
     expect(badge?.className).not.toContain("bottom-3");
+  });
+
+  it("shrinks only alpha labels in collapsed inline slots", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge placement="inline" collapsed />));
+
+    expect(container.querySelector('[role="status"]')?.className).toContain(
+      "text-[9px]",
+    );
+
+    act(() =>
+      root.render(
+        <EnvironmentBadge placement="inline" collapsed badgeText="beta" />,
+      ),
+    );
+
+    const betaBadge = container.querySelector('[role="status"]');
+    expect(betaBadge?.className).toContain("text-[10px]");
+    expect(betaBadge?.className).not.toContain("text-[9px]");
   });
 
   it("defers the alpha pill to a post-mount effect so the first client commit matches SSR's null output", async () => {
@@ -237,6 +261,7 @@ describe("EnvironmentBadge render", () => {
 
     const popover = document.body.querySelector('[data-side="top"]');
     expect(popover?.getAttribute("data-align")).toBe("start");
+    expect(popover?.textContent).toContain("You're on Agent-Native Alpha");
 
     const productionLink = [...document.body.querySelectorAll("a")].find(
       (link) => link.textContent?.includes("Switch to production"),
@@ -337,8 +362,10 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
+    // Marked as the lane's own doing, so beta can send the visitor back when
+    // it turns out they have no session there.
     expect(replace).toHaveBeenCalledWith(
-      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+      "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs",
     );
   });
 

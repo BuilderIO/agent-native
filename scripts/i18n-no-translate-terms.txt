@@ -66,6 +66,7 @@ HTTP · MCP · A2A
 iframe / MCP App
 isAvailable · execute
 JWT
+Labs
 Leave blank to use the workspace default, if configured.
 list-emails · get-thread · manage-draft · send
 list-events · check-availability · create-event

@@ -145,13 +145,15 @@ describe("recorder popover failure states", () => {
     ).toBe(true);
   });
 
-  it("uses an explicit alert for a staged update instead of a settings dot", () => {
+  it("uses a compact alert for a staged update", () => {
     updateMocks.status = { state: "downloaded", version: "2.0.0" };
     const html = renderToStaticMarkup(<UpdateBanner />);
 
     expect(html).toContain('role="alert"');
     expect(html).toContain("Update ready");
     expect(html).toContain(">Update</button>");
+    expect(html).not.toContain("Restart Clips to install it.");
+    expect(html).not.toContain("update-banner-icon");
     expect(html).not.toContain("Dismiss update");
     expect(html).not.toContain("bottom-dot");
     expect(html).not.toContain('aria-label="Update ready"');

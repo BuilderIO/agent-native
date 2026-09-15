@@ -42,7 +42,7 @@ A manager saves a Chart View that groups authorized work by status and measures 
 
 ## Product contract
 
-- A Chart is a typed analytical specification over an authorized Database or Query result: dimensions, measures, grouping, aggregation, sort, filters, display choices, and drill-down mapping are validated against typed input.
+- A Chart is a typed analytical specification over an authorized Collection or Query result: dimensions, measures, grouping, aggregation, sort, filters, display choices, and drill-down mapping are validated against typed input.
 - One specification can render as a saved View, embedded Block, dashboard component, and static output. These are presentations of the same analysis, not separately maintained charts.
 - A mark drills into the canonical records contributing to it through an access-scoped query. A chart never grants access to records that its viewer could not otherwise read.
 - Aggregates, labels, totals, empty states, and exported summaries are computed only from authorized input. Hidden rows cannot leak through counts, bins, axes, or a drill-down result.

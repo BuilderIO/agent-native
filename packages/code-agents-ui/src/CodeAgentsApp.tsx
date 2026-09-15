@@ -331,6 +331,21 @@ export function shouldCloseWatchedChatFirstSession(input: {
   return !input.watchedRunPresent;
 }
 
+/**
+ * Search owns the rail only while its panel owns the main area, so the tab
+ * highlight can never disagree with what is actually on screen.
+ */
+export function resolveCodeAgentsPrimaryTab(input: {
+  chatFirstMainKind: "agent" | "code";
+  searchPanelOpen: boolean;
+  hostActiveTab?: ChatFirstPrimaryTab;
+}): ChatFirstPrimaryTab | undefined {
+  if (input.chatFirstMainKind === "code" && input.searchPanelOpen) {
+    return "search";
+  }
+  return input.hostActiveTab;
+}
+
 export interface CodeAgentsAppProps {
   apps: AppConfig[];
   host: CodeAgentsHost;
@@ -1879,8 +1894,19 @@ export default function CodeAgentsApp({
       e.preventDefault();
       openSelectedGoalRef.current();
     };
+    const handleDesktopNewChat = () => openSelectedGoalRef.current();
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener(
+      "agent-native:desktop-new-chat",
+      handleDesktopNewChat,
+    );
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener(
+        "agent-native:desktop-new-chat",
+        handleDesktopNewChat,
+      );
+    };
   }, [isActive]);
 
   async function selectProjectFolder(pathValue: string) {
@@ -2741,10 +2767,18 @@ export default function CodeAgentsApp({
     [host.transferRun, requestPortalTransfer],
   );
 
+  const activePrimaryTab = resolveCodeAgentsPrimaryTab({
+    chatFirstMainKind,
+    searchPanelOpen,
+    ...(chatFirstNavigation?.activeTab
+      ? { hostActiveTab: chatFirstNavigation.activeTab }
+      : {}),
+  });
+  const searchPanelActive = activePrimaryTab === "search";
   const showingSelectedRunDetail =
     !workbenchOpen &&
     !mobilePanelOpen &&
-    !searchPanelOpen &&
+    !searchPanelActive &&
     Boolean(selectedRun);
 
   return (
@@ -2771,7 +2805,7 @@ export default function CodeAgentsApp({
             onOpenIntegrations={() => chatFirstNavigation?.onOpenIntegrations()}
             onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
             onSearch={openSearchPanel}
-            activeTab={chatFirstNavigation?.activeTab}
+            activeTab={activePrimaryTab}
             collapsed={railCollapsed}
             stickyNewChat
           />
@@ -2918,7 +2952,7 @@ export default function CodeAgentsApp({
                     onCopyLink={copyMobileLink}
                     onOpenSettings={onOpenSettings}
                   />
-                ) : searchPanelOpen ? (
+                ) : searchPanelActive ? (
                   <SearchChatsPanel
                     query={searchQuery}
                     results={searchResults}

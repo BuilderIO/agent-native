@@ -6,6 +6,10 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
+
+export { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
+
 type PackageJson = {
   name?: string;
   version?: string;
@@ -40,21 +44,11 @@ const rootDir = path.resolve(
 const registry = "https://registry.npmjs.org";
 const npmDistTag = process.env.AGENT_NATIVE_NPM_DIST_TAG ?? "latest";
 const availabilityPollIntervalMs = 10_000;
-export const DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS = 15 * 60_000;
+export const DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS = 30 * 60_000;
 const availabilityTimeoutMs = Number(
   process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ??
     DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
 );
-export const NPM_PUBLISH_PACKAGE_NAMES = [
-  "@agent-native/core",
-  "@agent-native/creative-context",
-  "@agent-native/dispatch",
-  "@agent-native/pinpoint",
-  "@agent-native/recap-cli",
-  "@agent-native/scheduling",
-  "@agent-native/skills",
-  "@agent-native/toolkit",
-] as const;
 const npmPublishAllowlist = new Set(NPM_PUBLISH_PACKAGE_NAMES);
 
 async function readJson<T>(filePath: string): Promise<T> {
@@ -594,7 +588,6 @@ async function main() {
         console.log(
           `${pkg.name} is already published on npm, but ${tagName(pkg)} is missing on origin`,
         );
-        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
       continue;
@@ -625,7 +618,6 @@ async function main() {
     // at the end with a summary of what broke.
     try {
       if (await publishPackage(pkg)) {
-        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
     } catch (error) {
@@ -648,6 +640,13 @@ async function main() {
       }
     }
   }
+
+  // npm publishes stay serial to avoid overlapping OIDC handshakes. Registry
+  // reads can settle together, so one slow package cannot consume the whole
+  // stable-release coordinator deadline before later packages are published.
+  await Promise.all(
+    packagesNeedingTags.map((pkg) => waitForPackageAvailability(pkg)),
+  );
 
   if (packagesNeedingTags.length === 0) {
     console.log("No unpublished packages found");

@@ -20,6 +20,7 @@ export * from "./dialog.js";
 export * from "./drawer.js";
 export * from "./dropdown-menu.js";
 export * from "./empty.js";
+export * from "./filter-trigger.js";
 export * from "./form.js";
 export * from "./hover-card.js";
 export * from "./input-otp.js";

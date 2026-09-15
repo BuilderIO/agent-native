@@ -11,7 +11,7 @@ import {
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+import { appPath, cdpScreenshot } from "./helpers";
 
 let baseURL = e2eBaseURL();
 let designId = "";
@@ -83,7 +83,13 @@ test.beforeAll(async ({ request }, workerInfo) => {
   fs.writeFileSync(path.join(rootPath, ".prettierrc"), '{"semi":true}\n');
   fs.writeFileSync(path.join(rootPath, ".env"), "EXAMPLE_SECRET=blocked\n");
 
-  devServer = http.createServer((_req, res) => {
+  devServer = http.createServer((req, res) => {
+    if (req.url?.startsWith("/visual-edit-dead")) {
+      // A closed socket models the actual dead-port failure: there is no
+      // document for the iframe or snapshot endpoint to reuse.
+      req.socket.destroy();
+      return;
+    }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end("<!doctype html><main><h1>Local workbench fixture</h1></main>");
   });
@@ -315,4 +321,205 @@ test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local
     localTree.getByText(".prettierrc", { exact: true }),
   ).toBeVisible();
   await expect(localTree.getByText(".env", { exact: true })).toHaveCount(0);
+});
+
+test("updates only the selected URL screen from the Screen inspector", async ({
+  page,
+  request,
+}, testInfo) => {
+  await postAction(request, "add-localhost-screens", {
+    designId,
+    paths: ["/screen-inspector-secondary"],
+  });
+  const readDesign = async () => {
+    const response = await page.request.get(
+      `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `get-design failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    return response.json();
+  };
+  const initial = await readDesign();
+
+  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(async () => {
+      const current = await readDesign();
+      const data = JSON.parse(current.data ?? "{}") as Record<string, any>;
+      return typeof data.boardFileId === "string" && data.boardObjects === null;
+    })
+    .toBe(true);
+  const before = await readDesign();
+  const beforeData = JSON.parse(before.data ?? "{}") as Record<string, any>;
+
+  const screenRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button]")
+    .first();
+  await expect(screenRow).toBeVisible();
+  await screenRow.click();
+  const screenId = await screenRow.getAttribute("data-layer-node-id");
+  if (!screenId) throw new Error("Selected screen row has no file id");
+  const screen = initial.files.find(
+    (file: { id?: string; content?: string; fileType?: string }) =>
+      file.id === screenId &&
+      file.fileType === "html" &&
+      /^https?:\/\//.test(file.content ?? ""),
+  );
+  expect(screen?.id).toBe(screenId);
+  await expect(
+    page.locator("h3.design-sidebar-section-title", { hasText: "Screen" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Add screen")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /remove screen/i }),
+  ).toBeVisible();
+
+  const urlInput = page.getByLabel("Screen URL");
+  await expect(urlInput).toHaveValue(/127\.0\.0\.1/);
+  const nextPath = "/?visual-edit-e2e=updated";
+  const expectedScreenUrl = new URL(nextPath, screen!.content).toString();
+  await urlInput.fill(nextPath);
+  await page.getByRole("button", { name: "Update", exact: true }).click();
+
+  await expect.poll(readDesign).toMatchObject({
+    files: expect.arrayContaining([
+      expect.objectContaining({
+        id: screenId,
+        content: expect.stringContaining("visual-edit-e2e=updated"),
+      }),
+    ]),
+  });
+  const after = await readDesign();
+  const afterData = JSON.parse(after.data ?? "{}") as Record<string, any>;
+  const stripSelectedMetadata = (data: Record<string, any>) => {
+    const next = { ...data };
+    for (const key of ["screenMetadata", "localhostScreens"]) {
+      if (!data[key] || typeof data[key] !== "object") continue;
+      const rest = { ...data[key] };
+      delete rest[screenId];
+      next[key] = rest;
+    }
+    return next;
+  };
+  expect(stripSelectedMetadata(afterData)).toEqual(
+    stripSelectedMetadata(beforeData),
+  );
+  expect(afterData.screenMetadata?.[screenId]).toMatchObject({
+    sourceType: "localhost",
+    path: nextPath,
+  });
+
+  const iframe = page.locator(
+    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+  );
+  await expect
+    .poll(() =>
+      iframe.getAttribute("src").then((src) => {
+        if (!src) return null;
+        return new URL(src).searchParams.get("url");
+      }),
+    )
+    .toBe(expectedScreenUrl);
+  await expect(page.getByLabel("Screen URL")).toHaveValue(
+    /visual-edit-e2e=updated/,
+  );
+  await expect(
+    iframe.contentFrame().getByText("Local workbench fixture"),
+  ).toBeVisible();
+  await cdpScreenshot(page, testInfo.outputPath("screen-source-settings.png"));
+
+  await page.getByRole("button", { name: "Static", exact: true }).click();
+  await expect.poll(readDesign).toMatchObject({
+    files: expect.arrayContaining([
+      expect.objectContaining({
+        id: screenId,
+        content: expect.stringContaining("Local workbench fixture"),
+      }),
+    ]),
+  });
+  const staticDesign = await readDesign();
+  const staticData = JSON.parse(staticDesign.data ?? "{}") as Record<
+    string,
+    any
+  >;
+  expect(staticData.screenMetadata?.[screenId]).toMatchObject({
+    sourceType: "inline",
+    previewState: "static",
+  });
+  await expect(page.getByLabel("Screen URL")).toHaveCount(0);
+  await expect(
+    iframe.contentFrame().getByText("Local workbench fixture"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Preparing live editor...", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Screen source updated", { exact: true }),
+  ).toHaveCount(0);
+  await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
+});
+
+test("keeps a URL screen selected when its static snapshot fails", async ({
+  page,
+  request,
+}) => {
+  const opened = await postAction(request, "add-localhost-screens", {
+    designId,
+    paths: ["/visual-edit-dead"],
+  });
+  const screenId = opened.screens?.[0]?.id;
+  if (!screenId) throw new Error(`Missing dead-route screen: ${opened}`);
+
+  const readDesign = async () => {
+    const response = await page.request.get(
+      `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `get-design failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    return response.json();
+  };
+
+  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+
+  const screenRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
+  await expect(screenRow).toBeVisible();
+  await screenRow.click();
+  await expect(page.getByLabel("Screen URL")).toHaveValue(/visual-edit-dead/);
+
+  await page.getByRole("button", { name: "Static", exact: true }).click();
+
+  // The failed bridge snapshot must leave the persisted source and the
+  // inspector in URL mode, while still giving the user a visible error.
+  await expect(page.getByLabel("Screen URL")).toBeVisible();
+  await expect
+    .poll(async () => {
+      const design = await readDesign();
+      const data = JSON.parse(design.data ?? "{}") as Record<string, any>;
+      return data.screenMetadata?.[screenId]?.sourceType;
+    })
+    .toBe("localhost");
+  await expect(
+    page
+      .locator("[data-sonner-toast], [role='alert']")
+      .filter({ hasText: /snapshot|bridge|failed|could not/i }),
+  ).toBeVisible({ timeout: 10_000 });
 });

@@ -27,10 +27,6 @@ vi.mock("../server/db/index.js", () => ({
   getDb: getDbMock,
 }));
 
-vi.mock("../server/lib/factory-automation-repair.js", () => ({
-  repairFactoryAutomationsFromConfig: vi.fn(),
-}));
-
 vi.mock("../server/lib/factory-automation-caller.js", () => ({
   readCallingFactoryAutomation: readCallingFactoryAutomationMock,
 }));
@@ -177,9 +173,11 @@ describe("parkedRecheckEvidencePatch", () => {
   const recheck = {
     humanReviewCommentCount: 1,
     humanReviewBodyCount: 0,
+    botReviewBodyKeys: ["1:fix this"],
     commentsTruncated: false,
     reviewsTruncated: false,
     changesRequested: false,
+    botErrorAfterPing: false,
     mergeable: null,
     mergeableState: "unknown",
   };

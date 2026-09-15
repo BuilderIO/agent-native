@@ -1,3 +1,4 @@
+import { useAppSidebar } from "@agent-native/toolkit/app-shell";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
@@ -17,6 +18,7 @@ import {
   BETA_OPT_OUT_STORAGE_KEY,
   BETA_REDIRECT_DURATION_MS,
   BETA_REDIRECT_STORAGE_KEY,
+  buildAutomaticBetaRedirectUrl,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
@@ -24,6 +26,7 @@ import {
 } from "../shared/environment-lanes.js";
 import { trackEvent } from "./analytics.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
+import { useT } from "./i18n.js";
 import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
@@ -35,6 +38,7 @@ export {
   BETA_OPT_OUT_STORAGE_KEY,
   BETA_REDIRECT_DURATION_MS,
   BETA_REDIRECT_STORAGE_KEY,
+  buildAutomaticBetaRedirectUrl,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
@@ -172,6 +176,12 @@ function consumeBetaOptOutQueryParam(
 
 export type EnvironmentBadgePlacement = "fixed" | "inline";
 
+function environmentBadgeFontClass(label: string, collapsed: boolean) {
+  return collapsed && label.trim().toLowerCase() === "alpha"
+    ? "text-[9px]"
+    : undefined;
+}
+
 const environmentBadgePlacementClasses = {
   fixed:
     "fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm",
@@ -197,14 +207,17 @@ function EnvironmentBadgeContent({
   placement,
   targets,
   badgeText,
+  collapsed,
   className,
 }: {
   environment: "beta" | "production";
   placement: EnvironmentBadgePlacement;
   targets: EnvironmentBadgeTargets;
   badgeText?: string;
+  collapsed: boolean;
   className?: string;
 }) {
+  const t = useT();
   const [isHidden, setIsHidden] = useState(false);
   const { session } = useSession();
   const isBuilder = isBuilderIoEmployee(session?.email);
@@ -223,11 +236,14 @@ function EnvironmentBadgeContent({
   const label = badgeText ?? "alpha";
   const title =
     environment === "beta"
-      ? `You're on Agent-Native ${label.charAt(0).toUpperCase() + label.slice(1)}`
-      : "You're on Agent-Native Production";
+      ? t("environmentBadge.betaTitle", {
+          label: label.charAt(0).toUpperCase() + label.slice(1),
+        })
+      : t("environmentBadge.productionTitle");
 
   const badgeClasses = cn(
     environmentBadgePlacementClasses[placement],
+    environmentBadgeFontClass(label, collapsed),
     environment === "beta"
       ? "border-primary/80"
       : "border-border/80 bg-background/95 text-foreground",
@@ -256,7 +272,7 @@ function EnvironmentBadgeContent({
     <Popover>
       <PopoverTrigger asChild>
         <Button
-          aria-label={`Open ${title.toLowerCase()} switcher`}
+          aria-label={t("environmentBadge.openSwitcher", { title })}
           className={badgeClasses}
           size="sm"
           variant={environment === "beta" ? "default" : "outline"}
@@ -272,16 +288,19 @@ function EnvironmentBadgeContent({
       >
         <div className="mb-1 text-sm font-semibold leading-5">{title}</div>
         <div className="mb-4 text-sm text-muted-foreground">
-          Choose where you want to continue.
+          {t("environmentBadge.continuePrompt")}
         </div>
         <div className="grid gap-2">
           {environment === "beta" ? (
             <EnvironmentLink
               href={productionHref!}
-              label="Switch to production"
+              label={t("environmentBadge.switchToProduction")}
             />
           ) : (
-            <EnvironmentLink href={betaHref!} label="Go to beta" />
+            <EnvironmentLink
+              href={betaHref!}
+              label={t("environmentBadge.goToBeta")}
+            />
           )}
           <Button
             className="mt-2 -mb-2 w-full justify-center text-muted-foreground"
@@ -290,7 +309,7 @@ function EnvironmentBadgeContent({
             type="button"
             variant="ghost"
           >
-            Hide badge
+            {t("environmentBadge.hideBadge")}
           </Button>
         </div>
       </PopoverContent>
@@ -301,18 +320,24 @@ function EnvironmentBadgeContent({
 function LocalEnvironmentBadge({
   placement,
   badgeText = "alpha",
+  collapsed,
   className,
 }: {
   placement: EnvironmentBadgePlacement;
   badgeText?: string;
+  collapsed: boolean;
   className?: string;
 }) {
+  const t = useT();
   return (
     <div
-      aria-label="Local development environment"
+      aria-label={t("environmentBadge.localDevelopment")}
       className={cn(
         environmentBadgePlacementClasses[placement],
-        "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground select-none",
+        environmentBadgeFontClass(badgeText, collapsed),
+        // Fixed placement parks this over app chrome; without this the pill
+        // silently swallows clicks on whatever sits beneath it.
+        "pointer-events-none inline-flex select-none items-center justify-center border border-border/80 bg-background/95 text-foreground",
         className,
       )}
       role="status"
@@ -326,11 +351,13 @@ function ProductionEnvironmentBadge({
   placement,
   targets,
   badgeText,
+  collapsed,
   className,
 }: {
   placement: EnvironmentBadgePlacement;
   targets: EnvironmentBadgeTargets;
   badgeText?: string;
+  collapsed: boolean;
   className?: string;
 }) {
   const { session, status } = useSession();
@@ -355,7 +382,7 @@ function ProductionEnvironmentBadge({
     if (readBetaOptOutUntil() !== null) return;
     if (consumeBetaOptOutQueryParam(window.location.href)) return;
 
-    const betaHref = buildEnvironmentUrl(
+    const betaHref = buildAutomaticBetaRedirectUrl(
       window.location.href,
       targets.betaHost,
     );
@@ -377,6 +404,7 @@ function ProductionEnvironmentBadge({
       placement={placement}
       targets={targets}
       badgeText={badgeText}
+      collapsed={collapsed}
       className={className}
     />
   );
@@ -386,6 +414,7 @@ export interface EnvironmentBadgeProps {
   placement?: EnvironmentBadgePlacement;
   showProduction?: boolean;
   badgeText?: string;
+  collapsed?: boolean;
   className?: string;
 }
 
@@ -399,10 +428,14 @@ export function EnvironmentBadge({
   placement = "fixed",
   showProduction = true,
   badgeText,
+  collapsed,
   className,
 }: EnvironmentBadgeProps = {}) {
+  const t = useT();
   const [hydrated, setHydrated] = useState(false);
+  const sidebar = useAppSidebar();
   const config = useMemo(injectedAgentNativeConfig, []);
+  const effectiveCollapsed = collapsed ?? sidebar.collapsed;
   const hostname =
     typeof window === "undefined" ? undefined : window.location.hostname;
   const environment = resolveEnvironmentChannel(config, hostname);
@@ -428,6 +461,7 @@ export function EnvironmentBadge({
       <LocalEnvironmentBadge
         placement={placement}
         badgeText={resolvedBadgeText}
+        collapsed={effectiveCollapsed}
         className={className}
       />
     );
@@ -436,9 +470,10 @@ export function EnvironmentBadge({
   if (!targets) {
     return (
       <div
-        aria-label="Development environment"
+        aria-label={t("environmentBadge.development")}
         className={cn(
           environmentBadgePlacementClasses[placement],
+          environmentBadgeFontClass(resolvedBadgeText, effectiveCollapsed),
           "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground select-none",
           className,
         )}
@@ -456,6 +491,7 @@ export function EnvironmentBadge({
         placement={placement}
         targets={targets}
         badgeText={resolvedBadgeText}
+        collapsed={effectiveCollapsed}
         className={className}
       />
     );
@@ -467,6 +503,7 @@ export function EnvironmentBadge({
       placement={placement}
       targets={targets}
       badgeText={resolvedBadgeText}
+      collapsed={effectiveCollapsed}
       className={className}
     />
   );

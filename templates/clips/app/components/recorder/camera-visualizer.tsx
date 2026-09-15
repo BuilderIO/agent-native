@@ -2,6 +2,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import {
   type CSSProperties,
+  forwardRef,
+  useImperativeHandle,
   useCallback,
   useEffect,
   useRef,
@@ -33,6 +35,10 @@ export interface CameraVisualizerProps {
     detail?: { error?: string | null },
   ) => void;
   onPreviewChange?: (hasPreview: boolean) => void;
+}
+
+export interface CameraVisualizerHandle {
+  startTest: () => void;
 }
 
 const CAMERA_BUBBLE_SIZE_PX: Record<CameraBubbleSize, number> = {
@@ -169,16 +175,22 @@ async function friendlyCameraError(
   return cameraErrorMessage(t, "startFailed");
 }
 
-export function CameraVisualizer({
-  deviceId,
-  disabled,
-  className,
-  blur = false,
-  blurRadius = DEFAULT_BLUR_PX,
-  size = "md",
-  onStatusChange,
-  onPreviewChange,
-}: CameraVisualizerProps) {
+export const CameraVisualizer = forwardRef<
+  CameraVisualizerHandle,
+  CameraVisualizerProps
+>(function CameraVisualizer(
+  {
+    deviceId,
+    disabled,
+    className,
+    blur = false,
+    blurRadius = DEFAULT_BLUR_PX,
+    size = "md",
+    onStatusChange,
+    onPreviewChange,
+  },
+  ref,
+) {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -451,9 +463,14 @@ export function CameraVisualizer({
     blurHandleRef.current?.setBlurPx(blurRadius);
   }, [blurRadius]);
 
+  useImperativeHandle(ref, () => ({ startTest: () => void startTest() }), [
+    startTest,
+  ]);
+
   const live = status === "live";
   const starting = status === "starting";
   const showBubble = live || starting;
+  if (status === "idle" && !error && !hasFrame) return null;
   const sizePx = CAMERA_BUBBLE_SIZE_PX[size];
   const statusLabel = error
     ? t("cameraVisualizer.needsAttention")
@@ -525,4 +542,4 @@ export function CameraVisualizer({
       ) : null}
     </div>
   );
-}
+});

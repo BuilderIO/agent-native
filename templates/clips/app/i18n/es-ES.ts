@@ -67,6 +67,8 @@ const messages = {
     recordings: "Grabaciones",
     newFolder: "Nueva carpeta",
     noSpaces: "Aún no hay espacios",
+    noSpacesAdminCta:
+      "Pide a un administrador de la organización que cree el primer espacio.",
     desktopCta: "Obtener la app de escritorio",
     desktopTitle: "Obtén la app de escritorio de Clips.",
     desktopBody:
@@ -676,9 +678,11 @@ const messages = {
     downloadAgain: "¿No funcionó? Intenta descargar de nuevo",
     alsoFor: "También disponible para {{platform}}",
     backToLibrary: "Volver a la biblioteca",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Descargar Clips",
     stable: "Estable",
     nightly: "Nightly",
+    allPlatforms: "Todas las plataformas",
+    releaseChannel: "Canal de lanzamiento",
     switchToNightly: "Cambiar a compilaciones Nightly",
     switchToStable: "Cambiar a compilaciones estables",
     retry: "Intentar de nuevo",
@@ -730,17 +734,17 @@ const messages = {
     agentTitle: "Gestionar agente",
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
-    experiments: "Experimentos",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
-    experimentVideoEditing: "Edición de vídeo",
-    experimentVideoEditingDescription: "Prueba el nuevo editor de vídeo.",
-    experimentMeetings: "Reuniones y transcripción",
-    experimentMeetingsDescription:
+    labVideoEditing: "Edición de vídeo",
+    labVideoEditingDescription: "Prueba el nuevo editor de vídeo.",
+    labMeetings: "Reuniones y transcripción",
+    labMeetingsDescription:
       "Prueba la captura y transcripción automática de reuniones.",
-    experimentWisprFlow: "Dictado por voz",
-    experimentWisprFlowDescription:
-      "Prueba la nueva función de dictado por voz.",
+    labWisprFlow: "Dictado por voz",
+    labWisprFlowDescription:
+      "Muestra u oculta el dictado por voz en Clips Desktop.",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
     preferencesTitle: "Preferencias",
     languageTitle: "Idioma",
@@ -977,6 +981,8 @@ const messages = {
     renameFailed: "No se pudo renombrar el clip",
     renameClip: "Renombrar clip",
     clipTitle: "Título del clip",
+    archiveAction: "Archivar",
+    moveToTrashAction: "Mover a la papelera",
     movedToTrash: "Movido a la papelera",
     restoredFromArchive: "Restaurado desde el archivo",
     archived: "Archivado",
@@ -1372,14 +1378,13 @@ const messages = {
     title: "Choose your recorder",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.",
-    chromeTitle: "Chrome extension",
+    chromeTitle: "Get Chrome extension",
     chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab.",
+      "Captura pestañas del navegador con la extensión de Chrome.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL.",
-    desktopTitle: "Desktop app",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
+    desktopTitle: "Download desktop app",
+    desktopDescription: "Graba con atajos globales y audio del sistema.",
     openDesktopApp: "Open desktop app",
     chromeHoverTitle: "Extensión de Chrome",
     chromeHoverDescription:
@@ -1583,7 +1588,7 @@ const messages = {
     betterInDesktop: "Better in the desktop app",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.",
-    downloadDesktopApp: "Download desktop app",
+    downloadDesktopApp: "Record on desktop",
     downloadLabel: "Descargar",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
@@ -1872,6 +1877,7 @@ const messages = {
       "{{consoleCount}} problemas de consola · {{networkCount}} solicitudes fallidas",
     noFailures: "No se detectaron fallos",
     failuresPresent: "Se detectaron fallos del navegador",
+    unviewedCount: "{{count}} sin ver",
     captureSuccessful: "Diagnósticos capturados correctamente",
     capturedFrom: "Capturado desde {{source}}",
     browserCapture: "Captura del navegador",

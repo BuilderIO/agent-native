@@ -6,7 +6,11 @@ import path from "node:path";
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
-import { AgentActionStopError, fail } from "../action.js";
+import {
+  AgentActionStopError,
+  AgentConnectionRequiredError,
+  fail,
+} from "../action.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -18,6 +22,7 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import { warnAgent } from "./action-warnings.js";
+import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
   AgentEngine,
   EngineEvent,
@@ -54,15 +59,23 @@ import {
   backgroundNoProgressTerminalEvent,
   installBackgroundNoProgressTerminalEvent,
   resolveBackgroundNoProgressRepeat,
+  rateLimitChainCapTripped,
+  installRateLimitChainCapTerminalEvent,
+  PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
+  continuationReasonForResumableError,
+  isRecoverableContinuationError,
+  isTransientProviderRateLimitError,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
+  resolvePresendWithCap,
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   permanentPreconditionRemedy,
+  permanentPreconditionReason,
   normalizeToolErrorForBreaker,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
@@ -479,6 +492,68 @@ describe("callConnectedAgentReference", () => {
       },
     ]);
   });
+
+  it("rehydrates a delegated connection request into the caller run", async () => {
+    const events: AgentChatEvent[] = [];
+    const remoteFailure = Object.assign(new Error("input required"), {
+      task: {
+        id: "dispatch-task",
+        status: {
+          state: "input-required",
+          timestamp: "2026-08-31T00:00:00.000Z",
+          message: {
+            role: "agent",
+            metadata: {
+              agentNativeConnectionRequest: {
+                version: 1,
+                provider: "slack",
+                reason: "grant",
+                appId: "dispatch",
+                detail: "Connect Slack to continue.",
+              },
+            },
+            parts: [{ type: "text", text: "Connect Slack to continue." }],
+          },
+        },
+      },
+    });
+
+    const failure = await callConnectedAgentReference({
+      agent: "Dispatch",
+      path: "https://dispatch.example.test",
+      message: "Verify Slack",
+      send: (event) => events.push(event),
+      callAgent: vi.fn(async () => {
+        throw remoteFailure;
+      }),
+      resolveCallerAuth: vi.fn(async () => ({
+        apiKey: "test-key",
+        apiKeyFallbacks: [],
+        userEmail: "user@example.test",
+        orgId: "org-1",
+        orgDomain: "example.test",
+        orgSecret: "test-secret",
+        metadata: {},
+      })),
+      agentCallId: "dispatch-call",
+      now: vi.fn().mockReturnValueOnce(1_000).mockReturnValueOnce(1_200),
+    }).catch((error) => error);
+
+    expect(failure).toBeInstanceOf(AgentConnectionRequiredError);
+    expect(failure).toMatchObject({
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+      source: { id: "Dispatch", kind: "agent", label: "Dispatch" },
+    });
+    expect(events.at(-1)).toEqual({
+      type: "agent_call",
+      agent: "Dispatch",
+      status: "pending",
+      agentCallId: "dispatch-call",
+      durationMs: 200,
+    });
+  });
 });
 
 describe("resolveSkillReferenceContent", () => {
@@ -586,7 +661,7 @@ describe("buildUserContentWithAttachments", () => {
       type: "image",
       name: "huge.png",
       contentType: "image/png",
-      data: `data:image/png;base64,${"A".repeat(1_000_001)}`,
+      data: `data:image/png;base64,${"A".repeat(5_000_001)}`,
       url: "https://cdn.example.com/huge.png",
     };
     const parts = buildUserContentWithAttachments({
@@ -596,7 +671,49 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "image")).toBe(false);
     const text = parts.map((p: any) => p.text ?? "").join("\n");
     expect(text).toContain("https://cdn.example.com/huge.png");
-    expect(text).toContain("too large to send inline");
+    expect(text).toContain("per-image limit");
+  });
+
+  // The file_url cap is an OpenAI limit on a different field. Applying it to
+  // images made an ordinary phone photo unreadable: the user was told the
+  // image was too large AND that storage had to be connected, neither of which
+  // was actionable. A photo this size is vision input and needs no storage.
+  it("inlines a multi-megabyte photo with no upload URL and no storage configured", () => {
+    const att: any = {
+      type: "image",
+      name: "camera_photo.jpg",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${"A".repeat(2_500_000)}`,
+      storageRequired: true,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "add these places to Wednesday",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(true);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).not.toMatch(/too large/i);
+    expect(text).not.toMatch(/smaller/i);
+  });
+
+  // Over the real image ceiling the model must get the number, or it invents
+  // one and then contradicts itself when the user asks what the limit is.
+  it("quotes the actual image limit and rules out storage as the cause", () => {
+    const att: any = {
+      type: "image",
+      name: "enormous.jpg",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${"A".repeat(5_000_001)}`,
+      storageRequired: true,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "read this",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("3.6 MB");
+    expect(text).toContain("not a storage-configuration problem");
   });
 
   it("still inlines an image that fits", () => {
@@ -630,7 +747,8 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "file")).toBe(false);
     const text = parts.map((p: any) => p.text ?? "").join("\n");
     expect(text).toContain("huge.pdf");
-    expect(text).toContain("no upload URL");
+    expect(text).toContain("per-file limit");
+    expect(text).toContain("not a storage-configuration problem");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
@@ -1655,9 +1773,89 @@ describe("resolveAgentOwnerEmail", () => {
   });
 });
 
+describe("resolvePresendWithCap", () => {
+  it("runs the timeout callback before a late required setup result", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: (value: string) => void;
+      let timedOut = false;
+      const result = resolvePresendWithCap({
+        enabled: true,
+        thunk: () =>
+          new Promise<string>((resolve) => {
+            release = resolve;
+          }),
+        fallback: "",
+        timeoutMs: 13_000,
+        onTimeout: () => {
+          timedOut = true;
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(13_000);
+      await expect(result).resolves.toBe("");
+      expect(timedOut).toBe(true);
+
+      // A late successful settlement cannot undo the required setup failure.
+      release("late prompt");
+      await Promise.resolve();
+      expect(timedOut).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("createProductionAgentHandler", () => {
+  it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {
+    const stream = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream,
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: async () => {
+        throw undefined;
+      },
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Run" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    expect(response).toBeInstanceOf(ReadableStream);
+    if (response instanceof ReadableStream) {
+      const { value } = await response.getReader().read();
+      const text = new TextDecoder().decode(value);
+      expect(text).toContain(
+        "Failed to load system prompt: system prompt preparation failed",
+      );
+    }
+    expect(stream).not.toHaveBeenCalled();
+  });
+
   it("limits each request to the action names returned by resolveActionSurface", async () => {
     const seenTools: string[][] = [];
+    const seenScopes: unknown[] = [];
     const lifecycle: string[] = [];
     const engine: AgentEngine = {
       name: "test",
@@ -1674,6 +1872,7 @@ describe("createProductionAgentHandler", () => {
       async *stream(opts): AsyncIterable<EngineEvent> {
         lifecycle.push("stream");
         seenTools.push(opts.tools.map((tool) => tool.name));
+        seenScopes.push(getRequestRunContext()?.actionScope);
         yield {
           type: "assistant-content",
           parts: [{ type: "text", text: "done" }],
@@ -1685,22 +1884,31 @@ describe("createProductionAgentHandler", () => {
       systemPrompt: "Test",
       engine,
       actions: {
-        allowed: actionEntry({}),
+        allowed: { ...actionEntry({}), deferLoading: true },
         denied: actionEntry({}),
         "tool-search": actionEntry({}),
       },
+      initialToolNames: ["denied"],
       prepareRequest: async () => {
         lifecycle.push("prepare");
       },
-      resolveActionSurface: async ({ threadId, availableActionNames }) => {
+      resolveActionSurface: async ({
+        threadId,
+        actionScope,
+        availableActionNames,
+      }) => {
         lifecycle.push("surface");
         expect(threadId).toBe("thread-allowed");
+        expect(actionScope).toEqual({
+          kind: "content-comment-ai",
+          requestId: "request-1",
+        });
         expect(availableActionNames).toEqual([
           "allowed",
           "denied",
           "tool-search",
         ]);
-        return { allowedActionNames: ["allowed"] };
+        return { allowedActionNames: ["allowed"], actionScope };
       },
     });
     const event = mockEvent(
@@ -1710,6 +1918,10 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "Use the configured agent",
           threadId: "thread-allowed",
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "request-1",
+          },
         }),
       }),
     );
@@ -1726,8 +1938,88 @@ describe("createProductionAgentHandler", () => {
     await vi.waitFor(() => {
       expect(seenTools).toEqual([["allowed"]]);
     });
+    expect(seenScopes).toEqual([
+      { kind: "content-comment-ai", requestId: "request-1" },
+    ]);
     expect(lifecycle).toEqual(["prepare", "surface", "stream"]);
     expect(getRequestRunContext()).toBeUndefined();
+  });
+
+  it("rejects invalid action scopes before invoking the resolver", async () => {
+    const resolver = vi.fn(async () => ({
+      allowedActionNames: ["allowed"],
+      actionScope: {},
+    }));
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield { type: "stop", reason: "end_turn" };
+        },
+      },
+      actions: { allowed: actionEntry({}) },
+      resolveActionSurface: resolver,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          actionScope: { value: "x".repeat(9_000) },
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(response).toEqual({
+      error: "actionScope must be at most 8192 bytes",
+    });
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects a scoped request when no action-surface resolver is configured", async () => {
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      actions: { allowed: actionEntry({}) },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "request-1",
+          },
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(response).toEqual({
+      error: "actionScope requires resolveActionSurface",
+    });
   });
 
   it("uses the normal initial tool surface when the resolver selects the default", async () => {
@@ -2023,6 +2315,25 @@ describe("createProductionAgentHandler", () => {
       }),
     );
   });
+
+  it("terminalizes a preclaimed row when turn persistence fails", () => {
+    const source = readFileSync(
+      new URL("./production-agent.ts", import.meta.url),
+      "utf8",
+    );
+    const preparation = source.slice(
+      source.indexOf("if (options.onRunPrepared"),
+      source.indexOf("// ─── Durable-background dispatch decision"),
+    );
+
+    expect(preparation).toContain("await options.onRunPrepared");
+    expect(preparation).toContain("if (foregroundRunRowInserted)");
+    expect(preparation).toContain('updateRunStatusIfRunning(runId, "errored")');
+    expect(preparation).toContain(
+      'setRunTerminalReason(runId, "run_preparation_failed")',
+    );
+    expect(preparation).toContain("throw error");
+  });
 });
 
 describe("filterActionsByAllowedNames", () => {
@@ -2033,8 +2344,16 @@ describe("filterActionsByAllowedNames", () => {
     expect(
       normalizeAgentActionSurfaceResolution({
         allowedActionNames: ["allowed", "allowed"],
+        actionScope: { kind: "content-comment-ai", requestId: "request-1" },
       }),
-    ).toEqual({ mode: "allowlist", allowedActionNames: ["allowed"] });
+    ).toEqual({
+      mode: "allowlist",
+      allowedActionNames: ["allowed"],
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
     expect(() =>
       normalizeAgentActionSurfaceResolution({
         mode: "default",
@@ -2060,6 +2379,12 @@ describe("filterActionsByAllowedNames", () => {
         allowedActionNames: "allowed",
       }),
     ).toThrow("resolveActionSurface returned an invalid action surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: ["allowed"],
+        actionScope: { value: "x".repeat(9_000) },
+      }),
+    ).toThrow("actionScope must be at most 8192 bytes");
   });
 
   it("treats an explicit empty allowlist as no actions", () => {
@@ -2147,6 +2472,40 @@ describe("filterActionsByAllowedNames", () => {
         "__resolvedActionSurface",
       ),
     ).toEqual({ orgId: null, allowedActionNames: ["allowed"] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            allowedActionNames: ["allowed"],
+            actionScope: {
+              kind: "content-comment-ai",
+              requestId: "request-1",
+            },
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({
+      orgId: "org-123",
+      allowedActionNames: ["allowed"],
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            allowedActionNames: ["allowed"],
+            actionScope: { value: "x".repeat(9_000) },
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
     expect(
       readPersistedActionSurface(
         {
@@ -3056,6 +3415,64 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
         "update-extension": {
+          ...actionEntry({ readOnly: false }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events).not.toContainEqual({ type: "done" });
+  });
+
+  it("auto-continues when assistant text follows partial action input", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "should not execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit",
+          name: "edit-design",
+        };
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit",
+          text: '{"designId":"design-1",',
+        };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "I will update the template now." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "edit-design": {
           ...actionEntry({ readOnly: false }),
           run,
         },
@@ -4037,7 +4454,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps a fresh read-only input id streaming after an abandoned zero-byte id", async () => {
@@ -4114,7 +4534,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps a different tool streaming after an abandoned zero-byte tool", async () => {
@@ -4190,7 +4613,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps assembling a large action input while bytes keep streaming", async () => {
@@ -4258,7 +4684,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("serializes tool calls when a turn includes mutating actions", async () => {
@@ -6376,6 +6805,64 @@ describe("runAgentLoop", () => {
     }
   });
 
+  it("derives the concrete permanent-precondition reason from the tool error, stripping the tool-name prefix", () => {
+    expect(
+      permanentPreconditionReason(
+        "mutate-dashboard",
+        "Error running mutate-dashboard: Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+      ),
+    ).toBe(
+      "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    );
+    // The nested-AgentActionStopError shape has no "Error running <tool>:"
+    // wrapper — just "<tool>: <message>" — and must be stripped the same way.
+    expect(
+      permanentPreconditionReason(
+        "connect-google-calendar",
+        "connect-google-calendar: Connect Google Calendar in settings first.",
+      ),
+    ).toBe("Connect Google Calendar in settings first");
+    // The ordinary contract-error shape carries its own code suffix; that is
+    // the marker, not a nested stop narrative, so the reason survives.
+    expect(
+      permanentPreconditionReason(
+        "mutate-dashboard",
+        "Error running mutate-dashboard: Requires editor role on dashboard d1 (have viewer) (errorCode: permanent_precondition)",
+      ),
+    ).toBe("Requires editor role on dashboard d1 (have viewer)");
+    // Capped at ~240 chars so a verbose nested-stop message doesn't blow up
+    // the headline.
+    const long = "x".repeat(300);
+    expect(
+      permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
+    ).toBeLessThanOrEqual(241); // 240 chars + the truncation ellipsis
+    // Nothing left after stripping the prefix: no usable reason text, so the
+    // caller must fall back to the generic sentence instead of an empty or
+    // meaningless headline.
+    expect(
+      permanentPreconditionReason(
+        "mutate-dashboard",
+        "Error running mutate-dashboard:   ",
+      ),
+    ).toBeNull();
+    // A nested A2A/Assets delegation's error text is itself a terminal stop
+    // narrative (its own "I stopped because …" headline plus the
+    // `permanent_precondition` marker). Embedding that whole payload as "the
+    // concrete reason" would double the narrative, so this must fall back to
+    // null (the generic headline) instead of surfacing it verbatim.
+    expect(
+      permanentPreconditionReason(
+        "generate-image-api",
+        "Error running generate-image-api: Assets could not generate this " +
+          "image (failed): I stopped because generate-image-batch needs a " +
+          "setup step outside this turn — a credential, a role, a " +
+          "connected account, or an approval — before it can run. " +
+          "Retrying would not have changed it, and anything completed " +
+          "before this is saved.\ncode: permanent_precondition",
+      ),
+    ).toBeNull();
+  });
+
   // Echoed candidate/ambiguous-match text an edit tool quotes back from the
   // user's own content is fenced with `<<<diagnostic-snippet` /
   // `>>>end-diagnostic-snippet` (diagnostic-snippet.ts) precisely so it can
@@ -6474,9 +6961,208 @@ describe("runAgentLoop", () => {
     expect((stop as { details: string }).details).toContain(
       "Save GEMINI_API_KEY in settings",
     );
-    expect((stop as { error: string }).error).not.toContain("GEMINI_API_KEY");
+    // The headline now leads with the concrete reason instead of a generic
+    // "needs a setup step" sentence, so it names the actual missing key.
     expect((stop as { error: string }).error).toContain(
-      "needs a setup step outside this turn",
+      "generate-slides-ai can't run yet: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
+    );
+    expect((stop as { error: string }).error).toContain(
+      "needs to be fixed outside this chat",
+    );
+  });
+
+  // Prod report: a user asked the agent to fix a dashboard panel and the
+  // headline read as a generic "needs a setup step" with the real reason
+  // (missing editor role) buried in `details`. The headline must lead with
+  // the concrete reason so the user doesn't have to dig for it.
+  it("leads the headline with the concrete reason when the tool error has one", async () => {
+    const run = vi.fn(async () => {
+      throw new Error(
+        "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "mutate-1",
+              name: "mutate-dashboard",
+              input: { panelId: "p1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "mutate-dashboard": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "mutate-dashboard can't run yet: Requires editor role on dashboard " +
+        "agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    );
+  });
+
+  // An action that stops itself (AgentActionStopError) with a permanent
+  // precondition must get the same reason-led headline as a thrown error:
+  // the catch used to seed the raw message first, so the classifier's
+  // headline lost the `??=`.
+  it("leads the headline with the concrete reason when the action stops itself", async () => {
+    const run = vi.fn(async () => {
+      throw new AgentActionStopError(
+        "connect-google-calendar: Connect Google Calendar in settings first.",
+        { errorCode: "not_connected" },
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "cal-1",
+              name: "connect-google-calendar",
+              input: {},
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "connect-google-calendar": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "connect-google-calendar can't run yet: Connect Google Calendar in settings first",
+    );
+  });
+
+  // The explicit code is the classification; the message need not match
+  // the text heuristics to get the reason-led headline.
+  it("honors an explicit permanent_precondition code on a direct action stop", async () => {
+    const run = vi.fn(async () => {
+      throw new AgentActionStopError("mutate-dashboard: Dashboard is locked.", {
+        errorCode: "permanent_precondition",
+        // Model-facing payload: must reach the tool result, never the headline.
+        toolResult: '{"status":"locked","dashboardId":"d1"}',
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "mutate-2",
+              name: "mutate-dashboard",
+              input: { panelId: "p1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "mutate-dashboard": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "mutate-dashboard can't run yet: Dashboard is locked",
+    );
+    expect((stop as { error: string }).error).not.toContain('"status"');
+    expect((stop as { details: string }).details).toContain(
+      '"status":"locked"',
     );
   });
 
@@ -6548,8 +7234,15 @@ describe("runAgentLoop", () => {
       errorCode: "permanent_precondition",
       recoverable: false,
     });
-    expect((stop as { error: string }).error).toContain(
-      "needs a setup step outside this turn",
+    // Generic fallback headline: the nested delegation's own "I stopped
+    // because …" narrative is a stop message, not a usable "concrete reason",
+    // so it must not be embedded (doubled) into this outer headline.
+    expect((stop as { error: string }).error).toBe(
+      "I stopped because generate-image-api needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. " +
+        "Retrying would not have changed it, and anything completed before this is saved.",
+    );
+    expect((stop as { error: string }).error).not.toContain(
+      "Assets could not generate",
     );
     // Not the scarier, less specific repeated-failure message the incident
     // actually produced.
@@ -8260,6 +8953,87 @@ describe("runAgentLoop", () => {
     ]);
   });
 
+  it("pauses the exact run with a structured connection request", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: "dispatch-1",
+              name: "dispatch",
+              input: { channel: "slack" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "send" }] }],
+      actions: {
+        dispatch: {
+          ...actionEntry({ readOnly: false }),
+          run: async () => {
+            throw new AgentConnectionRequiredError(
+              "Connect Slack to continue.",
+              {
+                provider: "slack",
+                reason: "grant",
+                appId: "dispatch",
+                source: { id: "dispatch", kind: "app", label: "Dispatch" },
+              },
+            );
+          },
+        },
+      },
+      send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "connection_required",
+        requestId: expect.any(String),
+        provider: "slack",
+        reason: "grant",
+        appId: "dispatch",
+        detail: "Connect Slack to continue.",
+        source: { id: "dispatch", kind: "app", label: "Dispatch" },
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(outcomes).toEqual([
+      {
+        state: "input_required",
+        code: "connection_required",
+        message: "Connect Slack to continue.",
+      },
+    ]);
+  });
+
   it("tells the model the expected signature when raw-schema validation rejects a write", async () => {
     const engine: AgentEngine = {
       name: "test",
@@ -9686,11 +10460,18 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(3);
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "text",
-        text: expect.stringMatching(/empty response/i),
+        type: "error",
+        errorCode: "empty_final_response",
+        error: expect.stringMatching(/empty response/i),
+        recoverable: false,
       }),
     );
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "empty_final_response",
+      }),
+    );
   });
 
   it("continues when a model stream disappears without a terminal stop", async () => {
@@ -9832,10 +10613,10 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    const textEvents = events.filter((e) => e.type === "text");
-    expect(textEvents).toHaveLength(1);
-    expect(textEvents[0].text).toMatch(/empty response/i);
-    expect(textEvents[0].text).toMatch(/different model/i);
+    const errorEvents = events.filter((e) => e.type === "error");
+    expect(errorEvents).toHaveLength(1);
+    expect(errorEvents[0].error).toMatch(/empty response/i);
+    expect(errorEvents[0].error).toMatch(/different model/i);
     expect(visibleEvents(events).map((event) => event.type)).toEqual([
       "thinking",
       "clear",
@@ -9843,8 +10624,7 @@ describe("runAgentLoop", () => {
       "clear",
       "thinking",
       "clear",
-      "text",
-      "done",
+      "error",
     ]);
   });
 
@@ -9907,9 +10687,9 @@ describe("runAgentLoop", () => {
     expect(seenOpts[2].reasoningEffort).toBe("low");
     expect(seenOpts[2].maxOutputTokens).toBe(seenOpts[1].maxOutputTokens);
 
-    const textEvents = events.filter((e) => e.type === "text");
-    expect(textEvents).toHaveLength(1);
-    expect(textEvents[0].text).toMatch(/empty response/i);
+    const errorEvents = events.filter((e) => e.type === "error");
+    expect(errorEvents).toHaveLength(1);
+    expect(errorEvents[0].error).toMatch(/empty response/i);
   });
 
   it("does not surface the empty-response fallback when text was streamed", async () => {
@@ -10985,6 +11765,238 @@ describe("runAgentLoop", () => {
   });
 });
 
+// ─── Model fallback on sustained rate limit ──────────────────────────────────
+
+describe("runAgentLoop model fallback", () => {
+  it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5", "claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        modelsUsed.push(opts.model);
+        if (opts.model === "claude-haiku-4-5") {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "claude-haiku-4-5",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // MAX_RETRIES (3) exponential-backoff retries on the primary model
+      // before the fallback swap fires.
+      await vi.advanceTimersByTimeAsync(60_000);
+      const usage = await run;
+
+      // 1 initial + 3 retries on the primary, then 1 on the fallback.
+      expect(modelsUsed).toEqual([
+        "claude-haiku-4-5",
+        "claude-haiku-4-5",
+        "claude-haiku-4-5",
+        "claude-haiku-4-5",
+        "claude-sonnet-5",
+      ]);
+      // The throttled primary attempts' partial usage is discarded at the
+      // switch, so the aggregate is attributed to the model that answered.
+      expect(usage.model).toBe("claude-sonnet-5");
+      expect(
+        events.some(
+          (event) =>
+            event.type === "activity" &&
+            event.label.includes("claude-haiku-4-5") &&
+            event.label.includes("claude-sonnet-5"),
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(events)).toContain("recovered");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls through to the terminal error when the fallback model is ALSO rate limited", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5", "claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        modelsUsed.push(opts.model);
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      },
+    };
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "claude-haiku-4-5",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+      const rejected = expect(run).rejects.toThrow("429 status code (no body)");
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+
+      // Switches to the fallback exactly once — it then gets its own normal
+      // retry budget (1 + MAX_RETRIES), but never swaps back or to a third
+      // model.
+      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(4);
+      expect(modelsUsed.filter((m) => m === "claude-haiku-4-5").length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not switch models for a provider with no known fallback (e.g. gpt-5.6-luna)", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "gpt-5.6-luna",
+      supportedModels: ["gpt-5.6-luna"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      },
+    };
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "gpt-5.6-luna",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+      const rejected = expect(run).rejects.toThrow("429 status code (no body)");
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+
+      // 1 initial + MAX_RETRIES (3), no fallback swap for an unmapped model.
+      expect(streamCalls).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not switch to a fallback the engine's supportedModels excludes, even when resolveFallbackModel maps one", async () => {
+    // "claude-haiku-4-5" DOES have a mapped fallback (claude-sonnet-5), but a
+    // direct-Anthropic engine can advertise a supportedModels list that omits
+    // the Builder-catalog fallback id (e.g. it only knows dated snapshot ids
+    // like "claude-haiku-4-5-20251001"). Switching anyway would send the next
+    // request to a model this engine cannot actually serve.
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        modelsUsed.push(opts.model);
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      },
+    };
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "claude-haiku-4-5",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+      const rejected = expect(run).rejects.toThrow("429 status code (no body)");
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+
+      // 1 initial + MAX_RETRIES (3), no fallback swap and no unsupported
+      // model ever reaches the engine.
+      expect(streamCalls).toBe(4);
+      expect(modelsUsed.every((m) => m === "claude-haiku-4-5")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 // ─── endsTurn (actions that hand control back to the user) ───────────────────
 
 describe("runAgentLoop endsTurn", () => {
@@ -11187,6 +12199,120 @@ describe("isContextTooLongError", () => {
   it("returns false for unrelated errors", () => {
     expect(isContextTooLongError(new Error("rate limit reached"))).toBe(false);
     expect(isContextTooLongError(new Error("overloaded"))).toBe(false);
+  });
+});
+
+// ─── rate-limit classification ──────────────────────────────────────────────
+
+describe("continuationReasonForResumableError", () => {
+  it("labels http_429 as rate_limited, not network_interrupted", () => {
+    const err = new EngineError("429 status code (no body)", {
+      errorCode: "http_429",
+    });
+    expect(continuationReasonForResumableError(err)).toBe("rate_limited");
+  });
+
+  it("labels http_529 as rate_limited", () => {
+    const err = new EngineError("overloaded", { errorCode: "http_529" });
+    expect(continuationReasonForResumableError(err)).toBe("rate_limited");
+  });
+
+  it("labels the gateway's in-stream rate_limited stop as rate_limited", () => {
+    const err = new EngineError("Too many requests", {
+      errorCode: "rate_limited",
+      providerRetryable: true,
+    });
+    expect(continuationReasonForResumableError(err)).toBe("rate_limited");
+  });
+
+  it("labels provider_transient_rejection as rate_limited", () => {
+    const err = new EngineError("Forbidden", {
+      errorCode: "provider_transient_rejection",
+    });
+    expect(continuationReasonForResumableError(err)).toBe("rate_limited");
+  });
+
+  it("labels a bare statusCode 429/529 as rate_limited even with no errorCode", () => {
+    expect(
+      continuationReasonForResumableError(
+        new EngineError("rate limited", { statusCode: 429 }),
+      ),
+    ).toBe("rate_limited");
+    expect(
+      continuationReasonForResumableError(
+        new EngineError("overloaded", { statusCode: 529 }),
+      ),
+    ).toBe("rate_limited");
+  });
+
+  it("labels a providerRetryable 403 as rate_limited but a plain 403 as network_interrupted", () => {
+    expect(
+      continuationReasonForResumableError(
+        new EngineError("Forbidden", {
+          statusCode: 403,
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe("rate_limited");
+    // A real credential rejection must stay out of the rate-limit lane.
+    expect(
+      continuationReasonForResumableError(
+        new EngineError("Forbidden", { statusCode: 403 }),
+      ),
+    ).toBe("network_interrupted");
+  });
+});
+
+describe("isRecoverableContinuationError", () => {
+  it("treats http_429/529 and provider_transient_rejection as recoverable", () => {
+    for (const errorCode of [
+      "http_429",
+      "http_529",
+      "rate_limited",
+      "provider_transient_rejection",
+    ]) {
+      expect(
+        isRecoverableContinuationError({
+          type: "error",
+          error: "rate limited",
+          errorCode,
+        }),
+      ).toBe(true);
+    }
+  });
+});
+
+describe("isTransientProviderRateLimitError", () => {
+  it("accepts provider_transient_rejection alongside http_429/529", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("Forbidden", {
+          errorCode: "provider_transient_rejection",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts the Builder engine's in-stream rate_limited stop", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("rate_limit exceeded: upstream provider rate limited", {
+          errorCode: "rate_limited",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps rate_limit_exceeded (the daily/account cap) non-retryable", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("daily gateway request cap reached", {
+          errorCode: "rate_limit_exceeded",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -11776,6 +12902,89 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
+  // ── Rate-limit chain cap ──────────────────────────────────────────────────
+  function makeRateLimitedRun(errorCode = "http_429"): ActiveRun {
+    return makeRun([
+      {
+        type: "error",
+        error: "429 status code (no body)",
+        errorCode,
+        recoverable: true,
+      },
+    ]);
+  }
+
+  it("labels a rate-limit-class terminal error as the rate_limited continuation reason", () => {
+    expect(backgroundContinuationReasonForRun(makeRateLimitedRun())).toBe(
+      "rate_limited",
+    );
+    expect(
+      backgroundContinuationReasonForRun(makeRateLimitedRun("http_529")),
+    ).toBe("rate_limited");
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRateLimitedRun("provider_transient_rejection"),
+      ),
+    ).toBe("rate_limited");
+  });
+
+  it("CHAINS the first rate-limited chunk of a turn (no prior rate-limited chunk)", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRateLimitedRun(),
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      rateLimitChainCapTripped({
+        run: makeRateLimitedRun(),
+        priorContinuationReason: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT chain a SECOND consecutive rate-limited chunk of the same turn", () => {
+    const run = makeRateLimitedRun();
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 1,
+        priorContinuationReason: "rate_limited",
+      }),
+    ).toBe(false);
+    expect(
+      rateLimitChainCapTripped({
+        run,
+        priorContinuationReason: "rate_limited",
+      }),
+    ).toBe(true);
+  });
+
+  it("installs the provider_rate_limited terminal event when the rate-limit cap trips", () => {
+    const run = makeRateLimitedRun();
+    const installed = installRateLimitChainCapTerminalEvent(run);
+    expect(installed).toBe(true);
+    const last = run.events.at(-1)!.event;
+    expect(last).toMatchObject({
+      type: "error",
+      errorCode: PROVIDER_RATE_LIMITED_ERROR_CODE,
+      error: PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
+      recoverable: false,
+    });
+    expect(run.continuationTerminalEvent).toEqual(last);
+  });
+
+  it("a DIFFERENT prior reason does not trip the rate-limit cap", () => {
+    expect(
+      rateLimitChainCapTripped({
+        run: makeRateLimitedRun(),
+        priorContinuationReason: "gateway_timeout",
+      }),
+    ).toBe(false);
+  });
+
   // ── Foreground self-chain (AGENT_CHAT_FOREGROUND_SELF_CHAIN) ─────────────
   // The boolean passed to shouldChainBackgroundContinuation is the already
   // resolved gate (hosted + A2A_SECRET + not explicitly opted out).
@@ -11858,10 +13067,11 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   // here: a provider throttle would self-chain up to
   // MAX_BACKGROUND_RUN_CONTINUATIONS background invocations into the very limit
   // that just rejected the call, on every lane. `recoverable` — the server's own
-  // boundary signal — still chains, which is the distinction.
+  // boundary signal — still chains, which is the distinction. The gateway's
+  // `rate_limited` code is the one throttle that chains, because it is now
+  // bounded by the one-hop rate-limit cap (`rateLimitChainCapTripped`).
   it("does NOT chain on the engine's retry verdict alone", () => {
     for (const errorCode of [
-      "rate_limited",
       "too_many_concurrent_requests",
       "upstream_unavailable",
     ]) {
@@ -11907,6 +13117,32 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
           },
         ]),
         continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("chains the gateway's rate_limited stop once, then the cap stops it", () => {
+    const run = makeRun([
+      {
+        type: "error",
+        error: "Too many requests",
+        errorCode: "rate_limited",
+        providerRetryable: true,
+      },
+    ]);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 1,
+        priorContinuationReason: "rate_limited",
       }),
     ).toBe(false);
   });

@@ -1,56 +1,46 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconCalendar,
-  IconCheck,
-  IconCode,
-  IconMessage,
-  IconUserPlus,
-} from "@tabler/icons-react";
+import { IconArrowUpRight } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 
 import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { SectionDivider } from "../components/SectionDivider";
-import {
-  TemplateCapabilityGrid,
-  TemplateComparisonTable,
-  TemplateFinalCta,
-  TemplateHero,
-  TemplateLandingFaq,
-  TemplateLandingShell,
-  TemplateSplitFeature,
-  TemplateStatOrStepsGrid,
-  TemplateStatOrStepsGridItem,
-} from "../components/template-landing";
+import { TemplateHero } from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { Button } from "../components/website-redesign/ds/button";
+import { ContentCard } from "../components/website-redesign/ds/content-card";
+import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title:
-          "Agent-Native Calendar — Open Source Alternative to Google Calendar & Calendly",
+        title: "Free AI Scheduling Assistant | Agent-Native Calendar",
       },
       {
         name: "description",
         content:
-          "Build an AI-powered calendar you own. Open source alternative to Google Calendar and Calendly. Google Calendar sync, public booking pages, configurable availability, and natural language scheduling.",
+          "Manage Google Calendar with your AI agent. Find meeting times, reschedule events, and share booking links with Calendar, a free and open-source scheduling app.",
       },
       {
         property: "og:title",
-        content:
-          "Agent-Native Calendar — Open Source Alternative to Google Calendar & Calendly",
+        content: "Free AI Scheduling Assistant | Agent-Native Calendar",
       },
       {
         property: "og:description",
         content:
-          "Build an AI-powered calendar you own. Google Calendar sync, public booking pages, and natural language scheduling.",
+          "Manage Google Calendar with your AI agent. Find meeting times, reschedule events, and share booking links with Calendar, a free and open-source scheduling app.",
       },
       {
         name: "keywords",
         content:
-          "AI calendar, open source calendar, Google Calendar alternative, Calendly alternative, AI scheduling, agent-native calendar, AI booking page, open source scheduling, AI appointment booking, natural language scheduling",
+          "AI calendar, open source calendar, Google Calendar alternative, Calendly alternative, AI scheduling assistant, agent-native calendar, AI booking page, natural language scheduling",
       },
     ],
     "Calendar",
@@ -58,361 +48,243 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "calendar")!;
 
-const primaryLinkClassName = "primary-button";
+// Same no-imagery pattern Slides and Clips used: plain ContentCards, no
+// `image`/`imageLabel`, so the section reads as one system with the
+// key-features grid below it instead of leaving placeholder boxes.
+const USE_CASES = [
+  {
+    id: "book-client-calls-and-demos",
+    titleKey: "useCase1Title",
+    bodyKey: "useCase1Body",
+  },
+  {
+    id: "find-time-for-team-meetings",
+    titleKey: "useCase2Title",
+    bodyKey: "useCase2Body",
+  },
+  {
+    id: "adjust-your-day",
+    titleKey: "useCase3Title",
+    bodyKey: "useCase3Body",
+  },
+] as const;
+
+const KEY_FEATURES = [
+  { id: "ai-scheduling", titleKey: "feature1Title", bodyKey: "feature1Body" },
+  {
+    id: "multiple-calendar-accounts",
+    titleKey: "feature2Title",
+    bodyKey: "feature2Body",
+  },
+  {
+    id: "customizable-booking-links",
+    titleKey: "feature3Title",
+    bodyKey: "feature3Body",
+  },
+  {
+    id: "availability-controls",
+    titleKey: "feature4Title",
+    bodyKey: "feature4Body",
+  },
+  {
+    id: "co-host-scheduling",
+    titleKey: "feature5Title",
+    bodyKey: "feature5Body",
+  },
+  {
+    id: "video-meeting-links",
+    titleKey: "feature6Title",
+    bodyKey: "feature6Body",
+  },
+] as const;
+
+const FAQ_ITEMS = [
+  { id: "what-is-calendar", question: "question1", answer: "answer1" },
+  {
+    id: "which-calendars-can-connect",
+    question: "question2",
+    answer: "answer2",
+  },
+  { id: "what-can-the-agent-do", question: "question3", answer: "answer3" },
+  { id: "booking-without-account", question: "question4", answer: "answer4" },
+  { id: "multi-host-availability", question: "question5", answer: "answer5" },
+] as const;
+
+// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
+// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
+// below draws its grid lines flush to that same max-w-site edge, so this
+// wrapper must match exactly (no px-* here) or the hero's border-x box ends
+// up narrower than the rest of the page.
+const HERO_WRAPPER_CLASS =
+  "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
 export default function CalendarTemplate() {
   const t = useT();
-  const capabilities = [
-    {
-      icon: IconCalendar,
-      title: t("templateLanding.calendar.s012"),
-      body: t("templateLanding.calendar.s013"),
-    },
-    {
-      icon: IconMessage,
-      title: t("templateLanding.calendar.s014"),
-      body: t("templateLanding.calendar.s015"),
-    },
-    {
-      icon: IconUserPlus,
-      title: t("templateLanding.calendar.s016"),
-      body: t("templateLanding.calendar.s017"),
-    },
-    {
-      icon: IconCode,
-      title: t("templateLanding.calendar.s018"),
-      body: t("templateLanding.calendar.s019"),
-    },
-  ];
-  const faqItems = Array.from({ length: 4 }, (_, index) => {
-    const itemNumber = index + 1;
-    return {
-      id: `calendar-question-${itemNumber}`,
-      question: t(`templateLanding.calendar.faq.question${itemNumber}`),
-      answer: (
-        <p className="m-0">
-          {t(`templateLanding.calendar.faq.answer${itemNumber}`)}
-        </p>
-      ),
-    };
-  });
 
   return (
-    <TemplateLandingShell>
-      <TemplateHero
-        eyebrow={
-          <span className="text-[var(--fg-secondary)]">
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={
-          <>
-            <span className="text-[var(--fg)] lg:whitespace-nowrap">
-              {t("templateLanding.calendar.s006Primary")}{" "}
+    <div className="builder-brand-tokens">
+      {/* Hero — copy and layout updated to match Slides; existing hero
+          screenshot kept since there's no newer Calendar asset yet. */}
+      <div className={HERO_WRAPPER_CLASS}>
+        <TemplateHero
+          title={
+            <span className="block max-w-[520px]">
+              {t("templateLanding.calendar.heroTitle")}
             </span>
-            <span className="text-[var(--fg-secondary)] lg:block">
-              {t("templateLanding.calendar.s006Secondary")}
+          }
+          eyebrow={
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-2xl font-bold tracking-tight">
+                {t("templateLanding.calendar.heroEyebrow")}
+              </span>
             </span>
-          </>
-        }
-        customizeTemplate={template}
-        description={
-          <p className="m-0">{t("templateLanding.calendar.s007")}</p>
-        }
-        headingAction={
-          <a
+          }
+          customizeTemplate={template}
+          headingAction={
+            <a
+              href={firstPartyAppUrl("https://calendar.agent-native.com")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{ gap: "4px" }}
+              onClick={(event) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("try live demo", {
+                  template: template.slug,
+                  location: "landing_page_hero",
+                });
+              }}
+            >
+              {t("templateLanding.calendar.heroCta")}
+              <IconArrowUpRight size={16} />
+            </a>
+          }
+          description={<p>{t("templateLanding.calendar.heroDescription")}</p>}
+          descriptionPlacement="below-title"
+          mediaOverlapsHeader
+          media={
+            <BuilderImage
+              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb8ee318efd694b90980bed38eb869d60"
+              crossOrigin="anonymous"
+              alt={t("templateLanding.calendar.s001")}
+              loading="lazy"
+              decoding="async"
+              className="h-auto max-h-[640px] w-full object-cover object-top"
+            />
+          }
+        />
+      </div>
+
+      {/* What can you do with Calendar? — three use-case cards */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.calendar.useCasesHeading")}
+          </h2>
+          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.calendar.useCasesBody")}
+          </p>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
+            {USE_CASES.map((useCase) => (
+              <ContentCard
+                key={useCase.id}
+                title={t(`templateLanding.calendar.${useCase.titleKey}`)}
+                body={t(`templateLanding.calendar.${useCase.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* Key features — six cards, same layout as builder.io/platform/code
+          and the Slides/Clips key-features grids, so all three apps read as
+          one system. */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
+            {t("templateLanding.calendar.keyFeaturesEyebrow")}
+          </p>
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.calendar.keyFeaturesHeading")}
+          </h2>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
+            {KEY_FEATURES.map((feature) => (
+              <ContentCard
+                key={feature.id}
+                title={t(`templateLanding.calendar.${feature.titleKey}`)}
+                body={t(`templateLanding.calendar.${feature.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* FAQs — Clips gets this section's breathing room for free from its
+          "See Clips in action" section in between; Calendar has no such
+          section, so add the same pt-20 rhythm directly here instead of
+          landing the FAQ flush against the feature grid above it. */}
+      <PageSection>
+        <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
+          <FaqAccordion
+            idPrefix="calendar-faq"
+            eyebrow={t("templateLanding.faq.eyebrow")}
+            title={t("templateLanding.faq.title")}
+            items={FAQ_ITEMS.map((item) => ({
+              id: item.id,
+              question: t(`templateLanding.calendar.faq.${item.question}`),
+              answer: (
+                <p className="m-0">
+                  {t(`templateLanding.calendar.faq.${item.answer}`)}
+                </p>
+              ),
+            }))}
+          />
+        </GridInner>
+      </PageSection>
+
+      {/* Final CTA */}
+      <PageSection>
+        <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.calendar.finalCtaHeading")}
+          </h2>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.calendar.finalCtaBody")}
+          </p>
+          <Button
+            variant="cta"
             href={firstPartyAppUrl("https://calendar.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            className={primaryLinkClassName}
-            onClick={(event) => {
+            // The shared cta variant renders at 14px in sentence case, but
+            // the hero's .primary-button (uppercase 12px mono, via the
+            // .template-detail-page CSS rule) only applies inside the hero
+            // wrapper. Match it explicitly here so both CTAs on the page
+            // read as the same button style.
+            style={{
+              gap: "3px",
+              fontSize: "12px",
+              textTransform: "uppercase",
+            }}
+            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("try live demo", {
-                template: "calendar",
-                location: "landing_page_hero",
+                template: template.slug,
+                location: "landing_page_final_cta",
               });
             }}
           >
-            {t("common.getStarted")}
-          </a>
-        }
-        media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb8ee318efd694b90980bed38eb869d60"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.calendar.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[536px] w-full object-cover object-top"
-          />
-        }
-      />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-b border-[var(--docs-border)] px-6 py-8 sm:px-8 lg:px-10">
-          <h2 className="mb-2 text-lg font-medium text-[var(--fg)]">
-            {t("templateLanding.calendar.s057")}
-          </h2>
-          <p className="m-0 max-w-3xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            {t("templateLanding.calendar.s009")}
-          </p>
-        </div>
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <TemplateStatOrStepsGrid className="sm:!grid-cols-4">
-          {[
-            { number: "3", label: t("templateLanding.calendar.s002") },
-            { number: "4", label: t("templateLanding.calendar.s003") },
-            { number: "N", label: t("templateLanding.calendar.s004") },
-            { number: "2-way", label: t("templateLanding.calendar.s058") },
-          ].map((stat) => (
-            <TemplateStatOrStepsGridItem key={stat.label}>
-              <div className="text-3xl font-medium tracking-tight sm:text-4xl text-[var(--fg-secondary)]">
-                {stat.number}
-              </div>
-              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
-                {stat.label}
-              </div>
-            </TemplateStatOrStepsGridItem>
-          ))}
-        </TemplateStatOrStepsGrid>
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateCapabilityGrid
-        intro={
-          <>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {t("templateLanding.calendar.s010")}
-            </h2>
-            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.calendar.s011")}
-            </p>
-          </>
-        }
-      >
-        {capabilities.map(({ icon: Icon, title, body }) => (
-          <div
-            key={title}
-            className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0"
-          >
-            <div className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
-              <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
-                {title}
-              </h3>
-              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-                {body}
-              </p>
-            </div>
-          </div>
-        ))}
-      </TemplateCapabilityGrid>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              Google Calendar Sync
-            </h3>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.calendar.s020")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s021", "s022", "s023"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
-                    stroke={2}
-                  />
-                  {t(`templateLanding.calendar.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              Calendly-Style Booking
-            </h3>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.calendar.s024")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s025", "s026", "s027"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
-                    stroke={2}
-                  />
-                  {t(`templateLanding.calendar.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col justify-center px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.calendar.s028")}
-            </h2>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.calendar.s029")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s030", "s031", "s032", "s033"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
-                    stroke={2}
-                  />
-                  {t(`templateLanding.calendar.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
-            <div className="w-full min-w-0 border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
-              <div className="mb-4 text-[var(--fg-secondary)]">
-                {"// Available agent actions"}
-              </div>
-              <div className="grid min-w-0 gap-3 break-words text-[var(--fg)]">
-                <div>
-                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
-                  action sync-google-calendar --from 2026-01-01 --to 2026-06-01
-                </div>
-                <div>
-                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
-                  action create-event --title "Team Standup" --start
-                  "2026-03-15T09:00"
-                </div>
-                <div>
-                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
-                  action check-availability --date "2026-03-18" --duration 30
-                </div>
-                <div>
-                  <span className="text-[var(--fg-secondary)]">$</span> pnpm
-                  action list-events --from "2026-03-14" --to "2026-03-21"
-                </div>
-              </div>
-            </div>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
-            {t("templateLanding.calendar.s034")}
-          </h2>
-        </div>
-        <TemplateComparisonTable
-          caption={t("templateLanding.calendar.s034")}
-          featureHeader={t("templateLanding.calendar.s034")}
-          columns={[
-            { id: "google", header: "Google Calendar" },
-            { id: "calendly", header: "Calendly" },
-            {
-              id: "agent-native",
-              emphasized: true,
-              agentNative: { name: template.name },
-            },
-          ]}
-          rows={[
-            {
-              id: "calendar-ui",
-              label: t("templateLanding.calendar.s035"),
-              cells: {
-                google: t("templateLanding.calendar.s036"),
-                calendly: t("templateLanding.calendar.s037"),
-                "agent-native": t("templateLanding.calendar.s038"),
-              },
-            },
-            {
-              id: "ai-scheduling",
-              label: t("templateLanding.calendar.s039"),
-              cells: {
-                google: "None",
-                calendly: "None",
-                "agent-native": t("templateLanding.calendar.s040"),
-              },
-            },
-            {
-              id: "booking-page",
-              label: t("templateLanding.calendar.s041"),
-              cells: {
-                google: t("templateLanding.calendar.s042"),
-                calendly: t("templateLanding.calendar.s043"),
-                "agent-native": t("templateLanding.calendar.s044"),
-              },
-            },
-            {
-              id: "customization",
-              label: t("templateLanding.calendar.s045"),
-              cells: {
-                google: t("templateLanding.calendar.s046"),
-                calendly: t("templateLanding.calendar.s047"),
-                "agent-native": t("templateLanding.calendar.s048"),
-              },
-            },
-            {
-              id: "pricing",
-              label: t("templateLanding.calendar.s049"),
-              cells: {
-                google: t("templateLanding.calendar.s050"),
-                calendly: t("templateLanding.calendar.s051"),
-                "agent-native": t("templateLanding.calendar.s052"),
-              },
-            },
-          ]}
-        />
-      </section>
-
-      <TemplateFinalCta
-        eyebrow={
-          <span className="font-mono text-sm font-semibold tracking-[0.14em] text-[var(--fg-secondary)]">
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={t("templateLanding.calendar.s053")}
-        template={template}
-      >
-        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
-          {t("templateLanding.calendar.s054")}
-        </p>
-      </TemplateFinalCta>
-
-      <TemplateLandingFaq
-        idPrefix="calendar-faq"
-        eyebrow={
-          <span className="text-[var(--fg-secondary)]">
-            {t("templateLanding.faq.eyebrow")}
-          </span>
-        }
-        title={t("templateLanding.faq.title")}
-        items={faqItems}
-      />
-    </TemplateLandingShell>
+            {t("templateLanding.calendar.finalCtaButton")}
+          </Button>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

@@ -64,12 +64,15 @@ describe("commitVisualStyles on a localhost screen", () => {
 
 describe("handleVisualStyleChange (canvas gestures)", () => {
   it("delegates to commitVisualStyles rather than repeating the localhost branch", () => {
+    const start = source.indexOf("const handleVisualStyleChange = useCallback");
     const handler = source.slice(
-      source.indexOf("const handleVisualStyleChange = useCallback"),
-      source.indexOf("const handleVisualStructureChange = useCallback"),
+      start,
+      source.indexOf("\n  const ", start + 1),
     );
-    expect(handler).toContain("commitVisualStyles(selector, styles, {");
-    expect(handler).toContain("runtimeApplied: true");
+    expect(handler).toContain("commitVisualStyles(gestureTarget, styles, {");
+    // A repeat's write is aimed at the template body and needs the runtime
+    // push, since the gesture only moved the one row it was on.
+    expect(handler).toContain("runtimeApplied: !affectsEveryRow");
     expect(handler).not.toContain("recordPendingVisualStyleEdit(");
   });
 });

@@ -18,6 +18,7 @@ import {
   resolveAppRuntimeUrl,
   resolveVercelDeploymentProtectionHeaders,
   runBuilderAgent,
+  type BuilderAgentAttachment,
 } from "@agent-native/core/server";
 import { getOrgSetting } from "@agent-native/core/settings";
 import {
@@ -25,7 +26,10 @@ import {
   mutateSetting,
   putSetting,
 } from "@agent-native/core/settings";
-import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
+import {
+  assertValidWorkspaceAppId,
+  normalizeWorkspaceAppHomePath,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 
 // Register the workspace-app shareable resource before any access lookup.
@@ -94,6 +98,18 @@ class AppCreationSettingsAuthorizationError extends Error {
   }
 }
 
+class WorkspaceAppsGatewayAuthorizationError extends Error {
+  constructor(statusCode: 401 | 403) {
+    super(
+      `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
+    );
+    this.name = "WorkspaceAppsGatewayAuthorizationError";
+    this.statusCode = statusCode;
+  }
+
+  statusCode: 401 | 403;
+}
+
 type WorkspaceAppAudience = "internal" | "public";
 type WorkspaceAppVisibility = "private" | "org";
 
@@ -102,6 +118,7 @@ export interface WorkspaceAppSummary {
   name: string;
   description: string;
   path: string;
+  homePath?: string;
   url: string | null;
   isDispatch: boolean;
   audience: WorkspaceAppAudience;
@@ -679,6 +696,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         description:
           typeof entry.description === "string" ? entry.description : "",
         path: pathValue,
+        homePath: normalizeWorkspaceAppHomePath(entry.homePath),
         url: workspaceAppLink(pathValue, entry.url),
         isDispatch:
           typeof entry.isDispatch === "boolean"
@@ -1044,6 +1062,7 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     name: app.name,
     description: app.description,
     path: app.path,
+    homePath: "/home",
     url: app.builderUrl,
     isDispatch: false,
     audience: app.audience ?? DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -1718,6 +1737,9 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       ...protectedRedirect,
       signal: controller.signal,
     });
+    if (actionResponse.status === 401 || actionResponse.status === 403) {
+      throw new WorkspaceAppsGatewayAuthorizationError(actionResponse.status);
+    }
     if (!actionResponse.ok) return null;
     const apps = parseWorkspaceAppsManifest(
       // coercion-ok: malformed gateway JSON is an unavailable registry and
@@ -1725,7 +1747,8 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       await actionResponse.json().catch(() => null),
     );
     return apps ? { apps, authoritative: false } : null;
-  } catch {
+  } catch (error) {
+    if (error instanceof WorkspaceAppsGatewayAuthorizationError) throw error;
     return null;
   } finally {
     clearTimeout(timeout);
@@ -1784,6 +1807,7 @@ function readWorkspaceAppsFromFilesystem(
         name: pkg.displayName || titleCase(entry.name),
         description: pkg.description || "",
         path: `/${entry.name}`,
+        homePath: "/home",
         url: workspaceAppUrl(`/${entry.name}`),
         isDispatch: entry.name === "dispatch",
         audience:
@@ -1985,6 +2009,7 @@ export async function listWorkspaceApps(
         name: "Dispatch",
         description: "Workspace control plane",
         path: "/dispatch",
+        homePath: "/home",
         url: workspaceAppUrl("/dispatch"),
         isDispatch: true,
         audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -2195,6 +2220,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
       name: titleCase(appId),
       description: "",
       path: `/${appId}`,
+      homePath: "/home",
       url: workspaceAppUrl(`/${appId}`),
       isDispatch: false,
       audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -2708,6 +2734,7 @@ export async function startWorkspaceAppCreation(input: {
   template?: string | null;
   secretIds?: string[];
   resourceIds?: string[];
+  attachments?: BuilderAgentAttachment[];
 }): Promise<StartWorkspaceAppCreationResult> {
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
@@ -2829,6 +2856,7 @@ export async function startWorkspaceAppCreation(input: {
     result = normalizeBuilderRunResult(
       await runBuilderAgent({
         prompt,
+        attachments: input.attachments,
         projectId: builderProjectId,
         userEmail: currentOwnerEmail(),
       }),

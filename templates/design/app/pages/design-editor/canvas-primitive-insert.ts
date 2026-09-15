@@ -1,4 +1,5 @@
 import { isBoardFile } from "@shared/board-file";
+import { normalizedDesignFileType } from "@shared/design-files";
 import { isClosedPathData } from "@shared/pen-path";
 
 import {
@@ -21,6 +22,8 @@ import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
 import type { DesignFile } from "./types";
 
+export { normalizedDesignFileType };
+
 export function nextDuplicatedFilename(
   files: DesignFile[],
   filename: string,
@@ -36,17 +39,6 @@ export function nextDuplicatedFilename(
     index += 1;
   }
   return candidate;
-}
-
-export function normalizedDesignFileType(
-  fileType: string,
-): "html" | "css" | "jsx" | "asset" {
-  return fileType === "css" ||
-    fileType === "jsx" ||
-    fileType === "asset" ||
-    fileType === "html"
-    ? fileType
-    : "html";
 }
 
 export function nextBlankScreenFilename(files: DesignFile[]): string {
@@ -77,11 +69,11 @@ export function blankScreenHtml(title: string): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${safeTitle}</title>
+  <style data-agent-native-screen-default-height>body { min-height: 100vh; }</style>
   <style>
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      min-height: 100vh;
       /* A screen is a page: content past its edge is out of frame, not
          spilling onto the board. Frames stay unclipped by default so drawing
          over their edge keeps working. */
@@ -117,6 +109,17 @@ export function reassignDuplicatedNodeIds(content: string): string {
   );
 }
 
+/**
+ * Figma's default text-layer name IS its content. A freshly drawn text
+ * primitive is committed with no content yet (the draft is still empty), so
+ * this only produces the real name once the user's typed value is known —
+ * see `runTextContentChange`'s creation-finalizing commit, which re-derives
+ * the layer name from this same function once typing lands.
+ */
+export function defaultTextLayerName(text: string | undefined): string {
+  return text?.trim() || "Text";
+}
+
 export function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
@@ -134,7 +137,7 @@ export function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
     case "path":
       return "Vector";
     case "text":
-      return primitive.text?.trim() || "Text";
+      return defaultTextLayerName(primitive.text);
     case "rectangle":
     default:
       return "Rectangle";
@@ -279,12 +282,48 @@ function deepestFrameContaining(
     : null;
 }
 
+/**
+ * Return the stable authored identity of the exact frame the insertion helper
+ * will choose, a body marker when no frame contains the point, or `null` when
+ * the content/host cannot be resolved. The command uses this only to verify the
+ * host's computed layout in the target's live iframe before enabling flow
+ * positioning; the inert source document itself is never used as a layout
+ * oracle.
+ */
+export function canvasPrimitiveInsertionHostNodeId(
+  content: string,
+  primitive: CanvasPrimitiveInsert,
+  preserveNegativePosition = false,
+): { kind: "body" } | { kind: "frame"; nodeId: string } | null {
+  if (typeof window === "undefined" || isStandaloneHttpUrl(content))
+    return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    if (!doc.body) return null;
+    const left = preserveNegativePosition
+      ? Math.round(primitive.geometry.x)
+      : Math.max(0, Math.round(primitive.geometry.x));
+    const top = preserveNegativePosition
+      ? Math.round(primitive.geometry.y)
+      : Math.max(0, Math.round(primitive.geometry.y));
+    const host = deepestFrameContaining(doc.body, left, top)?.element;
+    if (!host) return { kind: "body" };
+    const id = host.getAttribute("data-agent-native-node-id");
+    return id ? { kind: "frame", nodeId: id } : null;
+  } catch {
+    // coercion-ok: null is failure; the caller refuses insertion.
+    return null;
+  }
+}
+
 export function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
   options?: {
     preserveNegativePosition?: boolean;
     isBoardTarget?: boolean;
+    /** Let a verified auto-layout parent place this primitive. */
+    positioning?: "absolute" | "flow";
     /** The canvas colour behind the board. The board document is transparent
      *  by design, so its surface can only be measured from the host. */
     boardBackground?: string | null;
@@ -320,6 +359,29 @@ export function appendCanvasPrimitiveToHtml(
     const hostBorder = host ? inlineBorderInset(host.element) : { x: 0, y: 0 };
     const hostLeft = host ? left - host.x - hostBorder.x : left;
     const hostTop = host ? top - host.y - hostBorder.y : top;
+    const finishPrimitive = (element: Element): string => {
+      if (options?.positioning === "flow") {
+        // Keep a positioned containing block for Frame children, while
+        // forcing all authored primitive kinds into the parent's layout.
+        const style = (element as HTMLElement | SVGElement).style;
+        for (const property of [
+          "position",
+          "left",
+          "top",
+          "right",
+          "bottom",
+          "inset",
+        ] as const) {
+          style.setProperty(
+            property,
+            property === "position" ? "relative" : "auto",
+            "important",
+          );
+        }
+      }
+      hostOrBody.appendChild(element);
+      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    };
 
     if (
       primitive.kind === "path" ||
@@ -429,8 +491,7 @@ export function appendCanvasPrimitiveToHtml(
           .join(";"),
       );
       svg.appendChild(path);
-      hostOrBody.appendChild(svg);
-      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      return finishPrimitive(svg);
     }
 
     if (primitive.kind === "polygon" || primitive.kind === "star") {
@@ -475,8 +536,7 @@ export function appendCanvasPrimitiveToHtml(
           .join(";"),
       );
       svg.appendChild(polygon);
-      hostOrBody.appendChild(svg);
-      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      return finishPrimitive(svg);
     }
 
     const element = doc.createElement("div");
@@ -489,7 +549,14 @@ export function appendCanvasPrimitiveToHtml(
     element.style.position = "absolute";
     element.style.left = `${hostLeft}px`;
     element.style.top = `${hostTop}px`;
-    if (!(primitive.kind === "text" && primitive.autoSize)) {
+    if (primitive.kind === "text" && primitive.autoSize) {
+      // Point text grows to its intrinsic width, independent of how much room
+      // remains between the insertion point and the screen edge. Keeping the
+      // explicit auto dimensions also lets the inspector identify this as the
+      // same auto-width mode it applies to existing text layers.
+      element.style.width = "max-content";
+      element.style.height = "auto";
+    } else {
       element.style.width = `${width}px`;
       element.style.height = `${height}px`;
     }
@@ -587,8 +654,7 @@ export function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
     }
 
-    hostOrBody.appendChild(element);
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    return finishPrimitive(element);
   } catch {
     return null;
   }
@@ -608,10 +674,11 @@ export function extractCanvasPrimitiveHtml(
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
-    return (
-      doc.querySelector(`[data-agent-native-node-id="${safeNodeId}"]`)
-        ?.outerHTML ?? null
+    const matches = doc.querySelectorAll(
+      `[data-agent-native-node-id="${safeNodeId}"]`,
     );
+    if (matches.length !== 1) return null;
+    return matches[0]?.outerHTML ?? null;
   } catch {
     return null;
   }

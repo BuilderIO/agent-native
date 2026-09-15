@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 /**
  * Base fill row image-layer prop wiring regression.
  *
@@ -21,12 +23,17 @@
  * backgroundPosition values instead of leaving them empty.
  */
 
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
 import { baseFillLayerSourceProps, FillProperties } from "./fill-properties";
+
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -46,7 +53,8 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 vi.mock("../inspector", () => ({
-  DesignColorPicker: () => null,
+  DesignColorPicker: ({ trigger }: { trigger?: unknown }) => trigger as never,
+  ScrubInput: () => null,
   imageFillToBackgroundStyles: () => ({
     backgroundImage: "",
     backgroundSize: "",
@@ -75,6 +83,8 @@ vi.mock("./panel-primitives", async (importOriginal) => {
       backgroundSize?: string;
       backgroundRepeat?: string;
       backgroundPosition?: string;
+      supportsLayeredFills?: boolean;
+      supportedPaintTypes?: string[];
     }) =>
       createElement("div", {
         "data-testid": "base-fill-color-input",
@@ -83,6 +93,11 @@ vi.mock("./panel-primitives", async (importOriginal) => {
         "data-background-size": props.backgroundSize ?? "",
         "data-background-repeat": props.backgroundRepeat ?? "",
         "data-background-position": props.backgroundPosition ?? "",
+        "data-supports-layered-fills": String(
+          props.supportsLayeredFills ?? false,
+        ),
+        "data-supported-paint-types":
+          props.supportedPaintTypes?.join(",") ?? "",
       }),
   };
 });
@@ -120,7 +135,26 @@ describe("baseFillLayerSourceProps", () => {
     });
   });
 
-  it("collapses every value to empty for a text fill (color can't hold a layered paint)", () => {
+  it("sources text gradient layers and their sibling properties", () => {
+    expect(
+      baseFillLayerSourceProps(
+        {
+          backgroundImage: "linear-gradient(red, blue)",
+          backgroundSize: "100% 100%",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "center",
+        },
+        false,
+      ),
+    ).toEqual({
+      backgroundImage: "linear-gradient(red, blue)",
+      backgroundSize: "100% 100%",
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "center",
+    });
+  });
+
+  it("keeps SVG shape fills solid-only", () => {
     expect(
       baseFillLayerSourceProps(
         {
@@ -141,6 +175,27 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("omits the empty base picker but keeps the converted gradient row", () => {
+    const el = element({
+      computedStyles: {
+        backgroundColor: "rgba(255, 0, 0, 0)",
+        backgroundImage: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).not.toContain('data-testid="base-fill-color-input"');
+    expect(markup).toContain("Linear gradient 1");
+    expect(markup).toContain('aria-label="editPanel.labels.removeLayer"');
+  });
+
   it("wires backgroundSize/backgroundRepeat/backgroundPosition onto the base row's ColorInput, not just backgroundImage", () => {
     const el = element({
       computedStyles: {
@@ -170,11 +225,15 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-position="center, 0% 0%"');
   });
 
-  it("leaves every layer prop empty for a text fill selection", () => {
+  it("offers gradient layers but not image paints for a text fill selection", () => {
     const el = element({
       tagName: "span",
       computedStyles: {
         color: "#000000",
+        backgroundImage: "linear-gradient(red, blue)",
+        backgroundSize: "100% 100%",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
       },
     });
 
@@ -186,9 +245,119 @@ describe("FillProperties base row — image layer prop wiring", () => {
       }),
     );
 
-    expect(markup).toContain('data-background-image=""');
-    expect(markup).toContain('data-background-size=""');
-    expect(markup).toContain('data-background-repeat=""');
-    expect(markup).toContain('data-background-position=""');
+    expect(markup).toContain(
+      'data-background-image="linear-gradient(red, blue)"',
+    );
+    expect(markup).toContain('data-background-size="100% 100%"');
+    expect(markup).toContain('data-background-repeat="no-repeat"');
+    expect(markup).toContain('data-background-position="center"');
+    expect(markup).toContain('data-supports-layered-fills="true"');
+    expect(markup).toContain(
+      'data-supported-paint-types="solid,linear,radial,angular,diamond"',
+    );
+    expect(markup).not.toContain('aria-label="editPanel.labels.addFill"');
+  });
+
+  it("keeps the replace action for mixed text fills", () => {
+    const el = element({
+      tagName: "span",
+      computedStyles: {
+        color: "Mixed",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('aria-label="editPanel.labels.addFill"');
+    expect(markup).toContain("Click + to replace mixed content");
+  });
+});
+
+describe("FillProperties layer sizing", () => {
+  it("restores a hidden fill's cyclic size after reordering it", async () => {
+    let inlineStyles: Record<string, string> = {
+      backgroundColor: "transparent",
+      backgroundImage: "url(a.png), url(b.png), url(c.png)",
+      backgroundSize: "cover, contain",
+      backgroundRepeat: "no-repeat, repeat-x",
+      backgroundPosition: "left, right",
+    };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn((property: string, value: string) => {
+      inlineStyles = { ...inlineStyles, [property]: value };
+    });
+    const onStylesChange = vi.fn((styles: Record<string, string>) => {
+      inlineStyles = { ...inlineStyles, ...styles };
+    });
+    const mount = async () => {
+      await act(async () => {
+        root.render(
+          createElement(FillProperties, {
+            element: element({
+              selector: ".fills",
+              computedStyles: { ...inlineStyles },
+              inlineStyles: { ...inlineStyles },
+            }),
+            onStyleChange,
+            onStylesChange,
+          }),
+        );
+      });
+    };
+    const click = async (label: string, index = 0) => {
+      const button = Array.from(host.querySelectorAll("button")).filter(
+        (candidate) => candidate.getAttribute("aria-label") === label,
+      )[index];
+      if (!button) throw new Error(`missing button: ${label} (${index})`);
+      await act(async () => {
+        button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await mount();
+    };
+
+    await mount();
+    await click("editPanel.labels.hideLayer", 2);
+    expect(inlineStyles.backgroundSize).toBe("cover, contain, 0px 0px");
+
+    const handles = host.querySelectorAll<HTMLElement>(
+      '[aria-label="editPanel.labels.reorderLayer"]',
+    );
+    const source = handles[2];
+    const sourceRow = source?.closest<HTMLElement>(
+      "[data-inspector-action-rail]",
+    );
+    const targetRow = handles[0]?.closest<HTMLElement>(
+      "[data-inspector-action-rail]",
+    );
+    if (!source || !sourceRow || !targetRow) {
+      throw new Error("fill drag rows were not rendered");
+    }
+    const dataTransfer = {
+      setData: () => {},
+      effectAllowed: "",
+    };
+    await act(async () => {
+      const start = new Event("dragstart", { bubbles: true });
+      Object.defineProperty(start, "dataTransfer", { value: dataTransfer });
+      source.dispatchEvent(start);
+    });
+    await act(async () => {
+      targetRow.dispatchEvent(new Event("drop", { bubbles: true }));
+    });
+    await mount();
+    expect(inlineStyles.backgroundSize).toBe("0px 0px, cover, contain");
+
+    await click("editPanel.labels.showLayer");
+    expect(inlineStyles.backgroundSize).toBe("cover, cover, contain");
+    await act(async () => root.unmount());
+    host.remove();
   });
 });
