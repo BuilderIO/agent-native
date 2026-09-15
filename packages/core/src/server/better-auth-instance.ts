@@ -486,9 +486,7 @@ function resolveAuthSecret(): string {
   const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
   if (workspaceDerivedSecret) return workspaceDerivedSecret;
 
-  const deployEnvironment = resolveDeployEnvironment({
-    metadataFreeDefault: "local",
-  });
+  const deployEnvironment = resolveDeployEnvironment();
 
   // In production, beyond the workspace A2A-derived fallback above, never
   // auto-generate or use legacy fallbacks. A generated secret invalidates every

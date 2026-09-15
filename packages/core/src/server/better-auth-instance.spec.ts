@@ -147,7 +147,12 @@ describe("resolveAuthSecret", () => {
     }
   }
 
-  it("persists a generated secret when local startup has no metadata", () => {
+  it("fails closed when startup has no deployment metadata", () => {
+    expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it("persists a generated secret in local development", () => {
+    process.env.NODE_ENV = "development";
     inTempAppRoot((appRoot) => {
       expect(() => getAuthSecret()).not.toThrow();
       const secret = getAuthSecret();
