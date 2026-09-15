@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockCallAction = vi.hoisted(() => vi.fn());
 
@@ -11,21 +11,16 @@ import {
   loadDesignSystemGenerationContext,
 } from "./design-system-prompt-context";
 
+// get-design-system derives and states the color mode itself, so a hydrated
+// agentContext already carries it. See actions/get-design-system.spec.ts.
 const DARK_SYSTEM = {
-  agentContext:
-    '## Selected Design System Context\nUse "Midnight" (id: ds-dark).',
-  data: JSON.stringify({
-    colors: {
-      primary: "#5B8DEF",
-      secondary: "#7C5CFF",
-      accent: "#F0B429",
-      background: "#0B0E14",
-      surface: "#141922",
-      text: "#F7F8FA",
-      textMuted: "#A2A9B5",
-    },
-    typography: { headingFont: "Inter", bodyFont: "Inter" },
-  }),
+  agentContext: [
+    "## Selected Design System Context",
+    'Use "Midnight" (id: ds-dark).',
+    "",
+    "Color mode: DARK (background token #0B0E14, text token #F7F8FA).",
+    "Ignore any generic instruction elsewhere in this prompt to default to a light canvas.",
+  ].join("\n"),
 };
 
 beforeEach(() => {
@@ -33,7 +28,7 @@ beforeEach(() => {
 });
 
 describe("addSlideDesignSystemContext", () => {
-  it("states the dark color mode and overrides the light fallback", async () => {
+  it("sends the dark color mode and overrides the light fallback", async () => {
     mockCallAction.mockResolvedValue(DARK_SYSTEM);
 
     const context = await addSlideDesignSystemContext("ds-dark");
@@ -49,18 +44,37 @@ describe("addSlideDesignSystemContext", () => {
     expect(context).toContain("do not apply the no-design-system");
   });
 
-  it("states the light color mode for a light system", async () => {
+  it("passes a hydrated light color mode through unchanged", async () => {
     mockCallAction.mockResolvedValue({
-      agentContext: "## Selected Design System Context",
-      data: JSON.stringify({
-        colors: { background: "#F5F2EA", text: "#1F2933" },
-      }),
+      agentContext:
+        "## Selected Design System Context\nColor mode: LIGHT (background token #F5F2EA, text token #1F2933).",
     });
 
     const context = await addSlideDesignSystemContext("ds-light");
 
     expect(context).toContain("Color mode: LIGHT");
     expect(context).not.toContain("Color mode: DARK");
+  });
+
+  it("does not re-derive a mode the design system already stated", async () => {
+    // A Builder-proxied system returns `data` as a reference with no palette,
+    // while its agentContext carries the mode derived from hydrated Builder
+    // tokens. Re-deriving here appended a contradictory UNDETERMINED under a
+    // correct DARK line.
+    mockCallAction.mockResolvedValue({
+      agentContext:
+        "## Selected Design System Context\nColor mode: DARK (background token #101318).",
+      data: JSON.stringify({
+        source: "builder",
+        builderDesignSystemId: "ds-1",
+        colors: { primary: "var(--primary)" },
+      }),
+    });
+
+    const context = await addSlideDesignSystemContext("ds-builder");
+
+    expect(context).toContain("Color mode: DARK");
+    expect(context).not.toContain("UNDETERMINED");
   });
 
   it("points an unlinked deck at its own slides instead of a generic canvas", async () => {
@@ -81,18 +95,13 @@ describe("addSlideDesignSystemContext", () => {
     expect(context).toContain("instead of improvising a generic style");
   });
 
-  it("never claims a color mode when the tokens are unreadable", async () => {
-    mockCallAction.mockResolvedValue({
-      agentContext: "## Selected Design System Context",
-      data: JSON.stringify({
-        colors: { background: "var(--canvas)", text: "var(--ink)" },
-      }),
-    });
+  it("reports an empty hydration loudly instead of returning nothing", async () => {
+    mockCallAction.mockResolvedValue({ agentContext: "  " });
 
-    const context = await addSlideDesignSystemContext("ds-vars");
+    const context = await addSlideDesignSystemContext("ds-empty");
 
-    expect(context).toContain("Color mode: UNDETERMINED");
-    expect(context).toContain("not a light token");
+    expect(context).toContain("returned no generation context");
+    expect(context).toContain("instead of improvising a generic style");
   });
 });
 
@@ -102,7 +111,7 @@ describe("loadDesignSystemGenerationContext", () => {
     expect(mockCallAction).not.toHaveBeenCalled();
   });
 
-  it("appends the derived color mode to the hydrated context", async () => {
+  it("passes the hydrated context through with its color mode intact", async () => {
     mockCallAction.mockResolvedValue(DARK_SYSTEM);
 
     const context = await loadDesignSystemGenerationContext("ds-dark");

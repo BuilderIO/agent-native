@@ -41,45 +41,63 @@ const DARK_TAILWIND_BACKGROUND =
 const LIGHT_TAILWIND_BACKGROUND =
   /^bg-(?:white|(?:slate|gray|grey|zinc|neutral|stone)-(?:50|100|200))$/i;
 
+/** Red, green, blue (0-255) and alpha (0-1). */
+export type Rgba = [number, number, number, number];
+
 /**
- * The RGB channels of a single CSS color literal, or null when the value
- * carries no readable color (a variable, a gradient, an image URL).
+ * The channels of a single CSS color literal, or null when the value carries
+ * no readable color (a variable, a gradient, an image URL). Alpha is kept:
+ * translucent black text on white renders as grey, and discarding alpha would
+ * score it as a perfect 21:1 pass.
  */
-export function cssColorChannels(
-  value: unknown,
-): [number, number, number] | null {
+export function cssColorChannels(value: unknown): Rgba | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   if (!normalized) return null;
-  if (NAMED_DARK.has(normalized)) return [0, 0, 0];
-  if (NAMED_LIGHT.has(normalized)) return [255, 255, 255];
+  if (NAMED_DARK.has(normalized)) return [0, 0, 0, 1];
+  if (NAMED_LIGHT.has(normalized)) return [255, 255, 255, 1];
   if (normalized.startsWith("#")) return hexChannels(normalized);
   return functionalChannels(normalized);
 }
 
-function hexChannels(hex: string): [number, number, number] | null {
+function hexChannels(hex: string): Rgba | null {
   const value = hex.replace("#", "");
   if (value.length === 3 || value.length === 4) {
     const [r, g, b] = value
       .slice(0, 3)
       .split("")
       .map((channel) => parseInt(channel + channel, 16));
-    return [r!, g!, b!];
+    return [
+      r!,
+      g!,
+      b!,
+      value.length === 4 ? parseInt(value[3]! + value[3]!, 16) / 255 : 1,
+    ];
   }
   if (value.length === 6 || value.length === 8) {
     return [
       parseInt(value.slice(0, 2), 16),
       parseInt(value.slice(2, 4), 16),
       parseInt(value.slice(4, 6), 16),
+      value.length === 8 ? parseInt(value.slice(6, 8), 16) / 255 : 1,
     ];
   }
   return null;
 }
 
-function functionalChannels(value: string): [number, number, number] | null {
-  const rgb = value.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+function functionalChannels(value: string): Rgba | null {
+  const rgb = value.match(
+    /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+)(%?))?/i,
+  );
   if (rgb) {
-    return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+    const rawAlpha = rgb[4] === undefined ? 1 : Number(rgb[4]);
+    const alpha = rgb[5] === "%" ? rawAlpha / 100 : rawAlpha;
+    return [
+      Number(rgb[1]),
+      Number(rgb[2]),
+      Number(rgb[3]),
+      Math.min(Math.max(alpha, 0), 1),
+    ];
   }
   // hsl and the lightness-first spaces (oklch/oklab/lch/lab) can be read as a
   // grey of the same lightness without a full color-space conversion. hsl puts
@@ -96,7 +114,7 @@ function functionalChannels(value: string): [number, number, number] | null {
     const normalized =
       lightness[2] === "%" ? raw / 100 : raw > 1 ? raw / 100 : raw;
     const channel = Math.round(Math.min(Math.max(normalized, 0), 1) * 255);
-    return [channel, channel, channel];
+    return [channel, channel, channel, 1];
   }
   return null;
 }

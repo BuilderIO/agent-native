@@ -53,17 +53,20 @@ vi.mock("@/components/editor/PromptDialog", () => ({
 
 import { AddSlidePopover } from "./AddSlidePopover";
 
+// get-design-system states the color mode; this is what it hands back.
 const DARK_SYSTEM = {
-  agentContext:
-    '## Selected Design System Context\nUse "Midnight" (id: ds-dark).',
-  data: JSON.stringify({
-    colors: { background: "#0B0E14", text: "#F7F8FA" },
-    typography: { headingFont: "Inter", bodyFont: "Inter" },
-  }),
+  agentContext: [
+    "## Selected Design System Context",
+    'Use "Midnight" (id: ds-dark).',
+    "",
+    "Color mode: DARK (background token #0B0E14, text token #F7F8FA).",
+  ].join("\n"),
 };
 
 function renderPopover(designSystemId: string | null) {
-  const agentSubmit = vi.fn(async () => true);
+  const agentSubmit = vi.fn<
+    (message: string, context: string) => Promise<boolean>
+  >(async () => true);
   const anchor = document.createElement("button");
   document.body.appendChild(anchor);
   const anchorRef = createRef<HTMLElement>() as {
@@ -108,7 +111,7 @@ describe("AddSlidePopover design-system propagation", () => {
     });
 
     expect(agentSubmit).toHaveBeenCalledTimes(1);
-    const context = agentSubmit.mock.calls[0]![1] as string;
+    const context = agentSubmit.mock.calls[0]![1];
     expect(context).toContain("ds-dark");
     expect(context).toContain("Color mode: DARK");
     expect(context).toContain("#0B0E14");
@@ -122,7 +125,7 @@ describe("AddSlidePopover design-system propagation", () => {
       screen.getByText("submit-prompt").click();
     });
 
-    const context = agentSubmit.mock.calls[0]![1] as string;
+    const context = agentSubmit.mock.calls[0]![1];
     expect(mockCallAction).not.toHaveBeenCalled();
     expect(context).toContain("no linked design system");
     expect(context).toContain("representativeSlideId");

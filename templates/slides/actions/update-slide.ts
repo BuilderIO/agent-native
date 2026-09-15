@@ -37,6 +37,7 @@ import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
+import { backgroundCssValue } from "../shared/slide-background.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,
@@ -980,9 +981,12 @@ export default defineAction({
     const contrastWarning = formatSlideContrastWarning(
       findUnreadableTextColors({
         html: String(rmw.slide.content ?? ""),
+        // A stored background can be a Tailwind arbitrary class the renderer
+        // unwraps; passing it raw leaves the check with no canvas and lets a
+        // write report success that get-deck then contradicts.
         slideBackground:
           typeof rmw.slide.background === "string"
-            ? rmw.slide.background
+            ? backgroundCssValue(rmw.slide.background)
             : null,
       }),
     );

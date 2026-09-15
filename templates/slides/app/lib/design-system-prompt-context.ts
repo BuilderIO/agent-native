@@ -1,15 +1,10 @@
 import { callAction } from "@agent-native/core/client/hooks";
-import {
-  designSystemColorModeFromData,
-  formatDesignSystemColorModeDirective,
-} from "@agent-native/core/shared";
 
 export const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
   "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
 
 interface DesignSystemGenerationContextResult {
   agentContext?: string;
-  data?: string | null;
 }
 
 /**
@@ -32,13 +27,13 @@ export async function loadDesignSystemGenerationContext(
       { method: "GET" },
     )) as DesignSystemGenerationContextResult | undefined;
     if (result?.agentContext?.trim()) {
+      // The color-mode directive is built inside get-design-system, the only
+      // side that can see a Builder-hydrated palette. Re-deriving it here from
+      // `data` would read a proxy reference with no colors in it and append a
+      // contradictory "UNDETERMINED" under a correct DARK/LIGHT line.
       return [
         "",
         result.agentContext.trim(),
-        "",
-        ...formatDesignSystemColorModeDirective(
-          designSystemColorModeFromData(result.data),
-        ),
         "",
         "The selected design system context above was hydrated before this agent run. Follow it directly; do not replace it with generic colors, fonts, spacing, imagery, or slide components.",
       ].join("\n");

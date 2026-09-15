@@ -1,4 +1,4 @@
-import { cssColorChannels } from "./design-system-color-mode.js";
+import { cssColorChannels, type Rgba } from "./design-system-color-mode.js";
 import { summarizeHtmlStyles } from "./html-style-summary.js";
 
 /**
@@ -12,9 +12,17 @@ import { summarizeHtmlStyles } from "./html-style-summary.js";
  * after the write instead of asked for in the prompt.
  */
 
-/** WCAG 2.1 minimum for normal body text. */
+/** WCAG 2.1 minimum for normal body text. The target to author against. */
 export const MIN_TEXT_CONTRAST_RATIO = 4.5;
-/** WCAG 2.1 minimum for large text; used as the floor before reporting. */
+/**
+ * WCAG 2.1 minimum for large text, and the floor this check reports against.
+ *
+ * Reporting at 4.5 would flag a compliant 56px display heading at 3.5:1,
+ * because the declared font size is not resolved here. A warning an agent
+ * learns to dismiss is worse than a narrower one it trusts, so anything below
+ * this floor is broken at every size and gets reported; 3.0-4.49 is left to
+ * the authoring target above.
+ */
 export const MIN_LARGE_TEXT_CONTRAST_RATIO = 3;
 
 function channelLuminance(channel: number): number {
@@ -22,7 +30,7 @@ function channelLuminance(channel: number): number {
   return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 }
 
-function relativeLuminance([r, g, b]: [number, number, number]): number {
+function relativeLuminance([r, g, b]: Rgba): number {
   return (
     0.2126 * channelLuminance(r) +
     0.7152 * channelLuminance(g) +
@@ -30,10 +38,28 @@ function relativeLuminance([r, g, b]: [number, number, number]): number {
   );
 }
 
+/** Flatten a translucent foreground onto its background, the way the browser
+ *  paints it. Without this, black text at 10% alpha over white scores a
+ *  perfect 21:1 while rendering as near-invisible grey. */
+function composite(foreground: Rgba, background: Rgba): Rgba {
+  const alpha = foreground[3];
+  if (alpha >= 1) return foreground;
+  return [
+    foreground[0] * alpha + background[0] * (1 - alpha),
+    foreground[1] * alpha + background[1] * (1 - alpha),
+    foreground[2] * alpha + background[2] * (1 - alpha),
+    1,
+  ];
+}
+
 /**
  * WCAG contrast ratio between two CSS colors, or null when either side is not
  * a readable literal. Null means "not checked" and must never be reported as
  * a pass.
+ *
+ * A translucent background is "not checked": what sits behind it is outside
+ * this string, so compositing it against an assumed canvas would invent a
+ * result rather than measure one.
  */
 export function contrastRatio(
   foreground: unknown,
@@ -41,8 +67,8 @@ export function contrastRatio(
 ): number | null {
   const fg = cssColorChannels(foreground);
   const bg = cssColorChannels(background);
-  if (!fg || !bg) return null;
-  const a = relativeLuminance(fg);
+  if (!fg || !bg || bg[3] < 1) return null;
+  const a = relativeLuminance(composite(fg, bg));
   const b = relativeLuminance(bg);
   const [light, dark] = a >= b ? [a, b] : [b, a];
   return (light + 0.05) / (dark + 0.05);
@@ -138,7 +164,7 @@ export function formatSlideContrastWarning(
     .join("; ");
   return (
     `This slide is unreadable as written: ${pairs}. ` +
-    `Every text color must reach at least ${MIN_TEXT_CONTRAST_RATIO}:1 against the background behind it. ` +
+    `Each of those falls below ${MIN_LARGE_TEXT_CONTRAST_RATIO}:1, which fails even for large display text; author body text to ${MIN_TEXT_CONTRAST_RATIO}:1. ` +
     "Re-read the linked design system's Color mode line and its paired foreground token, then update this slide so the text uses the foreground that belongs to the background you chose. Do not report the deck as done while this warning stands."
   );
 }

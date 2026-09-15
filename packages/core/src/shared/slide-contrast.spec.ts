@@ -12,6 +12,17 @@ describe("contrastRatio", () => {
     expect(contrastRatio("#ffffff", "#ffffff")).toBeCloseTo(1, 5);
   });
 
+  it("composites a translucent foreground instead of scoring it opaque", () => {
+    // Without alpha compositing this is black-on-white and scores 21:1.
+    expect(contrastRatio("rgba(0, 0, 0, 0.1)", "#ffffff")!).toBeLessThan(1.3);
+    expect(contrastRatio("#0000001a", "#ffffff")!).toBeLessThan(1.3);
+    expect(contrastRatio("rgba(0, 0, 0, 1)", "#ffffff")).toBeCloseTo(21, 5);
+  });
+
+  it("does not guess what sits behind a translucent background", () => {
+    expect(contrastRatio("#000000", "rgba(255, 255, 255, 0.4)")).toBeNull();
+  });
+
   it("returns null rather than a pass for an unreadable side", () => {
     expect(contrastRatio("var(--ink)", "#ffffff")).toBeNull();
     expect(contrastRatio("#000000", "linear-gradient(#fff, #eee)")).toBeNull();
@@ -77,6 +88,15 @@ describe("findUnreadableTextColors", () => {
     expect(
       findUnreadableTextColors({ html, slideBackground: "#0B0E14" }).unreadable,
     ).toEqual([]);
+  });
+
+  it("catches near-invisible translucent text on a readable canvas", () => {
+    const html = `
+      <div class="fmd-slide" style="background: #FFFFFF;">
+        <p style="color: rgba(0, 0, 0, 0.08);">July 20, 1969</p>
+      </div>`;
+
+    expect(findUnreadableTextColors({ html }).unreadable).toHaveLength(1);
   });
 
   it("reports nothing when no background is readable", () => {
