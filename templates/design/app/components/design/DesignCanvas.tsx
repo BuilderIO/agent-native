@@ -1882,6 +1882,21 @@ export function DesignCanvas({
       setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
     }, delay);
   }, []);
+  // Invalidates any registration attempt still in flight when THIS effect
+  // instance unmounts — deliberately NOT reusing the shared isUnmountedRef
+  // for this: that ref is a one-way flag that never resets, so under
+  // StrictMode's dev-only mount→cleanup→mount replay it would stay stuck
+  // true after the first (intentionally discarded) cleanup and permanently
+  // block every later, genuinely-live attempt. Bumping the generation
+  // counter here instead only invalidates the specific attempt that was in
+  // flight at THIS cleanup; the next mount's own attempt captures a fresh
+  // generation and is unaffected.
+  useEffect(
+    () => () => {
+      bridgeRegistrationAttemptGenerationRef.current += 1;
+    },
+    [],
+  );
   // Single source of truth for a registration attempt, shared by the
   // automatic effect below and the manual "Connect" button (see
   // handleConnectLocalNetworkAccess) — see bridgeRegistrationAttemptGeneration
@@ -1899,13 +1914,20 @@ export function DesignCanvas({
       return null;
     }
     const generation = ++bridgeRegistrationAttemptGenerationRef.current;
-    // isUnmountedRef also gates this: a manual Connect click's fetch has no
-    // effect cleanup to cancel it if the canvas unmounts while it's in
-    // flight, so without this check a late-resolving attempt could still
-    // write state (or schedule a retry timer) for a component that's gone.
+    // Unmount is covered by the dedicated cleanup-only effect above, which
+    // bumps this same counter — a manual Connect click's fetch has no effect
+    // cleanup of its own to cancel it, but that effect's bump still
+    // invalidates it the same way a superseded attempt is invalidated.
     const isCurrent = () =>
-      !isUnmountedRef.current &&
       bridgeRegistrationAttemptGenerationRef.current === generation;
+    // A fresh attempt — whether auto-retry or a manual Connect click,
+    // including one retried from the destructive bridgeConnectionLostError
+    // card's own Retry button (see handleConnectLocalNetworkAccess) — means
+    // we're no longer in "connection lost, needs a click" limbo. Clear it now
+    // rather than only on success/failure, or the full-cover destructive card
+    // stays visible (it takes priority in the overlay below) even once this
+    // attempt resolves as an ordinary registration-fetch failure instead.
+    setBridgeConnectionLostError(null);
     const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
     try {
       const response = await fetch(endpoint, {
@@ -2109,12 +2131,22 @@ export function DesignCanvas({
     if (!bridgeUrl || !previewToken) return;
     if (liveEditRestartInFlightRef.current) return;
     liveEditRestartInFlightRef.current = true;
+    // Captured once per call, not re-read at each checkpoint below: a probe
+    // started against an old screen/key can resolve after a NEW screen has
+    // already registered successfully (bumping this same counter via
+    // attemptBridgeRegistration or the unmount-cleanup effect above) — this
+    // guards every mutating branch below against silently tearing down or
+    // re-registering that newer, unrelated registration.
+    const healthProbeGeneration =
+      bridgeRegistrationAttemptGenerationRef.current;
+    const isHealthProbeCurrent = () =>
+      bridgeRegistrationAttemptGenerationRef.current === healthProbeGeneration;
     try {
       const response = await fetch(healthEndpointUrl(bridgeUrl));
       const payload = (await response.json().catch(() => null)) as {
         bridgeInstanceId?: string;
       } | null;
-      if (isUnmountedRef.current) return;
+      if (isUnmountedRef.current || !isHealthProbeCurrent()) return;
       const responseBridgeInstanceId =
         payload && typeof payload.bridgeInstanceId === "string"
           ? payload.bridgeInstanceId
@@ -2202,7 +2234,13 @@ export function DesignCanvas({
         }
         liveEditSameInstanceRearmTimerRef.current = window.setTimeout(() => {
           liveEditSameInstanceRearmTimerRef.current = undefined;
-          if (isUnmountedRef.current || bridgeReadyRef.current) return;
+          if (
+            isUnmountedRef.current ||
+            bridgeReadyRef.current ||
+            !isHealthProbeCurrent()
+          ) {
+            return;
+          }
           void handleSuspectedBridgeRestart();
         }, nextDelay);
         return;
@@ -2228,7 +2266,7 @@ export function DesignCanvas({
         message: t("designCanvas.localBridge.connectionNotConfirmed"),
       });
     } catch (error) {
-      if (isUnmountedRef.current) return;
+      if (isUnmountedRef.current || !isHealthProbeCurrent()) return;
       // /health itself is unreachable (network error / thrown before a
       // response) — the dev server process is actually down, not just slow.
       // This destructive path (tear down + surface the error) is justified.
