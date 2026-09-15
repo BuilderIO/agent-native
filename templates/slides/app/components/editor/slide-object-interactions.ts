@@ -177,6 +177,29 @@ export function createSlideObjectPlacementGeometry(
   };
 }
 
+/**
+ * A line is a thin bar drawn at its true length between the two drag points,
+ * then rotated to the drag angle around its own center. Reusing the
+ * axis-aligned bounding box from `createSlideObjectPlacementGeometry` would
+ * discard the drag direction and always yield a horizontal/vertical rect.
+ */
+export function createSlideLinePlacementGeometry(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  thickness = 4,
+): SlideObjectGeometry & { rotation: number } {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(Math.hypot(dx, dy), thickness);
+  return {
+    x: (start.x + end.x) / 2 - length / 2,
+    y: (start.y + end.y) / 2 - thickness / 2,
+    width: length,
+    height: thickness,
+    rotation: (Math.atan2(dy, dx) * 180) / Math.PI,
+  };
+}
+
 export interface SlideLayoutRect {
   left: number;
   top: number;
