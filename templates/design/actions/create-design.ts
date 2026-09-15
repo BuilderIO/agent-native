@@ -34,8 +34,8 @@ export default defineAction({
     "generate-design (files + canvasFrames) or create-file. When a design " +
     "system is linked, the result includes its `agentContext`; apply it " +
     "before authoring the screen. Omit designSystemId to link the caller's " +
-    "default design system; pass designSystemId, or the exact title as " +
-    "`designSystem`, to override.",
+    "default design system; pass null for no design system, or pass " +
+    "designSystemId or the exact title as `designSystem` to override.",
   schema: z.object({
     id: z
       .string()
@@ -43,7 +43,11 @@ export default defineAction({
       .describe(
         "Optional pre-generated UI ID. Agents should omit this and use the ID returned by the successful action.",
       ),
-    title: z.string().describe("Design project title"),
+    title: z
+      .string()
+      .describe(
+        "A concise, specific project name derived from the user's request. Never use a placeholder such as 'Untitled Design'.",
+      ),
     description: z
       .string()
       .optional()
@@ -55,8 +59,11 @@ export default defineAction({
       .describe("Type of design project"),
     designSystemId: z
       .string()
+      .nullable()
       .optional()
-      .describe("Design system ID to link to this design"),
+      .describe(
+        "Design system ID to link; omit for the caller's default, or pass null for no design system. Overrides designSystem.",
+      ),
     designSystem: z
       .string()
       .optional()
@@ -95,7 +102,7 @@ export default defineAction({
     let resolvedDesignSystemId = designSystemId;
     if (resolvedDesignSystemId) {
       await assertAccess("design-system", resolvedDesignSystemId, "viewer");
-    } else {
+    } else if (designSystemId !== null) {
       resolvedDesignSystemId =
         (designSystem
           ? await resolveDesignSystemIdByTitle(designSystem)

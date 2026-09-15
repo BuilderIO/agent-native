@@ -12,7 +12,7 @@ availability: "universal"
 dependencies: []
 related_features: ["content.feature.durable-foundations"]
 roadmap_boundary: "feature"
-acceptance_summary: "A Page has one stable identity and owner-governed content/access context across editing, Database membership, URLs, comments, source operations, trash, and export."
+acceptance_summary: "A Page has one stable identity and owner-governed content/access context across editing, Collection membership, URLs, comments, source operations, trash, and export."
 proof_requirements:
   [
     "Stable Page identity through move, rename, membership, trash, restore, and export",
@@ -34,19 +34,19 @@ A person needs a durable home for a piece of work, not a row that changes identi
 
 ## Example workflow
 
-An editor creates a brief, adds body content and Properties, places it in two Databases, shares it with a colleague, then moves it in the sidebar. The same Page URL, comments, history, and source/export identity continue to refer to the brief.
+An editor creates a brief, adds body content and Properties, places it in two Collections, shares it with a colleague, then moves it in the sidebar. The same Page URL, comments, history, and source/export identity continue to refer to the brief.
 
 ## Product contract
 
 - A Page owns stable identity, title, access, top-level Properties, and one or more Blocks fields.
-- A Database row is a Page; membership supplies collection context but never replaces Page identity or creates a primary membership.
+- A Collection row is a Page; membership supplies collection context but never replaces Page identity or creates a primary membership.
 - UI, agents, automations, and APIs use shared Actions and the same authorization boundary.
 - References, comments, Discussion, history, Versions, sources, and exports target the Page identity, not a transient renderer or location.
 - Trash suspends ordinary use without silently reusing the identity; restore returns the Page with its durable context.
 
 ## Boundaries and non-goals
 
-- A Page is not a Blocks field, Database membership, Query result, or named Version.
+- A Page is not a Blocks field, Collection membership, Query result, or named Version.
 - Page identity does not grant access to a source, another membership, or a referenced object.
 - The Page foundation does not itself define stable Block anchors, source synchronization, or Version branching.
 
@@ -54,7 +54,7 @@ An editor creates a brief, adds body content and Properties, places it in two Da
 
 ### Move without becoming another document
 
-Given a Page in two Databases, when an editor moves it in navigation or removes one membership, then its URL, body, comments, and remaining membership still resolve to the same Page.
+Given a Page in two Collections, when an editor moves it in navigation or removes one membership, then its URL, body, comments, and remaining membership still resolve to the same Page.
 
 ### Deny before revealing context
 

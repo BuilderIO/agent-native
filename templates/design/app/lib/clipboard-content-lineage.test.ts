@@ -1,4 +1,7 @@
+import { sourceContentHash } from "@shared/source-workspace";
 import { describe, expect, it } from "vitest";
+
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 
 import {
   acknowledgeClipboardContentMutation,
@@ -17,6 +20,20 @@ const lineage = (
   origin: "clipboard-paste",
 });
 
+function publish(args: {
+  current: ClipboardContentLineage | undefined;
+  baseContentHash: string;
+  nextContent: string;
+  origin: "user" | "clipboard-paste" | "clipboard-undo" | "clipboard-redo";
+  baseSource?: "lineage" | "document";
+}) {
+  return publishClipboardContentMutation({
+    fileId: "test.txt",
+    fileType: "text",
+    ...args,
+  });
+}
+
 describe("clipboard content lineage", () => {
   it("keeps stale passive echoes from replacing an undo target", () => {
     const undone = lineage("base", "base-hash", 3);
@@ -32,16 +49,15 @@ describe("clipboard content lineage", () => {
   it("publishes an ordinary edit immediately after undo", () => {
     const undone = lineage("base", "base-hash", 3);
     expect(
-      publishClipboardContentMutation({
+      publish({
         current: undone,
         baseContentHash: "base-hash",
         nextContent: "base + ordinary edit",
-        nextContentHash: "edited-hash",
         origin: "user",
       }),
     ).toEqual({
       content: "base + ordinary edit",
-      contentHash: "edited-hash",
+      contentHash: sourceContentHash("base + ordinary edit"),
       mutationId: 4,
       origin: "user",
     });
@@ -50,11 +66,10 @@ describe("clipboard content lineage", () => {
   it("publishes a new paste immediately after undo", () => {
     const undone = lineage("base", "base-hash", 8);
     expect(
-      publishClipboardContentMutation({
+      publish({
         current: undone,
         baseContentHash: "base-hash",
         nextContent: "base + new clone",
-        nextContentHash: "clone-hash",
         origin: "clipboard-paste",
       }),
     ).toMatchObject({ mutationId: 9, origin: "clipboard-paste" });
@@ -63,11 +78,10 @@ describe("clipboard content lineage", () => {
   it("rejects a local mutation computed from a stale generation", () => {
     const undone = lineage("base", "base-hash", 3);
     expect(
-      publishClipboardContentMutation({
+      publish({
         current: undone,
         baseContentHash: "stale-hash",
         nextContent: "stale + edit",
-        nextContentHash: "stale-edit-hash",
         origin: "user",
       }),
     ).toBeNull();
@@ -76,20 +90,56 @@ describe("clipboard content lineage", () => {
   it("supersedes a lineage the document has already moved past", () => {
     const beforeDelete = lineage("base + rect", "pre-delete-hash", 3);
     expect(
-      publishClipboardContentMutation({
+      publish({
         current: beforeDelete,
         baseContentHash: "post-delete-hash",
         nextContent: "base + pasted copy",
-        nextContentHash: "pasted-hash",
         origin: "clipboard-paste",
         baseSource: "document",
       }),
     ).toEqual({
       content: "base + pasted copy",
-      contentHash: "pasted-hash",
+      contentHash: sourceContentHash("base + pasted copy"),
       mutationId: 4,
       origin: "clipboard-paste",
     });
+  });
+
+  it("publishes canonical bytes and hashes before paste undo/redo acknowledgement", () => {
+    const rawContent =
+      '<!doctype html><html><body><button class="copy">Clone</button></body></html>';
+    const fileId = "screen-a";
+    const fileType = "html";
+    const canonicalContent = prepareCanonicalSourceContent(rawContent, {
+      fileId,
+      fileType,
+    }).content;
+    expect(canonicalContent).not.toBe(rawContent);
+
+    const publication = publishClipboardContentMutation({
+      current: undefined,
+      baseContentHash: sourceContentHash("<html><body></body></html>"),
+      fileId,
+      fileType,
+      nextContent: rawContent,
+      origin: "clipboard-paste",
+    });
+    expect(publication).toMatchObject({
+      content: canonicalContent,
+      contentHash: sourceContentHash(canonicalContent),
+      mutationId: 1,
+      origin: "clipboard-paste",
+    });
+    expect(publication?.contentHash).not.toBe(sourceContentHash(rawContent));
+
+    const acknowledged = acknowledgeClipboardContentMutation({
+      current: undefined,
+      nextContent: canonicalContent,
+      nextContentHash: sourceContentHash(canonicalContent),
+      publication: publication ?? undefined,
+    });
+    expect(acknowledged?.content).toBe(canonicalContent);
+    expect(acknowledged?.contentHash).toBe(sourceContentHash(canonicalContent));
   });
 
   it("accepts a matching explicit acknowledgement without regressing ids", () => {

@@ -103,6 +103,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "एजेंट",
   "agentPanel.mode": "मोड",
   "agentPanel.uiMode": "यूआई",
+  "agentPanel.keyScope": "कुंजी का दायरा",
+  "agentPanel.personalKeyScope": "व्यक्तिगत",
+  "agentPanel.organizationKeyScope": "संगठन",
+  "agentPanel.personalKeyInEffect": "आपकी व्यक्तिगत कुंजी उपयोग में है।",
+  "agentPanel.organizationKeyInEffect": "संगठन की कुंजी उपयोग में है।",
+  "agentPanel.sharedKeyInEffect": "साझा कुंजी उपयोग में है।",
+  "agentPanel.useOrganizationKey": "संगठन की कुंजी इस्तेमाल करें",
+  "agentPanel.keyStatusUnavailable": "कुंजी की स्थिति उपलब्ध नहीं है।",
   "agentHostNudge.sidebarTitle": "{{agent}} की चैट का उपयोग करें",
   "agentHostNudge.sidebarDescription":
     "आप पहले से {{agent}} से चैट कर रहे हैं। इसे इस ऐप के साथ सीधे काम करने के लिए कहें।",
@@ -125,6 +133,24 @@ const messages: AgentChatTranslation = {
   "common.no": "नहीं",
   "common.retry": "फिर से प्रयास करें",
   "common.save": "सहेजें",
+  "agents.hostedAgent": "होस्ट किया गया एजेंट",
+  "agents.cardUrl": "एजेंट कार्ड URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "प्रमाणीकरण",
+  "agents.authNone": "कोई प्रमाणीकरण नहीं",
+  "agents.authBearer": "Bearer टोकन",
+  "agents.authClientCredentials": "OAuth क्लाइंट क्रेडेंशियल",
+  "agents.chooseCredential": "क्रेडेंशियल चुनें",
+  "agents.vault": "वॉल्ट",
+  "agents.tokenUrl": "टोकन URL",
+  "agents.clientId": "क्लाइंट ID",
+  "agents.scope": "स्कोप",
+  "agents.authIncomplete": "होस्ट किए गए एजेंट के प्रमाणीकरण फ़ील्ड पूरे करें।",
+  "agents.invalidUrl":
+    "एजेंट URL में HTTPS होना चाहिए; localhost या loopback विकास URL इसके अपवाद हैं।",
+  "agents.statusReachable": "पहुंच योग्य",
+  "agents.statusAuthRejected": "प्रमाणीकरण अस्वीकार",
+  "agents.statusNoJsonRpc": "कोई JSON-RPC नहीं",
   "common.saveFailed": "सहेजा नहीं जा सका",
   "common.saveFailedStatus": "सहेजा नहीं जा सका ({{status}})",
   "common.saving": "सहेजा जा रहा है...",
@@ -167,6 +193,7 @@ const messages: AgentChatTranslation = {
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
   "composer.connectAbove": "जारी रखने के लिए ऊपर AI कनेक्ट करें...",
   "composer.connectBuilder": "Builder.io कनेक्ट करें",
+  "composer.connectKeys": "कुंजियाँ कनेक्ट करें",
   "composer.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है…",
   "composer.costHigher": "अधिक लागत",
   "composer.costLower": "कम लागत",
@@ -291,7 +318,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "यह ब्राउज़र रीयल-टाइम वॉइस बातचीत का समर्थन नहीं करता।",
   "voiceMode.hideChat": "चैट छिपाएँ",
-  "voiceMode.keepDictating": "बोलकर लिखें",
+  "voiceMode.keepDictating": "संदेश बोलकर लिखें",
   "voiceMode.promptDescription":
     "जब एजेंट नेविगेट करता है और कार्रवाई करता है, तब वॉइस मोड सुनता रहता है।",
   "voiceMode.promptTitle": "अपनी आवाज़ का उपयोग करें",
@@ -333,7 +360,7 @@ const messages: AgentChatTranslation = {
     "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस का उपयोग करने के लिए Builder.io कनेक्ट करें, या अपनी कुंजियाँ जोड़ें।",
   "voiceMode.setupTitle": "वॉइस मोड सेट अप करें",
   "voiceMode.showChat": "चैट दिखाएँ",
-  "voiceMode.start": "रीयल-टाइम वॉइस",
+  "voiceMode.start": "वॉइस चैट शुरू करें",
   "voiceMode.startWithOpenAiKey": "OpenAI कुंजी से शुरू करें",
   "voiceMode.status.connecting": "कनेक्ट किया जा रहा है",
   "voiceMode.status.ending": "वॉइस मोड समाप्त हो रहा है",
@@ -362,10 +389,15 @@ const messages: AgentChatTranslation = {
     "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
+  "errorMessages.creditsLimitReached": "आपने अपने AI क्रेडिट की सीमा पूरी कर ली है।",
   "errorMessages.inactivityTimeout":
     "एजेंट का कनेक्शन काम पूरा होने से पहले समय सीमा पर पहुँच गया। आप आंशिक काम से जारी रख सकते हैं या फिर से प्रयास कर सकते हैं।",
   "errorMessages.invalidToolSchema":
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
+  "errorMessages.malformedRequest":
+    "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
+  "errorMessages.malformedRequestAttachment":
+    "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
   "errorMessages.noProviderConnected":
     "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग्स > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें (मुफ़्त स्तर उपलब्ध है) या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
@@ -387,6 +419,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "उपयोगी नहीं",
   "feedback.placeholder": "बताएं कि क्या गलत हुआ...",
   "feedback.submit": "जमा करें",
+  "feedback.submitted": "फ़ीडबैक सबमिट किया गया",
   "feedback.thumbsDown": "नापसंद",
   "feedback.thumbsUp": "पसंद",
   "feedback.tooSlow": "बहुत धीमा",
@@ -694,6 +727,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "डेटा इनसाइट्स",
   "widget.dataTable": "डेटा तालिका",
   "widget.downloadCsv": "CSV डाउनलोड करें",
+  "widget.connectProvider": "{{provider}} कनेक्ट करें",
   "widget.loadingToolResult": "टूल का परिणाम लोड हो रहा है",
   "widget.noRows": "कोई पंक्ति नहीं",
   "widget.points": "{{formattedCount}} बिंदु",
@@ -703,6 +737,14 @@ const messages: AgentChatTranslation = {
   "widget.rows_one": "{{formattedCount}} पंक्ति",
   "widget.rows_other": "{{formattedCount}} पंक्तियाँ",
   "widget.sampled": "नमूना लिया गया",
+  "settings.emailTitle": "ईमेल",
+  "settings.emailChange": "ईमेल बदलें",
+  "settings.emailChanging": "भेजा जा रहा है...",
+  "settings.emailChangeSent":
+    "इस बदलाव की पुष्टि करने के निर्देशों के लिए अपना ईमेल देखें।",
+  "settings.emailChangeError": "पुष्टिकरण नहीं भेजा जा सका।",
+  "settings.emailNewLabel": "नया ईमेल",
+  "settings.emailNewPlaceholder": "नया ईमेल दर्ज करें",
 };
 
 export default messages;

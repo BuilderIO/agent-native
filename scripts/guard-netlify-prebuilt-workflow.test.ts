@@ -96,6 +96,78 @@ describe("Google callback deploy verification guard", () => {
       /directly with the supported Node loader|only definitive/,
     );
   });
+
+  it("accepts a pinned beta source while main advances during the queue", () => {
+    assert.match(
+      reusableSource,
+      /const comparison = await github\.rest\.repos\.compareCommits\([\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
+    assert.doesNotMatch(
+      reusableSource,
+      /Beta source_ref must equal current main/,
+    );
+  });
+
+  it("checks the published beta runtime context for the relay secret", () => {
+    const relayStep =
+      "      - name: Verify Netlify Google OAuth relay metadata";
+    const packageStep = "      - name: Package the prebuilt artifact";
+    const uploadStep = "      - name: Upload the prebuilt artifact";
+    const smokeStep = "      - name: Smoke-test the uploaded deploy";
+    assert.equal(reusableSource.split(relayStep).length, 2);
+    assert.equal(reusableSource.split(packageStep).length, 2);
+    assert.equal(reusableSource.split(uploadStep).length, 2);
+    assert.equal(reusableSource.split(smokeStep).length, 2);
+    const start = reusableSource.indexOf(relayStep);
+    const end = reusableSource.indexOf(smokeStep, start);
+    assert.ok(start >= 0 && end > start);
+    const step = reusableSource.slice(start, end);
+
+    assert.match(step, /\(inputs\.deploy \|\| inputs\.target == 'beta'\)/);
+    assert.match(step, /DEPLOY_MODE: \$\{\{ inputs\.deploy_mode \}\}/);
+    assert.match(step, /TARGET: \$\{\{ inputs\.target \}\}/);
+    assert.match(
+      step,
+      /if \[\[ \"\$TARGET\" == \"beta\" && \"\$DEPLOY_MODE\" == \"production\" \]\]/,
+    );
+    assert.match(step, /relay_context=production/);
+    assert.match(step, /!value/);
+    assert.match(step, /Netlify masks secret values/);
+    assert.match(step, /Verified Google OAuth relay metadata/);
+    assert.doesNotMatch(step, /netlify env:get/);
+    const metadataScript = step.match(
+      /printf '%s' "\$env_json" \|\n\s*node -e '\n([\s\S]*?)\n\s*' "\$relay_context"/,
+    )?.[1];
+    assert.ok(metadataScript);
+    const runMetadataCheck = (variables: unknown[], context: string) =>
+      execFileSync(process.execPath, ["-e", metadataScript, context], {
+        encoding: "utf8",
+        input: JSON.stringify(variables),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    const allContextRelay = {
+      key: "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
+      is_secret: true,
+      scopes: ["runtime"],
+      values: [{ context: "all" }],
+    };
+    assert.doesNotThrow(() =>
+      runMetadataCheck([allContextRelay], "branch-deploy"),
+    );
+    assert.throws(() =>
+      runMetadataCheck([{ ...allContextRelay, values: [] }], "branch-deploy"),
+    );
+    assert.match(
+      step,
+      /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,
+    );
+    const relayIndex = reusableSource.indexOf(relayStep);
+    const packageIndex = reusableSource.indexOf(packageStep);
+    const uploadIndex = reusableSource.indexOf(uploadStep);
+    assert.ok(
+      relayIndex >= 0 && relayIndex < packageIndex && relayIndex < uploadIndex,
+    );
+  });
 });
 
 describe("Netlify PR preview workflow guard", () => {
@@ -796,15 +868,19 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String(betaResolveStep?.with?.script),
-      /context\.eventName === 'workflow_dispatch'/,
+      /context\.eventName === 'push'/,
     );
     assert.match(
       String(betaResolveStep?.with?.script),
+      /const comparison = await github\.rest\.repos\.compareCommits\(/,
+    );
+    assert.doesNotMatch(
+      String(betaResolveStep?.with?.script),
       /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
     );
-    assert.match(
-      reusableSource,
-      /\['automatic', 'automatic-build'\]\.includes\(process\.env\.CALLER\.trim\(\)\)/,
+    assert.doesNotMatch(
+      String(betaResolveStep?.with?.script),
+      /Manual beta source_ref must equal current main/,
     );
     const confirmCurrentSourceStep = (
       (
@@ -828,14 +904,13 @@ describe("production Netlify site concurrency guard", () => {
       /process\.env\.SOURCE_SHA\.toLowerCase\(\) === mainSha\.toLowerCase\(\)/,
     );
     assert.match(
-      String(betaResolveStep?.with?.script),
-      /Manual beta source_ref must equal current main/,
-    );
-    assert.match(
       reusableSource,
       /Beta source_ref must be a full 40-character commit SHA/,
     );
-    assert.match(reusableSource, /Beta source_ref must equal current main/);
+    assert.match(
+      reusableSource,
+      /Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
     assert.match(
       reusableSource,
       /Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt\.yml\./,

@@ -49,7 +49,10 @@ describe("Factory review skill alignment", () => {
     expect(second).not.toContain("old contract");
   });
 
-  it("does not add a review contract to the PR babysitter", () => {
-    expect(managedReviewSkillAlignment("factory-pr-babysit")).toBeUndefined();
+  it("adds the babysit contract without review-prs governance text", () => {
+    const alignment = managedReviewSkillAlignment("factory-pr-babysit");
+    expect(alignment).toContain("propose-pr-babysit-status");
+    expect(alignment).toContain("defer");
+    expect(alignment).not.toContain("ultra-scary gate");
   });
 });

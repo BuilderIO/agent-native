@@ -1,16 +1,18 @@
 ---
 title: "SSO entre aplicaciones"
-description: "Documenta el SSO del espacio de trabajo en Desktop y la federación de organizaciones del servidor. El inicio de sesión del navegador con Agent-Native se eliminó."
+description: "Distingue el inicio OIDC o SAML de una organización de la federación de identidad entre aplicaciones."
 ---
 
-# SSO entre aplicaciones
+# SSO de organización y federación entre aplicaciones
+
+El SSO de organización usa el proveedor OIDC o SAML de una empresa para iniciar sesión en un despliegue de Agent-Native. La federación entre aplicaciones comparte identidad verificada o contexto de organización entre despliegues separados. Su configuración y límites de confianza son distintos.
 
 La opción de navegador "Sign in with Agent-Native" y el traspaso automático del
 navegador se eliminaron. El inicio de sesión por aplicación es el comportamiento
 predeterminado para usuarios web. Esta página describe los contratos restantes
 de Desktop y de la federación del servidor.
 
-## Lo que permanece
+## Federación entre aplicaciones
 
 ### Espacio de trabajo en Desktop
 
@@ -129,3 +131,5 @@ la autenticación local normal.
 - [Dispatch](/docs/dispatch)
 - [Seguridad y alcance de datos](/docs/security)
 - [Espacios de trabajo multiaplicación](/docs/multi-app-workspace)
+
+El inicio de sesión empresarial con OIDC o SAML es distinto de la federación de identidad entre aplicaciones. La [guía de despliegues administrados](/docs/administered-deployments) describe el modelo empresarial. El inicio de sesión del navegador con Agent-Native sigue retirado.

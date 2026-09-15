@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callActionWithRetry } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   isInAgentEmbed,
@@ -91,7 +91,7 @@ export default function SlideRoute() {
       return;
     }
 
-    callAction<{
+    callActionWithRetry<{
       title?: string;
       slides?: Slide[];
       aspectRatio?: AspectRatio;

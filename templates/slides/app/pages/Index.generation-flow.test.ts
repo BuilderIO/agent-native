@@ -15,6 +15,13 @@ const onboardingSource = readFileSync(
   ),
   "utf8",
 );
+const generationLibSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../lib/create-deck-generation.ts",
+  ),
+  "utf8",
+);
 const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
   source.indexOf("const handlePromptSubmit"),
@@ -35,6 +42,29 @@ describe("new deck generation flow", () => {
     expect(flow).not.toContain("await askUserQuestion");
     expect(flow).toContain("prompt-specific question");
     expect(flow).toContain("recoverFromGenerationSetupFailure");
+  });
+
+  it("carries the already-imported reference source into a retry", () => {
+    // The failed attempt keeps which upload became the reference deck, and the
+    // retry reuses it only while that same deck is still selected — otherwise
+    // the retry re-reads a file the reference deck already represents.
+    expect(source).toContain("retryImportedReference: importedReferenceSource");
+    expect(source).toContain(
+      "setNewDeckRetryImportedReference(state.retryImportedReference)",
+    );
+    expect(source).toContain(
+      "selection.referenceDeckId === carriedImportedReference.deckId",
+    );
+    // A deleted reference deck must not keep its source excluded, or the run
+    // has neither the deck nor the file it was built from.
+    expect(source).toContain(
+      "!decks.some((deck) => deck.id === carriedImportedReference.deckId)",
+    );
+    // A deck that is gone must also stop being passed as the reference, or it
+    // reads as one while loading nothing.
+    expect(source).toContain(
+      "...(carriedDeckMissing ? { referenceDeckId: null } : {})",
+    );
   });
 
   it("shows the destination-shaped loading surface before navigation", () => {
@@ -142,7 +172,7 @@ describe("new deck generation flow", () => {
     expect(flow).toContain(
       "attached reference files must not seed it with imported slides",
     );
-    expect(source).toContain(
+    expect(generationLibSource).toContain(
       "Attachments are context for the agent by default",
     );
     expect(flow).toContain("isSourceImprovementRequest");
@@ -150,6 +180,30 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("Source-preserving improvement mode");
     expect(flow).toContain(
       "attached reference files must not seed it with imported slides",
+    );
+  });
+
+  it("blocks generation when an attached reference cannot be read", () => {
+    const hydrateIndex = flow.indexOf("await hydrateReferenceDocuments(");
+    const submitIndex = flow.indexOf(
+      "agentSubmit(createDeckAgentMessage(prompt)",
+    );
+
+    expect(hydrateIndex).toBeGreaterThan(-1);
+    expect(hydrateIndex).toBeLessThan(submitIndex);
+    expect(flow).toContain('referenceHydration.status === "unreadable"');
+    expect(flow).toContain(
+      "recoverFromGenerationSetupFailure(referenceHydration.message)",
+    );
+    expect(flow).toContain("referenceDocumentContext,");
+    // The agent must not be told to fetch a reference it was already handed:
+    // that instruction is what let a failed read surface only after the deck
+    // had been generated from nothing.
+    expect(generationLibSource).toContain(
+      "PDF, PPTX, and DOCX files were already read before this run",
+    );
+    expect(generationLibSource).not.toContain(
+      "when you need their text or structure",
     );
   });
 

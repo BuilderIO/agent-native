@@ -1,0 +1,142 @@
+---
+title: Administered Deployments
+description: Configure an invite-only Agent-Native workspace for one organization, with managed roles, company credentials, identity changes, and enterprise identity providers.
+---
+
+# Administered deployments
+
+Use a workspace when one organization operates internal apps for its employees.
+The organization is the membership and data boundary. A workspace is the
+deployment and configuration boundary around one or more apps.
+
+## Close signup and organization creation
+
+Set these values on each app deployment:
+
+```dotenv
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+With `AUTH_SIGNUP=invited`, a new account needs a pending invitation, a verified
+email domain allowed by an organization, or an address in
+`AUTH_BOOTSTRAP_ADMINS`. The check applies to password, magic-link, and social
+sign-in. Domain matching is an admission policy. It does not create an
+invitation or assign an application role.
+
+The first configured bootstrap admin who signs in creates the canonical
+organization and becomes its owner. If one organization already exists, the
+admin is added as its owner. If several organizations exist, bootstrap does not
+choose between them. An administrator must resolve that state manually.
+Configure the organization's allowed email domain and invite the remaining
+team from **Team settings**.
+
+When organization creation is closed, ordinary members cannot create another
+organization. The no-organization screen directs them to ask an administrator.
+With `ORG_CREATION=closed`, organization creation is refused until
+`AUTH_BOOTSTRAP_ADMINS` lists at least one verified administrator, who creates
+the canonical organization on first sign-in. Keep a verified bootstrap-admin
+address available for initial setup and recovery.
+
+## Company credentials and roles
+
+An organization owner or admin can save an organization-scoped LLM key from
+the provider setup screen. Members can use the organization key instead of a
+personal key. A saved personal key takes precedence until that member chooses
+the organization key, which removes the personal key for that provider.
+
+Organization roles control team administration. App roles control access
+inside one app. An administrator can assign multiple app roles to a member,
+pre-assign roles on an invitation, and map code-declared permissions to roles
+from the team surface. The app declares permission keys and their default role
+grants. An organization override changes those grants without an app deploy.
+Deleting an override restores the app's declared defaults.
+
+## Email changes and identity rekeying
+
+Users can change their sign-in email through account settings after completing
+the email verification flow. For an administrator-driven domain migration, run
+the identity rekey command once in each app:
+
+```bash
+agent-native identity rekey --from old@example.com --to new@example.com
+```
+
+Review the listed tables and row counts before adding `--yes`. Each app has its
+own user store, so a workspace migration is one command per app. The operation
+updates registered identity references, revokes active sessions, and records a
+new audit event. Existing audit entries remain unchanged.
+
+This email-based model is not an immutable cross-provider principal ID.
+Principal-ID migration remains a post-1.0 design item. Until then, treat
+verified email as the account identifier and run the rekey command before
+retiring an old address.
+
+## Organization SSO and directory provisioning
+
+Organization SSO and SCIM are opt-in. Set the flags on each app deployment to
+show the corresponding controls in **Team settings**:
+
+```dotenv
+AUTH_SSO=1
+AUTH_SCIM=1
+```
+
+Both flags default to off. Enabling them adds organization-level provider and
+directory-connection management. It does not enable cross-app identity
+federation. That is a separate protocol described in
+[Cross-App SSO](/docs/cross-app-sso).
+
+Set these flags in the build environment as well as the runtime environment;
+changing them after deployment requires a rebuild.
+
+Before configuring organization SSO, set the organization's allowed email
+domain to a domain it controls. In **Team settings → Single sign-on**, add an
+OIDC or SAML provider. OIDC setup uses the issuer, client ID, client secret,
+and optional discovery endpoint. SAML setup uses the IdP entry point, entity
+ID, and pasted IdP metadata XML. The settings show the redirect URI and SP
+metadata URL to enter at the identity provider. Configure and test that IdP
+application before requiring it for organization sign-in.
+
+Verify domain ownership by creating the DNS TXT record shown in Team settings.
+The record name has the form
+`_better-auth-token-<provider-id>.<organization-domain>`. Use the displayed
+one-time value, wait for DNS propagation, then verify the domain. After
+verification, an owner or admin can choose Google or a verified SSO provider
+as the organization's required sign-in method.
+
+For directory provisioning, create a SCIM connection in **Team settings →
+Directory provisioning**. Copy its token when it is created. The token is shown
+once. Configure the identity provider with the displayed SCIM endpoint and
+token, and treat the token as a secret. Revoke a connection to disable its
+credential. The SCIM integration projects provisioned users into the
+Agent-Native organization membership model. It is separate from the identity
+provider's OIDC or SAML sign-in configuration.
+
+For Okta or Microsoft Entra ID, create an OIDC or SAML enterprise application
+and enter the values shown by Team settings in that application's sign-in
+configuration. For provisioning, configure the provider's SCIM client with the
+displayed endpoint and token, then test user creation, updates, and
+deactivation with a limited group before broad assignment. Provider admin
+screens vary. Follow the current provider documentation for the exact field
+names and validate the round trip before requiring SSO or assigning the full
+directory.
+
+## Isolation and deployment choice
+
+Organization data is isolated through request-scoped access helpers such as
+`accessFilter()` and `assertAccess()`. Agent SQL receives temporary filtered
+views for ownable tables. `pnpm guards` includes the no-unscoped-queries check.
+These layers are the current enforcement model. PostgreSQL row-level security
+(RLS) is planned as post-1.0 hardening. Do not treat RLS as an active layer.
+
+Use a **workspace** for a company's internal suite of apps that should share
+deployment configuration and organization context. Use a **standalone app**
+for one independent app, such as a customer-facing tool or a prototype. See
+[Multi-App Workspaces](/docs/multi-app-workspace#standalone-or-workspace).
+
+For package channels, upgrades, and compatibility expectations, see
+[Versioning and Stability](/docs/versioning-and-stability).

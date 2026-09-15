@@ -87,6 +87,13 @@ Never create a duplicate local design system from raw Figma or code sources.
 Builder owns the indexed brand kit; a second local copy drifts from it and
 nothing records which one a deck was actually built from.
 
+That rule is about duplicates, not about failures. When
+`index-design-system-with-builder` fails there is nothing to duplicate, so
+never end a setup request with nothing created: build the design system with
+`create-design-system` from the same sources and say plainly that Builder
+indexing was unavailable and why. An indexing error the user cannot see, with
+no design system to select afterwards, reads as the request being dropped.
+
 ### Source: workspace default
 
 A workspace admin can flag one design system as the workspace default, used by
@@ -112,6 +119,14 @@ deleted system was the caller's default, another of their design systems is
 promoted to default so future deck creation doesn't silently drop to "no
 design system". Deletion does not remove an upstream Builder-indexed design
 system.
+
+The Design Systems page renders every row `list-design-systems` returns —
+including rows written before `data` validation existed, whose `colors` or
+`typography` sections may be empty or missing. `parseDesignSystemListData` in
+`app/pages/DesignSystems.tsx` fills gaps with the same defaults
+`useDeckDesignSystem` applies rather than hiding the row, so a legacy or
+malformed design system always keeps a visible card and a working Delete
+control.
 
 ## Applying to Slides
 

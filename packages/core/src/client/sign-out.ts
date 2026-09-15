@@ -31,6 +31,16 @@ import { beginSignOut, completeSignOut } from "./use-session.js";
 
 const LOGOUT_PATH = "/_agent-native/auth/logout";
 const SIGN_OUT_REQUEST_TIMEOUT_MS = 15_000;
+
+export const SIGN_OUT_SEARCH_TERMS = [
+  "log out",
+  "log-out",
+  "logout",
+  "sign out",
+  "sign-out",
+  "signout",
+] as const;
+
 let signOutOperation: Promise<void> | null = null;
 
 function setBetaRedirectSignOutSignal(): void {

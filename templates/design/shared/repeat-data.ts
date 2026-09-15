@@ -385,6 +385,16 @@ export function repeatItemVariable(xFor: string): string | null {
   return grouped?.[1] ?? null;
 }
 
+/** `(item, index) in items` → `index`. */
+export function repeatIndexVariable(xFor: string): string | null {
+  const left = xFor.split(/\s+in\s+/)[0]?.trim() ?? "";
+  return (
+    /^\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*,\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)$/.exec(
+      left,
+    )?.[1] ?? null
+  );
+}
+
 export type RepeatKeyLookup =
   | { status: "found"; field: RepeatDataField }
   | { status: "absent" }

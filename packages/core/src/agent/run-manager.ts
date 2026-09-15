@@ -25,6 +25,7 @@ import {
   getRunAbortState,
   getRunStatus,
   getRunEventsSince,
+  getCurrentTurnEventsForThread,
   getRunById,
   getRunByThread,
   getRunTurnRef,
@@ -548,6 +549,8 @@ export interface StartRunOptions {
    * would have looked.
    */
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
+  /** The caller atomically inserted this run while claiming the thread slot. */
+  runRowAlreadyInserted?: boolean;
   /**
    * Optional context forwarded onto the terminal-outcome analytics event
    * (see `emitRunTerminalTrackingEvent`) so run cutoffs can be broken down
@@ -759,23 +762,36 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
 }
 
 /**
- * A completed tool with no later assistant text is an unfinished turn, not a
+ * A tool result with no later assistant text is an unfinished turn, not a
  * successful terminal response. Keep this predicate beside the run-manager's
  * terminal synthesis so the run-manager and production continuation paths use
  * the same boundary evidence.
+ *
+ * A FAILED tool result counts too. Skipping it made the verdict depend on
+ * whether some earlier call in the same turn happened to succeed: a turn ending
+ * on `resources` ok then `web_request` failed continued, while the same turn
+ * with both failing terminated as a plain `done`. The client can only render
+ * "stopped after these actions ... without sending a final message" for that,
+ * so the tool's real error — an expired handoff URL, a missing credential —
+ * never reached the user, and typing "continue" by hand was the only way to see
+ * it. The model has not read the error yet at this point, which makes a failed
+ * tail strictly more unfinished than a successful one.
  */
-export function endsAfterCompletedToolWithoutAssistantFinal(
+export function endsAfterToolResultWithoutAssistantFinal(
   run: ActiveRun,
 ): boolean {
-  let completedToolAfterLastAssistantText = false;
+  let toolResultAfterLastAssistantText = false;
   for (const { event } of run.events) {
     if (event.type === "text" && event.text.trim().length > 0) {
-      completedToolAfterLastAssistantText = false;
+      toolResultAfterLastAssistantText = false;
       continue;
     }
-    if (event.type === "tool_done" && event.isError !== true) {
-      completedToolAfterLastAssistantText =
-        event.chatUI === undefined && event.mcpApp === undefined;
+    if (event.type === "tool_done") {
+      // Custom UI is the one tool result that is a legitimate final answer on
+      // its own, and only when it succeeded.
+      toolResultAfterLastAssistantText =
+        event.isError === true ||
+        (event.chatUI === undefined && event.mcpApp === undefined);
       continue;
     }
     if (
@@ -785,10 +801,10 @@ export function endsAfterCompletedToolWithoutAssistantFinal(
       event.type === "auto_continue" ||
       event.type === "loop_limit"
     ) {
-      completedToolAfterLastAssistantText = false;
+      toolResultAfterLastAssistantText = false;
     }
   }
-  return completedToolAfterLastAssistantText;
+  return toolResultAfterLastAssistantText;
 }
 
 /**
@@ -1179,9 +1195,11 @@ export function startRun(
     ? { dispatchMode: options.dispatchMode }
     : undefined;
   const insertRunPromise = (
-    insertOptions
-      ? insertRun(runId, threadId, options?.turnId, insertOptions)
-      : insertRun(runId, threadId, options?.turnId)
+    options?.runRowAlreadyInserted
+      ? Promise.resolve()
+      : insertOptions
+        ? insertRun(runId, threadId, options?.turnId, insertOptions)
+        : insertRun(runId, threadId, options?.turnId)
   ).catch((error) => {
     captureRunPersistenceError(error, "insert-run");
   });
@@ -2107,7 +2125,7 @@ export function startRun(
       run.status = finalStatus;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
-        (endsAfterCompletedToolWithoutAssistantFinal(run) ||
+        (endsAfterToolResultWithoutAssistantFinal(run) ||
           endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&
@@ -2396,6 +2414,28 @@ export function subscribeToRun(
   }
   // Not in local memory — try SQL (cross-isolate path)
   return subscribeFromSQL(runId, fromSeq);
+}
+
+/** Replay every persisted chunk of one completed logical turn as one SSE stream. */
+export async function replayCompletedTurn(
+  threadId: string,
+  turnId: string,
+): Promise<ReadableStream<Uint8Array> | null> {
+  const persisted = await getCurrentTurnEventsForThread(threadId, turnId);
+  if (persisted.length === 0) return null;
+  const events = persisted.filter((event) => event.type !== "auto_continue");
+  if (!events.some(isTerminalRunEvent)) events.push({ type: "done" });
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      events.forEach((event, seq) => {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ ...event, seq })}\n\n`),
+        );
+      });
+      controller.close();
+    },
+  });
 }
 
 /** In-memory subscription (same isolate, fast path) */

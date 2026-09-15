@@ -89,7 +89,10 @@ describe("MultiScreenCanvas viewport culling", () => {
     );
     expect(
       source.match(/loading=\{cullTier === "visible" \? "eager" : "lazy"\}/g),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(source).toContain(
+      'isExportPreview || cullTier === "visible" ? "eager" : "lazy"',
+    );
   });
 
   describe("bounded live iframe allocation", () => {

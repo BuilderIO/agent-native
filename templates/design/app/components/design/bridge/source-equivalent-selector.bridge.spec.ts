@@ -17,9 +17,7 @@ function hydrated(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-// Alpine's live shape, written out so no runtime is needed: the template stays
-// as a marker and each rendered row is a direct sibling. Static siblings carry
-// stamped ids because every persisted screen is annotated; clones never can.
+// The manual Alpine fixture supplies both the sibling rows and their lookup ownership.
 const PAGE = `<!doctype html><html><head><style>
   body{margin:0} ul{list-style:none;padding:0;margin:0}
   li{height:40px;border:1px solid #ccc}
@@ -29,17 +27,43 @@ const PAGE = `<!doctype html><html><head><style>
     <li>clone one</li>
     <li>clone two</li>
     <li data-agent-native-node-id="an-static" class="static-row">static row</li>
+    <li id="123" class="digit-id-row">numeric authored id</li>
   </ul>
   <div data-agent-native-node-id="an-after" class="after">after</div>
 </body></html>`;
 
-async function selectAndRead(selectors: string[]): Promise<string[]> {
+async function selectAndRead(
+  selectors: string[],
+  options: { disableCssEscape?: boolean; omitAlpineLookup?: boolean } = {},
+): Promise<string[]> {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({
       viewport: { width: 900, height: 700 },
     });
     await page.setContent(PAGE);
+    if (options.disableCssEscape) {
+      await page.evaluate(() => {
+        Object.defineProperty(window.CSS, "escape", {
+          configurable: true,
+          value: undefined,
+        });
+      });
+    }
+    if (!options.omitAlpineLookup) {
+      await page.evaluate(() => {
+        const template =
+          document.querySelector<HTMLTemplateElement>("template[x-for]")!;
+        const rows = Array.from(
+          document.querySelectorAll(
+            "ul > li:not([data-agent-native-node-id]):not(.digit-id-row)",
+          ),
+        );
+        (
+          template as HTMLTemplateElement & { _x_lookup: Map<number, Element> }
+        )._x_lookup = new Map(rows.map((row, index) => [index, row]));
+      });
+    }
     await page.addScriptTag({ content: hydrated() });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
     await page.evaluate(() => {
@@ -61,8 +85,22 @@ async function selectAndRead(selectors: string[]): Promise<string[]> {
     for (const selector of selectors) {
       const box = await page.locator(selector).first().boundingBox();
       if (!box) throw new Error(`no box for ${selector}`);
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-      await page.waitForTimeout(180);
+      // Both targets sit two levels below the screen root (ul > li), so a
+      // plain click now resolves container-first (Figma parity) onto the
+      // shared <ul> for every row alike. Select the row directly — what
+      // these tests prove is the sourceId/editCapabilities a selected row
+      // reports, not click resolution.
+      const before = await page.evaluate(
+        () => (window as unknown as { __sel: string[] }).__sel.length,
+      );
+      await page.evaluate((sel) => {
+        window.postMessage({ type: "select-element", selector: sel }, "*");
+      }, selector);
+      await page.waitForFunction(
+        (count) =>
+          (window as unknown as { __sel: string[] }).__sel.length > count,
+        before,
+      );
     }
     return await page.evaluate(
       () => (window as unknown as { __sel: string[] }).__sel,
@@ -71,6 +109,20 @@ async function selectAndRead(selectors: string[]): Promise<string[]> {
     await browser.close();
   }
 }
+
+it(
+  "keeps static siblings editable before Alpine creates its lookup",
+  { timeout: 120_000 },
+  async () => {
+    const [row = ""] = await selectAndRead([".static-row"], {
+      omitAlpineLookup: true,
+    });
+
+    expect(row).toContain("an-static");
+    expect(row).toContain("deterministic-style-edit");
+    expect(row).not.toContain("unsupported");
+  },
+);
 
 it(
   "a stamped element beside x-for clones stays fully editable",
@@ -94,5 +146,19 @@ it(
     // that resolved onto the static row and reported the write as applied.
     expect(clone.split("|")[0]).toBe("");
     expect(clone).toContain("unsupported");
+  },
+);
+
+it(
+  "keeps a numeric authored id unique when CSS.escape is unavailable",
+  { timeout: 120_000 },
+  async () => {
+    const [row = ""] = await selectAndRead([".digit-id-row"], {
+      disableCssEscape: true,
+    });
+
+    expect(row).toContain("123");
+    expect(row).toContain("deterministic-style-edit");
+    expect(row).not.toContain("unsupported");
   },
 );

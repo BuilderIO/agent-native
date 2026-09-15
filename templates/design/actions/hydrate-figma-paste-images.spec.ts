@@ -310,6 +310,25 @@ describe("hydrate-figma-paste-images action", () => {
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
   });
 
+  it("preserves the typed rate-limit failure for the action transport", async () => {
+    dbRows = [SCREEN_METADATA_ROW];
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: SCREEN_METADATA_ROW.content,
+      versionHash: "v1",
+    });
+    const rateLimitError = Object.assign(
+      new Error("Figma image fills request failed: Rate limit exceeded"),
+      {
+        errorCode: "figma_rate_limited",
+        statusCode: 429,
+        details: { figmaStatus: 429, retryAfterSeconds: 60 },
+      },
+    );
+    mocks.resolveImageFillRefs.mockRejectedValue(rateLimitError);
+
+    await expect(action.run({ fileId: "file-1" })).rejects.toBe(rateLimitError);
+  });
+
   it("throws when no figmaFileKey is in screenMetadata for the file", async () => {
     dbRows = [
       {

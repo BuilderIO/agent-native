@@ -21,12 +21,25 @@
  * See DESIGN-STUDIO-PLAN.md §6.1 for context.
  */
 
-import type { CodeLayerNode } from "./code-layer";
+import type { CodeLayerNode, CodeLayerProjection } from "./code-layer";
 
 // ─── Component detection attributes ───────────────────────────────────────────
 
 /** The HTML attribute that marks a DOM node as a component root. */
 export const COMPONENT_NAME_ATTR = "data-agent-native-component";
+
+/** Opaque identity stored on one canonical component root. */
+export const COMPONENT_ID_ATTR = "data-agent-native-component-id";
+
+/** Opaque identity reference stored on an explicitly linked instance root. */
+export const COMPONENT_REF_ATTR = "data-agent-native-component-ref";
+
+/** Canonical descendant identity carried by a materialized linked instance. */
+export const COMPONENT_SOURCE_NODE_ID_ATTR =
+  "data-agent-native-component-source-node-id";
+
+/** Canonical-descendant/property keys overridden on a linked instance. */
+export const COMPONENT_OVERRIDES_ATTR = "data-agent-native-component-overrides";
 
 /** Prefix for simple prop attributes stamped next to the component root. */
 export const COMPONENT_PROP_PREFIX = "data-agent-native-prop-";
@@ -111,6 +124,12 @@ export interface ComponentInstance {
    * by `get-component-details` to load prop types and variants.
    */
   componentIndexId?: string;
+
+  /** Canonical component identity. Names remain presentation metadata. */
+  componentId?: string;
+
+  /** Canonical component identity referenced by this materialized instance. */
+  componentRef?: string;
 }
 
 // ─── Detection ────────────────────────────────────────────────────────────────
@@ -201,6 +220,8 @@ export function instanceFromNode(
     selector: node.selector,
     nodeId: node.id,
     componentIndexId,
+    componentId: node.dataAttributes[COMPONENT_ID_ATTR]?.trim() || undefined,
+    componentRef: node.dataAttributes[COMPONENT_REF_ATTR]?.trim() || undefined,
   };
 }
 
@@ -271,4 +292,28 @@ export function buildDefinitions(
     instanceNodeIds: entry.instanceNodeIds,
     observedPropNames: Array.from(entry.propNames),
   }));
+}
+
+/** Nearest explicitly linked main or instance ancestor, including the node itself. */
+export function linkedComponentRootForNode(
+  node: CodeLayerNode,
+  projection: CodeLayerProjection,
+): CodeLayerNode | null {
+  const nodesById = new Map(projection.nodes.map((entry) => [entry.id, entry]));
+  let current: CodeLayerNode | undefined = node;
+  while (current) {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        current.dataAttributes,
+        COMPONENT_ID_ATTR,
+      ) ||
+      Object.prototype.hasOwnProperty.call(
+        current.dataAttributes,
+        COMPONENT_REF_ATTR,
+      )
+    )
+      return current;
+    current = current.parentId ? nodesById.get(current.parentId) : undefined;
+  }
+  return null;
 }

@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
@@ -47,7 +46,10 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { ComposeModal } from "@/components/email/ComposeModal";
+import {
+  ComposeModal,
+  type ComposePaletteCommands,
+} from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -65,7 +67,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  applyDraftSaveResult,
+  DRAFT_DELETE_FAILED_EVENT,
+  DRAFT_SAVE_FAILED_EVENT,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import {
   useLabels,
@@ -91,6 +98,7 @@ import {
   useInboxThreads,
 } from "@/hooks/use-inbox-threads";
 import {
+  shouldCycleMailTab,
   useKeyboardShortcuts,
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
@@ -109,6 +117,7 @@ import { isKnownMailView } from "@/routes/$view";
 import { CommandPalette } from "./CommandPalette";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
+import { useCommandPaletteFocus } from "./use-command-palette-focus";
 
 const BARE_ROUTES = new Set(["/email"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
@@ -326,8 +335,64 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const compose = useComposeState();
+  useEffect(() => {
+    const handleDraftSaveFailed = () => {
+      toast.error(t("mail.toasts.failedToSaveDraft"));
+    };
+    const handleDraftDeleteFailed = () => {
+      toast.error(t("mail.toasts.failedToDeleteDraft"));
+    };
+    window.addEventListener(DRAFT_SAVE_FAILED_EVENT, handleDraftSaveFailed);
+    window.addEventListener(DRAFT_DELETE_FAILED_EVENT, handleDraftDeleteFailed);
+    return () => {
+      window.removeEventListener(
+        DRAFT_SAVE_FAILED_EVENT,
+        handleDraftSaveFailed,
+      );
+      window.removeEventListener(
+        DRAFT_DELETE_FAILED_EVENT,
+        handleDraftDeleteFailed,
+      );
+    };
+  }, [t]);
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOpenedFromCompose, setPaletteOpenedFromCompose] =
+    useState(false);
+  const [composeCommandsAvailable, setComposeCommandsAvailable] =
+    useState(false);
+  const composePaletteCommandsRef = useRef<ComposePaletteCommands | null>(null);
+  const registerComposePaletteCommands = useCallback(
+    (commands: ComposePaletteCommands | null) => {
+      composePaletteCommandsRef.current = commands;
+      setComposeCommandsAvailable(commands !== null);
+    },
+    [],
+  );
+  const sendComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.send();
+  }, []);
+  const scheduleComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendLater();
+  }, []);
+  const sendAndMarkDoneFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendAndMarkDone();
+  }, []);
+  const {
+    openPalette: rememberAndOpenPalette,
+    handleOpenChange: handlePaletteOpenChange,
+    restoreFocusAfterEscape: restorePaletteFocus,
+  } = useCommandPaletteFocus(paletteOpen, setPaletteOpen);
+  const openPalette = useCallback(() => {
+    if (!paletteOpen) {
+      const activeElement = document.activeElement;
+      setPaletteOpenedFromCompose(
+        activeElement instanceof HTMLElement &&
+          Boolean(activeElement.closest("[data-mail-compose]")),
+      );
+    }
+    rememberAndOpenPalette();
+  }, [paletteOpen, rememberAndOpenPalette]);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   // When the user requests snooze from the list, we need to snooze the live
   // focused/selected rows — not whatever is currently in navigation state.
@@ -781,6 +846,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     reportSpam.mutate({
       id: targetEmail.id,
       threadId: targetEmail.threadId || targetEmail.id,
+      accountEmail: targetEmail.accountEmail,
     });
     toast(t("mail.toasts.reportedSpam"));
   }, [targetEmail, reportSpam, dismissEmail, t]);
@@ -795,6 +861,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       id: targetEmail.id,
       threadId: targetEmail.threadId || targetEmail.id,
       senderEmail: targetEmail.from.email,
+      accountEmail: targetEmail.accountEmail,
     });
     toast(
       t("mail.toasts.reportedSpamBlocked", { email: targetEmail.from.email }),
@@ -810,7 +877,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     if (targetEmail) dismissEmail(targetEmail.id);
-    muteThread.mutate(tid);
+    muteThread.mutate({
+      threadId: tid,
+      accountEmail: targetEmail?.accountEmail,
+    });
     toast(t("mail.toasts.threadMuted"));
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
 
@@ -1018,37 +1088,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const canCycleTab = useCallback(
     (event: KeyboardEvent) => {
       if (topBarTabs.length < 2) return false;
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target) return true;
-
-      // Keep native Tab behavior inside modal/dialog popups where focus trapping is required
-      if (
-        target.closest(
-          '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]',
-        ) !== null
-      ) {
-        return false;
-      }
-
-      // Preserve native Tab traversal when focused on interactive controls outside the tab bar
-      // (buttons, links, checkboxes, selects, etc.), except for the tab bar itself or body/main view.
-      if (target.closest("[data-mail-tab-list]") !== null) {
-        return true;
-      }
-
-      const isInteractive =
-        target.matches(
-          'button, a[href], select, [role="button"], [role="checkbox"], [role="menuitem"], [role="option"], [tabindex]:not([tabindex="-1"])',
-        ) ||
-        target.closest(
-          'button, a[href], select, [role="button"], [role="checkbox"], [role="menuitem"], [role="option"]',
-        ) !== null;
-
-      if (isInteractive) {
-        return false;
-      }
-
-      return true;
+      return shouldCycleMailTab(event.target);
     },
     [topBarTabs.length],
   );
@@ -1099,11 +1139,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     {
       key: "k",
       meta: true,
-      handler: () => setPaletteOpen(true),
+      handler: openPalette,
       skipInInput: false,
     },
     {
       key: "/",
+      shift: "either",
       handler: () => {
         document.getElementById("mail-search")?.focus();
       },
@@ -1116,12 +1157,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       key: "Tab",
       shouldHandle: canCycleTab,
       handler: () => cycleTab(false),
+      skipInInput: false,
     },
     {
       key: "Tab",
       shift: true,
       shouldHandle: canCycleTab,
       handler: () => cycleTab(true),
+      skipInInput: false,
     },
     {
       key: "Escape",
@@ -1137,11 +1180,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   ]);
 
   useEffect(() => {
-    const handler = () => setPaletteOpen(true);
+    const handler = openPalette;
     window.addEventListener("agent-native:open-command-menu", handler);
     return () =>
       window.removeEventListener("agent-native:open-command-menu", handler);
-  }, []);
+  }, [openPalette]);
 
   // Sequence shortcuts (g + key = go to view)
   useSequenceShortcuts([
@@ -1157,7 +1200,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { keys: ["g", "s"], handler: () => navigate("/starred") },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },
-    { keys: ["g", "a"], handler: () => navigate("/archive") },
+    { keys: ["g", "a"], handler: () => navigate("/all") },
     { keys: ["g", "e"], handler: () => navigate("/archive") },
     { keys: ["g", "#"], handler: () => navigate("/trash") },
   ]);
@@ -1260,7 +1303,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               </nav>
             ) : (
               <nav
-                className="hidden sm:flex flex-nowrap min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar"
+                className="hidden sm:flex flex-nowrap min-w-0 items-center gap-1 overflow-x-auto hide-scrollbar"
                 data-mail-tab-list
               >
                 {topBarTabs.map((tab, tabIndex) => {
@@ -1280,16 +1323,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   const link = (
                     <Link
                       to={tab.href}
+                      aria-current={tab.isActive ? "page" : undefined}
                       draggable={canDrag}
                       onDragStart={(e) =>
                         dragItemForTab && handleTabDragStart(e, dragItemForTab)
                       }
                       onDragEnd={handleTabDragEnd}
                       className={cn(
-                        "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px]",
+                        "flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] transition-colors",
                         tab.isActive
-                          ? "text-foreground font-semibold"
-                          : "text-muted-foreground font-medium hover:text-foreground/80",
+                          ? "bg-accent text-foreground font-semibold"
+                          : "text-muted-foreground font-medium hover:bg-accent/50 hover:text-foreground/80",
                       )}
                     >
                       {tab.color && (
@@ -1463,6 +1507,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {!searchFocused && !activeSearchQuery && (
             <input
               id="mail-search"
+              aria-label={t("mail.search.label")}
               className="sr-only"
               tabIndex={-1}
               onFocus={() => setSearchFocused(true)}
@@ -1534,7 +1579,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>
-                    <button className="flex items-center hover:opacity-90 transition-opacity ms-1">
+                    <button
+                      type="button"
+                      aria-label={t("mail.toolbar.accounts")}
+                      className="flex items-center hover:opacity-90 transition-opacity ms-1"
+                    >
                       <div
                         className="flex items-center"
                         style={{
@@ -2015,30 +2064,35 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               const draft = popoutDrafts.find((d) => d.id === id);
               const hasContent = !!(
                 draft?.to?.trim() ||
+                draft?.cc?.trim() ||
+                draft?.bcc?.trim() ||
                 draft?.subject?.trim() ||
                 draft?.body?.trim()
               );
               const snapshot = draft ? { ...draft } : null;
-              compose.close(id);
+              const savePromise = compose.close(id);
               if (hasContent && snapshot) {
-                toast("Draft saved.", {
+                toast(t("mail.toasts.draftClosed"), {
                   action: {
-                    label: "REOPEN",
-                    onClick: () => {
-                      const { id: _id, ...reopenData } = snapshot;
+                    label: t("mail.compose.reopenDraft"),
+                    onClick: async () => {
+                      const savedSnapshot = applyDraftSaveResult(
+                        snapshot,
+                        await savePromise,
+                      );
+                      const { id: _id, ...reopenData } = savedSnapshot;
                       compose.open(reopenData);
                     },
                   },
                   cancel: {
-                    label: "DELETE DRAFT",
-                    onClick: () => {
-                      if (snapshot.savedDraftId) {
-                        void fetch(
-                          appApiPath(`/api/emails/${snapshot.savedDraftId}`),
-                          {
-                            method: "DELETE",
-                          },
-                        );
+                    label: t("mail.compose.deleteDraft"),
+                    onClick: async () => {
+                      const savedSnapshot = applyDraftSaveResult(
+                        snapshot,
+                        await savePromise,
+                      );
+                      if (savedSnapshot.savedDraftId) {
+                        await compose.deleteSavedDraft(savedSnapshot);
                       }
                     },
                   },
@@ -2047,57 +2101,119 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             }}
             onCloseAll={() => {
               const draftsWithContent = popoutDrafts.filter(
-                (d) => !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
+                (d) =>
+                  !!(
+                    d.to?.trim() ||
+                    d.cc?.trim() ||
+                    d.bcc?.trim() ||
+                    d.subject?.trim() ||
+                    d.body?.trim()
+                  ),
               );
               const snapshots = draftsWithContent.map((d) => ({ ...d }));
-              const ids = popoutDrafts.map((d) => d.id);
-              ids.forEach((id) => compose.close(id));
+              const savePromises = compose.closeAll(
+                popoutDrafts.map((draft) => draft.id),
+              );
               if (snapshots.length > 0) {
-                toast(`${snapshots.length} draft(s) saved.`, {
-                  action: {
-                    label: "REOPEN",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        const { id: _id, ...reopenData } = snap;
-                        compose.open(reopenData);
-                      }
-                    },
-                  },
-                  cancel: {
-                    label: "DELETE DRAFTS",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        if (snap.savedDraftId) {
-                          void fetch(
-                            appApiPath(`/api/emails/${snap.savedDraftId}`),
-                            {
-                              method: "DELETE",
-                            },
+                toast(
+                  t("mail.toasts.draftsClosed", { count: snapshots.length }),
+                  {
+                    action: {
+                      label: t("mail.compose.reopenDraft"),
+                      onClick: async () => {
+                        const saveResults = await Promise.all(
+                          snapshots.map(async (snapshot) => ({
+                            snapshot,
+                            result: await savePromises.get(snapshot.id),
+                          })),
+                        );
+                        for (const { snapshot, result } of saveResults) {
+                          if (
+                            result?.status === "failed" ||
+                            result?.status === "unavailable" ||
+                            result?.status === "cancelled"
+                          ) {
+                            compose.setActiveId(snapshot.id);
+                            continue;
+                          }
+                          const savedSnapshot = applyDraftSaveResult(
+                            snapshot,
+                            result,
                           );
+                          const { id: _id, ...reopenData } = savedSnapshot;
+                          compose.open(reopenData);
                         }
-                      }
+                      },
+                    },
+                    cancel: {
+                      label: t("mail.compose.deleteDrafts"),
+                      onClick: async () => {
+                        const saveResults = await Promise.all(
+                          snapshots.map(async (snapshot) => ({
+                            snapshot,
+                            result: await savePromises.get(snapshot.id),
+                          })),
+                        );
+                        for (const { snapshot, result } of saveResults) {
+                          if (
+                            result?.status === "failed" ||
+                            result?.status === "unavailable" ||
+                            result?.status === "cancelled"
+                          ) {
+                            compose.discard(snapshot.id);
+                            continue;
+                          }
+                          const savedSnapshot = applyDraftSaveResult(
+                            snapshot,
+                            result,
+                          );
+                          if (savedSnapshot.savedDraftId) {
+                            await compose.deleteSavedDraft(savedSnapshot);
+                          }
+                        }
+                      },
                     },
                   },
-                });
+                );
               }
             }}
             onDiscard={compose.discard}
+            onStageForSend={compose.stageForSend}
+            onRestoreAfterSend={compose.restoreAfterSend}
             onNewDraft={handleCompose}
             onFlush={compose.flush}
-            onReopen={compose.open}
             onInitialExpandedConsumed={clearComposeInitialExpanded}
+            onRegisterComposeCommands={registerComposePaletteCommands}
           />
         );
       })()}
       <CommandPalette
         open={paletteOpen}
-        onOpenChange={setPaletteOpen}
+        onOpenChange={handlePaletteOpenChange}
+        onCloseAutoFocus={restorePaletteFocus}
         onCompose={handleCompose}
+        onSearch={() => document.getElementById("mail-search")?.focus()}
         onSnooze={targetEmail ? handleSnooze : undefined}
         onSpam={handleSpam}
         onBlockSender={handleBlockSender}
         onMuteThread={handleMuteThread}
         hasEmail={!!targetEmail}
+        isComposeContext={paletteOpenedFromCompose}
+        onSend={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendComposeFromCommandPalette
+            : undefined
+        }
+        onSendLater={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? scheduleComposeFromCommandPalette
+            : undefined
+        }
+        onSendAndMarkDone={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendAndMarkDoneFromCommandPalette
+            : undefined
+        }
       />
       <SnoozeModal
         open={snoozeOpen}
@@ -2802,6 +2918,9 @@ function AccountPopover({
             >
               {/* Checkbox */}
               <button
+                type="button"
+                aria-label={account.email}
+                aria-pressed={isChecked}
                 onClick={() => onToggleAccount(account.email)}
                 className="shrink-0"
               >

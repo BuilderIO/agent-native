@@ -3,7 +3,6 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -32,7 +31,6 @@ import {
 } from "./_blocks-field-identity.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
-import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
   favoriteDocumentIds,
   setFavoriteMembership,
@@ -41,7 +39,12 @@ import { provisionContentSpaces } from "./_content-spaces.js";
 import {
   documentContentHash,
   documentRevisionToken,
+  parseDocumentRevisionToken,
 } from "./_document-edit-mutation.js";
+import {
+  assertDocumentMutationAccess,
+  resolveDocumentAccessForMutation,
+} from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
@@ -335,6 +338,18 @@ export default defineAction({
       .describe(
         "updatedAt of the last-loaded document snapshot; enables compare-and-swap for content saves",
       ),
+    baseRevision: z
+      .string()
+      .optional()
+      .describe(
+        "Opaque body revision from get-document; guards browser content saves without treating metadata changes as body conflicts",
+      ),
+    baseTitle: z
+      .string()
+      .optional()
+      .describe(
+        "Exact title from the caller's base snapshot for a title update",
+      ),
     historySessionId: z
       .string()
       .min(1)
@@ -342,6 +357,13 @@ export default defineAction({
       .optional()
       .describe(
         "Browser editor session ID used to group related title and body saves",
+      ),
+    preserveLeadingTitleHeading: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Preserve a leading H1 that matches the title when reproducing an exact saved body.",
       ),
     contextPackId: z
       .string()
@@ -388,6 +410,17 @@ export default defineAction({
   ): Promise<DocumentUpdateResponse | DocumentUpdateConflictResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    if (
+      args.title !== undefined &&
+      args.content !== undefined &&
+      args.baseRevision !== undefined &&
+      args.baseTitle === undefined
+    ) {
+      throw new ActionContractError(
+        "Combined title and body saves require baseTitle with baseRevision.",
+        { errorCode: "BASE_TITLE_REQUIRED", statusCode: 400 },
+      );
+    }
 
     const isExternalCaller =
       ctx?.caller === "tool" ||
@@ -413,9 +446,8 @@ export default defineAction({
 
     const favoriteOnly = isFavoriteOnlyUpdate(args);
     const access = favoriteOnly
-      ? await resolveContentDocumentAccess(id)
-      : await assertAccess("document", id, "editor");
-    if (!access) throw new Error(`Document "${id}" not found`);
+      ? await resolveDocumentAccessForMutation(id, "id")
+      : await assertDocumentMutationAccess(id, "editor", "id");
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
 
@@ -433,7 +465,7 @@ export default defineAction({
 
     // Strip leading H1 that duplicates the title
     let content = args.content;
-    if (content !== undefined) {
+    if (content !== undefined && !args.preserveLeadingTitleHeading) {
       const titleToCheck = args.title || existing.title;
       if (titleToCheck) {
         const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
@@ -527,8 +559,12 @@ export default defineAction({
     // silently overwritten. A recovery may carry unchanged content alongside
     // a stale title, so supplying content still guards the whole write.
     // Title/icon/favorite-only requests without content remain unaffected.
-    const useContentCas =
-      args.content !== undefined && args.baseUpdatedAt !== undefined;
+    const useBodyRevisionCas =
+      args.content !== undefined && args.baseRevision !== undefined;
+    const useDocumentCas =
+      args.content !== undefined &&
+      args.baseRevision === undefined &&
+      args.baseUpdatedAt !== undefined;
 
     if (anyChange) {
       let contentCasConflict = false;
@@ -566,6 +602,35 @@ export default defineAction({
           lockedContentChanged ||
           lockedDescriptionChanged ||
           lockedIconChanged;
+        const parsedBaseRevision = args.baseRevision
+          ? parseDocumentRevisionToken(args.baseRevision)
+          : null;
+        if (args.baseRevision && !parsedBaseRevision) {
+          throw new ActionContractError(
+            "baseRevision is not a valid document revision token.",
+            { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
+          );
+        }
+        if (
+          lockedContentChanged &&
+          args.baseRevision &&
+          args.baseRevision !==
+            documentRevisionToken(
+              historyBefore.bodyRevision,
+              historyBefore.content,
+            )
+        ) {
+          contentCasConflict = true;
+          return;
+        }
+        if (
+          lockedTitleChanged &&
+          args.baseTitle !== undefined &&
+          historyBefore.title !== args.baseTitle
+        ) {
+          contentCasConflict = true;
+          return;
+        }
         const updatedAt = nextDocumentUpdatedAt(historyBefore.updatedAt);
         const updates: Record<string, unknown> = { updatedAt };
         if (lockedTitleChanged) updates.title = args.title;
@@ -584,17 +649,29 @@ export default defineAction({
           : [];
         const applied = await commitCanonicalDocumentBodyMutation({
           write: async () => {
-            if (useContentCas) {
+            if (
+              (useBodyRevisionCas && lockedContentChanged) ||
+              useDocumentCas
+            ) {
               const rows = await tx
                 .update(schema.documents)
                 .set(updates)
                 .where(
                   and(
                     eq(schema.documents.id, id),
-                    eq(
-                      schema.documents.updatedAt,
-                      args.baseUpdatedAt as string,
-                    ),
+                    ...(parsedBaseRevision
+                      ? [
+                          eq(
+                            schema.documents.bodyRevision,
+                            parsedBaseRevision.revision,
+                          ),
+                        ]
+                      : [
+                          eq(
+                            schema.documents.updatedAt,
+                            args.baseUpdatedAt as string,
+                          ),
+                        ]),
                   ),
                 )
                 .returning({ id: schema.documents.id });

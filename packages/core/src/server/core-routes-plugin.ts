@@ -71,9 +71,8 @@ import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
-  registerFileUploadProvider,
 } from "../file-upload/index.js";
-import { s3FileUploadProvider } from "../file-upload/s3.js";
+import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -88,6 +87,11 @@ import {
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { getOrgContext } from "../org/context.js";
 import { createProgressHandler } from "../progress/routes.js";
+import {
+  parseRemoteAgentAuth,
+  parseRemoteAgentUrl,
+  type RemoteAgentAuth,
+} from "../resources/metadata.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import {
@@ -156,6 +160,7 @@ import {
   appendBuilderConnectToken,
   appendBuilderConnectStateCookie,
   builderConnectTrackingProperties,
+  BUILDER_UPSTREAM_FAILURE_STATUS,
   createBuilderConnectState,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
@@ -176,6 +181,7 @@ import {
   resolveBuilderPreviewRelayParentOrigin,
   removeBuilderConnectStateCookie,
   runBuilderAgent,
+  sendBuilderPopupErrorPage,
   verifyBuilderRelayRequest,
   verifyBuilderPreviewRelayStateForCallback,
   verifyBuilderConnectTokenAndGetOwner,
@@ -1703,6 +1709,67 @@ export function shouldRunCoreRouteBootDatabaseWork(
   return !isProductionServerlessFunctionRuntime(env);
 }
 
+/** Public discovery is a picker, not a credential registry. */
+export function stripRemoteAgentAuth<T extends { auth?: unknown }>(
+  agent: T,
+): Omit<T, "auth"> {
+  const { auth: _auth, ...publicAgent } = agent;
+  return publicAgent;
+}
+
+/** Credentialed probes may only replay a saved, access-scoped connection. */
+export function matchesSavedHostedAgentProbe(
+  agent: { url: string; cardUrl?: string; auth?: RemoteAgentAuth },
+  requested: { url: string; cardUrl?: string; auth: RemoteAgentAuth },
+): boolean {
+  if (!agent.auth) return false;
+  const normalize = (value: string) =>
+    parseRemoteAgentUrl(value, { allowLoopbackHttp: true }) ?? value.trim();
+  if (
+    normalize(agent.url) !== normalize(requested.url) ||
+    (agent.cardUrl ? normalize(agent.cardUrl) : undefined) !==
+      (requested.cardUrl ? normalize(requested.cardUrl) : undefined) ||
+    agent.auth.type !== requested.auth.type
+  ) {
+    return false;
+  }
+  if (agent.auth.type === "bearer") {
+    return (
+      requested.auth.type === "bearer" &&
+      agent.auth.credentialRef === requested.auth.credentialRef
+    );
+  }
+  return (
+    requested.auth.type === "oauth-client-credentials" &&
+    agent.auth.tokenUrl === requested.auth.tokenUrl &&
+    agent.auth.clientId === requested.auth.clientId &&
+    agent.auth.clientSecretRef === requested.auth.clientSecretRef &&
+    agent.auth.scope === requested.auth.scope
+  );
+}
+
+type PublicAgentDiscovery = (
+  selfAppId?: string,
+) => Promise<import("./agent-discovery.js").DiscoveredAgent[]>;
+
+export function createPublicRemoteAgentsHandler(
+  discover: PublicAgentDiscovery = async (selfAppId) => {
+    const { discoverAgents } = await import("./agent-discovery.js");
+    return discoverAgents(selfAppId);
+  },
+) {
+  return defineEventHandler(async (event) => {
+    if (getMethod(event) !== "GET") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const selfAppId =
+      getRequestURL(event).searchParams.get("selfAppId") ?? undefined;
+    const agents = await discover(selfAppId);
+    return { agents: agents.map(stripRemoteAgentAuth) };
+  });
+}
+
 export function getBuilderConnectErrorDisposition(
   error: unknown,
   connectAttemptId: string | null,
@@ -1805,16 +1872,7 @@ function wireRouteErrorCapture(nitroApp: any): void {
   );
 }
 
-export function ensureS3FileUploadProvider(): void {
-  if (
-    listFileUploadProviders().some(
-      (provider) => provider.id === s3FileUploadProvider.id,
-    )
-  ) {
-    return;
-  }
-  registerFileUploadProvider(s3FileUploadProvider);
-}
+export { ensureS3FileUploadProvider };
 
 export interface OAuthCustodyBuilderKeyStatus {
   privateKeyConfigured: boolean;
@@ -2560,13 +2618,67 @@ export function createCoreRoutesPlugin(
                 return { error: "url is required" };
               }
 
-              const result = await probePeerAgent({
-                id: "probe",
-                name: urlParam,
-                description: "",
-                url: urlParam,
-                color: "",
-              });
+              const cardUrlParam = query.get("cardUrl");
+              const cardUrl =
+                cardUrlParam === null
+                  ? undefined
+                  : parseRemoteAgentUrl(cardUrlParam);
+              if (cardUrlParam !== null && !cardUrl) {
+                setResponseStatus(event, 400);
+                return { error: "cardUrl must be an http or https URL" };
+              }
+
+              const authParam = query.get("auth");
+              let auth;
+              if (authParam !== null) {
+                try {
+                  auth = parseRemoteAgentAuth(JSON.parse(authParam));
+                } catch {
+                  auth = undefined;
+                }
+                if (!auth) {
+                  setResponseStatus(event, 400);
+                  return {
+                    error: "auth must be a valid hosted-agent reference",
+                  };
+                }
+              }
+
+              if (auth) {
+                const { discoverAgents } = await import("./agent-discovery.js");
+                const savedAgents = await discoverAgents(
+                  query.get("selfAppId") ?? undefined,
+                );
+                if (
+                  !savedAgents.some((agent) =>
+                    matchesSavedHostedAgentProbe(agent, {
+                      url: urlParam,
+                      ...(cardUrl ? { cardUrl } : {}),
+                      auth,
+                    }),
+                  )
+                ) {
+                  setResponseStatus(event, 403);
+                  return {
+                    error:
+                      "Credentialed probes require a saved hosted-agent connection.",
+                  };
+                }
+              }
+
+              const result = await probePeerAgent(
+                {
+                  id: "probe",
+                  name: urlParam,
+                  description: "",
+                  url: urlParam,
+                  color: "",
+                  ...(cardUrl ? { cardUrl } : {}),
+                  ...(auth ? { auth } : {}),
+                },
+                undefined,
+                { verifyAuth: auth !== undefined },
+              );
 
               // Reachability and auth are independent, but a malformed/SSRF-blocked
               // URL is a caller input error, not a peer that failed to answer — the
@@ -2586,21 +2698,7 @@ export function createCoreRoutesPlugin(
       // Agent discovery primitive — shared by headless CLI/A2A surfaces and
       // UI shells that need to show connected peer apps without depending on
       // the chat route namespace.
-      getH3App(nitroApp).use(
-        `${P}/agents`,
-        defineEventHandler(async (event) => {
-          const method = getMethod(event);
-          if (method !== "GET") {
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }
-          const query = getRequestURL(event).searchParams;
-          const selfAppId = query.get("selfAppId") ?? undefined;
-          const { discoverAgents } = await import("./agent-discovery.js");
-          const agents = await discoverAgents(selfAppId);
-          return { agents };
-        }),
-      );
+      getH3App(nitroApp).use(`${P}/agents`, createPublicRemoteAgentsHandler());
 
       // Polling
       getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
@@ -3298,13 +3396,7 @@ export function createCoreRoutesPlugin(
                   stage: "provision",
                 },
               );
-              setResponseStatus(event, status);
-              setResponseHeader(
-                event,
-                "Content-Type",
-                "text/html; charset=utf-8",
-              );
-              return createBuilderBrowserCallbackErrorPage(message, {
+              return sendBuilderPopupErrorPage(event, status, message, {
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
                 ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
                 ...(code ? { code } : {}),
@@ -3402,7 +3494,7 @@ export function createCoreRoutesPlugin(
                 );
               }
               return failProvisioning(
-                502,
+                BUILDER_UPSTREAM_FAILURE_STATUS,
                 "Couldn't create your Builder account. Try again or connect an existing account.",
                 "provision_failed",
               );
@@ -3737,7 +3829,7 @@ export function createCoreRoutesPlugin(
                 useCase: waitlistUseCase,
               },
             );
-            setResponseStatus(event, 502);
+            setResponseStatus(event, BUILDER_UPSTREAM_FAILURE_STATUS);
             return {
               error:
                 "Couldn't join the waitlist. Please try again in a moment.",
@@ -3923,18 +4015,17 @@ export function createCoreRoutesPlugin(
                   : "Builder preview relay failed.";
               // Never log the first-hop URL or relay body: both contain
               // credentials. The popup gets a bounded, credential-free error.
-              setResponseStatus(event, 502);
-              setResponseHeader(
+              return sendBuilderPopupErrorPage(
                 event,
-                "Content-Type",
-                "text/html; charset=utf-8",
+                BUILDER_UPSTREAM_FAILURE_STATUS,
+                message,
+                {
+                  parentOrigin: relayParentOrigin,
+                  ...(requestConnectAttemptId
+                    ? { attemptId: requestConnectAttemptId }
+                    : {}),
+                },
               );
-              return createBuilderBrowserCallbackErrorPage(message, {
-                parentOrigin: relayParentOrigin,
-                ...(requestConnectAttemptId
-                  ? { attemptId: requestConnectAttemptId }
-                  : {}),
-              });
             }
 
             setResponseHeader(
@@ -4031,13 +4122,7 @@ export function createCoreRoutesPlugin(
                 },
               );
             }
-            setResponseStatus(event, status);
-            setResponseHeader(
-              event,
-              "Content-Type",
-              "text/html; charset=utf-8",
-            );
-            return createBuilderBrowserCallbackErrorPage(message, {
+            return sendBuilderPopupErrorPage(event, status, message, {
               parentOrigin,
               ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
             });
@@ -4149,7 +4234,7 @@ export function createCoreRoutesPlugin(
             });
           } catch {
             return fail(
-              502,
+              BUILDER_UPSTREAM_FAILURE_STATUS,
               "Builder could not exchange the authorization code. Restart the connection.",
               ownerEmail,
               "code_exchange_failed",

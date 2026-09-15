@@ -36,6 +36,7 @@ vi.mock("./credential-provider.js", () => ({
 import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
 import {
   createAgentEngineApiKeyHandler,
+  normalizeAgentEngineApiKeyDeletePayload,
   normalizeAgentEngineApiKeyPayload,
   resolveAgentEngineApiKeyWriteTarget,
   validateAgentEngineProviderKey,
@@ -129,6 +130,54 @@ describe("agent engine api-key route helpers", () => {
       clearBaseUrl: false,
       scope: "user",
     });
+  });
+
+  it("normalizes personal-key removal and its OpenAI endpoint override", () => {
+    expect(
+      normalizeAgentEngineApiKeyDeletePayload({ provider: "openai" }),
+    ).toEqual({
+      ok: true,
+      key: "OPENAI_API_KEY",
+      endpointKey: "OPENAI_BASE_URL",
+    });
+    expect(
+      normalizeAgentEngineApiKeyDeletePayload({ provider: "not-a-provider" }),
+    ).toMatchObject({
+      ok: false,
+      statusCode: 400,
+    });
+  });
+
+  it("removes only the caller's personal OpenAI key and endpoint", async () => {
+    mockDeleteAppSecret.mockClear();
+    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
+    const event = {
+      req: new Request("http://localhost/_agent-native/agent-engine-key", {
+        method: "DELETE",
+        body: JSON.stringify({ provider: "openai" }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      ok: true,
+      key: "OPENAI_API_KEY",
+      scope: "user",
+    });
+    expect(mockDeleteAppSecret).toHaveBeenNthCalledWith(1, {
+      key: "OPENAI_API_KEY",
+      scope: "user",
+      scopeId: "alice@example.test",
+    });
+    expect(mockDeleteAppSecret).toHaveBeenNthCalledWith(2, {
+      key: "OPENAI_BASE_URL",
+      scope: "user",
+      scopeId: "alice@example.test",
+    });
+    expect(mockGetOrgContext).not.toHaveBeenCalled();
   });
 
   it("accepts OpenAI-compatible endpoint URLs and normalizes trailing slashes", () => {

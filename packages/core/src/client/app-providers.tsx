@@ -81,6 +81,8 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "./theme.js";
+import { scheduleAfterPaint } from "./use-after-paint.js";
+import { useSession } from "./use-session.js";
 import { createAgentNativeServerActionWebMcpRegistration } from "./webmcp.js";
 
 export interface AppProvidersProps {
@@ -199,16 +201,80 @@ function RoutedAppEnhancements() {
   );
 }
 
-export function AgentNativeWebMcpActionRegistration() {
+function AgentNativeWebMcpRegistration() {
   useEffect(() => {
+    // sessionBypass surfaces are token-authenticated MCP embeds; their host
+    // may call tools immediately, so registration must not wait out the
+    // paint-aligned window — only the cookie-session-gated variant defers.
+    // Ownership is local to this effect: two coexisting surfaces each stop
+    // only the registration they created.
     const registration = createAgentNativeServerActionWebMcpRegistration();
     void registration.start().catch(() => {
       // WebMCP is progressive enhancement. Session expiry or a transient
-      // manifest failure must not prevent the authenticated app from loading.
+      // manifest failure must not prevent the authenticated app from
+      // loading.
     });
-    return () => registration.stop();
+    return () => {
+      registration.stop();
+    };
   }, []);
   return null;
+}
+
+function SessionGatedAgentNativeWebMcpRegistration() {
+  const { status } = useSession();
+  const registrationRef = useRef<ReturnType<
+    typeof createAgentNativeServerActionWebMcpRegistration
+  > | null>(null);
+  useEffect(() => {
+    // The manifest route requires a session, so registration starts only on
+    // a confirmed session: a signed-out visitor (first visit, expired cookie)
+    // never logs the manifest 401, and a still-loading or unreadable session
+    // waits for the next status change (focus invalidation, session retry,
+    // auth arrival) instead of firing a request that is expected to fail.
+    // Previously an unavailable session registered anyway ("best-effort");
+    // that traded a known-bad manifest fetch for zero benefit.
+    if (status === "unauthenticated" || status === "signing-out") {
+      // Confirmed sign-out is the only session change that stops a live
+      // registration; a transient revalidation (loading/unavailable) keeps
+      // the existing one alive until the session settles.
+      registrationRef.current?.stop();
+      registrationRef.current = null;
+      return;
+    }
+    if (status !== "authenticated" || registrationRef.current) return;
+    const cancel = scheduleAfterPaint(() => {
+      const registration = createAgentNativeServerActionWebMcpRegistration();
+      void registration.start().catch(() => {
+        // WebMCP is progressive enhancement. Session expiry or a transient
+        // manifest failure must not prevent the authenticated app from
+        // loading.
+      });
+      registrationRef.current = registration;
+    });
+    return () => {
+      cancel();
+    };
+    // Unmount stops exactly the registration this surface created, whether
+    // it started or is still scheduled.
+  }, [status]);
+  useEffect(
+    () => () => {
+      registrationRef.current?.stop();
+      registrationRef.current = null;
+    },
+    [],
+  );
+  return null;
+}
+
+export function AgentNativeWebMcpActionRegistration({
+  requireSession = false,
+}: {
+  requireSession?: boolean;
+} = {}) {
+  if (requireSession) return <SessionGatedAgentNativeWebMcpRegistration />;
+  return <AgentNativeWebMcpRegistration />;
 }
 
 function readDocumentTitleFallback(): string {
@@ -306,6 +372,7 @@ function ProvidersInner({
   toaster = DEFAULT_TOASTER,
   disableThemeTransitions = true,
   disableWebMcp,
+  sessionBypass,
   i18n,
   documentTitleFallback,
   showProductionEnvironmentBadge,
@@ -319,6 +386,7 @@ function ProvidersInner({
   toaster?: React.ReactNode | null;
   disableThemeTransitions?: boolean;
   disableWebMcp: boolean;
+  sessionBypass: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
@@ -344,7 +412,11 @@ function ProvidersInner({
       >
         <EmbeddedThemeSync />
         <TooltipProvider delayDuration={tooltipDelayDuration}>
-          {!disableWebMcp && <AgentNativeWebMcpActionRegistration />}
+          {!disableWebMcp && (
+            <AgentNativeWebMcpActionRegistration
+              requireSession={!sessionBypass}
+            />
+          )}
           {localizedChildren}
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
@@ -357,6 +429,18 @@ function ProvidersInner({
       </ThemeProvider>
     </QueryClientProvider>
   );
+}
+
+// Public/SEO surfaces must stay impersonal and request-light: they default to
+// the non-persisting i18n runtime, which never resolves the session and never
+// fires the localization preference read or app-state write (locale comes from
+// localStorage/browser language). A caller that explicitly sets
+// `persistPreference` keeps its choice; `i18n: false` opts out entirely.
+function publicPathI18n(
+  i18n: AppProvidersProps["i18n"],
+): AppProvidersProps["i18n"] {
+  if (i18n === false || i18n?.persistPreference !== undefined) return i18n;
+  return { ...(i18n ?? {}), persistPreference: false };
 }
 
 export function AppProviders({
@@ -387,7 +471,8 @@ export function AppProviders({
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
         disableWebMcp={disableWebMcp}
-        i18n={i18n}
+        sessionBypass={sessionBypass}
+        i18n={publicPathI18n(i18n)}
         documentTitleFallback={documentTitleFallback}
         showProductionEnvironmentBadge={false}
         showEnvironmentBadge={showEnvironmentBadge}
@@ -411,6 +496,7 @@ export function AppProviders({
           toaster={toaster}
           disableThemeTransitions={disableThemeTransitions}
           disableWebMcp={disableWebMcp}
+          sessionBypass={sessionBypass}
           i18n={i18n}
           documentTitleFallback={documentTitleFallback}
           showProductionEnvironmentBadge={!sessionBypass}

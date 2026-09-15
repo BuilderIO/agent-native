@@ -36,21 +36,31 @@ vi.mock("@/components/ui/context-menu", () => {
   };
   const Item = ({
     children,
+    className,
     disabled,
     onSelect,
   }: {
     children?: React.ReactNode;
+    className?: string;
     disabled?: boolean;
     onSelect?: (event: Event) => void;
   }) => (
     <button
       type="button"
+      className={className}
       disabled={disabled}
       onClick={(event) => onSelect?.(event.nativeEvent)}
     >
       {children}
     </button>
   );
+  const SubTrigger = ({
+    children,
+    className,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+  }) => <button className={className}>{children}</button>;
   return {
     ContextMenu: Container,
     ContextMenuContent: Content,
@@ -60,7 +70,7 @@ vi.mock("@/components/ui/context-menu", () => {
     ContextMenuShortcut: Container,
     ContextMenuSub: Container,
     ContextMenuSubContent: Container,
-    ContextMenuSubTrigger: Container,
+    ContextMenuSubTrigger: SubTrigger,
     ContextMenuTrigger: Container,
   };
 });
@@ -264,6 +274,57 @@ describe("CanvasContextMenu edit with AI", () => {
       expect.objectContaining({ action: "reprompt" }),
     );
     await view.cleanup();
+  });
+
+  it("reprompts the exact candidate when the hit stack has one layer", async () => {
+    const onReprompt = vi.fn();
+    const onRepromptLayer = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate],
+      canReprompt: true,
+      onReprompt,
+      onRepromptLayer,
+    });
+
+    await act(async () => view.findButton("Edit with AI")?.click());
+    expect(onRepromptLayer).toHaveBeenCalledWith(
+      candidate,
+      expect.objectContaining({ action: "reprompt" }),
+    );
+    expect(onReprompt).not.toHaveBeenCalled();
+    await view.cleanup();
+  });
+
+  it("uses the theme-aware layer hover token for items and submenu triggers", async () => {
+    const directView = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate],
+      canReprompt: true,
+      onRepromptLayer: vi.fn(),
+    });
+    const directItem = directView.findButton("Edit with AI");
+    expect(directItem?.className).toContain(
+      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(directItem?.className).not.toContain("focus:bg-accent");
+    await directView.cleanup();
+
+    const stackedView = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate, { ...candidate, key: "parent" }],
+      canReprompt: true,
+      onRepromptLayer: vi.fn(),
+    });
+    const submenuTrigger = stackedView.findButton("Edit with AI");
+    expect(submenuTrigger?.className).toContain(
+      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(submenuTrigger?.className).toContain(
+      "data-[state=open]:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(submenuTrigger?.className).not.toContain("focus:bg-accent");
+    await stackedView.cleanup();
   });
 });
 

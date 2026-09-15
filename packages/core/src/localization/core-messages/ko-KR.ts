@@ -105,6 +105,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "에이전트",
   "agentPanel.mode": "모드",
   "agentPanel.uiMode": "UI",
+  "agentPanel.keyScope": "키 범위",
+  "agentPanel.personalKeyScope": "개인",
+  "agentPanel.organizationKeyScope": "조직",
+  "agentPanel.personalKeyInEffect": "개인 키를 사용 중입니다.",
+  "agentPanel.organizationKeyInEffect": "조직 키를 사용 중입니다.",
+  "agentPanel.sharedKeyInEffect": "공유 키를 사용 중입니다.",
+  "agentPanel.useOrganizationKey": "조직 키 사용",
+  "agentPanel.keyStatusUnavailable": "키 상태를 확인할 수 없습니다.",
   "agentHostNudge.sidebarTitle": "{{agent}} 채팅 사용",
   "agentHostNudge.sidebarDescription":
     "이미 {{agent}}와 대화 중입니다. 이 앱에서 직접 작업하도록 요청하세요.",
@@ -127,6 +135,24 @@ const messages: AgentChatTranslation = {
   "common.no": "아니요",
   "common.retry": "다시 시도",
   "common.save": "저장",
+  "agents.hostedAgent": "호스팅된 에이전트",
+  "agents.cardUrl": "에이전트 카드 URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "인증",
+  "agents.authNone": "인증 없음",
+  "agents.authBearer": "Bearer 토큰",
+  "agents.authClientCredentials": "OAuth 클라이언트 자격 증명",
+  "agents.chooseCredential": "자격 증명 선택",
+  "agents.vault": "Vault",
+  "agents.tokenUrl": "토큰 URL",
+  "agents.clientId": "클라이언트 ID",
+  "agents.scope": "범위",
+  "agents.authIncomplete": "호스팅된 에이전트 인증 필드를 완료하세요.",
+  "agents.invalidUrl":
+    "에이전트 URL은 HTTPS를 사용해야 하며 localhost 또는 루프백 개발 URL은 예외입니다.",
+  "agents.statusReachable": "연결 가능",
+  "agents.statusAuthRejected": "인증 거부됨",
+  "agents.statusNoJsonRpc": "JSON-RPC 없음",
   "common.saveFailed": "저장 실패",
   "common.saveFailedStatus": "저장 실패({{status}})",
   "common.saving": "저장 중...",
@@ -168,6 +194,7 @@ const messages: AgentChatTranslation = {
   "composer.configureProviderKeys": "Anthropic, OpenAI 또는 다른 제공업체 설정",
   "composer.connectAbove": "계속하려면 위에서 AI를 연결하세요...",
   "composer.connectBuilder": "Builder.io 연결",
+  "composer.connectKeys": "키 연결",
   "composer.connectingBuilder": "Builder.io 연결 중…",
   "composer.costHigher": "높은 비용",
   "composer.costLower": "낮은 비용",
@@ -292,7 +319,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "이 브라우저는 실시간 음성 대화를 지원하지 않습니다.",
   "voiceMode.hideChat": "채팅 숨기기",
-  "voiceMode.keepDictating": "받아쓰기",
+  "voiceMode.keepDictating": "메시지 받아쓰기",
   "voiceMode.promptDescription":
     "음성 모드는 에이전트가 탐색하고 작업하는 동안 계속 음성을 듣습니다.",
   "voiceMode.promptTitle": "음성 사용",
@@ -334,7 +361,7 @@ const messages: AgentChatTranslation = {
     "Builder.io를 연결하여 무료 크레딧이 포함된 관리형 음성을 사용하거나 직접 키를 추가하세요.",
   "voiceMode.setupTitle": "음성 모드 설정",
   "voiceMode.showChat": "채팅 표시",
-  "voiceMode.start": "실시간 음성",
+  "voiceMode.start": "음성 채팅 시작",
   "voiceMode.startWithOpenAiKey": "OpenAI 키로 시작",
   "voiceMode.status.connecting": "연결 중",
   "voiceMode.status.ending": "음성 모드 종료 중",
@@ -363,10 +390,15 @@ const messages: AgentChatTranslation = {
     "에이전트가 답변하기 전에 모델 게이트웨이에서 내부 오류가 발생했습니다. 잠시 후 다시 시도하고, 계속 발생하면 아래 오류 ID를 알려 주세요.",
   "errorMessages.gatewayNoDetails":
     "모델 게이트웨이가 오류 세부 정보를 반환하지 않아 채팅을 복구할 수 없습니다. 잠시 후 다시 시도하고, 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.creditsLimitReached": "AI 크레딧 한도에 도달했습니다.",
   "errorMessages.inactivityTimeout":
     "에이전트 연결이 완료 전에 시간 초과되었습니다. 부분적으로 완료된 작업에서 계속하거나 다시 시도할 수 있습니다.",
   "errorMessages.invalidToolSchema":
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
+  "errorMessages.malformedRequest":
+    "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.malformedRequestAttachment":
+    "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
   "errorMessages.noProviderConnected":
     "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 연 다음 Builder.io(무료 요금제 제공)를 연결하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
@@ -388,6 +420,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "도움이 되지 않음",
   "feedback.placeholder": "무엇이 문제였는지 알려주세요…",
   "feedback.submit": "제출",
+  "feedback.submitted": "피드백이 제출되었습니다",
   "feedback.thumbsDown": "싫어요",
   "feedback.thumbsUp": "좋아요",
   "feedback.tooSlow": "너무 느림",
@@ -697,6 +730,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "데이터 인사이트",
   "widget.dataTable": "데이터 테이블",
   "widget.downloadCsv": "CSV 다운로드",
+  "widget.connectProvider": "{{provider}} 연결",
   "widget.loadingToolResult": "도구 결과를 불러오는 중",
   "widget.noRows": "행 없음",
   "widget.points": "포인트 {{formattedCount}}개",
@@ -704,6 +738,14 @@ const messages: AgentChatTranslation = {
   "widget.rows": "{{formattedCount}}개 행",
   "widget.rows_other": "{{formattedCount}}개 행",
   "widget.sampled": "샘플링됨",
+  "settings.emailTitle": "이메일",
+  "settings.emailChange": "이메일 변경",
+  "settings.emailChanging": "보내는 중...",
+  "settings.emailChangeSent":
+    "이 변경을 확인하는 방법을 이메일에서 확인하세요.",
+  "settings.emailChangeError": "확인 메일을 보내지 못했습니다.",
+  "settings.emailNewLabel": "새 이메일",
+  "settings.emailNewPlaceholder": "새 이메일 입력",
 };
 
 export default messages;

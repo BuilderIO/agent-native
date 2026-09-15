@@ -1046,15 +1046,73 @@ describe("FirstRunOnboarding", () => {
       setter?.call(search, "Builder.io");
       search.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    const connectButton = document.body.querySelector(
+      'button[aria-label="Connect Builder.io Publish"]',
+    ) as HTMLButtonElement | null;
+    // Without this the click below is a no-op and the assertions pass vacuously.
+    expect(connectButton).toBeTruthy();
     act(() => {
-      document.body
-        .querySelector('button[aria-label="Connect Builder.io"]')
-        ?.click();
+      connectButton?.click();
     });
 
     // The no-workspace fast path used to send scope=user straight to the server.
     expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
     expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
+  it("labels the Builder Publish row apart from the Builder.io account", () => {
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: null, role: null },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "builder");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    // Searching "builder" still finds the row, but it no longer presents as the
+    // Builder.io account the previous screen just connected.
+    expect(
+      document.body.querySelector(
+        'button[aria-label="Connect Builder.io Publish"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector('button[aria-label="Connect Builder.io"]'),
+    ).toBeNull();
   });
 
   it("shows the workspace permission requirement to a non-admin", () => {

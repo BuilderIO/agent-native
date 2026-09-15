@@ -210,6 +210,78 @@ export function renderVerifySignupEmail(
   };
 }
 
+export interface RenderChangeEmailConfirmationArgs {
+  email: string;
+  newEmail: string;
+  confirmationUrl: string;
+}
+
+export function renderChangeEmailConfirmationEmail(
+  args: RenderChangeEmailConfirmationArgs,
+): RenderedEmailMessage {
+  const email = stripCrlf(args.email);
+  const newEmail = stripCrlf(args.newEmail);
+  const brand = resolveBrand();
+  const { html, text } = renderEmail({
+    brandName: brand.name,
+    brandLogoUrl: brand.logoUrl,
+    preheader: `Confirm the email change for ${brand.name}.`,
+    heading: `Confirm your email change`,
+    paragraphs: [
+      `A request was made to change your ${emailStrong(brand.name)} account from ${emailStrong(email)} to ${emailStrong(newEmail)}. Confirm this request to verify the new address.`,
+      `If you didn't request this change, you can safely ignore this email.`,
+    ],
+    cta: { label: "Confirm email change", url: args.confirmationUrl },
+  });
+  return {
+    subject: `Confirm your email change for ${brand.name}`,
+    html,
+    text,
+    appSender: brand.senderSlug
+      ? {
+          name: brand.name,
+          slug: brand.senderSlug,
+          replyTo: AGENT_NATIVE_REPLY_TO,
+        }
+      : undefined,
+  };
+}
+
+export interface RenderChangeEmailVerificationArgs {
+  email: string;
+  verifyUrl: string;
+}
+
+export function renderChangeEmailVerificationEmail(
+  args: RenderChangeEmailVerificationArgs,
+): RenderedEmailMessage {
+  const email = stripCrlf(args.email);
+  const brand = resolveBrand();
+  const { html, text } = renderEmail({
+    brandName: brand.name,
+    brandLogoUrl: brand.logoUrl,
+    preheader: `Verify ${email} for your ${brand.name} account.`,
+    heading: "Verify your new email",
+    paragraphs: [
+      `Confirm that ${emailStrong(email)} is your email address for ${emailStrong(brand.name)}.`,
+      `This link expires in 1 hour. If you didn't request this change, you can safely ignore this email.`,
+    ],
+    cta: { label: "Verify new email", url: args.verifyUrl },
+  });
+  return {
+    subject: `Verify your new email for ${brand.name}`,
+    html,
+    text,
+    appSender: brand.senderSlug
+      ? {
+          name: brand.name,
+          slug: brand.senderSlug,
+          replyTo: AGENT_NATIVE_REPLY_TO,
+        }
+      : undefined,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Magic-link sign-in
 // ---------------------------------------------------------------------------

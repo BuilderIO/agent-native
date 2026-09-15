@@ -70,6 +70,7 @@ import {
   isCanonicalIdentitySsoClientRequest,
   isCanonicalIdentitySsoClientConfigured,
   isIdentitySsoAvailableForRequest,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
 } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
@@ -1104,6 +1105,8 @@ export interface OnboardingHtmlOptions {
    * If Google OAuth env vars are not configured, an error message is shown.
    */
   googleOnly?: boolean;
+  /** Additional provider scopes require the direct OAuth flow to persist tokens. */
+  googleScopes?: string[];
   /** Authentication surface to render. Defaults to the existing password flow. */
   authMode?: "magic-link" | "password";
   /** Render the quiet, centered auth surface used when the app has an initial prompt. */
@@ -1277,6 +1280,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const identitySsoRequestHost =
     opts.identitySsoRequestHost ?? opts.requestHost;
   const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const googleViaIdentitySso =
+    !opts.googleScopes?.length &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    );
   const identitySsoEnabled = isIdentitySsoAvailableForRequest({
     requestHost: identitySsoRequestHost,
     requestProtocol: identitySsoRequestProtocol,
@@ -1290,18 +1299,27 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
+  body.has-marketing {
+    --b-hero-ocean-opacity: 0.32;
+    --b-hero-shader-opacity: 0.15;
+    padding: 0;
+    position: relative;
+    overflow-x: hidden;
+    color-scheme: dark;
+  }
   [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.15;
+    opacity: var(--b-hero-shader-opacity, 0.15);
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    [data-agent-native-starfield] { opacity: 0.15; }
+    [data-agent-native-starfield] {
+      opacity: var(--b-hero-shader-opacity, 0.15);
+    }
   }
   .split {
     position: relative;
@@ -1471,6 +1489,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
+      --b-hero-ocean-opacity: 0.3;
+      --b-hero-shader-opacity: 0.22;
       background: color-mix(in srgb, CanvasText 4%, Canvas);
       color: CanvasText;
       color-scheme: light;
@@ -1680,12 +1700,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     brandMarkLightSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
     showGoogle,
+    organizationSsoEnabled: getAppConfig().access.sso.enabled,
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
     identitySsoEnabled,
+    googleViaIdentitySso,
     identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
@@ -2046,6 +2068,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-full-options[hidden] { display: none; }
   .full-auth-options { margin-top: 1rem; }
   .full-auth-options[hidden] { display: none; }
+  .sso-signin { margin-top: 0.75rem; }
   .legal-note {
     margin-top: 0.375rem;
     margin-bottom: 0.875rem;
@@ -2343,7 +2366,6 @@ ${marketingStyles}
     max-width: none;
     max-height: none;
     filter: none;
-    opacity: 0.15;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
     position: fixed;
@@ -2355,7 +2377,7 @@ ${marketingStyles}
     width: 100%;
     min-width: 0;
     max-width: none;
-    padding: 1rem;
+    padding: 1rem clamp(1rem, 4vw, 4rem);
     overflow-y: auto;
   }
   .auth-marketing-home.has-product-screenshot .form-panel > .card {
@@ -2380,6 +2402,7 @@ ${marketingStyles}
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
+      align-items: center;
       padding: 1rem;
     }
   }

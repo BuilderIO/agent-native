@@ -48,11 +48,17 @@ export function readContentLandingRecovery(
 
 let landingWriteQueue = Promise.resolve();
 
-export function rememberContentLandingDocument(documentId: string) {
+export function rememberContentLandingDocument(
+  documentId: string,
+  title?: string,
+) {
+  const value: ContentLastLocationState = title?.trim()
+    ? { documentId, title }
+    : { documentId };
   const write = landingWriteQueue.then(() =>
     writeClientAppState<ContentLastLocationState>(
       CONTENT_LAST_LOCATION_STATE_KEY,
-      { documentId },
+      value,
       { requestSource: "content-landing" },
     ),
   );

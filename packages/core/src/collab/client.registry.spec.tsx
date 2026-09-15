@@ -17,6 +17,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
 import {
@@ -142,6 +143,252 @@ describe("useCollaborativeDoc connection registry", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  it.each(["network", "503", "ambiguous", "success"])(
+    "retains edits made during an in-flight %s response and converges on acknowledgement",
+    async (outcome) => {
+      const server = new Y.Doc();
+      server.getText("content").insert(0, "seed");
+      const { mock: fallback } = makeFetchMock();
+      const bodies: string[] = [];
+      let release!: () => void;
+      const firstRequest = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith("/state")) {
+            return new Response(
+              JSON.stringify({
+                state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+                  "base64",
+                ),
+              }),
+            );
+          }
+          if (!url.endsWith("/update")) return fallback(input);
+          const body = String(init?.body);
+          bodies.push(body);
+          if (bodies.length === 1) {
+            await firstRequest;
+            if (outcome === "network") throw new TypeError("offline");
+            if (outcome === "503") return new Response(null, { status: 503 });
+            Y.applyUpdate(
+              server,
+              Buffer.from(JSON.parse(body).update, "base64"),
+            );
+            if (outcome === "ambiguous") throw new TypeError("response lost");
+          } else {
+            Y.applyUpdate(
+              server,
+              Buffer.from(JSON.parse(body).update, "base64"),
+            );
+          }
+          return new Response(JSON.stringify({ ok: true }));
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="outbound-retry"
+          onResult={(next) => {
+            result = next;
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => result!.ydoc!.getText("content").insert(4, " one"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(80);
+      });
+      act(() => result!.ydoc!.getText("content").insert(8, " two"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(80);
+      });
+      expect(bodies).toHaveLength(1);
+      await act(async () => {
+        release();
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(bodies).toHaveLength(2);
+      expect(server.getText("content").toString()).toBe("seed one two");
+      expect(result!.ydoc!.getText("content").toString()).toBe("seed one two");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(bodies).toHaveLength(2);
+      server.destroy();
+    },
+  );
+
+  it.each([true, false])(
+    "retains failed teardown operations only for the same user (same=%s)",
+    async (sameUser) => {
+      const server = new Y.Doc();
+      server.getText("content").insert(0, "seed");
+      const { mock: fallback } = makeFetchMock();
+      let failUpdates = true;
+      let updateCount = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith("/state"))
+            return new Response(
+              JSON.stringify({
+                state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+                  "base64",
+                ),
+              }),
+            );
+          if (!url.endsWith("/update")) return fallback(input);
+          updateCount++;
+          if (failUpdates) return new Response(null, { status: 503 });
+          Y.applyUpdate(
+            server,
+            Buffer.from(JSON.parse(String(init?.body)).update, "base64"),
+          );
+          return new Response(JSON.stringify({ ok: true }));
+        }),
+      );
+      const user = {
+        name: "Editor",
+        email: "editor@example.test",
+        color: "blue",
+      };
+      let result: UseCollaborativeDocResult | undefined;
+      const root = mount(
+        <Probe
+          docId="retired-updates"
+          user={user}
+          onResult={(next) => {
+            result = next;
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => result!.ydoc!.getText("content").insert(4, " unsent"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(80);
+      });
+      act(() => root.render(null));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      const retiredCount = updateCount;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(updateCount).toBe(retiredCount);
+      expect(_collabDocRegistrySizeForTests()).toBe(0);
+      failUpdates = false;
+      mount(
+        <Probe
+          docId="retired-updates"
+          user={sameUser ? user : { ...user, email: "another@example.test" }}
+          onResult={(next) => {
+            result = next;
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      expect(server.getText("content").toString()).toBe(
+        sameUser ? "seed unsent" : "seed",
+      );
+      expect(result!.ydoc!.getText("content").toString()).toBe(
+        sameUser ? "seed unsent" : "seed",
+      );
+      expect(updateCount).toBe(retiredCount + (sameUser ? 1 : 0));
+      server.destroy();
+    },
+  );
+
+  it.each(["pagehide", "timeout"])(
+    "replays an unacknowledged original update after %s",
+    async (trigger) => {
+      const server = new Y.Doc();
+      server.getText("content").insert(0, "seed");
+      const { mock: fallback } = makeFetchMock();
+      const requests: RequestInit[] = [];
+      let rejectFirst!: () => void;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith("/state"))
+            return new Response(
+              JSON.stringify({
+                state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+                  "base64",
+                ),
+              }),
+            );
+          if (!url.endsWith("/update")) return fallback(input);
+          requests.push(init!);
+          Y.applyUpdate(
+            server,
+            Buffer.from(JSON.parse(String(init?.body)).update, "base64"),
+          );
+          if (requests.length === 1) {
+            return new Promise<Response>((_resolve, reject) => {
+              rejectFirst = () => reject(new TypeError("response lost"));
+              init?.signal?.addEventListener("abort", rejectFirst, {
+                once: true,
+              });
+            });
+          }
+          return new Response(JSON.stringify({ ok: true }));
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="ambiguous-delivery"
+          onResult={(next) => {
+            result = next;
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => result!.ydoc!.getText("content").insert(4, " once"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(80);
+      });
+      if (trigger === "pagehide") {
+        window.dispatchEvent(new Event("pagehide"));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(requests[1]?.keepalive).toBe(true);
+        await act(async () => {
+          rejectFirst();
+          await vi.advanceTimersByTimeAsync(0);
+        });
+      } else {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(17_000);
+        });
+      }
+      expect(requests).toHaveLength(2);
+      expect(requests[1]?.body).toBe(requests[0]?.body);
+      expect(server.getText("content").toString()).toBe("seed once");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(requests).toHaveLength(2);
+      server.destroy();
+    },
+  );
 
   it("shares one Y.Doc and one state fetch across two mounts of the same docId", async () => {
     const { mock, stateFetches } = makeFetchMock();

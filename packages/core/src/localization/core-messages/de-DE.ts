@@ -113,6 +113,16 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Modus",
   "agentPanel.uiMode": "Benutzeroberfläche",
+  "agentPanel.keyScope": "Schlüsselbereich",
+  "agentPanel.personalKeyScope": "Persönlich",
+  "agentPanel.organizationKeyScope": "Organisation",
+  "agentPanel.personalKeyInEffect":
+    "Dein persönlicher Schlüssel wird verwendet.",
+  "agentPanel.organizationKeyInEffect":
+    "Der Organisationsschlüssel wird verwendet.",
+  "agentPanel.sharedKeyInEffect": "Ein gemeinsamer Schlüssel wird verwendet.",
+  "agentPanel.useOrganizationKey": "Organisationsschlüssel verwenden",
+  "agentPanel.keyStatusUnavailable": "Der Schlüsselstatus ist nicht verfügbar.",
   "agentHostNudge.sidebarTitle": "{{agent}}-Chat verwenden",
   "agentHostNudge.sidebarDescription":
     "Du chattest bereits mit {{agent}}. Bitte ihn, direkt mit dieser App zu arbeiten.",
@@ -135,6 +145,25 @@ const messages: AgentChatTranslation = {
   "common.no": "Nein",
   "common.retry": "Erneut versuchen",
   "common.save": "Speichern",
+  "agents.hostedAgent": "Gehosteter Agent",
+  "agents.cardUrl": "URL der Agentenkarte",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Authentifizierung",
+  "agents.authNone": "Keine Authentifizierung",
+  "agents.authBearer": "Bearer-Token",
+  "agents.authClientCredentials": "OAuth-Client-Anmeldedaten",
+  "agents.chooseCredential": "Anmeldedaten auswählen",
+  "agents.vault": "Tresor",
+  "agents.tokenUrl": "Token-URL",
+  "agents.clientId": "Client-ID",
+  "agents.scope": "Bereich",
+  "agents.authIncomplete":
+    "Vervollständige die Authentifizierungsfelder des gehosteten Agenten.",
+  "agents.invalidUrl":
+    "Agent-URLs müssen HTTPS verwenden; für localhost oder Loopback-Entwicklungs-URLs ist HTTP zulässig.",
+  "agents.statusReachable": "Erreichbar",
+  "agents.statusAuthRejected": "Authentifizierung abgelehnt",
+  "agents.statusNoJsonRpc": "Kein JSON-RPC",
   "common.saveFailed": "Speichern fehlgeschlagen",
   "common.saveFailedStatus": "Speichern fehlgeschlagen ({{status}})",
   "common.saving": "Wird gespeichert...",
@@ -347,6 +376,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Datenerkenntnisse",
   "widget.dataTable": "Datentabelle",
   "widget.downloadCsv": "CSV herunterladen",
+  "widget.connectProvider": "{{provider}} verbinden",
   "widget.loadingToolResult": "Werkzeugergebnis wird geladen",
   "widget.noRows": "Keine Zeilen",
   "widget.points": "{{formattedCount}} Datenpunkte",
@@ -381,6 +411,7 @@ const messages: AgentChatTranslation = {
   "composer.connectAbove":
     "Verbinde oben einen KI-Anbieter, um fortzufahren...",
   "composer.connectBuilder": "Builder.io verbinden",
+  "composer.connectKeys": "Schlüssel verbinden",
   "composer.connectingBuilder": "Builder.io wird verbunden…",
   "composer.costHigher": "Höhere Kosten",
   "composer.costLower": "Niedrigere Kosten",
@@ -519,7 +550,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Dieser Browser unterstützt keine Echtzeit-Sprachgespräche.",
   "voiceMode.hideChat": "Chat ausblenden",
-  "voiceMode.keepDictating": "Diktieren",
+  "voiceMode.keepDictating": "Nachricht diktieren",
   "voiceMode.promptDescription":
     "Der Sprachmodus hört weiter zu, während der Agent navigiert und Aktionen ausführt.",
   "voiceMode.promptTitle": "Benutze deine Stimme",
@@ -561,7 +592,7 @@ const messages: AgentChatTranslation = {
     "Verbinde Builder.io, um den verwalteten Sprachmodus mit kostenlosen Credits zu nutzen, oder füge eigene Schlüssel hinzu.",
   "voiceMode.setupTitle": "Sprachmodus einrichten",
   "voiceMode.showChat": "Chat anzeigen",
-  "voiceMode.start": "Echtzeit-Sprache",
+  "voiceMode.start": "Sprachchat starten",
   "voiceMode.startWithOpenAiKey": "Mit OpenAI-Schlüssel starten",
   "voiceMode.status.connecting": "Verbindung wird hergestellt",
   "voiceMode.status.ending": "Sprachmodus beenden",
@@ -598,10 +629,15 @@ const messages: AgentChatTranslation = {
     "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",
   "errorMessages.gatewayNoDetails":
     "Das Modell-Gateway hat keine Fehlerdetails zurückgegeben und der Chat konnte nicht fortgesetzt werden. Warte einen Moment und versuche es erneut. Falls das Problem bestehen bleibt, starte einen neuen Chat.",
+  "errorMessages.creditsLimitReached": "Du hast dein KI-Credit-Limit erreicht.",
   "errorMessages.inactivityTimeout":
     "Die Verbindung zum Agenten wurde wegen Zeitüberschreitung beendet, bevor er fertig war. Du kannst mit dem Teilergebnis fortfahren oder es erneut versuchen.",
   "errorMessages.invalidToolSchema":
     "Ein Tool-Schema war ungültig. Deshalb hat das Modell die Anfrage abgelehnt, bevor sie gestartet wurde. Das ungültige Tool kann übersprungen und die Anfrage erneut gesendet werden.",
+  "errorMessages.malformedRequest":
+    "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
+  "errorMessages.malformedRequestAttachment":
+    "Das Modell hat eine angehängte Datei abgelehnt, daher wurde diese Nachricht nie gesendet. Entfernen Sie den Anhang und versuchen Sie es erneut – eine PDF-, eine reine Textdatei oder ein JPEG-, PNG-, GIF- oder WebP-Bild wird direkt gelesen; andere Formate müssen hochgeladen und verlinkt werden.",
   "errorMessages.noProviderConnected":
     "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und verbinde anschließend Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":
@@ -625,6 +661,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Nicht hilfreich",
   "feedback.placeholder": "Sag uns, was schiefgelaufen ist...",
   "feedback.submit": "Senden",
+  "feedback.submitted": "Feedback gesendet",
   "feedback.thumbsDown": "Daumen runter",
   "feedback.thumbsUp": "Daumen hoch",
   "feedback.tooSlow": "Zu langsam",
@@ -749,6 +786,14 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Betrachter",
   "share.viewerDescription": "Kann ansehen",
   "share.userGroup": "Benutzergruppe",
+  "settings.emailTitle": "E-Mail-Adresse",
+  "settings.emailChange": "E-Mail-Adresse ändern",
+  "settings.emailChanging": "Wird gesendet...",
+  "settings.emailChangeSent":
+    "Prüfe deine E-Mails, um diese Änderung zu bestätigen.",
+  "settings.emailChangeError": "Bestätigung konnte nicht gesendet werden.",
+  "settings.emailNewLabel": "Neue E-Mail-Adresse",
+  "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
 };
 
 export default messages;

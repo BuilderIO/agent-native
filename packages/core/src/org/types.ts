@@ -4,7 +4,7 @@
 
 export type OrgRole = "owner" | "admin" | "member";
 
-export type RequiredAuthProvider = "google" | null;
+export type RequiredAuthProvider = "google" | `sso:${string}` | null;
 
 export type WorkspaceAppDefaultVisibility = "private" | "org";
 
@@ -38,6 +38,12 @@ export interface OrgInfo {
   orgId: string | null;
   orgName: string | null;
   role: OrgRole | null;
+  access?: {
+    signup: "open" | "invited";
+    orgCreation: "open" | "closed";
+    sso?: { enabled: boolean };
+    scim?: { enabled: boolean };
+  };
   orgs: OrgSummary[];
   pendingRemovals?: OrgPendingRemoval[];
   pendingInvitations: OrgInvitationSummary[];
@@ -83,4 +89,5 @@ export interface OrgPendingInvitation {
   createdAt: number;
   status: string;
   role: "admin" | "member";
+  appRoles?: Record<string, string[]>;
 }

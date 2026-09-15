@@ -4,8 +4,10 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
 
 const messages = {
+  environmentBadge: ENVIRONMENT_BADGE_MESSAGES["en-US"],
   workspaceFile: {
     download: "Download",
   },
@@ -108,6 +110,14 @@ const messages = {
     profileSaving: "Saving...",
     profileSaved: "Profile updated",
     profileSaveError: "Could not update profile",
+    emailTitle: "Email",
+    emailChange: "Change email",
+    emailChanging: "Sending...",
+    emailChangeSent:
+      "Check your email for instructions to confirm this change.",
+    emailChangeError: "Could not send confirmation.",
+    emailNewLabel: "New email",
+    emailNewPlaceholder: "Enter new email",
     passwordTitle: "Password",
     passwordDescription:
       "Add a password for an alternative way to sign in to your account.",
@@ -636,6 +646,14 @@ const messages = {
     configured: "Configured",
     apiKey: "API key",
     localRuntime: "Local",
+    keyScope: "Key scope",
+    personalKeyScope: "Personal",
+    organizationKeyScope: "Organization",
+    personalKeyInEffect: "Your personal key is in effect.",
+    organizationKeyInEffect: "Organization key is in effect.",
+    sharedKeyInEffect: "A shared key is in effect.",
+    useOrganizationKey: "Use organization key",
+    keyStatusUnavailable: "Key status is unavailable.",
     enterApiKey: "Enter your {{provider}} API key.",
     providerSetupFailed: "Could not configure this provider.",
     noApiKeyNeeded: "No API key required.",
@@ -668,8 +686,8 @@ const messages = {
       connectBuilder: "Connect Builder.io",
       useOpenAiKey: "Custom keys",
       startWithOpenAiKey: "Start with OpenAI key",
-      start: "Real-time voice",
-      keepDictating: "Dictate",
+      start: "Start voice chat",
+      keepDictating: "Dictate a message",
       rememberPreference: "Remember my preference",
       showChat: "Show chat",
       hideChat: "Hide chat",
@@ -1112,6 +1130,14 @@ const messages = {
     retry: "Retry",
   },
   org: {
+    askAdminTitle: "Ask your administrator",
+    askAdminDescription:
+      "Ask an administrator for an invitation to join this workspace.",
+    appPermissions: "App permissions",
+    appRolesOptional: "App roles",
+    noAppRolesFound: "No roles found.",
+    notAssigned: "Not assigned",
+    resetToDefaults: "Reset to defaults",
     createTitle: "Create your organization",
     createDescription:
       "This app organizes your content by team. Create an organization to continue - you can invite teammates afterward.",
@@ -1211,6 +1237,58 @@ const messages = {
     deleteOrgConfirmPlaceholder: "Organization name",
     deleteOrgConfirmCta: "Delete organization",
     deleteOrgPending: "Deleting…",
+    sso: {
+      signIn: "Organization sign-in",
+      signInHelp: "Choose the sign-in provider members must use.",
+      requiredProvider: "Required sign-in provider",
+      optional: "Optional",
+      google: "Google",
+      title: "Single sign-on",
+      description: "Connect an OIDC or SAML identity provider.",
+      verified: "Verified",
+      verifyRequired: "Verification required",
+      verify: "Verify",
+      remove: "Remove",
+      type: "Identity provider type",
+      providerId: "Provider ID",
+      issuer: "Issuer URL",
+      domain: "Organization domain",
+      noDomain: "No domain configured",
+      clientId: "Client ID",
+      clientSecret: "Client secret",
+      discoveryEndpoint: "Discovery endpoint (optional)",
+      entryPoint: "SAML entry point URL",
+      entityId: "IdP entity ID",
+      metadata: "Paste IdP metadata XML",
+      certificate: "Signing certificate (optional)",
+      domainHelp:
+        "The domain must match the organization's verified domain. Submitted secrets and metadata are cleared from this form.",
+      saveProvider: "Save provider",
+      cancel: "Cancel",
+      addProvider: "Add provider",
+    },
+    scim: {
+      title: "Directory provisioning",
+      description: "Manage SCIM connections for this organization.",
+      revoke: "Revoke",
+      copyTokenOnce: "Copy this token now. It will not be shown again.",
+      dismissToken: "Dismiss token",
+      createConnection: "Create SCIM connection",
+    },
+    ssoSetup: {
+      idpSetup: "Identity provider setup",
+      redirectUri: "Redirect URI",
+      spMetadataUrl: "Service provider metadata URL",
+      dnsRecordName: "DNS TXT record name",
+      dnsRecordValue: "DNS TXT record value",
+      dnsPropagation: "Allow DNS changes to propagate before verifying.",
+    },
+    ssoConfirm: {
+      title: "Require this sign-in provider?",
+      description:
+        "Members will need to use this provider the next time they sign in. Current sessions may be revoked.",
+      confirm: "Require provider",
+    },
   },
   integrations: {
     subtitle: "Connect the tools your agent can use.",

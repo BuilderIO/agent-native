@@ -13,10 +13,14 @@ import {
   createContext,
   createElement,
   useContext,
+  useEffect,
   type ReactNode,
 } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { useAfterPaint } from "../use-after-paint.js";
+import { hasPendingMcpConnection } from "./mcp-connection-refresh.js";
+import { addMcpConnectionCompleteListener } from "./mcp-connection-resume.js";
 
 export type McpServerScope = "user" | "org";
 
@@ -171,12 +175,70 @@ const defaultMcpServersApi: McpServersApi = {
   testExisting: testExistingMcpServer,
 };
 
-export function useMcpServers() {
+export interface UseMcpServersOptions {
+  /**
+   * Defer the first list read until after the first paint. Only for surfaces
+   * that are mounted during startup but not visible then (agent rail, settings
+   * panel) — navigable tabs, pages, and dialogs must stay eager so a direct
+   * render never inherits the deferral window.
+   */
+  defer?: boolean;
+}
+
+export type McpServersQuery = ReturnType<typeof useMcpServers>;
+
+/**
+ * True until a list read has settled (success or error). Deferred call sites
+ * must treat this as pending: hold empty states, permission derivation, and
+ * connect affordances until it clears instead of reading the undefined data
+ * as "no servers".
+ */
+export function isMcpServersPending(query: McpServersQuery): boolean {
+  return !query.isSuccess && !query.isError;
+}
+
+export function useMcpServers(options: UseMcpServersOptions = {}) {
   const api = useMcpServersApi();
+  // The list is never visible during first paint, but only surfaces that are
+  // mounted while invisible (agent rail, settings) may wait out the paint
+  // window; everything else fetches eagerly so a direct render shows a real
+  // pending state.
+  const defer = options.defer === true;
+  const afterPaint = useAfterPaint();
+  const qc = useQueryClient();
+  // An OAuth authorization finishes by redirecting the popup, so nothing in
+  // this window ever learns the connection landed. Revalidate when the user
+  // comes back, but only inside the bounded pending window — the house
+  // QueryClient turns refetchOnWindowFocus off on purpose.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const revalidate = () => {
+      // Deliberately no "did it land?" heuristic. Nothing the client can see
+      // distinguishes "the authorization landed" from an ordinary first read,
+      // a reconnect that replaces credentials in place, or a second flow
+      // running concurrently, so every such guess can clear the marker while a
+      // real return is still outstanding — which is the stale "Connect" this
+      // hook exists to prevent. The TTL is the bound instead.
+      if (!hasPendingMcpConnection()) return;
+      void qc.invalidateQueries({ queryKey: LIST_KEY });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") revalidate();
+    };
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", onVisibility);
+    const removeCompleteListener = addMcpConnectionCompleteListener(revalidate);
+    return () => {
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", onVisibility);
+      removeCompleteListener();
+    };
+  }, [qc]);
   return useQuery<McpServersList>({
     queryKey: LIST_KEY,
     queryFn: api.list,
     staleTime: 10_000,
+    enabled: defer ? afterPaint : true,
   });
 }
 

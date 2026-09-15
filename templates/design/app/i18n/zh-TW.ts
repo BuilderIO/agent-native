@@ -379,6 +379,9 @@ const messages = {
       detailsTab: "詳細資料",
       decorationLabel: "文字裝飾",
       caseLabel: "大小寫",
+      truncateText: "截斷文字",
+      maxLines: "最大行數",
+      restoreError: "無法還原原始文字版面配置。",
     },
     flexDirections: {
       row: "排",
@@ -532,6 +535,12 @@ const messages = {
       swappedFor: "已交換為「{{name}}」。",
       openPanelNudge: "請使用「元件」面板中的「交換實例」選擇器。",
       openPanelFailed: "無法開啟元件面板。",
+      linkedStructureUnsupported: "目前尚未支援變更連結元件的圖層結構。",
+      linkedEditScopeUnsupported:
+        "連結元件編輯目前僅適用於基礎斷點和預設互動狀態。",
+      linkedEditSourceUnsupported: "此來源模式目前不支援連結元件編輯。",
+      linkedEditTargetsUnavailable:
+        "無法為所有選取圖層解析此連結編輯。未進行任何變更。",
     },
     makeItRealCard: {
       open: "開啟",
@@ -1024,6 +1033,7 @@ const messages = {
       propsPasted: "屬性已貼上",
       primitiveInsertFailed: "無法將該圖層新增到畫面",
       layerMoveFailed: "無法移動該圖層",
+      groupFillApplyFailed: "無法將此填色套用至群組中的所有圖層。",
       layerMoveRedirected: "已移至原位置附近——精確的放置目標無法編輯",
       duplicateElementFailed: "無法複製該元素",
       repeatListNotEditable: "無法更新此重複清單",
@@ -1035,6 +1045,10 @@ const messages = {
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       saveConflict: "此畫面已在其他位置變更。上次編輯未儲存。",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
+      booleanSubtractUnsupported:
+        "請選取相鄰且使用純色填滿的矩形或橢圓以執行減法。",
+      booleanSubtractFailed: "無法減去所選圖層。",
+      vectorEditUnsupported: "此形狀或變形目前無法進行向量編輯。",
       reactSourceAnchorsLoading:
         "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
       reactSourceAnchorsUnavailable:
@@ -1077,6 +1091,8 @@ const messages = {
     frameSelection: "將選取範圍建立畫框",
     flipHorizontal: "水平翻轉",
     flipVertical: "垂直翻轉",
+    booleanOperations: "布林運算",
+    subtract: "減去",
     dragGhostCount: "{{count}} 個圖層",
   },
   designCanvas: {
@@ -1281,6 +1297,8 @@ const messages = {
     untitledDesign: "無標題Design",
     createFirstDesign: "建立您的第一個設計",
     pickStartingPoint: "選取一個起點或編寫您自己的提示。",
+    searchNoResultsTitle: "找不到符合此搜尋的設計",
+    searchNoResultsDescription: "請嘗試其他搜尋。",
     starterSaas: "SaaS 到達頁面",
     starterDashboard: "儀表板",
     starterPricing: "定價頁面",
@@ -1390,6 +1408,7 @@ const messages = {
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
       githubIndex:
         "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
+      nameConflict: "已存在同名設計系統。請更改名稱後再試一次。",
       chooseDesignMd: "請選取 Markdown（.md 或 .mdx）檔案。",
       readDesignMd: "無法讀取該 Markdown 檔案。",
       designMdTooLarge: "Markdown 檔案必須為 2 MB 或更小。",
