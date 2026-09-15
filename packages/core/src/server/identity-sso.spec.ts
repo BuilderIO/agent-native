@@ -124,6 +124,14 @@ vi.mock("./google-oauth.js", () => ({
 }));
 vi.mock("../org/auth-policy.js", () => ({
   GOOGLE_AUTH_REQUIRED_MESSAGE: "Google sign-in is required.",
+  authProviderRequiredMessage: (provider: string) =>
+    provider.startsWith("sso:")
+      ? "Single sign-on is required."
+      : "Google sign-in is required.",
+  getRequiredAuthProviderForEmail: (...args: any[]) =>
+    googleAuthRequiredMock(...args).then((required) =>
+      typeof required === "string" ? required : required ? "google" : null,
+    ),
   isGoogleSignInRequiredForEmail: (...args: any[]) =>
     googleAuthRequiredMock(...args),
 }));
@@ -632,6 +640,39 @@ describe("identity SSO browser contract", () => {
         authProvider: "google",
         hasProductionSession: false,
       }),
+    );
+  });
+
+  it("preserves the asserted SSO provider for an SSO-required organization", async () => {
+    googleAuthRequiredMock.mockImplementation(async () => "sso:okta");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "sso:okta",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"s".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(createOAuthSessionMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "alice@example.test",
+      expect.objectContaining({ authProvider: "sso:okta" }),
     );
   });
 });

@@ -481,3 +481,7 @@ Das standardmäßig deaktivierte Dispatch-Flag `desktop.workspace-sso` steuert n
 Die Canary-Kennung im User-Agent ist nur ein Verfügbarkeitshinweis und keine Remote-Attestierung; Authentifizierung und Autorisierung vertrauen ihr nicht.
 Kanonische gehostete Apps erkennen Anfragen der paketierten Desktop SSO Canary ohne eine Identity-Hub-Umgebungsvariable pro App. Normale Browser verwenden die übliche Anmeldung pro App. Selbst gehostete Apps benötigen `AGENT_NATIVE_IDENTITY_HUB_URL` nur für den verbleibenden expliziten Desktop- oder serverseitigen Föderationspfad. Stabile Desktop-Builds initialisieren den Broker erst nach einer separat genehmigten späteren Veröffentlichung.
 Die Canary-Version fängt anonyme App-Anmeldungen nicht ab. Benutzer müssen die Workspace-Anmeldung in den Desktop-Einstellungen für die aktive registrierte App ausdrücklich auswählen; die normale App-Anmeldung bleibt der Standardpfad.
+
+## Verwaltete Bereitstellung und Einladungen
+
+Für eine verwaltete Bereitstellung setzen Sie `AUTH_SIGNUP=invited`, `ORG_CREATION=closed` und `AUTO_CREATE_DEFAULT_ORG=0`. Der [Leitfaden für verwaltete Bereitstellungen](/docs/administered-deployments) beschreibt Bootstrap-Admins, Einladungen und erlaubte E-Mail-Domains. Mitgliedschaftseinladungen und Domain-Beitritt sind getrennte Regeln.

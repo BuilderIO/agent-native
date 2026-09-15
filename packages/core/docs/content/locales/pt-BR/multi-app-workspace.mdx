@@ -7,6 +7,10 @@ description: "Hospede muitos aplicativos nativos do agente em um monorepo com au
 
 > **Qual documento do espaço de trabalho?** Esta página aborda o **formato de implantação** — um monorepo, muitos aplicativos, autenticação compartilhada e uma implantação unificada. Para a camada de personalização do agente (Recursos do Agente: `AGENTS.md`, memória, skills, agentes personalizados) consulte [Recursos do Agente](/docs/agent-resources); para governança (quem analisa, aprova e possui o quê), consulte [Workspace Governance](/docs/workspace-management).
 
+## Aplicativo independente ou workspace? {#standalone-or-workspace}
+
+Escolha um workspace quando uma empresa opera vários aplicativos internos que precisam compartilhar configurações de implantação e contexto da organização. Escolha um aplicativo independente para uma ferramenta isolada ou um protótipo. Esse formato de implantação é compatível, mas não inclui pacotes compartilhados nem configuração raiz do workspace. Consulte [Implantações administradas](/docs/administered-deployments).
+
 Quando a codificação de vibração de uma ferramenta interna leva uma tarde, você não para em uma só. Uma equipe acaba com um CRM, uma caixa de entrada de suporte, um painel, um console de operações – dez pequenos aplicativos, cada um estruturado de forma independente. Isso é ótimo até que você precise mudar alguma coisa em todos eles.
 
 Nesse ponto, cada aplicativo tem seu próprio `AGENTS.md`, seu próprio plugin de autenticação, seu próprio componente de layout copiado e colado, seu próprio token Slack codificado, sua própria ideia do que é uma "organização". Uma mudança nas regras de conformidade significa dez PRs. A rotação de uma chave API significa dez reimplantações. Uma atualização de marca significa que dez cabeçalhos diferentes ficam fora de sincronia. O que facilitou sua construção agora está dificultando seu gerenciamento.

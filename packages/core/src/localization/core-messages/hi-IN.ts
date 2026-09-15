@@ -103,6 +103,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "एजेंट",
   "agentPanel.mode": "मोड",
   "agentPanel.uiMode": "यूआई",
+  "agentPanel.keyScope": "कुंजी का दायरा",
+  "agentPanel.personalKeyScope": "व्यक्तिगत",
+  "agentPanel.organizationKeyScope": "संगठन",
+  "agentPanel.personalKeyInEffect": "आपकी व्यक्तिगत कुंजी उपयोग में है।",
+  "agentPanel.organizationKeyInEffect": "संगठन की कुंजी उपयोग में है।",
+  "agentPanel.sharedKeyInEffect": "साझा कुंजी उपयोग में है।",
+  "agentPanel.useOrganizationKey": "संगठन की कुंजी इस्तेमाल करें",
+  "agentPanel.keyStatusUnavailable": "कुंजी की स्थिति उपलब्ध नहीं है।",
   "agentHostNudge.sidebarTitle": "{{agent}} की चैट का उपयोग करें",
   "agentHostNudge.sidebarDescription":
     "आप पहले से {{agent}} से चैट कर रहे हैं। इसे इस ऐप के साथ सीधे काम करने के लिए कहें।",
@@ -706,6 +714,14 @@ const messages: AgentChatTranslation = {
   "widget.rows_one": "{{formattedCount}} पंक्ति",
   "widget.rows_other": "{{formattedCount}} पंक्तियाँ",
   "widget.sampled": "नमूना लिया गया",
+  "settings.emailTitle": "ईमेल",
+  "settings.emailChange": "ईमेल बदलें",
+  "settings.emailChanging": "भेजा जा रहा है...",
+  "settings.emailChangeSent":
+    "इस बदलाव की पुष्टि करने के निर्देशों के लिए अपना ईमेल देखें।",
+  "settings.emailChangeError": "पुष्टिकरण नहीं भेजा जा सका।",
+  "settings.emailNewLabel": "नया ईमेल",
+  "settings.emailNewPlaceholder": "नया ईमेल दर्ज करें",
 };
 
 export default messages;

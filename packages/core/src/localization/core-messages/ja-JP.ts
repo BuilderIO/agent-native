@@ -109,6 +109,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "エージェント",
   "agentPanel.mode": "モード",
   "agentPanel.uiMode": "UI",
+  "agentPanel.keyScope": "キーの範囲",
+  "agentPanel.personalKeyScope": "個人",
+  "agentPanel.organizationKeyScope": "組織",
+  "agentPanel.personalKeyInEffect": "個人のキーを使用しています。",
+  "agentPanel.organizationKeyInEffect": "組織のキーを使用しています。",
+  "agentPanel.sharedKeyInEffect": "共有キーを使用しています。",
+  "agentPanel.useOrganizationKey": "組織のキーを使用",
+  "agentPanel.keyStatusUnavailable": "キーの状態を取得できません。",
   "agentHostNudge.sidebarTitle": "{{agent}}のチャットを使う",
   "agentHostNudge.sidebarDescription":
     "すでに{{agent}}とチャットしています。このアプリを直接操作するよう依頼できます。",
@@ -719,6 +727,14 @@ const messages: AgentChatTranslation = {
   "widget.rows": "{{formattedCount}} 行",
   "widget.rows_other": "{{formattedCount}} 行",
   "widget.sampled": "サンプリング済み",
+  "settings.emailTitle": "メールアドレス",
+  "settings.emailChange": "メールアドレスを変更",
+  "settings.emailChanging": "送信中...",
+  "settings.emailChangeSent":
+    "この変更を確認する手順をメールでご確認ください。",
+  "settings.emailChangeError": "確認メールを送信できませんでした。",
+  "settings.emailNewLabel": "新しいメールアドレス",
+  "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
 };
 
 export default messages;

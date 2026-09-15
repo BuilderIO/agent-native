@@ -105,6 +105,14 @@ const messages = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "UI",
+  "agentPanel.keyScope": "Key scope",
+  "agentPanel.personalKeyScope": "Personal",
+  "agentPanel.organizationKeyScope": "Organization",
+  "agentPanel.personalKeyInEffect": "Your personal key is in effect.",
+  "agentPanel.organizationKeyInEffect": "Organization key is in effect.",
+  "agentPanel.sharedKeyInEffect": "A shared key is in effect.",
+  "agentPanel.useOrganizationKey": "Use organization key",
+  "agentPanel.keyStatusUnavailable": "Key status is unavailable.",
   "agentHostNudge.sidebarTitle": "Use {{agent}}'s chat",
   "agentHostNudge.sidebarDescription":
     "You're already chatting with {{agent}}. Ask it to work with this app directly.",
@@ -714,6 +722,14 @@ const messages = {
   "widget.rows_one": "{{formattedCount}} row",
   "widget.rows_other": "{{formattedCount}} rows",
   "widget.sampled": "sampled",
+  "settings.emailTitle": "Email",
+  "settings.emailChange": "Change email",
+  "settings.emailChanging": "Sending...",
+  "settings.emailChangeSent":
+    "Check your email for instructions to confirm this change.",
+  "settings.emailChangeError": "Could not send confirmation.",
+  "settings.emailNewLabel": "New email",
+  "settings.emailNewPlaceholder": "Enter new email",
 } as const;
 
 export default messages;

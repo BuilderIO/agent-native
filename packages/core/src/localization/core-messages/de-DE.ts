@@ -113,6 +113,16 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Modus",
   "agentPanel.uiMode": "Benutzeroberfläche",
+  "agentPanel.keyScope": "Schlüsselbereich",
+  "agentPanel.personalKeyScope": "Persönlich",
+  "agentPanel.organizationKeyScope": "Organisation",
+  "agentPanel.personalKeyInEffect":
+    "Dein persönlicher Schlüssel wird verwendet.",
+  "agentPanel.organizationKeyInEffect":
+    "Der Organisationsschlüssel wird verwendet.",
+  "agentPanel.sharedKeyInEffect": "Ein gemeinsamer Schlüssel wird verwendet.",
+  "agentPanel.useOrganizationKey": "Organisationsschlüssel verwenden",
+  "agentPanel.keyStatusUnavailable": "Der Schlüsselstatus ist nicht verfügbar.",
   "agentHostNudge.sidebarTitle": "{{agent}}-Chat verwenden",
   "agentHostNudge.sidebarDescription":
     "Du chattest bereits mit {{agent}}. Bitte ihn, direkt mit dieser App zu arbeiten.",
@@ -752,6 +762,14 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Betrachter",
   "share.viewerDescription": "Kann ansehen",
   "share.userGroup": "Benutzergruppe",
+  "settings.emailTitle": "E-Mail-Adresse",
+  "settings.emailChange": "E-Mail-Adresse ändern",
+  "settings.emailChanging": "Wird gesendet...",
+  "settings.emailChangeSent":
+    "Prüfe deine E-Mails, um diese Änderung zu bestätigen.",
+  "settings.emailChangeError": "Bestätigung konnte nicht gesendet werden.",
+  "settings.emailNewLabel": "Neue E-Mail-Adresse",
+  "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
 };
 
 export default messages;

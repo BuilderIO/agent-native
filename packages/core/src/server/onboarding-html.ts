@@ -1700,6 +1700,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     brandMarkLightSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
     showGoogle,
+    organizationSsoEnabled: getAppConfig().access.sso.enabled,
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl: docsUrl("authentication", {
@@ -2067,6 +2068,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-full-options[hidden] { display: none; }
   .full-auth-options { margin-top: 1rem; }
   .full-auth-options[hidden] { display: none; }
+  .sso-signin { margin-top: 0.75rem; }
   .legal-note {
     margin-top: 0.375rem;
     margin-bottom: 0.875rem;

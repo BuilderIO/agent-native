@@ -154,6 +154,14 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
+  it("renders the organization SSO email entry point when enabled", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(<AuthPage {...props} organizationSsoEnabled />);
+
+    expect(html).toContain('id="organization-sso-form"');
+    expect(html).toContain('id="organization-sso-submit"');
+  });
+
   it("composes the shared marketing home and animated background for branded auth", () => {
     const onboardingHtml = getOnboardingHtml({
       requestHost: "slides.agent-native.com",

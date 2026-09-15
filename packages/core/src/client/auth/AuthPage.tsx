@@ -5,6 +5,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
+import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
@@ -68,6 +69,8 @@ export interface AuthPageProps {
   brandMarkLightSrc?: string;
   githubUrl: string;
   showGoogle: boolean;
+  /** Show the organization SSO email-to-provider entry point. */
+  organizationSsoEnabled?: boolean;
   /** Whether identity SSO is available for this request. */
   identitySsoEnabled?: boolean;
   /** Whether Google sign-in should start through the preview identity hub. */
@@ -198,7 +201,14 @@ function removeStorage(key: string): void {
 function authErrorText(
   data: Record<string, unknown>,
   fallback: string,
+  inviteOnlyMessage = fallback,
 ): string {
+  if (
+    data.code === AUTH_SIGNUP_INVITE_ONLY_CODE ||
+    data.error === AUTH_SIGNUP_INVITE_ONLY_CODE
+  ) {
+    return inviteOnlyMessage;
+  }
   const candidate = data.error ?? data.message;
   if (typeof candidate !== "string" || !candidate.trim()) return fallback;
   const message = candidate.trim();
@@ -691,6 +701,7 @@ export function AuthPage(props: AuthPageProps) {
     brandMarkLightSrc,
     githubUrl,
     showGoogle,
+    organizationSsoEnabled = false,
     googleViaIdentitySso = false,
     signupLegalNotice,
     signupLocalModeNote,
@@ -734,6 +745,8 @@ export function AuthPage(props: AuthPageProps) {
   }, []);
   const [googleBusy, setGoogleBusy] = React.useState(false);
   const [magicLinkBusy, setMagicLinkBusy] = React.useState(false);
+  const [ssoEmail, setSsoEmail] = React.useState("");
+  const [ssoBusy, setSsoBusy] = React.useState(false);
   const [copiedLocalMode, setCopiedLocalMode] = React.useState(false);
   const signupViewTrackedRef = React.useRef(false);
   const pendingSignupPassword = React.useRef("");
@@ -1355,6 +1368,7 @@ export function AuthPage(props: AuthPageProps) {
                 kind === "magic-link"
                   ? t("magicLinkFailed")
                   : t("googleNotConfigured"),
+                t("signupInviteOnly"),
               ),
             });
             return;
@@ -1581,7 +1595,9 @@ export function AuthPage(props: AuthPageProps) {
         },
       );
       if (!response.ok || typeof data.url !== "string" || !data.url) {
-        throw new Error(authErrorText(data, t("failedToConnect")));
+        throw new Error(
+          authErrorText(data, t("failedToConnect"), t("signupInviteOnly")),
+        );
       }
       if (nativeDesktop) nativeOAuthRequestPending.current = false;
       startOAuthExchange(flowId, target, verifier, "google", popup, (email) => {
@@ -1688,7 +1704,11 @@ export function AuthPage(props: AuthPageProps) {
       redirectToSignedInApp();
       return { ok: true, needsManualSignIn: false };
     }
-    const error = authErrorText(data, t("finishSignInFailed"));
+    const error = authErrorText(
+      data,
+      t("finishSignInFailed"),
+      t("signupInviteOnly"),
+    );
     return {
       ok: false,
       needsManualSignIn: false,
@@ -1859,7 +1879,11 @@ export function AuthPage(props: AuthPageProps) {
         if (!response.ok) {
           setNotice("signup", {
             kind: "error",
-            text: authErrorText(data, t("registrationFailed")),
+            text: authErrorText(
+              data,
+              t("registrationFailed"),
+              t("signupInviteOnly"),
+            ),
           });
           return;
         }
@@ -1883,6 +1907,7 @@ export function AuthPage(props: AuthPageProps) {
         const loginError = authErrorText(
           loginResult.data,
           t("registrationFailed"),
+          t("signupInviteOnly"),
         );
         if (
           loginResult.response.status === 403 &&
@@ -1954,7 +1979,7 @@ export function AuthPage(props: AuthPageProps) {
         }
         setNotice("login", {
           kind: "error",
-          text: authErrorText(data, t("invalidLogin")),
+          text: authErrorText(data, t("invalidLogin"), t("signupInviteOnly")),
         });
       } catch {
         setNotice("login", { kind: "error", text: t("networkErrorDashRetry") });
@@ -2001,7 +2026,11 @@ export function AuthPage(props: AuthPageProps) {
         }
         setNotice("forgot", {
           kind: "error",
-          text: authErrorText(data, t("resetEmailFailed")),
+          text: authErrorText(
+            data,
+            t("resetEmailFailed"),
+            t("signupInviteOnly"),
+          ),
         });
       } catch {
         setNotice("forgot", {
@@ -2053,7 +2082,11 @@ export function AuthPage(props: AuthPageProps) {
         if (!response.ok) {
           setNotice("magic-link", {
             kind: "error",
-            text: authErrorText(data, t("magicLinkFailed")),
+            text: authErrorText(
+              data,
+              t("magicLinkFailed"),
+              t("signupInviteOnly"),
+            ),
           });
           return;
         }
@@ -2094,6 +2127,51 @@ export function AuthPage(props: AuthPageProps) {
     ],
   );
 
+  const handleOrganizationSso = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const email = normalizeEmail(ssoEmail);
+      if (!isValidEmail(email)) {
+        setNotice("sso", { kind: "error", text: t("invalidEmail") });
+        return;
+      }
+      setSsoBusy(true);
+      setNotice("sso", null);
+      try {
+        const callbackURL = new URL(
+          resumeHref(),
+          window.location.origin,
+        ).toString();
+        const { response, data } = await requestJson(
+          apiPath("/_agent-native/auth/ba/sign-in/sso"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email,
+              callbackURL,
+              errorCallbackURL: callbackURL,
+              newUserCallbackURL: callbackURL,
+            }),
+          },
+        );
+        if (!response.ok || typeof data.url !== "string" || !data.url) {
+          setNotice("sso", {
+            kind: "error",
+            text: authErrorText(data, t("ssoFailed"), t("signupInviteOnly")),
+          });
+          return;
+        }
+        window.location.assign(data.url);
+      } catch {
+        setNotice("sso", { kind: "error", text: t("networkErrorDashRetry") });
+      } finally {
+        setSsoBusy(false);
+      }
+    },
+    [apiPath, resumeHref, setNotice, ssoEmail, t],
+  );
+
   const resendVerification = React.useCallback(async () => {
     const email = verificationEmail || readPendingSignupEmail();
     if (!email || verificationResendUntil > Date.now()) return;
@@ -2122,7 +2200,11 @@ export function AuthPage(props: AuthPageProps) {
       }
       setNotice("verification", {
         kind: "error",
-        text: authErrorText(data, t("resendVerificationFailed")),
+        text: authErrorText(
+          data,
+          t("resendVerificationFailed"),
+          t("signupInviteOnly"),
+        ),
       });
     } catch {
       setNotice("verification", {
@@ -2416,6 +2498,35 @@ export function AuthPage(props: AuthPageProps) {
             {notice("google")}
             <p className="google-debug" id="google-debug" />
           </div>
+        ) : null}
+        {organizationSsoEnabled && !googleOnly ? (
+          <form
+            id="organization-sso-form"
+            className="sso-signin"
+            onSubmit={handleOrganizationSso}
+          >
+            <label htmlFor="sso-email" data-i18n="email">
+              {t("email")}
+            </label>
+            <input
+              id="sso-email"
+              type="email"
+              autoComplete="email"
+              placeholder={t("ssoEmailPlaceholder")}
+              required
+              value={ssoEmail}
+              onChange={(event) => setSsoEmail(event.currentTarget.value)}
+            />
+            <button
+              type="submit"
+              id="organization-sso-submit"
+              disabled={ssoBusy || !isValidEmail(ssoEmail)}
+              data-i18n="ssoButton"
+            >
+              {ssoBusy ? t("checking") : t("ssoButton")}
+            </button>
+            {notice("sso")}
+          </form>
         ) : null}
         {!googleOnly && showGoogle ? (
           <div className="divider" id="auth-divider" data-i18n="dividerOr">

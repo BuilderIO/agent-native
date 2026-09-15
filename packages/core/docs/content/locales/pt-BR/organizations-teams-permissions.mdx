@@ -1,0 +1,18 @@
+---
+title: Organizações, equipes e permissões
+description: Gerencie o contexto da organização, funções de equipe e aplicativo e acesso a recursos.
+---
+
+# Organizações, equipes e permissões
+
+A organização define os membros da equipe e o limite do tenant. O workspace agrupa aplicativos e configuração de implantação, mas não substitui a organização. O servidor precisa verificar permissões. Ocultar um botão não é controle de acesso.
+
+## Três escopos de função
+
+- As funções `owner`, `admin` e `member` da organização controlam a administração da equipe.
+- As funções do aplicativo controlam ações dentro de um aplicativo. Um membro pode ter várias.
+- As funções de recurso `viewer`, `editor` e `admin` controlam o acesso a uma linha.
+
+O aplicativo declara as funções e as chaves de permissão no código. Um administrador pode substituir o conjunto de funções de um membro e associar permissões declaradas às funções na página da equipe. Sem substituição, valem os padrões do aplicativo. Convites podem incluir funções de aplicativo. Ser admin de um app não concede administração da organização.
+
+Consulte [Implantações administradas](/docs/administered-deployments) para convites e configuração. Consulte [Escopo de dados](/docs/security#data-scoping) para acesso a dados.

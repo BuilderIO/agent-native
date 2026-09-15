@@ -245,8 +245,24 @@ export function ComposeModal({
     sendLater: () => {},
     sendAndMarkDone: () => {},
   });
-  const knownDraftIdsRef = useRef(new Set(drafts.map((draft) => draft.id)));
+  const knownDraftIdsRef = useRef(
+    new Set(
+      drafts
+        .filter((draft) => {
+          const isInitialNewCompose =
+            draft.id === activeDraft?.id &&
+            draft.mode === "compose" &&
+            !draft.savedDraftId &&
+            !draft.queuedDraftId;
+          return !isInitialNewCompose;
+        })
+        .map((draft) => draft.id),
+    ),
+  );
   const pendingNewDraftIdsRef = useRef(new Set<string>());
+  const focusNewDraftIdRef = useRef<string | null>(null);
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
 
   // Observe agent sidebar width so compose window stays to its left
   const [sidebarRight, setSidebarRight] = useState(16); // default 16px (right-4)
@@ -312,9 +328,11 @@ export function ComposeModal({
 
   useEffect(() => {
     const currentDraftIds = new Set(drafts.map((draft) => draft.id));
-    for (const id of currentDraftIds) {
-      if (!knownDraftIdsRef.current.has(id)) {
-        pendingNewDraftIdsRef.current.add(id);
+    for (const draft of drafts) {
+      const isNewCompose =
+        draft.mode === "compose" && !draft.savedDraftId && !draft.queuedDraftId;
+      if (isNewCompose && !knownDraftIdsRef.current.has(draft.id)) {
+        pendingNewDraftIdsRef.current.add(draft.id);
       }
     }
     for (const id of pendingNewDraftIdsRef.current) {
@@ -325,7 +343,27 @@ export function ComposeModal({
       return;
     }
     setMinimized(false);
+    focusNewDraftIdRef.current = activeDraft.id;
   }, [activeDraft?.id, drafts]);
+
+  // The opener retains focus after React mounts the new draft. Restore the
+  // keyboard-first compose flow after that click has finished.
+  useEffect(() => {
+    const draftId = focusNewDraftIdRef.current;
+    if (!draftId || draftId !== activeDraft?.id || minimized) return;
+    focusNewDraftIdRef.current = null;
+
+    const focusTimer = setTimeout(() => {
+      if (activeIdRef.current !== draftId) return;
+      composeRef.current
+        ?.querySelector<HTMLInputElement>(
+          '[data-mail-recipient-input][data-recipient-field="to"]',
+        )
+        ?.focus();
+    }, 0);
+
+    return () => clearTimeout(focusTimer);
+  }, [activeDraft?.id, minimized]);
 
   // Focus editor when reply/forward opens
   useEffect(() => {

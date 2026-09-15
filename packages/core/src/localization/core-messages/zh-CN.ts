@@ -100,6 +100,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "智能体",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "界面",
+  "agentPanel.keyScope": "密钥范围",
+  "agentPanel.personalKeyScope": "个人",
+  "agentPanel.organizationKeyScope": "组织",
+  "agentPanel.personalKeyInEffect": "当前使用的是您的个人密钥。",
+  "agentPanel.organizationKeyInEffect": "当前使用的是组织密钥。",
+  "agentPanel.sharedKeyInEffect": "当前使用的是共享密钥。",
+  "agentPanel.useOrganizationKey": "改用组织密钥",
+  "agentPanel.keyStatusUnavailable": "无法获取密钥状态。",
   "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
   "agentHostNudge.sidebarDescription":
     "你已经在与 {{agent}} 聊天。可以直接让它操作此应用。",
@@ -680,6 +688,13 @@ const messages: AgentChatTranslation = {
   "widget.rows": "{{formattedCount}} 行",
   "widget.rows_other": "{{formattedCount}} 行",
   "widget.sampled": "已抽样",
+  "settings.emailTitle": "电子邮件",
+  "settings.emailChange": "更改电子邮件",
+  "settings.emailChanging": "正在发送...",
+  "settings.emailChangeSent": "请查看邮件，按照说明确认此更改。",
+  "settings.emailChangeError": "无法发送确认邮件。",
+  "settings.emailNewLabel": "新电子邮件",
+  "settings.emailNewPlaceholder": "输入新电子邮件",
 };
 
 export default messages;

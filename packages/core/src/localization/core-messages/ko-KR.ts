@@ -105,6 +105,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "에이전트",
   "agentPanel.mode": "모드",
   "agentPanel.uiMode": "UI",
+  "agentPanel.keyScope": "키 범위",
+  "agentPanel.personalKeyScope": "개인",
+  "agentPanel.organizationKeyScope": "조직",
+  "agentPanel.personalKeyInEffect": "개인 키를 사용 중입니다.",
+  "agentPanel.organizationKeyInEffect": "조직 키를 사용 중입니다.",
+  "agentPanel.sharedKeyInEffect": "공유 키를 사용 중입니다.",
+  "agentPanel.useOrganizationKey": "조직 키 사용",
+  "agentPanel.keyStatusUnavailable": "키 상태를 확인할 수 없습니다.",
   "agentHostNudge.sidebarTitle": "{{agent}} 채팅 사용",
   "agentHostNudge.sidebarDescription":
     "이미 {{agent}}와 대화 중입니다. 이 앱에서 직접 작업하도록 요청하세요.",
@@ -707,6 +715,14 @@ const messages: AgentChatTranslation = {
   "widget.rows": "{{formattedCount}}개 행",
   "widget.rows_other": "{{formattedCount}}개 행",
   "widget.sampled": "샘플링됨",
+  "settings.emailTitle": "이메일",
+  "settings.emailChange": "이메일 변경",
+  "settings.emailChanging": "보내는 중...",
+  "settings.emailChangeSent":
+    "이 변경을 확인하는 방법을 이메일에서 확인하세요.",
+  "settings.emailChangeError": "확인 메일을 보내지 못했습니다.",
+  "settings.emailNewLabel": "새 이메일",
+  "settings.emailNewPlaceholder": "새 이메일 입력",
 };
 
 export default messages;

@@ -106,6 +106,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "الوكيل",
   "agentPanel.mode": "الوضع",
   "agentPanel.uiMode": "واجهة المستخدم",
+  "agentPanel.keyScope": "نطاق المفتاح",
+  "agentPanel.personalKeyScope": "شخصي",
+  "agentPanel.organizationKeyScope": "المؤسسة",
+  "agentPanel.personalKeyInEffect": "مفتاحك الشخصي قيد الاستخدام.",
+  "agentPanel.organizationKeyInEffect": "مفتاح المؤسسة قيد الاستخدام.",
+  "agentPanel.sharedKeyInEffect": "مفتاح مشترك قيد الاستخدام.",
+  "agentPanel.useOrganizationKey": "استخدم مفتاح المؤسسة",
+  "agentPanel.keyStatusUnavailable": "حالة المفتاح غير متاحة.",
   "agentHostNudge.sidebarTitle": "استخدم محادثة {{agent}}",
   "agentHostNudge.sidebarDescription":
     "أنت تتحدث مع {{agent}} بالفعل. اطلب منه العمل مع هذا التطبيق مباشرةً.",
@@ -741,6 +749,14 @@ const messages: AgentChatTranslation = {
   "widget.rows_many": "{{formattedCount}} صفًا",
   "widget.rows_other": "{{formattedCount}} صف",
   "widget.sampled": "عيّنة",
+  "settings.emailTitle": "البريد الإلكتروني",
+  "settings.emailChange": "تغيير البريد الإلكتروني",
+  "settings.emailChanging": "جارٍ الإرسال...",
+  "settings.emailChangeSent":
+    "تحقق من بريدك الإلكتروني لمعرفة كيفية تأكيد هذا التغيير.",
+  "settings.emailChangeError": "تعذر إرسال التأكيد.",
+  "settings.emailNewLabel": "البريد الإلكتروني الجديد",
+  "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
 };
 
 export default messages;

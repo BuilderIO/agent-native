@@ -84,11 +84,14 @@ import {
   isMcpProtocolPath,
 } from "../mcp/route-paths.js";
 import {
-  GOOGLE_AUTH_REQUIRED_MESSAGE,
+  authProviderRequiredMessage,
+  getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
+import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
+import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../shared/auth-copy.js";
 import {
   resolveSsrCacheHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -1376,6 +1379,7 @@ const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
   /email\s+already/i,
   /already\s+(exists|registered|in\s+use)/i,
   /not\s+verified/i,
+  /INVITE_ONLY|invite-only/i,
 ];
 
 const VALID_AUTH_EMAIL_MESSAGE =
@@ -1454,16 +1458,56 @@ function normalizeAuthEmail(value: unknown): string | null {
   return AUTH_EMAIL_PATTERN.test(email) ? email : null;
 }
 
+/**
+ * Resolve the provider required for an email while preserving the legacy
+ * Google predicate used by custom-auth tests and deployments. The generic
+ * query is authoritative when the org policy schema is present; the
+ * compatibility predicate covers older mounted org plugins that only expose
+ * the original Google requirement helper.
+ */
+async function requiredAuthProviderForEmail(
+  email: string,
+): Promise<ResolvedRequiredAuthProvider> {
+  const provider = await getRequiredAuthProviderForEmail(email);
+  if (provider) return provider;
+  return (await isGoogleSignInRequiredForEmail(email)) ? "google" : null;
+}
+
+async function resumeIdentityRekeyForSession(email: string): Promise<void> {
+  try {
+    const module = (await import("./better-auth-instance.js")) as {
+      resumeIdentityRekeysForEmail?: (value: string) => Promise<void>;
+    };
+    if (typeof module.resumeIdentityRekeysForEmail !== "function") return;
+    await module.resumeIdentityRekeysForEmail(email);
+  } catch (error) {
+    // A pending rekey must not make an otherwise valid session unavailable;
+    // the durable ledger remains pending for a later session retry.
+    if (/No "resumeIdentityRekeysForEmail" export/.test(String(error))) {
+      return;
+    }
+    console.error("[identity] failed to resume pending email rekey", error);
+  }
+}
+
 function publicAuthError(
   error: unknown,
   fallback: string,
-): { message: string; statusCode?: number } {
+): { message: string; statusCode?: number; code?: string } {
   const authError = error as { code?: unknown; message?: unknown };
   const message =
     typeof authError?.message === "string" ? authError.message : "";
   const code = typeof authError?.code === "string" ? authError.code : "";
   const details = `${code} ${message}`.trim();
 
+  if (details.includes(AUTH_SIGNUP_INVITE_ONLY_CODE)) {
+    return {
+      message:
+        "This workspace is invite-only. Ask an administrator for an invitation.",
+      statusCode: 403,
+      code: AUTH_SIGNUP_INVITE_ONLY_CODE,
+    };
+  }
   if (
     isAuthEmailValidationMessage(details) ||
     /invalid[_ -]?email/i.test(code)
@@ -1511,7 +1555,7 @@ function publicAuthError(
 function publicAuthErrorFromPayload(
   payload: Record<string, unknown>,
   fallback: string,
-): { message: string; statusCode?: number } {
+): { message: string; statusCode?: number; code?: string } {
   const payloadError =
     typeof payload.error === "string" ? payload.error : undefined;
   const code =
@@ -1561,41 +1605,46 @@ async function sanitizeBetterAuthErrorResponse(
   }
   const rawPayload = payload as Record<string, unknown>;
 
-  // The response below is deliberately generic (see publicAuthErrorFromPayload)
-  // so the real Better Auth code/message must be logged here or it is gone —
-  // this is the only place that ever sees it. Regression for the 2026-08-29
-  // INVALID_ORIGIN outage: magic-link signup 403'd for a full day and every
-  // log/Sentry surface only showed the sanitized fallback copy.
-  const code =
-    typeof rawPayload.code === "string"
-      ? rawPayload.code
-      : typeof rawPayload.errorCode === "string"
-        ? rawPayload.errorCode
-        : typeof rawPayload.error === "string"
-          ? rawPayload.error
-          : undefined;
-  const message =
-    typeof rawPayload.message === "string" ? rawPayload.message : undefined;
-  console.error("[agent-native][auth] better-auth error", {
-    status: response.status,
-    code,
-    message,
-    path: request.path,
-    method: request.method,
-  });
-  captureAuthError(
-    new Error(
-      `Better Auth ${response.status} ${code ?? "UNKNOWN"}: ${message ?? "no message"}`,
-    ),
-    { route: "better-auth", path: request.path },
-  );
-
   const authError = publicAuthErrorFromPayload(rawPayload, fallback);
+  if (authError.code !== AUTH_SIGNUP_INVITE_ONLY_CODE) {
+    // The response below is deliberately generic (see publicAuthErrorFromPayload)
+    // so the real Better Auth code/message must be logged here or it is gone —
+    // this is the only place that ever sees it. Regression for the 2026-08-29
+    // INVALID_ORIGIN outage: magic-link signup 403'd for a full day and every
+    // log/Sentry surface only showed the sanitized fallback copy.
+    const code =
+      typeof rawPayload.code === "string"
+        ? rawPayload.code
+        : typeof rawPayload.errorCode === "string"
+          ? rawPayload.errorCode
+          : typeof rawPayload.error === "string"
+            ? rawPayload.error
+            : undefined;
+    const message =
+      typeof rawPayload.message === "string" ? rawPayload.message : undefined;
+    console.error("[agent-native][auth] better-auth error", {
+      status: response.status,
+      code,
+      message,
+      path: request.path,
+      method: request.method,
+    });
+    captureAuthError(
+      new Error(
+        `Better Auth ${response.status} ${code ?? "UNKNOWN"}: ${message ?? "no message"}`,
+      ),
+      { route: "better-auth", path: request.path },
+    );
+  }
   const headers = new Headers(response.headers);
   headers.delete("content-length");
   headers.set("content-type", "application/json");
   return new Response(
-    JSON.stringify({ error: authError.message, message: authError.message }),
+    JSON.stringify({
+      error: authError.message,
+      message: authError.message,
+      ...(authError.code ? { code: authError.code } : {}),
+    }),
     {
       status:
         authError.message === fallback
@@ -4450,7 +4499,11 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   };
   return (ctx.__anSessionCache ??= (async () => {
     const session = await resolveSessionUncached(event);
-    return session?.email ? backfillSessionOrg(session, event) : session;
+    const resolved = session?.email
+      ? await backfillSessionOrg(session, event)
+      : session;
+    if (resolved?.email) await resumeIdentityRekeyForSession(resolved.email);
+    return resolved;
   })());
 }
 
@@ -5193,6 +5246,18 @@ async function mountBetterAuthRoutes(
               "Google account email is not verified. Please verify your email with Google and try again.",
             );
           }
+          // This legacy callback creates a framework session directly (rather
+          // than through Better Auth's session endpoint), so enforce an org's
+          // required SSO provider before minting that session. Without this
+          // check a configured `sso:<provider>` policy could be bypassed by
+          // the standalone Google callback.
+          const requiredProvider = await requiredAuthProviderForEmail(email);
+          if (requiredProvider && requiredProvider !== "google") {
+            return oauthErrorPage(
+              authProviderRequiredMessage(requiredProvider),
+              403,
+            );
+          }
           const googleAccountId =
             typeof user.id === "string" ? user.id.trim() : "";
           if (!googleAccountId) {
@@ -5272,20 +5337,21 @@ async function mountBetterAuthRoutes(
             flowId,
           });
         } catch (error: any) {
-          const msg = error.message || "Unknown error";
+          const authError = publicAuthError(error, AUTH_GOOGLE_FALLBACK);
+          const msg = authError.message;
           if (callbackFlowId) {
             setDesktopExchangeError(callbackFlowId, {
-              message: AUTH_GOOGLE_FALLBACK,
-              code: "callback_error",
+              message: msg,
+              code: authError.code ?? "callback_error",
             });
           }
           logGoogleOAuthDebug(event, "callback-error", {
             flowId: callbackFlowId,
             desktop: callbackDesktop,
             mobile: callbackMobile,
-            message: msg,
+            message: error?.message || msg,
           });
-          return oauthErrorPage(AUTH_GOOGLE_FALLBACK);
+          return oauthErrorPage(msg, authError.statusCode ?? 400);
         }
       }),
     );
@@ -5786,9 +5852,14 @@ async function mountBetterAuthRoutes(
         if (reqPath.includes("/sign-in/email")) {
           emailAuthEmail = normalizeAuthEmail(email) ?? undefined;
         }
-        if (email && (await isGoogleSignInRequiredForEmail(email))) {
+        const requiredProvider = email
+          ? await requiredAuthProviderForEmail(email)
+          : null;
+        if (requiredProvider) {
           return new Response(
-            JSON.stringify({ error: GOOGLE_AUTH_REQUIRED_MESSAGE }),
+            JSON.stringify({
+              error: authProviderRequiredMessage(requiredProvider),
+            }),
             {
               status: 403,
               headers: { "content-type": "application/json" },
@@ -6176,9 +6247,10 @@ async function mountBetterAuthRoutes(
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
-      if (await isGoogleSignInRequiredForEmail(email)) {
+      const requiredProvider = await requiredAuthProviderForEmail(email);
+      if (requiredProvider) {
         setResponseStatus(event, 403);
-        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
+        return { error: authProviderRequiredMessage(requiredProvider) };
       }
 
       try {
@@ -6210,7 +6282,10 @@ async function mountBetterAuthRoutes(
         }
         const authError = publicAuthError(e, AUTH_LOGIN_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 401);
-        return { error: authError.message };
+        return {
+          error: authError.message,
+          ...(authError.code ? { code: authError.code } : {}),
+        };
       }
     }),
   );
@@ -6290,9 +6365,10 @@ async function mountBetterAuthRoutes(
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
-      if (await isGoogleSignInRequiredForEmail(email)) {
+      const requiredProvider = await requiredAuthProviderForEmail(email);
+      if (requiredProvider) {
         setResponseStatus(event, 403);
-        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
+        return { error: authProviderRequiredMessage(requiredProvider) };
       }
 
       try {
@@ -6348,7 +6424,10 @@ async function mountBetterAuthRoutes(
         }
         const authError = publicAuthError(e, AUTH_MAGIC_LINK_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 400);
-        return { error: authError.message };
+        return {
+          error: authError.message,
+          ...(authError.code ? { code: authError.code } : {}),
+        };
       }
     }),
   );
@@ -6388,9 +6467,10 @@ async function mountBetterAuthRoutes(
         return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
-      if (await isGoogleSignInRequiredForEmail(email)) {
+      const requiredProvider = await requiredAuthProviderForEmail(email);
+      if (requiredProvider) {
         setResponseStatus(event, 403);
-        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
+        return { error: authProviderRequiredMessage(requiredProvider) };
       }
 
       try {
@@ -6418,7 +6498,10 @@ async function mountBetterAuthRoutes(
         }
         const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 500);
-        return { error: authError.message };
+        return {
+          error: authError.message,
+          ...(authError.code ? { code: authError.code } : {}),
+        };
       }
     }),
   );
@@ -6601,9 +6684,10 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
-      if (await isGoogleSignInRequiredForEmail(email)) {
+      const requiredProvider = await requiredAuthProviderForEmail(email);
+      if (requiredProvider) {
         setResponseStatus(event, 403);
-        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
+        return { error: authProviderRequiredMessage(requiredProvider) };
       }
 
       try {
@@ -6633,7 +6717,10 @@ function mountAuthFallbackRoutes(app: H3App): void {
         }
         const authError = publicAuthError(e, AUTH_LOGIN_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 401);
-        return { error: authError.message };
+        return {
+          error: authError.message,
+          ...(authError.code ? { code: authError.code } : {}),
+        };
       }
     }),
   );
@@ -6668,9 +6755,10 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
-      if (await isGoogleSignInRequiredForEmail(email)) {
+      const requiredProvider = await requiredAuthProviderForEmail(email);
+      if (requiredProvider) {
         setResponseStatus(event, 403);
-        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
+        return { error: authProviderRequiredMessage(requiredProvider) };
       }
 
       try {
@@ -6694,7 +6782,10 @@ function mountAuthFallbackRoutes(app: H3App): void {
         }
         const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 500);
-        return { error: authError.message };
+        return {
+          error: authError.message,
+          ...(authError.code ? { code: authError.code } : {}),
+        };
       }
     }),
   );

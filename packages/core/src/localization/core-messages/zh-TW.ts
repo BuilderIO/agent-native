@@ -100,6 +100,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "代理",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "介面",
+  "agentPanel.keyScope": "金鑰範圍",
+  "agentPanel.personalKeyScope": "個人",
+  "agentPanel.organizationKeyScope": "組織",
+  "agentPanel.personalKeyInEffect": "目前使用的是您的個人金鑰。",
+  "agentPanel.organizationKeyInEffect": "目前使用的是組織金鑰。",
+  "agentPanel.sharedKeyInEffect": "目前使用的是共用金鑰。",
+  "agentPanel.useOrganizationKey": "改用組織金鑰",
+  "agentPanel.keyStatusUnavailable": "無法取得金鑰狀態。",
   "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
   "agentHostNudge.sidebarDescription":
     "你已經在與 {{agent}} 聊天。可以直接請它操作此應用程式。",
@@ -682,6 +690,13 @@ const messages: AgentChatTranslation = {
   "widget.rows": "{{formattedCount}} 列",
   "widget.rows_other": "{{formattedCount}} 列",
   "widget.sampled": "已取樣",
+  "settings.emailTitle": "電子郵件",
+  "settings.emailChange": "變更電子郵件",
+  "settings.emailChanging": "傳送中...",
+  "settings.emailChangeSent": "請查看電子郵件中的指示以確認此變更。",
+  "settings.emailChangeError": "無法傳送確認信。",
+  "settings.emailNewLabel": "新電子郵件",
+  "settings.emailNewPlaceholder": "輸入新電子郵件",
 };
 
 export default messages;

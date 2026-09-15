@@ -113,6 +113,15 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "Interface utilisateur",
+  "agentPanel.keyScope": "Portée de la clé",
+  "agentPanel.personalKeyScope": "Personnelle",
+  "agentPanel.organizationKeyScope": "Organisation",
+  "agentPanel.personalKeyInEffect": "Votre clé personnelle est utilisée.",
+  "agentPanel.organizationKeyInEffect":
+    "La clé de l’organisation est utilisée.",
+  "agentPanel.sharedKeyInEffect": "Une clé partagée est utilisée.",
+  "agentPanel.useOrganizationKey": "Utiliser la clé de l’organisation",
+  "agentPanel.keyStatusUnavailable": "L’état de la clé est indisponible.",
   "agentHostNudge.sidebarTitle": "Utiliser le chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Vous discutez déjà avec {{agent}}. Demandez-lui de travailler directement avec cette app.",
@@ -762,6 +771,14 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Lecteur",
   "share.viewerDescription": "Peut consulter",
   "share.userGroup": "Groupe d’utilisateurs",
+  "settings.emailTitle": "Adresse e-mail",
+  "settings.emailChange": "Changer d’adresse e-mail",
+  "settings.emailChanging": "Envoi...",
+  "settings.emailChangeSent":
+    "Consultez vos e-mails pour confirmer ce changement.",
+  "settings.emailChangeError": "Impossible d’envoyer la confirmation.",
+  "settings.emailNewLabel": "Nouvelle adresse e-mail",
+  "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
 };
 
 export default messages;

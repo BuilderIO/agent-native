@@ -1842,6 +1842,107 @@ describe("server/auth", () => {
       ).toBe(true);
     });
 
+    it("maps an invite-only Google callback rejection to the public auth error page", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_SIGNUP", "invited");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const ensureGoogleAuthIdentity = vi.fn(async () => {
+        throw Object.assign(new Error("This workspace is invite-only"), {
+          code: "INVITE_ONLY",
+        });
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+        }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("../org/auth-policy.js", () => ({
+        authProviderRequiredMessage: vi.fn(
+          (provider: string) => `Continue with ${provider}.`,
+        ),
+        getRequiredAuthProviderForEmail: vi.fn(async () => null),
+        isGoogleSignInRequiredForEmail: vi.fn(async () => false),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        ensureGoogleAuthIdentity,
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify({ access_token: "google-token" }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response(
+              JSON.stringify({
+                id: "google-id",
+                email: "stranger@example.com",
+                verified_email: true,
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+          ),
+      );
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { encodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const callbackHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/callback",
+      )?.[1];
+      const state = encodeOAuthState({
+        redirectUri:
+          "https://agent-workspace.builder.io/_agent-native/google/callback",
+      });
+      const response = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "oauth-code", state },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect(response.status).toBe(403);
+      await expect(response.text()).resolves.toContain(
+        "This workspace is invite-only. Ask an administrator for an invitation.",
+      );
+      expect(ensureGoogleAuthIdentity).toHaveBeenCalledWith(
+        expect.objectContaining({ email: "stranger@example.com" }),
+      );
+    });
+
     it("rejects unbound desktop flow ids and URL verifiers", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
