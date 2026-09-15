@@ -21,6 +21,7 @@ vi.mock("../server/lib/builder-design-system-proxy.js", () => ({
   upsertBuilderProxyDesignSystem: vi.fn(),
 }));
 
+import { ActionContractError } from "@agent-native/core/action";
 import { FeatureNotConfiguredError } from "@agent-native/core/server";
 
 import action from "./index-design-system-with-builder.js";
@@ -52,6 +53,30 @@ describe("index-design-system-with-builder", () => {
       message:
         "Connect Builder.io (free tier available) before indexing a design system from Figma or code.",
       details: { builderConnectUrl: "/_agent-native/builder/connect" },
+    });
+  });
+
+  it("passes through Builder's route-unavailable failure so the agent can fall back locally", async () => {
+    mocks.startBuilderDesignSystemIndex.mockRejectedValue(
+      new ActionContractError(
+        "Builder design-system indexing is not reachable with a Builder OAuth connection yet — Builder answered 403 route_not_enabled for /design-systems/v1. " +
+          "Save a Builder private key as BUILDER_PRIVATE_KEY in Settings > Secrets to index with Builder, " +
+          "or create the design system locally with create-design-system from the sources you already supplied.",
+        {
+          errorCode: "builder_design_system_oauth_unsupported",
+          statusCode: 503,
+        },
+      ),
+    );
+
+    await expect(
+      action.run({
+        githubSources: [{ repoUrl: "https://github.com/acme/ui" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "builder_design_system_oauth_unsupported",
+      statusCode: 503,
+      message: expect.stringContaining("create-design-system"),
     });
   });
 });

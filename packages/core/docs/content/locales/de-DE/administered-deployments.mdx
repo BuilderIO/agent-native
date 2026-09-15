@@ -21,6 +21,8 @@ Bei `AUTH_SIGNUP=invited` benötigt ein neues Konto eine offene Einladung, eine 
 
 Der erste angemeldete Bootstrap-Admin erstellt die kanonische Organisation und wird Eigentümer. Gibt es bereits genau eine Organisation, wird der Admin dort Eigentümer. Bei mehreren Organisationen nimmt der Bootstrap keine Auswahl vor. Konfigurieren Sie anschließend die erlaubte Domain und laden Sie das Team unter **Team settings** ein.
 
+Bei `ORG_CREATION=closed` wird die Erstellung von Organisationen verweigert, bis `AUTH_BOOTSTRAP_ADMINS` mindestens einen verifizierten Administrator enthält, der die kanonische Organisation bei seiner ersten Anmeldung erstellt.
+
 ## Unternehmensschlüssel und Rollen
 
 Ein Owner oder Admin kann einen LLM-Schlüssel für die Organisation speichern. Ein persönlicher Schlüssel hat Vorrang, bis das Mitglied den Organisationsschlüssel auswählt. App-Rollen gelten innerhalb einer App. Mitglieder können mehrere Rollen haben. Admins können code-definierte Berechtigungen Rollen zuordnen und diese Zuordnung ohne Deployment ändern.

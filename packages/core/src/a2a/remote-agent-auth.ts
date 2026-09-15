@@ -7,6 +7,7 @@ import type {
   RemoteAgentOAuthClientCredentialsAuth,
 } from "../resources/metadata.js";
 import { parseRemoteAgentUrl } from "../resources/metadata.js";
+import { workspacePrivateOrigins } from "./workspace-private-origins.js";
 
 export type RemoteAgentAuthErrorCode =
   | "credential_missing"
@@ -185,7 +186,11 @@ async function resolveClientCredentialsToken(
         body,
         signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
       },
-      { maxRedirects: 0, followRedirects: false },
+      {
+        maxRedirects: 0,
+        followRedirects: false,
+        allowedPrivateOrigins: workspacePrivateOrigins(),
+      },
     );
   } catch (cause) {
     throw new RemoteAgentAuthError({
