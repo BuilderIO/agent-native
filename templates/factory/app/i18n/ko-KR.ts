@@ -121,7 +121,10 @@ const messages = {
         stuck: "막힘",
         clean: "정상",
         ineligible: "대상 아님",
+        merged: "GitHub에서 병합됨",
         reopened: "업데이트 후 재개",
+        mergeable_as_of:
+          "머지 가능; Factory는 이 브랜치에서 Builder를 다시 ping하지 않습니다.",
       },
       slack: {
         claimed: "담당됨",
@@ -369,6 +372,9 @@ const messages = {
     auditSkipped: "{{count}}건 건너뜀",
     auditStartedCount: "{{count}}건 시작",
     auditSeenBefore: "이전에도 봄",
+    auditMergedOnGitHub: "GitHub에서 병합됨",
+    auditClosedOnGitHub: "GitHub에서 닫힘",
+    auditDraftOnGitHub: "GitHub에서 초안",
     auditNewThisRun: "신규",
     auditAlreadyStarted: "이미 시작됨",
     historyTab: "기록",

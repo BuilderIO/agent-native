@@ -27,9 +27,16 @@ import {
   readBabysitEvidence,
   readBabysitStoredState,
 } from "../server/triage/babysit-evidence.js";
+import {
+  babysitSkipSummaryForClosedPullRequest,
+  closedPullRequestKind,
+  closedPullRequestTerminalMetadataPatch,
+  terminalItemStatusForClosedPullRequest,
+} from "../server/triage/babysit-pr-terminal.js";
 import { computeBabysitRecommendation } from "../server/triage/babysit-recommendation.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import {
+  metadataNumber,
   metadataString,
   parseTriageMetadata,
   serializeTriageMetadata,
@@ -43,12 +50,14 @@ import {
   babysitOutOfScopeClause,
   babysitStuckClause,
   botReviewBodyKeys,
+  BABYSIT_COMMENT_V2,
   countFactoryBabysitComments,
   countHumanReviewBodies,
   countHumanReviewComments,
+  CURRENT_BABYSIT_COMMENT_VERSION,
   DEFAULT_BABYSIT_BOT_AUTHORS,
-  DEFAULT_BABYSIT_PR_COMMENT,
   formatBabysitAuditSummary,
+  formatBabysitMergeableAuditSummary,
   hasHumanChangesRequested,
   reconcileBabysitState,
   shouldRecordBabysitAudit,
@@ -318,18 +327,23 @@ export default defineAction({
     const now = new Date();
     const nowIso = now.toISOString();
     if (!read.open) {
+      const closedKind = closedPullRequestKind(read.summary);
+      if (!closedKind) {
+        throw new Error("Closed pull request disposition is unreadable.");
+      }
       await updateBabysitItem(
         itemId,
         orgId,
-        {
-          prBabysitState: "closed-or-draft",
-          prBabysitLastCheckedAt: nowIso,
-        },
-        { status: "needs_manual" },
+        closedPullRequestTerminalMetadataPatch(
+          closedKind,
+          nowIso,
+          read.summary,
+        ),
+        { status: terminalItemStatusForClosedPullRequest(closedKind) },
       );
-      const reason = formatBabysitAuditSummary(
+      const reason = babysitSkipSummaryForClosedPullRequest(
         item.pullRequestNumber,
-        "skipped; pull request is closed or a draft.",
+        closedKind,
       );
       await recordFactoryAudit(
         context,
@@ -346,6 +360,11 @@ export default defineAction({
             author: read.summary.userLogin,
             state: read.summary.state,
             draft: read.summary.draft,
+            merged: read.summary.merged,
+            ...(read.summary.mergedAt
+              ? { mergedAt: read.summary.mergedAt }
+              : {}),
+            terminal: closedKind,
           },
         },
         factoryId,
@@ -355,6 +374,8 @@ export default defineAction({
 
     const { summary: pullRequest, details } = read;
 
+    const metadata = parseTriageMetadata(item.metadataJson);
+    const stored = readBabysitStoredState(metadata);
     const proposal = reconcileBabysitState({
       comments: details.comments,
       checks: details.checks,
@@ -364,9 +385,9 @@ export default defineAction({
       reviewsTruncated: details.reviewsTruncated,
       failingJobLog,
       botAuthors: [...DEFAULT_BABYSIT_BOT_AUTHORS],
+      issueComments: details.issueComments,
+      lastCommentAtMs: stored.lastCommentAtMs,
     });
-    const metadata = parseTriageMetadata(item.metadataJson);
-    const stored = readBabysitStoredState(metadata);
     const previousState = stored.babysitState;
     const mechanical = babysitMechanicalVerdict({
       stored,
@@ -388,9 +409,13 @@ export default defineAction({
     });
     const consumedPendingReopen = stored.pendingReopen;
     const nextBotReviewBodyKeys = botReviewBodyKeys(details.comments);
+    const commentVersion =
+      metadataNumber(metadata, "prBabysitCommentVersion") ??
+      CURRENT_BABYSIT_COMMENT_VERSION;
     const factoryPingCount = countFactoryBabysitComments(
       details.issueComments,
       stored.factoryAuthor,
+      commentVersion,
     );
     const recommendationResult = computeBabysitRecommendation({
       proposal,
@@ -405,6 +430,7 @@ export default defineAction({
     });
     const buildAuditDetails = (overrides?: {
       veto?: string;
+      appliedAction?: string;
       pingReason?: string;
       commentUrl?: string;
     }) =>
@@ -442,7 +468,8 @@ export default defineAction({
       clause: string,
       options?: {
         status?: string;
-        veto?: BabysitPingReason;
+        veto?: BabysitPingReason | string;
+        appliedAction?: string;
         metadata?: Record<string, unknown>;
       },
     ): Promise<void> => {
@@ -462,6 +489,7 @@ export default defineAction({
             summary: formatBabysitAuditSummary(item.pullRequestNumber, clause),
             details: buildAuditDetails({
               veto: options?.veto ?? undefined,
+              appliedAction: options?.appliedAction ?? undefined,
             }),
           },
           factoryId,
@@ -517,6 +545,7 @@ export default defineAction({
             countFactoryBabysitComments(
               contendedScan.comments,
               stored.factoryAuthor,
+              commentVersion,
             ),
           )
         ) {
@@ -553,9 +582,9 @@ export default defineAction({
               itemId,
               source: "github",
               sourceUrl: item.sourceUrl,
-              summary: formatBabysitAuditSummary(
+              summary: formatBabysitMergeableAuditSummary(
                 item.pullRequestNumber,
-                "is clean; no Builder feedback request.",
+                nowIso,
               ),
               details: buildAuditDetails(),
             },
@@ -567,6 +596,7 @@ export default defineAction({
           orgId,
           {
             prBabysitState: "clean",
+            prBabysitMergeableAt: nowIso,
             prBabysitLastCheckedAt: nowIso,
             prBabysitFingerprint: fingerprint,
             ...parkedPatch,
@@ -587,6 +617,12 @@ export default defineAction({
         }
         await park("defer", babysitDeferClause(), {
           metadata: { prBabysitBuilderActiveUntil: builderActiveUntil },
+          ...(decision === "stuck"
+            ? {
+                veto: "builder-active-overrides-stuck",
+                appliedAction: "defer",
+              }
+            : {}),
         });
         return { ok: true, action: "defer" };
       }
@@ -624,6 +660,7 @@ export default defineAction({
           countFactoryBabysitComments(
             preClaimScan.comments,
             stored.factoryAuthor,
+            commentVersion,
           ),
         )
       ) {
@@ -636,7 +673,11 @@ export default defineAction({
       }
       if (
         shouldVetoDuplicate(
-          countFactoryBabysitComments(finalScan.comments, stored.factoryAuthor),
+          countFactoryBabysitComments(
+            finalScan.comments,
+            stored.factoryAuthor,
+            commentVersion,
+          ),
         )
       ) {
         return vetoHeldPing("duplicate-comment");
@@ -645,7 +686,7 @@ export default defineAction({
       const comment = await github.createIssueComment(
         repository,
         pullRequestNumber,
-        DEFAULT_BABYSIT_PR_COMMENT,
+        BABYSIT_COMMENT_V2,
       );
       // Persist comment identity before audit so a failed audit write cannot
       // lose the Factory author/head metadata retries need for duplicate veto.
@@ -657,6 +698,7 @@ export default defineAction({
         prBabysitLastCommentUrl: comment.htmlUrl,
         prBabysitLastPingHeadSha: pullRequest.headSha,
         prBabysitFactoryAuthor: comment.author,
+        prBabysitCommentVersion: CURRENT_BABYSIT_COMMENT_VERSION,
         ...parkedPatch,
       });
       await recordFactoryAudit(

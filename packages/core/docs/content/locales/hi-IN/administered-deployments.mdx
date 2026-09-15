@@ -21,6 +21,8 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 पहला sign-in करने वाला bootstrap admin canonical org बनाकर उसका owner बनता है। यदि एक org पहले से है, तो admin उसका owner बनेगा। कई org होने पर सिस्टम चुनाव नहीं करता। फिर Team settings में allowed domain सेट करें और बाकी लोगों को आमंत्रित करें।
 
+`ORG_CREATION=closed` होने पर organization creation तब तक अस्वीकृत रहता है जब तक `AUTH_BOOTSTRAP_ADMINS` में कम से कम एक verified administrator सूचीबद्ध न हो, जो अपने पहले sign-in पर canonical organization बनाता है।
+
 ## कंपनी की keys और roles
 
 Owner या admin org के लिए LLM key सहेज सकता है। सदस्य के personal key को हटाकर org key चुना जा सकता है। App roles एक app के भीतर लागू होते हैं और एक सदस्य के कई roles हो सकते हैं। Admin बिना redeploy किए code-declared permissions को roles से जोड़ सकता है।
