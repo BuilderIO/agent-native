@@ -90,6 +90,7 @@ import { createProgressHandler } from "../progress/routes.js";
 import {
   parseRemoteAgentAuth,
   parseRemoteAgentUrl,
+  type RemoteAgentAuth,
 } from "../resources/metadata.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
@@ -1714,6 +1715,42 @@ export function stripRemoteAgentAuth<T extends { auth?: unknown }>(
   return publicAgent;
 }
 
+/** Credentialed probes may only replay a saved, access-scoped connection. */
+export function matchesSavedHostedAgentProbe(
+  agent: { url: string; cardUrl?: string; auth?: RemoteAgentAuth },
+  requested: { url: string; cardUrl?: string; auth: RemoteAgentAuth },
+): boolean {
+  if (!agent.auth) return false;
+  const normalize = (value: string) =>
+    parseRemoteAgentUrl(value, { allowLoopbackHttp: true }) ?? value.trim();
+  const savedCardUrl =
+    agent.cardUrl ??
+    `${agent.url.replace(/\/$/, "")}/.well-known/agent-card.json`;
+  const requestedCardUrl =
+    requested.cardUrl ??
+    `${requested.url.replace(/\/$/, "")}/.well-known/agent-card.json`;
+  if (
+    normalize(agent.url) !== normalize(requested.url) ||
+    normalize(savedCardUrl) !== normalize(requestedCardUrl) ||
+    agent.auth.type !== requested.auth.type
+  ) {
+    return false;
+  }
+  if (agent.auth.type === "bearer") {
+    return (
+      requested.auth.type === "bearer" &&
+      agent.auth.credentialRef === requested.auth.credentialRef
+    );
+  }
+  return (
+    requested.auth.type === "oauth-client-credentials" &&
+    agent.auth.tokenUrl === requested.auth.tokenUrl &&
+    agent.auth.clientId === requested.auth.clientId &&
+    agent.auth.clientSecretRef === requested.auth.clientSecretRef &&
+    agent.auth.scope === requested.auth.scope
+  );
+}
+
 export function getBuilderConnectErrorDisposition(
   error: unknown,
   connectAttemptId: string | null,
@@ -2588,15 +2625,41 @@ export function createCoreRoutesPlugin(
                 }
               }
 
-              const result = await probePeerAgent({
-                id: "probe",
-                name: urlParam,
-                description: "",
-                url: urlParam,
-                color: "",
-                ...(cardUrl ? { cardUrl } : {}),
-                ...(auth ? { auth } : {}),
-              });
+              if (auth) {
+                const { discoverAgents } = await import("./agent-discovery.js");
+                const savedAgents = await discoverAgents(
+                  query.get("selfAppId") ?? undefined,
+                );
+                if (
+                  !savedAgents.some((agent) =>
+                    matchesSavedHostedAgentProbe(agent, {
+                      url: urlParam,
+                      ...(cardUrl ? { cardUrl } : {}),
+                      auth,
+                    }),
+                  )
+                ) {
+                  setResponseStatus(event, 403);
+                  return {
+                    error:
+                      "Credentialed probes require a saved hosted-agent connection.",
+                  };
+                }
+              }
+
+              const result = await probePeerAgent(
+                {
+                  id: "probe",
+                  name: urlParam,
+                  description: "",
+                  url: urlParam,
+                  color: "",
+                  ...(cardUrl ? { cardUrl } : {}),
+                  ...(auth ? { auth } : {}),
+                },
+                undefined,
+                { verifyAuth: auth !== undefined },
+              );
 
               // Reachability and auth are independent, but a malformed/SSRF-blocked
               // URL is a caller input error, not a peer that failed to answer — the

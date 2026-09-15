@@ -47,6 +47,7 @@ describe("call-agent hosted A2A fixture", () => {
     method?: string;
     authorization?: string;
   }> = [];
+  const wireMessages: Array<Record<string, unknown>> = [];
 
   beforeAll(async () => {
     server = createServer((request, response) => {
@@ -107,7 +108,26 @@ describe("call-agent hosted A2A fixture", () => {
           const parsed = JSON.parse(body) as {
             id: string | number;
             method: string;
+            params?: {
+              message?: {
+                messageId?: string;
+                role?: string;
+                parts?: Array<{ text?: string }>;
+              };
+            };
           };
+          wireMessages.push(parsed as unknown as Record<string, unknown>);
+          if (parsed.method === "GetTask") {
+            response.writeHead(200, { "content-type": "application/json" }).end(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: parsed.id,
+                error: { code: -32001, message: "Task not found" },
+              }),
+            );
+            return;
+          }
+          expect(parsed.method).toBe("SendMessage");
           response.writeHead(200, { "content-type": "application/json" }).end(
             JSON.stringify({
               jsonrpc: "2.0",
@@ -116,11 +136,11 @@ describe("call-agent hosted A2A fixture", () => {
                 task: {
                   id: "fixture-task",
                   status: {
-                    state: "completed",
+                    state: "TASK_STATE_COMPLETED",
                     timestamp: new Date().toISOString(),
                     message: {
-                      role: "agent",
-                      parts: [{ type: "text", text: "fixture answer" }],
+                      role: "ROLE_AGENT",
+                      parts: [{ text: "fixture answer" }],
                     },
                   },
                 },
@@ -156,6 +176,7 @@ describe("call-agent hosted A2A fixture", () => {
 
   beforeEach(() => {
     requests.length = 0;
+    wireMessages.length = 0;
     cardMode = "jsonrpc";
     clearA2ACardCache();
     _resetCapabilityCacheForTests();
@@ -177,6 +198,17 @@ describe("call-agent hosted A2A fixture", () => {
     await expect(run({ agent: "fixture", message: "hello" })).resolves.toBe(
       "fixture answer",
     );
+
+    expect(wireMessages[0]).toMatchObject({
+      method: "SendMessage",
+      params: {
+        message: {
+          role: "ROLE_USER",
+          parts: [{ text: expect.stringContaining("hello") }],
+          messageId: expect.any(String),
+        },
+      },
+    });
 
     expect(requests.map((request) => request.path)).toEqual([
       "/custom-card",

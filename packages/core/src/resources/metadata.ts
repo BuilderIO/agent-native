@@ -279,8 +279,8 @@ export function parseRemoteAgentManifest(
       typeof data.id === "string" && data.id.trim()
         ? data.id.trim()
         : getRemoteAgentIdFromPath(path);
-    const url = typeof data.url === "string" ? data.url.trim() : "";
-    if (!url) return null;
+    const rawUrl = typeof data.url === "string" ? data.url.trim() : "";
+    if (!rawUrl || !parseRemoteAgentUrl(rawUrl)) return null;
 
     const cardUrl = parseRemoteAgentUrl(data.cardUrl);
     if (data.cardUrl !== undefined && data.cardUrl !== null && !cardUrl) {
@@ -289,6 +289,20 @@ export function parseRemoteAgentManifest(
 
     const auth = parseRemoteAgentAuth(data.auth);
     if (data.auth !== undefined && data.auth !== null && !auth) return null;
+    if (
+      auth &&
+      (!parseRemoteAgentUrl(rawUrl, {
+        allowLoopbackHttp: true,
+        requireHttps: true,
+      }) ||
+        (cardUrl &&
+          !parseRemoteAgentUrl(cardUrl, {
+            allowLoopbackHttp: true,
+            requireHttps: true,
+          })))
+    ) {
+      return null;
+    }
 
     return {
       id,
@@ -298,7 +312,7 @@ export function parseRemoteAgentManifest(
           ? data.name.trim()
           : id,
       description: typeof data.description === "string" ? data.description : "",
-      url,
+      url: rawUrl,
       color:
         typeof data.color === "string" && data.color.trim()
           ? data.color.trim()
@@ -312,11 +326,20 @@ export function parseRemoteAgentManifest(
   }
 }
 
-export function parseRemoteAgentUrl(value: unknown): string | undefined {
+export function parseRemoteAgentUrl(
+  value: unknown,
+  options?: { allowLoopbackHttp?: boolean; requireHttps?: boolean },
+): string | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
   try {
     const url = new URL(value.trim());
     if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (url.username || url.password) return undefined;
+    if (options?.requireHttps && url.protocol !== "https:") {
+      const loopbackHttp =
+        options.allowLoopbackHttp === true && isLoopbackHostname(url.hostname);
+      if (!loopbackHttp) return undefined;
+    }
     return url.toString();
   } catch {
     // coercion-ok: an invalid URL is the typed absent result for optional manifest fields.
@@ -339,7 +362,7 @@ export function parseRemoteAgentAuth(
   }
 
   if (auth.type === "oauth-client-credentials") {
-    const tokenUrl = parseRemoteAgentUrl(auth.tokenUrl);
+    const tokenUrl = parseRemoteAgentUrl(auth.tokenUrl, { requireHttps: true });
     const clientId =
       typeof auth.clientId === "string" ? auth.clientId.trim() : "";
     const clientSecretRef =
@@ -361,4 +384,15 @@ export function parseRemoteAgentAuth(
   }
 
   return undefined;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized === "[::1]" ||
+    normalized === "::1" ||
+    normalized === "127.0.0.1" ||
+    normalized.startsWith("127.")
+  );
 }

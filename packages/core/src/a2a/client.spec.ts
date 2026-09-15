@@ -1884,6 +1884,7 @@ describe("A2AClient", () => {
                 url: "https://agent.test/foundry/jsonrpc",
                 protocolBinding: "JSONRPC",
                 protocolVersion: "1.0",
+                tenant: "foundry-tenant",
               },
             ],
           }),
@@ -1894,12 +1895,38 @@ describe("A2AClient", () => {
       expect(new Headers(init.headers).get("A2A-Version")).toBe("1.0");
       const body = JSON.parse(String(init.body));
       expect(body.method).toBe("SendMessage");
-      return completedResponse(body, "v1 response");
+      expect(body.params).toMatchObject({
+        tenant: "foundry-tenant",
+        message: {
+          role: "ROLE_USER",
+          parts: [{ text: "hello" }],
+          messageId: expect.any(String),
+        },
+      });
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            task: {
+              id: "v1-task",
+              status: {
+                state: "TASK_STATE_COMPLETED",
+                message: {
+                  role: "ROLE_AGENT",
+                  parts: [{ text: "v1 response" }],
+                },
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      new A2AClient("https://agent.test", undefined, {
+      new A2AClient("https://agent.test/a2a", undefined, {
         cardUrl: "https://agent.test/discovery/card.json",
       }).send({
         role: "user",

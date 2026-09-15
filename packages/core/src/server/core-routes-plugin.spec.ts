@@ -35,6 +35,7 @@ import {
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
   mountApplicationStateRoutes,
+  matchesSavedHostedAgentProbe,
   stripRemoteAgentAuth,
 } from "./core-routes-plugin.js";
 import type { H3AppShim } from "./framework-request-handler.js";
@@ -82,6 +83,43 @@ describe("public remote-agent discovery", () => {
       cardUrl: "https://agent.example.test/card",
     });
     expect("auth" in publicAgent).toBe(false);
+  });
+});
+
+describe("hosted-agent probes", () => {
+  it("only accepts credentials for the matching saved connection", () => {
+    const auth = {
+      type: "bearer" as const,
+      credentialRef: "FOUNDRY_TOKEN",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://attacker.example.test",
+          cardUrl: "https://attacker.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(false);
   });
 });
 

@@ -4,6 +4,7 @@ import type {
   RemoteAgentAuth,
   RemoteAgentOAuthClientCredentialsAuth,
 } from "../resources/metadata.js";
+import { parseRemoteAgentUrl } from "../resources/metadata.js";
 
 export type RemoteAgentAuthErrorCode =
   | "credential_missing"
@@ -255,16 +256,11 @@ async function resolveClientCredentialsToken(
 }
 
 function validateTokenUrl(value: string): string {
+  const url = parseRemoteAgentUrl(value, { requireHttps: true });
   try {
-    const url = new URL(value.trim());
-    if (
-      (url.protocol !== "http:" && url.protocol !== "https:") ||
-      url.username ||
-      url.password
-    ) {
-      throw new Error("unsupported token URL");
-    }
-    return url.toString();
+    const parsed = new URL(url ?? "");
+    if (parsed.username || parsed.password) throw new Error("credentials");
+    return parsed.toString();
   } catch (cause) {
     throw new RemoteAgentAuthError({
       code: "invalid_auth",

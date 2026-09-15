@@ -30,7 +30,10 @@ export interface PeerProbeResult {
 }
 
 export interface PeerProbeDeps {
-  loadCapabilities: (agent: DiscoveredAgent) => Promise<PeerCapabilities>;
+  loadCapabilities: (
+    agent: DiscoveredAgent,
+    options?: { authenticate?: boolean },
+  ) => Promise<PeerCapabilities>;
   resolveCallerAuth: typeof resolveA2ACallerAuth;
   createClient: (
     baseUrl: string,
@@ -61,8 +64,11 @@ const defaultPeerProbeDeps: PeerProbeDeps = {
 export async function probePeerAgent(
   agent: DiscoveredAgent,
   deps: PeerProbeDeps = defaultPeerProbeDeps,
+  options?: { verifyAuth?: boolean },
 ): Promise<PeerProbeResult> {
-  const capabilities = await deps.loadCapabilities(agent);
+  const capabilities = await deps.loadCapabilities(agent, {
+    authenticate: options?.verifyAuth !== false,
+  });
   if (capabilities.skills === null || !capabilities.card) {
     // Unreachable (includes malformed/SSRF-blocked URLs, which the caller
     // reclassifies into a 400 by checking for the "SSRF blocked:" prefix).
@@ -92,6 +98,7 @@ export async function probePeerAgent(
   };
 
   if (capabilities.cardStatus === "no-json-rpc") return result;
+  if (options?.verifyAuth === false) return result;
 
   const auth = agent.auth ? undefined : await deps.resolveCallerAuth();
   let apiKey: string | undefined;

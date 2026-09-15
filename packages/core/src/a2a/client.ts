@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import * as jose from "jose";
 
@@ -20,9 +20,11 @@ import type {
   A2AReadOnlyActionResult,
   AgentCard,
   A2AProtocolVersion,
+  Artifact,
   JsonRpcRequest,
   JsonRpcResponse,
   Message,
+  Part,
   Task,
 } from "./types.js";
 
@@ -323,7 +325,6 @@ export class A2AClient {
     this.baseUrl = explicitEndpoint?.baseUrl ?? normalized;
     if (explicitEndpoint) {
       this.endpointCandidates = [{ url: explicitEndpoint.endpointUrl }];
-      this.endpointResolved = true;
     }
     this.apiKey = apiKey;
     this.apiKeyAttempts = uniqueAuthTokens([
@@ -341,6 +342,7 @@ export class A2AClient {
     this.cardUrl = configuredCardUrl
       ? (normalizeUrl(configuredCardUrl, this.baseUrl) ?? configuredCardUrl)
       : undefined;
+    this.endpointResolved = Boolean(explicitEndpoint && !this.cardUrl);
     this.protocolVersion = options?.protocolVersion ?? options?.a2aVersion;
   }
 
@@ -445,7 +447,12 @@ export class A2AClient {
         jsonrpc: "2.0",
         id: requestId,
         method: a2aWireMethod(method, candidate.protocolVersion),
-        params: a2aWireParams(method, params, candidate.protocolVersion),
+        params: a2aWireParams(
+          method,
+          params,
+          candidate.protocolVersion,
+          candidate.tenant,
+        ),
       };
       for (let i = 0; i < this.apiKeyAttempts.length; i++) {
         const maxAttempts = isRetrySafeA2ARpc(
@@ -578,7 +585,14 @@ export class A2AClient {
       options?.cardUrl ??
       this.cardUrl ??
       `${this.baseUrl}/.well-known/agent-card.json`;
-    const cacheKey = `${cardUrl}\u0000${options?.token ? "authenticated" : "anonymous"}`;
+    const cacheScope = options?.token
+      ? createHash("sha256")
+          .update(
+            `${getRequestContext()?.userEmail ?? ""}\u0000${getRequestContext()?.orgId ?? ""}\u0000${options.token}`,
+          )
+          .digest("hex")
+      : "anonymous";
+    const cacheKey = `${cardUrl}\u0000${cacheScope}`;
     const cached = agentCardCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.card;
     const inFlight = agentCardRequests.get(cacheKey);
@@ -615,9 +629,9 @@ export class A2AClient {
         headers,
       },
       {
-        maxRedirects: 3,
+        maxRedirects: options?.token ? 0 : 3,
         allowedPrivateOrigins: workspacePrivateOrigins(),
-        ...(headers["x-vercel-protection-bypass"]
+        ...(options?.token || headers["x-vercel-protection-bypass"]
           ? { followRedirects: false }
           : {}),
       },
@@ -899,6 +913,7 @@ export class A2AClient {
           "message/stream",
           params,
           candidate.protocolVersion,
+          candidate.tenant,
         ),
       };
       for (let i = 0; i < this.apiKeyAttempts.length; i++) {
@@ -1050,8 +1065,11 @@ export class A2AClient {
     if (this.endpointResolved) return;
     this.endpointResolved = true;
 
-    const candidates: A2AEndpointCandidate[] = [];
-    addDefaultEndpointCandidates(candidates, this.baseUrl);
+    const candidates: A2AEndpointCandidate[] = this.endpointCandidates.length
+      ? [...this.endpointCandidates]
+      : [];
+    if (candidates.length === 0)
+      addDefaultEndpointCandidates(candidates, this.baseUrl);
 
     try {
       const card = await this.getAgentCard({
@@ -1336,17 +1354,69 @@ function a2aWireParams(
   method: string,
   params: Record<string, unknown>,
   protocolVersion?: A2AProtocolVersion,
+  tenant?: string,
 ): Record<string, unknown> {
-  if (!protocolVersion?.startsWith("1.") || method !== "message/send") {
+  if (!protocolVersion?.startsWith("1.")) {
     return params;
   }
-  if (params.async !== true) return params;
-  const { async: _async, ...rest } = params;
-  const configuration = isRecord(rest.configuration) ? rest.configuration : {};
-  return {
+  const { async: _async, contextId, message, ...rest } = params;
+  const wireParams: Record<string, unknown> = {
     ...rest,
-    configuration: { ...configuration, returnImmediately: true },
+    ...(tenant ? { tenant } : {}),
   };
+  if (message !== undefined) {
+    wireParams.message = toV1Message(message, contextId);
+  } else if (contextId !== undefined) {
+    wireParams.contextId = contextId;
+  }
+  if (method === "message/send" && params.async === true) {
+    const configuration = isRecord(wireParams.configuration)
+      ? wireParams.configuration
+      : {};
+    wireParams.configuration = { ...configuration, returnImmediately: true };
+  }
+  return wireParams;
+}
+
+function toV1Message(
+  value: unknown,
+  contextId?: unknown,
+): Record<string, unknown> {
+  const message = isRecord(value) ? value : {};
+  const parts = Array.isArray(message.parts) ? message.parts.map(toV1Part) : [];
+  return {
+    ...message,
+    messageId:
+      typeof message.messageId === "string" && message.messageId
+        ? message.messageId
+        : randomUUID(),
+    ...(contextId !== undefined && message.contextId === undefined
+      ? { contextId }
+      : {}),
+    role:
+      message.role === "user"
+        ? "ROLE_USER"
+        : message.role === "agent"
+          ? "ROLE_AGENT"
+          : message.role,
+    parts,
+  };
+}
+
+function toV1Part(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const { type, file, ...rest } = value;
+  if (type === "text") return rest;
+  if (type === "file" && isRecord(file)) {
+    const { bytes, uri, name, mimeType } = file;
+    return {
+      ...(bytes ? { raw: bytes } : uri ? { url: uri } : {}),
+      ...(name ? { filename: name } : {}),
+      ...(mimeType ? { mediaType: mimeType } : {}),
+    };
+  }
+  if (type === "data") return { data: value.data };
+  return rest;
 }
 
 function parseJsonRpcResponse(text: string, url: string): JsonRpcResponse {
@@ -1437,9 +1507,41 @@ function normalizeA2ATaskResult(
       id,
       status: {
         state: "completed",
-        message: value.message as unknown as Message,
+        message: normalizeA2AMessage(value.message),
         timestamp: new Date().toISOString(),
       },
+    };
+  }
+  if (isRecord(value) && isRecord(value.statusUpdate)) {
+    const update = value.statusUpdate;
+    if (typeof update.taskId !== "string" || !isRecord(update.status)) {
+      throw new A2AJsonRpcResponseError(
+        "A2A status update is missing a task id or status",
+      );
+    }
+    return normalizeA2ATask({
+      id: update.taskId,
+      status: update.status,
+    });
+  }
+  if (isRecord(value) && isRecord(value.artifactUpdate)) {
+    const update = value.artifactUpdate;
+    if (
+      typeof update.taskId !== "string" ||
+      !isRecord(update.artifact) ||
+      !Array.isArray(update.artifact.parts)
+    ) {
+      throw new A2AJsonRpcResponseError(
+        "A2A artifact update is missing a task id or artifact",
+      );
+    }
+    return {
+      id: update.taskId,
+      status: {
+        state: "working",
+        timestamp: new Date().toISOString(),
+      },
+      artifacts: [normalizeA2AArtifact(update.artifact)],
     };
   }
   throw new A2AJsonRpcResponseError(
@@ -1452,11 +1554,95 @@ function normalizeA2ATask(value: Record<string, unknown>): Task {
   const state = normalizeA2ATaskState(status.state);
   return {
     ...(value as unknown as Task),
+    ...(Array.isArray(value.history)
+      ? { history: value.history.map(normalizeA2AMessage) }
+      : {}),
+    ...(Array.isArray(value.artifacts)
+      ? { artifacts: value.artifacts.map(normalizeA2AArtifact) }
+      : {}),
     status: {
       ...(status as unknown as Task["status"]),
       state,
+      ...(isRecord(status.message)
+        ? { message: normalizeA2AMessage(status.message) }
+        : {}),
     },
   };
+}
+
+function normalizeA2AMessage(value: Record<string, unknown>): Message {
+  const role = value.role;
+  return {
+    ...(value as unknown as Message),
+    role:
+      role === "ROLE_USER" || role === "user"
+        ? "user"
+        : role === "ROLE_AGENT" || role === "agent"
+          ? "agent"
+          : "agent",
+    parts: Array.isArray(value.parts)
+      ? value.parts.map(normalizeA2APart)
+      : Array.isArray(value.content)
+        ? value.content.map(normalizeA2APart)
+        : [],
+  };
+}
+
+function normalizeA2AArtifact(value: Record<string, unknown>): Artifact {
+  return {
+    ...(value as Record<string, unknown>),
+    parts: Array.isArray(value.parts) ? value.parts.map(normalizeA2APart) : [],
+  };
+}
+
+function normalizeA2APart(value: unknown): Part {
+  if (!isRecord(value)) return { type: "text" as const, text: "" };
+  if (value.type === "text" && typeof value.text === "string") {
+    return { type: "text", text: value.text };
+  }
+  if (value.type === "file" && isRecord(value.file)) {
+    return {
+      type: "file",
+      file: {
+        ...(typeof value.file.name === "string"
+          ? { name: value.file.name }
+          : {}),
+        ...(typeof value.file.mimeType === "string"
+          ? { mimeType: value.file.mimeType }
+          : {}),
+        ...(typeof value.file.bytes === "string"
+          ? { bytes: value.file.bytes }
+          : {}),
+        ...(typeof value.file.uri === "string" ? { uri: value.file.uri } : {}),
+      },
+    };
+  }
+  if (value.type === "data" && isRecord(value.data)) {
+    return { type: "data", data: value.data };
+  }
+  if (value.kind === "text" || typeof value.text === "string") {
+    return { type: "text" as const, text: String(value.text ?? "") };
+  }
+  if (value.kind === "file" || "raw" in value || "url" in value) {
+    return {
+      type: "file" as const,
+      file: {
+        ...(typeof value.filename === "string" ? { name: value.filename } : {}),
+        ...(typeof value.mediaType === "string"
+          ? { mimeType: value.mediaType }
+          : {}),
+        ...(typeof value.raw === "string" ? { bytes: value.raw } : {}),
+        ...(typeof value.url === "string" ? { uri: value.url } : {}),
+      },
+    };
+  }
+  if (value.kind === "data" || "data" in value) {
+    return {
+      type: "data" as const,
+      data: (value.data ?? {}) as Record<string, unknown>,
+    };
+  }
+  return { type: "text" as const, text: "" };
 }
 
 function normalizeA2ATaskState(value: unknown): Task["status"]["state"] {
@@ -1474,10 +1660,12 @@ function normalizeA2ATaskState(value: unknown): Task["status"]["state"] {
     normalized === "completed" ||
     normalized === "failed" ||
     normalized === "canceled" ||
-    normalized === "input-required"
+    normalized === "input-required" ||
+    normalized === "auth-required"
   ) {
-    return normalized;
+    return normalized === "auth-required" ? "input-required" : normalized;
   }
+  if (normalized === "rejected") return "failed";
   throw new A2AJsonRpcResponseError(
     `A2A task status has unsupported state: ${value}`,
   );
@@ -1633,12 +1821,15 @@ function safelyNotifyA2AUpdate(
 function uniqueEndpointCandidates(
   candidates: A2AEndpointCandidate[],
 ): A2AEndpointCandidate[] {
-  const seen = new Set<string>();
-  return candidates.filter((candidate) => {
-    if (seen.has(candidate.url)) return false;
-    seen.add(candidate.url);
-    return true;
-  });
+  const byUrl = new Map<string, A2AEndpointCandidate>();
+  for (const candidate of candidates) {
+    const existing = byUrl.get(candidate.url);
+    byUrl.set(
+      candidate.url,
+      existing ? { ...existing, ...candidate } : candidate,
+    );
+  }
+  return [...byUrl.values()];
 }
 
 function uniqueAuthTokens(

@@ -7,6 +7,7 @@ import {
   isSkillPath,
   isRemoteAgentPath,
   parseRemoteAgentManifest,
+  parseRemoteAgentUrl,
   remoteAgentResourcePath,
 } from "./metadata.js";
 
@@ -96,6 +97,51 @@ describe("resource metadata", () => {
         "remote-agents/invalid-oauth.json",
       ),
     ).toBeNull();
+  });
+
+  it("requires HTTPS for credential-bearing hosted URLs", () => {
+    expect(parseRemoteAgentUrl("http://agent.example.test/card")).toBe(
+      "http://agent.example.test/card",
+    );
+    expect(
+      parseRemoteAgentUrl("http://agent.example.test/card", {
+        requireHttps: true,
+        allowLoopbackHttp: true,
+      }),
+    ).toBeUndefined();
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "http://agent.example.test",
+          auth: { type: "bearer", credentialRef: "TOKEN" },
+        }),
+        "remote-agents/insecure.json",
+      ),
+    ).toBeNull();
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "https://agent.example.test",
+          auth: {
+            type: "oauth-client-credentials",
+            tokenUrl: "http://login.example.test/token",
+            clientId: "client",
+            clientSecretRef: "SECRET",
+          },
+        }),
+        "remote-agents/insecure-oauth.json",
+      ),
+    ).toBeNull();
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "http://127.0.0.1:8787",
+          cardUrl: "http://127.0.0.1:8787/card",
+          auth: { type: "bearer", credentialRef: "TOKEN" },
+        }),
+        "remote-agents/local.json",
+      ),
+    ).toMatchObject({ url: "http://127.0.0.1:8787" });
   });
 
   it("keeps markdown agents classified as local custom agents", () => {

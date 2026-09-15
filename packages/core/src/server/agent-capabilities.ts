@@ -43,7 +43,7 @@ const cardsInFlight = new Map<string, Promise<PeerCapabilities>>();
  * skills than an authenticated one — so identity has to be part of the key or
  * one caller would serve another caller's view.
  */
-function cardCacheKey(agent: DiscoveredAgent): string {
+function cardCacheKey(agent: DiscoveredAgent, authenticate = true): string {
   return [
     getRequestUserEmail() ?? "",
     getRequestOrgId() ?? "",
@@ -53,6 +53,7 @@ function cardCacheKey(agent: DiscoveredAgent): string {
     agent.auth?.type === "bearer"
       ? agent.auth.credentialRef
       : (agent.auth?.clientSecretRef ?? ""),
+    authenticate ? "authenticated" : "anonymous",
   ].join("\u0000");
 }
 
@@ -94,8 +95,10 @@ function isReadOnlySkill(skill: AgentSkill): boolean {
 
 export async function loadCapabilities(
   agent: DiscoveredAgent,
+  options?: { authenticate?: boolean },
 ): Promise<PeerCapabilities> {
-  const key = cardCacheKey(agent);
+  const authenticate = options?.authenticate !== false;
+  const key = cardCacheKey(agent, authenticate);
   const cached = cardCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   // Collapse a burst for the same peer onto one probe. Without this, the
@@ -103,7 +106,7 @@ export async function loadCapabilities(
   const inFlight = cardsInFlight.get(key);
   if (inFlight) return inFlight;
 
-  const pending = fetchCapabilities(agent)
+  const pending = fetchCapabilities(agent, authenticate)
     .then((value) => {
       cardCache.set(key, {
         value,
@@ -122,6 +125,7 @@ export async function loadCapabilities(
 
 async function fetchCapabilities(
   agent: DiscoveredAgent,
+  authenticate: boolean,
 ): Promise<PeerCapabilities> {
   try {
     // Discover as ourselves. An anonymous card lists only publicly-safe
@@ -129,12 +133,12 @@ async function fetchCapabilities(
     // unauthenticated probe reports every sibling as having no callable
     // actions and pushes the caller into open-ended delegation.
     let token: string | undefined;
-    if (agent.auth) {
+    if (authenticate && agent.auth) {
       token = await resolveRemoteAgentToken(agent.auth, {
         userEmail: getRequestUserEmail(),
         orgId: getRequestOrgId(),
       });
-    } else {
+    } else if (authenticate) {
       try {
         const { signA2AToken } = await import("../a2a/client.js");
         const email = getRequestUserEmail();
@@ -205,7 +209,9 @@ export async function loadAllCapabilities(
   for (let i = 0; i < agents.length; i += CARD_CONCURRENCY) {
     results.push(
       ...(await Promise.all(
-        agents.slice(i, i + CARD_CONCURRENCY).map(loadCapabilities),
+        agents
+          .slice(i, i + CARD_CONCURRENCY)
+          .map((agent) => loadCapabilities(agent)),
       )),
     );
   }

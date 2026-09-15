@@ -113,6 +113,17 @@ describe("peer capability card caching", () => {
     });
   });
 
+  it("supports an anonymous card probe without minting a caller token", async () => {
+    getRequestUserEmail.mockReturnValue("alice@example.com");
+
+    await loadCapabilities(PEER, { authenticate: false });
+
+    expect(signA2AToken).not.toHaveBeenCalled();
+    expect(getAgentCard).toHaveBeenCalledWith({
+      timeoutMs: expect.any(Number),
+    });
+  });
+
   it("strips an explicit A2A endpoint from the discovery audience", async () => {
     getRequestUserEmail.mockReturnValue("alice@example.com");
     const endpointPeer = {

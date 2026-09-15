@@ -552,13 +552,9 @@ function AgentAddPopover({
       const cardQuery = cardUrl.trim()
         ? `&cardUrl=${encodeURIComponent(cardUrl.trim())}`
         : "";
-      const normalizedAuth = normalizeHostedAuth(auth);
-      const authQuery = normalizedAuth
-        ? `&auth=${encodeURIComponent(JSON.stringify(normalizedAuth))}`
-        : "";
       const res = await fetch(
         agentNativePath(
-          `/_agent-native/agents/probe?url=${encodeURIComponent(trimmedUrl)}${cardQuery}${authQuery}`,
+          `/_agent-native/agents/probe?url=${encodeURIComponent(trimmedUrl)}${cardQuery}`,
         ),
       );
       const body = await res.json().catch(() => null);
@@ -580,7 +576,7 @@ function AgentAddPopover({
     } catch (err: any) {
       setCheck({ status: "error", message: err?.message ?? "Check failed" });
     }
-  }, [url, cardUrl, auth, name, description]);
+  }, [url, cardUrl, name, description]);
 
   const handleAdd = async () => {
     const trimmedName = name.trim();
