@@ -48,11 +48,10 @@ Read the relevant skill before deeper work:
   resources; persist only URLs, ids, or handles.
 - Never hardcode secrets or private/customer data; use vault/OAuth/runtime
   configuration and fake placeholders in examples.
-- For external integrations, inspect the workspace/provider connection catalog first.
+- Check workspace/provider connections before external integrations.
 - Use actions (table above) for every deck/slide write; never write rows
   directly. Read the schema when unclear.
-- Use `view-screen` before editing when the active deck, selected slide, or
-  current layout is unclear.
+- Use `view-screen` when the active deck, slide, or layout is unclear.
 - Preserve deck structure; prefer focused slide edits over regenerating decks.
 - New-deck attachments arrive pre-read; never ignore one. Import into a deck
   only on explicit request or the Import control; imports follow
@@ -113,5 +112,5 @@ Deck data lives in SQL and all writes go through server-side actions. Read
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit` and
+For common workspace or agent UI, read `agent-native-toolkit` and
 `customizing-agent-native`.
