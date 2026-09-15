@@ -29,7 +29,7 @@ export default createAgentChatPlugin({
   mcp: {
     externalAgents: { writes: "allowlisted" },
     instructions:
-      "Find documents with list-documents or search-documents; read one with get-document (pull-document for the raw markdown you will edit). Author content yourself and persist it with create-document, or edit-document for a targeted change and update-document for a full replace. For Notion or other provider data use provider-api-catalog → provider-api-docs → provider-api-request instead of guessing endpoints.",
+      "Find documents with list-documents or search-documents; read one with get-document (pull-document for the raw markdown you will edit). Author content yourself and persist it with create-document. Use revision-guarded edit-document for body changes, including initializeContent when get-document returns a literally empty body; update-document is for metadata and browser-owned rewrites. For Notion or other provider data use provider-api-catalog → provider-api-docs → provider-api-request instead of guessing endpoints.",
   },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,
