@@ -1,0 +1,160 @@
+---
+title: "行事曆：與 Agent 對話"
+description: "當您在行事曆中時代理會看到什麼、依任務整理的提示，以及它何時會改用原始的 Google Calendar API，而不是既有的 action。"
+---
+
+# 與 Agent 對話
+
+行事曆中的每一項功能，代理都能透過 UI 所使用的相同 actions 取得，所以只要是您能點選的操作，也都可以直接用簡單的文字提出請求。本頁涵蓋代理如何看到您的畫面、依任務分類的實用提示，以及它在哪些情況下會超出內建 actions 的範圍。總覽請參閱 [行事曆](/docs/template-calendar)。
+
+## 代理如何看到您的畫面
+
+代理永遠知道目前的行事曆檢視、您正在查看的日期範圍，以及您選取的活動。這就是為什麼「重新安排這個」或「這場會議有誰參加」能夠正確解析，而不需要您說出活動名稱。代理早就知道「這個」指的是哪一個。
+
+## 依任務分類的實用提示
+
+以下每個提示都會對您真實的行事曆執行一個真正的 action，就是 UI 讀寫的同一個行事曆。這裡有一個實際範例：
+
+<Comparison>
+
+### :blue: 您的提問
+
+「我週四下午有空嗎？」
+
+### :green: 發生的事
+
+這是一個唯讀問題。代理會檢查您真實的行事曆和可用性規則，然後直接在聊天中回答，例如「您從下午 1 點到 4 點有空。」畫面上什麼都不會改變，因為沒有建立或移動任何東西。
+
+</Comparison>
+
+<Cards columns={2}>
+
+### 排程
+
+- **「明天下午 2 點安排和 Alex 通話 30 分鐘。」** 活動一建立就會出現在您的
+  行事曆上，不需要任何對話框。
+- **「週四 10 點和設計團隊建立一個 Zoom 會議。」** 與上面相同，並會自動附上
+  Zoom 連結。
+- **「把我週五設為不在辦公室。」** 一個全天的不在辦公室活動會立即顯示在您的
+  行事曆上。
+
+### 尋找時段
+
+- **「下週找一個和 Sam 及 Priya 的 1 小時時段，並在上面預訂『Planning』。」**
+  代理會檢查每個人真實的可用性，然後新活動會即時出現在您的行事曆上，不需要
+  任何對話框。
+
+### 管理活動
+
+_選取一個活動後，「這個」和「這場會議」會自動解析。_
+
+- **「把這個活動移到週五下午 2 點。」** 活動會即時在您的行事曆網格上移動。
+- **「把 Jordan 加到這場會議，作為非必要來賓。」** Jordan 會立即出現在
+  與會者清單中。
+- **「接受這個邀請。」／「拒絕，並附上備註說我那天不在。」** 您的出席回覆會
+  立即在活動上更新。
+- **「只幫我刪除這場會議，我不是主辦人。」** 這場會議會從您的行事曆上消失，
+  其他與會者的行事曆上仍會看到它。
+
+### 預訂連結
+
+- **「建立一個附姓名欄位的 15 分鐘介紹預訂連結。」** 新的會議類型會即時出現
+  在您的預訂連結清單中。
+- **「把 Brent 加到我的『Steve + Brent』連結，設為必要的共同主持人。」**
+  Brent 會立即以共同主持人的身分出現，之後的時段只有在你們兩人都有空時才會
+  開放。
+- **「暫停我的『30 分鐘示範』連結。」** 這個連結會立即顯示為暫停狀態，並停止
+  接受新的預訂。
+- **「顯示我這週的預訂。」** 這是一個唯讀問題，代理會在聊天中回覆清單。
+
+### 人員和檢視
+
+- 「acme.com 的 jane 是誰？」
+- 「把 Priya 的行事曆加到我的檢視畫面。」
+- 「切換到日檢視，並跳到下週一。」
+
+</Cards>
+
+## 群組和共同主持人預訂連結
+
+當一個預訂連結設有必要的共同主持人時，代理（和 UI）只會在擁有者*和*每位共同主持人都有空時才提供時段。它會檢查所有人的行事曆，不只是擁有者的。一旦有人完成預訂，代理就會把每位共同主持人和訪客一起邀請加入建立的 Google Calendar 活動。
+
+<Diagram id="doc-block-calendar5" title="排程請求如何流動" summary="無論您是在行事曆中點選，還是向代理提出請求，相同的 actions 都會即時從 Google Calendar 讀取，並寫回同一個檢視畫面。Zoom 和人員搜尋也接入同一套流程。">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      您點選<br /><small class="diagram-muted">拖曳、工具列、快速鍵</small>
+    </div>
+    <div class="diagram-node">
+      您向代理提出請求<br /><small class="diagram-muted"
+        >「下週找一個 1 小時的時段」</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · find-a-time · search-people · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted">即時、多帳戶</small>
+    </div>
+    <div class="diagram-box">
+      Zoom<br /><small class="diagram-muted">預訂時建立會議</small>
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">預訂 · 可用性</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">行事曆檢視即時更新</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 代理何時會直接呼叫 Google Calendar API
+
+內建的 actions（`list-events`、`search-events`、`find-a-time` 等等）涵蓋了日常排程需求。有些請求需要用到 actions 沒有提供的特定 Google Calendar 端點、篩選條件或分頁模式，例如為了製作報告掃描六個月內的每一個活動，或是不常見的行事曆清單查詢。針對這些情況，代理可以直接呼叫真正的 Google Calendar API，而不是硬把答案塞進範圍較窄的 action 中。對於大規模掃描，它會把結果暫存到一個暫存資料集中，並根據精簡的摘要進行處理，而不是把數千個活動直接丟進對話中。當請求超出一般排程問題的範圍時，您通常會看到代理表示「讓我直接從 Google Calendar 取得這項資料」。
+
+## 擴充功能
+
+行事曆支援擴充功能：您或代理可以建立的小型沙盒化小工具，並將它放進應用程式中。活動詳細資訊面板底部提供一個插槽，可供擴充功能渲染，該活動的 id、標題、時間、時區、地點、與會者和帳戶都已提供給它使用。如何建立擴充功能，請參閱 [擴充功能](/docs/extensions)。
+
+## 接下來
+
+- [**行事曆**](/docs/template-calendar) — 總覽和入門步驟
+- [**功能**](/docs/template-calendar-features) — 檢視、可用性、尋找時段和預訂連結，並附上各項的設定步驟
+- [**行事曆的跨應用使用**](/docs/template-calendar-integrations) — 整合策略，以及如何連接到調度
+- [**開發者指南**](/docs/template-calendar-developers) — 每個 action、資料模型，以及如何擴充這個應用程式
+- [**擴充功能**](/docs/extensions) — 為活動詳細資訊插槽建立小工具

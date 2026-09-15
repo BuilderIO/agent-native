@@ -1,0 +1,69 @@
+---
+title: "ローカルフォルダーソース"
+description: "Markdown / MDX フォルダーを、データベースで管理される Content スペースへ接続します。"
+---
+
+# ローカルフォルダーソース
+
+Content のデータモデルは 1 つです。すべてのページは SQL に保存され、
+**スペース**に属し、そのスペースのシステムデータベース **Files** の項目に
+なります。ローカルフォルダーは Files に接続するソースであり、別のアプリ
+モードではありません。`AGENT_NATIVE_MODE` 切り替えは廃止されました。
+
+ユーザーには個人スペース、アクセス可能な組織には組織スペースがあり、個人の
+**Workspaces** カタログが表示対象を決めます。Files は通常の Content
+データベースなので、プロパティ、フィルター、並べ替え、グループ、保存ビューを
+サイドバー表示にも利用できます。
+
+## フォルダーを接続する
+
+ブラウザーまたは Agent-Native Desktop でフォルダーを選び、既存スペースへ
+接続するか、専用の非公開スペースを作成します。SQL に保存されるのは不透明な
+接続 ID、相対パス、ハッシュ、ソースメタデータのみです。絶対パス、ブラウザー
+ハンドル、ファイル本文は保存されません。
+
+ポリシーは `database_primary`、`source_primary`、
+`reviewed_bidirectional` です。同期はファイルを通常の SQL ページとして
+実体化します。両側が同時に変わった場合は上書きせず、レビュー対象の変更を
+作成します。切断してもページとローカルファイルは残ります。
+
+## リポジトリから起動
+
+```bash
+npx @agent-native/core@latest content .
+```
+
+通常のデータベース版 Content が起動し、フォルダーをソースとして登録して接続
+画面を開きます。モード用環境変数は設定しません。
+
+## 設定
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"],
+          "source": {
+            "type": "local-folder",
+            "connectionId": "local-folder:<opaque-id>",
+            "truthPolicy": "source_primary"
+          }
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+移行時は `mode: "local-files"` と `AGENT_NATIVE_MODE=local-files` を
+削除し、roots を残して `source` を追加します。frontmatter の ID は名前変更や
+移動でもページ識別を保ちます。ローカルコンポーネントと拡張機能は引き続き信頼
+されたローカルブリッジ経由で読み込まれます。

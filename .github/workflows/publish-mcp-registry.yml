@@ -1,0 +1,139 @@
+name: Publish MCP Registry servers
+
+on:
+  workflow_dispatch:
+    inputs:
+      server:
+        description: Public app slug to publish, or all
+        required: true
+        type: string
+        default: all
+
+permissions: {}
+
+concurrency:
+  group: mcp-registry-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish selected MCP servers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Require main branch
+        env:
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "MCP Registry publication is only allowed from main." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Install workspace dependencies
+        run: corepack pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Generate registry metadata
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/mcp-registry.ts --check
+          node --experimental-strip-types scripts/mcp-registry.ts --write "$RUNNER_TEMP/mcp-registry"
+
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          expected_sha256="a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/$archive" \
+            --output "$RUNNER_TEMP/mcp-publisher.tar.gz"
+          printf '%s  %s\n' "$expected_sha256" "$RUNNER_TEMP/mcp-publisher.tar.gz" \
+            | sha256sum --check --status
+          tar --extract --gzip --file "$RUNNER_TEMP/mcp-publisher.tar.gz" \
+            --directory "$RUNNER_TEMP" mcp-publisher
+          chmod +x "$RUNNER_TEMP/mcp-publisher"
+
+      - name: Validate and publish selected servers
+        env:
+          MCP_SERVER: ${{ inputs.server }}
+          MCP_PUBLISHER: ${{ runner.temp }}/mcp-publisher
+          MCP_OUTPUT_DIRECTORY: ${{ runner.temp }}/mcp-registry
+        run: |
+          set -euo pipefail
+          files=()
+          if [[ "$MCP_SERVER" == "all" ]]; then
+            while IFS= read -r file; do
+              files+=("$file")
+            done < <(find "$MCP_OUTPUT_DIRECTORY" -mindepth 2 -maxdepth 2 -name server.json -print | sort)
+          elif [[ "$MCP_SERVER" =~ ^[a-z0-9-]+$ && -f "$MCP_OUTPUT_DIRECTORY/$MCP_SERVER/server.json" ]]; then
+            files=("$MCP_OUTPUT_DIRECTORY/$MCP_SERVER/server.json")
+          else
+            echo "Unknown public app slug: $MCP_SERVER" >&2
+            exit 1
+          fi
+
+          if (( ${#files[@]} == 0 )); then
+            echo "No MCP Registry metadata files were generated." >&2
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            "$MCP_PUBLISHER" validate "$file"
+          done
+
+          registry_version_exists() {
+            local server_name="$1"
+            local server_version="$2"
+            local encoded_name encoded_version http_code
+            encoded_name="$(jq --raw-output --null-input --arg value "$server_name" '$value | @uri')"
+            encoded_version="$(jq --raw-output --null-input --arg value "$server_version" '$value | @uri')"
+            if ! http_code="$(curl --silent --show-error --location --retry 3 \
+              --output "$RUNNER_TEMP/mcp-registry-lookup.json" \
+              --write-out '%{http_code}' \
+              "https://registry.modelcontextprotocol.io/v0.1/servers/$encoded_name/versions/$encoded_version?include_deleted=true")"; then
+              echo "Registry lookup failed for $server_name@$server_version." >&2
+              exit 1
+            fi
+            case "$http_code" in
+              200) return 0 ;;
+              404) return 1 ;;
+              *)
+                echo "Unexpected Registry lookup response $http_code for $server_name@$server_version." >&2
+                cat "$RUNNER_TEMP/mcp-registry-lookup.json" >&2
+                exit 1
+                ;;
+            esac
+          }
+
+          publish_files=()
+          for file in "${files[@]}"; do
+            server_name="$(jq --raw-output '.name' "$file")"
+            server_version="$(jq --raw-output '.version' "$file")"
+            if registry_version_exists "$server_name" "$server_version"; then
+              echo "Skipping already-published $server_name@$server_version."
+            else
+              publish_files+=("$file")
+            fi
+          done
+
+          if (( ${#publish_files[@]} == 0 )); then
+            echo "All selected MCP Registry versions are already published."
+            exit 0
+          fi
+
+          "$MCP_PUBLISHER" login github-oidc
+          for file in "${publish_files[@]}"; do
+            "$MCP_PUBLISHER" publish "$file"
+          done

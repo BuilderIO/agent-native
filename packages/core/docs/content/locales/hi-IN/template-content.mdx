@@ -1,0 +1,126 @@
+---
+title: "सामग्री"
+description: "MDX के लिए ओपन-सोर्स ओब्सीडियन: स्थानीय Markdown/MDX फ़ाइलें एडिट करें, Notion-स्टाइल डेटाबेस बनाएं, और AI एजेंट के साथ लिखें।"
+---
+
+# सामग्री
+
+सामग्री MDX के लिए ओपन-सोर्स ओब्सीडियन है: एक स्थानीय-फ़ाइल-अनुकूल दस्तावेज़
+कार्यस्थान जहां एजेंट आपके लिए पेज पढ़ सकता है, लिख सकता है, पुनर्गठित कर सकता
+है, और प्रकाशित कर सकता है। कोई दस्तावेज़ खोलें और कहें "इस पैराग्राफ को अधिक
+संक्षिप्त बनाने के लिए फिर से लिखें" या "Goals, Metrics, और Risks के लिए
+उप-पेजों के साथ Q4 Planning नामक एक पेज बनाएं"। चाहे आप इसे खुद करें या एजेंट
+से कहें, परिणाम एक जैसा ही रहता है।
+
+<WireframeBlock id="doc-block-content1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+जब आप ऐप खोलेंगे, तो आपको एडिटर के बगल में एक पेज ट्री दिखाई देगा। एजेंट को हमेशा पता होता है कि आप कौन सा पेज देख रहे हैं और आपने कौन सा टेक्स्ट चुना है, इसलिए दस्तावेज़ में किए गए बदलाव हमेशा मौजूदा पेज से जुड़े रहते हैं।
+
+<Diagram id="doc-block-content2" title="एक दस्तावेज़, तीन सिंक सतहें" summary={"आप और एजेंट दोनों एक ही लाइव एडिटिंग पाइपलाइन के ज़रिए लिखते हैं। SQL कैनॉनिकल स्टोर है। स्थानीय फ़ाइलें, Notion, और Builder CMS इसके इर्द-गिर्द वैकल्पिक सिंक सतहें हैं।"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      आप टाइप करते हैं<br /><small class="diagram-muted"
+        >स्लैश मेनू, टूलबार</small
+      >
+    </div>
+    <div class="diagram-node">
+      एजेंट एडिट करता है<br /><small class="diagram-muted"
+        >edit-document find/replace</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    दस्तावेज़ (मार्कडाउन)<br /><small class="diagram-muted"
+      >कैनॉनिकल SQL स्टोर</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      स्थानीय .md / .mdx<br /><small class="diagram-muted">/local-files</small>
+    </div>
+    <div class="diagram-box">
+      Notion पेज<br /><small class="diagram-muted">खींचें · पुश</small>
+    </div>
+    <div class="diagram-box">
+      Builder CMS प्रविष्टियाँ<br /><small class="diagram-muted"
+        >खींचें · सुरक्षित पुश</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## आप इसके साथ क्या कर सकते हैं
+
+- **दस्तावेज़ लिखें और व्यवस्थित करें।** रिच टेक्स्ट एडिटिंग, असीमित रूप से नेस्टेड पेज ट्री, पसंदीदा, टिप्पणियाँ, संस्करण इतिहास, और साझाकरण। देखें [दस्तावेज़ लिखना और व्यवस्थित करना](/docs/template-content-editing)।
+- **Notion-स्टाइल डेटाबेस बनाएं।** ऐसी तालिकाएं जहां हर पंक्ति खुद एक दस्तावेज़ होती है, टाइप्ड प्रॉपर्टीज़ और टेबल/लिस्ट/गैलरी/बोर्ड/कैलेंडर/टाइमलाइन/फॉर्म व्यू के साथ। देखें [डेटाबेस, प्रॉपर्टीज़ और फॉर्म](/docs/template-content-databases)।
+- **स्ट्रक्चर्ड सबमिशन इकट्ठा करें।** किसी डेटाबेस को एक इनटेक फॉर्म में बदलें जिसमें एजेंट, Slack, या कोई अन्य ऐप सुरक्षित रूप से सबमिट कर सके। देखें [डेटाबेस, प्रॉपर्टीज़ और फॉर्म](/docs/template-content-databases)।
+- **ओब्सीडियन की तरह डिस्क पर फ़ाइलें एडिट करें**, और दस्तावेज़ों को Notion या Builder CMS के साथ सिंक में रखें। देखें [स्थानीय फ़ाइलें, Notion और Builder CMS सिंक](/docs/template-content-sync)।
+- **वास्तविक समय में सहयोग करें।** कई लोग (और एजेंट) एक-दूसरे के बदलावों को खोए बिना एक ही दस्तावेज़ को एक साथ एडिट कर सकते हैं।
+- **दस्तावेज़ साझा करें** टीम के साथियों के साथ, या उन्हें सार्वजनिक बनाएं। ये डिफ़ॉल्ट रूप से निजी होते हैं, और इनमें व्यूअर / एडिटर / एडमिन रोल्स होते हैं।
+- **एजेंट से कुछ भी पूछें**: "इस पैराग्राफ को फिर से लिखें।" "ऊपर एक TL;DR जोड़ें।" "पिछले हफ्ते के मेरे सभी मीटिंग नोट्स ढूंढें।" "Slack सबमिशन के लिए एक फॉर्म के साथ एक beta-signup डेटाबेस बनाएं।"
+
+## आरंभ करना
+
+लाइव डेमो: [content.agent-native.com](https://content.agent-native.com)।
+
+जब आप ऐप खोलते हैं, तो साइडबार में **+ नया पेज** पर क्लिक करें, उसे एक टाइटल दें, और लिखना शुरू करें। एजेंट का उपयोग करने के लिए, साइडबार में टाइप करें:
+
+- "Onboarding नाम का एक पेज बनाएं और उसके अंतर्गत तीन उप-पेज जोड़ें।"
+- "इस पैराग्राफ को अधिक संक्षिप्त बनाने के लिए फिर से लिखें।" (किसी पेज के खुले होने पर)
+- "तीन बुलेट पॉइंट्स के साथ प्राइसिंग के बारे में एक सेक्शन जोड़ें।"
+- "इस दस्तावेज़ को ऊपर एक TL;DR में सारांशित करें।"
+- "Notion से नवीनतम बदलाव खींचें।" (Notion पेज लिंक करने के बाद)
+
+टेक्स्ट सिलेक्ट करें और Cmd+I दबाएं ताकि एजेंट उस सिलेक्शन के साथ पहले से लोड होकर फोकस हो जाए। इसके बाद "इसे और प्रभावशाली बनाएं" कहने पर एजेंट ठीक उसी हिस्से पर काम करता है जिसे आपने हाइलाइट किया था।
+
+सामग्री की अपनी खुद की कॉपी स्कैफोल्ड करने के लिए:
+
+```bash
+npx @agent-native/core@latest create my-content --standalone --template content
+```
+
+बाकी सेटअप (`cd`, `pnpm install`, `pnpm dev`) और फ्रेमवर्क की बुनियादी बातों के लिए देखें [आरंभ करना](/docs/getting-started)।
+
+## आगे क्या है
+
+- [**दस्तावेज़ लिखना और व्यवस्थित करना**](/docs/template-content-editing) — एडिटर, पेज ट्री, टिप्पणियाँ, संस्करण इतिहास, और साझाकरण
+- [**डेटाबेस, प्रॉपर्टीज़ और फॉर्म**](/docs/template-content-databases) — इनलाइन डेटाबेस, प्रॉपर्टी टाइप्स, व्यूज़, एक्सटर्नल सोर्सेज़, और इनटेक फॉर्म
+- [**स्थानीय फ़ाइलें, Notion और Builder CMS सिंक**](/docs/template-content-sync) — ओब्सीडियन-स्टाइल फोल्डर वर्कफ़्लो, साथ ही Notion और Builder CMS राउंड-ट्रिप
+- [**डेवलपर गाइड**](/docs/template-content-developers) — डेटा मॉडल, एक्शन इन्वेंटरी, रूट्स, और टेम्पलेट को एक्सटेंड करने का तरीका
+- [**टेम्पलेट्स**](/docs/cloneable-saas) — Cloneable SaaS मॉडल, और शुरुआत करने के लिए बाकी सभी डोमेन टेम्पलेट्स
+- [**आरंभ करना**](/docs/getting-started) — फ्रेमवर्क की बुनियादी बातें: actions, application state, और live sync
+- [**रियल-टाइम कोलैबोरेशन**](/docs/real-time-collaboration) — Yjs पाइपलाइन जिसे दस्तावेज़ दूसरी कोलैबोरेटिव सतहों के साथ शेयर करते हैं
+- [**साझाकरण**](/docs/sharing) — शेयर-ग्रांट मॉडल जिस पर दस्तावेज़ बने हैं

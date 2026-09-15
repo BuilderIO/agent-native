@@ -1,0 +1,121 @@
+---
+title: "コンテンツ"
+description: "オープンソースの Obsidian for MDX: ローカルの Markdown/MDX ファイルを編集し、Notion スタイルのデータベースを構築し、AI エージェントと一緒に執筆します。"
+---
+
+# コンテンツ
+
+コンテンツはオープンソースの Obsidian for MDX です。ローカルファイルに親和性の高いドキュメントワークスペースで、エージェントがあなたに代わってページを読み取り、書き込み、再編成し、公開できます。ドキュメントを開いて「この段落をもっと簡潔に書き直して」と頼んだり、「目標、指標、リスクのサブページを持つ『第 4 四半期計画』というページを作成して」と頼んだりできます。自分で行っても、エージェントに頼んでも、結果は同じです。
+
+<WireframeBlock id="doc-block-content1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+アプリを開くと、エディターの横にページツリーが表示されます。エージェントは常に、あなたがどのページを見ていて、どのテキストを選択しているかを把握しているため、ドキュメントの編集は常に今開いているページに基づいて行われます。
+
+<Diagram id="doc-block-content2" title="1つのドキュメント、3つの同期サーフェス" summary={"あなたとエージェントは、どちらも同じライブ編集パイプラインを通じて書き込みます。SQL が正規のストアであり、ローカルファイル、Notion、Builder CMS はその周りにあるオプションの同期サーフェスです。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      入力する<br /><small class="diagram-muted"
+        >slash メニュー、ツールバー</small
+      >
+    </div>
+    <div class="diagram-node">
+      エージェント編集<br /><small class="diagram-muted"
+        >edit-document find/replace</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    ドキュメント (markdown)<br /><small class="diagram-muted"
+      >正規 SQL ストア</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      ローカル .md / .mdx<br /><small class="diagram-muted">/local-files</small>
+    </div>
+    <div class="diagram-box">
+      Notion ページ<br /><small class="diagram-muted">プル · プッシュ</small>
+    </div>
+    <div class="diagram-box">
+      Builder CMS エントリ<br /><small class="diagram-muted"
+        >プル · 確認付きプッシュ</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## それを使って何ができるか
+
+- **ドキュメントを作成し、整理する。** リッチテキスト編集、無限にネストできるページツリー、お気に入り、コメント、バージョン履歴、共有に対応しています。詳しくは[ドキュメントの作成と整理](/docs/template-content-editing)を参照してください。
+- **Notion スタイルのデータベースを構築する。** 各行がそれぞれ独立したドキュメントになっているテーブルで、型付きプロパティとテーブル/リスト/ギャラリー/ボード/カレンダー/タイムライン/フォームの各ビューに対応しています。詳しくは[データベース、プロパティ、フォーム](/docs/template-content-databases)を参照してください。
+- **構造化された送信内容を収集する。** データベースを、エージェントや Slack、他のアプリから安全に送信できるインテークフォームに変えられます。詳しくは[データベース、プロパティ、フォーム](/docs/template-content-databases)を参照してください。
+- **Obsidian のようにディスク上のファイルを編集し**、Notion や Builder CMS とドキュメントを同期させ続けられます。詳しくは[ローカルファイル、Notion、Builder CMS の同期](/docs/template-content-sync)を参照してください。
+- **リアルタイムで共同編集する。** 複数の人(とエージェント)が、互いの変更を上書きすることなく同時に同じドキュメントを編集できます。
+- **ドキュメントを共有する**。チームメイトと共有したり、公開したりできます。デフォルトでは非公開で、閲覧者 / 編集者 / 管理者のロールを設定できます。
+- **エージェントに何でも頼んでみましょう**。「この段落を書き直して」「先頭に TL;DR を追加して」「先週のミーティングメモを全部探して」「Slack から送信できるベータ登録用のデータベースを作成して」など。
+
+## はじめに
+
+ライブデモ: [content.agent-native.com](https://content.agent-native.com)。
+
+アプリを開いたら、サイドバーの **+ 新しいページ** をクリックしてタイトルを付け、書き始めましょう。エージェントを使うには、サイドバーに次のように入力します。
+
+- 「オンボーディングというページを作成して、その下に 3 つのサブページを追加して」
+- 「この段落をもっと簡潔に書き直して」(ページを開いた状態で)
+- 「料金についてのセクションを、3 つの箇条書きで追加して」
+- 「このドキュメントを先頭の TL;DR にまとめて」
+- 「Notion から最新の内容を取得して」(Notion ページをリンクした後)
+
+テキストを選択して Cmd+I を押すと、その選択内容があらかじめ読み込まれた状態でエージェントにフォーカスが移ります。そこで「もっとインパクトのある文章にして」と頼めば、ハイライトした部分だけに対して処理が行われます。
+
+自分用のコンテンツのコピーを作成するには:
+
+```bash
+npx @agent-native/core@latest create my-content --standalone --template content
+```
+
+残りのセットアップ手順(`cd`、`pnpm install`、`pnpm dev`)とフレームワークの基礎については、[はじめに](/docs/getting-started) を参照してください。
+
+## 次のステップ
+
+- [**ドキュメントの作成と整理**](/docs/template-content-editing) — エディター、ページツリー、コメント、バージョン履歴、共有
+- [**データベース、プロパティ、フォーム**](/docs/template-content-databases) — インラインデータベース、プロパティタイプ、ビュー、外部ソース、インテークフォーム
+- [**ローカルファイル、Notion、Builder CMS の同期**](/docs/template-content-sync) — Obsidian スタイルのフォルダーワークフローに加え、Notion および Builder CMS との往復同期
+- [**開発者ガイド**](/docs/template-content-developers) — データモデル、アクション一覧、ルート、テンプレートの拡張方法
+- [**テンプレート**](/docs/cloneable-saas) — Cloneable SaaS モデルと、出発点となるその他すべてのドメインテンプレート
+- [**はじめに**](/docs/getting-started) — アクション、アプリケーション状態、ライブ同期というフレームワークの基礎
+- [**リアルタイムコラボレーション**](/docs/real-time-collaboration) — ドキュメントが他の共同編集サーフェスと共有する Yjs パイプライン
+- [**共有**](/docs/sharing) — ドキュメントが基盤とする共有権限モデル

@@ -1,0 +1,71 @@
+---
+title: "Lokale Ordnerquellen"
+description: "Markdown- und MDX-Ordner mit den datenbankgestützten Content-Bereichen verbinden."
+---
+
+# Lokale Ordnerquellen
+
+Content verwendet nur noch ein Datenmodell: Jede Seite liegt in SQL, gehört zu
+einem **Bereich** und ist Mitglied der Systemdatenbank **Files** dieses Bereichs.
+Ein lokaler Ordner ist eine mit Files verbundene Quelle, kein zweiter App-Modus.
+Einen `AGENT_NATIVE_MODE`-Schalter gibt es nicht mehr.
+
+Jeder Benutzer erhält einen persönlichen Bereich, jede zugängliche Organisation
+einen Organisationsbereich. Der persönliche **Workspaces**-Katalog bestimmt,
+welche Bereiche erscheinen. Files ist eine normale Content-Datenbank; ihre
+Eigenschaften, Filter, Sortierungen, Gruppen und gespeicherten Ansichten können
+auch die Seitenleiste darstellen.
+
+## Ordner verbinden
+
+Wählen Sie den Ordner im Browser oder in Agent-Native Desktop. Verbinden Sie ihn
+mit einem vorhandenen Bereich oder erstellen Sie einen privaten ordnergestützten
+Bereich. SQL speichert nur die undurchsichtige Verbindungs-ID, relative Pfade,
+Hashes und Quellmetadaten — nie absoluten Pfad, Browser-Handle oder Dateitext.
+
+Verfügbar sind `database_primary`, `source_primary` und
+`reviewed_bidirectional`. Die Synchronisierung materialisiert Dateien als
+normale SQL-Seiten. Gleichzeitige Änderungen werden zur Prüfung erfasst, statt
+eine Seite zu überschreiben. Beim Trennen bleiben Seiten und Dateien erhalten.
+
+## Aus einem Repository starten
+
+```bash
+npx @agent-native/core@latest content .
+```
+
+Der Befehl startet die normale datenbankgestützte Content-App, registriert den
+Ordner als Quelle und öffnet die Verbindung — ohne Modus-Umgebungsvariable.
+
+## Konfiguration
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"],
+          "source": {
+            "type": "local-folder",
+            "connectionId": "local-folder:<opaque-id>",
+            "truthPolicy": "source_primary"
+          }
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+Zur Migration `mode: "local-files"` und
+`AGENT_NATIVE_MODE=local-files` entfernen, Roots behalten und `source`
+ergänzen. Frontmatter-IDs bewahren die Seitenidentität bei Umbenennungen und
+Verschiebungen. Lokale Komponenten und Erweiterungen verwenden weiter die
+vertrauenswürdige lokale Bridge.

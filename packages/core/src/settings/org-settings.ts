@@ -1,0 +1,96 @@
+/**
+ * Org-scoped settings helpers.
+ *
+ * Wraps the global settings store with per-org key prefixing.
+ * Keys are stored as `o:<orgId>:<key>` in the settings table.
+ *
+ * No global fallback — each org starts with a clean slate. This
+ * prevents one org's data from leaking to another.
+ */
+
+import {
+  getSetting,
+  mutateSetting,
+  putSetting,
+  deleteSetting,
+  deleteSettingsByPrefix,
+  listSettingsByPrefix,
+  type StoreWriteOptions,
+} from "./store.js";
+
+function orgKey(orgId: string, key: string): string {
+  return `o:${orgId}:${key}`;
+}
+
+const ORG_PREFIX_RE = /^o:([^:]+):(.+)$/;
+
+/** Read an org-scoped setting. Returns null if not set for this org. */
+export async function getOrgSetting(
+  orgId: string,
+  key: string,
+): Promise<Record<string, unknown> | null> {
+  return getSetting(orgKey(orgId, key));
+}
+
+/** Write an org-scoped setting. Always writes to the prefixed key. */
+export async function putOrgSetting(
+  orgId: string,
+  key: string,
+  value: Record<string, unknown>,
+  options?: StoreWriteOptions,
+): Promise<void> {
+  return putSetting(orgKey(orgId, key), value, options);
+}
+
+/** Atomically derive and persist an org-scoped setting. */
+export async function mutateOrgSetting(
+  orgId: string,
+  key: string,
+  updater: (
+    current: Record<string, unknown> | null,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  options?: StoreWriteOptions,
+): Promise<Record<string, unknown>> {
+  return mutateSetting(orgKey(orgId, key), updater, options);
+}
+
+/** Delete an org-scoped setting. */
+export async function deleteOrgSetting(
+  orgId: string,
+  key: string,
+  options?: StoreWriteOptions,
+): Promise<boolean> {
+  return deleteSetting(orgKey(orgId, key), options);
+}
+
+/** Delete every setting belonging to an org. For org deletion. */
+export async function deleteAllOrgSettings(
+  orgId: string,
+  options?: StoreWriteOptions,
+): Promise<number> {
+  return deleteSettingsByPrefix(`o:${orgId}:`, options);
+}
+
+/**
+ * List all settings keys for an org with an optional sub-prefix.
+ * Returns a map of `<key>` (without the org prefix) to value.
+ */
+export async function listOrgSettings(
+  orgId: string,
+  subPrefix?: string,
+): Promise<Record<string, Record<string, unknown>>> {
+  // Narrow in SQL, then apply the same checks as before. Reading this with
+  // `getAllSettings()` pulled and JSON-parsed every org's rows into the caller
+  // to keep one org's, putting the whole deployment's settings table on the
+  // critical path of any org-scoped list read.
+  const scoped = await listSettingsByPrefix(`o:${orgId}:${subPrefix ?? ""}`);
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const { key: fullKey, value } of scoped) {
+    const m = ORG_PREFIX_RE.exec(fullKey);
+    if (!m || m[1] !== orgId) continue;
+    const key = m[2];
+    if (subPrefix && !key.startsWith(subPrefix)) continue;
+    out[key] = value;
+  }
+  return out;
+}
