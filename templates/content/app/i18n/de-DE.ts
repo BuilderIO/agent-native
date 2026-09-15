@@ -441,6 +441,17 @@ const editor = {
     "Die gespeicherte Blockquelle kann nicht gelesen werden.",
   blocksFieldRevisionConflict:
     "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
+  reconcileConflict:
+    "Diese Seite wurde an anderer Stelle geändert. Deine Änderungen sind noch nicht gespeichert.",
+  reconcileFailed:
+    "Die neuesten Änderungen konnten nicht zusammengeführt werden. Deine Änderungen sind noch nicht gespeichert.",
+  reconcileSaveFailed:
+    "Deine Änderungen konnten nicht gespeichert werden. Prüfe sie und versuche es erneut.",
+  reconcileSaving: "Deine Änderungen werden gespeichert…",
+  reconcileReview: "Änderungen prüfen",
+  reconcileReviewStale:
+    "Die gespeicherte Version wurde erneut geändert. Prüfe vor dem Speichern den neuesten Text.",
+  reconcileRefresh: "Neueste Version prüfen",
   collabConnectingReadOnly:
     "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
   liveDocumentSaveBeforeSyncFailed:
@@ -842,6 +853,9 @@ const rawLiterals = {
     previewDraftSavedSeparately:
       "Deine Änderungen wurden als separate Seite gespeichert",
     previewDraftOpenSavedPage: "Seite öffnen",
+    previewDraftMoreOptions: "Weitere Optionen",
+    previewDraftViewFullVersions: "Vollständige Versionen anzeigen",
+    previewDraftShowChanges: "Änderungen anzeigen",
     previewDraftConflict:
       "Dieser Entwurf steht im Konflikt mit einer neueren Seitenversion. Er wurde nicht wiederhergestellt.",
     restorePreviewDraft: "Entwurf wiederherstellen",
