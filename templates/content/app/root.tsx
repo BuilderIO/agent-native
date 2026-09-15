@@ -562,6 +562,16 @@ function ContentCommandMenu({
   );
 }
 
+function shouldHandleEditorCommandMenuShortcut(event: KeyboardEvent) {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target?.closest(".notion-editor")) return true;
+
+  const selection = window.getSelection();
+  return (
+    !selection || selection.isCollapsed || selection.toString().length === 0
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
@@ -576,6 +586,10 @@ export default function Root() {
           : null;
       setCmdkOpen(true);
     }, []),
+    {
+      allowContentEditable: true,
+      shouldHandleContentEditable: shouldHandleEditorCommandMenuShortcut,
+    },
   );
   useEffect(() => {
     if (cmdkOpen || !commandTrigger.current) return;

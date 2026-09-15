@@ -9,6 +9,119 @@ governingArtifactRevision: content-suggested-edits-shape-r5
 
 # Content Suggested Edits parity
 
+## September 12 beta repair plan
+
+### September 13 amendment: ordinary-save reliability and recovery choices
+
+Destination: extend the existing PR #4911 on `codex/content-suggestion-beta-repairs`.
+This is a shaping amendment, not implementation or merge authorization. Preserve
+B01–B04 and all non-conflicting A/R assertions. B05 now requires the recovery
+choices below; Copy/Discard alone is insufficient. Previous handcrafted recovery
+screenshots do not establish component or end-to-end acceptance.
+
+Evidence: `update-document.ts` guards content-bearing writes against the overall
+document `updatedAt`, which also advances for title/description/icon changes.
+`DocumentEditor.tsx` retains recovery drafts against `lastSavedContentRef` and
+deletes them with exact version/title/content comparison. `PageDraftRecovery.tsx`
+restores against the original timestamp and switches to Copy/Discard on conflict.
+These are confirmed code paths, not a diagnosis of Alice's recent incidents.
+Prior recovery work in checkout 460c is a discovery lead only; verify whether its
+confirmed-save and title-preservation repairs reached the current branch/deploy.
+
+1. Establish the failing sequence before changing conflict policy. Identify the
+   deployed revision and correlate a reproduction's editor session, mutation ID,
+   origin, expected/observed page and body revisions, successful acknowledgements,
+   and draft create/delete results. Log revision/hash metadata, not document text.
+   Exercise one-tab typing, title then body edits, slow/out-of-order responses,
+   reconnect, reload and navigation; separately exercise agent/source writes.
+   Distinguish a real overlapping edit, a metadata-only revision advance, an own
+   save acknowledgement, and an already-saved leftover draft. Record a causal
+   trace and regression for each demonstrated defect.
+2. Repair the demonstrated boundary using existing save queues, body revisions,
+   typed actions, collaboration reconciliation and history. Scope conflict checks
+   to the fields actually edited; a body revision alone cannot protect a changed
+   title. Advance baselines from confirmed saves and preserve newer in-flight
+   typing. Clear only the exact acknowledged draft. Auto-reconcile identical and
+   provably disjoint changes; do not introduce a generic rich-document merge on
+   the strength of string similarity. Audit live-editor and reload recovery paths.
+3. For genuine conflicts, show rendered `Your edits` and `Saved version` with
+   differences and available time/actor context. Offer `Keep my version`,
+   `Use saved version`, and `Save mine as a separate page`; Copy is secondary.
+   Keep mine writes only the reviewed conflicting fields, guarded against the
+   displayed saved revision, and preserves displaced content in history. A new
+   intervening edit refreshes the comparison without overwriting it. Use saved
+   retains a recoverable copy of local work before releasing the draft. Saving a
+   separate page preserves title/body and returns its link without changing the
+   original. Reuse shared actions/history/renderers; preserve source write policy.
+4. Verify through the actual components and actions before considering this PR
+   ready. Add proportional independent technical review for concurrency and data
+   retention. Run affected tests, typecheck, guards and localization checks, then
+   human-qa with preferred independence and same-context-allowed custody. Capture
+   real desktop/narrow-screen states and embed exported image files in the reply.
+   No hand-built replica is evidence for the implemented interaction.
+
+Acceptance assertions (cumulative B05 refinement):
+
+- **C01:** Ordinary one-tab editing, title/body changes, navigation, reload and
+  reconnect retain all acknowledged and pending edits without false conflicts.
+- **C02:** Delayed/out-of-order own saves and metadata-only updates cannot cause
+  an unnecessary body conflict or regress a title/body baseline.
+- **C03:** A draft already confirmed saved clears exactly; a newer draft or edit
+  survives a stale acknowledgement and failed deletion.
+- **C04:** Real overlapping changes show both versions and exact differences;
+  source/actor is shown only when supported by evidence.
+- **C05:** Keep mine preserves displaced history, commits exactly once, survives
+  reload, and refuses an unseen intervening revision without losing either side.
+- **C06:** Use saved and Save separately each preserve recoverable local work;
+  the latter creates one discoverable page and leaves the original intact.
+- **C07:** Failed/offline operations remain recoverable and retryable; controls
+  acknowledge pending work, prevent duplicates, and work by keyboard on desktop
+  and narrow screens. Copy success/failure and comparison refresh are exercised.
+- **C08:** Existing suggestion creation/review and warm-peer behavior retain their
+  applicable evidence, with affected assertions rerun after shared-path changes.
+
+Product scope: existing Page title/body recovery substrate under
+`content.version.field-history` and `content.history.queryable`, plus the existing
+suggestion capabilities. This does not claim generic field history or named Page
+Versions are complete. Confirm product-impact declaration against the final diff.
+Integration remains separate from local acceptance; do not defer required local
+conflict acceptance to an unreviewed post-merge rollout.
+
+This follow-up repairs the five failures in the cumulative September 12 beta QA
+checkpoint against current main. It preserves A01–A10/R01–R44, the accepted
+Escape focus behavior, and the separately triaged code-block limitation. The
+lane is `contract_repair` for `content.feature.review-changes-in-place`,
+`content.revision.suggestions`, and `content.diff.in-place`; it does not promote
+their broader generic contracts.
+
+- **B01 — supported representation:** native hard breaks and Underline save as
+  reviewable proposals and survive reload, Accept, and Reject without allowing
+  unrelated unsupported structures.
+- **B02 — whole-paragraph text deletion:** deleting exactly a paragraph's text
+  retains its empty structural location and exact comparison through save,
+  reload, Accept, and Reject. Paragraph-boundary deletion remains distinct.
+- **B03 — actual-agent contract:** the documented typed agent action creates an
+  attributable pending suggestion on its first valid attempt, with canonical
+  isolation and idempotency. Current main's `suggest-document-edit` is the
+  candidate repair and must be verified rather than duplicated.
+- **B04 — warm-peer convergence:** Accept and Reject remove pending controls in
+  two already-open clients without reload; accepted text appears once and a
+  later ordinary peer edit persists. Current main's targeted action-query
+  invalidation is the candidate repair and must be verified rather than
+  replaced with polling.
+- **B05 — conflict recovery:** a stale draft restore presents the typed revision
+  conflict explicitly, retains and allows copying the exact draft, and permits
+  explicit discard without silently rebasing over newer canonical content.
+
+Start with focused regressions, then run affected Content adapter/database,
+editor, shared Action, synchronization and recovery suites plus typecheck,
+build, guards, product-impact checks, localization guards and an independent
+technical review. Final owning-task human QA uses a disposable page, an actual
+agent, two warm peers, desktop/mobile keyboard paths, reload and recovery. A
+ready follow-up PR requires B01–B05 on its final revision. Beta is fixed only
+after an authorized merge/deploy and a separate replay on the verified build;
+local proof or deployment smoke alone is not beta acceptance.
+
 ## September 10 landing decision
 
 Alice tested the integrated editor, accepted the current behavior, and explicitly authorized landing and merging this PR. She separately accepted the known saved code-block preview/anchor failure for this release and confirmed that its follow-up is already triaged in the vault. Do not reopen that repair as part of landing. This supersedes the September 9 no-merge instruction and H8's code-block merge gate, not the recorded failure or the broader product contract.

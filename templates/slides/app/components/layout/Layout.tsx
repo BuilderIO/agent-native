@@ -11,7 +11,10 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
@@ -63,6 +66,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -306,7 +310,7 @@ export function Layout({ children }: LayoutProps) {
               <GoogleDriveConnectionCta
                 active={extractGoogleSlidesUrls(composerText).length > 0}
               />
-              <CreativeContextComposerChip />
+              {creativeContextEnabled ? <CreativeContextComposerChip /> : null}
             </>
           }
         >

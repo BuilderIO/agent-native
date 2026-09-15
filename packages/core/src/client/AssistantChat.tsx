@@ -49,7 +49,11 @@ import React, {
   useImperativeHandle,
 } from "react";
 
-import type { AgentChatAttachment } from "../agent/types.js";
+import {
+  normalizeAgentActionScope,
+  type AgentActionScope,
+  type AgentChatAttachment,
+} from "../agent/types.js";
 import { createPollEngine } from "../shared/poll-engine.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { ThinkingDisplay } from "../shared/thinking-display.js";
@@ -69,6 +73,7 @@ import {
 import {
   activeRunLooksAlive,
   createAgentChatAdapter,
+  generateAgentChatTurnId,
   hasInFlightToolCall,
   type AgentChatSurfaceKind,
 } from "./agent-chat-adapter.js";
@@ -209,7 +214,10 @@ import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
-import { isProviderAuthenticationError } from "./error-format.js";
+import {
+  isCreditsLimitErrorCode,
+  isProviderAuthenticationError,
+} from "./error-format.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -317,6 +325,7 @@ export interface AssistantChatSendOptions {
   submitMessageId?: string;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
+  actionScope?: AgentActionScope;
 }
 
 export function createUserMessageRunConfig(
@@ -334,6 +343,7 @@ export function createUserMessageRunConfig(
   },
   turnId?: string,
   usageLabel?: string,
+  actionScope?: AgentActionScope,
 ) {
   const custom: {
     references?: Reference[];
@@ -346,6 +356,7 @@ export function createUserMessageRunConfig(
     effort?: ReasoningEffort;
     turnId?: string;
     usageLabel?: string;
+    actionScope?: AgentActionScope;
   } = {};
   if (modelSnapshot?.model) custom.model = modelSnapshot.model;
   if (modelSnapshot?.engine) custom.engine = modelSnapshot.engine;
@@ -371,6 +382,9 @@ export function createUserMessageRunConfig(
   if (usageLabel) {
     custom.usageLabel = usageLabel;
   }
+  if (actionScope) {
+    custom.actionScope = actionScope;
+  }
   const options: {
     runConfig?: { custom: typeof custom };
     metadata?: {
@@ -378,13 +392,21 @@ export function createUserMessageRunConfig(
         agentNativeRecoveryAction?: AgentRecoveryAction;
         agentNativeHiddenUserMessage?: boolean;
         agentNativeQueuedMessageId?: string;
+        turnId?: string;
+        actionScope?: AgentActionScope;
       };
     };
   } = {};
   if (Object.keys(custom).length > 0) {
     options.runConfig = { custom };
   }
-  if (recoveryAction || hideUserMessage || queuedMessageId) {
+  if (
+    recoveryAction ||
+    hideUserMessage ||
+    queuedMessageId ||
+    turnId ||
+    actionScope
+  ) {
     options.metadata = {
       custom: {
         ...(recoveryAction
@@ -394,6 +416,8 @@ export function createUserMessageRunConfig(
         ...(queuedMessageId
           ? { agentNativeQueuedMessageId: queuedMessageId }
           : {}),
+        ...(turnId ? { turnId } : {}),
+        ...(actionScope ? { actionScope } : {}),
       },
     };
   }
@@ -1561,6 +1585,76 @@ const RECOVERY_USER_MESSAGE_PREFIXES = [
   "Retry the previous request from a clean approach",
 ];
 
+function protocolMessageCustomMetadata(
+  message: unknown,
+): Record<string, unknown> | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata;
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const custom = (metadata as { custom?: unknown }).custom;
+  return custom && typeof custom === "object"
+    ? (custom as Record<string, unknown>)
+    : undefined;
+}
+
+function protocolMessageTurnId(message: unknown): string | undefined {
+  const turnId = protocolMessageCustomMetadata(message)?.turnId;
+  return typeof turnId === "string" && turnId ? turnId : undefined;
+}
+
+export function protocolContinuationContext(
+  messages: readonly unknown[],
+  turnId: string | undefined,
+): { turnId?: string; actionScope?: AgentActionScope } {
+  if (!turnId) return {};
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (protocolMessageTurnId(message) !== turnId) continue;
+    const custom = protocolMessageCustomMetadata(message);
+    if (!custom || !Object.hasOwn(custom, "actionScope")) continue;
+    return {
+      turnId,
+      actionScope: normalizeAgentActionScope(custom.actionScope),
+    };
+  }
+  return { turnId };
+}
+
+export function latestProtocolContinuationContext(
+  messages: readonly unknown[],
+): { turnId?: string; actionScope?: AgentActionScope } {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const turnId = protocolMessageTurnId(messages[index]);
+    if (turnId) return protocolContinuationContext(messages, turnId);
+  }
+  return {};
+}
+
+export function approvalProtocolContinuationContext(
+  messages: readonly unknown[],
+  approvalKey: string,
+): { turnId?: string; actionScope?: AgentActionScope } {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as { role?: unknown; content?: unknown };
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) {
+      continue;
+    }
+    const hasApproval = message.content.some((part) => {
+      if (!part || typeof part !== "object") return false;
+      const approval = (part as { approval?: unknown }).approval;
+      return (
+        approval !== null &&
+        typeof approval === "object" &&
+        (approval as { approvalKey?: unknown }).approvalKey === approvalKey
+      );
+    });
+    if (!hasApproval) continue;
+    const turnId = protocolMessageTurnId(message);
+    if (turnId) return protocolContinuationContext(messages, turnId);
+    return latestProtocolContinuationContext(messages.slice(0, index + 1));
+  }
+  return {};
+}
+
 function getRecoveryActionMetadata(
   message: unknown,
 ): AgentRecoveryAction | null {
@@ -1846,6 +1940,7 @@ type QueuedMessage = {
   turnId?: string;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
+  actionScope?: AgentActionScope;
   /**
    * Model/engine/effort snapshotted at enqueue time, for the same reason
    * `requestMode` is: the picker is global and live, so a queue that flushes
@@ -5048,6 +5143,7 @@ const AssistantChatInner = forwardRef<
                   },
                   currentNext.turnId,
                   currentNext.usageLabel,
+                  currentNext.actionScope,
                 ).runConfig ?? {},
             });
             applyLocalQueuedMessages((prev) =>
@@ -5089,6 +5185,7 @@ const AssistantChatInner = forwardRef<
                 },
                 currentNext.turnId,
                 currentNext.usageLabel,
+                currentNext.actionScope,
               ),
             } as Parameters<typeof threadRuntime.append>[0]);
           }
@@ -5491,6 +5588,7 @@ const AssistantChatInner = forwardRef<
             },
             message.turnId,
             message.usageLabel,
+            message.actionScope,
           ),
           startRun: false,
         } as Parameters<typeof threadRuntime.append>[0]);
@@ -5534,6 +5632,7 @@ const AssistantChatInner = forwardRef<
       approvedToolCalls?: string[],
       continuationTurnId?: string,
       usageLabel?: string,
+      actionScope?: AgentActionScope,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return false;
       const stoppedRunAtSubmitStart = userStoppedRunRef.current;
@@ -5677,6 +5776,9 @@ const AssistantChatInner = forwardRef<
         engine: selectedEngine,
         effort: selectedEffort,
       };
+      const effectiveContinuationTurnId =
+        continuationTurnId ??
+        (actionScope ? generateAgentChatTurnId() : undefined);
       if (isRunning && intent === "immediate") {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
@@ -5698,8 +5800,11 @@ const AssistantChatInner = forwardRef<
             trackInRunsTray,
             hideUserMessage,
             approvedToolCalls,
-            ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(effectiveContinuationTurnId
+              ? { turnId: effectiveContinuationTurnId }
+              : {}),
             ...(usageLabel ? { usageLabel } : {}),
+            ...(actionScope ? { actionScope } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5722,8 +5827,11 @@ const AssistantChatInner = forwardRef<
             trackInRunsTray,
             hideUserMessage,
             approvedToolCalls,
-            ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(effectiveContinuationTurnId
+              ? { turnId: effectiveContinuationTurnId }
+              : {}),
             ...(usageLabel ? { usageLabel } : {}),
+            ...(actionScope ? { actionScope } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5745,8 +5853,9 @@ const AssistantChatInner = forwardRef<
               undefined,
               hideUserMessage,
               undefined,
-              continuationTurnId,
+              effectiveContinuationTurnId,
               usageLabel,
+              actionScope,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
         } catch (error) {
@@ -5800,7 +5909,27 @@ const AssistantChatInner = forwardRef<
       }
       mcpResumeTimerRef.current = window.setTimeout(() => {
         mcpResumeTimerRef.current = null;
-        void addToQueue(request.message);
+        const continuation = latestProtocolContinuationContext(
+          messagesRef.current,
+        );
+        void addToQueue(
+          request.message,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          "queued",
+          undefined,
+          false,
+          false,
+          false,
+          false,
+          undefined,
+          undefined,
+          continuation.turnId,
+          undefined,
+          continuation.actionScope,
+        );
       }, 0);
     },
     [addToQueue],
@@ -5833,6 +5962,9 @@ const AssistantChatInner = forwardRef<
       setPendingReconnectRecovery((current) =>
         current?.id === recovery.id ? null : current,
       );
+      const continuation = recovery.turnId
+        ? protocolContinuationContext(messagesRef.current, recovery.turnId)
+        : latestProtocolContinuationContext(messagesRef.current);
       void addToQueue(
         recovery.message,
         undefined,
@@ -5847,7 +5979,9 @@ const AssistantChatInner = forwardRef<
         true,
         undefined,
         undefined,
-        recovery.turnId,
+        continuation.turnId,
+        undefined,
+        continuation.actionScope,
       );
     }, 0);
     return () => window.clearTimeout(timer);
@@ -5867,12 +6001,24 @@ const AssistantChatInner = forwardRef<
   const handleImplementPlan = useCallback(() => {
     if (!canImplementPlan) return false;
     onExecModeChange?.("build");
+    const continuation = latestProtocolContinuationContext(messagesRef.current);
     void addToQueue(
       "Implement the plan.",
       undefined,
       undefined,
       undefined,
       "act",
+      "queued",
+      undefined,
+      false,
+      false,
+      false,
+      false,
+      undefined,
+      undefined,
+      continuation.turnId,
+      undefined,
+      continuation.actionScope,
     );
     return true;
   }, [addToQueue, canImplementPlan, onExecModeChange]);
@@ -5905,6 +6051,7 @@ const AssistantChatInner = forwardRef<
           undefined,
           undefined,
           options?.usageLabel,
+          options?.actionScope,
         );
       },
       implementPlan() {
@@ -5937,6 +6084,9 @@ const AssistantChatInner = forwardRef<
         recoveryAction: AgentRecoveryAction,
         images?: string[],
       ) {
+        const continuation = latestProtocolContinuationContext(
+          messagesRef.current,
+        );
         void addToQueue(
           text,
           images,
@@ -5945,6 +6095,15 @@ const AssistantChatInner = forwardRef<
           undefined,
           "queued",
           recoveryAction,
+          false,
+          false,
+          false,
+          false,
+          undefined,
+          undefined,
+          continuation.turnId,
+          undefined,
+          continuation.actionScope,
         );
       },
       queueMessage(text: string, images?: string[]) {
@@ -6092,6 +6251,10 @@ const AssistantChatInner = forwardRef<
   );
   const retryAfterRunError = useCallback(() => {
     setRunErrorInfo(null);
+    const failedTurnId = runErrorInfo?.turnId ?? lastMessageRunError?.turnId;
+    const continuation = failedTurnId
+      ? protocolContinuationContext(messagesRef.current, failedTurnId)
+      : latestProtocolContinuationContext(messagesRef.current);
     void addToQueue(
       lastUserText
         ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
@@ -6102,8 +6265,17 @@ const AssistantChatInner = forwardRef<
       undefined,
       "queued",
       "retry",
+      false,
+      false,
+      false,
+      false,
+      undefined,
+      undefined,
+      continuation.turnId,
+      undefined,
+      continuation.actionScope,
     );
-  }, [addToQueue, lastUserText]);
+  }, [addToQueue, lastMessageRunError?.turnId, lastUserText, runErrorInfo]);
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -6132,6 +6304,7 @@ const AssistantChatInner = forwardRef<
     !authError;
   const shouldShowRunError =
     !!visibleRunError &&
+    !isCreditsLimitErrorCode(visibleRunError.errorCode) &&
     !showRunningInUI &&
     visibleRunErrorKey !== dismissedRunErrorKey &&
     !showProviderAuthSetup &&
@@ -6326,6 +6499,10 @@ const AssistantChatInner = forwardRef<
   // queued messages (no hand-written fetch).
   const approveToolCall = useCallback(
     (approvalKey: string) => {
+      const continuation = approvalProtocolContinuationContext(
+        messagesRef.current,
+        approvalKey,
+      );
       void addToQueue(
         "Approved. Go ahead and run the requested action.", // i18n-ignore -- stable hidden agent instruction, not UI copy.
         undefined,
@@ -6340,6 +6517,9 @@ const AssistantChatInner = forwardRef<
         true, // hideUserMessage: this is a protocol continuation, not a new prompt
         undefined,
         [approvalKey],
+        continuation.turnId,
+        undefined,
+        continuation.actionScope,
       );
     },
     [addToQueue],
@@ -6400,6 +6580,7 @@ const AssistantChatInner = forwardRef<
                       <AgentTextStreamingProvider
                         identity={activeTextStreamingIdentity}
                         streaming={textStreaming}
+                        runActive={showRunningInUI}
                       >
                         <div
                           data-agent-empty-state={
@@ -6680,6 +6861,10 @@ const AssistantChatInner = forwardRef<
                                           onContinue={() => {
                                             setShowContinue(false);
                                             setLoopLimitInfo(null);
+                                            const continuation =
+                                              latestProtocolContinuationContext(
+                                                messagesRef.current,
+                                              );
                                             void addToQueue(
                                               "Continue from where you left off.",
                                               undefined,
@@ -6688,6 +6873,15 @@ const AssistantChatInner = forwardRef<
                                               undefined,
                                               "queued",
                                               "continue",
+                                              false,
+                                              false,
+                                              false,
+                                              false,
+                                              undefined,
+                                              undefined,
+                                              continuation.turnId,
+                                              undefined,
+                                              continuation.actionScope,
                                             );
                                           }}
                                         />
@@ -6699,6 +6893,15 @@ const AssistantChatInner = forwardRef<
                                           info={visibleRunError}
                                           onContinue={() => {
                                             setRunErrorInfo(null);
+                                            const continuation =
+                                              visibleRunError.turnId
+                                                ? protocolContinuationContext(
+                                                    messagesRef.current,
+                                                    visibleRunError.turnId,
+                                                  )
+                                                : latestProtocolContinuationContext(
+                                                    messagesRef.current,
+                                                  );
                                             void addToQueue(
                                               RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
                                               undefined,
@@ -6707,6 +6910,15 @@ const AssistantChatInner = forwardRef<
                                               undefined,
                                               "queued",
                                               "continue",
+                                              false,
+                                              false,
+                                              false,
+                                              false,
+                                              undefined,
+                                              undefined,
+                                              continuation.turnId,
+                                              undefined,
+                                              continuation.actionScope,
                                             );
                                           }}
                                           onRetry={retryAfterRunError}
