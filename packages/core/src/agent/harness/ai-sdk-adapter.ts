@@ -176,6 +176,10 @@ export async function createNativeSession(
 
 class AiSdkHarnessSession implements AgentHarnessSession {
   readonly id: string;
+  private readonly toolCalls = new Map<
+    string,
+    { name: string; input?: unknown }
+  >();
 
   constructor(
     private readonly agent: any,
@@ -199,7 +203,7 @@ class AiSdkHarnessSession implements AgentHarnessSession {
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     });
     for await (const part of result.fullStream ?? []) {
-      for (const event of aiSdkHarnessPartToEvents(part)) {
+      for (const event of aiSdkHarnessPartToEvents(part, this.toolCalls)) {
         yield event;
       }
     }
@@ -225,7 +229,7 @@ class AiSdkHarnessSession implements AgentHarnessSession {
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     });
     for await (const part of result.fullStream ?? []) {
-      for (const event of aiSdkHarnessPartToEvents(part)) {
+      for (const event of aiSdkHarnessPartToEvents(part, this.toolCalls)) {
         yield event;
       }
     }
@@ -250,7 +254,10 @@ class AiSdkHarnessSession implements AgentHarnessSession {
   }
 }
 
-export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
+export function aiSdkHarnessPartToEvents(
+  part: any,
+  toolCalls = new Map<string, { name: string; input?: unknown }>(),
+): AgentHarnessEvent[] {
   const type = part?.type;
   const events: AgentHarnessEvent[] = [];
   switch (type) {
@@ -292,11 +299,15 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
         break;
       }
       if (isSyntheticHarnessToolPart(part, "compaction")) break;
+      const id = part.toolCallId ?? part.id;
+      const name = part.toolName ?? part.name ?? "tool";
+      const input = part.input ?? part.args ?? {};
+      if (typeof id === "string") toolCalls.set(id, { name, input });
       events.push({
         type: "tool-start",
-        id: part.toolCallId ?? part.id,
-        name: part.toolName ?? part.name ?? "tool",
-        input: part.input ?? part.args ?? {},
+        id,
+        name,
+        input,
       });
       break;
     case "tool-result":
@@ -327,12 +338,33 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
       break;
     case "tool-approval-request": {
       const toolCall = part.toolCall ?? {};
+      const toolCallId = part.toolCallId ?? toolCall.toolCallId;
+      const previousToolCall =
+        typeof toolCallId === "string" ? toolCalls.get(toolCallId) : undefined;
+      const tool =
+        part.toolName ??
+        part.name ??
+        toolCall.toolName ??
+        toolCall.name ??
+        previousToolCall?.name;
+      const input =
+        part.input ??
+        part.args ??
+        toolCall.input ??
+        toolCall.args ??
+        previousToolCall?.input;
+      const approvalId = part.approvalId ?? part.id ?? toolCallId ?? "approval";
+      if (!tool || input === undefined) {
+        throw new Error(
+          `[agent-harness] Approval "${approvalId}" is missing tool metadata.`,
+        );
+      }
       events.push({
         type: "approval-request",
-        id: part.approvalId ?? part.id ?? part.toolCallId ?? "approval",
-        tool: part.toolName ?? part.name ?? toolCall.toolName ?? toolCall.name,
+        id: approvalId,
+        tool,
         message: part.message ?? "Harness is waiting for approval",
-        input: part.input ?? part.args ?? toolCall.input ?? toolCall.args,
+        input,
       });
       break;
     }

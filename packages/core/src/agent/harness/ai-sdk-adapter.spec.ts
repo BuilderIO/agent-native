@@ -140,6 +140,34 @@ describe("aiSdkHarnessPartToEvents", () => {
         input: { path: "README.md" },
       },
     ]);
+    const toolCalls = new Map<string, { name: string; input?: unknown }>();
+    aiSdkHarnessPartToEvents(
+      {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "write",
+        input: { path: "src/app.ts" },
+      },
+      toolCalls,
+    );
+    expect(
+      aiSdkHarnessPartToEvents(
+        {
+          type: "tool-approval-request",
+          approvalId: "approval-2",
+          toolCallId: "tool-2",
+        },
+        toolCalls,
+      ),
+    ).toEqual([
+      {
+        type: "approval-request",
+        id: "approval-2",
+        tool: "write",
+        message: "Harness is waiting for approval",
+        input: { path: "src/app.ts" },
+      },
+    ]);
     expect(
       aiSdkHarnessPartToEvents({
         type: "file-change",
