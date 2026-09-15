@@ -242,18 +242,24 @@ export function shouldDeferOptimisticEventUpdate(
   );
 }
 
-function updateListEventQueries(
+export function updateListEventQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   updater: (
     old: CalendarEvent[] | undefined,
     params: Record<string, string> | undefined,
   ) => CalendarEvent[] | undefined,
 ) {
+  // The "list-events" query key prefix is shared with useOverlayCalendarStatus,
+  // which requests `format: "inventory"` and caches an `OverlayStatusResult`
+  // object instead of a `CalendarEvent[]`. Skip anything that isn't the array
+  // shape so a cache walk here never hands a non-array value to an updater
+  // that assumes an events list.
   const queries = queryClient.getQueriesData<CalendarEvent[]>({
     queryKey: LIST_EVENTS_QUERY_KEY,
   });
 
-  for (const [queryKey] of queries) {
+  for (const [queryKey, data] of queries) {
+    if (data !== undefined && !Array.isArray(data)) continue;
     const params = getListEventsParams(queryKey);
     queryClient.setQueryData<CalendarEvent[]>(queryKey, (old) =>
       updater(old, params),

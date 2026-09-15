@@ -1,4 +1,5 @@
 import type { CalendarEvent } from "@shared/api";
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import { getCalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
@@ -20,6 +21,7 @@ import {
   reconcileUpdatedEventList,
   shouldDeferOptimisticEventUpdate,
   shouldShowEventsSkeleton,
+  updateListEventQueries,
 } from "./use-events";
 
 function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
@@ -989,5 +991,57 @@ describe("reconcileUpdatedEventList", () => {
         target.accountEmail,
       ),
     ).toEqual([otherAccount, { ...target, title: "After update" }]);
+  });
+
+  it("skips list-events cache entries holding the overlay-status inventory shape instead of an event array", () => {
+    // useOverlayCalendarStatus queries the same "list-events" action with
+    // `format: "inventory"` and caches an `{ sourceCoverage }` object under
+    // the same ["action", "list-events", ...] key prefix that event-array
+    // queries use. A create-event cache update must not treat that object as
+    // a CalendarEvent[] — doing so throws "<value>.filter is not a function"
+    // even though the event was created successfully.
+    const queryClient = new QueryClient();
+    const eventsKey = [
+      "action",
+      "list-events",
+      { from: "2026-05-22T00:00:00.000Z", to: "2026-05-23T00:00:00.000Z" },
+    ] as const;
+    const overlayStatusKey = [
+      "action",
+      "list-events",
+      {
+        from: "2026-05-01T00:00:00.000Z",
+        to: "2026-05-02T00:00:00.000Z",
+        sources: ["overlays"],
+        format: "inventory",
+      },
+    ] as const;
+    const existingEvents = [calendarEvent()];
+    const overlayStatus = {
+      sourceCoverage: [
+        { source: "overlay", id: "peer@example.com", status: "ok" },
+      ],
+    };
+    queryClient.setQueryData(eventsKey, existingEvents);
+    queryClient.setQueryData(overlayStatusKey, overlayStatus);
+
+    const optimisticId = "optimistic_event_1";
+    const created = calendarEvent({ id: "event-2" });
+
+    expect(() =>
+      updateListEventQueries(queryClient, (old, params) => {
+        if (!calendarEventOverlapsListParams(created, params)) {
+          return optimisticId
+            ? removeOptimisticCalendarEventFromList(old, optimisticId)
+            : old;
+        }
+        return mergeCalendarEventIntoList(old, created, optimisticId);
+      }),
+    ).not.toThrow();
+
+    expect(queryClient.getQueryData(eventsKey)).toEqual(
+      mergeCalendarEventIntoList(existingEvents, created, optimisticId),
+    );
+    expect(queryClient.getQueryData(overlayStatusKey)).toEqual(overlayStatus);
   });
 });
