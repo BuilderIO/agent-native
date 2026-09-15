@@ -227,6 +227,35 @@ describe("Mail Google auth-url handlers", () => {
     );
   });
 
+  it("keeps first-run signaling when optional Google profile lookup fails", async () => {
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      owner: undefined,
+      addAccount: false,
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    mocks.exchangeCode.mockResolvedValue("new-user@example.com");
+    mocks.getClient.mockRejectedValue(new Error("profile client unavailable"));
+    mocks.createOAuthSession.mockResolvedValue({ sessionToken: "session" });
+    mocks.oauthCallbackResponse.mockReturnValue("signed-in");
+
+    await expect(
+      handleGoogleCallback(
+        createEvent({ code: "google-code", state: "inner-state" }) as any,
+      ),
+    ).resolves.toBe("signed-in");
+
+    expect(mocks.setFirstRunOnboardingCookie).toHaveBeenCalledWith(
+      expect.anything(),
+    );
+    expect(mocks.ensureGoogleAuthIdentity).not.toHaveBeenCalled();
+  });
+
   it("returns a JSON auth URL for verifier-bound add-account sign-in", async () => {
     const response = await getGoogleAddAccountUrl(
       createEvent(

@@ -736,6 +736,73 @@ describe("FirstRunOnboarding", () => {
     expect(mocks.completeFirstRun).not.toHaveBeenCalled();
   });
 
+  it("closes an OAuth start attempt with failure telemetry when navigation throws", async () => {
+    mocks.navigateToMcpOAuthStart.mockImplementationOnce(() => {
+      throw new Error("popup navigation failed");
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    expect(search).toBeTruthy();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Linear");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector('button[aria-label="Connect Linear"]')
+        ?.click();
+      await Promise.resolve();
+    });
+
+    const oauthUrl = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    const params = new URL(oauthUrl, "https://example.com").searchParams;
+    expect(params.get("tracking_flow")).toBe("first_run");
+    expect(params.get("tracking_integration_id")).toBe("linear");
+    expect(
+      mocks.trackOnboardingEvent.mock.calls
+        .filter(([name]) => name.startsWith("integration_connect_"))
+        .map(([name]) => name),
+    ).toEqual(["integration_connect_started", "integration_connect_failed"]);
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({
+        integration_id: "linear",
+        error_type: "popup_or_navigation_blocked",
+      }),
+    );
+    expect(document.body.textContent).toContain("Connection error");
+  });
+
   it("skips the generic integrations catalog but still asks for a role", () => {
     act(() => {
       root.render(

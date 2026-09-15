@@ -55,15 +55,15 @@ const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
 const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
   "This email has an unverified password account. Verify that account before signing in with Google, then try again.";
 
-async function syncGoogleSignInIdentity(email: string): Promise<boolean> {
+async function syncGoogleSignInIdentity(email: string): Promise<void> {
   let client;
   try {
     client = await getClient(email);
   } catch (error) {
     console.warn("[auth] Google profile client lookup failed:", error);
-    return false;
+    return;
   }
-  if (!client) return false;
+  if (!client) return;
   let profile: any;
   try {
     profile = await googleFetch(
@@ -72,11 +72,11 @@ async function syncGoogleSignInIdentity(email: string): Promise<boolean> {
     );
   } catch (error) {
     console.warn("[auth] Google profile lookup failed:", error);
-    return false;
+    return;
   }
   const accountId = typeof profile?.id === "string" ? profile.id.trim() : "";
-  if (!accountId) return false;
-  return ensureGoogleAuthIdentity({
+  if (!accountId) return;
+  await ensureGoogleAuthIdentity({
     email,
     accountId,
     name: typeof profile.name === "string" ? profile.name : undefined,
@@ -322,8 +322,10 @@ export const handleGoogleCallback = defineEventHandler(
         { userId: owner ?? email },
       );
       if (!isAddAccount) {
-        const isNewUser = await syncGoogleSignInIdentity(email);
-        if (isNewUser) setFirstRunOnboardingCookie(event);
+        await syncGoogleSignInIdentity(email);
+        // The status route verifies the server-side eligibility marker. Keep
+        // this prompt independent of best-effort Google profile enrichment.
+        if (!owner) setFirstRunOnboardingCookie(event);
       }
 
       // 2b. Auto-populate display name in settings if not set

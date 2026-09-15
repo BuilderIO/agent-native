@@ -1,5 +1,5 @@
 import { mockEvent, type H3Event } from "h3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretPairsMock = vi.hoisted(() => vi.fn());
 const CredentialStoreUnavailableErrorMock = vi.hoisted(
@@ -13,6 +13,52 @@ const CredentialStoreUnavailableErrorMock = vi.hoisted(
 vi.mock("../server/credential-provider.js", () => ({
   CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
   resolveSecretPairs: resolveSecretPairsMock,
+}));
+
+const callbackMocks = vi.hoisted(() => ({
+  addOAuthRemoteServer: vi.fn(),
+  finishMcpOAuthAuthorization: vi.fn(),
+  getH3App: vi.fn(),
+  getOrgContext: vi.fn(),
+  getSession: vi.fn(),
+  listRemoteServers: vi.fn(),
+  replaceOAuthRemoteServer: vi.fn(),
+  startMcpOAuthAuthorization: vi.fn(),
+  validateMcpOAuthCallbackIssuer: vi.fn(),
+}));
+
+vi.mock("../server/auth.js", () => ({
+  getSession: callbackMocks.getSession,
+  safeReturnPath: (value: string) => value,
+}));
+
+vi.mock("../org/context.js", () => ({
+  getOrgContext: callbackMocks.getOrgContext,
+}));
+
+vi.mock("../server/framework-request-handler.js", () => ({
+  getH3App: callbackMocks.getH3App,
+}));
+
+vi.mock("./oauth-client.js", () => ({
+  finishMcpOAuthAuthorization: callbackMocks.finishMcpOAuthAuthorization,
+  isGoogleWorkspaceMcpServer: () => false,
+  startMcpOAuthAuthorization: callbackMocks.startMcpOAuthAuthorization,
+  validateMcpOAuthCallbackIssuer: callbackMocks.validateMcpOAuthCallbackIssuer,
+}));
+
+vi.mock("./remote-store.js", () => ({
+  addOAuthRemoteServer: callbackMocks.addOAuthRemoteServer,
+  listRemoteServers: callbackMocks.listRemoteServers,
+  normalizeServerName: (value: string) => value.trim(),
+  replaceOAuthRemoteServer: callbackMocks.replaceOAuthRemoteServer,
+  validateRemoteUrl: (value: string) => {
+    try {
+      return { ok: true, url: new URL(value) };
+    } catch {
+      return { ok: false, error: "MCP server URL is invalid." };
+    }
+  },
 }));
 
 import {
@@ -32,6 +78,7 @@ import {
   resolveTrustedMcpOAuthAuthorizationScope,
   resolveManagedMcpOAuthClient,
   resolveMcpOAuthReturnPath,
+  mountMcpOAuthRoutes,
   setMcpOAuthFlowCookie,
   stripMcpOAuthAppBasePath,
   type McpOAuthFlow,
@@ -129,8 +176,44 @@ const baseFlow: McpOAuthFlow = {
   expiresAt: Date.now() + 60_000,
 };
 
+const persistedServer = {
+  id: "mcp-linear",
+  name: "linear",
+  url: baseFlow.url,
+  createdAt: Date.now(),
+};
+
 describe("MCP OAuth callback flow validation", () => {
-  beforeEach(() => trackMock.mockReset());
+  beforeEach(() => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "oauth-routes-test-secret");
+    trackMock.mockReset();
+    callbackMocks.addOAuthRemoteServer.mockReset();
+    callbackMocks.finishMcpOAuthAuthorization.mockReset();
+    callbackMocks.getH3App.mockReset();
+    callbackMocks.getOrgContext.mockReset().mockResolvedValue(null);
+    callbackMocks.getSession
+      .mockReset()
+      .mockResolvedValue({ email: "alice@example.com" });
+    callbackMocks.listRemoteServers.mockReset();
+    callbackMocks.replaceOAuthRemoteServer.mockReset();
+    callbackMocks.startMcpOAuthAuthorization.mockReset();
+    callbackMocks.validateMcpOAuthCallbackIssuer.mockReset();
+    callbackMocks.finishMcpOAuthAuthorization.mockResolvedValue({
+      credentials: {
+        serverUrl: baseFlow.url,
+        clientInformation: baseFlow.clientInformation,
+        tokens: { access_token: "access-token", token_type: "bearer" },
+      },
+    });
+    callbackMocks.addOAuthRemoteServer.mockResolvedValue({
+      ok: true,
+      server: persistedServer,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
 
   it("records first-run OAuth completion once with safe metadata", () => {
     trackFirstRunMcpOAuthEvent(
@@ -160,6 +243,126 @@ describe("MCP OAuth callback flow validation", () => {
     );
   });
 
+  it("tracks state validation failures only for an owned first-run flow", async () => {
+    const response = await invokeCallback(
+      {
+        ...baseFlow,
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      { state: "wrong-state" },
+      vi.fn(),
+    );
+
+    expect(response.result).toEqual({
+      error: "MCP OAuth state is invalid or expired.",
+    });
+    expect(response.event.res.status).toBe(400);
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({
+        error_type: "state_invalid",
+        integration_id: "linear",
+      }),
+      { userId: "alice@example.com" },
+    );
+    expect(trackMock.mock.calls[0][1]).not.toHaveProperty("state");
+    expect(trackMock.mock.calls[0][1]).not.toHaveProperty("error");
+    expect(callbackMocks.validateMcpOAuthCallbackIssuer).not.toHaveBeenCalled();
+  });
+
+  it("tracks trusted callback issuer validation failures without the error detail", async () => {
+    callbackMocks.validateMcpOAuthCallbackIssuer.mockImplementation(() => {
+      throw new Error("untrusted issuer detail");
+    });
+
+    const response = await invokeCallback(
+      {
+        ...baseFlow,
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      {},
+      vi.fn(),
+    );
+
+    expect(response.result).toEqual({
+      error: "MCP OAuth authorization response issuer is invalid.",
+    });
+    expect(response.event.res.status).toBe(400);
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({ error_type: "issuer_invalid" }),
+      { userId: "alice@example.com" },
+    );
+    expect(trackMock.mock.calls[0][1]).not.toHaveProperty("error_message");
+    expect(callbackMocks.finishMcpOAuthAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("tracks organization authorization failures after flow validation", async () => {
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-acme",
+      role: "member",
+    });
+
+    const response = await invokeCallback(
+      {
+        ...baseFlow,
+        scope: "org",
+        scopeId: "org-acme",
+        orgId: "org-acme",
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      {},
+      vi.fn(),
+    );
+
+    expect(response.result).toEqual({
+      error:
+        "Only organization owners and admins can connect an org MCP server.",
+    });
+    expect(response.event.res.status).toBe(403);
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({ error_type: "authorization_denied" }),
+      { userId: "alice@example.com" },
+    );
+    expect(callbackMocks.finishMcpOAuthAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("reports persistence complete when manager reconfiguration throws", async () => {
+    const reconfigure = vi
+      .fn()
+      .mockRejectedValue(new Error("manager reload failed"));
+
+    const response = await invokeCallback(
+      {
+        ...baseFlow,
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      {},
+      reconfigure,
+    );
+
+    expect(response.result).toBeInstanceOf(Response);
+    expect((response.result as Response).status).toBe(302);
+    expect(reconfigure).toHaveBeenCalledOnce();
+    expect(callbackMocks.addOAuthRemoteServer).toHaveBeenCalledOnce();
+    expect(trackMock).toHaveBeenCalledOnce();
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_completed",
+      expect.objectContaining({ reconfigured: false }),
+      { userId: "alice@example.com" },
+    );
+    expect(trackMock).not.toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it("returns to integrations when OAuth saved credentials do not connect", () => {
     expect(resolveMcpOAuthReturnPath(false, { ...baseFlow })).toBe(
       "/settings/integrations",
@@ -170,6 +373,48 @@ describe("MCP OAuth callback flow validation", () => {
         returnUrl: "/chat?thread=meeting-actions",
       }),
     ).toBe("/chat?thread=meeting-actions");
+  });
+
+  it("tracks a first-run failure when OAuth discovery fails after popup open", async () => {
+    callbackMocks.startMcpOAuthAuthorization.mockRejectedValue(
+      new Error("discovery failed with provider detail"),
+    );
+
+    const writeEvent = mockEvent(
+      new Request(
+        "https://app.example.com/_agent-native/mcp/servers/oauth/start",
+      ),
+    );
+    const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+    callbackMocks.getH3App.mockReturnValue({
+      use: (_base: string, handler: (event: H3Event) => unknown) => {
+        routes.push({ handler });
+      },
+    });
+    mountMcpOAuthRoutes({}, { reconfigure: vi.fn() });
+
+    const event = mockEvent(
+      new Request(
+        "https://app.example.com/start?name=linear&url=https%3A%2F%2Fmcp.example.com%2Fmcp&scope=user&tracking_flow=first_run&tracking_integration_id=linear",
+      ),
+    );
+    const result = await routes[0]!.handler(event);
+
+    expect(result).toEqual({
+      error:
+        "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+    });
+    expect(event.res.status).toBe(400);
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({
+        error_type: "oauth_start_failed",
+        integration_id: "linear",
+        integration_name: "linear",
+      }),
+      { userId: "alice@example.com" },
+    );
+    expect(trackMock.mock.calls[0][1]).not.toHaveProperty("error_message");
   });
 
   it("carries staged cookies on native redirects", () => {
@@ -566,6 +811,42 @@ function eventWithCookies(setCookies: string[]): H3Event {
       headers: { cookie: cookieHeader },
     }),
   );
+}
+
+async function invokeCallback(
+  flow: McpOAuthFlow,
+  query: { state?: string; code?: string; error?: string },
+  reconfigure: () => Promise<boolean>,
+): Promise<{ result: unknown; event: H3Event }> {
+  const writeEvent = mockEvent(
+    new Request(
+      "https://app.example.com/_agent-native/mcp/servers/oauth/start",
+    ),
+  );
+  setMcpOAuthFlowCookie(writeEvent, flow, false);
+  const cookie = writeEvent.res.headers
+    .getSetCookie()
+    .map((value) => value.split(";", 1)[0])
+    .join("; ");
+  const params = new URLSearchParams({
+    state: query.state ?? flow.state,
+    ...(query.code === undefined ? { code: "authorization-code" } : {}),
+    ...(query.code === undefined ? {} : { code: query.code }),
+    ...(query.error === undefined ? {} : { error: query.error }),
+  });
+  const event = mockEvent(
+    new Request(`https://app.example.com/callback?${params.toString()}`, {
+      headers: { cookie },
+    }),
+  );
+  const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+  callbackMocks.getH3App.mockReturnValue({
+    use: (_base: string, handler: (event: H3Event) => unknown) => {
+      routes.push({ handler });
+    },
+  });
+  mountMcpOAuthRoutes({}, { reconfigure });
+  return { result: await routes[0]!.handler(event), event };
 }
 
 function cookieName(setCookie: string): string {

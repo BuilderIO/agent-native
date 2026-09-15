@@ -139,6 +139,15 @@ function integrationTrackingProperties(
   };
 }
 
+function tryNavigateToMcpOAuthStart(url: string): boolean {
+  try {
+    return navigateToMcpOAuthStart(url);
+  } catch {
+    // coercion-ok: the caller turns false into terminal failure telemetry.
+    return false;
+  }
+}
+
 export interface FirstRunOnboardingProps {
   /** Test hook; generated apps use the public Vite flag instead. */
   skipIntegrations?: boolean;
@@ -508,7 +517,7 @@ export function FirstRunOnboarding({
         "integration_connect_started",
         integrationTrackingProperties(integration, "user"),
       );
-      const opened = navigateToMcpOAuthStart(
+      const opened = tryNavigateToMcpOAuthStart(
         appPath(
           buildMcpOAuthStartUrl({
             name: integration.name,
@@ -573,7 +582,7 @@ export function FirstRunOnboarding({
         integrationTrackingProperties(integration, scope ?? "user"),
       );
     }
-    if (!navigateToMcpOAuthStart(url)) {
+    if (!tryNavigateToMcpOAuthStart(url)) {
       if (integration) {
         trackOnboardingEvent("integration_connect_failed", {
           ...integrationTrackingProperties(integration, scope ?? "user"),
