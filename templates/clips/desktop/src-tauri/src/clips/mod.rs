@@ -1668,16 +1668,43 @@ fn clamp_popover_logical_size(
     scale: f64,
 ) -> (f64, f64) {
     let scale = scale.max(1.0);
-    let max_height = (work_area.height as f64 / scale - POPOVER_SCREEN_MARGIN_LOGICAL)
-        .clamp(POPOVER_MIN_HEIGHT_LOGICAL, 820.0);
-    let max_width = (work_area.width as f64 / scale - POPOVER_SCREEN_MARGIN_LOGICAL)
-        .clamp(POPOVER_DEFAULT_WIDTH_LOGICAL, 960.0);
+    let max_height =
+        (work_area.height as f64 / scale - POPOVER_SCREEN_MARGIN_LOGICAL).clamp(1.0, 820.0);
+    let max_width =
+        (work_area.width as f64 / scale - POPOVER_SCREEN_MARGIN_LOGICAL).clamp(1.0, 960.0);
     (
         width
             .unwrap_or(POPOVER_DEFAULT_WIDTH_LOGICAL)
-            .clamp(POPOVER_DEFAULT_WIDTH_LOGICAL, max_width),
-        height.clamp(POPOVER_MIN_HEIGHT_LOGICAL, max_height),
+            .clamp(POPOVER_DEFAULT_WIDTH_LOGICAL.min(max_width), max_width),
+        height.clamp(POPOVER_MIN_HEIGHT_LOGICAL.min(max_height), max_height),
     )
+}
+
+fn physical_rect_center(rect: tauri::Rect) -> (i32, i32) {
+    let (x, y) = match rect.position {
+        tauri::Position::Physical(p) => (p.x, p.y),
+        tauri::Position::Logical(p) => (p.x as i32, p.y as i32),
+    };
+    let (width, height) = match rect.size {
+        tauri::Size::Physical(s) => (s.width as i32, s.height as i32),
+        tauri::Size::Logical(s) => (s.width as i32, s.height as i32),
+    };
+    (x + width / 2, y + height / 2)
+}
+
+fn monitor_containing_point(window: &WebviewWindow, x: i32, y: i32) -> Option<tauri::Monitor> {
+    window
+        .available_monitors()
+        .ok()?
+        .into_iter()
+        .find(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            x >= position.x
+                && x < position.x + size.width as i32
+                && y >= position.y
+                && y < position.y + size.height as i32
+        })
 }
 
 /// Resize the popover window to match the rendered React app height. The
@@ -1703,10 +1730,13 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         return Ok(());
     }
     if let Some(w) = app.get_webview_window("popover") {
-        let monitor = w
-            .current_monitor()
-            .ok()
-            .flatten()
+        let tray_center = app
+            .try_state::<TrayAnchor>()
+            .and_then(|anchor| anchor.0.lock().ok().and_then(|guard| *guard))
+            .map(physical_rect_center);
+        let monitor = tray_center
+            .and_then(|(x, y)| monitor_containing_point(&w, x, y))
+            .or_else(|| w.current_monitor().ok().flatten())
             .or_else(|| w.primary_monitor().ok().flatten());
         let (width, clamped) = monitor
             .as_ref()
@@ -2348,6 +2378,10 @@ mod tests {
         assert_eq!(
             clamp_popover_logical_size(1_000.0, None, PhysicalSize::new(1_600, 1_200), 2.0),
             (320.0, 584.0)
+        );
+        assert_eq!(
+            clamp_popover_logical_size(260.0, Some(320.0), PhysicalSize::new(200, 180), 1.0),
+            (184.0, 164.0)
         );
     }
 
@@ -3241,18 +3275,8 @@ pub fn position_popover_with_size(
         // is parked at (2,2) on the primary display, so current_monitor()
         // always resolves to the primary monitor — wrong when the user clicked
         // the icon on a secondary display
-        let icon_cx = icon_x + icon_w / 2;
-        let icon_cy = icon_y + icon_h / 2;
-        let tray_monitor = window.available_monitors().ok().and_then(|monitors| {
-            monitors.into_iter().find(|m| {
-                let mp = m.position();
-                let ms = m.size();
-                icon_cx >= mp.x
-                    && icon_cx < mp.x + ms.width as i32
-                    && icon_cy >= mp.y
-                    && icon_cy < mp.y + ms.height as i32
-            })
-        });
+        let tray_monitor =
+            monitor_containing_point(window, icon_x + icon_w / 2, icon_y + icon_h / 2);
         let (clamp_pos, clamp_size) = tray_monitor
             .map(|m| {
                 let work_area = m.work_area();
