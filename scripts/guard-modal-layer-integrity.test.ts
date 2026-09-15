@@ -97,7 +97,7 @@ test("ignores a template that does not render the package", () => {
 test("flags a caller that merges a position utility over the pinned overlay", () => {
   // The shipped regression: tailwind-merge kept "relative" and dropped
   // "fixed", so the create-plan dialog rendered below the page fold.
-  const findings = findOverlayPositionOverrides(
+  const { findings } = findOverlayPositionOverrides(
     '<DialogContent className="relative sm:max-w-[680px]">\n',
     "templates/plan/app/pages/PlansPage.tsx",
   );
@@ -108,8 +108,33 @@ test("flags a caller that merges a position utility over the pinned overlay", ()
   );
 });
 
+test("reads past a JSX handler that contains an arrow", () => {
+  // `=>` used to terminate the opening-tag match before className was seen,
+  // which let the exact regression this guard exists for walk through it.
+  const { findings } = findOverlayPositionOverrides(
+    [
+      "<DialogContent",
+      "  onInteractOutside={(event) => event.preventDefault()}",
+      '  className="relative sm:max-w-lg"',
+      ">",
+    ].join("\n"),
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /App\.tsx:1 <DialogContent> receives "relative"/);
+});
+
+test("reads a position utility out of a cn() expression", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '<SheetContent className={cn("w-80", isDocked && "absolute")} />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /<SheetContent> receives "absolute"/);
+});
+
 test("flags a responsive position utility on a multi-line overlay tag", () => {
-  const findings = findOverlayPositionOverrides(
+  const { findings } = findOverlayPositionOverrides(
     [
       "const App = () => (",
       "  <SheetContent",
@@ -130,7 +155,7 @@ test("flags a responsive position utility on a multi-line overlay tag", () => {
 });
 
 test("accepts overlay callers that only tune size and spacing", () => {
-  const findings = findOverlayPositionOverrides(
+  const { findings } = findOverlayPositionOverrides(
     [
       '<DialogContent className="sm:max-w-[680px]">',
       '<AlertDialogContent className="max-w-md gap-2">',
@@ -141,8 +166,17 @@ test("accepts overlay callers that only tune size and spacing", () => {
   assert.deepEqual(findings, []);
 });
 
+test("does not read position words out of non-class attributes", () => {
+  // aria-label="relative" is honest copy, not a tailwind-merge hazard.
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent aria-label="relative" data-variant="sticky" id="absolute" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.deepEqual(findings, []);
+});
+
 test("ignores position utilities on children inside the overlay", () => {
-  const findings = findOverlayPositionOverrides(
+  const { findings } = findOverlayPositionOverrides(
     [
       '<DialogContent className="sm:max-w-lg">',
       '  <div className="relative flex">',
@@ -156,11 +190,21 @@ test("ignores position utilities on children inside the overlay", () => {
 });
 
 test("honors a reviewed opt-out on the overlay tag", () => {
-  const findings = findOverlayPositionOverrides(
+  const { findings } = findOverlayPositionOverrides(
     '<DialogContent /* overlay-position-ok: rendered into a positioned container */ className="relative">',
     "templates/demo/app/App.tsx",
   );
   assert.deepEqual(findings, []);
+});
+
+test("reports an overlay tag it could not read instead of passing it", () => {
+  const { findings, unreadable } = findOverlayPositionOverrides(
+    '<DialogContent className="relative"',
+    "templates/demo/app/App.tsx",
+  );
+  assert.deepEqual(findings, []);
+  assert.equal(unreadable.length, 1);
+  assert.match(unreadable[0]!, /could not read/);
 });
 
 test("scans real overlay call sites and reports what it inspected", () => {

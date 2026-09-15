@@ -132,28 +132,118 @@ function hasPositionUtility(classValue: string): string | null {
 }
 
 /**
- * Reads the opening tag of every pinned overlay element and reports a caller
- * className that carries a position utility. Only string literals are
- * inspected; a computed className is not worth a parser here, and the literal
- * form is what every current caller uses.
+ * Returns the opening tag that starts at `<`, or null when it never closes.
+ * A regex cannot do this: `onInteractOutside={(event) => event.preventDefault()}`
+ * puts a `>` inside the attribute list, so any `[^>]*` pattern ends the tag
+ * before reaching `className` - the one attribute this guard exists to read.
  */
+function readOpeningTag(source: string, start: number): string | null {
+  let depth = 0;
+  let quote: string | null = null;
+
+  for (let index = start; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+    } else if (character === ">" && depth === 0) {
+      return source.slice(start, index + 1);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Every string literal a `class`/`className` attribute contributes. Scoped to
+ * that attribute on purpose: reading all quoted strings in the tag would fail
+ * an honest `aria-label="relative"`.
+ */
+function classNameLiterals(tag: string): string[] {
+  const literals: string[] = [];
+
+  for (const attribute of tag.matchAll(/\bclass(?:Name)?\s*=\s*/g)) {
+    const rest = tag.slice(attribute.index + attribute[0].length);
+    const opener = rest[0];
+
+    if (opener === '"' || opener === "'") {
+      const close = rest.indexOf(opener, 1);
+      if (close > 0) literals.push(rest.slice(1, close));
+      continue;
+    }
+    if (opener !== "{") continue;
+
+    // cn("relative", isWide && "sticky") - any literal in the expression can
+    // reach tailwind-merge, so collect them all.
+    let depth = 0;
+    let quote: string | null = null;
+    let literal = "";
+    for (let index = 0; index < rest.length; index += 1) {
+      const character = rest[index]!;
+      if (quote) {
+        if (character === "\\") index += 1;
+        else if (character === quote) {
+          literals.push(literal);
+          quote = null;
+        } else literal += character;
+        continue;
+      }
+      if (character === '"' || character === "'" || character === "`") {
+        quote = character;
+        literal = "";
+      } else if (character === "{") {
+        depth += 1;
+      } else if (character === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+  }
+
+  return literals;
+}
+
+export interface OverlayScanResult {
+  findings: string[];
+  /** Overlay tags this scanner could not read, so nothing was inspected. */
+  unreadable: string[];
+}
+
 export function findOverlayPositionOverrides(
   source: string,
   relativePath: string,
-): string[] {
+): OverlayScanResult {
   const findings: string[] = [];
+  const unreadable: string[] = [];
   const opening = new RegExp(
-    `<(${PINNED_OVERLAY_COMPONENTS.join("|")})(\\s[^>]*?)?/?>`,
-    "gs",
+    `<(${PINNED_OVERLAY_COMPONENTS.join("|")})(?=[\\s/>])`,
+    "g",
   );
 
-  for (const tag of source.matchAll(opening)) {
-    const [whole, component, attributes = ""] = tag;
-    if (attributes.includes(OVERRIDE_OPT_OUT)) continue;
-    for (const literal of attributes.matchAll(/"([^"]*)"|'([^']*)'/g)) {
-      const offending = hasPositionUtility(literal[1] ?? literal[2] ?? "");
+  for (const match of source.matchAll(opening)) {
+    const component = match[1]!;
+    const line = source.slice(0, match.index).split("\n").length;
+    const tag = readOpeningTag(source, match.index);
+    if (tag === null) {
+      unreadable.push(
+        `${relativePath}:${line} <${component}> has an opening tag this guard ` +
+          `could not read, so nothing was inspected.`,
+      );
+      continue;
+    }
+    if (tag.includes(OVERRIDE_OPT_OUT)) continue;
+
+    for (const value of classNameLiterals(tag)) {
+      const offending = hasPositionUtility(value);
       if (!offending) continue;
-      const line = source.slice(0, tag.index).split("\n").length;
       findings.push(
         `${relativePath}:${line} <${component}> receives "${offending}". ` +
           `cn() merges that over the primitive's "fixed", so the overlay leaves the ` +
@@ -162,10 +252,9 @@ export function findOverlayPositionOverrides(
       );
       break;
     }
-    void whole;
   }
 
-  return findings;
+  return { findings, unreadable };
 }
 
 export function checkOverlayPositionOverrides(
@@ -186,7 +275,8 @@ export function checkOverlayPositionOverrides(
         continue;
       }
       checked += 1;
-      errors.push(...findOverlayPositionOverrides(source, relativePath));
+      const scan = findOverlayPositionOverrides(source, relativePath);
+      errors.push(...scan.findings, ...scan.unreadable);
     }
   }
 
