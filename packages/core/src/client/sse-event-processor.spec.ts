@@ -2594,6 +2594,81 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  // A delegation legitimately spans a continuation: `agent_call` resolves its
+  // own card and never clears the activity flag, so a running sub-agent and an
+  // unstarted intention look alike. Pins that a delegation is never swept away
+  // by a later completion for the same agent.
+  it("keeps a delegated agent card that spans a continuation", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const content: ContentPart[] = [];
+    const counter = { value: 0 };
+
+    await expect(
+      drain(
+        readSSEStream(
+          eventStream([
+            {
+              type: "agent_call",
+              status: "start",
+              agent: "researcher",
+              agentCallId: "agent-1",
+            },
+            { type: "auto_continue", reason: "stream_ended" },
+          ]),
+          content,
+          counter,
+          "tab-delegation-span",
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
+
+    // A second delegation to the SAME agent completes in the continuation.
+    // That must not stand in as a result for the one still running.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            status: "start",
+            agent: "researcher",
+            agentCallId: "agent-2",
+          },
+          {
+            type: "agent_call",
+            status: "done",
+            agent: "researcher",
+            agentCallId: "agent-2",
+          },
+          { type: "done" },
+        ]),
+        content,
+        counter,
+        "tab-delegation-span",
+      ),
+    );
+
+    expect(
+      content.filter(
+        (part) => part.type === "tool-call" && part.toolCallId === "agent-1",
+      ),
+    ).toHaveLength(1);
+    expect(results.length).toBeGreaterThan(0);
+  });
+
   // An unrelated earlier call to the same tool is not evidence that THIS
   // continuation redid the inherited one.
   it("still reports an inherited action when only an earlier call to that tool completed", async () => {

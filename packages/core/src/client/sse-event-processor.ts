@@ -19,6 +19,7 @@ import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
   humanizeToolName,
+  isDelegatedAgentToolCall,
   isToolCallActive,
   runningToolLabel,
 } from "./tool-display.js";
@@ -1230,13 +1231,23 @@ function coalesceCompletedToolRepeat(
   content.splice(completedIndex, 1);
 }
 
+/**
+ * Unstarted action preparations carried into this chunk.
+ *
+ * Delegated agent cards share the `activity: true` + no-result shape but are
+ * not intentions - they are in-flight sub-agent work that `agent_call` resolves
+ * on its own card, and a delegation legitimately spans a continuation. Treating
+ * one as a preparation would let a later completion for the same agent remove a
+ * card whose run is still going.
+ */
 function unstartedPreparationIds(content: ContentPart[]): Set<string> {
   const ids = new Set<string>();
   for (const part of content) {
     if (
       part.type === "tool-call" &&
       part.activity === true &&
-      part.result === undefined
+      part.result === undefined &&
+      !isDelegatedAgentToolCall(part)
     ) {
       ids.add(part.toolCallId);
     }
@@ -2102,6 +2113,7 @@ export function processEvent(
     // This event is terminal. There may be no visible text or tool_done after
     // the last preparation activity, so do not leave its label mounted.
     dispatchActivityClear(tabId);
+    dropSupersededActionPreparations(content, state?.inheritedPreparations);
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     return {
       action: "missing_api_key",
