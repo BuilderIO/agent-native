@@ -420,3 +420,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 - [Multi-Tenancy](/docs/multi-tenancy) - संगठन, भूमिकाएँ, और प्रति-संगठन डेटा अलगाव।
 - [Cross-App SSO](/docs/cross-app-sso) - अलग-अलग डोमेन परिनियोजन के लिए पहचान संघ।
 - [Dispatch](/docs/dispatch) - रनटाइम कंट्रोल प्लेन जो आमतौर पर मल्टी-ऐप वर्कस्पेस के अंदर सीक्रेट वॉल्ट, इंटीग्रेशन कैटलॉग और अप्रूवल हब के रूप में रहता है।
+
+## Standalone या workspace? {#standalone-or-workspace}
+
+जब कोई कंपनी कई internal apps चलाती है जिन्हें deployment config और organization context साझा करना चाहिए, तब workspace चुनें। एक स्वतंत्र टूल या prototype के लिए standalone app चुनें। यह समर्थित deployment shape है, लेकिन इसमें साझा workspace packages या root config नहीं होता। [प्रशासित डिप्लॉयमेंट](/docs/administered-deployments) देखें।

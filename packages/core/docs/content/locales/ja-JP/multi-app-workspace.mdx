@@ -420,3 +420,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 - [Multi-Tenancy](/docs/multi-tenancy) — 組織、役割、組織ごとのデータ分離。
 - [Cross-App SSO](/docs/cross-app-sso) — 個別ドメイン展開用の ID フェデレーション。
 - [Dispatch](/docs/dispatch) — 通常、シークレット ボールト、統合カタログ、承認ハブとしてマルチアプリ ワークスペース内に存在するランタイム コントロール プレーン。
+
+## スタンドアロンかワークスペースか {#standalone-or-workspace}
+
+会社が複数の社内アプリを運用し、デプロイ設定と組織コンテキストを共有する場合はワークスペースを選びます。独立した単一ツールやプロトタイプにはスタンドアロンアプリを選びます。スタンドアロンもサポートされるデプロイ形態ですが、共有ワークスペースパッケージやルート設定は含まれません。[管理デプロイ](/docs/administered-deployments)を参照してください。

@@ -420,3 +420,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 - [Multi-Tenancy](/docs/multi-tenancy) — 组织、角色和每个组织的数据隔离。
 - [Cross-App SSO](/docs/cross-app-sso) — 用于单独域部署的身份联合。
 - [Dispatch](/docs/dispatch) - 运行时控制平面，通常位于多应用工作区中，作为机密库、集成目录和审批中心。
+
+## 独立应用还是工作区？ {#standalone-or-workspace}
+
+如果公司运营多个需要共享部署配置和组织上下文的内部应用，请选择工作区。单个独立工具或原型适合使用独立应用。独立应用是受支持的部署形态，但不包含共享工作区包或根配置。请参阅[管理式部署指南](/docs/administered-deployments)。
