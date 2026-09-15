@@ -15223,11 +15223,6 @@ function DesignEditor() {
       runEditorViewTransition,
     ],
   );
-  const enterSingleScreenInteract = useCallback(
-    (fileId?: string | null) => enterSingleScreen(fileId),
-    [enterSingleScreen],
-  );
-
   // Interact presents the screen in a responsive device box with its own
   // chrome bar inside the center canvas. The rails stay mounted, while
   // embedded hosts keep their own chrome and are left alone.
@@ -15340,13 +15335,9 @@ function DesignEditor() {
   );
   const handleOverviewFrameAction = useCallback(
     (screenId: string) => {
-      if (mode === "interact") {
-        enterSingleScreenInteract(screenId);
-        return;
-      }
       handleModeChange("interact", { targetFileId: screenId });
     },
-    [enterSingleScreenInteract, handleModeChange, mode],
+    [handleModeChange],
   );
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
@@ -15405,11 +15396,11 @@ function DesignEditor() {
     if (viewModeRef.current === "overview") {
       // The toggle swaps between the only two views there are: the infinite
       // canvas (editing) and the responsive interactive view.
-      enterSingleScreen(activeFileId);
+      handleModeChange("interact");
       return;
     }
     enterOverviewFromZoom();
-  }, [activeFileId, enterOverviewFromZoom, enterSingleScreen]);
+  }, [enterOverviewFromZoom, handleModeChange]);
 
   const handleSidebarScreenSelect = useCallback(
     (screenId: string) => {
@@ -15432,11 +15423,16 @@ function DesignEditor() {
       // at this running screen", so it lands in the responsive view — except
       // for a host-embedded editor, where switching screens must not silently
       // drop the user out of editing.
-      enterSingleScreen(screenId, hostEmbeddedEditor ? { mode } : undefined);
+      if (hostEmbeddedEditor) {
+        enterSingleScreen(screenId, { mode });
+        return;
+      }
+      handleModeChange("interact", { targetFileId: screenId });
     },
     [
       clearPendingOverviewLayerSelectionTimer,
       enterSingleScreen,
+      handleModeChange,
       hostEmbeddedEditor,
       mode,
       overviewSelectedScreenIds,
@@ -24373,7 +24369,9 @@ function DesignEditor() {
                             (f) => norm(f.filename) === target,
                           );
                           if (match) {
-                            enterSingleScreenInteract(match.id);
+                            handleModeChange("interact", {
+                              targetFileId: match.id,
+                            });
                           }
                         }}
                       />
