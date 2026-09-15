@@ -207,7 +207,7 @@ describe("ComposeModal scheduling", () => {
   });
 
   it("opens a new-message draft in the compact workspace card", () => {
-    const { getByRole } = render(
+    const { container, getByRole } = render(
       <ComposeModal
         drafts={[draft]}
         activeId={draft.id}
@@ -224,6 +224,12 @@ describe("ComposeModal scheduling", () => {
       />,
     );
 
+    const compose = container.querySelector<HTMLElement>("[data-mail-compose]");
+    expect(compose?.className).toContain("sm:top-14");
+    expect(compose?.className).toContain("sm:bottom-auto");
+    expect(compose?.className).toContain("sm:h-[300px]");
+    expect(compose?.className).toContain("sm:w-[490px]");
+    expect(compose?.className).toContain("sm:rounded-xl");
     expect(
       getByRole("button", {
         name: "mail.compose.fullScreenCompose",

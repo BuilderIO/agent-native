@@ -453,9 +453,15 @@ traffic to any one path.
   explicit, reversible toggle. The local replay opened a fresh blank compose
   from the Compose email button, confirmed `Full screen compose` was off, then
   closed it with Escape and verified the approved draft's recipient, subject,
-  and empty body were unchanged. Mail's card is still fixed bottom-right and
-  taller than Superhuman's main-workspace card, so placement and geometry are
-  a concrete remaining difference; no global parity claim is made.
+  and empty body were unchanged. Superhuman's paired reference screenshot
+  shows a roughly 490px-wide, shallow workspace card near the top of the main
+  pane; Mail's prior card was fixed bottom-right, 540px wide, and 520px tall.
+  The follow-up source change now uses a 490px-wide, 300px-tall desktop card
+  positioned near the top while preserving the full-height mobile layout and
+  explicit fullscreen branch. A local visual replay after this change is
+  pending because the Mail browser tab is currently at its sign-in gate; no
+  login or live provider action was performed, so no global parity claim is
+  made.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation. On 2026-09-14,
