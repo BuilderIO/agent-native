@@ -3891,7 +3891,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? "nwse-resize"
             : "nesw-resize";
     handle.style.cssText =
-      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,0.25);pointer-events:auto;cursor:" +
       cursor +
       ";";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -3906,6 +3906,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle.style.top = "50%";
       handle.style.transform = "translateY(-50%)";
     }
+    selectionOverlay.appendChild(handle);
+  });
+  // Figma-style corner-radius handles: small circles inset from each corner
+  // along its diagonal, draggable to adjust the element's border-radius.
+  // Hidden (display:none) by default; applySelectionHandleHitGeometry shows
+  // and positions them only for elements that support a CSS border-radius.
+  ["nw", "ne", "se", "sw"].forEach(function (pos) {
+    var handle = document.createElement("span");
+    handle.setAttribute("data-agent-native-radius-handle", pos);
+    handle.style.cssText =
+      "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,0.25);pointer-events:auto;cursor:pointer;display:none;";
     selectionOverlay.appendChild(handle);
   });
   (function () {
@@ -4048,7 +4059,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var sizeBadge = document.createElement("div");
   sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
   sizeBadge.style.cssText =
-    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color, #0d99ff);color:var(--design-editor-accent-contrast-color, #ffffff);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.15);";
   document.body.appendChild(sizeBadge);
 
   var insertionGuide = document.createElement("div");
@@ -7140,6 +7151,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // transition for that one write — see the CSS rule this toggles above.
   var lastHandleGeometryTargetEl: Element | null = null;
 
+  // Drawn vector primitives (lines, arrows, ellipses, polygons, stars, pen
+  // paths) render their shape via SVG geometry, not a CSS box — a
+  // border-radius on their wrapper has no visible effect, so the
+  // corner-radius drag handles stay hidden for them.
+  var RADIUS_UNSUPPORTED_PRIMITIVES = {
+    line: true,
+    arrow: true,
+    ellipse: true,
+    circle: true,
+    polygon: true,
+    star: true,
+    path: true,
+    pen: true,
+  };
+  function supportsCornerRadiusHandles(el) {
+    if (!el || el.nodeType !== 1) return false;
+    var kind = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    return !kind || !RADIUS_UNSUPPORTED_PRIMITIVES[kind];
+  }
+
   // Sizes the selection overlay's edge/corner handles for the current chrome
   // scale, clamping each handle's inward reach against the overlaid
   // element's own rect. Called from applyEditorChromeScale (scale changes)
@@ -7205,12 +7240,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .querySelectorAll("[data-agent-native-edit-handle]")
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        var sizeX = 7 * sx;
-        var sizeY = 7 * sy;
-        // sizeY - 4*sy is exact (Sterbenz), so the unclamped offset below
+        // Both axes use the same uniform `line` scale (never sx/sy
+        // individually) so the square handle stays square and centered on
+        // the stroke corner even when the iframe's own X/Y chrome scale
+        // differs — using sx/sy here stretched the square into a rectangle
+        // and threw off the corner offset math whenever scaleX !== scaleY.
+        var sizeX = 7 * line;
+        var sizeY = 7 * line;
+        // sizeY - 4*line is exact (Sterbenz), so the unclamped offset below
         // reproduces the historical -4*scale bit-for-bit.
-        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
-        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        var inwardX = clampHandleInwardReach(sizeX - 4 * line, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * line, elHeight);
         handle.style.width = sizeX + "px";
         handle.style.height = sizeY + "px";
         handle.style.borderWidth = 1 * line + "px";
@@ -7226,6 +7266,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (pos.indexOf("e") !== -1) {
           handle.style.right = inwardX - sizeX + "px";
         }
+      });
+
+    // Radius handles: small circles inset along each corner's diagonal,
+    // hidden unless the element supports border-radius and is large enough
+    // to fit them without overlapping the opposite corner.
+    var radiusHandlesSupported = supportsCornerRadiusHandles(el);
+    selectionOverlay
+      .querySelectorAll("[data-agent-native-radius-handle]")
+      .forEach(function (handle) {
+        if (!radiusHandlesSupported || !(elWidth > 0) || !(elHeight > 0)) {
+          handle.style.display = "none";
+          return;
+        }
+        var pos = handle.getAttribute("data-agent-native-radius-handle") || "";
+        var size = 9 * line;
+        var maxInset = Math.min(elWidth, elHeight) / 2 - size;
+        if (maxInset < 4 * line) {
+          handle.style.display = "none";
+          return;
+        }
+        var inset = Math.max(4 * line, Math.min(16 * line, maxInset));
+        handle.style.display = "block";
+        handle.style.width = size + "px";
+        handle.style.height = size + "px";
+        handle.style.borderWidth = 1.5 * line + "px";
+        var offset = inset - size / 2 + "px";
+        if (pos.indexOf("n") !== -1) handle.style.top = offset;
+        if (pos.indexOf("s") !== -1) handle.style.bottom = offset;
+        if (pos.indexOf("w") !== -1) handle.style.left = offset;
+        if (pos.indexOf("e") !== -1) handle.style.right = offset;
       });
 
     if (isNewSelectionTarget) {
@@ -9635,6 +9705,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Number.isFinite(num) ? num : 0;
   }
 
+  function resolveCornerRadiusPx(value, width, height) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed.charAt(trimmed.length - 1) === "%") {
+      var pct = parseFloat(trimmed) || 0;
+      return (pct / 100) * Math.min(width, height);
+    }
+    return readPx(value);
+  }
+
+  var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
+    nw: "borderTopLeftRadius",
+    ne: "borderTopRightRadius",
+    se: "borderBottomRightRadius",
+    sw: "borderBottomLeftRadius",
+  };
+
   function readFinitePx(value) {
     if (!value || value === "auto") return null;
     var num = parseFloat(value);
@@ -10155,6 +10241,43 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       degrees +
       "deg)"
     ).trim();
+  }
+
+  // Reads whether `transform` mirrors the element around its own center via
+  // scaleX(-1)/scaleY(-1) -- the resize-through-zero flip startResize below
+  // writes. Matches rotationFromTransform's posture: a class-authored
+  // matrix() transform has no flip info extracted from it (matrix
+  // decomposition into independent flip/rotate parts is not reliably
+  // invertible), so it reads as unflipped, same tradeoff mergeAbsoluteRotation
+  // already accepts for rotation.
+  function flipFromTransform(transform) {
+    var value = transform || "";
+    return {
+      x: /scaleX\(\s*-1\s*\)/i.test(value),
+      y: /scaleY\(\s*-1\s*\)/i.test(value),
+    };
+  }
+
+  // Scale counterpart to mergeAbsoluteRotation: rewrites `transform`'s
+  // scaleX()/scaleY() flip components to match `flipX`/`flipY`, preserving
+  // rotate() and any other function untouched. A matrix() transform (the
+  // computed form of a class-authored rule) is reduced to its decomposed
+  // rotation via rotationFromTransform — same extraction mergeAbsoluteRotation
+  // uses — instead of being discarded outright, so a class-authored rotation
+  // isn't silently lost the moment a resize crosses zero and needs to write a
+  // flip inline.
+  function mergeFlipIntoTransform(transform, flipX, flipY) {
+    var base = transform && transform !== "none" ? transform : "";
+    if (/^matrix(?:3d)?\(/i.test(base.trim())) {
+      var angle = rotationFromTransform(base);
+      base = angle ? "rotate(" + angle + "deg)" : "";
+    }
+    base = base
+      .replace(/\s*scaleX\(\s*-?1\s*\)/gi, "")
+      .replace(/\s*scaleY\(\s*-?1\s*\)/gi, "")
+      .trim();
+    var suffix = (flipX ? " scaleX(-1)" : "") + (flipY ? " scaleY(-1)" : "");
+    return (base + suffix).trim();
   }
 
   function ensurePositionable(el) {
@@ -16129,8 +16252,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalInlineWidth = resizeEl.style.width;
     var originalInlineHeight = resizeEl.style.height;
     var originalInlineFontSize = resizeEl.style.fontSize;
+    var originalInlineTransform = resizeEl.style.transform;
     ensurePositionable(resizeEl);
     var cs = window.getComputedStyle(resizeEl);
+    // Baseline for the flip-through-zero transform below: the element's own
+    // authored transform if it has one, else its computed (matrix) form —
+    // same fallback startRotate uses for `baseTransform`. flipFromTransform
+    // reads flip state from this baseline once, at drag start, so a
+    // mid-gesture re-derivation never compounds against its own last write.
+    var flipTransformBase =
+      originalInlineTransform && originalInlineTransform !== "none"
+        ? originalInlineTransform
+        : cs.transform;
+    var originFlip = flipFromTransform(flipTransformBase);
     // Bug fix: use COMPUTED width/height (never the raw inline style string)
     // for the resize origin dimensions. Two distinct hazards, one fix:
     //   1. Rotated elements — getBoundingClientRect() returns the inflated
@@ -16277,29 +16411,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           else width = height * origin.ratio;
         }
       }
-      // Clamp to minimum size.
-      var clampedW = Math.max(8, width);
-      var clampedH = Math.max(8, height);
-      // After clamping, re-apply the ratio if Shift or scale tool is active so
-      // the clamped dimension doesn't silently break the locked aspect ratio.
-      if (ev.shiftKey || scaleToolEnabled) {
-        if (clampedW !== width) {
-          // Width was clamped; re-derive height from the clamped width.
-          clampedH = Math.max(8, clampedW / origin.ratio);
-        } else if (clampedH !== height) {
-          // Height was clamped; re-derive width from the clamped height.
-          clampedW = Math.max(8, clampedH * origin.ratio);
-        }
-      }
-      width = clampedW;
-      height = clampedH;
-      // Re-anchor the pinned edge for w/n handles after aspect-ratio lock and
-      // clamping so the opposite (e/s) edge stays fixed regardless of whether
-      // the dimension change was driven by raw dx/dy or by the ratio lock.
-      if (handle.indexOf("w") !== -1)
-        left = origin.left + (origin.width - width);
-      if (handle.indexOf("n") !== -1)
-        top = origin.top + (origin.height - height);
+      // Flip-through-zero: dragging a handle past the box's OWN opposite
+      // (anchor) edge must keep resizing continuously instead of clamping to
+      // a floor and getting stuck near-flat (reported: a triangle shrunk to
+      // a hairline sliver and stayed there instead of flipping and growing
+      // from the other side, matching Figma). width/height above are
+      // computed straight from origin, so a negative value unambiguously
+      // means the dragged edge crossed the fixed anchor edge. Re-derive both
+      // edges from that ANCHOR -- never from left/top, which for a
+      // ratio-locked corner drag can be stale against a width/height the
+      // aspect-lock branch just overwrote above -- so the anchor edge stays
+      // exactly fixed and the box keeps growing on the far side of it.
+      var anchorLeft =
+        handle.indexOf("w") !== -1 ? origin.left + origin.width : origin.left;
+      var anchorTop =
+        handle.indexOf("n") !== -1 ? origin.top + origin.height : origin.top;
+      var movingLeft =
+        handle.indexOf("w") !== -1 ? anchorLeft - width : anchorLeft + width;
+      var movingTop =
+        handle.indexOf("n") !== -1 ? anchorTop - height : anchorTop + height;
+      var widthCrossed = width < 0;
+      var heightCrossed = height < 0;
+      // A crossing flips the element around the anchor edge, XORed against
+      // whatever flip it already carried into this gesture. An axis this
+      // handle never touches keeps width/height pinned to origin's positive
+      // value, so widthCrossed/heightCrossed is always false for it and the
+      // XOR resolves back to originFlip unchanged -- the untouched axis's
+      // flip state survives the gesture.
+      var flipX = originFlip.x !== widthCrossed;
+      var flipY = originFlip.y !== heightCrossed;
+      left = Math.min(anchorLeft, movingLeft);
+      width = Math.max(1, Math.abs(movingLeft - anchorLeft));
+      top = Math.min(anchorTop, movingTop);
+      height = Math.max(1, Math.abs(movingTop - anchorTop));
       if (ev.altKey) {
         if (handle.indexOf("w") !== -1 || handle.indexOf("e") !== -1)
           left = origin.left - (width - origin.width) / 2;
@@ -16326,6 +16470,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: height,
         touchesWidth: touchesWidth,
         touchesHeight: touchesHeight,
+        flipX: flipX,
+        flipY: flipY,
       };
     }
     function onMove(ev) {
@@ -16349,6 +16495,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
       if (heightTouched)
         resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
+      resizeEl.style.transform = mergeFlipIntoTransform(
+        flipTransformBase,
+        rect.flipX,
+        rect.flipY,
+      );
       if (scaleToolEnabled) {
         // Uniform scale factor: scaleToolEnabled already forces the
         // aspect-ratio lock above (nextRect), so width/origin.width and
@@ -16377,6 +16528,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
       if (widthTouched) previewStyles.width = resizeEl.style.width;
       if (heightTouched) previewStyles.height = resizeEl.style.height;
+      if (resizeEl.style.transform)
+        previewStyles.transform = resizeEl.style.transform;
       if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         previewStyles.fontSize = resizeEl.style.fontSize;
       }
@@ -16409,6 +16562,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.width = originalInlineWidth;
         resizeEl.style.height = originalInlineHeight;
         resizeEl.style.fontSize = originalInlineFontSize;
+        resizeEl.style.transform = originalInlineTransform;
         restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
@@ -16429,6 +16583,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               height: restoredComputed.height,
               borderWidth: restoredComputed.borderWidth,
               fontSize: restoredComputed.fontSize,
+              transform: restoredComputed.transform,
             },
             payload: getElementInfo(resizeEl),
           },
@@ -16467,6 +16622,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // `width: 100%` to a fixed px width.
       if (widthTouched) styles.width = resizeEl.style.width;
       if (heightTouched) styles.height = resizeEl.style.height;
+      if (resizeEl.style.transform !== originalInlineTransform) {
+        styles.transform = resizeEl.style.transform;
+      }
       // Only include fontSize when the K-scale tool actually changed it — a
       // normal resize must never introduce this key.
       if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
@@ -16943,6 +17101,104 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelRotateDrag);
   }
 
+  function startRadiusDrag(corner, e) {
+    if (readOnly) return;
+    if (!selectedEl) return;
+    if (isLayerInteractionBlocked(selectedEl)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var events = dragEventNames(e);
+    var radiusEl = selectedEl;
+    var cs = window.getComputedStyle(radiusEl);
+    // Each handle owns exactly one corner — Figma adjusts only the dragged
+    // corner, not all four, so 4 independent handles stay meaningful instead
+    // of behaving like a single uniform-radius control.
+    var cornerProperty =
+      CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
+    var elWidthPx = readPx(cs.width);
+    var elHeightPx = readPx(cs.height);
+    // getComputedStyle returns the COMPUTED value, so a percentage-authored
+    // radius (e.g. `border-radius: 50%` on a circular/pill element) comes
+    // back as a literal "50%" string. readPx's parseFloat would read that as
+    // the number 50 and misinterpret it as 50px, snapping the shape the
+    // instant the drag starts. Resolve it against the box's own dimensions
+    // first, same convention as CSS's own circle/pill radius authoring.
+    var originRadius = resolveCornerRadiusPx(
+      radiusEl.style[cornerProperty] || cs[cornerProperty],
+      elWidthPx,
+      elHeightPx,
+    );
+    var maxRadius = Math.max(0, Math.min(elWidthPx, elHeightPx) / 2);
+    var originalRadiusValue = radiusEl.style[cornerProperty];
+    var startX = e.clientX;
+    var startY = e.clientY;
+    // Undo the element's own rotation so dragging toward its center always
+    // grows the radius regardless of the element's on-screen orientation.
+    var theta = (currentRotation(radiusEl) * Math.PI) / 180;
+    var cos = Math.cos(theta);
+    var sin = Math.sin(theta);
+    var signX = corner.indexOf("w") !== -1 ? 1 : -1;
+    var signY = corner.indexOf("n") !== -1 ? 1 : -1;
+    function applyRadius(value) {
+      var next = Math.max(0, Math.min(maxRadius, Math.round(value))) + "px";
+      radiusEl.style[cornerProperty] = next;
+    }
+    function onMove(ev) {
+      if (!radiusEl) return;
+      var screenDx = ev.clientX - startX;
+      var screenDy = ev.clientY - startY;
+      var localDx = screenDx * cos + screenDy * sin;
+      var localDy = -screenDx * sin + screenDy * cos;
+      var delta = (localDx * signX + localDy * signY) / 2;
+      applyRadius(originRadius + delta);
+      applySelectionHandleHitGeometry(radiusEl);
+      refreshOverlays();
+    }
+    function cleanupRadiusDrag() {
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onRadiusKeyDown, true);
+      clearActiveDragCancel(cancelRadiusDrag);
+    }
+    function cancelRadiusDrag() {
+      cleanupRadiusDrag();
+      if (radiusEl && document.documentElement.contains(radiusEl)) {
+        radiusEl.style[cornerProperty] = originalRadiusValue;
+        selectedEl = radiusEl;
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+      }
+      suppressNextShieldClickBriefly();
+      return true;
+    }
+    function onRadiusKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelRadiusDrag();
+    }
+    function onUp() {
+      cleanupRadiusDrag();
+      if (!radiusEl) return;
+      var styles = {};
+      styles[cornerProperty] = radiusEl.style[cornerProperty];
+      (window.parent as Window).postMessage(
+        {
+          type: "visual-style-change",
+          selector: getSelector(radiusEl),
+          styles: styles,
+          originalStyles: originalInlineStylesForPatch(radiusEl, styles),
+          payload: getElementInfo(radiusEl),
+        },
+        "*",
+      );
+      recordSourceOwnership(radiusEl);
+    }
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onRadiusKeyDown, true);
+    setActiveDragCancel(cancelRadiusDrag);
+  }
+
   function clearPendingShieldDrag() {
     if (!pendingShieldDrag) return;
     document.removeEventListener(
@@ -17274,6 +17530,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         e.target.getAttribute("data-agent-native-rotate-handle");
       if (rotateHandle) {
         startRotate(e);
+        return;
+      }
+      var radiusHandle =
+        e.target &&
+        e.target.getAttribute &&
+        e.target.getAttribute("data-agent-native-radius-handle");
+      if (radiusHandle) {
+        startRadiusDrag(radiusHandle, e);
         return;
       }
       startMove(e);
