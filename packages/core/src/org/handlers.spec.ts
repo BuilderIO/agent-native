@@ -389,6 +389,88 @@ describe("org handlers", () => {
     ).toBe(true);
   });
 
+  it("leaves a new member invitation pending when app-role assignment fails", async () => {
+    mockExecute.mockImplementation(async (input: { sql: string }) => {
+      const sql = input.sql;
+      if (sql.includes("SELECT id, org_id AS")) {
+        return {
+          rows: [
+            {
+              id: "invite-1",
+              orgId: "org-1",
+              role: "member",
+              invitedBy: "owner@example.test",
+              appRolesJson: "{invalid",
+            },
+          ],
+        };
+      }
+      if (sql.includes("SELECT role, federation_removal_pending_at")) {
+        return { rows: [] };
+      }
+      if (sql.includes("SELECT name, identity_authority")) {
+        return { rows: [{ name: "Example" }] };
+      }
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      acceptInvitationHandler(
+        makeEvent("/_agent-native/org/invitations/invite-1/accept"),
+      ),
+    ).rejects.toThrow();
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("UPDATE org_invitations SET status = 'accepted'"),
+      ),
+    ).toBe(false);
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("INSERT INTO org_members"),
+      ),
+    ).toBe(true);
+  });
+
+  it("leaves an existing member invitation pending when app-role assignment fails", async () => {
+    mockExecute.mockImplementation(async (input: { sql: string }) => {
+      const sql = input.sql;
+      if (sql.includes("SELECT id, org_id AS")) {
+        return {
+          rows: [
+            {
+              id: "invite-1",
+              orgId: "org-1",
+              role: "member",
+              invitedBy: "owner@example.test",
+              appRolesJson: "{invalid",
+            },
+          ],
+        };
+      }
+      if (sql.includes("SELECT role, federation_removal_pending_at")) {
+        return { rows: [{ role: "member" }] };
+      }
+      if (sql.includes("SELECT name, identity_authority")) {
+        return { rows: [{ name: "Example" }] };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      acceptInvitationHandler(
+        makeEvent("/_agent-native/org/invitations/invite-1/accept"),
+      ),
+    ).rejects.toThrow();
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("UPDATE org_invitations SET status = 'accepted'"),
+      ),
+    ).toBe(false);
+  });
+
   it("lets a pending member finish local cleanup after authority confirmation", async () => {
     mockExecute
       .mockResolvedValueOnce({ rows: [{ role: "member", name: "Example" }] })

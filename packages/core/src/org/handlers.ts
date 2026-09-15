@@ -901,20 +901,14 @@ export const acceptInvitationHandler = defineEventHandler(
       String(organization?.identity_id ?? "").trim();
 
     if (existingMembership.rows.length > 0) {
-      try {
-        await applyInvitationAppRoles({
-          appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
-          orgId: invOrgId,
-          email,
-          updatedBy: String(inv.invitedBy ?? inv.invited_by),
-        });
-      } catch (error) {
-        console.warn("Could not apply invitation app roles", {
-          invitationId,
-          orgId: invOrgId,
-          error,
-        });
-      }
+      // Keep the invitation pending when a pre-assigned role cannot be
+      // applied. A later acceptance retry can repair the assignment.
+      await applyInvitationAppRoles({
+        appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
+        orgId: invOrgId,
+        email,
+        updatedBy: String(inv.invitedBy ?? inv.invited_by),
+      });
       await e.execute({
         sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
         args: [invitationId],
@@ -994,20 +988,14 @@ export const acceptInvitationHandler = defineEventHandler(
     });
     invalidateMemberOrgCaches();
 
-    try {
-      await applyInvitationAppRoles({
-        appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
-        orgId: invOrgId,
-        email,
-        updatedBy: inviterEmail,
-      });
-    } catch (error) {
-      console.warn("Could not apply invitation app roles", {
-        invitationId,
-        orgId: invOrgId,
-        error,
-      });
-    }
+    // Leave the invitation pending if a role assignment fails. The inserted
+    // membership is safe to reuse on a retry through the branch above.
+    await applyInvitationAppRoles({
+      appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
+      orgId: invOrgId,
+      email,
+      updatedBy: inviterEmail,
+    });
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,

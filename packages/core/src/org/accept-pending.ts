@@ -146,23 +146,15 @@ export async function acceptPendingInvitationsForEmail(
       });
       invalidateMemberOrgCaches();
     }
-    try {
-      await applyInvitationAppRoles({
-        appRolesJson: inv.appRolesJson,
-        orgId: inv.orgId,
-        email,
-        updatedBy: inv.invitedBy,
-      });
-    } catch (error) {
-      // A stale app-role declaration must not strand this invitation or block
-      // other pending invitations. Membership and invitation acceptance remain
-      // authoritative; an admin can repair the assignment afterward.
-      console.warn("Could not apply invitation app roles", {
-        invitationId: inv.id,
-        orgId: inv.orgId,
-        error,
-      });
-    }
+    // Keep the invitation pending when a pre-assigned role cannot be applied.
+    // The auth hook logs the retryable failure while membership remains safe
+    // to reuse on the next reconciliation attempt.
+    await applyInvitationAppRoles({
+      appRolesJson: inv.appRolesJson,
+      orgId: inv.orgId,
+      email,
+      updatedBy: inv.invitedBy,
+    });
     await db.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
       args: [inv.id],
