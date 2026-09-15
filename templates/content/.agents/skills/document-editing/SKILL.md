@@ -66,6 +66,16 @@ pnpm action create-document --title "Research" --description "Evidence and sourc
 pnpm action create-document --title "Placeholder 1" --spaceName "Foobar"
 ```
 
+When a user asks for a Page in an interactive Content conversation, creation is
+not a complete handoff. After `create-document` succeeds, call `navigate` with
+the returned document `id`, then call `view-screen` and compare its document ID
+with the create result. Navigation is asynchronous: if `view-screen` still
+reports the previous Page, repeat `navigate` and `view-screen` up to two more
+times. Say the Page is open only after the IDs match. If they never match, say
+the Page was created but navigation could not be verified, and provide the
+stable Page link from the create result. Do not navigate for background, batch,
+or API creation unless the caller explicitly asked to open the result.
+
 When the user names a workspace ("in my Foobar workspace"), pass `spaceName`
 (or a `spaceId` from `list-content-spaces`). A named workspace that does not
 resolve is an error, never a silent fall back. With no `parentId`, `spaceId`,
@@ -291,7 +301,7 @@ failures stop the run.
 | User request              | What to do                                                                        |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
-| "Create a page about X"   | `create-document --title "X" --content "# X\n\n..."`                              |
+| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
 | "Delete this page"        | ID from `<current-screen>`, `delete-document --id ...`                            |
 
@@ -299,7 +309,7 @@ failures stop the run.
 
 | User says                    | What to do                                                                          |
 | ---------------------------- | ----------------------------------------------------------------------------------- |
-| "Create a page about X"      | `create-document --title "X" --content "# X\n\n..."`                                |
+| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
 | "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
 | "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |

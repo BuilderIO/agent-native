@@ -126,6 +126,7 @@ export function autoLayoutAlignmentFromStyles(
  * mirroring the editor pattern where any frame/container exposes auto-layout controls.
  */
 const CONTAINER_TAGS = new Set([
+  "body",
   "div",
   "section",
   "main",
@@ -166,9 +167,10 @@ const LEAF_TAGS = new Set([
 ]);
 
 /**
- * Explicit, unambiguous signals that an element IS a text object: a real
- * text tag, an authoritative `primitiveKind === "text"` marker, or a
- * `draft-text-*` tool-drawn id. Deliberately excludes `isTextElement()`'s
+ * Explicit, unambiguous signals that an element IS a text object: directly
+ * owned text on a text tag, a whole inline text-style root, an authoritative
+ * `primitiveKind === "text"` marker, or a `draft-text-*` tool-drawn id.
+ * Deliberately excludes `isTextElement()`'s
  * last-resort fallback for payloads with no primitive marker at all (a
  * childless div with its own text content) — that heuristic exists to catch
  * genuine T-tool text primitives whose payload happens to be missing
@@ -180,7 +182,9 @@ const LEAF_TAGS = new Set([
  */
 function hasExplicitTextIdentity(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
-  if (TEXT_TAGS.has(tag)) return element.hasOwnText !== false;
+  if (TEXT_TAGS.has(tag)) {
+    return element.hasOwnText !== false || element.wholeTextStyleRoot === true;
+  }
   if (element.primitiveKind) return element.primitiveKind === "text";
   const nodeId = element.sourceId || element.pendingNodeId || "";
   return nodeId.startsWith("draft-text-");
@@ -220,27 +224,30 @@ export function isContainerElement(element: ElementInfo): boolean {
 }
 
 /**
- * Whether `fit-content` has anything to measure. A deny-list on purpose: an
- * allow-list of container/text tags silently denied Hug to every tag in
- * neither list — `button`, `td`, `summary` — and the control then no-oped
- * indistinguishably from a failed write.
+ * Whether Hug is useful for the element. A deny-list on purpose: an allow-list
+ * of container/text tags silently denied Hug to every tag in neither list —
+ * `button`, `td`, `summary` — and the control then no-oped indistinguishably
+ * from a failed write.
  */
 export function canHugContent(element: ElementInfo): boolean {
   const primitiveKind = element.primitiveKind?.trim().toLowerCase();
   const tag = (element.tagName || "").toLowerCase();
+  // Auto-layout containers can hug before they have children; padding itself
+  // gives an empty frame measurable bounds.
+  const isAutoLayoutContainer =
+    element.isFlexContainer || element.isGridContainer;
   // A text layer hugs its own text, and an empty one is mid-authoring.
   if (primitiveKind === "text" || TEXT_TAGS.has(tag)) return true;
   if (primitiveKind) {
     // Drawn shapes other than these are leaves; hug would collapse them.
     if (!["frame", "rectangle", "rect"].includes(primitiveKind)) return false;
-    return hasMeasurableContent(element);
+    return isAutoLayoutContainer || hasMeasurableContent(element);
   }
   if (LEAF_TAGS.has(tag)) return false;
-  return hasMeasurableContent(element);
+  return isAutoLayoutContainer || hasMeasurableContent(element);
 }
 
-/** Absent signals mean "cannot tell", which must not read as "empty": hug on a
- *  genuinely empty box resolves to 0 and the layer disappears. */
+/** Absent signals mean "cannot tell", which must not read as "empty". */
 function hasMeasurableContent(element: ElementInfo): boolean {
   const children = element.childElementCount;
   const text = element.textContent?.trim();
@@ -282,12 +289,14 @@ const VECTOR_PRIMITIVE_KINDS = new Set([
   "rectangle",
   "ellipse",
   "circle",
+  "boolean",
+  "boolean-operand",
 ]);
 
 /**
- * True for SVG vector wrappers. Their paint is SVG `fill`/`stroke` on the
- * shape child, not `background`/`border` on the box — see `vectorPaintTarget`
- * (bridge) and `vectorPaintChild` (code-layer).
+ * True for a pen path, line, arrow, polygon, or star. Their paint is SVG
+ * `fill`/`stroke` on the shape child, not `background`/`border` on the box —
+ * see `vectorPaintTarget` (bridge) and `vectorPaintChild` (code-layer).
  */
 export function isVectorShapeElement(element: ElementInfo): boolean {
   // The board's migrated polygons and stars are plain divs carrying the same
@@ -303,7 +312,9 @@ export function isTextElement(element: ElementInfo): boolean {
   // a row of dot + label + checkbox paints nothing, so its Fill is a
   // background and the Text layer inside owns the text colour. `undefined`
   // keeps the tag-only reading for hand-built payloads.
-  if (TEXT_TAGS.has(tag)) return element.hasOwnText !== false;
+  if (TEXT_TAGS.has(tag)) {
+    return element.hasOwnText !== false || element.wholeTextStyleRoot === true;
+  }
   // T-tool text primitives are plain `div`s stamped with
   // data-an-primitive="text" (see DesignEditor primitive creation). The
   // bridge forwards that marker as ElementInfo.primitiveKind — prefer it
@@ -321,9 +332,7 @@ export function isTextElement(element: ElementInfo): boolean {
   if (nodeId.startsWith("draft-rect-") || nodeId.startsWith("draft-frame-")) {
     return false;
   }
-  // A selected element can own a text node and also contain inline children,
-  // as with a headline split by a styled span. The bridge reports direct text
-  // ownership explicitly; the childless fallback below cannot recognize it.
+  // Direct text ownership also covers text nodes containing styled inline children.
   if (element.hasOwnText !== undefined) return element.hasOwnText;
   // Fallback for payloads with no primitive marker at all: approximate a
   // text node with a content heuristic — a childless div that has its own
@@ -348,9 +357,10 @@ export function isTextElement(element: ElementInfo): boolean {
 /**
  * Per-axis sizing availability following the design editor's contextual rules:
  *   - Fixed: always.
- *   - Hug contents: anything with content to measure — see `canHugContent`.
- *   - Fill container: only when the element is a CHILD of a flex/grid (auto
- *     layout) parent, OR a block-flow child (which fills via width:100%).
+ *   - Hug contents: measurable content, text layers, and flex/grid containers
+ *     (which may be empty) — see `canHugContent`.
+ *   - Fill container: only when the element participates in a flex/grid (auto
+ *     layout) parent, OR is a block-flow child (which fills via width:100%).
  * Hug applies to width and height independently; the same set is offered on
  * both axes here and the per-axis CSS in `commitElementSizing` resolves the
  * exact behavior (main-axis grow vs cross-axis stretch).
@@ -360,6 +370,11 @@ export function availableSizingForElement(
 ): Partial<Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>> {
   const canHug = canHugContent(element);
   const isFlexChildEl = isParentFlex(element) || isParentGrid(element);
+  const position = (
+    element.computedStyles.position || element.inlineStyles?.position
+  )?.toLowerCase();
+  const isOutOfFlowLayoutChild =
+    isFlexChildEl && (position === "absolute" || position === "fixed");
   // Block-flow children can still "fill" via width:100% on the horizontal axis.
   const isBlockChild = Boolean(element.parentDisplay) && !isFlexChildEl;
 
@@ -367,7 +382,10 @@ export function availableSizingForElement(
     const options: AutoLayoutSizing[] = ["fixed"];
     if (canHug) options.push("hug");
     // Fill: flex/grid child on either axis; block child only fills width.
-    if (isFlexChildEl || (isBlockChild && axis === "horizontal")) {
+    if (
+      (isFlexChildEl && !isOutOfFlowLayoutChild) ||
+      (isBlockChild && axis === "horizontal")
+    ) {
       options.push("fill");
     }
     return options;
@@ -555,12 +573,43 @@ export function commitElementSizing(
   onStyleChange: StyleChangeHandler,
   onStylesChange?: StylesChangeHandler,
 ) {
+  commitStylePatch(
+    elementSizingStylePatch(element, axis, sizing),
+    onStyleChange,
+    onStylesChange,
+  );
+}
+
+/** Commit one or both explicit dimensions as Fixed in one style transaction. */
+export function commitFixedElementSizes(
+  element: ElementInfo,
+  sizes: Partial<Record<AutoLayoutSizingAxis, number>>,
+  onStyleChange: StyleChangeHandler,
+  onStylesChange?: StylesChangeHandler,
+  meta?: StyleChangeMeta,
+) {
+  const patch: Record<string, string> = {};
+  for (const axis of ["horizontal", "vertical"] as const) {
+    const size = sizes[axis];
+    if (size === undefined) continue;
+    Object.assign(patch, elementSizingStylePatch(element, axis, "fixed", size));
+  }
+  commitStylePatch(patch, onStyleChange, onStylesChange, meta);
+}
+
+function elementSizingStylePatch(
+  element: ElementInfo,
+  axis: AutoLayoutSizingAxis,
+  sizing: AutoLayoutSizing,
+  fixedSizePx?: number,
+): Record<string, string> {
   const isHorizontal = axis === "horizontal";
   const sizeProperty = isHorizontal ? "width" : "height";
   // Use CSS computed dimension (pre-rotation box size) as the seed for "fixed"
   // sizing so a rotated element is locked to its actual CSS width/height rather
   // than the inflated axis-aligned bounding rect.
-  const resolvedSize = Math.max(1, Math.round(cssElementSize(element, axis)));
+  const resolvedSize =
+    fixedSizePx ?? Math.max(1, Math.round(cssElementSize(element, axis)));
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);
   const isGrid = isParentGrid(element);
@@ -572,13 +621,15 @@ export function commitElementSizing(
   const patch: Record<string, string> = {};
 
   if (sizing === "fixed") {
-    // Fixed → explicit px dimension. Reset any grow/stretch on the flex
-    // main-axis so the pixel value sticks.
+    // Fixed → explicit px dimension. Reset flex sizing on the main axis and
+    // any self-stretch that made the cross axis read as Fill.
     patch[sizeProperty] = `${resolvedSize}px`;
     if (isMainFlexAxis) {
       patch.flexGrow = "0";
       patch.flexShrink = "0";
       patch.flexBasis = "auto";
+    } else if (isFlex || isGrid) {
+      patch[stretchProperty] = "auto";
     }
   } else if (sizing === "hug") {
     // Hug contents → shrink to fit children/content.
@@ -611,5 +662,5 @@ export function commitElementSizing(
     }
   }
 
-  commitStylePatch(patch, onStyleChange, onStylesChange);
+  return patch;
 }

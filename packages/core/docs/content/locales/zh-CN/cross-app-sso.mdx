@@ -1,15 +1,17 @@
 ---
 title: "跨应用 SSO"
-description: "记录 Desktop 工作区 SSO 和服务端组织联邦的剩余行为。浏览器中的 Agent-Native 登录已移除。"
+description: "区分组织 OIDC 或 SAML 登录与跨应用身份联邦。"
 ---
 
-# 跨应用 SSO
+# 组织 SSO 与跨应用联邦
+
+组织 SSO 通过公司的 OIDC 或 SAML 身份提供方验证用户对单个 Agent-Native 部署的登录。跨应用联邦则在不同部署之间传递已验证的身份或组织上下文。两者的设置和信任边界不同。
 
 浏览器中的“Sign in with Agent-Native”选项和自动浏览器跳转已移除。对于
 Web 用户，每个应用独立登录仍是默认方式。本页只介绍剩余的显式 Desktop
 流程和服务端联邦协议。
 
-## 保留的功能
+## 跨应用联邦
 
 ### Desktop 工作区
 
@@ -104,3 +106,5 @@ ID、客户端 ID、HTTPS 来源、回调路径和 <code>identity-sso</code> 能
 - [Dispatch](/docs/dispatch)
 - [安全与数据范围](/docs/security)
 - [多应用工作区](/docs/multi-app-workspace)
+
+通过 OIDC 或 SAML 进行企业登录，与应用之间的身份联邦不同。[管理式部署指南](/docs/administered-deployments)介绍企业部署模式。浏览器中的 Agent-Native 登录仍已移除。

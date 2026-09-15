@@ -105,6 +105,11 @@ interface EditorSidebarProps {
   /** Inserts a new blank slide directly after this slide. */
   onNewSlideAfter?: (slideId: string) => void;
   onDuplicateSlide?: (slideIds: string[]) => void;
+  onReorderSlides?: (
+    activeSlideId: string,
+    overSlideId: string,
+    selectedSlideIds?: string[],
+  ) => void;
   /** Toggles whether this slide is excluded from Present/Presenter mode. */
   onToggleSkipSlide?: (slideIds: string[], skipped: boolean) => void;
 }
@@ -160,6 +165,20 @@ export function getSlideSelection({
   return { selectedSlideIds: nextIds, anchorSlideId: nextAnchor };
 }
 
+export function isContiguousSlideSelection(
+  slideIds: string[],
+  selectedSlideIds: string[],
+): boolean {
+  const selected = new Set(selectedSlideIds);
+  const indexes = slideIds.reduce<number[]>((result, slideId, index) => {
+    if (selected.has(slideId)) result.push(index);
+    return result;
+  }, []);
+  return indexes.every(
+    (index, offset) => offset === 0 || index === indexes[offset - 1]! + 1,
+  );
+}
+
 const DECK_FIT_STATE_KEYS = [
   appStateKeyForBrowserTab("deck-fit-checks", TAB_ID),
   "deck-fit-checks",
@@ -184,18 +203,41 @@ function isAgentPresenceUser(user: CollabUser): boolean {
   );
 }
 
+type SlideRailNavigationKey =
+  | "ArrowUp"
+  | "ArrowDown"
+  | "PageUp"
+  | "PageDown"
+  | "Home"
+  | "End";
+
+function isSlideRailNavigationKey(key: string): key is SlideRailNavigationKey {
+  return (
+    key === "ArrowUp" ||
+    key === "ArrowDown" ||
+    key === "PageUp" ||
+    key === "PageDown" ||
+    key === "Home" ||
+    key === "End"
+  );
+}
+
 function getNextSlideId(
   slides: Slide[],
   activeSlideId: string,
-  key: "ArrowUp" | "ArrowDown",
+  key: SlideRailNavigationKey,
 ): string | null {
   const currentIndex = slides.findIndex((s) => s.id === activeSlideId);
   if (currentIndex === -1) return null;
 
   const nextIndex =
-    key === "ArrowUp"
-      ? Math.max(0, currentIndex - 1)
-      : Math.min(slides.length - 1, currentIndex + 1);
+    key === "Home"
+      ? 0
+      : key === "End"
+        ? slides.length - 1
+        : key === "ArrowUp" || key === "PageUp"
+          ? Math.max(0, currentIndex - 1)
+          : Math.min(slides.length - 1, currentIndex + 1);
 
   return nextIndex === currentIndex ? null : (slides[nextIndex]?.id ?? null);
 }
@@ -267,7 +309,8 @@ function SortableSlideThumb({
   isSelected,
   selectedSlideIds = [],
   onSelect,
-  onArrowNavigate,
+  onFilmstripNavigate,
+  onMoveSlide,
   registerButtonRef,
   presenceUsers = [],
   aspectRatio,
@@ -292,7 +335,11 @@ function SortableSlideThumb({
   isSelected: boolean;
   selectedSlideIds?: string[];
   onSelect: (options?: SlideSelectionOptions) => void;
-  onArrowNavigate: (key: "ArrowUp" | "ArrowDown") => void;
+  onFilmstripNavigate: (
+    key: SlideRailNavigationKey,
+    extendSelection?: boolean,
+  ) => void;
+  onMoveSlide?: (key: "ArrowUp" | "ArrowDown", toBoundary: boolean) => void;
   readOnly?: boolean;
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
@@ -364,12 +411,24 @@ function SortableSlideThumb({
                 if (!readOnly && canDelete) onDeleteSlide?.(actionSlideIds);
                 return;
               }
+              if (
+                !readOnly &&
+                onMoveSlide &&
+                (event.metaKey || event.ctrlKey) &&
+                !event.altKey &&
+                (event.key === "ArrowUp" || event.key === "ArrowDown")
+              ) {
+                event.preventDefault();
+                event.stopPropagation();
+                onMoveSlide(event.key, event.shiftKey);
+                return;
+              }
               listeners?.onKeyDown?.(event);
               if (event.defaultPrevented) return;
-              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+              if (!isSlideRailNavigationKey(event.key)) return;
               event.preventDefault();
               event.stopPropagation();
-              onArrowNavigate(event.key);
+              onFilmstripNavigate(event.key, event.shiftKey);
             }}
             onClick={(event) => {
               // Safari does not focus a button on click, and the slide copy/paste
@@ -595,6 +654,7 @@ export default function EditorSidebar({
   onDeleteSlide,
   onNewSlideAfter,
   onDuplicateSlide,
+  onReorderSlides,
   onToggleSkipSlide,
 }: EditorSidebarProps) {
   const t = useT();
@@ -773,11 +833,19 @@ export default function EditorSidebar({
   );
 
   const navigateToSlide = useCallback(
-    (fromSlideId: string, key: "ArrowUp" | "ArrowDown") => {
+    (
+      fromSlideId: string,
+      key: SlideRailNavigationKey,
+      extendSelection = false,
+    ) => {
       const nextSlideId = getNextSlideId(slides, fromSlideId, key);
       if (!nextSlideId) return;
 
-      onSelectSlide(nextSlideId);
+      if (extendSelection) {
+        onSelectSlide(nextSlideId, { shiftKey: true });
+      } else {
+        onSelectSlide(nextSlideId);
+      }
       requestAnimationFrame(() => {
         const nextButton = slideButtonRefs.current.get(nextSlideId);
         nextButton?.focus({ preventScroll: true });
@@ -785,6 +853,48 @@ export default function EditorSidebar({
       });
     },
     [onSelectSlide, slides],
+  );
+
+  const moveSlideFromKeyboard = useCallback(
+    (slideId: string, key: "ArrowUp" | "ArrowDown", toBoundary: boolean) => {
+      if (readOnly || !onReorderSlides) return;
+      const activeIndex = slides.findIndex((slide) => slide.id === slideId);
+      if (activeIndex === -1) return;
+
+      const requestedIds =
+        selectedSlideIds.includes(slideId) &&
+        isContiguousSlideSelection(
+          slides.map((slide) => slide.id),
+          selectedSlideIds,
+        )
+          ? selectedSlideIds
+          : [slideId];
+      const movingIds = new Set(requestedIds);
+      const movingSlides = slides.filter((slide) => movingIds.has(slide.id));
+      if (movingSlides.length === 0) return;
+
+      const firstIndex = slides.findIndex((slide) => movingIds.has(slide.id));
+      const lastIndex = slides.reduce(
+        (last, slide, index) => (movingIds.has(slide.id) ? index : last),
+        -1,
+      );
+      const targetIndex = toBoundary
+        ? key === "ArrowUp"
+          ? 0
+          : slides.length - 1
+        : key === "ArrowUp"
+          ? firstIndex - 1
+          : lastIndex + 1;
+      const target = slides[targetIndex];
+      if (!target || movingIds.has(target.id)) return;
+
+      onReorderSlides(
+        slideId,
+        target.id,
+        movingSlides.map((slide) => slide.id),
+      );
+    },
+    [onReorderSlides, readOnly, selectedSlideIds, slides],
   );
 
   const describeSlideIndex = describeSlideId
@@ -813,7 +923,11 @@ export default function EditorSidebar({
         return;
 
       e.preventDefault();
-      navigateToSlide(activeSlideId, e.key as "ArrowUp" | "ArrowDown");
+      navigateToSlide(
+        activeSlideId,
+        e.key as "ArrowUp" | "ArrowDown",
+        e.shiftKey,
+      );
     };
 
     document.addEventListener("keydown", handleKeyDown);
@@ -847,7 +961,15 @@ export default function EditorSidebar({
                 isSelected={selectedSlideIds.includes(slide.id)}
                 selectedSlideIds={selectedSlideIds}
                 onSelect={(options) => onSelectSlide(slide.id, options)}
-                onArrowNavigate={(key) => navigateToSlide(slide.id, key)}
+                onFilmstripNavigate={(key, extendSelection) =>
+                  navigateToSlide(slide.id, key, extendSelection)
+                }
+                onMoveSlide={
+                  onReorderSlides
+                    ? (key, toBoundary) =>
+                        moveSlideFromKeyboard(slide.id, key, toBoundary)
+                    : undefined
+                }
                 readOnly={readOnly}
                 registerButtonRef={registerSlideButton}
                 presenceUsers={slidePresence?.get(slide.id) ?? []}

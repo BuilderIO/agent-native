@@ -1,8 +1,5 @@
 import type { CodeLayerProjection } from "@shared/code-layer";
-import {
-  applyVisualEdit,
-  ensureCodeLayerNodeIdsInHtml,
-} from "@shared/code-layer";
+import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +13,11 @@ import {
   elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
+import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "@/pages/design-editor/commands/selection-publication";
 import { withMeasuredGeometry } from "@/pages/design-editor/editor-helpers";
 import {
   dedupeStringIds,
@@ -36,11 +38,13 @@ export interface ScreenElementSelectArgs {
       forcePreviewFullDocument?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   clearPendingOverviewLayerSelectionTimer: () => void;
+  createdOverviewLayerSelection: { screenId: string; layerId: string } | null;
   focusDesignInspectorForSelection: () => void;
   getCodeLayerProjectionForScreen: (
     screenId: string,
@@ -74,6 +78,7 @@ export function runScreenElementSelect(
     activeBreakpointWidthStateRef,
     applyFileContentUpdate,
     clearPendingOverviewLayerSelectionTimer,
+    createdOverviewLayerSelection,
     focusDesignInspectorForSelection,
     getCodeLayerProjectionForScreen,
     getScreenContent,
@@ -104,24 +109,40 @@ export function runScreenElementSelect(
   } = {},
 ) {
   const pendingLayerId = pendingOverviewLayerSelectionRef.current;
-  const pendingScreenId = pendingOverviewScreenSelectionRef.current;
-  const projection = getCodeLayerProjectionForScreen(screenId);
-  const canonical = projection
-    ? canonicalizeElementInfoFromProjection(projection, info)
+  const pendingScreenId =
+    pendingOverviewScreenSelectionRef.current ??
+    (createdOverviewLayerSelection?.layerId === pendingLayerId
+      ? createdOverviewLayerSelection.screenId
+      : null);
+  let projection = getCodeLayerProjectionForScreen(screenId);
+  let canonical = projection
+    ? canonicalizeElementInfoFromProjection(projection, info, screenId)
     : info;
-  const node = projection
+  let node = projection
     ? resolveCodeLayerNodeFromElementInfo(projection, canonical)
     : null;
-  if (
-    shouldIgnoreOverviewLayerCreationEcho({
-      pendingLayerId,
-      pendingScreenId,
-      screenId,
-      info: canonical,
-      resolvedLayerId: node?.id,
-      event: "select",
-    })
-  ) {
+  const ignoredLayerSelectionEcho = shouldIgnoreOverviewLayerCreationEcho({
+    pendingLayerId,
+    pendingScreenId,
+    screenId,
+    info: canonical,
+    resolvedLayerId: node?.id,
+    event: "select",
+  });
+  const blockedSelection =
+    shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId);
+  const exactPendingLayerEcho =
+    pendingLayerId !== null &&
+    (node?.id === pendingLayerId ||
+      (pendingScreenId === screenId &&
+        node?.dataAttributes["data-agent-native-node-id"] ===
+          pendingLayerId)) &&
+    !isScreenRootElementInfo(canonical) &&
+    (canonical.portableStyleSnapshot !== undefined ||
+      canonical.styleSnapshotCaptureFailed === true) &&
+    !blockedSelection;
+  if (ignoredLayerSelectionEcho) {
+    if (exactPendingLayerEcho) setSelectedElement(canonical);
     return;
   }
   pendingOverviewScreenSelectionRef.current = null;
@@ -129,7 +150,7 @@ export function runScreenElementSelect(
   clearPendingOverviewLayerSelectionTimer();
   setCreatedOverviewLayerSelection(null);
   if (
-    shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId) &&
+    blockedSelection &&
     (isScreenRootElementInfo(canonical) ||
       !node ||
       selectedLayerIdsState.includes(node.id))
@@ -177,9 +198,37 @@ export function runScreenElementSelect(
         },
       );
       if (result.result.status === "applied" && result.content !== rawContent) {
-        applyFileContentUpdate(screenId, result.content, {
-          recordHistory: false,
+        const submittedProjection = buildCodeLayerProjection(result.content, {
+          source: { kind: "design-file", designId: id, fileId: screenId },
         });
+        const submittedNode = submittedProjection.nodes.find(
+          (candidate) =>
+            candidate.dataAttributes["data-agent-native-node-id"] ===
+            pendingNodeId,
+        );
+        const publication = applyFileContentUpdate(screenId, result.content, {
+          recordHistory: false,
+          historyBeforeContent: rawContent,
+        });
+        if (publication.status === "accepted") {
+          const acceptedProjection = projectAcceptedSource(publication, {
+            kind: "design-file",
+            designId: id,
+            fileId: screenId,
+          });
+          node = mapAcceptedSelectionNode(
+            publication,
+            acceptedProjection,
+            submittedNode,
+          );
+          if (node) {
+            projection = acceptedProjection;
+            canonical = withMeasuredGeometry(
+              elementInfoFromCodeLayerNode(node),
+              screenId,
+            );
+          }
+        }
       }
     }
   } else if (
@@ -195,13 +244,24 @@ export function runScreenElementSelect(
   ) {
     const rawContent = getScreenContent(screenId);
     if (rawContent) {
-      const stamped = ensureCodeLayerNodeIdsInHtml(rawContent, {
-        source: { kind: "design-file", designId: id, fileId: screenId },
+      const publication = applyFileContentUpdate(screenId, rawContent, {
+        recordHistory: false,
+        historyBeforeContent: rawContent,
       });
-      if (stamped.changed && stamped.content !== rawContent) {
-        applyFileContentUpdate(screenId, stamped.content, {
-          recordHistory: false,
+      if (publication.status === "accepted") {
+        const acceptedProjection = projectAcceptedSource(publication, {
+          kind: "design-file",
+          designId: id,
+          fileId: screenId,
         });
+        node = mapAcceptedSelectionNode(publication, acceptedProjection, node);
+        if (node) {
+          projection = acceptedProjection;
+          canonical = withMeasuredGeometry(
+            elementInfoFromCodeLayerNode(node),
+            screenId,
+          );
+        }
       }
     }
   }

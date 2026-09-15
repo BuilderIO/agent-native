@@ -122,3 +122,7 @@ CRM、プロジェクト トラッカー、サポート インボックス、ま
 - [**Authentication**](/docs/authentication#organizations) — セッション、ソーシャル プロバイダー、組織管理画面
 - [**Security — Data Scoping**](/docs/security#data-scoping) — SQL レベルの分離、`ownableColumns()` コントラクト、アクセス ガード
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — 共有認証と RBAC を使用して 1 つの monorepo で複数の Agent-Native アプリをホストします
+
+## 分離モデル
+
+サーバー側の読み書きには `accessFilter()` と `assertAccess()` を使用します。エージェント SQL のスコープ処理は ownable テーブルに一時的なフィルター付きビューを作成します。`pnpm guards` にはスコープ漏れクエリの検査が含まれます。RLS は現在の適用レイヤーではなく、1.0 以降の強化として予定されています。[管理デプロイ](/docs/administered-deployments)を参照してください。

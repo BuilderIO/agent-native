@@ -58,11 +58,18 @@ describe("sendBuilderPopupErrorPage", () => {
 });
 
 describe("builder connect route statuses", () => {
-  it("never answers a connect popup with a gateway status", () => {
+  // The first version of this scan only matched `setResponseStatus(event, 502)`
+  // and missed `fail(502, ...)`, where the status reaches the response through
+  // a local responder. Match the literal itself rather than one call shape.
+  it("never answers a Builder route with a gateway status", () => {
     const source = readFileSync(
       fileURLToPath(new URL("./core-routes-plugin.ts", import.meta.url)),
       "utf-8",
     );
-    expect(source).not.toMatch(/setResponseStatus\(event,\s*50[24]\)/);
+    const code = source
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n");
+    expect(code).not.toMatch(/(?<![\w.])50[24](?![\w.])/);
   });
 });

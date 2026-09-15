@@ -90,6 +90,11 @@ import {
   resolveDraftWorkingLocation,
 } from "@/lib/calendar-drafts";
 import {
+  getCalendarEventRenderKey,
+  withCalendarEventSourceIdentity,
+} from "@/lib/calendar-event-identity";
+import { navigateCalendarDate } from "@/lib/calendar-navigation";
+import {
   addCalendarDays,
   dateKeyToDate,
   dateToCalendarDateKey,
@@ -111,6 +116,7 @@ import {
   resolveEventTimezone,
 } from "@/lib/event-form-utils";
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
+import { isCalendarShortcutSuppressedTarget } from "@/lib/keyboard-shortcuts";
 import { getLocationSuggestions } from "@/lib/location-suggestions";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -961,6 +967,7 @@ export default function CalendarView() {
               deleteEvent.mutate(
                 buildDeleteEventMutationInput(
                   {
+                    ...result,
                     id: createdEventId,
                     accountEmail:
                       result.accountEmail ??
@@ -1048,11 +1055,11 @@ export default function CalendarView() {
 
   useEffect(() => {
     if (sidebarEvent) {
-      const rebound = findEventByCurrentOrReplacedId(events, sidebarEvent.id);
+      const rebound = findEventByCurrentOrReplacedId(events, sidebarEvent);
       if (rebound && rebound.id !== sidebarEvent.id) setSidebarEvent(rebound);
     }
     if (focusedEvent) {
-      const rebound = findEventByCurrentOrReplacedId(events, focusedEvent.id);
+      const rebound = findEventByCurrentOrReplacedId(events, focusedEvent);
       if (rebound && rebound.id !== focusedEvent.id) setFocusedEvent(rebound);
     }
   }, [events, focusedEvent, setFocusedEvent, setSidebarEvent, sidebarEvent]);
@@ -1060,14 +1067,12 @@ export default function CalendarView() {
   const selectedEvent = useMemo(() => {
     const candidate = sidebarEvent ?? focusedEvent;
     if (!candidate) return null;
-    return findEventByCurrentOrReplacedId(events, candidate.id) ?? candidate;
+    return findEventByCurrentOrReplacedId(events, candidate) ?? candidate;
   }, [events, sidebarEvent, focusedEvent]);
 
   const refreshedSidebarEvent = useMemo(() => {
     if (!sidebarEvent) return null;
-    return (
-      findEventByCurrentOrReplacedId(events, sidebarEvent.id) ?? sidebarEvent
-    );
+    return findEventByCurrentOrReplacedId(events, sidebarEvent) ?? sidebarEvent;
   }, [events, sidebarEvent]);
 
   function handleNavigate(direction: "prev" | "next") {
@@ -1077,11 +1082,9 @@ export default function CalendarView() {
       direction,
       view_type: viewMode,
     });
-    const fns =
-      direction === "next"
-        ? { month: addMonths, week: addWeeks, day: addDays }
-        : { month: subMonths, week: subWeeks, day: subDays };
-    setSelectedDate(fns[viewMode](selectedDate, 1));
+    setSelectedDate(
+      navigateCalendarDate(viewMode, selectedDate, direction, weekStartsOn),
+    );
   }
 
   function handleToday() {
@@ -1174,12 +1177,15 @@ export default function CalendarView() {
       const undo = removeOnly
         ? () => {
             rsvpEvent.mutate(
-              {
-                id: ev.id,
-                status: "accepted",
-                accountEmail: ev.accountEmail,
-                sendUpdates: "none",
-              },
+              withCalendarEventSourceIdentity(
+                {
+                  id: ev.id,
+                  status: "accepted",
+                  accountEmail: ev.accountEmail,
+                  sendUpdates: "none",
+                },
+                ev,
+              ),
               {
                 onError: () =>
                   toast.error(t("calendarView.failedRestoreAttendance")),
@@ -1198,7 +1204,13 @@ export default function CalendarView() {
         }),
         {
           onSuccess: () => {
-            if (sidebarEvent?.id === ev.id) setSidebarEvent(null);
+            if (
+              sidebarEvent &&
+              getCalendarEventRenderKey(sidebarEvent) ===
+                getCalendarEventRenderKey(ev)
+            ) {
+              setSidebarEvent(null);
+            }
             setUndoAction(undo);
             toast(
               removeOnly
@@ -1225,13 +1237,14 @@ export default function CalendarView() {
   );
 
   const handleDeleteEvent = useCallback(
-    (eventId: string) => {
+    (selectedEvent: CalendarEvent) => {
+      const eventId = selectedEvent.id;
       if (deleteEvent.isPending) return;
       if (calendarDraftIdFromEventId(eventId)) {
         discardDraftEvent(eventId);
         return;
       }
-      const ev = events.find((e) => e.id === eventId);
+      const ev = findEventByCurrentOrReplacedId(events, selectedEvent);
       if (!ev || ev.calendarPrimary === false || ev.calendarReadOnly) return;
       const isRecurring = !!(ev.recurringEventId || ev.recurrence?.length);
       const isOrganizer = isCalendarEventOrganizer(ev);
@@ -1248,10 +1261,11 @@ export default function CalendarView() {
   );
 
   // Move event to a new date (drag-and-drop from MonthView)
-  async function handleEventDrop(eventId: string, newDate: Date) {
-    const event = events.find((e) => e.id === eventId);
+  async function handleEventDrop(selectedEvent: CalendarEvent, newDate: Date) {
+    const event = findEventByCurrentOrReplacedId(events, selectedEvent);
+    if (!event) return;
+    const eventId = event.id;
     if (
-      !event ||
       event.calendarPrimary === false ||
       event.calendarReadOnly ||
       !isCalendarEventOrganizer(event) ||
@@ -1288,14 +1302,19 @@ export default function CalendarView() {
 
     const undoScope = guestNotification.scope;
     const undo = () => {
-      updateEvent.mutate({
-        id: eventId,
-        accountEmail: event.accountEmail,
-        start: oldStartISO,
-        end: oldEndISO,
-        sendUpdates: "none",
-        ...updateScopePayload(undoScope),
-      });
+      updateEvent.mutate(
+        withCalendarEventSourceIdentity(
+          {
+            id: eventId,
+            accountEmail: event.accountEmail,
+            start: oldStartISO,
+            end: oldEndISO,
+            sendUpdates: "none",
+            ...updateScopePayload(undoScope),
+          },
+          event,
+        ),
+      );
     };
     const toastId = toast.loading(
       isRecurring
@@ -1304,12 +1323,15 @@ export default function CalendarView() {
     );
 
     updateEvent.mutate(
-      {
-        id: eventId,
-        accountEmail: event.accountEmail,
-        ...updates,
-        ...guestNotification,
-      },
+      withCalendarEventSourceIdentity(
+        {
+          id: eventId,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        },
+        event,
+      ),
       {
         onSuccess: () => {
           setUndoAction(undo);
@@ -1326,11 +1348,12 @@ export default function CalendarView() {
 
   // Move/resize event to new start/end times (drag from Week/Day views)
   const handleEventTimeChange = useCallback(
-    async (eventId: string, newStart: Date, newEnd: Date) => {
+    async (selectedEvent: CalendarEvent, newStart: Date, newEnd: Date) => {
+      const event = findEventByCurrentOrReplacedId(events, selectedEvent);
+      if (!event) return;
+      const eventId = event.id;
       // Skip no-op drags (dropped back in same spot)
-      const event = events.find((e) => e.id === eventId);
       if (
-        !event ||
         event.calendarPrimary === false ||
         event.calendarReadOnly ||
         !isCalendarEventOrganizer(event) ||
@@ -1379,14 +1402,19 @@ export default function CalendarView() {
 
       const undoScope = guestNotification.scope;
       const undo = () => {
-        updateEvent.mutate({
-          id: eventId,
-          accountEmail: event.accountEmail,
-          start: oldStartISO,
-          end: oldEndISO,
-          sendUpdates: "none",
-          ...updateScopePayload(undoScope),
-        });
+        updateEvent.mutate(
+          withCalendarEventSourceIdentity(
+            {
+              id: eventId,
+              accountEmail: event.accountEmail,
+              start: oldStartISO,
+              end: oldEndISO,
+              sendUpdates: "none",
+              ...updateScopePayload(undoScope),
+            },
+            event,
+          ),
+        );
       };
       const toastId = toast.loading(
         isRecurring
@@ -1394,25 +1422,26 @@ export default function CalendarView() {
           : t("calendarView.updatingEvent"),
       );
 
-      updateEvent.mutate(
-        {
-          id: eventId,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
-        {
-          onSuccess: () => {
-            setUndoAction(undo);
-            toast.success(t("calendarView.eventUpdated"), {
-              id: toastId,
-              action: { label: t("calendarView.undo"), onClick: undo },
-            });
-          },
-          onError: () =>
-            toast.error(t("calendarView.failedUpdateEvent"), { id: toastId }),
-        },
-      );
+      try {
+        await updateEvent.mutateAsync(
+          withCalendarEventSourceIdentity(
+            {
+              id: eventId,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
+        );
+        setUndoAction(undo);
+        toast.success(t("calendarView.eventUpdated"), {
+          id: toastId,
+          action: { label: t("calendarView.undo"), onClick: undo },
+        });
+      } catch {
+        toast.error(t("calendarView.failedUpdateEvent"), { id: toastId });
+      }
     },
     [
       displayTimezone,
@@ -1526,7 +1555,7 @@ export default function CalendarView() {
         if (!existingDraftId && eventDraft) {
           discardDraftEvent(calendarDraftEventId(eventDraft.id));
         }
-        setQuickEditEventId(existing.id);
+        setQuickEditEventId(getCalendarEventRenderKey(existing));
         return;
       }
 
@@ -1627,7 +1656,8 @@ export default function CalendarView() {
   );
 
   const handleQuickEditSave = useCallback(
-    async (eventId: string, title: string, accountEmail?: string) => {
+    async (selectedEvent: CalendarEvent, title: string) => {
+      const eventId = selectedEvent.id;
       setQuickEditEventId(null);
       const trimmedTitle = title.trim();
       if (calendarDraftIdFromEventId(eventId)) {
@@ -1640,57 +1670,67 @@ export default function CalendarView() {
         return next;
       });
       if (trimmedTitle) {
-        const event = events.find((e) => e.id === eventId);
+        const event = findEventByCurrentOrReplacedId(events, selectedEvent);
+        if (!event) return;
         const updates = buildEventTitleUpdate(trimmedTitle);
-        const guestNotification = event
-          ? await promptGuestNotification({
-              event,
-              action: "update",
-              updates,
-            })
-          : { sendUpdates: "none" as const };
-        if (!guestNotification) return;
-        updateEvent.mutate({
-          id: eventId,
-          accountEmail: event?.accountEmail ?? accountEmail,
-          ...updates,
-          ...guestNotification,
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
         });
+        if (!guestNotification) return;
+        updateEvent.mutate(
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
+        );
       }
     },
     [events, updateDraftEvent, promptGuestNotification, updateEvent],
   );
 
   const handleTitleSave = useCallback(
-    async (eventId: string, title: string, accountEmail?: string) => {
+    async (selectedEvent: CalendarEvent, title: string) => {
+      const eventId = selectedEvent.id;
       const trimmedTitle = title.trim();
       if (!trimmedTitle) return;
       if (calendarDraftIdFromEventId(eventId)) {
         updateDraftEvent(eventId, { title: trimmedTitle });
         return;
       }
-      const event = events.find((e) => e.id === eventId);
+      const event = findEventByCurrentOrReplacedId(events, selectedEvent);
+      if (!event) return;
       const updates = buildEventTitleUpdate(trimmedTitle);
-      const guestNotification = event
-        ? await promptGuestNotification({
-            event,
-            action: "update",
-            updates,
-          })
-        : { sendUpdates: "none" as const };
-      if (!guestNotification) return;
-      updateEvent.mutate({
-        id: eventId,
-        accountEmail: event?.accountEmail ?? accountEmail,
-        ...updates,
-        ...guestNotification,
+      const guestNotification = await promptGuestNotification({
+        event,
+        action: "update",
+        updates,
       });
+      if (!guestNotification) return;
+      updateEvent.mutate(
+        withCalendarEventSourceIdentity(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          event,
+        ),
+      );
     },
     [events, updateDraftEvent, promptGuestNotification, updateEvent],
   );
 
   const handleQuickEditCancel = useCallback(
-    (eventId: string, accountEmail?: string) => {
+    (event: CalendarEvent) => {
+      const eventId = event.id;
       setQuickEditEventId(null);
       if (calendarDraftIdFromEventId(eventId)) {
         discardDraftEvent(eventId);
@@ -1701,48 +1741,33 @@ export default function CalendarView() {
         const { [eventId]: _removed, ...next } = current;
         return next;
       });
+      const currentEvent =
+        findEventByCurrentOrReplacedId(events, event) ?? event;
       // Delete the event if title was never set
-      const ev = events.find((e) => e.id === eventId);
-      if (!ev || !getEditableEventTitle(ev).trim()) {
+      if (!getEditableEventTitle(currentEvent).trim()) {
         deleteEvent.mutate(
-          buildDeleteEventMutationInput(
-            {
-              id: eventId,
-              accountEmail:
-                ev?.accountEmail ?? accountEmail ?? defaultAccountEmail,
-            },
-            {
-              scope: "single",
-              sendUpdates: "none",
-            },
-          ),
+          buildDeleteEventMutationInput(currentEvent, {
+            scope: "single",
+            sendUpdates: "none",
+          }),
         );
       }
     },
-    [defaultAccountEmail, discardDraftEvent, events, deleteEvent],
+    [discardDraftEvent, events, deleteEvent],
   );
-
-  // IconKeyboard shortcuts — don't fire when user is typing in an input
-  const isTypingInInput = useCallback((e: KeyboardEvent) => {
-    const target = e.target as HTMLElement;
-    return (
-      target.tagName === "INPUT" ||
-      target.tagName === "TEXTAREA" ||
-      target.isContentEditable
-    );
-  }, []);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Cmd+K / Ctrl+K — always open command palette
+      if (isCalendarShortcutSuppressedTarget(e.target)) return;
+
+      // Cmd+K / Ctrl+K — open the command palette from the calendar surface.
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         openCommandPalette();
         return;
       }
 
-      // Skip all other shortcuts when typing or when a dialog is open
-      if (isTypingInInput(e)) return;
+      // Skip calendar-specific shortcuts while a page-owned dialog is open.
       if (createDialogOpen || deleteDialogEvent) return;
 
       // Delete/Backspace — delete the selected event
@@ -1750,7 +1775,7 @@ export default function CalendarView() {
         const targetEvent = sidebarEvent || focusedEvent;
         if (!targetEvent) return;
         e.preventDefault();
-        handleDeleteEvent(targetEvent.id);
+        handleDeleteEvent(targetEvent);
         return;
       }
 
@@ -1840,7 +1865,6 @@ export default function CalendarView() {
   }, [
     createDialogOpen,
     deleteDialogEvent,
-    isTypingInInput,
     openCommandPalette,
     viewMode,
     selectedDate,
@@ -2188,7 +2212,6 @@ export default function CalendarView() {
           onConfirm={(options) => {
             if (!deleteDialogEvent) return;
             const snapshot = { ...deleteDialogEvent };
-            const eventId = deleteDialogEvent.id;
             const undo = () => {
               createEvent.mutate({
                 title: snapshot.title,
@@ -2215,7 +2238,11 @@ export default function CalendarView() {
             };
             // Optimistic: close dialog immediately
             setDeleteDialogEvent(null);
-            if (sidebarEvent?.id === eventId) {
+            if (
+              sidebarEvent &&
+              getCalendarEventRenderKey(sidebarEvent) ===
+                getCalendarEventRenderKey(snapshot)
+            ) {
               setSidebarEvent(null);
             }
             deleteEvent.mutate(

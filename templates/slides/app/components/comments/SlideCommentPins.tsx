@@ -1,8 +1,15 @@
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  useAvatarUrl,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/core/client/markdown";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
-import { IconMessageCircle, IconX } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconMessageCircle,
+  IconRefresh,
+  IconX,
+} from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -26,22 +33,34 @@ import {
 } from "@/components/ui/tooltip";
 import {
   emailToColor,
-  formatRelativeTime,
   type CommentThread,
+  useDeleteSlideComment,
   useCreateSlideComment,
+  useResolveSlideComment,
 } from "@/hooks/use-slide-comments";
+import {
+  slideCommentAnchorAtPoint,
+  slideCommentAnchorPosition,
+} from "@/lib/slide-comment-anchor";
 import { cn } from "@/lib/utils";
+
+import { CommentItem, ReplyInput } from "./SlideCommentsPanel";
 
 interface SlideCommentPinsProps {
   active: boolean;
   canComment: boolean;
+  canEdit?: boolean;
   comments: CommentThread[];
   deckId: string | null;
   slideId: string;
   canvasSelector: string;
+  currentUserEmail?: string | null;
+  onBeforeCommentSubmit?: () => Promise<void>;
+  onEnsureObjectId?: (element: HTMLElement) => string;
 }
 
 type PendingComment = {
+  slideId: string;
   anchor: SlideCommentAnchor;
 };
 
@@ -53,6 +72,29 @@ function initials(name: string | null | undefined, email: string) {
     .map((part) => part[0]?.toUpperCase())
     .join("")
     .slice(0, 2);
+}
+
+function findCommentObject(
+  target: Element | null,
+  canvasSelector: string,
+): HTMLElement | null {
+  const canvas = target?.closest<HTMLElement>(canvasSelector);
+  let current = target instanceof HTMLElement ? target : target?.parentElement;
+  while (current && current !== canvas) {
+    const position =
+      current.style.position || window.getComputedStyle(current).position;
+    if (
+      current.classList.contains("fmd-freeform-object") ||
+      current.classList.contains("fmd-text-box") ||
+      current.hasAttribute("data-slide-object-id") ||
+      position === "absolute" ||
+      position === "fixed"
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
 }
 
 function CommentAvatar({
@@ -85,16 +127,57 @@ function CommentThreadPopover({
   thread,
   open,
   onOpenChange,
+  canComment,
+  canEdit,
+  currentUserEmail,
+  deckId,
+  onBeforeCommentSubmit,
+  slideId,
 }: {
   thread: CommentThread;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  canComment: boolean;
+  canEdit: boolean;
+  currentUserEmail: string | null;
+  deckId: string | null;
+  onBeforeCommentSubmit?: () => Promise<void>;
+  slideId: string;
 }) {
   const t = useT();
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const resolveComment = useResolveSlideComment();
+  const deleteComment = useDeleteSlideComment();
   const root = thread.comments[0];
   if (!root || !thread.anchor) return null;
 
-  const authorName = root.author_name || root.author_email.split("@")[0];
+  const canManageRoot =
+    canEdit ||
+    root.author_email.trim().toLowerCase() ===
+      currentUserEmail?.trim().toLowerCase();
+  const handleResolve = () => {
+    if (!deckId) return;
+    setError(null);
+    resolveComment.mutate(
+      { id: root.id, deckId, resolved: !thread.resolved },
+      {
+        onError: (caught) =>
+          setError(actionErrorMessage(caught) ?? t("comments.updateFailed")),
+      },
+    );
+  };
+  const handleDelete = () => {
+    if (!deckId) return;
+    setError(null);
+    deleteComment.mutate(
+      { id: root.id, deckId },
+      {
+        onError: (caught) =>
+          setError(actionErrorMessage(caught) ?? t("comments.deleteFailed")),
+      },
+    );
+  };
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -128,58 +211,89 @@ function CommentThreadPopover({
               data-slide-comment-popover
             >
               <div className="space-y-3">
-                <div className="flex gap-2">
-                  <CommentAvatar
-                    email={root.author_email}
-                    name={root.author_name}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-xs font-medium">
-                        {authorName}
-                      </span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">
-                        {formatRelativeTime(root.created_at)}
-                      </span>
-                    </div>
-                    <InlineMarkdown
-                      content={root.content}
-                      className="mt-1 text-xs leading-relaxed text-foreground/90"
-                    />
-                  </div>
-                </div>
+                <CommentItem
+                  comment={root}
+                  deckId={deckId ?? ""}
+                  onDelete={handleDelete}
+                  canManage={canManageRoot}
+                  canReact={canComment}
+                />
                 {thread.comments.length > 1 && (
                   <div className="space-y-2 border-t border-border/70 pt-2">
                     {thread.comments.slice(1).map((reply) => (
-                      <div key={reply.id} className="flex gap-2">
-                        <CommentAvatar
-                          email={reply.author_email}
-                          name={reply.author_name}
-                          className="size-6"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-[11px] font-medium">
-                              {reply.author_name ||
-                                reply.author_email.split("@")[0]}
-                            </span>
-                            <span className="shrink-0 text-[10px] text-muted-foreground">
-                              {formatRelativeTime(reply.created_at)}
-                            </span>
-                          </div>
-                          <InlineMarkdown
-                            content={reply.content}
-                            className="mt-0.5 text-[11px] leading-relaxed text-foreground/90"
-                          />
-                        </div>
-                      </div>
+                      <CommentItem
+                        key={reply.id}
+                        comment={reply}
+                        deckId={deckId ?? ""}
+                        onDelete={() => {
+                          if (!deckId) return;
+                          deleteComment.mutate(
+                            { id: reply.id, deckId },
+                            {
+                              onError: (caught) =>
+                                setError(
+                                  actionErrorMessage(caught) ??
+                                    t("comments.deleteFailed"),
+                                ),
+                            },
+                          );
+                        }}
+                        canManage={
+                          canEdit ||
+                          reply.author_email.trim().toLowerCase() ===
+                            currentUserEmail?.trim().toLowerCase()
+                        }
+                        canReact={canComment}
+                      />
                     ))}
                   </div>
                 )}
-                <div className="flex justify-end border-t border-border/70 pt-2">
-                  <span className="text-[10px] text-muted-foreground">
-                    {t("comments.title")}
-                  </span>
+                {canComment && !thread.resolved && !replyOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setReplyOpen(true)}
+                    className="text-[11px] text-muted-foreground hover:text-foreground"
+                  >
+                    {t("comments.reply")}
+                  </button>
+                )}
+                {replyOpen && canComment && deckId && (
+                  <ReplyInput
+                    deckId={deckId}
+                    slideId={slideId}
+                    threadId={thread.threadId}
+                    parentId={root.id}
+                    onBeforeSubmit={onBeforeCommentSubmit}
+                    onDone={() => setReplyOpen(false)}
+                  />
+                )}
+                <div className="flex items-center justify-between border-t border-border/70 pt-2">
+                  {canComment && (
+                    <button
+                      type="button"
+                      aria-label={
+                        thread.resolved
+                          ? t("comments.reopenThread")
+                          : t("comments.resolveThread")
+                      }
+                      onClick={handleResolve}
+                      className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      {thread.resolved ? (
+                        <IconRefresh className="size-3" />
+                      ) : (
+                        <IconCheck className="size-3" />
+                      )}
+                      {thread.resolved
+                        ? t("comments.reopenThread")
+                        : t("comments.resolveThread")}
+                    </button>
+                  )}
+                  {error && (
+                    <span role="alert" className="text-[10px] text-destructive">
+                      {error}
+                    </span>
+                  )}
                 </div>
               </div>
             </PopoverContent>
@@ -196,10 +310,14 @@ function CommentThreadPopover({
 export function SlideCommentPins({
   active,
   canComment,
+  canEdit = false,
   comments,
   deckId,
   slideId,
   canvasSelector,
+  currentUserEmail = null,
+  onBeforeCommentSubmit,
+  onEnsureObjectId,
 }: SlideCommentPinsProps) {
   const t = useT();
   const createComment = useCreateSlideComment();
@@ -223,18 +341,35 @@ export function SlideCommentPins({
 
   useLayoutEffect(() => {
     measureCanvas();
-    const frame = window.requestAnimationFrame(measureCanvas);
+    const initialFrame = window.requestAnimationFrame(measureCanvas);
     const canvas = document.querySelector<HTMLElement>(canvasSelector);
     const observer =
       typeof ResizeObserver === "undefined" || !canvas
         ? null
         : new ResizeObserver(measureCanvas);
     if (observer && canvas) observer.observe(canvas);
+    let mutationFrame = 0;
+    const mutationObserver =
+      typeof MutationObserver === "undefined" || !canvas
+        ? null
+        : new MutationObserver(() => {
+            cancelAnimationFrame(mutationFrame);
+            mutationFrame = requestAnimationFrame(measureCanvas);
+          });
+    if (mutationObserver && canvas) {
+      mutationObserver.observe(canvas, {
+        attributes: true,
+        attributeFilter: ["style", "class"],
+        subtree: true,
+      });
+    }
     window.addEventListener("resize", measureCanvas);
     window.addEventListener("scroll", measureCanvas, true);
     return () => {
-      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(initialFrame);
+      window.cancelAnimationFrame(mutationFrame);
       observer?.disconnect();
+      mutationObserver?.disconnect();
       window.removeEventListener("resize", measureCanvas);
       window.removeEventListener("scroll", measureCanvas, true);
     };
@@ -250,34 +385,42 @@ export function SlideCommentPins({
     wasActive.current = active;
   }, [active, focusCanvas]);
 
+  useEffect(() => {
+    setPending((current) => (current?.slideId === slideId ? current : null));
+    setText("");
+    setError(null);
+  }, [slideId]);
+
   const createAnchor = useCallback(
     (clientX: number, clientY: number): SlideCommentAnchor | null => {
       if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) {
         return null;
       }
-      const x = Math.max(
-        0,
-        Math.min(100, ((clientX - canvasRect.left) / canvasRect.width) * 100),
-      );
-      const y = Math.max(
-        0,
-        Math.min(100, ((clientY - canvasRect.top) / canvasRect.height) * 100),
-      );
-      const target = (
-        document.elementsFromPoint?.(clientX, clientY) ?? []
-      ).find(
-        (element) =>
-          !element.closest("[data-slide-comment-overlay]") &&
-          element.closest(canvasSelector),
-      );
+      const target =
+        (document.elementsFromPoint?.(clientX, clientY) ?? []).find(
+          (element) =>
+            !element.closest("[data-slide-comment-overlay]") &&
+            element.closest(canvasSelector),
+        ) ?? null;
+      const object = findCommentObject(target, canvasSelector);
+      const existingObjectId = object
+        ?.getAttribute("data-slide-object-id")
+        ?.trim();
+      const objectId = object
+        ? existingObjectId || onEnsureObjectId?.(object)
+        : undefined;
+      const objectRect = object?.getBoundingClientRect();
       const targetText = target?.textContent?.replace(/\s+/g, " ").trim();
-      return {
-        x,
-        y,
-        ...(targetText ? { targetText: targetText.slice(0, 200) } : {}),
-      };
+      return slideCommentAnchorAtPoint({
+        clientX,
+        clientY,
+        slideRect: canvasRect,
+        objectId,
+        objectRect,
+        targetText,
+      });
     },
-    [canvasRect, canvasSelector],
+    [canvasRect, canvasSelector, onEnsureObjectId],
   );
 
   const dropComment = useCallback(
@@ -297,7 +440,7 @@ export function SlideCommentPins({
       const anchor = createAnchor(event.clientX, event.clientY);
       if (!anchor) return;
       setOpenThreadId(null);
-      setPending({ anchor });
+      setPending({ slideId, anchor });
       setText("");
       setError(null);
     },
@@ -307,8 +450,14 @@ export function SlideCommentPins({
   const submit = async () => {
     const trimmed = text.trim();
     if (!trimmed || !pending || !deckId || createComment.isPending) return;
+    if (pending.slideId !== slideId) {
+      setPending(null);
+      setText("");
+      return;
+    }
     setError(null);
     try {
+      await onBeforeCommentSubmit?.();
       await createComment.mutateAsync({
         deckId,
         slideId,
@@ -318,9 +467,7 @@ export function SlideCommentPins({
       setPending(null);
       setText("");
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : t("comments.saveCommentFailed"),
-      );
+      setError(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
     }
   };
 
@@ -331,6 +478,28 @@ export function SlideCommentPins({
   const visibleThreads = comments.filter(
     (thread) => !thread.resolved && thread.anchor,
   );
+  const positionForAnchor = (anchor: SlideCommentAnchor) => {
+    if (
+      !anchor.objectId ||
+      anchor.objectX === undefined ||
+      anchor.objectY === undefined
+    ) {
+      return { x: anchor.x, y: anchor.y };
+    }
+    const canvas = document.querySelector<HTMLElement>(canvasSelector);
+    const object = Array.from(
+      canvas?.querySelectorAll<HTMLElement>("[data-slide-object-id]") ?? [],
+    ).find(
+      (element) =>
+        element.getAttribute("data-slide-object-id") === anchor.objectId,
+    );
+    if (!canvasRect || !object) return { x: anchor.x, y: anchor.y };
+    return slideCommentAnchorPosition(
+      anchor,
+      canvasRect,
+      object.getBoundingClientRect(),
+    );
+  };
 
   return (
     <div
@@ -377,14 +546,24 @@ export function SlideCommentPins({
           <div
             key={thread.threadId}
             className="pointer-events-auto absolute"
-            style={{
-              left: `${thread.anchor!.x}%`,
-              top: `${thread.anchor!.y}%`,
-            }}
+            data-slide-comment-marker-position
+            style={(() => {
+              const position = positionForAnchor(thread.anchor!);
+              return {
+                left: `${position.x}%`,
+                top: `${position.y}%`,
+              };
+            })()}
           >
             <CommentThreadPopover
               thread={thread}
               open={openThreadId === thread.threadId}
+              canComment={canComment}
+              canEdit={canEdit}
+              currentUserEmail={currentUserEmail}
+              deckId={deckId}
+              onBeforeCommentSubmit={onBeforeCommentSubmit}
+              slideId={slideId}
               onOpenChange={(open) => {
                 setOpenThreadId(open ? thread.threadId : null);
                 if (!open) focusCanvas();

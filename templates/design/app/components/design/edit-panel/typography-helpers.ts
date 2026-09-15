@@ -1,4 +1,8 @@
-import { resolveFontFamilySelectValue } from "@agent-native/toolkit/design-tweaks";
+import {
+  formatScrubValue,
+  parseScrubExpression,
+  resolveFontFamilySelectValue,
+} from "@agent-native/toolkit/design-tweaks";
 
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 
@@ -33,6 +37,218 @@ export function isKnownFontWeight(value: string): boolean {
 }
 
 export type TextResizeMode = "auto-width" | "auto-height" | "fixed";
+
+export type LineHeightUnit = "px" | "%";
+
+export interface LineHeightFieldValue {
+  text: string;
+  value: number;
+  unit: LineHeightUnit;
+}
+
+export interface ParsedLineHeightInput extends LineHeightFieldValue {
+  cssValue: string;
+}
+
+export const TEXT_TRUNCATION_ORIGINAL_DISPLAY =
+  "--agent-native-truncate-original-display";
+export const TEXT_TRUNCATION_ORIGINAL_OVERFLOW =
+  "--agent-native-truncate-original-overflow";
+
+export function textTruncationLineCount(
+  value: string | undefined,
+): number | null {
+  const trimmed = value?.trim() ?? "";
+  if (!/^\d+$/.test(trimmed)) return null;
+  const count = Number(trimmed);
+  return Number.isSafeInteger(count) && count > 0 ? count : null;
+}
+
+/**
+ * Legacy Chromium line clamping uses a box display that replaces authored
+ * display and overflow values. Keep their raw inline values as JSON strings on
+ * the node so CSS-wide keywords and absent declarations survive save/reload.
+ */
+export function textTruncationStyleChanges(
+  enabled: boolean,
+  lineCount: number,
+  inlineStyles: Record<string, string> | undefined,
+): Record<string, string> | null {
+  if (!enabled) {
+    const savedDisplay = inlineStyles?.[TEXT_TRUNCATION_ORIGINAL_DISPLAY];
+    const savedOverflow = inlineStyles?.[TEXT_TRUNCATION_ORIGINAL_OVERFLOW];
+    const hasSavedDisplay = savedDisplay !== undefined;
+    const hasSavedOverflow = savedOverflow !== undefined;
+    if (hasSavedDisplay !== hasSavedOverflow) return null;
+
+    const changes: Record<string, string> = {
+      webkitBoxOrient: "horizontal",
+      webkitLineClamp: "none",
+    };
+    if (!hasSavedDisplay) return changes;
+
+    const originalDisplay = decodeTextTruncationValue(savedDisplay);
+    const originalOverflow = decodeTextTruncationValue(savedOverflow);
+    if (originalDisplay === null || originalOverflow === null) return null;
+
+    changes.display = originalDisplay || "revert-layer";
+    changes.overflow = originalOverflow || "revert-layer";
+    changes[TEXT_TRUNCATION_ORIGINAL_DISPLAY] = "initial";
+    changes[TEXT_TRUNCATION_ORIGINAL_OVERFLOW] = "initial";
+    return changes;
+  }
+
+  if (!Number.isSafeInteger(lineCount) || lineCount < 1) return null;
+
+  const styles: Record<string, string> = {
+    display: "-webkit-box",
+    webkitBoxOrient: "vertical",
+    webkitLineClamp: String(lineCount),
+    overflow: "hidden",
+  };
+  const currentlyTruncated =
+    textTruncationLineCount(inlineStyles?.webkitLineClamp) !== null;
+  const savedDisplay = inlineStyles?.[TEXT_TRUNCATION_ORIGINAL_DISPLAY];
+  const savedOverflow = inlineStyles?.[TEXT_TRUNCATION_ORIGINAL_OVERFLOW];
+  const hasSavedDisplay = savedDisplay !== undefined;
+  const hasSavedOverflow = savedOverflow !== undefined;
+  if (hasSavedDisplay !== hasSavedOverflow) return null;
+  if (currentlyTruncated && hasSavedDisplay) {
+    if (
+      decodeTextTruncationValue(savedDisplay) === null ||
+      decodeTextTruncationValue(savedOverflow) === null
+    ) {
+      return null;
+    }
+  } else {
+    styles[TEXT_TRUNCATION_ORIGINAL_DISPLAY] = JSON.stringify(
+      inlineStyles?.display ?? "",
+    );
+    styles[TEXT_TRUNCATION_ORIGINAL_OVERFLOW] = JSON.stringify(
+      inlineStyles?.overflow ?? "",
+    );
+  }
+  return styles;
+}
+
+function decodeTextTruncationValue(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    // coercion-ok: invalid saved metadata is rejected and the UI blocks the style mutation with a localized error.
+    return null;
+  }
+}
+
+function lineHeightPixels(
+  computedLineHeight: string | undefined,
+  fontSize: string | undefined,
+  resolvedNormalPx: string | undefined,
+): number {
+  const computed = computedLineHeight?.trim() ?? "";
+  const computedPx = computed.match(/^([\d.]+)px$/i);
+  if (computedPx) return Number(computedPx[1]);
+
+  if (/^(?:normal|auto)$/i.test(computed)) {
+    const measured = Number.parseFloat(resolvedNormalPx ?? "");
+    if (Number.isFinite(measured) && measured > 0) return measured;
+  }
+
+  const fontPx = Number.parseFloat(fontSize ?? "");
+  const font = Number.isFinite(fontPx) && fontPx > 0 ? fontPx : 16;
+  const computedRatio = Number.parseFloat(computed);
+  if (Number.isFinite(computedRatio) && computedRatio > 0) {
+    return font * computedRatio;
+  }
+  return font * 1.2;
+}
+
+/**
+ * Read line-height in the same units the author chose. Computed styles turn
+ * percentages and unitless ratios into px, so the authored inline snapshot is
+ * the authority when present; a legacy unitless ratio is shown equivalently
+ * as a percentage without changing the source until the user edits it.
+ */
+export function resolveLineHeightFieldValue(
+  authoredLineHeight: string | undefined,
+  computedLineHeight: string | undefined,
+  fontSize: string | undefined,
+  resolvedNormalPx?: string,
+): LineHeightFieldValue {
+  const authored = authoredLineHeight?.trim() ?? "";
+  const raw = authored || computedLineHeight?.trim() || "normal";
+  if (/^(?:normal|auto)$/i.test(raw)) {
+    return {
+      text: "Auto",
+      value: lineHeightPixels(computedLineHeight, fontSize, resolvedNormalPx),
+      unit: "px",
+    };
+  }
+
+  const explicit = raw.match(/^([+-]?(?:\d*\.)?\d+)\s*(px|%)$/i);
+  if (explicit) {
+    const value = Number(explicit[1]);
+    if (Number.isFinite(value) && value >= 0) {
+      const unit = explicit[2]!.toLowerCase() as LineHeightUnit;
+      return { text: formatScrubValue(value, { unit }), value, unit };
+    }
+  }
+
+  const unitless = raw.match(/^([+]?(?:\d*\.)?\d+)$/);
+  if (unitless) {
+    const ratio = Number(unitless[1]);
+    if (Number.isFinite(ratio) && ratio >= 0) {
+      const value = ratio * 100;
+      return {
+        text: formatScrubValue(value, { unit: "%", precision: 2 }),
+        value,
+        unit: "%",
+      };
+    }
+  }
+
+  const computedPx = raw === computedLineHeight ? raw : computedLineHeight;
+  return {
+    text: raw,
+    value: lineHeightPixels(computedPx, fontSize, resolvedNormalPx),
+    unit: "px",
+  };
+}
+
+/** Parse Figma-style px / percent / Auto input; bare values are pixels. */
+export function parseLineHeightInput(
+  input: string,
+  current: Pick<LineHeightFieldValue, "value" | "unit">,
+): ParsedLineHeightInput | null {
+  const raw = input.trim();
+  if (/^(?:auto|normal)$/i.test(raw)) {
+    return {
+      text: "Auto",
+      value: current.value,
+      unit: "px",
+      cssValue: "normal",
+    };
+  }
+
+  const explicitUnit = raw
+    .match(/(?:px|%)\s*$/i)?.[0]
+    ?.trim()
+    .toLowerCase();
+  const unit: LineHeightUnit = explicitUnit
+    ? (explicitUnit as LineHeightUnit)
+    : "px";
+  const parsed = parseScrubExpression(raw, current.value, {
+    unit,
+    min: 0,
+    precision: 2,
+  });
+  if (!parsed) return null;
+  const value = parsed.value;
+  const text = formatScrubValue(value, { unit, precision: 2 });
+  return { text, value, unit, cssValue: text };
+}
 
 /**
  * Fallback dimension used when converting a text box from an auto (width or

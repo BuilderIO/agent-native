@@ -1,6 +1,7 @@
 import type {
   CodeLayerNode,
   CodeLayerTreeNode,
+  CodeLayerSource,
   MoveNodeEditIntent,
 } from "@shared/code-layer";
 import {
@@ -19,6 +20,12 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
+
 export interface ChangeSelectedZIndexArgs {
   activeFile: DesignFile;
   applyLocalContentUpdate: (
@@ -34,7 +41,7 @@ export interface ChangeSelectedZIndexArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
@@ -74,8 +81,9 @@ interface InFlowZIndexContext {
 function inFlowZIndexContext(
   content: string,
   targetId: string,
+  source: CodeLayerSource,
 ): InFlowZIndexContext {
-  const projection = buildCodeLayerProjection(content);
+  const projection = buildCodeLayerProjection(content, { source });
   const byId = new Map(projection.nodes.map((node) => [node.id, node]));
   const siblingOrder = findCodeLayerSiblingOrder(
     buildCodeLayerTree(projection),
@@ -187,8 +195,9 @@ export function runChangeSelectedZIndex(
     return;
   }
   const baseContent = getFreshActiveContent();
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
   if (!outOfFlow) {
-    const context = inFlowZIndexContext(baseContent, targetId);
+    const context = inFlowZIndexContext(baseContent, targetId, source);
     // Positioning a static container hands it a containing block, so its
     // absolutely positioned children re-resolve and jump — the very thing this
     // path exists to avoid. A flex/grid item needs no positioning at all.
@@ -210,7 +219,9 @@ export function runChangeSelectedZIndex(
     zIndexFallback();
     return;
   }
-  const tree = buildCodeLayerTree(buildCodeLayerProjection(baseContent));
+  const tree = buildCodeLayerTree(
+    buildCodeLayerProjection(baseContent, { source }),
+  );
   const siblingOrder = findCodeLayerSiblingOrder(tree, targetId);
   if (!siblingOrder || siblingOrder.siblingIds.length < 2) {
     // Nothing to reorder against (only child, or unresolved) — z-index
@@ -290,16 +301,28 @@ export function runChangeSelectedZIndex(
     return;
   }
 
-  const patch = applyVisualEdit(baseContent, editIntent);
+  const patch = applyVisualEdit(baseContent, editIntent, { source });
   if (patch.result.status !== "applied") {
     zIndexFallback();
     return;
   }
-  applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
-  const movedNode = patch.projection.nodes.find(
+  const publication = applyLocalContentUpdate(patch.content, {
+    forcePreviewFullDocument: true,
+  });
+  if (publication.status !== "accepted") return;
+  const movedNodeCandidate = patch.projection.nodes.find(
     (n) =>
       n.dataAttributes["data-agent-native-node-id"] === targetId ||
       n.id === targetId,
+  );
+  const acceptedProjection = projectAcceptedSource(
+    publication,
+    patch.projection.source,
+  );
+  const movedNode = mapAcceptedSelectionNode(
+    publication,
+    acceptedProjection,
+    movedNodeCandidate,
   );
   if (movedNode) {
     setSelectedElement(elementInfoFromCodeLayerNode(movedNode));

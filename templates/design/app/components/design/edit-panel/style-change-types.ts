@@ -1,3 +1,4 @@
+import type { ScrubRelativeExpression } from "@agent-native/toolkit/design-tweaks";
 import {
   getBreakpointOverrideState,
   type BreakpointOverrideState,
@@ -5,6 +6,15 @@ import {
 import type { InteractionState } from "@shared/interaction-states";
 
 import type { MotionKeyframeCssProperty } from "../inspector";
+import type { ElementInfo } from "../types";
+
+export interface CapturedStyleTarget {
+  fileId: string;
+  layerId: string;
+  elementInfo: ElementInfo;
+  upperBoundPx: number | null;
+  lowerBoundPx: number | null;
+}
 
 /**
  * PF12: gesture-lifecycle metadata threaded alongside a style commit.
@@ -17,6 +27,8 @@ import type { MotionKeyframeCssProperty } from "../inspector";
  *   gesture's authoritative final value — exactly one per gesture — which
  *   DOES trigger the full source commit. Omitting meta entirely preserves
  *   prior behavior (treated as "commit") for every non-scrub/color call site.
+ * - "cancel": the preview was restored to its pointerdown value and its
+ *   uncommitted history lineage should be discarded without another write.
  *
  * - `interactionState`: set on EVERY style commit (regardless of `phase`)
  *   while the inspector's element interaction-state selector
@@ -48,9 +60,13 @@ import type { MotionKeyframeCssProperty } from "../inspector";
  *   /  managed-breakpoint-block commit path.
  */
 export interface StyleChangeMeta {
-  phase?: "preview" | "commit";
+  phase?: "preview" | "commit" | "cancel";
+  relativeDelta?: number;
+  relativeExpression?: ScrubRelativeExpression;
   interactionState?: InteractionState;
   breakpointReset?: { property: string; maxWidthPx: number };
+  /** Source targets captured by an async inspector operation such as image upload. */
+  capturedStyleTargets?: CapturedStyleTarget[];
 }
 
 export type StyleChangeHandler = (
@@ -63,7 +79,7 @@ export type SelectionColorChangeHandler = (
   from: string,
   to: string,
   meta?: StyleChangeMeta,
-) => void;
+) => void | boolean;
 
 /**
  * Result of converting a container to a flex/grid flow. Only `"unsupported"`

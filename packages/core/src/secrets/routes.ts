@@ -132,6 +132,8 @@ export interface SecretStatusPayload {
    * failed; "unknown" = the credential store could not be read.
    */
   status: "set" | "unset" | "invalid" | "unknown";
+  /** Exact storage scope supplying the runtime value, without exposing its id. */
+  effectiveScope?: SecretScope | "env";
   /** Where the effective value comes from — only when status === "set". */
   source?: SecretSource;
   /**
@@ -142,6 +144,8 @@ export interface SecretStatusPayload {
   managedHere?: boolean;
   /** A shared value this row overrides; removing the row falls back to it. */
   overrides?: Exclude<SecretSource, "personal" | "env">;
+  /** Scope of a shared value hidden by this user's personal row. */
+  overriddenScope?: Exclude<SecretScope, "user">;
   /** Last 4 chars — only populated when status === "set" for api-key kind. */
   last4?: string;
   /** Timestamp (ms) of the last write — only populated when status === "set". */
@@ -280,6 +284,7 @@ export function createListSecretsHandler() {
         !effective.scopeId
       ) {
         base.source = "env";
+        base.effectiveScope = "env";
         base.managedHere = false;
         base.last4 = last4(effective.value);
         payload.push(base);
@@ -290,6 +295,7 @@ export function createListSecretsHandler() {
         scope: effective.source,
         scopeId: effective.scopeId,
       };
+      base.effectiveScope = hit.scope;
       const meta = await readAppSecretMeta(hit);
       base.last4 = meta?.last4 || last4(effective.value);
       base.updatedAt = meta?.updatedAt;
@@ -304,6 +310,9 @@ export function createListSecretsHandler() {
           NOT_RESOLVED,
         );
         if (shared.value && shared.source && shared.source !== "env") {
+          if (shared.source === "org" || shared.source === "workspace") {
+            base.overriddenScope = shared.source;
+          }
           const sharedMeta = shared.scopeId
             ? await readAppSecretMeta({
                 key: secret.key,

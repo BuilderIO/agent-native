@@ -1,4 +1,4 @@
-import { applyVisualEdit } from "@shared/code-layer";
+import { applyVisualEdit, type CodeLayerSource } from "@shared/code-layer";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
@@ -14,6 +14,7 @@ export interface ApplyLayoutFlowArgs {
   ) => void;
   canEditDesign: boolean;
   getFreshActiveContent: () => string;
+  source?: CodeLayerSource;
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
@@ -26,6 +27,7 @@ export function runApplyLayoutFlow(
     applyLocalContentUpdate,
     canEditDesign,
     getFreshActiveContent,
+    source,
     t,
   }: ApplyLayoutFlowArgs,
   nodeIds: readonly string[],
@@ -41,12 +43,18 @@ export function runApplyLayoutFlow(
   let applied = 0;
   let failed = 0;
   for (const nodeId of nodeIds) {
-    const patch = applyVisualEdit(content, {
-      kind: "autoLayout",
-      targetId: nodeId,
-      enabled: true,
-      containerStyles,
-    });
+    const patch = applyVisualEdit(
+      content,
+      {
+        kind: "autoLayout",
+        targetId: nodeId,
+        enabled: true,
+        containerStyles,
+      },
+      {
+        ...(source ? { source } : {}),
+      },
+    );
     trace("structure", "layout-flow", {
       nodeId,
       properties: Object.keys(containerStyles).join(","),
