@@ -82,9 +82,22 @@ vi.mock("../server/db/index.js", () => {
     select: (projection?: Record<string, unknown>) => ({
       from: () => ({
         where: (condition: unknown) => ({
-          orderBy: () => {
+          orderBy: (...orders: unknown[]) => {
             const matchingRows = () =>
               state.rows.filter((row) => matches(row, condition));
+            const orderedRows = () =>
+              [...matchingRows()].sort((left, right) => {
+                for (const order of orders) {
+                  const field = String((order as { __asc?: unknown }).__asc)
+                    .split(".")
+                    .pop() as keyof Row;
+                  const comparison = String(left[field]).localeCompare(
+                    String(right[field]),
+                  );
+                  if (comparison !== 0) return comparison;
+                }
+                return 0;
+              });
             const project = (row: Row) => {
               if (!projection) return row;
               const result: Record<string, unknown> = {};
@@ -97,7 +110,7 @@ vi.mock("../server/db/index.js", () => {
               return result;
             };
             const page = (offset: number, limit?: number) =>
-              matchingRows()
+              orderedRows()
                 .slice(offset, limit === undefined ? undefined : offset + limit)
                 .map(project);
             return {
@@ -233,5 +246,38 @@ describe("list-slide-comments", () => {
       limit: 1,
       offset: 0,
     });
+  });
+
+  it("uses the comment ID as a stable tie-breaker for paging", async () => {
+    state.rows = [
+      {
+        ...state.rows[0]!,
+        id: "comment-b",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        ...state.rows[0]!,
+        id: "comment-a",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+
+    const firstPage = await (action as any).run({
+      deckId: "deck-1",
+      limit: 1,
+      offset: 0,
+    });
+    const secondPage = await (action as any).run({
+      deckId: "deck-1",
+      limit: 1,
+      offset: 1,
+    });
+
+    expect(firstPage.comments.map((comment: any) => comment.id)).toEqual([
+      "comment-a",
+    ]);
+    expect(secondPage.comments.map((comment: any) => comment.id)).toEqual([
+      "comment-b",
+    ]);
   });
 });

@@ -38,6 +38,31 @@ export function slideCommentAnchorAtPoint({
   };
 }
 
+/** Convert a live text-selection range into the persisted slide coordinate. */
+export function slideCommentAnchorFromRange({
+  range,
+  slideRect,
+  objectId,
+  objectRect,
+  targetText,
+}: {
+  range: Pick<Range, "getBoundingClientRect">;
+  slideRect: Rect;
+  objectId?: string | null;
+  objectRect?: Rect | null;
+  targetText?: string;
+}): SlideCommentAnchor {
+  const rect = range.getBoundingClientRect();
+  return slideCommentAnchorAtPoint({
+    clientX: rect.left + rect.width / 2,
+    clientY: rect.top + rect.height / 2,
+    slideRect,
+    objectId,
+    objectRect,
+    targetText,
+  });
+}
+
 export function slideCommentAnchorPosition(
   anchor: SlideCommentAnchor,
   slideRect: Rect,

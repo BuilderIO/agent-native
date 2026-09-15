@@ -165,6 +165,20 @@ export function getSlideSelection({
   return { selectedSlideIds: nextIds, anchorSlideId: nextAnchor };
 }
 
+export function isContiguousSlideSelection(
+  slideIds: string[],
+  selectedSlideIds: string[],
+): boolean {
+  const selected = new Set(selectedSlideIds);
+  const indexes = slideIds.reduce<number[]>((result, slideId, index) => {
+    if (selected.has(slideId)) result.push(index);
+    return result;
+  }, []);
+  return indexes.every(
+    (index, offset) => offset === 0 || index === indexes[offset - 1]! + 1,
+  );
+}
+
 const DECK_FIT_STATE_KEYS = [
   appStateKeyForBrowserTab("deck-fit-checks", TAB_ID),
   "deck-fit-checks",
@@ -847,9 +861,14 @@ export default function EditorSidebar({
       const activeIndex = slides.findIndex((slide) => slide.id === slideId);
       if (activeIndex === -1) return;
 
-      const requestedIds = selectedSlideIds.includes(slideId)
-        ? selectedSlideIds
-        : [slideId];
+      const requestedIds =
+        selectedSlideIds.includes(slideId) &&
+        isContiguousSlideSelection(
+          slides.map((slide) => slide.id),
+          selectedSlideIds,
+        )
+          ? selectedSlideIds
+          : [slideId];
       const movingIds = new Set(requestedIds);
       const movingSlides = slides.filter((slide) => movingIds.has(slide.id));
       if (movingSlides.length === 0) return;

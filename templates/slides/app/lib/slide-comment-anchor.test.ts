@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   slideCommentAnchorAtPoint,
+  slideCommentAnchorFromRange,
   slideCommentAnchorPosition,
 } from "./slide-comment-anchor";
 
@@ -47,6 +48,34 @@ describe("slide comment anchor geometry", () => {
         slideRect,
       ),
     ).toEqual({ x: 12, y: 18 });
+  });
+
+  it("converts a text-selection range center before persisting", () => {
+    const range = {
+      getBoundingClientRect: () => ({
+        left: 200,
+        top: 100,
+        width: 100,
+        height: 40,
+      }),
+    } as Pick<Range, "getBoundingClientRect">;
+
+    expect(
+      slideCommentAnchorFromRange({
+        range,
+        slideRect,
+        objectId: "object-1",
+        objectRect: { left: 200, top: 100, width: 100, height: 80 },
+        targetText: "Revenue",
+      }),
+    ).toEqual({
+      x: 37.5,
+      y: 35,
+      objectId: "object-1",
+      objectX: 50,
+      objectY: 25,
+      targetText: "Revenue",
+    });
   });
 
   it("recomputes an object marker from current rendered geometry", () => {

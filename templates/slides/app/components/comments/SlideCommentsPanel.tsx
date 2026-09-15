@@ -495,6 +495,7 @@ function ThreadCard({
   thread,
   deckId,
   slideId,
+  currentSlideId,
   canComment,
   canEdit,
   currentUserEmail,
@@ -504,6 +505,7 @@ function ThreadCard({
   thread: CommentThread;
   deckId: string;
   slideId: string;
+  currentSlideId: string | null;
   canComment: boolean;
   canEdit: boolean;
   currentUserEmail: string | null;
@@ -558,7 +560,7 @@ function ThreadCard({
           "{thread.quotedText}"
         </div>
       )}
-      {onSelectSlide && thread.slideId && thread.slideId !== slideId && (
+      {onSelectSlide && thread.slideId && thread.slideId !== currentSlideId && (
         <button
           type="button"
           data-slide-comment-slide-jump
@@ -895,6 +897,7 @@ export function SlideCommentsPanel({
               thread={thread}
               deckId={deckId ?? ""}
               slideId={thread.slideId ?? slideId ?? ""}
+              currentSlideId={slideId}
               canComment={canComment}
               canEdit={canEdit}
               currentUserEmail={currentUserEmail}

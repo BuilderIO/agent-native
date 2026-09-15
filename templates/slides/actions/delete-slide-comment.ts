@@ -47,52 +47,55 @@ export default defineAction({
       await assertAccess("deck", comment.deckId, "editor");
     }
 
-    const [canonicalRoot] = await db
-      .select({ id: schema.slideComments.id })
-      .from(schema.slideComments)
-      .where(
-        and(
-          eq(schema.slideComments.deckId, comment.deckId),
-          eq(schema.slideComments.slideId, comment.slideId),
-          eq(schema.slideComments.threadId, comment.threadId),
-          eq(schema.slideComments.id, comment.threadId),
-        ),
-      )
-      .limit(1);
-    const [oldestComment] = canonicalRoot
-      ? []
-      : await db
-          .select({ id: schema.slideComments.id })
-          .from(schema.slideComments)
-          .where(
-            and(
-              eq(schema.slideComments.deckId, comment.deckId),
-              eq(schema.slideComments.slideId, comment.slideId),
-              eq(schema.slideComments.threadId, comment.threadId),
-            ),
-          )
-          .orderBy(
-            asc(schema.slideComments.createdAt),
-            asc(schema.slideComments.id),
-          )
-          .limit(1);
-    const isRoot =
-      canonicalRoot?.id === comment.id || oldestComment?.id === comment.id;
-
-    await db
-      .delete(schema.slideComments)
-      .where(
-        isRoot
-          ? and(
-              eq(schema.slideComments.deckId, comment.deckId),
-              eq(schema.slideComments.slideId, comment.slideId),
-              eq(schema.slideComments.threadId, comment.threadId),
-            )
-          : and(
-              eq(schema.slideComments.id, args.id),
-              eq(schema.slideComments.deckId, comment.deckId),
-            ),
+    await db.transaction(async (tx) => {
+      // Reply creation and thread resolution lock the same complete thread.
+      // Classify and cascade while holding that lock so a concurrent reply is
+      // either included in this delete or rejected before it can insert.
+      const threadRows = await tx
+        .select({
+          id: schema.slideComments.id,
+          createdAt: schema.slideComments.createdAt,
+        })
+        .from(schema.slideComments)
+        .where(
+          and(
+            eq(schema.slideComments.deckId, comment.deckId),
+            eq(schema.slideComments.slideId, comment.slideId),
+            eq(schema.slideComments.threadId, comment.threadId),
+          ),
+        )
+        .orderBy(
+          asc(schema.slideComments.createdAt),
+          asc(schema.slideComments.id),
+        )
+        .for("update");
+      if (!threadRows.some((row) => row.id === comment.id)) {
+        fail(`Comment not found: ${args.id}`, {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
+      }
+      const canonicalRoot = threadRows.find(
+        (row) => row.id === comment.threadId,
       );
+      const rootId = canonicalRoot?.id ?? threadRows[0]?.id;
+      const isRoot = rootId === comment.id;
+
+      await tx
+        .delete(schema.slideComments)
+        .where(
+          isRoot
+            ? and(
+                eq(schema.slideComments.deckId, comment.deckId),
+                eq(schema.slideComments.slideId, comment.slideId),
+                eq(schema.slideComments.threadId, comment.threadId),
+              )
+            : and(
+                eq(schema.slideComments.id, args.id),
+                eq(schema.slideComments.deckId, comment.deckId),
+              ),
+        );
+    });
 
     return { ok: true };
   },

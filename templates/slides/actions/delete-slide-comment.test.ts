@@ -69,9 +69,18 @@ vi.mock("../server/db/index.js", () => {
             return out;
           };
           const limit = async (n: number) => matched.slice(0, n).map(project);
+          const ordered = [...matched].sort(
+            (left, right) =>
+              String(left.createdAt ?? "").localeCompare(
+                String(right.createdAt ?? ""),
+              ) || left.id.localeCompare(right.id),
+          );
+          const orderedLimit = async (n: number) =>
+            ordered.slice(0, n).map(project);
+          const forUpdate = async () => ordered.map(project);
           return {
             limit,
-            orderBy: () => ({ limit }),
+            orderBy: () => ({ limit: orderedLimit, for: forUpdate }),
           };
         },
       }),
@@ -84,7 +93,13 @@ vi.mock("../server/db/index.js", () => {
     }),
   };
 
-  return { getDb: () => db, schema };
+  return {
+    getDb: () => ({
+      ...db,
+      transaction: async (run: (tx: typeof db) => Promise<unknown>) => run(db),
+    }),
+    schema,
+  };
 });
 
 import action from "./delete-slide-comment";

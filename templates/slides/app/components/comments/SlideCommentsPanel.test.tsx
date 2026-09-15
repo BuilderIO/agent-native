@@ -315,6 +315,49 @@ describe("SlideCommentsPanel", () => {
     await waitFor(() => expect(onPendingDone).toHaveBeenCalledOnce());
   });
 
+  it("keeps the current slide context for all-slides navigation", () => {
+    const onSelectSlide = vi.fn();
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-2",
+          slideId: "slide-2",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-2",
+              author_email: "other@example.com",
+              author_name: "Other",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Review the second slide",
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+
+    render(
+      <SlideCommentsPanel
+        deckId="deck-1"
+        slideId="slide-1"
+        canComment={false}
+        canEdit={false}
+        currentUserEmail="viewer@example.com"
+        pendingComment={null}
+        onPendingDone={vi.fn()}
+        onSelectSlide={onSelectSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "All slides" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to slide" }));
+
+    expect(onSelectSlide).toHaveBeenCalledExactlyOnceWith("slide-2");
+  });
+
   it("renders inline markdown in comment bodies without block headings", () => {
     commentQueryState = {
       data: [

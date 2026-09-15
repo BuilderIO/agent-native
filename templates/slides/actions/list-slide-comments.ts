@@ -52,7 +52,10 @@ export default defineAction({
             )
           : eq(schema.slideComments.deckId, deckId),
       )
-      .orderBy(asc(schema.slideComments.createdAt));
+      .orderBy(
+        asc(schema.slideComments.createdAt),
+        asc(schema.slideComments.id),
+      );
     const rows = await query.limit(pageLimit + 1).offset(offset);
     const hasMore = rows.length > pageLimit;
     const visibleRows = hasMore ? rows.slice(0, pageLimit) : rows;

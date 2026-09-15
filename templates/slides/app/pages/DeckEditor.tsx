@@ -133,7 +133,7 @@ import {
   resolveSlideClipboardsForPaste,
   writeSlideClipboards,
 } from "@/lib/slide-clipboard";
-import { slideCommentAnchorAtPoint } from "@/lib/slide-comment-anchor";
+import { slideCommentAnchorFromRange } from "@/lib/slide-comment-anchor";
 import {
   applyOptimisticImagePreview,
   captureOptimisticImagePreview,
@@ -163,6 +163,17 @@ type PendingImagePreview = OptimisticImagePreview & {
 type PendingImagePreviewUpdate =
   | PendingImagePreview[]
   | ((current: PendingImagePreview[]) => PendingImagePreview[]);
+
+type CommentComposerAnchor = SlideCommentAnchor | Range;
+
+function isDomRange(value: CommentComposerAnchor | undefined): value is Range {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "commonAncestorContainer" in value &&
+    typeof value.getBoundingClientRect === "function",
+  );
+}
 
 type AccessRequestCapability =
   | { available: true; token: string }
@@ -638,7 +649,11 @@ export default function DeckEditor() {
   const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
   const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
   const openCommentComposer = useCallback(
-    (quotedText: string, anchor?: SlideCommentAnchor) => {
+    (
+      quotedText: string,
+      requestedAnchor?: CommentComposerAnchor,
+      editingEl?: HTMLElement,
+    ) => {
       if (!canComment) return;
       const commentSlideId = activeSlideId ?? fallbackCommentSlideId;
       if (!commentSlideId) return;
@@ -649,7 +664,34 @@ export default function DeckEditor() {
           panel: "comments",
         });
       }
-      setPendingComment({ slideId: commentSlideId, quotedText, anchor });
+      const normalizedAnchor = isDomRange(requestedAnchor)
+        ? (() => {
+            const canvas = document.querySelector<HTMLElement>(
+              "[data-main-slide-canvas='true']",
+            );
+            if (!canvas) return undefined;
+            const selectionNode = requestedAnchor.commonAncestorContainer;
+            const selectionElement =
+              selectionNode instanceof Element
+                ? selectionNode
+                : selectionNode.parentElement;
+            const target =
+              editingEl?.closest<HTMLElement>("[data-slide-object-id]") ??
+              selectionElement?.closest<HTMLElement>("[data-slide-object-id]");
+            return slideCommentAnchorFromRange({
+              range: requestedAnchor,
+              slideRect: canvas.getBoundingClientRect(),
+              objectId: target?.getAttribute("data-slide-object-id"),
+              objectRect: target?.getBoundingClientRect(),
+              targetText: quotedText,
+            });
+          })()
+        : requestedAnchor;
+      setPendingComment({
+        slideId: commentSlideId,
+        quotedText,
+        ...(normalizedAnchor ? { anchor: normalizedAnchor } : {}),
+      });
       setSidePanel("comments");
     },
     [activeSlideId, canComment, fallbackCommentSlideId, sidePanel],
@@ -1557,12 +1599,10 @@ export default function DeckEditor() {
           const object = selectionElement?.closest<HTMLElement>(
             "[data-slide-object-id]",
           );
-          const selectionRect = range.getBoundingClientRect();
           openCommentComposer(
             quotedText,
-            slideCommentAnchorAtPoint({
-              clientX: selectionRect.left + selectionRect.width / 2,
-              clientY: selectionRect.top + selectionRect.height / 2,
+            slideCommentAnchorFromRange({
+              range,
               slideRect: canvas.getBoundingClientRect(),
               objectId: object?.getAttribute("data-slide-object-id"),
               objectRect: object?.getBoundingClientRect(),
