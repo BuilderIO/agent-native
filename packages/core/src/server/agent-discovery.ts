@@ -13,7 +13,10 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
-import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
@@ -891,7 +894,8 @@ async function readWorkspaceAppsFromFilesystem(
       description: pkg.description || "",
       path: `/${entry.name}`,
       homePath: normalizeWorkspaceAppHomePath(
-        await readConfiguredWorkspaceAppHomePath(appDir),
+        (await readConfiguredWorkspaceAppHomePath(appDir)) ??
+          inferWorkspaceAppRootHomePath(appDir),
       ),
       isDispatch: normalizeAgentId(entry.name) === "dispatch",
       audience:

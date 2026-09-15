@@ -2,6 +2,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+export function inferWorkspaceAppRootHomePath(appDir: string): "/" | undefined {
+  const routesDir = path.join(appDir, "app", "routes");
+  if (!fs.existsSync(routesDir)) return undefined;
+
+  const routeFiles = fs.readdirSync(routesDir);
+  const hasRootRoute = routeFiles.some((filename) =>
+    /^_index\.(?:[cm]?[jt]sx?)$/.test(filename),
+  );
+  const hasHomeRoute = routeFiles.some((filename) =>
+    /^(?:_app\.)?home\.(?:[cm]?[jt]sx?)$/.test(filename),
+  );
+  return hasRootRoute && !hasHomeRoute ? "/" : undefined;
+}
+
 export async function readConfiguredWorkspaceAppHomePath(
   appDir: string,
 ): Promise<string | undefined> {

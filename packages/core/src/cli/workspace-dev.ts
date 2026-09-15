@@ -17,7 +17,10 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
-import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
 import {
   attachGatewaySocketErrorSink,
   normalizeOrigin,
@@ -356,7 +359,8 @@ async function discoverApps(
       publicPaths: routeAccess.publicPaths ?? [],
       protectedPaths: routeAccess.protectedPaths ?? [],
       homePath: normalizeWorkspaceAppHomePath(
-        await readConfiguredWorkspaceAppHomePath(dir),
+        (await readConfiguredWorkspaceAppHomePath(dir)) ??
+          inferWorkspaceAppRootHomePath(dir),
       ),
       dir,
       port: appPortStart,
