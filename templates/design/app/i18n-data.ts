@@ -1199,6 +1199,7 @@ const enUS = {
   layersPanel: {
     title: "Layers",
     screens: "Screens",
+    resizeScreens: "Resize screens section",
     allScreens: "All screens",
     thumbnail: "Thumbnail",
     addScreen: "Add screen",
@@ -14332,6 +14333,7 @@ const designAlignmentOverrides = {
       },
     },
     layersPanel: {
+      resizeScreens: "调整屏幕区域大小",
       pasteToReplace: "粘贴替换",
       frameSelection: "创建画框",
       flipHorizontal: "水平翻转",
@@ -14353,6 +14355,7 @@ const designAlignmentOverrides = {
       },
     },
     layersPanel: {
+      resizeScreens: "Cambiar el tamaño de la sección de pantallas",
       pasteToReplace: "Pegar para reemplazar",
       frameSelection: "Enmarcar selección",
       flipHorizontal: "Voltear horizontalmente",
@@ -14374,6 +14377,7 @@ const designAlignmentOverrides = {
       },
     },
     layersPanel: {
+      resizeScreens: "Redimensionner la section des écrans",
       pasteToReplace: "Coller pour remplacer",
       frameSelection: "Encadrer la sélection",
       flipHorizontal: "Retourner horizontalement",
@@ -14395,6 +14399,7 @@ const designAlignmentOverrides = {
       },
     },
     layersPanel: {
+      resizeScreens: "Größe des Bildschirmbereichs ändern",
       pasteToReplace: "Einfügen zum Ersetzen",
       frameSelection: "Auswahl rahmen",
       flipHorizontal: "Horizontal spiegeln",
@@ -14416,6 +14421,7 @@ const designAlignmentOverrides = {
       },
     },
     layersPanel: {
+      resizeScreens: "画面セクションのサイズを変更",
       pasteToReplace: "置き換えて貼り付け",
       frameSelection: "選択範囲をフレーム化",
       flipHorizontal: "水平方向に反転",
@@ -14437,6 +14443,7 @@ const designAlignmentOverrides = {
       },
     },
     layersPanel: {
+      resizeScreens: "화면 섹션 크기 조정",
       pasteToReplace: "교체하여 붙여넣기",
       frameSelection: "선택 영역 프레임화",
       flipHorizontal: "수평 뒤집기",
@@ -14458,6 +14465,7 @@ const designAlignmentOverrides = {
       },
     },
     layersPanel: {
+      resizeScreens: "Redimensionar seção de telas",
       pasteToReplace: "Colar para substituir",
       frameSelection: "Enquadrar seleção",
       flipHorizontal: "Inverter horizontalmente",
@@ -14478,6 +14486,7 @@ const designAlignmentOverrides = {
       },
     },
     layersPanel: {
+      resizeScreens: "स्क्रीन अनुभाग का आकार बदलें",
       pasteToReplace: "बदलने के लिए पेस्ट करें",
       frameSelection: "चयन को फ़्रेम करें",
       flipHorizontal: "क्षैतिज रूप से फ़्लिप करें",
@@ -14498,6 +14507,7 @@ const designAlignmentOverrides = {
       },
     },
     layersPanel: {
+      resizeScreens: "تغيير حجم قسم الشاشات",
       pasteToReplace: "لصق للاستبدال",
       frameSelection: "تأطير التحديد",
       flipHorizontal: "قلب أفقيًا",

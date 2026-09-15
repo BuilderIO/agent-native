@@ -450,6 +450,38 @@ Agent Registry はプロキシエンドポイントも公開できます。そ�
 ポリシーを通らないため、ターゲット独自の認証と認可ポリシーを適用して
 ください。
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents はインバウンド A2A エンドポイントを提供しません。Agent-Native が A2A の境界、ワークフロー状態、承認を管理し、ホストされたエージェントがセッション、コンテキスト、ツールを管理する場合は、フレームワークアダプターを使用します。アダプターは Managed Agents セッションを作成し、`user.message` イベントを送り、セッションのイベントストリームを読み取ります。ブロッキングする `agent.tool_use` または `agent.mcp_tool_use` イベントは、A2A の `input-required` タスクと `approval-request` ランタイムイベントになります。返されたメタデータに明示的な構造化確認を指定して再開してください。メッセージから承認を推測しないでください。
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` は Vault に保存された Anthropic API キーへの参照です。アダプターは呼び出し元のユーザーと組織のスコープでこれを解決し、必須の `anthropic-beta: managed-agents-2026-04-01` と `anthropic-version: 2023-06-01` ヘッダーを送信します。アプリごとに既存の接続許可を再利用するには、ワークスペース接続カタログに `anthropic-managed-agents` を登録します。アダプターは通常の `A2AConfig.handler` seam にマウントします。
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## プログラムによるワークスペースの呼び出し {#programmatic-invoke}
 
 エージェント ネイティブ ワークスペースの場合、コードを記述するときは `agentNative` ヘルパーを優先します。

@@ -444,6 +444,38 @@ padrão separado, use-o com a orientação de bearer genérico. O tráfego de re
 do Gemini Enterprise não passa pelas políticas do Agent Gateway, então aplique a
 política de autenticação e autorização do próprio destino.
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+O Anthropic Managed Agents não expõe um endpoint A2A de entrada. Use o adaptador do framework quando o Agent-Native deve controlar a superfície A2A, o estado do fluxo de trabalho e as aprovações, enquanto o agente hospedado controla sua sessão, seu contexto e suas ferramentas. O adaptador cria uma sessão do Managed Agents, envia eventos `user.message` e lê o fluxo de eventos da sessão. Um evento bloqueante `agent.tool_use` ou `agent.mcp_tool_use` torna-se uma tarefa A2A `input-required` e um evento de runtime `approval-request`. Retome com confirmações estruturadas explícitas nos metadados retornados; nunca infira aprovação a partir de uma mensagem:
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` é uma referência do cofre para a chave de API da Anthropic. O adaptador a resolve no escopo do usuário e da organização que fazem a chamada e envia os cabeçalhos obrigatórios `anthropic-beta: managed-agents-2026-04-01` e `anthropic-version: 2023-06-01`. Registre `anthropic-managed-agents` no catálogo de conexões do espaço de trabalho para reutilizar as concessões de conexão existentes em cada aplicativo. O adaptador é montado no seam normal `A2AConfig.handler`:
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## Invocação programática do espaço de trabalho {#programmatic-invoke}
 
 Para espaços de trabalho nativos do agente, prefira o auxiliar `agentNative` ao codificar ou um

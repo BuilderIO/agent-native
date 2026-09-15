@@ -1850,6 +1850,45 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
   });
 
+  it("opens and prefills the requested thread without sending to the previous chat", async () => {
+    resetThreadMocks();
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "background-thread",
+        title: "Background run",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+
+    act(() => {
+      requestAgentChatThreadOpen({
+        threadId: "background-thread",
+        prefill: "Continue the background run",
+      });
+    });
+    threadMocks.activeThreadId = "background-thread";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("background-thread");
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+      "Continue the background run",
+    );
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("does not restore a transient thread after the user selected another one", async () => {
     threadMocks.activeThreadId = "thread-2";
     threadMocks.threads = [

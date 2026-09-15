@@ -8,6 +8,7 @@ import { addDaysToDateKey } from "@shared/timezone";
 import {
   useQueryClient,
   useQuery,
+  useQueries,
   keepPreviousData,
   type QueryKey,
 } from "@tanstack/react-query";
@@ -95,7 +96,19 @@ type UpdateEventResult = Partial<CalendarEvent> & {
 };
 
 const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
+// Peers past the first 10 overlay emails are fetched under this separate key
+// (see useEvents) so they never get an optimistic patch meant for the
+// caller's own writable calendars; a mutation must still invalidate them
+// alongside the primary key or their busy-time data goes stale indefinitely.
+export const OVERLAY_EVENTS_BATCH_KEY = ["overlay-events-batch"] as const;
 const OPTIMISTIC_EVENT_PREFIX = "optimistic_event_";
+
+function invalidateEventQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+  void queryClient.invalidateQueries({ queryKey: OVERLAY_EVENTS_BATCH_KEY });
+}
 
 function buildEventsParams(
   from?: string,
@@ -302,13 +315,43 @@ export function shouldShowEventsSkeleton({
   return isPlaceholderData && settledRangeKey !== rangeKey;
 }
 
+// list-events caps overlayEmails at 10 (see its zod schema). This is the
+// batch size the primary query uses; any peers past it are fetched as
+// separate queries below and merged in, instead of being silently truncated
+// server-side.
+export const EVENTS_OVERLAY_BATCH_SIZE = 10;
+
 export function useEvents(
   from?: string,
   to?: string,
   overlayEmails?: string[],
   calendarSourceKeys?: string[],
 ) {
-  const params = buildEventsParams(from, to, overlayEmails, calendarSourceKeys);
+  const primaryOverlayEmails = overlayEmails?.slice(
+    0,
+    EVENTS_OVERLAY_BATCH_SIZE,
+  );
+  const extraOverlayBatches = useMemo(() => {
+    if (!overlayEmails || overlayEmails.length <= EVENTS_OVERLAY_BATCH_SIZE) {
+      return [];
+    }
+    const batches: string[][] = [];
+    for (
+      let i = EVENTS_OVERLAY_BATCH_SIZE;
+      i < overlayEmails.length;
+      i += EVENTS_OVERLAY_BATCH_SIZE
+    ) {
+      batches.push(overlayEmails.slice(i, i + EVENTS_OVERLAY_BATCH_SIZE));
+    }
+    return batches;
+  }, [overlayEmails]);
+
+  const params = buildEventsParams(
+    from,
+    to,
+    primaryOverlayEmails,
+    calendarSourceKeys,
+  );
   const demo = isSharedCalendarDemo();
   const live = useActionQuery<CalendarEvent[]>("list-events", params, {
     enabled: !demo,
@@ -316,6 +359,32 @@ export function useEvents(
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
+  });
+  // Kept outside the ["action", "list-events"] key so create/update/delete
+  // mutations — which only ever touch the caller's own writable calendars —
+  // don't optimistically patch someone else's read-only overlay busy time.
+  const extraOverlayQueries = useQueries({
+    queries: extraOverlayBatches.map((batch) => {
+      // sources: ["overlays"] — without it list-events defaults to reading
+      // every source, so each extra batch would re-fetch and duplicate the
+      // caller's own Google/booking/ICS events on top of the primary query.
+      const batchParams = {
+        ...buildEventsParams(from, to, batch),
+        sources: ["overlays"],
+      };
+      return {
+        queryKey: ["overlay-events-batch", batchParams] as QueryKey,
+        queryFn: () =>
+          callAction<CalendarEvent[]>("list-events", batchParams, {
+            method: "GET",
+          }),
+        enabled: !demo,
+        retry: false,
+        staleTime: 30_000,
+        gcTime: 30 * 60 * 1000,
+        placeholderData: keepPreviousData,
+      };
+    }),
   });
   const fixture = useQuery({
     queryKey: ["shared-calendar-demo-events", params],
@@ -330,7 +399,36 @@ export function useEvents(
     staleTime: Infinity,
   });
 
-  return demo ? fixture : live;
+  const mergedData = useMemo(() => {
+    if (!Array.isArray(live.data) || extraOverlayQueries.length === 0) {
+      return live.data;
+    }
+    const extras = extraOverlayQueries.flatMap((query) =>
+      Array.isArray(query.data) ? query.data : [],
+    );
+    return extras.length > 0 ? [...live.data, ...extras] : live.data;
+  }, [live.data, extraOverlayQueries]);
+
+  if (demo) return fixture;
+  if (extraOverlayQueries.length === 0) return live;
+
+  const overlayError = extraOverlayQueries.find((q) => q.error)?.error;
+
+  return {
+    ...live,
+    data: mergedData,
+    // A batch beyond the first 10 peers loading for the first time (adding an
+    // 11th, 21st, ... overlay person) must not blank the calendar the primary
+    // query already resolved — only the background indicator reflects it.
+    isLoading: live.isLoading,
+    isFetching:
+      live.isFetching || extraOverlayQueries.some((q) => q.isFetching),
+    isPlaceholderData:
+      live.isPlaceholderData ||
+      extraOverlayQueries.some((q) => q.isPlaceholderData),
+    error: live.error ?? overlayError ?? null,
+    isError: live.isError || Boolean(overlayError),
+  };
 }
 
 type OverlaySourceCoverage = {
@@ -353,33 +451,56 @@ type OverlayStatusResult = {
  * range so it stays cheap - it never reads the caller's own Google events,
  * ICS feeds, or bookings.
  */
+// list-events rejects more than 10 overlayEmails per call (see its zod
+// schema), so a workspace with more overlay people than that must be split
+// into multiple inventory requests rather than one call that 400s outright.
+const OVERLAY_STATUS_BATCH_SIZE = 10;
+
 export function useOverlayCalendarStatus(overlayEmails: string[]) {
   const today = new Date().toISOString().slice(0, 10);
-  const query = useActionQuery<OverlayStatusResult>(
-    "list-events",
-    {
-      from: today,
-      to: addDaysToDateKey(today, 1),
-      sources: ["overlays"],
-      overlayEmails,
-      format: "inventory",
-    },
-    {
-      enabled: overlayEmails.length > 0,
-      retry: false,
-      staleTime: 5 * 60_000,
-    },
-  );
+  // Exclusive upper bound: resolveCalendarEventRange only fills in a default
+  // end date when `to` is omitted, so passing the same day for both bounds
+  // hit its "from must be before to" guard on every call.
+  const to = addDaysToDateKey(today, 1);
+  const batches = useMemo(() => {
+    const chunks: string[][] = [];
+    for (let i = 0; i < overlayEmails.length; i += OVERLAY_STATUS_BATCH_SIZE) {
+      chunks.push(overlayEmails.slice(i, i + OVERLAY_STATUS_BATCH_SIZE));
+    }
+    return chunks;
+  }, [overlayEmails]);
+  const queries = useQueries({
+    queries: batches.map((batch) => {
+      const params = {
+        from: today,
+        to,
+        sources: ["overlays"],
+        overlayEmails: batch,
+        format: "inventory",
+      };
+      return {
+        queryKey: ["action", "list-events", params] as QueryKey,
+        queryFn: () =>
+          callAction<OverlayStatusResult>("list-events", params, {
+            method: "GET",
+          }),
+        retry: false,
+        staleTime: 5 * 60_000,
+      };
+    }),
+  });
   const statusByEmail = useMemo(() => {
-    const coverage = query.data?.sourceCoverage ?? [];
-    return new Map(
-      coverage
-        .filter(
-          (entry): entry is OverlaySourceCoverage => entry.source === "overlay",
-        )
-        .map((entry) => [entry.id.toLowerCase(), entry]),
-    );
-  }, [query.data]);
+    const map = new Map<string, OverlaySourceCoverage>();
+    for (const query of queries) {
+      const coverage = query.data?.sourceCoverage ?? [];
+      for (const entry of coverage) {
+        if (entry.source === "overlay") {
+          map.set(entry.id.toLowerCase(), entry as OverlaySourceCoverage);
+        }
+      }
+    }
+    return map;
+  }, [queries]);
   return statusByEmail;
 }
 
@@ -397,7 +518,15 @@ export function prefetchEvents(
   calendarSourceKeys?: string[],
 ) {
   if (isSharedCalendarDemo()) return;
-  const params = buildEventsParams(from, to, overlayEmails, calendarSourceKeys);
+  const primaryOverlayEmails = overlayEmails
+    ? overlayEmails.slice(0, EVENTS_OVERLAY_BATCH_SIZE)
+    : overlayEmails;
+  const params = buildEventsParams(
+    from,
+    to,
+    primaryOverlayEmails,
+    calendarSourceKeys,
+  );
   return queryClient.prefetchQuery({
     queryKey: ["action", "list-events", params],
     queryFn: () =>
@@ -462,7 +591,7 @@ export function useCreateEvent() {
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+      invalidateEventQueries(queryClient);
     },
   });
 }
@@ -583,9 +712,7 @@ export function useUpdateEvent() {
         }
       },
       onSettled: () => {
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-events"],
-        });
+        invalidateEventQueries(queryClient);
       },
     },
   );
@@ -710,9 +837,7 @@ export function useDeleteEvent() {
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-events"],
-      });
+      invalidateEventQueries(queryClient);
     },
   });
 }
@@ -807,7 +932,7 @@ export function useRsvpEvent() {
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+      invalidateEventQueries(queryClient);
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-event"],
       });

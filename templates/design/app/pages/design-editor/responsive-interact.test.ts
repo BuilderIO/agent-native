@@ -223,8 +223,12 @@ describe("responsive Interact wiring", () => {
   });
 
   it("routes every Interact request into the responsive view", () => {
-    expect(source).toContain("enterSingleScreen(screenId");
-    expect(source).toContain("enterSingleScreen(activeFileId)");
+    expect(source).toContain(
+      'handleModeChange("interact", { targetFileId: screenId })',
+    );
+    expect(source).toContain('handleModeChange("interact");');
+    expect(source).toContain("enterSingleScreen(screenId, { mode });");
+    expect(source).not.toContain("enterSingleScreenInteract");
     expect(editorSurface).toContain("resolveModeChangeView({");
     // Only an explicit mode from an embedding host differs; every other entry
     // into a focused screen is still Interact.
