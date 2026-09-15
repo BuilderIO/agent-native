@@ -100,7 +100,6 @@ import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
 import { parseBreakpointWidthInput } from "./BreakpointBar";
-import { CANVAS_IFRAME_PAINT_RETENTION_STYLE } from "./canvas-iframe-paint";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import {
   canvasPrimitiveReactStyle,
@@ -154,6 +153,7 @@ import type {
   TransformBadge,
   VectorEditOverlayState,
 } from "./multi-screen/types";
+import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
 import { type ElementInfo, type PortableStyleSnapshot } from "./types";
 
 /**
@@ -9332,7 +9332,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
                 background: CANVAS_BACKGROUND_VAR,
-                ...CANVAS_IFRAME_PAINT_RETENTION_STYLE,
+                ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
               }}
             />
           </div>
@@ -11455,7 +11455,7 @@ const Screen = memo(function Screen({
                   transformOrigin: "top left",
                   backgroundColor: "white",
                   colorScheme: "light",
-                  ...CANVAS_IFRAME_PAINT_RETENTION_STYLE,
+                  ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
                 }}
                 title={screen.filename}
               />
@@ -12213,7 +12213,7 @@ function BreakpointPreviewRow({
                       transformOrigin: "top left",
                       backgroundColor: "white",
                       colorScheme: "light",
-                      ...CANVAS_IFRAME_PAINT_RETENTION_STYLE,
+                      ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
                     }}
                     title={`${screen.filename} — ${breakpointLabel(widthPx)}`}
                   />

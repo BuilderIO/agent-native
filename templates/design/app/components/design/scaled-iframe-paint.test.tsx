@@ -6,8 +6,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
-import { CANVAS_IFRAME_PAINT_RETENTION_STYLE } from "./canvas-iframe-paint";
 import { DesignCanvas } from "./DesignCanvas";
+import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -17,9 +17,14 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const CANVAS_IFRAME_SOURCES = [
+/** Every source file that paints an iframe under a shrinking transform. A
+ *  scaled iframe outside this list is unguarded, so a new preview surface
+ *  belongs here at the same time it is written. */
+const SCALED_IFRAME_SOURCES = [
   "app/components/design/DesignCanvas.tsx",
+  "app/components/design/DesignThumbnail.tsx",
   "app/components/design/MultiScreenCanvas.tsx",
+  "app/components/templates/TemplatePreview.tsx",
 ];
 
 /** Each `<iframe … />` element in a source file, as raw text. Every canvas
@@ -90,21 +95,22 @@ describe("canvas iframe paint retention", () => {
     }
   });
 
-  it("gives every canvas iframe the shared declaration or a named opt-out", () => {
-    // The declaration was inlined at two render sites and missed at the two
-    // that matter — the editor's own screen iframe and the low-zoom board
-    // preview — so the diagnosed bug stayed live. A new site now has to make
-    // the choice explicitly instead of inheriting the omission.
-    for (const path of CANVAS_IFRAME_SOURCES) {
+  it("gives every scaled iframe the shared declaration or a named opt-out", () => {
+    // The declaration was inlined at two render sites and missed everywhere
+    // that mattered — the editor's own screen iframe, the low-zoom board
+    // preview, and both card previews — so the diagnosed bug stayed live. A
+    // new site now has to make the choice explicitly instead of inheriting
+    // the omission.
+    for (const path of SCALED_IFRAME_SOURCES) {
       const source = readFileSync(path, "utf8");
       expect(source).not.toContain("backfaceVisibility:");
       const elements = iframeElements(source);
       expect(elements.length).toBeGreaterThan(0);
       for (const element of elements) {
         const painted = element.includes(
-          "...CANVAS_IFRAME_PAINT_RETENTION_STYLE,",
+          "...SCALED_IFRAME_PAINT_RETENTION_STYLE,",
         );
-        const optedOut = element.includes("canvas-iframe-paint-ignore");
+        const optedOut = element.includes("scaled-iframe-paint-ignore");
         expect(
           painted || optedOut,
           `${path}: <iframe${element.slice(0, 120)}`,
@@ -115,9 +121,9 @@ describe("canvas iframe paint retention", () => {
   });
 
   it("opts out only iframes that are never painted on the canvas", () => {
-    for (const path of CANVAS_IFRAME_SOURCES) {
+    for (const path of SCALED_IFRAME_SOURCES) {
       for (const element of iframeElements(readFileSync(path, "utf8"))) {
-        if (!element.includes("canvas-iframe-paint-ignore")) continue;
+        if (!element.includes("scaled-iframe-paint-ignore")) continue;
         // An opted-out iframe has to be genuinely offscreen. One that is only
         // transparent or aria-hidden still occupies canvas space and still
         // reads as a blank frame when its backing store is dropped.
@@ -128,8 +134,8 @@ describe("canvas iframe paint retention", () => {
   });
 
   it("stays transform-free so a site with its own scale can spread it", () => {
-    expect(CANVAS_IFRAME_PAINT_RETENTION_STYLE).not.toHaveProperty("transform");
-    expect(CANVAS_IFRAME_PAINT_RETENTION_STYLE.backfaceVisibility).toBe(
+    expect(SCALED_IFRAME_PAINT_RETENTION_STYLE).not.toHaveProperty("transform");
+    expect(SCALED_IFRAME_PAINT_RETENTION_STYLE.backfaceVisibility).toBe(
       "hidden",
     );
   });
