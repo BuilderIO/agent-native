@@ -45,6 +45,43 @@ export function resolveLiveEditPreviewUrl(args: {
   });
 }
 
+/**
+ * A registration `fetch()` to the localhost bridge can fail for two very
+ * different reasons that look identical to page JS (both throw a generic
+ * `TypeError: Failed to fetch`, with zero visible network activity):
+ *
+ * - The dev server / bridge process is genuinely unreachable.
+ * - Chrome's Local Network Access permission (a same-origin-policy-adjacent
+ *   browser security feature, distinct from CORS) is blocking the request
+ *   because this page's origin hasn't been granted permission to reach a
+ *   loopback address. This is the common case for the hosted Design app
+ *   reaching a developer's `127.0.0.1` bridge, and it needs a different,
+ *   actionable UI: a permission is missing, not a downed server.
+ *
+ * `navigator.permissions.query({ name: "local-network-access" })` is the one
+ * signal that tells these apart. It's only supported in newer Chrome and is
+ * not yet in TypeScript's lib.dom.d.ts, hence the cast. Any failure to query
+ * it (unsupported browser, disabled flag) falls back to the generic
+ * "unreachable" classification, which preserves today's messaging.
+ */
+export type BridgeRegistrationFailureKind =
+  | "local-network-access"
+  | "unreachable";
+
+export async function classifyBridgeRegistrationFailure(): Promise<BridgeRegistrationFailureKind> {
+  try {
+    if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+      return "unreachable";
+    }
+    const status = await navigator.permissions.query({
+      name: "local-network-access" as PermissionName,
+    });
+    return status.state === "granted" ? "unreachable" : "local-network-access";
+  } catch {
+    return "unreachable";
+  }
+}
+
 export function shouldUseIframeLoadReadyFallback(
   usesLiveEditEditorBridge: boolean,
 ): boolean {

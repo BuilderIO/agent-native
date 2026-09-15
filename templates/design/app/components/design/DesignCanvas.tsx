@@ -99,12 +99,14 @@ import {
   getEmbeddedIframeBackgroundColor,
 } from "./design-canvas/embedded-frame";
 import {
+  classifyBridgeRegistrationFailure,
   getDesignCanvasIframeSandbox,
   getSnapshotRetryDelayMs,
   resolveLiveEditPreviewUrl,
   sanitizeLocalhostSourceSnapshotHtml,
   shouldFetchExternalSourceSnapshot,
   shouldUseIframeLoadReadyFallback,
+  type BridgeRegistrationFailureKind,
 } from "./design-canvas/external-preview";
 import { isOsFileDragEvent } from "./design-canvas/file-drop";
 import { LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT } from "./design-canvas/hit-test";
@@ -119,6 +121,7 @@ import {
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
+import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import type { MotionTrackWire } from "./design-canvas/motion-types";
 import {
   PENDING_TEXT_EDIT_TIMEOUT_MS,
@@ -1392,6 +1395,21 @@ export function DesignCanvas({
     bridgeKey: string;
     message: string;
   } | null>(null);
+  // Distinguishes "Chrome's Local Network Access permission is blocking this
+  // request" from "the dev server is genuinely down" — see
+  // classifyBridgeRegistrationFailure. Drives which copy/icon the floating
+  // LocalNetworkAccessPrompt card shows; null while unclassified or resolved.
+  const [bridgeRegistrationFailureKind, setBridgeRegistrationFailureKind] =
+    useState<BridgeRegistrationFailureKind | null>(null);
+  // Dismissing the floating connect card is per-script-revision: keyed by the
+  // liveEditBridgeKey it was shown for, so a genuinely new script/mode change
+  // re-surfaces the card instead of leaving it permanently dismissed.
+  const [
+    localNetworkAccessDismissedForKey,
+    setLocalNetworkAccessDismissedForKey,
+  ] = useState<string | null>(null);
+  const [connectingLocalNetworkAccess, setConnectingLocalNetworkAccess] =
+    useState(false);
   // Cache of the bridgeInstanceId returned by the client's LAST successful
   // /live-edit-bridge registration POST (see the registration effect below).
   // Compared against a later /health probe's bridgeInstanceId to tell "the
@@ -1657,9 +1675,27 @@ export function DesignCanvas({
   // registration succeeds, the one real proxied document mounts directly.
   // A viewer with no previewToken has no bridge to wait for, so it loads the
   // dev server directly rather than degrading to a snapshot.
+  //
+  // A FAILED registration (most commonly Chrome's Local Network Access
+  // permission blocking the fetch — see classifyBridgeRegistrationFailure)
+  // falls back the same way: the dev server itself is still reachable via a
+  // plain iframe navigation (unlike fetch/XHR, navigations aren't subject to
+  // that permission check), so showing it read-only beats hiding a working
+  // app behind an indefinite loading state. LocalNetworkAccessPrompt offers
+  // the way to actually enable editing from here.
+  const bridgeRegistrationFailedForCurrentKey =
+    bridgeRegistrationError?.bridgeKey === liveEditBridgeKey;
+  const usingRawFallbackPreview =
+    usesLiveEditInjectedBridge &&
+    !liveEditExternalPreviewUrl &&
+    bridgeRegistrationFailedForCurrentKey;
   const externalPreviewUrl =
     liveEditExternalPreviewUrl ??
-    (usesLiveEditInjectedBridge ? null : rawExternalPreviewUrl);
+    (usesLiveEditInjectedBridge
+      ? bridgeRegistrationFailedForCurrentKey
+        ? rawExternalPreviewUrl
+        : null
+      : rawExternalPreviewUrl);
   const runtimeVerificationUrl = useMemo(() => {
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
@@ -1811,6 +1847,7 @@ export function DesignCanvas({
       }
       setRegisteredLiveEditBridgeKey(null);
       setBridgeRegistrationError(null);
+      setBridgeRegistrationFailureKind(null);
       setLiveEditSameInstanceStalledError(null);
       lateLiveEditReadyRecoveryRef.current = null;
       return;
@@ -1871,6 +1908,8 @@ export function DesignCanvas({
         // pathological bridge that keeps minting a new bridgeInstanceId
         // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
         setBridgeRegistrationError(null);
+        setBridgeRegistrationFailureKind(null);
+        setConnectingLocalNetworkAccess(false);
         lateLiveEditReadyRecoveryRef.current = null;
         setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
       } catch (error) {
@@ -1883,6 +1922,10 @@ export function DesignCanvas({
           setBridgeRegistrationError({
             bridgeKey: liveEditBridgeKey,
             message: error instanceof Error ? error.message : String(error),
+          });
+          setConnectingLocalNetworkAccess(false);
+          void classifyBridgeRegistrationFailure().then((kind) => {
+            if (!cancelled) setBridgeRegistrationFailureKind(kind);
           });
           scheduleRetry();
         }
@@ -1942,6 +1985,43 @@ export function DesignCanvas({
     setLiveEditSameInstanceStalledError(null);
     setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
   }, []);
+
+  // Chrome only offers its Local Network Access permission dialog for a
+  // fetch made within an active user-gesture window. handleManualBridge
+  // RegistrationRetry above only bumps a nonce — by the time the retry
+  // effect re-runs and calls fetch(), the click's gesture has already
+  // expired, so the permission prompt (and this whole retry) silently fails
+  // forever. Firing an extra, best-effort fetch synchronously from the
+  // "Connect" button's own click handler keeps a live gesture in scope for
+  // Chrome to prompt against; the retry effect (still triggered via the
+  // nonce bump below) remains the single source of truth for registration
+  // state either way.
+  const handleConnectLocalNetworkAccess = useCallback(() => {
+    setConnectingLocalNetworkAccess(true);
+    if (bridgeUrl) {
+      void fetch(new URL("/live-edit-bridge", bridgeUrl).toString(), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-design-preview-token": previewToken ?? "",
+        },
+        body: JSON.stringify({
+          script: liveEditBridgeScript,
+          bridgeKey: liveEditBridgeKey,
+        }),
+      }).catch(() => {});
+    }
+    handleManualBridgeRegistrationRetry();
+  }, [
+    bridgeUrl,
+    previewToken,
+    liveEditBridgeScript,
+    liveEditBridgeKey,
+    handleManualBridgeRegistrationRetry,
+  ]);
+  const handleDismissLocalNetworkAccessPrompt = useCallback(() => {
+    setLocalNetworkAccessDismissedForKey(liveEditBridgeKey);
+  }, [liveEditBridgeKey]);
 
   // The registered iframe's `src` is a real cross-origin navigation straight
   // to the bridge's authenticated /live-edit URL, so this component can never
@@ -2557,9 +2637,14 @@ export function DesignCanvas({
   // the same false-success shape as rendering the snapshot outright: when the
   // swap stalls, the canvas keeps showing a screen that looks correct and
   // responds to nothing. A brief flash is the honest signal.
+  // A raw fallback document (see usingRawFallbackPreview above) never gets an
+  // injected editor-chrome bridge, so it can never post the ready handshake
+  // this waits for — without excluding it here, the fallback iframe would
+  // stay marked "pending" (and thus blocked by the overlay below) forever.
   const liveEditDocumentPending =
     usesLiveEditEditorBridge &&
     Boolean(externalPreviewUrl) &&
+    !usingRawFallbackPreview &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
   // A proxied container paints its own app immediately, so without this the
   // canvas looks ready while hover, selection and layers are still dead.
@@ -4910,46 +4995,25 @@ export function DesignCanvas({
           </div>
         </div>
       ) : null}
+      {bridgeRegistrationFailedForCurrentKey &&
+      localNetworkAccessDismissedForKey !== liveEditBridgeKey ? (
+        // Deliberately NOT inside the blocking overlay below: usingRawFallback
+        // Preview means the iframe right underneath is the real running dev
+        // server, so this stays a small, dismissible corner card rather than
+        // hiding working content behind an indefinite "preparing" screen.
+        <LocalNetworkAccessPrompt
+          kind={bridgeRegistrationFailureKind ?? "unreachable"}
+          connecting={connectingLocalNetworkAccess}
+          onConnect={handleConnectLocalNetworkAccess}
+          onDismiss={handleDismissLocalNetworkAccessPrompt}
+        />
+      ) : null}
       {waitingForEditableExternalSnapshot ||
-      waitingForLiveEditBridge ||
+      (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
       sameOriginBridgePending ||
       liveEditDocumentPending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
-          {waitingForLiveEditBridge &&
-          bridgeRegistrationError?.bridgeKey === liveEditBridgeKey ? (
-            // Mirrors the snapshot-fetch offline card below: a stuck
-            // registration used to look identical to ordinary "still
-            // registering" with no explanation and no way to recover short
-            // of a full page reload. Only shown for the CURRENT
-            // liveEditBridgeKey — a stale error from a previous script
-            // revision must not linger after content/mode changes move on
-            // to registering a new one.
-            <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
-              <div className="flex items-center gap-1.5 font-medium text-foreground">
-                <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
-                {
-                  "Live editor connection failed" /* i18n-ignore local dev bridge registration failure title */
-                }
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {
-                  "Is the local dev server still running?" /* i18n-ignore local dev bridge registration failure subtitle */
-                }
-              </div>
-              <div className="w-full truncate rounded bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">
-                {bridgeRegistrationError.message}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleManualBridgeRegistrationRetry}
-              >
-                <IconRefresh className="size-3.5" />
-                {"Retry" /* i18n-ignore local dev bridge retry button */}
-              </Button>
-            </div>
-          ) : waitingForLiveEditBridge || sameOriginBridgePending ? (
+          {waitingForLiveEditBridge || sameOriginBridgePending ? (
             <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
               {
                 "Preparing live editor..." /* i18n-ignore transient localhost live-edit bridge loading state */
