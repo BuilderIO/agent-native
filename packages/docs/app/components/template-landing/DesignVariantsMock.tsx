@@ -243,6 +243,9 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   // anywhere near mobile. Stays last so it wins on source order.
   "@media (max-width: 1320px) { .design-variants-mock { --dv-scale: 0.34; } .design-variants-mock-canvas { gap: 18px; padding: 20px 16px 0; } }",
   "@media (max-width: 560px) { .design-variants-mock { --dv-scale: 0.26; } .design-variants-mock-canvas { gap: 12px; padding: 16px 12px 0; } }",
+  // Below 480 the media cell is the phone viewport minus its own padding, and
+  // two boards side by side no longer fit at any of the steps above.
+  "@media (max-width: 480px) { .design-variants-mock { --dv-scale: 0.21; } .design-variants-mock-canvas { gap: 10px; padding: 14px 10px 0; } }",
 ].join("\n");
 
 function Board({

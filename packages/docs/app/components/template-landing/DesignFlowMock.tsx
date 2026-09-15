@@ -284,6 +284,9 @@ const DESIGN_FLOW_MOCK_CSS = [
   // anywhere near mobile. Stays last so it wins on source order.
   "@media (max-width: 1320px) { .design-flow-mock { --df-scale: 0.26; } .design-flow-mock .df-link { width: 26px; } .design-flow-mock .df-canvas { padding: 18px 10px 0; } }",
   "@media (max-width: 560px) { .design-flow-mock { --df-scale: 0.2; } .design-flow-mock .df-panel { width: 86px; } .design-flow-mock .df-link { width: 20px; } }",
+  // Below 480 the three linked screens and the panel cannot both fit in the
+  // media cell. The links are the picture, so the panel is what goes.
+  "@media (max-width: 480px) { .design-flow-mock { --df-scale: 0.17; } .design-flow-mock .df-panel { display: none; } .design-flow-mock .df-link { width: 18px; } }",
 ].join("\n");
 
 export function DesignFlowMock({

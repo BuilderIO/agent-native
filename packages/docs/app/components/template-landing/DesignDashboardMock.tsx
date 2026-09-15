@@ -301,6 +301,9 @@ const DESIGN_DASHBOARD_MOCK_CSS = [
   // near mobile. Stays last so it wins on source order.
   "@media (max-width: 1320px) { .design-dashboard-mock { --dd-scale: 0.3; } .design-dashboard-mock .dd-canvas { padding: 18px 12px 0; } }",
   "@media (max-width: 560px) { .design-dashboard-mock { --dd-scale: 0.22; } .design-dashboard-mock .dd-panel { width: 124px; } }",
+  // Below 480 the board and the system panel cannot both fit in the media
+  // cell at the step above.
+  "@media (max-width: 480px) { .design-dashboard-mock { --dd-scale: 0.15; } .design-dashboard-mock .dd-panel { width: 104px; } }",
 ].join("\n");
 
 export function DesignDashboardMock({
