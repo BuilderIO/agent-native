@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { chunks } from "./_batch-utils.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -105,22 +106,36 @@ async function lockCurrentDatabaseMemberships(tx: any, databaseId: string) {
   );
 }
 
+export const MAX_MIGRATION_FLUSH_CONCURRENCY = 20;
+
 async function flushMigrationDocuments(rows: Array<{ documentId: string }>) {
-  const accesses = await Promise.all(
-    rows.map((row) => assertAccess("document", row.documentId, "editor")),
-  );
-  const flushes = await Promise.allSettled(
-    rows.map((row, index) =>
-      flushOpenDocumentEditorToSql({
-        documentId: row.documentId,
-        ownerEmail: accesses[index]?.resource.ownerEmail,
-      }),
-    ),
-  );
-  const failed = flushes.find(
-    (flush): flush is PromiseRejectedResult => flush.status === "rejected",
-  );
-  if (failed) throw failed.reason;
+  const accesses: Awaited<ReturnType<typeof assertAccess>>[] = [];
+  for (const batch of chunks(rows, MAX_MIGRATION_FLUSH_CONCURRENCY)) {
+    accesses.push(
+      ...(await Promise.all(
+        batch.map((row) => assertAccess("document", row.documentId, "editor")),
+      )),
+    );
+  }
+  for (
+    let offset = 0;
+    offset < rows.length;
+    offset += MAX_MIGRATION_FLUSH_CONCURRENCY
+  ) {
+    const batch = rows.slice(offset, offset + MAX_MIGRATION_FLUSH_CONCURRENCY);
+    const flushes = await Promise.allSettled(
+      batch.map((row, index) =>
+        flushOpenDocumentEditorToSql({
+          documentId: row.documentId,
+          ownerEmail: accesses[offset + index]?.resource.ownerEmail,
+        }),
+      ),
+    );
+    const failed = flushes.find(
+      (flush): flush is PromiseRejectedResult => flush.status === "rejected",
+    );
+    if (failed) throw failed.reason;
+  }
 }
 
 export async function runMigration(args: MigrationInput) {
