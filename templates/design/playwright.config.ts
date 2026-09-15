@@ -21,7 +21,7 @@ const E2E_RUN_ID =
 if (!/^[A-Za-z0-9_-]+$/.test(E2E_RUN_ID)) {
   throw new Error("E2E_RUN_ID must contain only letters, numbers, _ or -");
 }
-process.env.E2E_RUN_ID ??= E2E_RUN_ID;
+process.env.E2E_RUN_ID ??= E2E_RUN_ID; // guard:allow-env-mutation - Playwright boot shares this run id with setup and teardown
 const E2E_RUN_ROOT = path.join(
   import.meta.dirname,
   "..",
@@ -30,24 +30,24 @@ const E2E_RUN_ROOT = path.join(
   "design-e2e",
   E2E_RUN_ID,
 );
-process.env.E2E_RUN_ROOT ??= E2E_RUN_ROOT;
+process.env.E2E_RUN_ROOT ??= E2E_RUN_ROOT; // guard:allow-env-mutation - Playwright boot shares this run root with setup and teardown
 const AUTH_DIR = process.env.E2E_AUTH_DIR
   ? path.resolve(process.env.E2E_AUTH_DIR)
   : path.join(E2E_RUN_ROOT, "auth");
-process.env.E2E_AUTH_DIR ??= AUTH_DIR;
+process.env.E2E_AUTH_DIR ??= AUTH_DIR; // guard:allow-env-mutation - Playwright boot shares isolated auth state with setup
 const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ?? `pglite:${path.join(E2E_RUN_ROOT, "pglite")}`;
 const usesRunPglite = !process.env.E2E_DATABASE_URL;
-process.env.E2E_DATABASE_URL ??= E2E_DATABASE_URL;
+process.env.E2E_DATABASE_URL ??= E2E_DATABASE_URL; // guard:allow-env-mutation - Playwright boot pins its isolated test database
 if (usesRunPglite) {
-  process.env.E2E_RUN_PGLITE_DIR = path.join(E2E_RUN_ROOT, "pglite");
+  process.env.E2E_RUN_PGLITE_DIR = path.join(E2E_RUN_ROOT, "pglite"); // guard:allow-env-mutation - teardown removes only this Playwright run
 }
 const E2E_RESULTS_DIR = path.join(
   import.meta.dirname,
   "test-results",
   E2E_RUN_ID,
 );
-process.env.E2E_RUN_RESULTS_DIR ??= E2E_RESULTS_DIR;
+process.env.E2E_RUN_RESULTS_DIR ??= E2E_RESULTS_DIR; // guard:allow-env-mutation - teardown removes only this Playwright run
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const SHOW_SECONDARY_PANELS_IN_E2E =
   process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0";
