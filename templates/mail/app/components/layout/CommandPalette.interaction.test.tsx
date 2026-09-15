@@ -341,6 +341,7 @@ describe("CommandPalette Search action", () => {
     expectShortcut("Return to message list", "Esc");
     expectShortcut("Search in conversation...", "⌘ F / Ctrl F");
     expectShortcut("Toggle read state", "U");
+    expectShortcut("Move to Trash", "D / #");
     expectShortcut("Extend selection", "Shift+J/K · Shift+↑/↓");
     expectShortcut("Select all conversations", "⌘ A / Ctrl A");
     expectShortcut("Reply All", "A");

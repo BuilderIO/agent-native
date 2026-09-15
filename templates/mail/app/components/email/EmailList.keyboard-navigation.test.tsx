@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   scrollToIndex: vi.fn(),
+  trash: vi.fn(),
   virtualStart: 0,
   virtualWindowSize: Number.POSITIVE_INFINITY,
 }));
@@ -113,7 +114,7 @@ vi.mock("@/hooks/use-emails", () => {
     useToggleStar: mutation,
     useArchiveEmail: mutation,
     useUnarchiveEmail: mutation,
-    useTrashEmail: mutation,
+    useTrashEmail: () => ({ mutate: mocks.trash, mutateAsync: vi.fn() }),
     useUntrashEmail: mutation,
     useBulkArchiveEmails: mutation,
     useBulkTrashEmails: mutation,
@@ -196,6 +197,7 @@ describe("EmailList keyboard navigation interactions", () => {
   beforeEach(() => {
     mocks.navigate.mockReset();
     mocks.scrollToIndex.mockReset();
+    mocks.trash.mockReset();
     mocks.virtualStart = 0;
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
   });
@@ -335,6 +337,20 @@ describe("EmailList keyboard navigation interactions", () => {
     press(key);
 
     expect(mocks.navigate).toHaveBeenCalledWith("/all/thread-middle");
+  });
+
+  it.each([
+    { key: "d", shiftKey: false },
+    { key: "#", shiftKey: true },
+    { key: "#", shiftKey: false },
+  ])("trashes the focused thread with $key", ({ key, shiftKey }) => {
+    render(<Harness />);
+    press(key, shiftKey);
+
+    expect(mocks.trash).toHaveBeenCalledWith({
+      id: "first",
+      accountEmail: "synthetic@example.test",
+    });
   });
 
   it("does not wrap a one-row list and keeps an empty list free of focused rows", () => {

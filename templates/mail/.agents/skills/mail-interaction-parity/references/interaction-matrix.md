@@ -1055,7 +1055,12 @@ traffic to any one path.
   replay confirms Mail's Cmd+Shift+L opens the schedule picker without
   scheduling; regression tests cover Cmd+Shift+L and Ctrl+Shift+L. Superhuman
   uses Cmd+Shift+L for Send Later but opens a natural-language scheduler, which
-  remains a difference.
+  remains a difference. The direct Trash action now accepts both Mail's
+  existing `D` shortcut and Superhuman's `#` alias in list and conversation
+  contexts, including either Shift state for the browser key event; the
+  Command → Shortcuts reference displays both. Focused list mutation coverage,
+  conversation source coverage, and the full Mail suite passed on 2026-09-14
+  (955 tests across 111 files before this alias regression was added; 956 after).
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

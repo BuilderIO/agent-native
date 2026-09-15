@@ -919,6 +919,7 @@ export function EmailThread({
       },
       { key: "e", handler: handleArchive },
       { key: "d", handler: handleTrash },
+      { key: "#", shift: "either", handler: handleTrash },
       { key: "s", handler: handleStar },
       {
         key: "r",

@@ -1204,6 +1204,7 @@ export function EmailList({
     { key: "o", handler: openFocused },
     { key: "e", handler: archiveFocused },
     { key: "d", handler: trashFocused },
+    { key: "#", shift: "either", handler: trashFocused },
     { key: "u", handler: toggleFocusedRead },
     { key: "I", handler: markFocusedRead, shift: true },
     { key: "U", handler: markFocusedUnread, shift: true },
