@@ -82,6 +82,7 @@ import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-run
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
+import { CANVAS_IFRAME_PAINT_RETENTION_STYLE } from "./canvas-iframe-paint";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
@@ -5335,6 +5336,7 @@ export function DesignCanvas({
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
+            ...CANVAS_IFRAME_PAINT_RETENTION_STYLE,
           }}
           title={t("designEditor.designPreview")}
         />
@@ -5359,6 +5361,9 @@ export function DesignCanvas({
           data-runtime-verification-iframe
           aria-hidden="true"
           tabIndex={-1}
+          // canvas-iframe-paint-ignore -- parked off-viewport and never
+          // painted, so promoting it to its own composited layer would only
+          // cost memory.
           className="pointer-events-none fixed border-0 opacity-0"
           style={{
             left: -100_000,
