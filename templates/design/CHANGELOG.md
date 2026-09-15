@@ -3,6 +3,58 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-16
+
+### Fixed
+
+- A message that only mentions a design, or pastes Design's own guidance back into chat, no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
+
+## 2026-09-13
+
+### Fixed
+
+- Connect Code imports explain when a design-system name is already in use
+- Design captures are visible only to editors
+- Design generation no longer stays active when a completion event is lost
+- Design MCP servers now render screen exports as PNGs
+- Design screen exports work without system-installed Chrome
+- Fixed screen exports for designs shared with viewers
+- Source-file actions return not-found when a design is missing or inaccessible
+- Undo works immediately after editing a size field in the inspector
+
+### Security
+
+- Public Design links no longer expose captured state data
+
+## 2026-09-12
+
+### Fixed
+
+- A generated design now gets a prompt-based title when no title comes back.
+- Canvas panning stays proportional at every zoom level.
+- Closed shapes and pen paths support inside, center, and outside stroke alignment.
+- Custom breakpoints can be added after Tablet, and Enter applies their width.
+- Deselecting a text layer clears the leftover text highlight.
+- Design generation no longer stays stuck when an agent run ends without its final chat update.
+- Edit with AI shows the selected layer name and uses the current theme for its hover highlight.
+- Gradient fills stay gradients when you edit them.
+- Grouped layers are easier to edit: click selects the group, double-click opens a child, and paste preserves group placement.
+- Interact mode keeps its toolbar and height controls within the available canvas.
+- The inspector's export Preview now renders a thumbnail when a whole screen or
+  frame is selected, instead of always reporting "Preview unavailable" next to a
+  working Export button.
+- The Questions panel no longer overlaps the navigation rail.
+
+## 2026-09-11
+
+### Fixed
+
+- Moving the pointer over the canvas no longer takes focus away from a composer
+  or comment box that just opened, so you can type into it straight away.
+- Screens no longer creep taller each time a selection handle reaches the bottom
+  edge of a frame — the editor's own overlays are no longer measured as page
+  content.
+
 ## 2026-09-10
 
 ### Added
@@ -14,6 +66,14 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - The Layers panel is denser with smaller text, icons, and row height.
 - Opening or closing the left sidebar (or toggling minimal mode) no longer shifts designs on the canvas.
 - Breakpoint add control keeps a clear gap from the screen edge and shows immediate feedback while adding.
+
+### Fixed
+
+- Clicking a button or other painted text element on the canvas selects that
+  element, not the wrapper the editor puts around its text — so its corner
+  radius, fill and component props are editable again.
+- Exported SVGs no longer break on designs that use Alpine list or conditional blocks.
+- PNG and PDF exports now render text with the design's own webfonts, so highlights, gradients and underlines stay aligned with the text.
 
 ### Changed
 

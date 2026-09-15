@@ -91,6 +91,7 @@ import {
   writeStoredDeckFilter,
   type DeckFilter,
 } from "@/lib/deck-filter";
+import { deckListViewState } from "@/lib/deck-list-loading";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/design-system-prompt-context";
 import {
@@ -366,7 +367,7 @@ export default function Index() {
     loadError,
     reloadDecks,
   } = useDecks();
-  const { designSystems } = useDesignSystems();
+  const { designSystems, refetch: refetchDesignSystems } = useDesignSystems();
   const {
     referenceDeck: workspaceReferenceDeck,
     designSystem: workspaceDesignSystem,
@@ -1743,6 +1744,12 @@ export default function Index() {
     ),
   );
 
+  const viewState = deckListViewState({
+    loading,
+    loadError,
+    deckCount: decks.length,
+  });
+
   if (isStartingNewDeck) {
     return (
       <div
@@ -1756,7 +1763,7 @@ export default function Index() {
 
   return (
     <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-0 sm:px-6 sm:pb-10">
-      {loading ? (
+      {viewState === "loading" ? (
         <>
           <div className="mb-4 flex items-center justify-end">
             <div className="skeleton-shimmer h-3 w-16 rounded bg-muted" />
@@ -1775,7 +1782,7 @@ export default function Index() {
             </div>
           </div>
         </>
-      ) : loadError ? (
+      ) : viewState === "error" ? (
         <div className="flex min-h-[360px] items-center justify-center">
           <div className="flex max-w-sm flex-col items-center gap-3 text-center">
             <IconAlertTriangle className="size-7 text-destructive/70" />
@@ -1795,7 +1802,7 @@ export default function Index() {
             </Button>
           </div>
         </div>
-      ) : decks.length === 0 ? (
+      ) : viewState === "empty" ? (
         <EmptyState onCreateDeck={openNewDeck} />
       ) : (
         <>
@@ -1956,6 +1963,7 @@ export default function Index() {
         decks={decks}
         defaultDesignSystemId={initialDesignSystemId}
         defaultReferenceDeckId={initialReferenceDeckId}
+        onDesignSystemsChanged={() => void refetchDesignSystems()}
         onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}
         onImportSource={handleReferenceSourceImport}

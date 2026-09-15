@@ -25,7 +25,6 @@ vi.mock("./run-store.js", () => ({
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
-  getCurrentTurnEventsForThread: vi.fn(() => Promise.resolve([])),
   getRunById: vi.fn(() => Promise.resolve(null)),
   isContinuationTerminalReason: (reason: unknown) =>
     reason === "auto_continue" ||
@@ -159,7 +158,6 @@ import {
   resolveSqlSubscriptionRetryMs,
   startRun,
   subscribeToRun,
-  replayCompletedTurn,
   SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
   SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS,
   SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS,
@@ -177,7 +175,6 @@ import {
   getRunById,
   getRunByThread,
   getRunEventsSince,
-  getCurrentTurnEventsForThread,
   markRunAborted,
   updateRunStatus,
   updateRunStatusIfRunning,
@@ -397,20 +394,6 @@ describe("run manager soft timeout", () => {
 
     expect(waitUntil).toHaveBeenCalledTimes(1);
     expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
-  });
-
-  it("does not reinsert a run row claimed atomically by the caller", async () => {
-    vi.mocked(insertRun).mockClear();
-    const run = startRun(
-      "run-preinserted",
-      "thread-preinserted",
-      async () => {},
-      undefined,
-      { runRowAlreadyInserted: true },
-    );
-
-    await run.finalized;
-    expect(insertRun).not.toHaveBeenCalled();
   });
 
   it("emits an internal continuation signal and aborts the run chunk", async () => {
@@ -1168,39 +1151,6 @@ describe("run manager soft timeout", () => {
     persistAbort?.();
     await expect(abortPromise).resolves.toBe(false);
     expect(resolved).toBe(true);
-  });
-
-  it("replays every chunk of a completed logical turn as one stream", async () => {
-    vi.mocked(getCurrentTurnEventsForThread).mockResolvedValueOnce([
-      { type: "text", text: "first chunk" },
-      { type: "auto_continue", reason: "run_timeout" },
-      { type: "text", text: "second chunk" },
-      { type: "done" },
-    ]);
-
-    const stream = await replayCompletedTurn("thread-turn", "turn-1");
-    const reader = stream!.getReader();
-    const decoder = new TextDecoder();
-    const chunks: string[] = [];
-    for (;;) {
-      const next = await reader.read();
-      if (next.done) break;
-      chunks.push(decoder.decode(next.value));
-    }
-
-    const output = chunks.join("");
-    expect(output).toContain(
-      'data: {"type":"text","text":"first chunk","seq":0}',
-    );
-    expect(output).toContain(
-      'data: {"type":"text","text":"second chunk","seq":1}',
-    );
-    expect(output).toContain('data: {"type":"done","seq":2}');
-    expect(output).not.toContain("auto_continue");
-    expect(getCurrentTurnEventsForThread).toHaveBeenCalledWith(
-      "thread-turn",
-      "turn-1",
-    );
   });
 
   it("keeps an in-memory abort successful when durable cleanup fails", async () => {
@@ -2579,6 +2529,157 @@ describe("run manager soft timeout", () => {
     expect(setRunTerminalReason).toHaveBeenCalledWith(
       "run-foreground-tool-only",
       "stream_ended",
+    );
+  });
+
+  it("auto-continues a foreground run whose last tool call failed", async () => {
+    // Design "Build this design as production code": the turn ends on failing
+    // tool calls with no assistant text, and a plain `done` left the client
+    // able to say only "stopped after these actions ... without sending a final
+    // message". The model never read the error, so the turn is unfinished.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-foreground-tool-error",
+      "thread-foreground-tool-error",
+      async (send) => {
+        await Promise.resolve();
+        send({ type: "text", text: "I'll build this as production code." });
+        send({
+          type: "tool_done",
+          tool: "resources",
+          id: "call-1",
+          input: {},
+          result: "Resource not found: design/handoff",
+          isError: true,
+        });
+        send({
+          type: "tool_done",
+          tool: "web_request",
+          id: "call-2",
+          input: {},
+          result: "Request timed out after 15000ms",
+          isError: true,
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-foreground-tool-error",
+      "stream_ended",
+    );
+  });
+
+  it("auto-continues when a precondition failure is the last tool result", async () => {
+    // Analytics /ask: the first turn stopped silently after a
+    // `provider-api-request` precondition failure, and the missing credential
+    // only surfaced when the user typed "continue" by hand. The successful
+    // lookups before it must not make the failing tail look like a finished
+    // answer.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-precondition-tool-error",
+      "thread-precondition-tool-error",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "search-analytics-query-catalog",
+          id: "call-1",
+          input: {},
+          result: '{"matches":3}',
+        });
+        send({
+          type: "tool_done",
+          tool: "data-source-status",
+          id: "call-2",
+          input: {},
+          result: '{"sources":["bigquery"]}',
+        });
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-3",
+          input: {},
+          result:
+            "Error running provider-api-request: stripe credential not configured.",
+          isError: true,
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-precondition-tool-error",
+      "stream_ended",
+    );
+  });
+
+  it("does not continue a failed tool the agent already stopped on", async () => {
+    // The bound on failed-tool continuations. A precondition the turn cannot
+    // satisfy (missing credential, missing role) is classified on the first
+    // attempt and emits a terminal error, so the chain must end on that real
+    // message rather than retrying a failure whose outcome cannot change.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-permanent-precondition",
+      "thread-permanent-precondition",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-1",
+          input: {},
+          result: "Stopped: provider-api-request can't run yet.",
+          isError: true,
+        });
+        send({
+          type: "error",
+          error:
+            "I stopped because provider-api-request needs a setup step outside this turn.",
+          errorCode: "permanent_precondition",
+          recoverable: false,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      errorCode: "permanent_precondition",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-permanent-precondition",
+      "error:permanent_precondition",
     );
   });
 

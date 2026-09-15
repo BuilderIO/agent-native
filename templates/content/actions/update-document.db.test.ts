@@ -258,6 +258,145 @@ describe("update-document compare-and-swap", () => {
     );
   });
 
+  it("uses the body revision so a metadata-only write does not falsely conflict", async () => {
+    const documentId = await createDocument({ content: "original" });
+    const before = await documentRow(documentId);
+    const baseRevision = `body:${before.bodyRevision}:sha256:${(
+      await import("node:crypto")
+    )
+      .createHash("sha256")
+      .update(before.content)
+      .digest("hex")}`;
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: documentId, icon: "📌" }),
+    );
+    const afterMetadata = await documentRow(documentId);
+    expect(afterMetadata.updatedAt).not.toBe(before.updatedAt);
+    expect(afterMetadata.bodyRevision).toBe(before.bodyRevision);
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        content: "local body edit",
+        baseUpdatedAt: before.updatedAt,
+        baseRevision,
+      }),
+    );
+
+    expect("conflict" in result && result.conflict).not.toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      content: "local body edit",
+      icon: "📌",
+      bodyRevision: before.bodyRevision + 1,
+    });
+  });
+
+  it("rejects a stale opaque body revision even when its counter is forged", async () => {
+    const documentId = await createDocument({ content: "original" });
+    const before = await documentRow(documentId);
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Must not apply",
+        content: "local body edit",
+        baseTitle: "Untitled",
+        baseRevision: `body:${before.bodyRevision}:sha256:${"0".repeat(64)}`,
+      }),
+    );
+
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Untitled",
+      content: "original",
+      bodyRevision: before.bodyRevision,
+    });
+  });
+
+  it("rejects a combined title and body CAS save without a title baseline", async () => {
+    const documentId = await createDocument({
+      title: "Original title",
+      content: "original",
+    });
+    const before = await documentRow(documentId);
+    const { documentRevisionToken } =
+      await import("./_document-edit-mutation.js");
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({
+          id: documentId,
+          title: "Local title",
+          content: "local body",
+          baseRevision: documentRevisionToken(
+            before.bodyRevision,
+            before.content,
+          ),
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "BASE_TITLE_REQUIRED" });
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Original title",
+      content: "original",
+    });
+  });
+
+  it("does not let a matching body revision overwrite a concurrently changed title", async () => {
+    const documentId = await createDocument({
+      title: "Original title",
+      content: "original",
+    });
+    const before = await documentRow(documentId);
+    const { documentRevisionToken } =
+      await import("./_document-edit-mutation.js");
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: documentId, title: "Concurrent title" }),
+    );
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Local title",
+        content: "local body",
+        baseTitle: "Original title",
+        baseRevision: documentRevisionToken(
+          before.bodyRevision,
+          before.content,
+        ),
+      }),
+    );
+
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Concurrent title",
+      content: "original",
+    });
+  });
+
+  it("does not let a title-only save overwrite a concurrently changed title", async () => {
+    const documentId = await createDocument({
+      title: "Original title",
+      content: "original",
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: documentId, title: "Concurrent title" }),
+    );
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Local title",
+        baseTitle: "Original title",
+      }),
+    );
+
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Concurrent title",
+      content: "original",
+    });
+  });
+
   it("rejects a content save when the row moved past baseUpdatedAt and returns the current server document", async () => {
     const documentId = await createDocument({ content: "original" });
     const staleSnapshot = await documentRow(documentId);

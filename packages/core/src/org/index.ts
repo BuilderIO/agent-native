@@ -46,6 +46,7 @@ export { setActiveOrgId } from "./active-org.js";
 export { invalidateMemberOrgCaches } from "./request-org-cache.js";
 export { isMissingOrganizationTableError } from "./membership.js";
 export {
+  claimWorkspaceAppForOrganization,
   isStandaloneDispatchRuntime,
   isWorkspaceAppAccessAllowed,
 } from "./workspace-app-access.js";

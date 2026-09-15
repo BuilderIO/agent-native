@@ -89,6 +89,8 @@ const databaseMessages = {
     "Collection rows and local properties were kept intact.",
   failedToAttachSource: "Failed to attach source",
   failedToCreateRow: "Failed to create row",
+  pageCreatedCollectionRefreshFailed:
+    "The page was created, but this collection could not refresh. Reload to see it.",
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",
@@ -1144,7 +1146,18 @@ const enUS = {
     useDiskVersion: "Use disk version",
     keepLocalDraft: "Keep my version",
     previewDraftRecovery: "Unsaved page draft",
+    previewDraftCompare: "Choose which version to keep",
+    previewDraftYourEdits: "Your edits",
+    previewDraftSavedVersion: "Saved version",
+    previewDraftKeepMine: "Keep my version",
+    previewDraftUseSaved: "Use saved version",
+    previewDraftSaveSeparately: "Save mine as a separate page",
+    previewDraftSavedToHistory: "Your edits were saved to Version History",
+    previewDraftSavedSeparately: "Your edits were saved as a separate page",
+    previewDraftOpenSavedPage: "Open page",
     restorePreviewDraft: "Restore draft",
+    previewDraftConflict:
+      "This draft conflicts with a newer page version. It was not restored.",
     pageSaveBeforeNavigationFailed:
       "Your latest page edits could not be saved. Try again before leaving this page.",
     discardPreviewDraft: "Discard draft",
@@ -1216,6 +1229,7 @@ const enUS = {
     historyCheckpointAfter: "After",
     historyCheckpointBefore: "Before",
     historyCheckpointLegacy: "Saved",
+    historyCheckpointRecovery: "Recovered draft",
     historyCheckpointLoadError: "Could not load checkpoints.",
     historyDetailLoadError: "Could not load this checkpoint.",
     historyGroupAgent: "Agent run",
@@ -1616,7 +1630,6 @@ const removeLinkMessagesByLocale = {
   "hi-IN": "लिंक हटाएँ",
   "ar-SA": "إزالة الرابط",
 };
-
 export interface ContentLocaleBundle {
   rawLiterals: PartialMessages;
   comments: PartialMessages["comments"];
