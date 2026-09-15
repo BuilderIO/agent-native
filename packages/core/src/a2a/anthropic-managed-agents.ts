@@ -15,6 +15,7 @@ import type {
   A2AHandlerResult,
   Message,
 } from "./types.js";
+import { workspacePrivateOrigins } from "./workspace-private-origins.js";
 
 export const ANTHROPIC_MANAGED_AGENTS_BETA_HEADER = "managed-agents-2026-04-01";
 export const ANTHROPIC_MANAGED_AGENTS_API_URL = "https://api.anthropic.com";
@@ -75,6 +76,7 @@ export type AnthropicManagedAgentsErrorCode =
   | "api_error"
   | "invalid_response"
   | "stream_error"
+  | "failed_state"
   | "approval_required"
   | "unsupported_action";
 
@@ -313,13 +315,15 @@ async function runSessionTurn(args: {
     () => controller.abort(),
     args.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
   );
-  const streamPromise = openEventStream({ ...args, controller });
+  let streamPromise: Promise<AnthropicManagedAgentEvent[]> | undefined;
   try {
+    const streamBody = await openEventStream({ ...args, controller });
+    streamPromise = readEventStream(streamBody, controller.signal);
     await sendEvents({ ...args, controller });
     return await streamPromise;
   } catch (cause) {
     controller.abort();
-    await streamPromise.catch(() => undefined);
+    await streamPromise?.catch(() => undefined);
     if (cause instanceof AnthropicManagedAgentsError) throw cause;
     throw new AnthropicManagedAgentsError({
       code: "stream_error",
@@ -360,7 +364,7 @@ async function openEventStream(args: {
   sessionId: string;
   options: AnthropicManagedAgentHandlerOptions;
   controller: AbortController;
-}): Promise<AnthropicManagedAgentEvent[]> {
+}): Promise<ReadableStream<Uint8Array>> {
   let response: Response;
   try {
     response = await args.fetchImpl(
@@ -385,7 +389,7 @@ async function openEventStream(args: {
       message: "Anthropic Managed Agents returned an empty event stream.",
     });
   }
-  return readEventStream(response.body, args.controller.signal);
+  return response.body;
 }
 
 async function requestJson(
@@ -538,6 +542,22 @@ async function mapSessionEvents(
   context: A2AHandlerContext,
   options: AnthropicManagedAgentHandlerOptions,
 ): Promise<A2AHandlerResult> {
+  const terminated = events.find(
+    (event) => event.type === "session.status_terminated",
+  );
+  if (terminated) {
+    const error =
+      terminated.error && typeof terminated.error === "object"
+        ? (terminated.error as Record<string, unknown>)
+        : undefined;
+    throw new AnthropicManagedAgentsError({
+      code: "failed_state",
+      message:
+        readString(error?.message) ??
+        readString(terminated.reason) ??
+        "Anthropic Managed Agents terminated the session before completion.",
+    });
+  }
   const text = events
     .filter((event) => event.type === "agent.message")
     .flatMap((event) => extractTextBlocks(event.content))
@@ -689,6 +709,7 @@ function safeManagedAgentFetch(
   return ssrfSafeFetch(url, init, {
     maxRedirects: 0,
     followRedirects: false,
+    allowedPrivateOrigins: workspacePrivateOrigins(),
   });
 }
 

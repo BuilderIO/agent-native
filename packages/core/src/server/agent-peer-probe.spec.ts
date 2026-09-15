@@ -34,6 +34,12 @@ function makeDeps(overrides: Partial<PeerProbeDeps> = {}): PeerProbeDeps {
         },
       }) as PeerCapabilities,
     resolveCallerAuth: async () => ({ metadata: {} }),
+    resolveRemoteAgentToken: async () => undefined,
+    fetch: async () =>
+      new Response(JSON.stringify({ id: "agt_fixture" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
     createClient: () => ({
       getTask: async () => {
         throw new Error("A2A error (-32001): Task not found");
@@ -138,7 +144,7 @@ describe("probePeerAgent", () => {
     expect(result.authError).toBe("This operation was aborted");
   });
 
-  it("does not run an A2A liveness probe for native provider agents", async () => {
+  it("probes native provider agents by ID without creating a session", async () => {
     const managed = {
       ...agent,
       id: "anthropic-research",
@@ -153,8 +159,81 @@ describe("probePeerAgent", () => {
       loadCapabilities: async () => {
         throw new Error("native providers do not have A2A cards");
       },
+      resolveRemoteAgentToken: async (auth) => {
+        expect(auth).toEqual({
+          type: "bearer",
+          credentialRef: "ANTHROPIC_API_KEY",
+        });
+        return "fixture-key";
+      },
+      fetch: async (url, init) => {
+        expect(url).toBe("https://peer.example.com/v1/agents/agt_fixture");
+        expect(init?.method).toBe("GET");
+        expect(new Headers(init?.headers).get("x-api-key")).toBe("fixture-key");
+        return new Response(
+          JSON.stringify({
+            id: "agt_fixture",
+            name: "Managed fixture",
+            description: "A managed fixture",
+          }),
+          { status: 200 },
+        );
+      },
     });
 
-    await expect(probeAllPeerAgents([managed], deps)).resolves.toEqual([]);
+    await expect(probeAllPeerAgents([managed], deps)).resolves.toMatchObject([
+      {
+        id: "anthropic-research",
+        reachable: true,
+        authorized: true,
+        cardStatus: "reachable",
+        name: "Managed fixture",
+      },
+    ]);
+  });
+
+  it("reports a managed agent key rejection", async () => {
+    const managed = {
+      ...agent,
+      kind: {
+        provider: "anthropic-managed-agents" as const,
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    };
+    const deps = makeDeps({
+      resolveRemoteAgentToken: async () => "wrong-key",
+      fetch: async () => new Response("no", { status: 401 }),
+    });
+
+    await expect(probePeerAgent(managed, deps)).resolves.toMatchObject({
+      reachable: true,
+      authorized: false,
+      cardStatus: "auth-rejected",
+      authError: "401",
+    });
+  });
+
+  it("surfaces a managed agent ID that the provider cannot find", async () => {
+    const managed = {
+      ...agent,
+      kind: {
+        provider: "anthropic-managed-agents" as const,
+        agentId: "missing_agent",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    };
+    const deps = makeDeps({
+      resolveRemoteAgentToken: async () => "fixture-key",
+      fetch: async () => new Response("missing", { status: 404 }),
+    });
+
+    await expect(probePeerAgent(managed, deps)).resolves.toMatchObject({
+      reachable: false,
+      error:
+        'Anthropic Managed Agent "missing_agent" was not found (HTTP 404).',
+    });
   });
 });

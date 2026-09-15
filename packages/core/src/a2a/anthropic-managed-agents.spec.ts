@@ -44,7 +44,8 @@ function context() {
 describe("Anthropic Managed Agents A2A handler", () => {
   let server: Server;
   let origin = "";
-  let mode: "complete" | "approval" = "complete";
+  let mode: "complete" | "approval" | "terminated" | "race" = "complete";
+  let streamConnected = false;
   const requests: Array<{
     method: string;
     path: string;
@@ -75,6 +76,16 @@ describe("Anthropic Managed Agents A2A handler", () => {
         request.url === "/v1/sessions/ses_fixture/events" &&
         request.method === "POST"
       ) {
+        if (mode === "race") {
+          if (!streamConnected) {
+            response.writeHead(409).end("stream was not connected");
+            return;
+          }
+          response
+            .writeHead(200, { "content-type": "application/json" })
+            .end(JSON.stringify({ data: [] }));
+          return;
+        }
         response
           .writeHead(200, { "content-type": "application/json" })
           .end(JSON.stringify({ data: [] }));
@@ -84,6 +95,23 @@ describe("Anthropic Managed Agents A2A handler", () => {
         request.url === "/v1/sessions/ses_fixture/events/stream" &&
         request.method === "GET"
       ) {
+        if (mode === "race") {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          streamConnected = true;
+          sendSse(response, [
+            {
+              type: "agent.message",
+              id: "sevt_message",
+              content: [{ type: "text", text: "managed answer" }],
+            },
+            {
+              type: "session.status_idle",
+              id: "sevt_idle",
+              stop_reason: { type: "end_turn" },
+            },
+          ]);
+          return;
+        }
         sendSse(
           response,
           mode === "approval"
@@ -104,18 +132,31 @@ describe("Anthropic Managed Agents A2A handler", () => {
                   },
                 },
               ]
-            : [
-                {
-                  type: "agent.message",
-                  id: "sevt_message",
-                  content: [{ type: "text", text: "managed answer" }],
-                },
-                {
-                  type: "session.status_idle",
-                  id: "sevt_idle",
-                  stop_reason: { type: "end_turn" },
-                },
-              ],
+            : mode === "terminated"
+              ? [
+                  {
+                    type: "agent.message",
+                    id: "sevt_message",
+                    content: [{ type: "text", text: "partial answer" }],
+                  },
+                  {
+                    type: "session.status_terminated",
+                    id: "sevt_terminated",
+                    reason: "sandbox crashed",
+                  },
+                ]
+              : [
+                  {
+                    type: "agent.message",
+                    id: "sevt_message",
+                    content: [{ type: "text", text: "managed answer" }],
+                  },
+                  {
+                    type: "session.status_idle",
+                    id: "sevt_idle",
+                    stop_reason: { type: "end_turn" },
+                  },
+                ],
         );
         return;
       }
@@ -141,6 +182,7 @@ describe("Anthropic Managed Agents A2A handler", () => {
 
   beforeEach(() => {
     mode = "complete";
+    streamConnected = false;
     requests.length = 0;
   });
 
@@ -287,6 +329,48 @@ describe("Anthropic Managed Agents A2A handler", () => {
           result: "allow",
         },
       ],
+    });
+  });
+
+  it("waits for the stream connection before posting and does not miss a reply", async () => {
+    mode = "race";
+    const handler = makeHandler([]);
+
+    await expect(
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Start immediately." }],
+        },
+        context(),
+      ),
+    ).resolves.toMatchObject({
+      message: { parts: [{ type: "text", text: "managed answer" }] },
+    });
+    expect(streamConnected).toBe(true);
+    expect(requests.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      "POST /v1/sessions",
+      "GET /v1/sessions/ses_fixture/events/stream",
+      "POST /v1/sessions/ses_fixture/events",
+    ]);
+  });
+
+  it("treats termination after partial text as a failed state", async () => {
+    mode = "terminated";
+    const handler = makeHandler([]);
+
+    await expect(
+      handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Run the task." }],
+        },
+        context(),
+      ),
+    ).rejects.toMatchObject({
+      name: "AnthropicManagedAgentsError",
+      code: "failed_state",
+      message: "sandbox crashed",
     });
   });
 });

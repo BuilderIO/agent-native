@@ -230,6 +230,14 @@ export function parseHostedAuth(value: unknown): HostedAgentAuth | undefined {
   return undefined;
 }
 
+function isRadixPortalTarget(target: EventTarget | null): boolean {
+  return (
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    Boolean(target.closest("[data-radix-popper-content-wrapper]"))
+  );
+}
+
 function HostedAgentFields({
   url,
   onUrlChange,
@@ -483,9 +491,6 @@ function HostedAgentFields({
                 triggerClassName="shrink-0"
               />
             </div>
-            <p className="text-[10px] text-muted-foreground">
-              {t("agentChat.agents.managedAgentCheck")}
-            </p>
           </>
         )}
       </CollapsibleContent>
@@ -517,6 +522,7 @@ function AgentEditPopover({
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
+      if (isRadixPortalTarget(e.target)) return;
       if (
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node)
@@ -717,6 +723,7 @@ function AgentAddPopover({
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
+      if (isRadixPortalTarget(e.target)) return;
       if (
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node)
@@ -729,9 +736,16 @@ function AgentAddPopover({
   }, [onClose]);
 
   const handleCheck = useCallback(async () => {
-    if (kind?.provider === "anthropic-managed-agents") return;
     const trimmedUrl = url.trim();
     if (!trimmedUrl) return;
+    const normalizedKind = kind ? parseRemoteAgentKind(kind) : undefined;
+    if (kind && !normalizedKind) {
+      setCheck({
+        status: "error",
+        message: t("agentChat.agents.managedAgentIncomplete"),
+      });
+      return;
+    }
     const normalizedAuth = normalizeHostedAuth(auth);
     if (auth && !normalizedAuth) {
       setCheck({
@@ -741,7 +755,7 @@ function AgentAddPopover({
       return;
     }
     const normalizedUrl = normalizeHostedAgentUrl(trimmedUrl, {
-      requireHttps: Boolean(normalizedAuth),
+      requireHttps: Boolean(normalizedAuth || normalizedKind),
     });
     if (!normalizedUrl) {
       setCheck({
@@ -750,7 +764,7 @@ function AgentAddPopover({
       });
       return;
     }
-    const trimmedCardUrl = cardUrl.trim();
+    const trimmedCardUrl = normalizedKind ? "" : cardUrl.trim();
     if (
       trimmedCardUrl &&
       !normalizeHostedAgentUrl(trimmedCardUrl, {
@@ -768,9 +782,15 @@ function AgentAddPopover({
       const cardQuery = trimmedCardUrl
         ? `&cardUrl=${encodeURIComponent(trimmedCardUrl)}`
         : "";
+      const authQuery = normalizedAuth
+        ? `&auth=${encodeURIComponent(JSON.stringify(normalizedAuth))}`
+        : "";
+      const kindQuery = normalizedKind
+        ? `&kind=${encodeURIComponent(JSON.stringify(normalizedKind))}`
+        : "";
       const res = await fetch(
         agentNativePath(
-          `/_agent-native/agents/probe?url=${encodeURIComponent(normalizedUrl)}${cardQuery}`,
+          `/_agent-native/agents/probe?url=${encodeURIComponent(normalizedUrl)}${cardQuery}${authQuery}${kindQuery}`,
         ),
       );
       const body = await res.json().catch(() => null);
@@ -894,6 +914,23 @@ function AgentAddPopover({
               className="w-full flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
               placeholder="URL (e.g. http://localhost:8085)"
             />
+            <ToolkitButtonBase
+              type="button"
+              variant="outline"
+              onClick={handleCheck}
+              disabled={!url.trim() || check.status === "checking"}
+              className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
+            >
+              {check.status === "checking" ? (
+                <IconLoader2 size={10} className="animate-spin" />
+              ) : (
+                "Check"
+              )}
+            </ToolkitButtonBase>
+          </div>
+        )}
+        {kind?.provider === "anthropic-managed-agents" && (
+          <div className="flex justify-end">
             <ToolkitButtonBase
               type="button"
               variant="outline"

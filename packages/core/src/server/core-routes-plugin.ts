@@ -89,8 +89,10 @@ import { getOrgContext } from "../org/context.js";
 import { createProgressHandler } from "../progress/routes.js";
 import {
   parseRemoteAgentAuth,
+  parseRemoteAgentKind,
   parseRemoteAgentUrl,
   type RemoteAgentAuth,
+  type RemoteAgentKind,
 } from "../resources/metadata.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
@@ -1717,32 +1719,52 @@ export function stripRemoteAgentAuth<
 
 /** Credentialed probes may only replay a saved, access-scoped connection. */
 export function matchesSavedHostedAgentProbe(
-  agent: { url: string; cardUrl?: string; auth?: RemoteAgentAuth },
-  requested: { url: string; cardUrl?: string; auth: RemoteAgentAuth },
+  agent: {
+    url: string;
+    cardUrl?: string;
+    auth?: RemoteAgentAuth;
+    kind?: RemoteAgentKind;
+  },
+  requested: {
+    url: string;
+    cardUrl?: string;
+    auth?: RemoteAgentAuth;
+    kind?: RemoteAgentKind;
+  },
 ): boolean {
-  if (!agent.auth) return false;
   const normalize = (value: string) =>
     parseRemoteAgentUrl(value, { allowLoopbackHttp: true }) ?? value.trim();
   if (
     normalize(agent.url) !== normalize(requested.url) ||
     (agent.cardUrl ? normalize(agent.cardUrl) : undefined) !==
-      (requested.cardUrl ? normalize(requested.cardUrl) : undefined) ||
-    agent.auth.type !== requested.auth.type
+      (requested.cardUrl ? normalize(requested.cardUrl) : undefined)
   ) {
     return false;
   }
-  if (agent.auth.type === "bearer") {
+  if (requested.kind) {
+    const kind = agent.kind;
+    return Boolean(
+      kind?.provider === requested.kind.provider &&
+      kind.agentId === requested.kind.agentId &&
+      kind.environmentId === requested.kind.environmentId &&
+      kind.credentialRef === requested.kind.credentialRef,
+    );
+  }
+  const agentAuth = agent.auth;
+  const requestedAuth = requested.auth;
+  if (!agentAuth || !requestedAuth) return false;
+  if (agentAuth.type === "bearer") {
     return (
-      requested.auth.type === "bearer" &&
-      agent.auth.credentialRef === requested.auth.credentialRef
+      requestedAuth.type === "bearer" &&
+      agentAuth.credentialRef === requestedAuth.credentialRef
     );
   }
   return (
-    requested.auth.type === "oauth-client-credentials" &&
-    agent.auth.tokenUrl === requested.auth.tokenUrl &&
-    agent.auth.clientId === requested.auth.clientId &&
-    agent.auth.clientSecretRef === requested.auth.clientSecretRef &&
-    agent.auth.scope === requested.auth.scope
+    requestedAuth.type === "oauth-client-credentials" &&
+    agentAuth.tokenUrl === requestedAuth.tokenUrl &&
+    agentAuth.clientId === requestedAuth.clientId &&
+    agentAuth.clientSecretRef === requestedAuth.clientSecretRef &&
+    agentAuth.scope === requestedAuth.scope
   );
 }
 
@@ -2627,7 +2649,7 @@ export function createCoreRoutesPlugin(
               }
 
               const authParam = query.get("auth");
-              let auth;
+              let auth: RemoteAgentAuth | undefined;
               if (authParam !== null) {
                 try {
                   auth = parseRemoteAgentAuth(JSON.parse(authParam));
@@ -2642,7 +2664,28 @@ export function createCoreRoutesPlugin(
                 }
               }
 
-              if (auth) {
+              const kindParam = query.get("kind");
+              let kind: RemoteAgentKind | undefined;
+              if (kindParam !== null) {
+                try {
+                  kind = parseRemoteAgentKind(JSON.parse(kindParam));
+                } catch {
+                  kind = undefined;
+                }
+                if (!kind) {
+                  setResponseStatus(event, 400);
+                  return {
+                    error:
+                      "kind must be a valid hosted-agent provider reference",
+                  };
+                }
+              }
+              if (auth && kind) {
+                setResponseStatus(event, 400);
+                return { error: "auth and kind cannot be combined" };
+              }
+
+              if (auth || kind) {
                 const { discoverAgents } = await import("./agent-discovery.js");
                 const savedAgents = await discoverAgents(
                   query.get("selfAppId") ?? undefined,
@@ -2652,7 +2695,8 @@ export function createCoreRoutesPlugin(
                     matchesSavedHostedAgentProbe(agent, {
                       url: urlParam,
                       ...(cardUrl ? { cardUrl } : {}),
-                      auth,
+                      ...(auth ? { auth } : {}),
+                      ...(kind ? { kind } : {}),
                     }),
                   )
                 ) {
@@ -2673,9 +2717,10 @@ export function createCoreRoutesPlugin(
                   color: "",
                   ...(cardUrl ? { cardUrl } : {}),
                   ...(auth ? { auth } : {}),
+                  ...(kind ? { kind } : {}),
                 },
                 undefined,
-                { verifyAuth: auth !== undefined },
+                { verifyAuth: auth !== undefined || kind !== undefined },
               );
 
               // Reachability and auth are independent, but a malformed/SSRF-blocked
