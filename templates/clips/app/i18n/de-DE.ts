@@ -86,7 +86,7 @@ const messages = {
   empty: {
     library: {
       title: "Deine Bibliothek ist leer",
-      body: "Nimm deine erste Bildschirmaufnahme auf; sie erscheint hier und ist bereit zum Teilen.",
+      body: "Nimm deine erste Bildschirmaufnahme auf, um sie mit Personen oder Agenten zu teilen.",
       cta: "Ersten Clip aufnehmen",
     },
     shared: {
@@ -1381,13 +1381,19 @@ const messages = {
     title: "Choose your recorder (Lokalisiert)",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (Lokalisiert)",
-    chromeTitle: "Chrome extension (Lokalisiert)",
+    chromeTitle: "Get Chrome extension",
     chromeDescription: "Nimm Browser-Tabs mit der Chrome-Erweiterung auf.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (Lokalisiert)",
-    desktopTitle: "Desktop app (Lokalisiert)",
+    desktopTitle: "Download desktop app",
     desktopDescription: "Nimm mit globalen Tastenkürzeln und Systemaudio auf.",
     openDesktopApp: "Open desktop app (Lokalisiert)",
+    chromeHoverTitle: "Chrome-Erweiterung",
+    chromeHoverDescription:
+      "Erfasst Konsolen- und Netzwerkdetails von der Seite, wobei private Informationen ausgeblendet werden.",
+    desktopHoverTitle: "Desktop-App",
+    desktopHoverDescription:
+      "Startet sofort per Tastenkürzel oder über die Menüleiste — perfekt für Meetings und wiederkehrende Aufnahmen.",
   },
   editableTitle: {
     untitled: "Untitled Clip (Lokalisiert)",
@@ -1591,7 +1597,8 @@ const messages = {
     betterInDesktop: "Better in the desktop app (Lokalisiert)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (Lokalisiert)",
-    downloadDesktopApp: "Download desktop app (Lokalisiert)",
+    downloadDesktopApp: "Record on desktop",
+    downloadLabel: "Download",
     technicalDetails: "Technical details (Lokalisiert)",
     whatToCheck: "What to check (Lokalisiert)",
     downloadRecording: "Download (Lokalisiert)",

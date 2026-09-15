@@ -27,6 +27,9 @@ export interface RecordingToolbarProps {
   /** Whether the elapsed-time ticker should run — true only while actively
    * recording (not during upload/compress, which freeze the last value). */
   active: boolean;
+  /** While saving, the stop control shows a spinner in place and the toolbar
+   * stays put until the route navigates to the saved clip. */
+  saving?: boolean;
   /** Reads the current elapsed time from the recorder engine on each tick. */
   getElapsedMs: () => number;
   /** Reads the microphone track already owned by the recorder engine. */
@@ -267,6 +270,7 @@ function useLiveMicrophoneMeter({
 
 export function RecordingToolbar({
   active,
+  saving = false,
   getElapsedMs,
   getMicrophoneTrack,
   microphoneEnabled,
@@ -492,6 +496,7 @@ export function RecordingToolbar({
         paused={isPaused}
         orientation={pos.orientation}
         enabled={active}
+        saving={saving}
         pendingAction={pendingAction}
         meter={
           microphoneMeter.warning !== null ? (
@@ -533,7 +538,7 @@ export function RecordingToolbar({
         onDeleteRequest={onCancel}
         onConfirmChange={onConfirmChange}
         onLayoutChange={handlePlayheadLayoutChange}
-        className={active ? undefined : "opacity-80"}
+        className={active || saving ? undefined : "opacity-80"}
       />
     </div>
   );

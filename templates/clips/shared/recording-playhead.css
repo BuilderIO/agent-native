@@ -28,6 +28,11 @@
   color: var(--playhead-on-chrome);
   user-select: none;
   -webkit-user-select: none;
+  /* guard:allow-raw-color — theme-invariant chrome; the rim + shadow keep the
+   * pill visibly floating above the surface whether the app is light or dark. */
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
 .recording-playhead[data-orientation="vertical"] {
@@ -143,12 +148,34 @@
   background: currentColor;
 }
 
+/* Saving: the stop control becomes a spinner in place, keeping full opacity
+   even though the button is disabled while the recording is being saved. */
+.recording-playhead__button--saving:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.recording-playhead__stop-spinner {
+  height: 15px;
+  width: 15px;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  animation: recording-playhead-spin 0.7s linear infinite;
+}
+
+@keyframes recording-playhead-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .recording-playhead__timer {
   display: flex;
   flex: none;
   align-items: center;
   margin-left: 6px;
-  color: var(--playhead-rec);
+  color: var(--playhead-on-chrome);
   font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
   font-size: 14px;
   font-weight: 500;
@@ -304,5 +331,9 @@
   .recording-playhead__button,
   .recording-playhead__timer {
     transition: none;
+  }
+
+  .recording-playhead__stop-spinner {
+    animation-duration: 1.6s;
   }
 }

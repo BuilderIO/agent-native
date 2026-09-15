@@ -14,7 +14,6 @@ import {
   IconChevronDown,
   IconDeviceDesktop,
   IconMicrophone,
-  IconVideo,
 } from "@tabler/icons-react";
 import {
   type RefObject,
@@ -345,6 +344,9 @@ export function PreRecordPanel({
   // Saved selections from the last visit. A `?mode=`/`?surface=` deep link
   // (initialMode/initialDisplaySurface) still takes precedence over them.
   const savedPrefs = useMemo(() => loadRecorderPreferences(), []);
+  // Matches the default in record.tsx's cameraSize state, so the setup
+  // preview is the same size as the bubble that will actually record.
+  const cameraBubbleSize = savedPrefs.cameraSize ?? "md";
   const initialCaptureSetup = useMemo(() => {
     const requestedMode = initialMode ?? savedPrefs.mode ?? "screen+camera";
     const savedCameraOn =
@@ -449,7 +451,7 @@ export function PreRecordPanel({
       {
         value: "camera",
         label: t("preRecord.modeCameraOnly"),
-        icon: IconVideo,
+        icon: IconCamera,
       },
     ],
     [t],
@@ -913,7 +915,7 @@ export function PreRecordPanel({
     : null;
 
   return (
-    <TooltipProvider delayDuration={180}>
+    <TooltipProvider delayDuration={0}>
       <div className="mx-auto w-full max-w-[420px] overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
         {visibleModeOptions.length > 1 ? (
           <div className="flex justify-center px-4 pb-3 pt-4">
@@ -1121,7 +1123,7 @@ export function PreRecordPanel({
               ref={cameraVisualizerRef}
               deviceId={cameraId === "default" ? null : cameraId}
               disabled={busy}
-              size="sm"
+              size={cameraBubbleSize}
               className="px-2"
               onStatusChange={handleCameraStatusChange}
               onPreviewChange={handleCameraPreviewChange}

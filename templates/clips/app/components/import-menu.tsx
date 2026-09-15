@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconLink, IconUpload } from "@tabler/icons-react";
-import { Link } from "react-router";
+import { useState } from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
@@ -14,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ImportLoomDialog } from "@/components/library/import-loom-dialog";
 import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +24,10 @@ type MenuAlign = "start" | "center" | "end";
 export interface ImportMenuProps {
   uploadHref?: string;
   onUpload?: () => void;
-  importLoomHref?: string;
+  spaceId?: string | null;
+  folderId?: string | null;
+  /** Where "Record instead" / "Upload video" links inside the Loom dialog go. */
+  recordHref?: string;
   className?: string;
   disabled?: boolean;
   iconOnly?: boolean;
@@ -37,7 +41,9 @@ export interface ImportMenuProps {
 export function ImportMenu({
   uploadHref,
   onUpload,
-  importLoomHref,
+  spaceId,
+  folderId,
+  recordHref,
   className,
   disabled,
   iconOnly = false,
@@ -49,8 +55,9 @@ export function ImportMenu({
 }: ImportMenuProps) {
   const t = useT();
   const { input, openUploadPicker } = useUploadVideoPicker();
+  const [loomDialogOpen, setLoomDialogOpen] = useState(false);
 
-  if (!uploadHref && !onUpload && !importLoomHref) return null;
+  if (!uploadHref && !onUpload) return null;
 
   const trigger = (
     <Button
@@ -102,16 +109,26 @@ export function ImportMenu({
             {t("preRecord.uploadVideo")}
           </DropdownMenuItem>
         ) : null}
-        {importLoomHref ? (
-          <DropdownMenuItem asChild>
-            <Link to={importLoomHref}>
-              <IconLink />
-              {t("preRecord.importLoom")}
-            </Link>
-          </DropdownMenuItem>
-        ) : null}
+        <DropdownMenuItem
+          onSelect={() => {
+            // Let the dropdown close (and its close animation finish) before
+            // opening the dialog — preventing default here would leave the
+            // menu open behind the dialog instead of dismissing it.
+            setTimeout(() => setLoomDialogOpen(true), 0);
+          }}
+        >
+          <IconLink />
+          {t("preRecord.importLoom")}
+        </DropdownMenuItem>
       </DropdownMenuContent>
       {input}
+      <ImportLoomDialog
+        open={loomDialogOpen}
+        onOpenChange={setLoomDialogOpen}
+        spaceId={spaceId}
+        folderId={folderId}
+        recordHref={recordHref}
+      />
     </DropdownMenu>
   );
 }

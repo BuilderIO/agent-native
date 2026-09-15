@@ -82,7 +82,7 @@ const messages = {
   empty: {
     library: {
       title: "你的资料库还是空的",
-      body: "录制第一个屏幕视频后，它会出现在这里，随时可以分享。",
+      body: "录制你的第一个屏幕视频，与他人或智能体分享。",
       cta: "录制第一个 Clip",
     },
     shared: {
@@ -1286,13 +1286,17 @@ const messages = {
     title: "Choose your recorder (已本地化)",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (已本地化)",
-    chromeTitle: "Chrome extension (已本地化)",
+    chromeTitle: "Get Chrome extension",
     chromeDescription: "使用 Chrome 扩展程序捕获浏览器标签页。",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (已本地化)",
-    desktopTitle: "Desktop app (已本地化)",
+    desktopTitle: "Download desktop app",
     desktopDescription: "使用全局快捷键和系统音频录制。",
     openDesktopApp: "Open desktop app (已本地化)",
+    chromeHoverTitle: "Chrome 扩展程序",
+    chromeHoverDescription: "捕获页面的控制台和网络详细信息，并隐藏隐私信息。",
+    desktopHoverTitle: "桌面应用程序",
+    desktopHoverDescription: "通过快捷键或菜单栏立即启动——非常适合会议和重复录制。",
   },
   editableTitle: {
     untitled: "Untitled Clip (已本地化)",
@@ -1494,7 +1498,8 @@ const messages = {
     betterInDesktop: "Better in the desktop app (已本地化)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (已本地化)",
-    downloadDesktopApp: "Download desktop app (已本地化)",
+    downloadDesktopApp: "Record on desktop",
+    downloadLabel: "下载",
     technicalDetails: "Technical details (已本地化)",
     whatToCheck: "What to check (已本地化)",
     downloadRecording: "Download (已本地化)",

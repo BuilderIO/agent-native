@@ -85,7 +85,7 @@ const messages = {
   empty: {
     library: {
       title: "ライブラリは空です",
-      body: "最初の画面録画を作成すると、共有できる状態でここに表示されます。",
+      body: "最初の画面録画を作成して、人やエージェントと共有しましょう。",
       cta: "最初の Clip を録画",
     },
     shared: {
@@ -1359,13 +1359,19 @@ const messages = {
     title: "Choose your recorder (ローカライズ済み)",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (ローカライズ済み)",
-    chromeTitle: "Chrome extension (ローカライズ済み)",
+    chromeTitle: "Get Chrome extension",
     chromeDescription: "Chrome 拡張機能でブラウザのタブをキャプチャします。",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (ローカライズ済み)",
-    desktopTitle: "Desktop app (ローカライズ済み)",
+    desktopTitle: "Download desktop app",
     desktopDescription: "グローバルショートカットとシステム音声で録画します。",
     openDesktopApp: "Open desktop app (ローカライズ済み)",
+    chromeHoverTitle: "Chrome拡張機能",
+    chromeHoverDescription:
+      "ページのコンソールとネットワークの詳細を取得し、個人情報は非表示にします。",
+    desktopHoverTitle: "デスクトップアプリ",
+    desktopHoverDescription:
+      "ショートカットやメニューバーからすぐに起動——会議や繰り返しの録画に最適です。",
   },
   editableTitle: {
     untitled: "Untitled Clip (ローカライズ済み)",
@@ -1571,7 +1577,8 @@ const messages = {
     betterInDesktop: "Better in the desktop app (ローカライズ済み)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (ローカライズ済み)",
-    downloadDesktopApp: "Download desktop app (ローカライズ済み)",
+    downloadDesktopApp: "Record on desktop",
+    downloadLabel: "ダウンロード",
     technicalDetails: "Technical details (ローカライズ済み)",
     whatToCheck: "What to check (ローカライズ済み)",
     downloadRecording: "Download (ローカライズ済み)",
