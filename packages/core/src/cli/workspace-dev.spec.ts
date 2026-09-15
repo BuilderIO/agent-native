@@ -166,6 +166,38 @@ describe("workspace dev startup", () => {
     }
   });
 
+  it("keeps gateway fallback ports out of the child reservation range", async () => {
+    const occupied = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.1", () => resolve());
+    });
+    try {
+      const address = occupied.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected the occupied server to expose a TCP port");
+      }
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn();
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: {
+          ...testEnv(),
+          WORKSPACE_PORT: String(address.port),
+          WORKSPACE_APP_PORT_START: String(address.port + 1),
+        },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+      });
+      const ready = await handle.ready;
+
+      expect(ready.port).toBe(address.port + 1);
+      expect(handle.apps[0]?.port).toBeGreaterThan(address.port + 20);
+    } finally {
+      await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    }
+  });
+
   it("starts only Dispatch by default and starts other apps on first visit", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();

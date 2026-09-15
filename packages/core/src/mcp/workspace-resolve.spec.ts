@@ -211,9 +211,12 @@ describe("resolveWorkspace — workspace via filesystem fallback (gateway down)"
     const ws = await resolveWorkspace(root, {
       WORKSPACE_PORT: "9090",
       WORKSPACE_HOST: "[::]",
-      WORKSPACE_GATEWAY_URL: "http://[::1]:9191",
+      WORKSPACE_GATEWAY_URL: "http://[::1]:9191/",
     });
     expect(ws.gatewayUrl).toBe("http://[::1]:9191");
+    expect(fetch).toHaveBeenCalledWith("http://[::1]:9191/_workspace/apps", {
+      signal: expect.any(AbortSignal),
+    });
   });
 });
 

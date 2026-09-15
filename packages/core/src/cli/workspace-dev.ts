@@ -80,6 +80,7 @@ export interface WorkspaceDevHandle {
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
 const DEFAULT_GATEWAY_PORT = 8080;
 const DEFAULT_APP_PORT_START = 8100;
+const GATEWAY_PORT_FALLBACK_ATTEMPTS = 20;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
@@ -724,7 +725,12 @@ export async function runWorkspaceDev(
   ): Promise<number> {
     for (let port = start; port < start + 100; port++) {
       if (excluded.has(port)) continue;
-      if (port === requestedPort) continue;
+      if (
+        port >= requestedPort &&
+        port <= requestedPort + GATEWAY_PORT_FALLBACK_ATTEMPTS
+      ) {
+        continue;
+      }
       if (await probePortAvailable(port)) return port;
     }
     throw new Error(
@@ -1473,7 +1479,10 @@ export async function runWorkspaceDev(
     proxyUpgrade(app, req, socket, head);
   });
 
-  function listen(port: number, attempts = 20): void {
+  function listen(
+    port: number,
+    attempts = GATEWAY_PORT_FALLBACK_ATTEMPTS,
+  ): void {
     server.once("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE" && attempts > 0) {
         listen(port + 1, attempts - 1);

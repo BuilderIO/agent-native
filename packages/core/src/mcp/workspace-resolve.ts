@@ -176,8 +176,9 @@ export async function resolveWorkspace(
     const formattedHost = advertisedHost.includes(":")
       ? `[${advertisedHost}]`
       : advertisedHost;
-    const gatewayUrl =
-      env.WORKSPACE_GATEWAY_URL || `http://${formattedHost}:${gatewayPort}`;
+    const gatewayUrl = (
+      env.WORKSPACE_GATEWAY_URL || `http://${formattedHost}:${gatewayPort}`
+    ).replace(/\/+$/, "");
     const appPortStart = Number(
       env.WORKSPACE_APP_PORT_START || DEFAULT_APP_PORT_START,
     );
