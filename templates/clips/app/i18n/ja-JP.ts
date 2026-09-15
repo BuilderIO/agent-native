@@ -659,6 +659,7 @@ const messages = {
     organizationFallback: "組織",
     saving: "保存中…",
     save: "保存",
+    saved: "保存済み",
   },
   downloadRoute: {
     pageTitle: "ダウンロード",

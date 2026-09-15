@@ -661,6 +661,7 @@ const messages = {
     organizationFallback: "Organização",
     saving: "Salvando…",
     save: "Salvar",
+    saved: "Salvo",
   },
   downloadRoute: {
     pageTitle: "Baixar Clips Desktop",

@@ -649,6 +649,7 @@ const messages = {
     organizationFallback: "조직",
     saving: "저장 중…",
     save: "저장",
+    saved: "저장됨",
   },
   downloadRoute: {
     pageTitle: "Clips Desktop 다운로드",
