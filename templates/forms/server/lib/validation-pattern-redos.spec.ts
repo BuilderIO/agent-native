@@ -113,4 +113,30 @@ describe("agent-authored validation patterns", () => {
     expect(shipped?.pattern).toBe(SAFE_TWO_WORDS);
     expect(shipped?.unsafePattern).toBeUndefined();
   });
+
+  it("lets a legacy form reach the field-level reason on submit", () => {
+    // The submit and upload handlers re-validate stored fields. Refusing the
+    // whole configuration there answers with a generic 500 and replaces the
+    // message that names the offending field, so the safety gate is scoped to
+    // the write paths. Nothing executes the pattern on the strength of this —
+    // validateSubmissionField still refuses to run it.
+    expect(() =>
+      assertValidFields([fullNameField(REPORTED_PATTERN)], {
+        patternSafety: false,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertValidFields([fullNameField("^(unclosed")], {
+        patternSafety: false,
+      }),
+    ).toThrow(/valid regular expression/i);
+  });
+
+  it("does not fail an optional untouched field over the owner's bad rule", () => {
+    // The submit handler skips pattern checks for an absent value, so a
+    // respondent must not be blocked on a field they legitimately left empty.
+    const optional = { ...fullNameField(REPORTED_PATTERN), required: false };
+    expect(validateSubmissionField(optional, "")).toBeNull();
+    expect(validateSubmissionField(optional, undefined)).toBeNull();
+  });
 });

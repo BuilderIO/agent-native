@@ -32,6 +32,13 @@ export const MAX_USER_REGEX_INPUT_LENGTH = 4096;
 const MAX_GROUP_DEPTH = 12;
 
 /**
+ * Flags that change which characters an atom matches, and so have to reach the
+ * probes. `m` and `d` cannot affect a single-character membership test, and
+ * `g`/`y` would break it outright by carrying `lastIndex` between probes.
+ */
+const MATCHING_FLAGS = ["i", "s", "u", "v"];
+
+/**
  * Baseline probe characters, covering the common shorthand classes. This set
  * alone is not enough: a pattern over letters this list happens to omit (`A`,
  * `x`) would produce empty character sets and read as unambiguous, so
@@ -95,6 +102,8 @@ interface RegexAtom {
   source: string;
   /** Present for groups: the alternation branches of the group body. */
   branches?: RegexAtom[][];
+  /** Lookarounds match a position, not text, so they cost no input. */
+  zeroWidth?: boolean;
   min: number;
   /** `Number.POSITIVE_INFINITY` for `*`, `+` and `{n,}`. */
   max: number;
@@ -180,6 +189,7 @@ function parseSequence(state: ParseState): RegexAtom[] {
     let kind: AtomKind = "literal";
     let source = "";
     let branches: RegexAtom[][] | undefined;
+    let zeroWidth = false;
 
     if (ch === "(") {
       if (state.depth >= MAX_GROUP_DEPTH) {
@@ -198,9 +208,11 @@ function parseSequence(state: ParseState): RegexAtom[] {
         ) {
           state.index += 2;
           capturing = false;
+          zeroWidth = !marker.startsWith("?:");
         } else if (marker === "?<=" || marker === "?<!") {
           state.index += 3;
           capturing = false;
+          zeroWidth = true;
         } else if (marker.startsWith("?<")) {
           const close = state.source.indexOf(">", state.index);
           if (close === -1) {
@@ -225,9 +237,27 @@ function parseSequence(state: ParseState): RegexAtom[] {
       source = parseCharClass(state);
       kind = "class";
     } else if (ch === "\\") {
-      source = state.source.slice(state.index, state.index + 2);
-      state.index += 2;
-      kind = /^\\\d$/.test(source) ? "backref" : "escape";
+      const next = state.source[state.index + 1];
+      // `\p{L}` is one atom. Reading it as `\p` plus a literal `{L}` both
+      // misjudges its character set and leaves a stray `}` to carry the
+      // quantifier, so the verdict then describes a pattern nobody wrote.
+      if (
+        (next === "p" || next === "P") &&
+        state.source[state.index + 2] === "{"
+      ) {
+        const close = state.source.indexOf("}", state.index + 2);
+        if (close === -1) {
+          state.bailed = true;
+          break;
+        }
+        source = state.source.slice(state.index, close + 1);
+        state.index = close + 1;
+        kind = "class";
+      } else {
+        source = state.source.slice(state.index, state.index + 2);
+        state.index += 2;
+        kind = /^\\\d$/.test(source) ? "backref" : "escape";
+      }
     } else if (ch === ".") {
       state.index += 1;
       source = ".";
@@ -243,7 +273,7 @@ function parseSequence(state: ParseState): RegexAtom[] {
     }
 
     const { min, max } = parseQuantifier(state);
-    atoms.push({ kind, source, branches, min, max });
+    atoms.push({ kind, source, branches, zeroWidth, min, max });
   }
   return atoms;
 }
@@ -264,10 +294,6 @@ function isNullable(atom: RegexAtom): boolean {
     return atom.branches.some((branch) => branch.every(isNullable));
   }
   return false;
-}
-
-function isUnbounded(atom: RegexAtom): boolean {
-  return atom.max === Number.POSITIVE_INFINITY;
 }
 
 /**
@@ -310,6 +336,14 @@ type CharSet = Set<string> | "unknown";
  * turns an otherwise disjoint alternation into an ambiguous one.
  */
 function charSetOf(atom: RegexAtom, ctx: AnalysisContext): CharSet {
+  const memoized = ctx.charSets.get(atom);
+  if (memoized) return memoized;
+  const computed = computeCharSet(atom, ctx);
+  ctx.charSets.set(atom, computed);
+  return computed;
+}
+
+function computeCharSet(atom: RegexAtom, ctx: AnalysisContext): CharSet {
   if (atom.kind === "anchor") return new Set();
   if (atom.kind === "backref") return "unknown";
   if (atom.kind === "group") {
@@ -356,12 +390,44 @@ function overlaps(a: CharSet, b: CharSet): boolean {
 
 interface AnalysisContext {
   flags: string;
+  /**
+   * Each atom's set is asked for repeatedly — once per neighbour and once per
+   * alternation pair — and every miss costs a `RegExp` compile plus one probe
+   * per character. Without this the pair loop is cubic in the pattern length.
+   */
+  charSets: Map<RegexAtom, CharSet>;
   probeChars: readonly string[];
 }
 
-/** Atoms that actually consume input — anchors carry no matching cost. */
+/**
+ * Atoms that actually consume input. Anchors and lookarounds match a position
+ * rather than text, so they cannot compete with a neighbour for characters —
+ * counting them makes the standard password rule
+ * `(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$` read as three chained repetitions when
+ * it is linear.
+ */
 function consuming(branch: RegexAtom[]): RegexAtom[] {
-  return branch.filter((atom) => atom.kind !== "anchor");
+  return branch.filter((atom) => atom.kind !== "anchor" && !atom.zeroWidth);
+}
+
+/**
+ * Longest run of input one iteration of this branch can swallow. A body that
+ * can only ever take a single character cannot hand characters back and forth
+ * between iterations, which is what separates `(a?)+` and `([A-Z0-9]?){0,16}`
+ * — both linear — from `(a+)+` and `([a-z]*)*`.
+ */
+function maxIterationLength(branch: RegexAtom[]): number {
+  let total = 0;
+  for (const atom of consuming(branch)) {
+    if (atom.max === Number.POSITIVE_INFINITY) return Number.POSITIVE_INFINITY;
+    const body =
+      atom.kind === "group" && atom.branches?.length
+        ? Math.max(...atom.branches.map(maxIterationLength))
+        : 1;
+    if (body === Number.POSITIVE_INFINITY) return Number.POSITIVE_INFINITY;
+    total += atom.max * body;
+  }
+  return total;
 }
 
 function describe(atom: RegexAtom): string {
@@ -378,6 +444,31 @@ function describe(atom: RegexAtom): string {
   return `${atom.source}${quantifier}`;
 }
 
+/**
+ * Whether two fixed-length branches match exactly the same text, position by
+ * position. `(ab|ab)+` offers the engine an indistinguishable choice on every
+ * iteration, which is the same exponential fan-out as `(a|a)+` without being
+ * two single atoms. `(cat|car)+` differs in its last position and is fine.
+ */
+function sameLanguage(
+  a: RegexAtom[],
+  b: RegexAtom[],
+  ctx: AnalysisContext,
+): boolean {
+  const left = consuming(a);
+  const right = consuming(b);
+  if (left.length === 0 || left.length !== right.length) return false;
+  return left.every((atom, index) => {
+    const other = right[index];
+    if (atom.min !== other.min || atom.max !== other.max) return false;
+    const setA = charSetOf(atom, ctx);
+    const setB = charSetOf(other, ctx);
+    // Two atoms the probe alphabet cannot describe are not provably different.
+    if (setA === "unknown" || setB === "unknown") return true;
+    return setA.size === setB.size && [...setA].every((ch) => setB.has(ch));
+  });
+}
+
 function analyzeRepeatedGroup(
   atom: RegexAtom,
   ctx: AnalysisContext,
@@ -387,6 +478,9 @@ function analyzeRepeatedGroup(
   for (const branch of branches) {
     const atoms = consuming(branch);
     if (atoms.length === 0) continue;
+    // One character per iteration leaves nothing for the iterations to argue
+    // over, so none of the splitting rules below can apply.
+    if (maxIterationLength(branch) < 2) continue;
 
     // An inner part that may match nothing lets the outer repetition split the
     // same input in exponentially many ways.
@@ -427,8 +521,8 @@ function analyzeRepeatedGroup(
 
   // Alternatives inside a repetition that can both claim the same text. Equal
   // fixed-length alternatives that merely share a first character (`cat|car`)
-  // are unambiguous, so length has to differ or one side has to be able to
-  // stretch before this counts.
+  // are unambiguous, so length has to differ, one side has to be able to
+  // stretch, or the two have to match the same text before this counts.
   for (let i = 0; i < branches.length; i += 1) {
     for (let j = i + 1; j < branches.length; j += 1) {
       const a = branches[i];
@@ -438,7 +532,8 @@ function analyzeRepeatedGroup(
         minLength(a) !== minLength(b) ||
         a.some(isVariableLength) ||
         b.some(isVariableLength) ||
-        (consuming(a).length === 1 && consuming(b).length === 1);
+        (consuming(a).length === 1 && consuming(b).length === 1) ||
+        sameLanguage(a, b, ctx);
       if (ambiguous) {
         return `repeated group \`${describe(atom)}\` has alternatives that can match the same text in more than one way`;
       }
@@ -483,7 +578,10 @@ function walk(branches: RegexAtom[][], ctx: AnalysisContext): string | null {
     if (chained) return chained;
     for (const atom of branch) {
       if (atom.kind !== "group") continue;
-      if (isUnbounded(atom)) {
+      // Any group that can iterate more than once re-splits the same input
+      // across its iterations, and a finite bound does not remove that
+      // fan-out: `^(a+){10}$` never returns on a 41-character non-match.
+      if (atom.max > 1) {
         const reason = analyzeRepeatedGroup(atom, ctx);
         if (reason) return reason;
       }
@@ -507,6 +605,16 @@ export function analyzeRegexSource(
   source: string,
   flags = "",
 ): RegexSafetyVerdict {
+  // The analysis itself is super-linear in the pattern length — every pair of
+  // alternatives is compared — so it needs the same cap it exists to enforce.
+  // Callers that reach this directly rather than through `compileUserRegex`
+  // would otherwise trade a slow match for a slow verdict.
+  if (source.length > MAX_USER_REGEX_LENGTH) {
+    return {
+      safe: false,
+      reason: `pattern is ${source.length} characters; the limit is ${MAX_USER_REGEX_LENGTH}`,
+    };
+  }
   const state: ParseState = { source, index: 0, depth: 0, bailed: false };
   const branches = parseAlternation(state);
   if (state.bailed || state.index < source.length) {
@@ -516,12 +624,16 @@ export function analyzeRegexSource(
         "pattern uses constructs this validator cannot analyze for catastrophic backtracking",
     };
   }
-  // Only case folding changes which characters two atoms share; the rest affect
-  // anchoring or iteration, and `y`/`g` would break the single-character probes.
-  const probeFlags = flags.includes("i") ? "i" : "";
+  // `i` with `u` folds `ſ` onto `s`, and `s` lets `.` cover a newline an
+  // alternative also matches — both turn a disjoint reading into an ambiguous
+  // one, so the probes have to run under the caller's flags.
+  const probeFlags = MATCHING_FLAGS.filter((flag) => flags.includes(flag)).join(
+    "",
+  );
   const reason = walk(branches, {
     flags: probeFlags,
     probeChars: collectProbeChars(source),
+    charSets: new Map(),
   });
   return reason ? { safe: false, reason } : { safe: true };
 }

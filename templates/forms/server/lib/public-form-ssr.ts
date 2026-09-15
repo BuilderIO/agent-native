@@ -728,9 +728,13 @@ function renderFormPage(
           return (f.validation.message || f.label + " must be at least " + f.validation.min);
         if (f.validation.max != null && Number(v) > f.validation.max)
           return (f.validation.message || f.label + " must be at most " + f.validation.max);
-        if (f.validation.unsafePattern)
+        // An absent value never reaches a pattern check in the React client or
+        // the submit handler, so an untouched optional field must not fail here
+        // just because the owner's stored rule is unrunnable.
+        var hasValue = typeof v === "string" ? v !== "" : v !== undefined && v !== null;
+        if (f.validation.unsafePattern && hasValue)
           return f.label + " has a validation rule that cannot be checked. Ask the form owner to fix it.";
-        if (f.validation.pattern && typeof v === "string") {
+        if (f.validation.pattern && typeof v === "string" && hasValue) {
           if (v.length > ${MAX_USER_REGEX_INPUT_LENGTH})
             return f.label + " is too long to check against this form's rule.";
           if (!new RegExp(f.validation.pattern).test(v))

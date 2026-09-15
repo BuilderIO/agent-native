@@ -167,7 +167,10 @@ export function FormFillPage() {
             `${field.label} must be at most ${field.validation.max}`
           );
         }
-        if (field.validation.pattern && typeof val === "string") {
+        // An empty value is the required check's business. The submit handler
+        // has always skipped pattern checks for one, so running it here only
+        // blocks a submission the server would accept.
+        if (field.validation.pattern && typeof val === "string" && val !== "") {
           const result = testUserRegex(field.validation.pattern, val);
           if (result.status === "unevaluated") {
             return t("publicForm.uncheckablePattern", { label: field.label });
