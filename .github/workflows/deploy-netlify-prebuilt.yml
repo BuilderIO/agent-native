@@ -710,7 +710,7 @@ jobs:
                 );
               }
             ' "$relay_context"
-          echo "Verified Google OAuth relay configuration for $relay_context."
+          echo "Verified Google OAuth relay metadata for $relay_context."
 
       - name: Package the prebuilt artifact
         if: inputs.artifact_upload && inputs.migration_only != true

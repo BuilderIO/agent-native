@@ -122,6 +122,7 @@ describe("Google callback deploy verification guard", () => {
     assert.match(step, /relay_context=production/);
     assert.match(step, /!value/);
     assert.match(step, /Netlify masks secret values/);
+    assert.match(step, /Verified Google OAuth relay metadata/);
     assert.doesNotMatch(step, /netlify env:get/);
     const metadataScript = step.match(
       /printf '%s' "\$env_json" \|\n\s*node -e '\n([\s\S]*?)\n\s*' "\$relay_context"/,
