@@ -3,9 +3,9 @@ import {
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useExperiment } from "@agent-native/core/client/experiments";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   InvitationBanner,
   OrgSwitcher,
@@ -15,7 +15,7 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/core/client/ui";
-import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/experiments";
+import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconInbox,
   IconArchive,
@@ -77,6 +77,7 @@ import { cn } from "@/lib/utils";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { PageHeaderSlotProvider } from "./page-header";
 import { SidebarFeedbackButton } from "./sidebar-feedback-button";
+import { getMeetingsSidebarHref } from "./sidebar-nav-hrefs";
 import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {
@@ -192,8 +193,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const meetingsExperimentEnabled = useExperiment(CLIPS_MEETINGS.key);
-  const wisprFlowExperimentEnabled = useExperiment(CLIPS_WISPRFLOW.key);
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
+  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW.key);
   // Bind chat to the currently-open recording (`/r/:id`). Library, spaces,
   // meetings, dictate, and settings stay unscoped — those are list-y views
   // where deck-style "this recording" framing doesn't apply.
@@ -439,17 +440,13 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       icon: IconUsersGroup,
       match: (p) => p === "/spaces" || p.startsWith("/spaces/"),
     },
-    ...(meetingsExperimentEnabled
-      ? [
-          {
-            to: "/meetings",
-            label: t("navigation.meetings"),
-            icon: IconCalendar,
-            match: (p: string) => p.startsWith("/meetings"),
-          },
-        ]
-      : []),
-    ...(wisprFlowExperimentEnabled
+    {
+      to: getMeetingsSidebarHref(meetingsLabEnabled, CLIPS_MEETINGS.key),
+      label: t("navigation.meetings"),
+      icon: IconCalendar,
+      match: (p) => p.startsWith("/meetings"),
+    },
+    ...(wisprFlowLabEnabled
       ? [
           {
             to: "/dictate",

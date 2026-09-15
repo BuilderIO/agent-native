@@ -48,7 +48,7 @@ A team has a published article and wants to attempt a larger rewrite. An editor 
 ### One Page, deliberate alternatives
 
 - The Page retains one stable ID and URL across every Version.
-- The Page title, top-level Properties, Database memberships, source identity, and sharing boundary remain Page-owned and common across Versions.
+- The Page title, top-level Properties, Collection memberships, source identity, and sharing boundary remain Page-owned and common across Versions.
 - Each named Version has stable identity, a human label, Version-specific body state, its own revision history, and a place in the Page's Version graph.
 - Exactly one authorized Version is current or canonical. Promoting another Version changes that pointer; it does not overwrite or delete the former current Version.
 - A named Version is not an Event, logical Revision, recovery snapshot, duplicate Page, source representation, or publication. Those concepts may refer to a Version but retain their own identities and lifecycles.

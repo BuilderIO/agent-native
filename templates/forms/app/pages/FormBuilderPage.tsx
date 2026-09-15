@@ -237,6 +237,11 @@ export function FormBuilderPage() {
   const setBuilderTab = useCallback(
     (value: string) => {
       const nextTab = normalizeFormBuilderTab(value);
+      trackEvent("form_builder_tab_changed", {
+        app_name: "forms",
+        template_name: "forms",
+        tab: nextTab,
+      });
       setActiveTab(nextTab);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("tab", formBuilderTabSearchParam(nextTab));
@@ -528,6 +533,11 @@ export function FormBuilderPage() {
   // integrations. The role is set by `get-form` based on ownership + shares.
 
   function addField(type: AppFormFieldType) {
+    trackEvent("form_field_type_selected", {
+      app_name: "forms",
+      template_name: "forms",
+      field_type: type,
+    });
     const fieldTypeDefaults = getFieldTypeDefaults(t);
     const defaults = fieldTypeDefaults[type] || {};
     const newField = {
@@ -714,7 +724,17 @@ export function FormBuilderPage() {
                   className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   asChild
                 >
-                  <a href={publishedFormUrl} target="_blank" rel="noopener">
+                  <a
+                    href={publishedFormUrl}
+                    target="_blank"
+                    rel="noopener"
+                    onClick={() =>
+                      trackEvent("form_preview_opened", {
+                        app_name: "forms",
+                        template_name: "forms",
+                      })
+                    }
+                  >
                     <IconExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
@@ -1144,8 +1164,11 @@ function BuilderContent({
                         dragIdx === idx && "opacity-50",
                       )}
                     >
+                      {/* Sits in the row's negative-margin gutter (sm:-mx-4 / sm:px-4
+                          = 16px). Offset must clear the handle's own width (size-10 =
+                          40px) or the grip icon bleeds across the input's left border. */}
                       <div
-                        className="absolute -start-5 top-1/2 hidden size-10 -translate-y-1/2 items-center justify-center cursor-grab text-muted-foreground opacity-0 transition-[color,opacity,transform] duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground sm:flex"
+                        className="absolute -start-8 top-1/2 hidden size-10 -translate-y-1/2 items-center justify-center cursor-grab text-muted-foreground opacity-0 transition-[color,opacity,transform] duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground sm:flex"
                         aria-label={t("builder.dragToReorder")}
                       >
                         <IconGripVertical className="h-4 w-4 translate-x-px" />

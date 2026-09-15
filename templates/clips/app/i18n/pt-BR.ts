@@ -67,6 +67,8 @@ const messages = {
     recordings: "Gravações",
     newFolder: "Nova pasta",
     noSpaces: "Ainda não há espaços",
+    noSpacesAdminCta:
+      "Peça a um administrador da organização para criar o primeiro espaço.",
     desktopCta: "Baixar app desktop",
     desktopTitle: "Baixe o app desktop do Clips.",
     desktopBody:
@@ -727,17 +729,17 @@ const messages = {
     agentTitle: "Gerenciar agente",
     title: "Configurações",
     pageTitle: "Configurações · Clips",
-    experiments: "Experimentos",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
-    experimentVideoEditing: "Edição de vídeo",
-    experimentVideoEditingDescription: "Experimente o novo editor de vídeo.",
-    experimentMeetings: "Reuniões e transcrição",
-    experimentMeetingsDescription:
+    labVideoEditing: "Edição de vídeo",
+    labVideoEditingDescription: "Experimente o novo editor de vídeo.",
+    labMeetings: "Reuniões e transcrição",
+    labMeetingsDescription:
       "Experimente a captura e a transcrição automáticas de reuniões.",
-    experimentWisprFlow: "Ditado por voz",
-    experimentWisprFlowDescription:
-      "Experimente o novo recurso de ditado por voz.",
+    labWisprFlow: "Ditado por voz",
+    labWisprFlowDescription:
+      "Mostre ou oculte o ditado por voz no Clips Desktop.",
     intro: "Preferências e serviços conectados para este espaço do Clips.",
     preferencesTitle: "Preferências",
     languageTitle: "Idioma",
@@ -974,6 +976,8 @@ const messages = {
     renameFailed: "Falha ao renomear clipe",
     renameClip: "Renomear clipe",
     clipTitle: "Título do clipe",
+    archiveAction: "Arquivar",
+    moveToTrashAction: "Mover para a lixeira",
     movedToTrash: "Movido para a lixeira",
     restoredFromArchive: "Restaurado do arquivo",
     archived: "Arquivado",
@@ -1856,6 +1860,7 @@ const messages = {
       "{{consoleCount}} problemas no console · {{networkCount}} solicitações com falha",
     noFailures: "Nenhuma falha detectada",
     failuresPresent: "Falhas do navegador detectadas",
+    unviewedCount: "{{count}} não vistos",
     captureSuccessful: "Diagnósticos capturados com sucesso",
     capturedFrom: "Capturado de {{source}}",
     browserCapture: "Captura do navegador",

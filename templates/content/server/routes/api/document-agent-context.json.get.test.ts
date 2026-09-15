@@ -38,6 +38,16 @@ vi.mock("h3", () => ({
 vi.mock("../../../shared/agent-readable.js", () => ({
   DOCUMENT_AGENT_RESOURCE_KIND: "document",
   buildContentPublicDocumentUrl: (id: string) => `/p/${id}`,
+  buildContentDocumentMcpGuidance: (
+    id: string,
+    options: { basePath?: string },
+  ) => ({
+    preferredTransport: "mcp",
+    mcpUrl: `${options.basePath}/mcp`,
+    mcpConnectUrl: `${options.basePath}/mcp/connect`,
+    readAction: { name: "get-document", arguments: { id } },
+    instructions: "Use authenticated Content MCP.",
+  }),
 }));
 
 vi.mock("../../db/index.js", () => {
@@ -68,6 +78,7 @@ import handler from "./document-agent-context.json.get";
 describe("GET /api/document-agent-context.json", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    document.visibility = "public";
     mockGetQuery.mockReturnValue({ id: document.id });
     mockGetDocumentContextPath.mockResolvedValue([
       {
@@ -93,5 +104,38 @@ describe("GET /api/document-agent-context.json", () => {
         },
       ],
     });
+  });
+
+  it("directs anonymous private reads to authenticated Content MCP", async () => {
+    document.visibility = "private";
+
+    const result = await handler({} as never);
+
+    expect(result).toMatchObject({
+      error: "This private document is not readable through anonymous HTTP",
+      resourceType: "document",
+      resourceId: document.id,
+      preferredTransport: "mcp",
+      mcpUrl: "/content/mcp",
+      mcpConnectUrl: "/content/mcp/connect",
+      readAction: { name: "get-document", arguments: { id: document.id } },
+    });
+  });
+
+  it("distinguishes a rejected agent token without echoing it", async () => {
+    document.visibility = "private";
+    mockGetQuery.mockReturnValue({
+      id: document.id,
+      agent_access: "rejected-token",
+    });
+
+    const result = await handler({} as never);
+
+    expect(result).toMatchObject({
+      error: "The agent access token is invalid or expired",
+      resourceId: document.id,
+      preferredTransport: "mcp",
+    });
+    expect(JSON.stringify(result)).not.toContain("rejected-token");
   });
 });

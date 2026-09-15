@@ -127,7 +127,7 @@ const viewSchema = z
 
 const legacyUpdateContentDatabaseViewSchema = z
   .object({
-    databaseId: z.string().describe("Database ID"),
+    databaseId: z.string().describe("Collection ID"),
     viewConfig: z
       .object({
         activeViewId: z.string().optional(),
@@ -137,7 +137,7 @@ const legacyUpdateContentDatabaseViewSchema = z
         columnWidths: z.record(z.string(), z.number()).default({}),
       })
       .strict()
-      .describe("Saved database table view settings"),
+      .describe("Saved collection table view settings"),
   })
   .strict();
 

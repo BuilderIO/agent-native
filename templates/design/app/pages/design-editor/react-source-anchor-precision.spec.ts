@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
 
-import { reactSourceAnchorForPendingEdit } from "./pending-edits";
+import {
+  formatPendingVisualStylePrompt,
+  reactSourceAnchorForPendingEdit,
+  type PendingVisualStyleEdit,
+} from "./pending-edits";
 import {
   buildReactSemanticHandoff,
   redactReactSourceAnchor,
@@ -169,5 +173,35 @@ describe("react source anchor precision", () => {
 
     expect(planned.result.status).toBe("needsAgent");
     expect(planned.result.changed).toBe(false);
+  });
+
+  it("keeps an unresolved absolute source path visible in the coding-agent prompt", () => {
+    const sourceFile = "/Users/dev/app/packages/core/dist/AuthPage.js";
+    const edit = {
+      screenId: "screen-1",
+      filename: "screen.html",
+      screenName: "Sign in",
+      selector: "h1",
+      classes: [],
+      styles: { fontSize: "32px" },
+      originalStyles: { fontSize: "24px" },
+      updatedAt: 1,
+      sourceAnchor: {
+        sourceFile,
+        line: 1810,
+        column: 15,
+        method: "debug-stack",
+        component: "AuthPage",
+      },
+    } satisfies PendingVisualStyleEdit;
+
+    const prompt = formatPendingVisualStylePrompt({
+      audience: "coding-agent",
+      edits: [edit],
+    });
+
+    expect(prompt).toContain(sourceFile);
+    expect(prompt).toContain("outside the connected root");
+    expect(prompt).toContain('"sourcePathStatus": "outside-connected-root"');
   });
 });

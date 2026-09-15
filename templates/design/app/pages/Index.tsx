@@ -10,6 +10,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
+  useCreativeContextLab,
   useCreativeContexts,
   useCreativeContextState,
 } from "@agent-native/creative-context/client";
@@ -228,8 +229,14 @@ export default function Index() {
       })),
     [templatesData?.templates],
   );
-  const creativeContextsQuery = useCreativeContexts();
-  const creativeContextState = useCreativeContextState();
+  const creativeContextEnabled = useCreativeContextLab();
+  const creativeContextsQuery = useCreativeContexts(
+    {},
+    { enabled: creativeContextEnabled },
+  );
+  const creativeContextState = useCreativeContextState({
+    enabled: creativeContextEnabled,
+  });
   const creativeContextOptions = useMemo(
     () =>
       parseCreativeContexts(creativeContextsQuery.data)
@@ -475,9 +482,7 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
-          ...(linkedDesignSystemId
-            ? { designSystemId: linkedDesignSystemId }
-            : {}),
+          designSystemId: linkedDesignSystemId,
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -1001,10 +1006,14 @@ export default function Index() {
             retrying={isFetching}
           />
         ) : designs.length === 0 ? (
-          <EmptyState
-            onCreateDesign={openNewDesign}
-            onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
-          />
+          normalizedSearch ? (
+            <SearchEmptyState />
+          ) : (
+            <EmptyState
+              onCreateDesign={openNewDesign}
+              onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
+            />
+          )
         ) : (
           <>
             {isSelectingDesigns ? (
@@ -1051,21 +1060,23 @@ export default function Index() {
                     </TooltipTrigger>
                     <TooltipContent>{t("home.clearSelection")}</TooltipContent>
                   </Tooltip>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setContextDesigns(
-                        designs.filter((design) =>
-                          selectedDesignIds.has(design.id),
-                        ),
-                      )
-                    }
-                    className="cursor-pointer"
-                  >
-                    <IconPlus className="w-3.5 h-3.5" />
-                    {t("creativeContext.addToContext" /* i18n-key-ignore */)}
-                  </Button>
+                  {creativeContextEnabled ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setContextDesigns(
+                          designs.filter((design) =>
+                            selectedDesignIds.has(design.id),
+                          ),
+                        )
+                      }
+                      className="cursor-pointer"
+                    >
+                      <IconPlus className="w-3.5 h-3.5" />
+                      {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+                    </Button>
+                  ) : null}
                   <Button
                     variant="destructive"
                     size="sm"
@@ -1211,18 +1222,20 @@ export default function Index() {
                             <IconCopy className="w-3.5 h-3.5 me-2" />
                             {t("home.duplicate")}
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={(event) => {
-                              event.preventDefault();
-                              setContextDesigns([design]);
-                            }}
-                            className="cursor-pointer"
-                          >
-                            <IconPlus className="w-3.5 h-3.5 me-2" />
-                            {t(
-                              "creativeContext.addToContext" /* i18n-key-ignore */,
-                            )}
-                          </DropdownMenuItem>
+                          {creativeContextEnabled ? (
+                            <DropdownMenuItem
+                              onSelect={(event) => {
+                                event.preventDefault();
+                                setContextDesigns([design]);
+                              }}
+                              className="cursor-pointer"
+                            >
+                              <IconPlus className="w-3.5 h-3.5 me-2" />
+                              {t(
+                                "creativeContext.addToContext" /* i18n-key-ignore */,
+                              )}
+                            </DropdownMenuItem>
+                          ) : null}
                           <DropdownMenuItem
                             onClick={() =>
                               setTimeout(() => setDeleteId(design.id))
@@ -1279,20 +1292,22 @@ export default function Index() {
         )}
       </main>
 
-      <CreativeContextShareSheet
-        open={contextDesigns.length > 0}
-        onOpenChange={(open) => {
-          if (!open) setContextDesigns([]);
-        }}
-        resources={contextDesigns.map((design) => ({
-          appId: "design",
-          resourceType: "design",
-          resourceId: design.id,
-          title: design.title,
-          updatedAt: design.updatedAt ?? design.createdAt,
-          preview: { kind: "document", label: "Design" },
-        }))}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={contextDesigns.length > 0}
+          onOpenChange={(open) => {
+            if (!open) setContextDesigns([]);
+          }}
+          resources={contextDesigns.map((design) => ({
+            appId: "design",
+            resourceType: "design",
+            resourceId: design.id,
+            title: design.title,
+            updatedAt: design.updatedAt ?? design.createdAt,
+            preview: { kind: "document", label: "Design" },
+          }))}
+        />
+      ) : null}
 
       <PromptPopover
         open={showNewPrompt}
@@ -1321,12 +1336,18 @@ export default function Index() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={handleNewDesignSystemChange}
-        creativeContexts={creativeContextOptions}
-        creativeContextsLoading={creativeContextsQuery.isLoading}
-        selectedCreativeContextId={
-          creativeContextState.state.selectedContextId ?? null
+        creativeContexts={creativeContextEnabled ? creativeContextOptions : []}
+        creativeContextsLoading={
+          creativeContextEnabled && creativeContextsQuery.isLoading
         }
-        onCreativeContextChange={handleCreativeContextChange}
+        selectedCreativeContextId={
+          creativeContextEnabled
+            ? (creativeContextState.state.selectedContextId ?? null)
+            : undefined
+        }
+        onCreativeContextChange={
+          creativeContextEnabled ? handleCreativeContextChange : undefined
+        }
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
@@ -1568,6 +1589,23 @@ function EmptyState({
         <IconPlus className="w-4 h-4" />
         {t("home.newDesign")}
       </Button>
+    </div>
+  );
+}
+
+function SearchEmptyState() {
+  const t = useT();
+  return (
+    <div
+      aria-live="polite"
+      className="flex flex-col items-center justify-center min-h-[60vh] text-center"
+    >
+      <h2 className="text-xl font-semibold text-foreground mb-2">
+        {t("home.searchNoResultsTitle")}
+      </h2>
+      <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
+        {t("home.searchNoResultsDescription")}
+      </p>
     </div>
   );
 }

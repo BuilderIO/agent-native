@@ -31,6 +31,22 @@
  *     DELETE FROM without a WHERE clause.
  *   - Two migration entries in the same array declaring the same
  *     `version` number — the exact parallel-branch collision above.
+ *   - ADD COLUMN ... NOT NULL (or PRIMARY KEY) on an existing table with no
+ *     usable DEFAULT and no self-filling value (SERIAL/IDENTITY/a stored
+ *     generated column). Beta and production migrate independently against
+ *     one shared database, so a not-null column with nothing to fill it
+ *     breaks on the first existing row, and breaks any already-deployed
+ *     INSERT that doesn't know the column exists yet. The ADD-COLUMN
+ *     detector runs SQL comments, string literals, and quoted identifiers
+ *     through `maskSqlNoise` first, so a keyword appearing inside one of
+ *     those can't be mistaken for a real constraint; parses `ALTER TABLE`'s
+ *     optional `IF EXISTS`/`ONLY` and quoted or schema-qualified relation
+ *     names properly instead of assuming the table name is one bare token;
+ *     and never confuses `ADD CONSTRAINT`/`CHECK`/`UNIQUE`/`PRIMARY
+ *     KEY`/`FOREIGN KEY`/`EXCLUDE` (table-level, no column involved) for an
+ *     `ADD COLUMN`. `DEFAULT` only counts when it's a real column default —
+ *     `... ON DELETE SET DEFAULT` and `DEFAULT NULL` are both rejected as
+ *     not providing an existing row a usable value.
  *
  * The additive alternative is always available: add a new nullable column
  * (or table) and backfill it, rather than dropping/renaming/retyping the
@@ -52,7 +68,12 @@
  *
  *   // guard:allow-destructive-ddl — <reason>
  *
- * SQL files may use either `//` or `--` for the pragma comment.
+ * The blocking-not-null-column check has its own pragma, since it isn't
+ * destructive DDL:
+ *
+ *   // guard:allow-blocking-column-default — <reason>
+ *
+ * SQL files may use either `//` or `--` for either pragma comment.
  */
 
 import { readFileSync } from "node:fs";
@@ -67,6 +88,8 @@ const REPO_ROOT = path.resolve(
 );
 
 const PRAGMA_RE = /^\s*(?:\/\/|--)\s*guard:allow-destructive-ddl\b/i;
+const BLOCKING_COLUMN_PRAGMA_RE =
+  /^\s*(?:\/\/|--)\s*guard:allow-blocking-column-default\b/i;
 
 /**
  * The engine itself, not a migration list - its doc comments demonstrate
@@ -286,11 +309,184 @@ function lineOf(src, index) {
   return line;
 }
 
-function isPragmaed(lines, lineNumber) {
+function isPragmaed(lines, lineNumber, pragmaRe = PRAGMA_RE) {
   return (
-    PRAGMA_RE.test(lines[lineNumber - 1] ?? "") ||
-    PRAGMA_RE.test(lines[lineNumber - 2] ?? "")
+    pragmaRe.test(lines[lineNumber - 1] ?? "") ||
+    pragmaRe.test(lines[lineNumber - 2] ?? "")
   );
+}
+
+/**
+ * Splits a comma-separated clause list at paren depth 0. Callers only ever
+ * pass this function text that has already been through `maskSqlNoise`, so
+ * string/identifier literals hold no real `(`/`)`/`,` characters any more —
+ * this needs no quote-awareness of its own, only paren depth.
+ */
+function splitTopLevelClauseRanges(text) {
+  const ranges = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      ranges.push({ start, end: i });
+      start = i + 1;
+    }
+  }
+  ranges.push({ start, end: text.length });
+  return ranges;
+}
+
+// Blanks out the content of block comments, '...' string literals, and
+// "..." quoted identifiers to a same-length run of spaces (newlines
+// preserved), while keeping every delimiter (the comment markers, the
+// quote characters, and escaped '' / "" pairs) exactly where it was. This
+// is what lets every keyword regex below (NOT NULL, PRIMARY KEY, DEFAULT,
+// SERIAL, ...) search plain SQL text without also matching a column named
+// not_null, a comment mentioning DEFAULT, or a string literal containing
+// "PRIMARY KEY" — while the ALTER TABLE header parser can still see the
+// quotes themselves to find where a quoted, possibly space-containing
+// identifier ends. Because it's length-preserving, an offset computed
+// against the masked text always lands on the same character in the
+// original text.
+function maskSqlNoise(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "/" && text[i + 1] === "*") {
+      out += "/*";
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) {
+        out += text[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < text.length) {
+        out += "*/";
+        i += 2;
+      }
+      continue;
+    }
+    if (text[i] === "'" || text[i] === '"') {
+      const quote = text[i];
+      out += quote;
+      i++;
+      while (i < text.length) {
+        if (text[i] === quote && text[i + 1] === quote) {
+          out += quote + quote;
+          i += 2;
+          continue;
+        }
+        if (text[i] === quote) break;
+        out += text[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < text.length) {
+        out += quote;
+        i++;
+      }
+      continue;
+    }
+    out += text[i];
+    i++;
+  }
+  return out;
+}
+
+// A column with one of these gets a value on every existing row without an
+// explicit DEFAULT, so NOT NULL is safe: SERIAL/BIGSERIAL/SMALLSERIAL assign
+// the next sequence value, and GENERATED ... AS IDENTITY does the same.
+const SELF_FILLING_COLUMN_RE =
+  /\b(?:SMALL|BIG)?SERIAL\b|\bGENERATED\s+(?:ALWAYS|BY\s+DEFAULT)\s+AS\s+IDENTITY\b/i;
+
+// Optional IF EXISTS / ONLY, then a possibly schema-qualified, possibly
+// double-quoted (with "" escapes) relation name, then an optional `*`
+// (explicit "include descendants") marker — the actual PostgreSQL grammar
+// for an ALTER TABLE header, so `ALTER TABLE ONLY "tenant orders" ADD ...`
+// strips its whole header instead of leaving `"tenant orders" ADD ...`
+// behind for the ADD-clause matcher to trip over.
+const ALTER_TABLE_HEADER_RE =
+  /^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:"(?:[^"]|"")+"|[A-Za-z_]\w*)(?:\.(?:"(?:[^"]|"")+"|[A-Za-z_]\w*))*\s*\*?\s*/i;
+
+// Matches only an actual ADD-COLUMN clause. `COLUMN` is optional in real
+// PostgreSQL grammar, so when it's absent this also has to reject the
+// table-level forms that share the same "ADD <keyword>" shape — ADD
+// CONSTRAINT/CHECK/UNIQUE/PRIMARY KEY/FOREIGN KEY/EXCLUDE — none of which
+// name a column at all, let alone one that needs a default.
+const ADD_COLUMN_CLAUSE_RE =
+  /^\s*ADD\s+(?:COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?\S|(?:IF\s+NOT\s+EXISTS\s+)?(?!(?:CONSTRAINT|CHECK|UNIQUE|PRIMARY|FOREIGN|EXCLUDE)\b)\S)/i;
+
+/**
+ * A real, usable column default: `DEFAULT` is only ever a column-default
+ * keyword here once the referential-action phrase `... SET DEFAULT` (from
+ * `ON DELETE`/`ON UPDATE SET DEFAULT`) is stripped out, and `DEFAULT NULL`
+ * is rejected outright — it backfills existing rows with NULL, which is
+ * exactly what a `NOT NULL` addition cannot tolerate.
+ */
+function hasUsableColumnDefault(maskedClause) {
+  const withoutReferentialAction = maskedClause.replace(
+    /\bSET\s+DEFAULT\b/gi,
+    "",
+  );
+  if (!/\bDEFAULT\b/i.test(withoutReferentialAction)) return false;
+  if (/\bDEFAULT\s+NULL\b/i.test(withoutReferentialAction)) return false;
+  return true;
+}
+
+/**
+ * True for `GENERATED ALWAYS AS ( <expr> ) STORED` — a stored generated
+ * column computes its value from the row's other columns, so it fills in
+ * on every existing row the same way a DEFAULT would. Depth-matches the
+ * parens (reusing the same helper the migration-array scanner uses below)
+ * instead of a non-greedy regex, so a generation expression with its own
+ * nested call — `COALESCE(a, b)`, `CONCAT(x, y)` — doesn't truncate the
+ * match at the first `)` it contains.
+ */
+function hasStoredGeneratedExpression(maskedClause) {
+  const marker = /GENERATED\s+ALWAYS\s+AS\s*\(/i.exec(maskedClause);
+  if (!marker) return false;
+  const openIdx = marker.index + marker[0].length - 1;
+  const closeIdx = findMatchingBracket(maskedClause, openIdx, "(", ")");
+  if (closeIdx >= maskedClause.length) return false;
+  return /^\s*STORED\b/i.test(maskedClause.slice(closeIdx + 1));
+}
+
+/**
+ * `ADD COLUMN ... NOT NULL` (or `PRIMARY KEY`, which implies NOT NULL) with
+ * no DEFAULT and no self-filling type breaks on the first existing row —
+ * and breaks any already-deployed code path that inserts without knowing
+ * the new column exists. The additive fix is always available: make the
+ * column nullable, or give it a DEFAULT, and backfill separately if needed.
+ */
+function blockingAddColumnMatches(statementText) {
+  if (!/\bALTER\s+TABLE\b/i.test(statementText)) return [];
+  const maskedStatement = maskSqlNoise(statementText);
+  const header = ALTER_TABLE_HEADER_RE.exec(maskedStatement);
+  if (!header) return [];
+  const headerLength = header[0].length;
+  const maskedAfterTable = maskedStatement.slice(headerLength);
+  const originalAfterTable = statementText.slice(headerLength);
+
+  const hits = [];
+  for (const range of splitTopLevelClauseRanges(maskedAfterTable)) {
+    const maskedClause = maskedAfterTable.slice(range.start, range.end);
+    if (!ADD_COLUMN_CLAUSE_RE.test(maskedClause)) continue;
+    const requiresValue =
+      /\bNOT\s+NULL\b/i.test(maskedClause) ||
+      /\bPRIMARY\s+KEY\b/i.test(maskedClause);
+    if (!requiresValue) continue;
+    if (hasUsableColumnDefault(maskedClause)) continue;
+    if (
+      SELF_FILLING_COLUMN_RE.test(maskedClause) ||
+      hasStoredGeneratedExpression(maskedClause)
+    ) {
+      continue;
+    }
+    const originalClause = originalAfterTable.slice(range.start, range.end);
+    hits.push(originalClause.trim().slice(0, 120));
+  }
+  return hits;
 }
 
 function scanFile(file) {
@@ -305,21 +501,41 @@ function scanFile(file) {
 
   for (const blob of blobs) {
     for (const stmt of splitStatements(blob.text)) {
-      const hits = destructiveMatches(stmt.text);
-      if (hits.length === 0) continue;
       const line = lineOf(src, blob.absStart + stmt.offset);
-      if (isPragmaed(lines, line)) continue;
-      violations.push({
-        file,
-        line,
-        message:
-          `matched ${hits.join(", ")} in: ${stmt.text.trim().slice(0, 120)} — ` +
-          "migrations must be additive-only; add a new nullable column (or " +
-          "table) and backfill it instead of dropping/renaming/retyping in " +
-          "place. If this is a genuinely reviewed exception, add " +
-          "`// guard:allow-destructive-ddl — <reason>` on this line or the " +
-          "line above.",
-      });
+
+      const hits = destructiveMatches(stmt.text);
+      if (hits.length > 0 && !isPragmaed(lines, line)) {
+        violations.push({
+          file,
+          line,
+          message:
+            `matched ${hits.join(", ")} in: ${stmt.text.trim().slice(0, 120)} — ` +
+            "migrations must be additive-only; add a new nullable column (or " +
+            "table) and backfill it instead of dropping/renaming/retyping in " +
+            "place. If this is a genuinely reviewed exception, add " +
+            "`// guard:allow-destructive-ddl — <reason>` on this line or the " +
+            "line above.",
+        });
+      }
+
+      const blockingColumns = blockingAddColumnMatches(stmt.text);
+      if (
+        blockingColumns.length > 0 &&
+        !isPragmaed(lines, line, BLOCKING_COLUMN_PRAGMA_RE)
+      ) {
+        violations.push({
+          file,
+          line,
+          message:
+            `ADD COLUMN with no DEFAULT is not backward compatible: ${blockingColumns.join("; ")} — ` +
+            "an existing row has no value for this column, and code already " +
+            "deployed against the old schema doesn't know to provide one on " +
+            "insert. Make the column nullable, or give it a DEFAULT, then " +
+            "backfill separately if needed. If this is a genuinely reviewed " +
+            "exception, add `// guard:allow-blocking-column-default — <reason>` " +
+            "on this line or the line above.",
+        });
+      }
     }
   }
 

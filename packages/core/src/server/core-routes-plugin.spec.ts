@@ -1,4 +1,4 @@
-import type { H3Event } from "h3";
+import { createApp, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -34,7 +34,135 @@ import {
   readLegacyCoreRouteInitSettings,
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
+  mountApplicationStateRoutes,
+  matchesSavedHostedAgentProbe,
+  stripRemoteAgentAuth,
+  createPublicRemoteAgentsHandler,
 } from "./core-routes-plugin.js";
+import type { H3AppShim } from "./framework-request-handler.js";
+
+describe("mountApplicationStateRoutes", () => {
+  it("registers the compose matcher before generic application state", () => {
+    const routes: string[] = [];
+
+    const app = {
+      use(path: string, _handler: unknown) {
+        routes.push(path);
+      },
+    } as H3AppShim;
+
+    mountApplicationStateRoutes({}, "/_agent-native", app);
+
+    expect(routes).toEqual([
+      "/_agent-native/application-state/compose",
+      "/_agent-native/application-state",
+    ]);
+  });
+});
+
+describe("public remote-agent discovery", () => {
+  it("does not expose hosted-agent credential wiring", () => {
+    const publicAgent = stripRemoteAgentAuth({
+      id: "foundry",
+      name: "Foundry",
+      url: "https://agent.example.test",
+      color: "#000",
+      cardUrl: "https://agent.example.test/card",
+      auth: {
+        type: "oauth-client-credentials",
+        tokenUrl: "https://login.example.test/token",
+        clientId: "client-id",
+        clientSecretRef: "FOUNDRY_SECRET",
+      },
+    });
+
+    expect(publicAgent).toEqual({
+      id: "foundry",
+      name: "Foundry",
+      url: "https://agent.example.test",
+      color: "#000",
+      cardUrl: "https://agent.example.test/card",
+    });
+    expect("auth" in publicAgent).toBe(false);
+  });
+
+  it("omits hosted-agent auth from the HTTP listing response", async () => {
+    const app = createApp();
+    app.use(
+      "/_agent-native/agents",
+      createPublicRemoteAgentsHandler(async () => [
+        {
+          id: "foundry",
+          name: "Foundry",
+          description: "Hosted agent",
+          url: "https://agent.example.test",
+          color: "#000",
+          cardUrl: "https://agent.example.test/card",
+          auth: {
+            type: "bearer",
+            credentialRef: "FOUNDRY_SECRET",
+          },
+        },
+      ]),
+    );
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/agents"),
+    );
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      agents: Array<Record<string, unknown>>;
+    };
+    expect(payload.agents).toEqual([
+      {
+        id: "foundry",
+        name: "Foundry",
+        description: "Hosted agent",
+        url: "https://agent.example.test",
+        color: "#000",
+        cardUrl: "https://agent.example.test/card",
+      },
+    ]);
+    expect(payload.agents[0]).not.toHaveProperty("auth");
+  });
+});
+
+describe("hosted-agent probes", () => {
+  it("only accepts credentials for the matching saved connection", () => {
+    const auth = {
+      type: "bearer" as const,
+      credentialRef: "FOUNDRY_TOKEN",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://attacker.example.test",
+          cardUrl: "https://attacker.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("readLegacyCoreRouteInitSettings", () => {
   it("starts independent setting reads in parallel and isolates failures", async () => {

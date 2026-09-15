@@ -474,6 +474,25 @@ describe("resolveNitroBuildReplacements", () => {
     ).toBe(JSON.stringify("beta"));
   });
 
+  it("marks enterprise auth adapters only when enabled at build time", () => {
+    const marker = "process.env.AGENT_NATIVE_BUILD_ENTERPRISE_AUTH";
+    expect(resolveNitroBuildReplacements({})[marker]).toBe(
+      JSON.stringify("false"),
+    );
+    expect(resolveNitroBuildReplacements({ AUTH_SSO: "true" })[marker]).toBe(
+      JSON.stringify("true"),
+    );
+    expect(resolveNitroBuildReplacements({ AUTH_SCIM: "true" })[marker]).toBe(
+      JSON.stringify("true"),
+    );
+    expect(resolveNitroBuildReplacements({ AUTH_SSO: "1" })[marker]).toBe(
+      JSON.stringify("true"),
+    );
+    expect(resolveNitroBuildReplacements({ AUTH_SCIM: "on" })[marker]).toBe(
+      JSON.stringify("true"),
+    );
+  });
+
   it("falls back to the source revision for the server build id", () => {
     const replacements = resolveNitroBuildReplacements({
       COMMIT_REF: "commit-auth-client-123",
@@ -2357,9 +2376,16 @@ describe("copyInstalledBrowserRuntimePackages", () => {
     fs.writeFileSync(path.join(tarFsDir, "index.js"), "export {};");
     fs.writeFileSync(
       path.join(playwrightCoreDir, "package.json"),
-      JSON.stringify({ name: "playwright-core", main: "index.js" }),
+      JSON.stringify({
+        name: "playwright-core",
+        type: "module",
+        main: "index.js",
+      }),
     );
-    fs.writeFileSync(path.join(playwrightCoreDir, "index.js"), "export {};");
+    fs.writeFileSync(
+      path.join(playwrightCoreDir, "index.js"),
+      "export const chromium = { connectOverCDP: async () => ({}) };",
+    );
     fs.writeFileSync(
       path.join(root, "package.json"),
       JSON.stringify({ name: "test-app", dependencies: appDependencies }),
@@ -2421,6 +2447,44 @@ describe("copyInstalledBrowserRuntimePackages", () => {
 
     expect(findServerlessBrowserRuntimeConsumer(root)).toBe("playwright-core");
     expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+  });
+
+  it("ships the lightweight runtime when an app declares Playwright directly", async () => {
+    const { root, nodeModules, serverDir } = setupBrowserRuntimeStore({
+      playwright: "1.63.0",
+    });
+    const playwrightDir = path.join(nodeModules, "playwright");
+    fs.mkdirSync(playwrightDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(playwrightDir, "package.json"),
+      JSON.stringify({ name: "playwright", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(playwrightDir, "index.js"), "full runtime");
+
+    expect(findServerlessBrowserRuntimeConsumer(root)).toBe("playwright");
+    expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "@sparticuz", "chromium-min"),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(serverDir, "node_modules", "tar-fs"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "playwright-core")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "playwright")),
+    ).toBe(false);
+
+    const entrypoint = path.join(serverDir, "main.mjs");
+    fs.writeFileSync(
+      entrypoint,
+      'export const { chromium } = await import("playwright-core");',
+    );
+    const runtime = await import(pathToFileURL(entrypoint).href);
+    expect(typeof runtime.chromium.connectOverCDP).toBe("function");
   });
 });
 
@@ -3138,6 +3202,30 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain('import { createHmac } from "node:crypto"');
     expect(entry).toContain('includedFiles: ["**"]');
   });
+
+  it.each([true, false])(
+    "emits recovery with jobs disabled only when durable chat is enabled (%s)",
+    (durableChat) => {
+      process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = String(durableChat);
+      const cwd = setupNetlifyOutput();
+      if (durableChat) emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+      emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
+
+      expect(
+        fs.existsSync(
+          path.join(
+            cwd,
+            ".netlify",
+            "functions-internal",
+            NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
+            `${NETLIFY_RECURRING_JOBS_FUNCTION_NAME}.mjs`,
+          ),
+        ),
+      ).toBe(durableChat);
+    },
+  );
 
   describe("keep-warm opt-in and cadence", () => {
     const KEEP_WARM_ENV_KEYS = [

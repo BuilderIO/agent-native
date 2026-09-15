@@ -942,6 +942,45 @@ const rawLiteralAllowPatterns = [
 ];
 const codeLikeRawLiteralPattern =
   /[{}();=<>]|\b(?:const|let|return|useState|useRef|useMemo|ReactNode|Record|Map|Set|Promise|queryClient|undefined|null|true|false)\b/;
+const typescriptParameterFragmentPattern =
+  /^\s*,\s*[a-z_$][\w$]*\??\s*:\s*(?:readonly\s+)?[A-Z][\w$]*(?:\.[A-Z][\w$]*)*\s*$/;
+
+const genericTypeHeadPattern = /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*$/;
+
+function isGenericTypeParameterFragment(
+  source: string,
+  closingAngleIndex: number,
+  value: string,
+): boolean {
+  if (!typescriptParameterFragmentPattern.test(value)) return false;
+
+  let depth = 0;
+  let openingAngleIndex = -1;
+  for (let index = closingAngleIndex; index >= 0; index--) {
+    if (source[index] === ">" && source[index - 1] !== "=") depth++;
+    else if (source[index] === "<" && source[index + 1] !== "=") {
+      depth--;
+      if (depth === 0) {
+        openingAngleIndex = index;
+        break;
+      }
+    }
+  }
+  if (openingAngleIndex < 0 || source[openingAngleIndex + 1] === "/") {
+    return false;
+  }
+
+  const beforeOpeningAngle = source.slice(0, openingAngleIndex);
+  const headMatch = beforeOpeningAngle.match(genericTypeHeadPattern);
+  if (!headMatch) return false;
+  const typeHeadStart = openingAngleIndex - headMatch[0].length;
+  const beforeTypeHead = source.slice(0, typeHeadStart);
+  return (
+    /[:,|&]\s*$/.test(beforeTypeHead) ||
+    /=>\s*$/.test(beforeTypeHead) ||
+    /\b(?:extends|implements|as|satisfies)\s*$/.test(beforeTypeHead)
+  );
+}
 
 function readRawLiteralBaseline() {
   return readLineBaseline(rawLiteralBaselinePath);
@@ -1045,7 +1084,7 @@ function isSourceFile(file: string): boolean {
   return /\.(tsx?|jsx?)$/.test(file);
 }
 
-function checkRawVisibleLiteralFile(
+export function checkRawVisibleLiteralFile(
   rel: string,
   text: string,
 ): Array<{ id: string; message: string }> {
@@ -1058,13 +1097,6 @@ function checkRawVisibleLiteralFile(
     if (lineText.includes("i18n-ignore")) return;
     if (/^\s*(?:\/\/|\*)/.test(lineText)) return;
     const trimmed = value.replace(/\s+/g, " ").trim();
-    if (
-      (rel.startsWith("packages/core/src/client/") ||
-        rel.startsWith("packages/toolkit/src/")) &&
-      /,\s*\w+\??:\s*(?:readonly\s+)?(?:Readonly\w*|Pick)\b/.test(trimmed)
-    ) {
-      return;
-    }
     if (!isLikelyVisibleLiteral(trimmed)) return;
     const id = `${rel}|${trimmed}`;
     issues.push({
@@ -1085,7 +1117,11 @@ function checkRawVisibleLiteralFile(
   }
 
   for (const match of text.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) {
-    report(match.index ?? 0, match[1] ?? "");
+    const index = match.index ?? 0;
+    const value = match[1] ?? "";
+    if (!isGenericTypeParameterFragment(text, index, value)) {
+      report(index, value);
+    }
   }
 
   const attrPattern = new RegExp(

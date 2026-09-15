@@ -24,6 +24,9 @@ const messages = {
       extensions: "Extensiones",
       noteToSelf: "Nota para mí",
     },
+    inbox: {
+      syncing: "Sincronizando bandeja...",
+    },
     toolbar: {
       toggleMenu: "Alternar menú",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Fijar barra lateral",
       unpinSidebar: "Desfijar barra lateral",
+      closeSidebar: "Cerrar barra lateral",
       settings: "Ajustes",
     },
     search: {
@@ -85,6 +89,8 @@ const messages = {
       cancel: "Cancelar",
       code: "Código",
       deleteDraft: "Eliminar borrador",
+      deleteDrafts: "Eliminar borradores",
+      reopenDraft: "Reabrir",
       discardDraft: "Descartar borrador",
       enterLinkUrl: "Introduce la URL del enlace.",
       forward: "Forward",
@@ -194,12 +200,19 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Cancelar envío programado",
+      dateInput: "Fecha y hora",
+      noDateMatch: "No hay una hora futura coincidente",
+      inputPlaceholder: "Prueba: 8 a. m., 3 días, 7 ago",
+      scheduleAt: "El {{date}}",
+      scheduledFor: "Programado para {{date}}",
       pickDateTime: "Elegir fecha y hora...",
       scheduleSend: "Programar envío",
       sendNow: "Enviar ahora",
 
       laterToday: "Más tarde hoy",
       tomorrowMorning: "Mañana por la mañana",
+      tomorrowAfternoon: "Mañana por la tarde",
+      weekdayMorning: "{{weekday}} por la mañana",
       nextWeek: "La próxima semana",
     },
     snooze: {
@@ -272,6 +285,11 @@ const messages = {
       archived: "Archivado.",
       archivedMany: "Archived {{count}} conversations.",
       archiveFailed: "No se pudo archivar. La conversación se restauró.",
+      moveFailed: "No se pudo mover. La conversación se restauró.",
+      movePartialFailed:
+        "Se movieron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
+      moveSucceeded: "Movido a {{label}}.",
+      moveManySucceeded: "Se movieron {{count}} conversaciones a {{label}}.",
       trashed: "Movido a la papelera.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",
@@ -281,8 +299,13 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "No se pudo subir la imagen",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Mensaje enviado.",
+      failedToSaveDraft: "No se pudo guardar el borrador.",
+      failedToDeleteDraft: "No se pudo eliminar el borrador.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "Termina de añadir el destinatario o borra el texto antes de enviar.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",
@@ -293,6 +316,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Borrador cerrado.",
+      draftsClosed: "{{count}} borradores cerrados.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -314,6 +339,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "No se pudo cargar: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Conecta tu cuenta de Google",
@@ -576,6 +602,9 @@ const messages = {
     addSignatureImage: "Añadir imagen",
     signatureImageUploadFailed: "No se pudo subir la imagen de la firma",
     writingStyle: "Estilo de escritura",
+    autocomplete: "Autocompletar",
+    sendAndMarkDone: "Enviar y marcar como hecho",
+    autocompleteSaveFailed: "No se pudo guardar el ajuste de autocompletado.",
     writingStylePlaceholder:
       "Breve, específico y cálido. Evita relleno formal.",
     saveDraftingSettings: "Guardar ajustes de redacción",
@@ -661,8 +690,11 @@ const messages = {
     goToStarred: "Ir a destacados",
     goToSent: "Ir a enviados",
     goToDrafts: "Ir a borradores",
+    goToAllMail: "Ir a todo el correo",
     goToArchive: "Ir al archivo",
     goToTrash: "Ir a papelera",
+    enableAutocomplete: "Activar autocompletado",
+    disableAutocomplete: "Desactivar autocompletado",
     privacy: "Privacidad",
     imagesShowAll: "Imagenes: mostrar todas",
     imagesBlockTrackers: "Imagenes: bloquear rastreadores conocidos",
@@ -671,6 +703,23 @@ const messages = {
     toggleLight: "Activar modo claro",
     toggleDark: "Activar modo oscuro",
     actions: "Acciones",
+    shortcuts: "Atajos de teclado",
+    shortcutsGlobal: "General",
+    shortcutsList: "Lista de mensajes",
+    shortcutsThread: "Conversación",
+    shortcutsCompose: "Redacción",
+    backToCommands: "Volver a los comandos",
+    backToMessageList: "Volver a la lista de mensajes",
+    cycleTabs: "Recorrer pestañas",
+    extendSelection: "Ampliar selección",
+    moveSelection: "Mover selección",
+    nextPreviousConversation: "Conversación siguiente / anterior",
+    nextPreviousMessage: "Mensaje siguiente / anterior",
+    openMessage: "Abrir mensaje",
+    selectAllConversations: "Seleccionar todas las conversaciones",
+    sendAndMarkDone: "Enviar y marcar como hecho",
+    toggleMessageExpansion: "Expandir / contraer mensaje",
+    toggleReadState: "Cambiar estado de lectura",
   },
 };
 

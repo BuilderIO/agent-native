@@ -19,6 +19,7 @@ import {
   useSensors,
   DragEndEvent,
 } from "@dnd-kit/core";
+import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import { hashSlideContent } from "@shared/slide-fit";
 import { nanoid } from "nanoid";
 import {
@@ -101,7 +102,9 @@ import {
 } from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
 import {
+  isGoogleSlidesCommentShortcut,
   shouldActivateSlidesCommentShortcut,
+  shouldCreateSlideWithShortcut,
   shouldSuppressSlidesItalicShortcut,
 } from "@/lib/editor-shortcuts";
 import {
@@ -130,6 +133,7 @@ import {
   resolveSlideClipboardsForPaste,
   writeSlideClipboards,
 } from "@/lib/slide-clipboard";
+import { slideCommentAnchorFromRange } from "@/lib/slide-comment-anchor";
 import {
   applyOptimisticImagePreview,
   captureOptimisticImagePreview,
@@ -159,6 +163,17 @@ type PendingImagePreview = OptimisticImagePreview & {
 type PendingImagePreviewUpdate =
   | PendingImagePreview[]
   | ((current: PendingImagePreview[]) => PendingImagePreview[]);
+
+type CommentComposerAnchor = SlideCommentAnchor | Range;
+
+function isDomRange(value: CommentComposerAnchor | undefined): value is Range {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "commonAncestorContainer" in value &&
+    typeof value.getBoundingClientRect === "function",
+  );
+}
 
 type AccessRequestCapability =
   | { available: true; token: string }
@@ -437,26 +452,54 @@ export default function DeckEditor() {
 
   const openAnimationsForTarget = useCallback(
     (target: SelectedAnimationTarget) => {
+      if (!animationsOpen) {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "animations",
+        });
+      }
       setLayersOpen(false);
       setAnimationTarget(target);
       setAnimationsOpen(true);
     },
-    [],
+    [animationsOpen],
   );
   const toggleAnimations = useCallback(() => {
+    if (!animationsOpen) {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "animations",
+      });
+    }
     setLayersOpen(false);
     setAnimationTarget(null);
     setAnimationsOpen((open) => !open);
-  }, []);
+  }, [animationsOpen]);
 
   const toggleLayers = useCallback(() => {
+    if (!layersOpen) {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "layers",
+      });
+    }
     setAnimationsOpen(false);
     setAnimationTarget(null);
     setLayersOpen((open) => !open);
-  }, []);
+  }, [layersOpen]);
 
   const toggleDrawMode = useCallback(() => {
     const next = !drawMode;
+    if (next) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "draw",
+      });
+    }
     if (next) {
       setPinMode(false);
       setTextBoxMode(false);
@@ -467,6 +510,13 @@ export default function DeckEditor() {
   const togglePinMode = useCallback(() => {
     const next = !pinMode;
     if (next) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "comment_pin",
+      });
+    }
+    if (next) {
       setDrawMode(false);
       setTextBoxMode(false);
       setShapeType(null);
@@ -476,6 +526,13 @@ export default function DeckEditor() {
   const toggleTextBoxMode = useCallback(() => {
     const next = !textBoxMode;
     if (next) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "text_box",
+      });
+    }
+    if (next) {
       setDrawMode(false);
       setPinMode(false);
       setShapeType(null);
@@ -484,13 +541,32 @@ export default function DeckEditor() {
   }, [textBoxMode]);
 
   const selectShape = useCallback((type: SlideShapeType) => {
+    trackEvent("slide_tool_selected", {
+      app_name: "slides",
+      template_name: "slides",
+      tool: "shape",
+      shape_type: type,
+    });
     setDrawMode(false);
     setPinMode(false);
     setTextBoxMode(false);
     setShapeType(type);
   }, []);
+  const toggleComments = useCallback(() => {
+    const opening = sidePanel !== "comments";
+    if (opening) {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "comments",
+      });
+    }
+    setSidePanel(opening ? "comments" : null);
+  }, [sidePanel]);
   const [pendingComment, setPendingComment] = useState<{
+    slideId: string;
     quotedText: string;
+    anchor?: SlideCommentAnchor;
   } | null>(null);
   // Track which image src to replace
   const [replaceImageSrc, setReplaceImageSrc] = useState<string | null>(null);
@@ -571,6 +647,66 @@ export default function DeckEditor() {
   // loading when `createdByMe` already confirms ownership — otherwise a
   // viewer would briefly see (and could click) edit affordances.
   const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
+  const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
+  const openCommentComposer = useCallback(
+    (
+      quotedText: string,
+      requestedAnchor?: CommentComposerAnchor,
+      editingEl?: HTMLElement,
+    ) => {
+      if (!canComment) return;
+      const commentSlideId = activeSlideId ?? fallbackCommentSlideId;
+      if (!commentSlideId) return;
+      if (sidePanel !== "comments") {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "comments",
+        });
+      }
+      const normalizedAnchor = isDomRange(requestedAnchor)
+        ? (() => {
+            const canvas = document.querySelector<HTMLElement>(
+              "[data-main-slide-canvas='true']",
+            );
+            if (!canvas) return undefined;
+            const selectionNode = requestedAnchor.commonAncestorContainer;
+            const selectionElement =
+              selectionNode instanceof Element
+                ? selectionNode
+                : selectionNode.parentElement;
+            const target =
+              editingEl?.closest<HTMLElement>("[data-slide-object-id]") ??
+              selectionElement?.closest<HTMLElement>("[data-slide-object-id]");
+            return slideCommentAnchorFromRange({
+              range: requestedAnchor,
+              slideRect: canvas.getBoundingClientRect(),
+              objectId: target?.getAttribute("data-slide-object-id"),
+              objectRect: target?.getBoundingClientRect(),
+              targetText: quotedText,
+            });
+          })()
+        : requestedAnchor;
+      setPendingComment({
+        slideId: commentSlideId,
+        quotedText,
+        ...(normalizedAnchor ? { anchor: normalizedAnchor } : {}),
+      });
+      setSidePanel("comments");
+    },
+    [activeSlideId, canComment, fallbackCommentSlideId, sidePanel],
+  );
+  useEffect(() => {
+    const currentSlideId = activeSlideId ?? fallbackCommentSlideId;
+    if (pendingComment && pendingComment.slideId !== currentSlideId) {
+      setPendingComment(null);
+    }
+  }, [activeSlideId, fallbackCommentSlideId, pendingComment]);
+  const flushCommentWrites = useCallback(async () => {
+    if (!id) return;
+    flushPendingSaves();
+    await flushDeckSave(id);
+  }, [flushDeckSave, id]);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -910,6 +1046,18 @@ export default function DeckEditor() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
+  const handleReorderSlidesFromRail = useCallback(
+    (
+      activeSlideId: string,
+      overSlideId: string,
+      selectedSlideIds?: string[],
+    ) => {
+      if (!deck || !id || !canEdit || sourceImportedDeck) return;
+      reorderSlides(id, activeSlideId, overSlideId, selectedSlideIds);
+    },
+    [canEdit, deck, id, reorderSlides, sourceImportedDeck],
+  );
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       if (!deck || !id || sourceImportedDeck) return;
@@ -970,6 +1118,16 @@ export default function DeckEditor() {
         anchorSlideId: selectionAnchorSlideIdRef.current,
         targetSlideId: slideId,
         ...options,
+      });
+      trackEvent("slide_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        selection_mode: options.shiftKey
+          ? "range"
+          : options.metaKey || options.ctrlKey
+            ? "multi"
+            : "single",
+        selection_count: Math.min(result.selectedSlideIds.length, 50),
       });
       selectionAnchorSlideIdRef.current = result.anchorSlideId;
       setSelectedSlideIds(result.selectedSlideIds);
@@ -1390,13 +1548,15 @@ export default function DeckEditor() {
 
   useEffect(() => {
     const handleCommentShortcut = (event: KeyboardEvent) => {
+      const googleCommentShortcut = isGoogleSlidesCommentShortcut(event);
       const activeElement = document.activeElement;
       if (
         !shouldActivateSlidesCommentShortcut(event, {
           canComment,
           activeElement,
-          focusedCanvas:
-            activeElement?.closest("[data-slide-canvas-focus='true']") !== null,
+          focusedCanvas: Boolean(
+            activeElement?.closest("[data-slide-canvas-focus='true']"),
+          ),
           blockingSurfaceOpen:
             document.querySelector(
               "[role='dialog'], [role='menu'], [role='listbox'], [data-slide-comment-popover], [data-pin-popover]",
@@ -1410,13 +1570,60 @@ export default function DeckEditor() {
       event.stopPropagation();
       setDrawMode(false);
       setTextBoxMode(false);
-      setPinMode(true);
       setShapeType(null);
+      const selection = window.getSelection();
+      const range =
+        selection?.rangeCount && !selection.isCollapsed
+          ? selection.getRangeAt(0)
+          : null;
+      const quotedText = selection?.toString().trim() ?? "";
+      const focusedCanvas = activeElement?.closest<HTMLElement>(
+        "[data-slide-canvas-focus='true']",
+      );
+      if (googleCommentShortcut) {
+        setPinMode(false);
+        if (
+          range &&
+          quotedText &&
+          focusedCanvas?.contains(range.commonAncestorContainer)
+        ) {
+          const canvas =
+            focusedCanvas.closest<HTMLElement>(
+              "[data-main-slide-canvas='true']",
+            ) ?? focusedCanvas;
+          const selectionNode = range.commonAncestorContainer;
+          const selectionElement =
+            selectionNode instanceof Element
+              ? selectionNode
+              : selectionNode.parentElement;
+          const object = selectionElement?.closest<HTMLElement>(
+            "[data-slide-object-id]",
+          );
+          openCommentComposer(
+            quotedText,
+            slideCommentAnchorFromRange({
+              range,
+              slideRect: canvas.getBoundingClientRect(),
+              objectId: object?.getAttribute("data-slide-object-id"),
+              objectRect: object?.getBoundingClientRect(),
+              targetText: quotedText,
+            }),
+          );
+        } else {
+          // Google opens the shared comment draft immediately when the slide
+          // itself is focused; the pin tool remains a separate, explicit C
+          // interaction for choosing a precise slide position.
+          openCommentComposer("");
+        }
+      } else {
+        setPinMode(true);
+      }
     };
 
-    document.addEventListener("keydown", handleCommentShortcut);
-    return () => document.removeEventListener("keydown", handleCommentShortcut);
-  }, [canComment]);
+    document.addEventListener("keydown", handleCommentShortcut, true);
+    return () =>
+      document.removeEventListener("keydown", handleCommentShortcut, true);
+  }, [canComment, openCommentComposer]);
 
   useEffect(() => {
     const handleItalicShortcut = (event: KeyboardEvent) => {
@@ -1647,16 +1854,15 @@ export default function DeckEditor() {
     [deck, id, selectedSlideIdsForAction, updateSlides],
   );
 
-  // Command/Ctrl+C then Command/Ctrl+V on the slide rail copies/pastes the
-  // selected slide directly below itself. Only claims the shortcut when no
-  // slide element is selected — SlideEditor owns Cmd+C/V for object copy/paste
-  // in that case.
+  // Command/Ctrl+C then Command/Ctrl+V on the focused slide rail copies/pastes
+  // the selected slide directly below itself. Canvas shortcuts own these keys
+  // only while the canvas has focus, even if its selection remains visible.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !canEdit) return;
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (key !== "c" && key !== "v" && key !== "d") return;
+      if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;
       if (pinMode || drawMode) return;
       if (!document.activeElement?.closest("[data-slide-thumbnail-id]")) {
         return;
@@ -1665,7 +1871,10 @@ export default function DeckEditor() {
       // A live browser text selection (e.g. the user triple-clicked rendered,
       // non-editable slide copy) means Cmd/Ctrl+C is a normal text copy —
       // let it through instead of hijacking it into a slide duplicate.
-      if (key === "c" && (window.getSelection()?.toString().length ?? 0) > 0) {
+      if (
+        (key === "c" || key === "x") &&
+        (window.getSelection()?.toString().length ?? 0) > 0
+      ) {
         return;
       }
 
@@ -1717,7 +1926,13 @@ export default function DeckEditor() {
         ).some(isBlockingPopperWrapper)
       )
         return;
-      if (document.querySelector("[data-slide-element-selected='true']"))
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      if (
+        !focusedThumbnail &&
+        document.querySelector("[data-slide-element-selected='true']")
+      )
         return;
 
       if (key === "c") {
@@ -1730,11 +1945,25 @@ export default function DeckEditor() {
         return;
       }
 
-      if (key === "d") {
-        if (!activeSlideId) return;
+      if (key === "x") {
+        if (!activeSlideId || sourceImportedDeck) return;
+        const slideIds =
+          selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId];
+        if (slideIds.length >= deck.slides.length) return;
         e.preventDefault();
         e.stopPropagation();
-        handleDuplicateSlideFromRail([activeSlideId]);
+        cutSlides(slideIds);
+        return;
+      }
+
+      if (key === "d") {
+        if (!activeSlideId) return;
+        const slideIds = selectedSlideIds.includes(activeSlideId)
+          ? selectedSlideIds
+          : [activeSlideId];
+        e.preventDefault();
+        e.stopPropagation();
+        handleDuplicateSlideFromRail(slideIds);
         return;
       }
 
@@ -1762,12 +1991,14 @@ export default function DeckEditor() {
     canEdit,
     activeSlideId,
     copySlides,
+    cutSlides,
     handleDuplicateSlideFromRail,
     hasSlideClipboard,
     pasteSlideAfter,
     selectedSlideIds,
     pinMode,
     drawMode,
+    sourceImportedDeck,
   ]);
 
   useEffect(() => {
@@ -2016,6 +2247,69 @@ export default function DeckEditor() {
     (t) => !t.resolved,
   ).length;
 
+  const insertSlideAfterActive = useCallback(
+    (layout: Slide["layout"]) => {
+      if (!deck || !id || sourceImportedDeck) return;
+      const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
+      // Immediate persistence keeps the selected new slide durable before
+      // subsequent editor work or an agent update reaches the server.
+      const newId = addSlide(
+        id,
+        layout,
+        activeIdx >= 0 ? activeIdx : undefined,
+        {
+          persistence: "immediate",
+        },
+      );
+      selectionAnchorSlideIdRef.current = newId;
+      setSelectedSlideIds([newId]);
+      setActiveSlideId(newId);
+      return newId;
+    },
+    [activeSlideId, addSlide, deck, id, sourceImportedDeck],
+  );
+
+  useEffect(() => {
+    const handleNewSlideShortcut = (event: KeyboardEvent) => {
+      if (
+        !deck ||
+        !id ||
+        pinMode ||
+        drawMode ||
+        !shouldCreateSlideWithShortcut(event, {
+          canEdit: canEdit && !sourceImportedDeck,
+          activeElement: document.activeElement,
+          blockingSurfaceOpen: Boolean(
+            document.querySelector(
+              "[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
+            ),
+          ),
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const slide =
+        deck.slides.find((s) => s.id === activeSlideId) ?? deck.slides[0];
+      insertSlideAfterActive(slide?.layout ?? "content");
+    };
+
+    document.addEventListener("keydown", handleNewSlideShortcut);
+    return () =>
+      document.removeEventListener("keydown", handleNewSlideShortcut);
+  }, [
+    activeSlideId,
+    canEdit,
+    deck,
+    drawMode,
+    id,
+    insertSlideAfterActive,
+    pinMode,
+    sourceImportedDeck,
+  ]);
+
   if (
     shouldShowDeckEditorSkeleton({
       deckFound: Boolean(deck),
@@ -2178,6 +2472,12 @@ export default function DeckEditor() {
       return request?.preserveNativeNavigation ? true : undefined;
     }
 
+    trackEvent("slide_presentation_opened", {
+      app_name: "slides",
+      template_name: "slides",
+      navigation: request?.preserveNativeNavigation ? "new_tab" : "current_tab",
+    });
+
     const hasInlineDraft = inlineEditFlushRef.current?.() ?? false;
     const hasPendingEdits =
       hasPendingDeckEdits || hasInlineDraft || hasUnsavedDeckChanges(id);
@@ -2217,25 +2517,7 @@ export default function DeckEditor() {
     void uploadAndApplyImage(null, file);
   };
 
-  const handleAddEmptySlide = () => {
-    if (!deck || !id || sourceImportedDeck) return;
-    const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
-    // Immediate persistence: this placeholder is immediately followed by an
-    // agent request to `update-slide` it, which can reach the server before
-    // the default 500ms debounce would have flushed the `add-slide` op.
-    const newId = addSlide(
-      id,
-      "blank",
-      activeIdx >= 0 ? activeIdx : undefined,
-      {
-        persistence: "immediate",
-      },
-    );
-    selectionAnchorSlideIdRef.current = newId;
-    setSelectedSlideIds([newId]);
-    setActiveSlideId(newId);
-    return newId;
-  };
+  const handleAddEmptySlide = () => insertSlideAfterActive("blank");
 
   const handleNewSlideClick = () => {
     const newId = handleAddEmptySlide();
@@ -2269,10 +2551,26 @@ export default function DeckEditor() {
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         onGenerateImage={() => setImageGenOpen(!imageGenOpen)}
         onOpenAssetLibrary={() => {
+          if (!assetLibraryOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "asset_library",
+            });
+          }
           setReplaceImageSrc(null);
           setAssetLibraryOpen(true);
         }}
-        onShowHistory={() => setHistoryOpen((open) => !open)}
+        onShowHistory={() => {
+          if (!historyOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "history",
+            });
+          }
+          setHistoryOpen((open) => !open);
+        }}
         historyButtonRef={historyButtonRef}
         onPresent={handlePresent}
         currentSlide={currentSlide}
@@ -2289,15 +2587,22 @@ export default function DeckEditor() {
         agentPresent={agentPresent}
         agentActive={agentActive}
         commentsOpen={commentsOpen}
-        onToggleComments={() =>
-          setSidePanel((panel) => (panel === "comments" ? null : "comments"))
-        }
+        onToggleComments={toggleComments}
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
         animationsOpen={animationsOpen}
         onToggleAnimations={toggleAnimations}
         tweaksOpen={tweaksOpen}
-        onToggleTweaks={() => setTweaksOpen((o) => !o)}
+        onToggleTweaks={() => {
+          if (!tweaksOpen) {
+            trackEvent("slide_panel_opened", {
+              app_name: "slides",
+              template_name: "slides",
+              panel: "tweaks",
+            });
+          }
+          setTweaksOpen((open) => !open);
+        }}
         drawMode={drawMode}
         onToggleDrawMode={toggleDrawMode}
         pinMode={pinMode}
@@ -2326,6 +2631,11 @@ export default function DeckEditor() {
           if (optimistic) void navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "pdf",
+          });
           // Whole slides, not just ids: the exporter embeds this source in
           // the PDF so re-importing it restores editable slides rather than
           // a picture of them.
@@ -2336,6 +2646,11 @@ export default function DeckEditor() {
           await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio);
         }}
         onExportPptx={async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "pptx",
+          });
           const slides = deck.slides.map((s) => ({
             id: s.id,
             notes: s.notes,
@@ -2346,6 +2661,11 @@ export default function DeckEditor() {
           await exportDeckAsPptx(deck.title, slides, deck.aspectRatio);
         }}
         onExportGoogleSlides={async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "google_slides",
+          });
           const slides = deck.slides.map((s) => ({
             id: s.id,
             notes: s.notes,
@@ -2456,6 +2776,7 @@ export default function DeckEditor() {
                       ? undefined
                       : handleDuplicateSlideFromRail
                   }
+                  onReorderSlides={handleReorderSlidesFromRail}
                   onToggleSkipSlide={handleToggleSkipSlide}
                 />
               </DndContext>
@@ -2514,6 +2835,7 @@ export default function DeckEditor() {
             flushInlineEditRef={inlineEditFlushRef}
             readOnly={!canEdit}
             canComment={canComment}
+            currentUserEmail={session?.email ?? null}
             comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
@@ -2611,6 +2933,13 @@ export default function DeckEditor() {
             }}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
+              if (!assetLibraryOpen) {
+                trackEvent("slide_panel_opened", {
+                  app_name: "slides",
+                  template_name: "slides",
+                  panel: "asset_library",
+                });
+              }
               setReplaceImageSrc(src);
               setAssetLibraryOpen(true);
             }}
@@ -2637,11 +2966,7 @@ export default function DeckEditor() {
                 currentSlide.id === deck.slides[deck.slides.length - 1]?.id)
             }
             recentEdits={deckRecentEdits}
-            onComment={(quotedText) => {
-              if (!canComment) return;
-              setPendingComment({ quotedText });
-              setSidePanel("comments");
-            }}
+            onComment={openCommentComposer}
             drawMode={drawMode}
             onExitDrawMode={() => setDrawMode(false)}
             pinMode={pinMode}
@@ -2671,7 +2996,15 @@ export default function DeckEditor() {
             deckId={id}
             slideId={currentSlide?.id ?? null}
             canComment={canComment}
-            pendingComment={pendingComment}
+            canEdit={canEdit}
+            currentUserEmail={session?.email ?? null}
+            onBeforeCommentSubmit={flushCommentWrites}
+            onSelectSlide={handleSlideSelection}
+            pendingComment={
+              pendingComment?.slideId === currentSlide?.id
+                ? pendingComment
+                : null
+            }
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
               setSidePanel(null);

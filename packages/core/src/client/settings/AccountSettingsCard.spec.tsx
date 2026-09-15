@@ -14,6 +14,10 @@ const profileQueryState = vi.hoisted(() => ({
     | undefined,
 }));
 const updateProfileMock = vi.hoisted(() => vi.fn());
+const fetchMock = vi.hoisted(() => vi.fn());
+const localeOverrides = vi.hoisted(() => ({
+  settings: null as Record<string, unknown> | null,
+}));
 
 vi.mock("../use-action.js", () => ({
   useActionQuery: (name: string) =>
@@ -78,7 +82,10 @@ vi.mock("../use-avatar.js", () => ({
 
 vi.mock("../i18n.js", () => ({
   useT: () => (key: string, options?: { defaultValue?: string }) =>
-    ({
+    (localeOverrides.settings?.[key.replace(/^settings\./, "")] as
+      | string
+      | undefined) ??
+    {
       "settings.profileChangePhoto": "Change photo",
       "settings.profileDescription":
         "Your name, profile photo, and signed-in identity.",
@@ -93,7 +100,15 @@ vi.mock("../i18n.js", () => ({
       "settings.profileSaving": "Saving...",
       "settings.profileSignedOut": "Signed out",
       "settings.profileTitle": "Account",
-    })[key] ??
+      "settings.emailTitle": "Email",
+      "settings.emailChange": "Change email",
+      "settings.emailChanging": "Sending...",
+      "settings.emailChangeSent":
+        "Check your email for instructions to confirm this change.",
+      "settings.emailChangeError": "Could not send confirmation.",
+      "settings.emailNewLabel": "New email",
+      "settings.emailNewPlaceholder": "Enter new email",
+    }[key] ??
     options?.defaultValue ??
     key,
 }));
@@ -118,6 +133,13 @@ describe("AccountSettingsForm name editing", () => {
       name: "Steve",
     };
     updateProfileMock.mockClear();
+    fetchMock.mockReset();
+    localeOverrides.settings = null;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -268,5 +290,66 @@ describe("AccountSettingsForm name editing", () => {
       container.querySelector<HTMLInputElement>("#agent-native-profile-name")
         ?.value,
     ).toBe("Draft Name");
+  });
+
+  it("requests a verified email change and shows neutral confirmation status", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    const changeButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).filter((button) => button.textContent?.trim() === "Change email");
+    await act(async () => {
+      changeButtons[0]?.click();
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      "#agent-native-new-email",
+    );
+    expect(input).not.toBeNull();
+    await act(async () => {
+      setInputValue(input!, "new@example.com");
+    });
+    const submit = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    )
+      .filter((button) => button.textContent?.trim() === "Change email")
+      .at(-1);
+    await act(async () => {
+      submit?.click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/auth/ba/change-email",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ newEmail: "new@example.com" }),
+      }),
+    );
+    expect(document.body.textContent).toContain(
+      "Check your email for instructions to confirm this change.",
+    );
+  });
+
+  it("renders the email-change controls from the de-DE app catalog", async () => {
+    const { default: deDE } =
+      await import("../../templates/default/app/i18n/de-DE.js");
+    localeOverrides.settings = deDE.settings;
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("E-Mail-Adresse ändern");
   });
 });

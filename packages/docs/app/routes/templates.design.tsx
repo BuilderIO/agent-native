@@ -1,60 +1,46 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconCheck } from "@tabler/icons-react";
+import { IconArrowUpRight } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { SectionDivider } from "../components/SectionDivider";
-import {
-  TemplateCapabilityGrid,
-  TemplateComparisonTable,
-  TemplateFinalCta,
-  TemplateHero,
-  TemplateLandingFaq,
-  TemplateLandingShell,
-  TemplateSplitFeature,
-  TemplateStatOrStepsGrid,
-  TemplateStatOrStepsGridItem,
-} from "../components/template-landing";
+import { TemplateHero } from "../components/template-landing";
 import { DesignOverviewMock } from "../components/template-landing/DesignOverviewMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { Button } from "../components/website-redesign/ds/button";
+import { ContentCard } from "../components/website-redesign/ds/content-card";
+import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
 import { LogoMark } from "../components/website-redesign/ds/logo-mark";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
 import { withTemplateSocialImage } from "../seo";
-
-function DesignWordmark() {
-  return (
-    <span className="flex items-center gap-2 text-[var(--fg)]">
-      <LogoMark className="h-[15px] w-[26px]" />
-      <span className="font-sans text-[20px] font-semibold tracking-tight">
-        Design
-      </span>
-    </span>
-  );
-}
 
 export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title: "Agent-Native Design — Open Source AI HTML Prototyping Tool",
+        title: "Free AI Design & Prototyping Tool | Agent-Native Design",
       },
       {
         name: "description",
         content:
-          "Create interactive HTML prototypes with AI. Generate Alpine/Tailwind designs from prompts, compare variants, refine with tweak controls, and export HTML, ZIP, or PDF.",
+          "Create on-brand interfaces and interactive prototypes with your AI agent. Design is a free, open-source AI design and prototyping tool with visual editing.",
       },
       {
         property: "og:title",
-        content: "Agent-Native Design — Open Source AI HTML Prototyping Tool",
+        content: "Free AI Design & Prototyping Tool | Agent-Native Design",
       },
       {
         property: "og:description",
         content:
-          "Generate, refine, preview, and export interactive HTML prototypes — built on an agent you own.",
+          "Create on-brand interfaces and interactive prototypes with your AI agent. Design is a free, open-source AI design and prototyping tool with visual editing.",
       },
       {
         name: "keywords",
         content:
-          "AI design tool, AI HTML prototype, open source design tool, AI UI generator, Alpine Tailwind prototype, agent-native design, prompt to HTML, generative design",
+          "AI design tool, AI prototyping tool, open source Figma alternative, AI UI generator, HTML prototype tool, agent-native design, prompt to prototype, AI interface design",
       },
     ],
     "Design",
@@ -62,299 +48,231 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "design")!;
 
+// Same no-imagery pattern Slides uses: plain ContentCards, no `image`/
+// `imageLabel`, so the section reads as one system with the key-features
+// grid below it instead of leaving placeholder boxes.
+const USE_CASES = [
+  {
+    id: "landing-page-ideas",
+    titleKey: "useCase1Title",
+    bodyKey: "useCase1Body",
+  },
+  {
+    id: "product-flows",
+    titleKey: "useCase2Title",
+    bodyKey: "useCase2Body",
+  },
+  {
+    id: "dashboards-and-internal-tools",
+    titleKey: "useCase3Title",
+    bodyKey: "useCase3Body",
+  },
+] as const;
+
+const KEY_FEATURES = [
+  {
+    id: "interactive-prototypes",
+    titleKey: "feature1Title",
+    bodyKey: "feature1Body",
+  },
+  {
+    id: "ai-visual-editing",
+    titleKey: "feature2Title",
+    bodyKey: "feature2Body",
+  },
+  {
+    id: "design-variants",
+    titleKey: "feature3Title",
+    bodyKey: "feature3Body",
+  },
+  {
+    id: "brand-styles",
+    titleKey: "feature4Title",
+    bodyKey: "feature4Body",
+  },
+  {
+    id: "review-comments",
+    titleKey: "feature5Title",
+    bodyKey: "feature5Body",
+  },
+  {
+    id: "export-and-handoff",
+    titleKey: "feature6Title",
+    bodyKey: "feature6Body",
+  },
+] as const;
+
+const FAQ_ITEMS = [
+  { id: "what-is-design", question: "question1", answer: "answer1" },
+  { id: "edit-after-generation", question: "question2", answer: "answer2" },
+  { id: "own-design-system", question: "question3", answer: "answer3" },
+  { id: "figma-workflows", question: "question4", answer: "answer4" },
+  { id: "export-and-finished-app", question: "question5", answer: "answer5" },
+] as const;
+
+// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
+// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
+// below draws its grid lines flush to that same max-w-site edge, so this
+// wrapper must match exactly (no px-* here) or the hero's border-x box ends
+// up narrower than the rest of the page.
+const HERO_WRAPPER_CLASS =
+  "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
+
 export default function DesignTemplate() {
   const t = useT();
-  const capabilities = [
-    {
-      title: t("templateLanding.design.s012"),
-      body: t("templateLanding.design.s013"),
-    },
-    {
-      title: t("templateLanding.design.s014"),
-      body: t("templateLanding.design.s015"),
-    },
-    {
-      title: t("templateLanding.design.s016"),
-      body: t("templateLanding.design.s017"),
-    },
-    {
-      title: t("templateLanding.design.s018"),
-      body: t("templateLanding.design.s019"),
-    },
-    {
-      title: t("templateLanding.design.s020"),
-      body: t("templateLanding.design.s021"),
-    },
-    {
-      title: t("templateLanding.design.s022"),
-      body: t("templateLanding.design.s023"),
-    },
-  ];
-  const faqItems = Array.from({ length: 5 }, (_, index) => {
-    const itemNumber = index + 1;
-    return {
-      id: `design-question-${itemNumber}`,
-      question: t(`templateLanding.design.faq.question${itemNumber}`),
-      answer: (
-        <p className="m-0">
-          {t(`templateLanding.design.faq.answer${itemNumber}`)}
-        </p>
-      ),
-    };
-  });
 
   return (
-    <TemplateLandingShell>
-      <TemplateHero
-        eyebrow={<DesignWordmark />}
-        title={t("templateLanding.design.s006")}
-        customizeTemplate={template}
-        description={
-          <p className="m-0">
-            {t("templateLanding.design.s007") +
-              " " +
-              t("templateLanding.design.s061")}
+    <div className="builder-brand-tokens">
+      {/* Hero — copy and layout updated to match Slides; existing hero mock
+          kept since there's no newer Design screenshot asset yet. */}
+      <div className={HERO_WRAPPER_CLASS}>
+        <TemplateHero
+          title={t("templateLanding.design.heroTitle")}
+          eyebrow={
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-2xl font-bold tracking-tight">
+                {t("templateLanding.design.heroEyebrow")}
+              </span>
+            </span>
+          }
+          customizeTemplate={template}
+          headingAction={
+            <a
+              href={firstPartyAppUrl("https://design.agent-native.com")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{ gap: "4px" }}
+              onClick={(event) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("try live demo", {
+                  template: template.slug,
+                  location: "landing_page_hero",
+                });
+              }}
+            >
+              {t("templateLanding.design.heroCta")}
+              <IconArrowUpRight size={16} />
+            </a>
+          }
+          description={<p>{t("templateLanding.design.heroDescription")}</p>}
+          descriptionPlacement="below-title"
+          mediaOverlapsHeader
+          media={
+            <DesignOverviewMock
+              label={t("templateLanding.design.s001")}
+              className="h-[340px] sm:h-[540px] lg:h-[640px]"
+            />
+          }
+        />
+      </div>
+
+      {/* What can you do with Design? — three use-case cards */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.design.useCasesHeading")}
+          </h2>
+          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.design.useCasesBody")}
           </p>
-        }
-        descriptionPlacement="below-title"
-        mediaOverlapsHeader
-        headingAction={
-          <a
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
+            {USE_CASES.map((useCase) => (
+              <ContentCard
+                key={useCase.id}
+                title={t(`templateLanding.design.${useCase.titleKey}`)}
+                body={t(`templateLanding.design.${useCase.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* Key features — six cards, same layout as builder.io/platform/code
+          and the Slides/Clips key-features grid, so all apps read as one
+          system. */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
+            {t("templateLanding.design.keyFeaturesEyebrow")}
+          </p>
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.design.keyFeaturesHeading")}
+          </h2>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
+            {KEY_FEATURES.map((feature) => (
+              <ContentCard
+                key={feature.id}
+                title={t(`templateLanding.design.${feature.titleKey}`)}
+                body={t(`templateLanding.design.${feature.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* FAQs — Clips gets this section's breathing room for free from its
+          "See Clips in action" section in between; Design has no such
+          section, so add the same pt-20 rhythm directly here instead of
+          landing the FAQ flush against the feature grid above it. */}
+      <PageSection>
+        <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
+          <FaqAccordion
+            idPrefix="design-faq"
+            eyebrow={t("templateLanding.faq.eyebrow")}
+            title={t("templateLanding.faq.title")}
+            items={FAQ_ITEMS.map((item) => ({
+              id: item.id,
+              question: t(`templateLanding.design.faq.${item.question}`),
+              answer: (
+                <p className="m-0">
+                  {t(`templateLanding.design.faq.${item.answer}`)}
+                </p>
+              ),
+            }))}
+          />
+        </GridInner>
+      </PageSection>
+
+      {/* Final CTA */}
+      <PageSection>
+        <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.design.finalCtaHeading")}
+          </h2>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.design.finalCtaBody")}
+          </p>
+          <Button
+            variant="cta"
             href={firstPartyAppUrl("https://design.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            className="primary-button"
-            onClick={(event) => {
+            // The shared cta variant renders at 14px in sentence case, but
+            // the hero's .primary-button (uppercase 12px mono, via the
+            // .template-detail-page CSS rule) only applies inside the hero
+            // wrapper. Match it explicitly here so both CTAs on the page
+            // read as the same button style.
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
+            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("try live demo", {
-                template: "design",
-                location: "landing_page_hero",
+                template: template.slug,
+                location: "landing_page_final_cta",
               });
             }}
           >
-            {t("common.designForFree")}
-          </a>
-        }
-        media={
-          <DesignOverviewMock
-            label={t("templateLanding.design.s001")}
-            className="h-[340px] sm:h-[540px] lg:h-[640px]"
-          />
-        }
-      />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-8 pt-12 sm:px-8 sm:pt-16">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-            {t("templateLanding.design.s009")}
-          </h2>
-        </div>
-        <TemplateStatOrStepsGrid>
-          {[
-            {
-              step: "1",
-              title: t("templateLanding.design.s002"),
-              desc: "Tell the agent what you're making — a landing page, product UI, brand direction, or interactive prototype.",
-            },
-            {
-              step: "2",
-              title: t("templateLanding.design.s003"),
-              desc: "The agent creates complete self-contained HTML with Tailwind styling and Alpine interactions.",
-            },
-            {
-              step: "3",
-              title: t("templateLanding.design.s004"),
-              desc: "Pick a variant, adjust tweak controls, or ask the agent for copy, layout, color, and interaction changes.",
-            },
-          ].map((item) => (
-            <TemplateStatOrStepsGridItem key={item.step}>
-              <div className="font-mono text-sm font-semibold text-[var(--fg)]">
-                {item.step}
-              </div>
-              <h3 className="m-0 text-xl font-medium leading-tight text-[var(--fg)]">
-                {item.title}
-              </h3>
-              <p className="m-0 text-base leading-6 text-[var(--fg-secondary)]">
-                {item.desc}
-              </p>
-            </TemplateStatOrStepsGridItem>
-          ))}
-        </TemplateStatOrStepsGrid>
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateCapabilityGrid
-        intro={
-          <>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {t("templateLanding.design.s010")}
-            </h2>
-            <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.design.s011")}
-            </p>
-          </>
-        }
-      >
-        {capabilities.map((capability) => (
-          <div
-            key={capability.title}
-            className="flex min-h-[180px] flex-col justify-center gap-2 border-b border-[var(--docs-border)] p-6 last:border-b-0 sm:odd:border-e sm:[&:nth-last-child(-n+2)]:border-b-0 sm:p-8"
-          >
-            <h3 className="m-0 text-lg font-medium leading-tight text-[var(--fg)]">
-              {capability.title}
-            </h3>
-            <p className="m-0 text-base leading-6 text-[var(--fg-secondary)]">
-              {capability.body}
-            </p>
-          </div>
-        ))}
-      </TemplateCapabilityGrid>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col gap-4 p-6 sm:p-8 lg:p-10">
-            <h3 className="m-0 text-[1.75rem] font-medium leading-tight text-[var(--fg)]">
-              {t("templateLanding.design.s024")}
-            </h3>
-            <p className="m-0 text-base leading-6 text-[var(--fg-secondary)]">
-              {t("templateLanding.design.s025")}
-            </p>
-            <ul className="m-0 flex list-none flex-col gap-3 p-0 text-base text-[var(--fg-secondary)]">
-              {[
-                t("templateLanding.design.s026"),
-                t("templateLanding.design.s027"),
-                "SQL-backed design records you can customize and extend",
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-3">
-                  <IconCheck
-                    aria-hidden="true"
-                    size={18}
-                    className="mt-0.5 shrink-0 text-[var(--fg)]"
-                  />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full flex-col gap-4 p-6 sm:p-8 lg:p-10">
-            <h3 className="m-0 text-[1.75rem] font-medium leading-tight text-[var(--fg)]">
-              {t("templateLanding.design.s028")}
-            </h3>
-            <p className="m-0 text-base leading-6 text-[var(--fg-secondary)]">
-              {t("templateLanding.design.s029")}
-            </p>
-            <div className="flex flex-col gap-3 border border-[var(--docs-border)] bg-[var(--bg)] p-4 font-mono text-sm text-[var(--fg-secondary)]">
-              <div>{t("templateLanding.design.s030")}</div>
-              <div>{t("templateLanding.design.s031")}</div>
-              <div>{t("templateLanding.design.s032")}</div>
-              <div>{t("templateLanding.design.s033")}</div>
-            </div>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-8 pt-12 sm:px-8 sm:pt-16">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-            {t("templateLanding.design.s034")}
-          </h2>
-        </div>
-        <TemplateComparisonTable
-          caption={t("templateLanding.design.s034")}
-          featureHeader={t("templateLanding.design.s034")}
-          columns={[
-            {
-              id: "traditional",
-              header: t("templateLanding.design.s035"),
-            },
-            {
-              id: "ai",
-              header: t("templateLanding.design.s036"),
-            },
-            {
-              id: "design",
-              agentNative: { name: template.name },
-              emphasized: true,
-            },
-          ]}
-          rows={[
-            {
-              id: "generation",
-              label: t("templateLanding.design.s037"),
-              cells: {
-                traditional: t("templateLanding.design.s038"),
-                ai: t("templateLanding.design.s039"),
-                design: t("templateLanding.design.s040"),
-              },
-            },
-            {
-              id: "interactivity",
-              label: t("templateLanding.design.s041"),
-              cells: {
-                traditional: t("templateLanding.design.s042"),
-                ai: t("templateLanding.design.s043"),
-                design: t("templateLanding.design.s044"),
-              },
-            },
-            {
-              id: "refinement",
-              label: t("templateLanding.design.s045"),
-              cells: {
-                traditional: t("templateLanding.design.s046"),
-                ai: t("templateLanding.design.s047"),
-                design: t("templateLanding.design.s048"),
-              },
-            },
-            {
-              id: "export",
-              label: t("templateLanding.design.s049"),
-              cells: {
-                traditional: t("templateLanding.design.s050"),
-                ai: t("templateLanding.design.s051"),
-                design: t("templateLanding.design.s052"),
-              },
-            },
-            {
-              id: "ownership",
-              label: t("templateLanding.design.s053"),
-              cells: {
-                traditional: t("templateLanding.design.s054"),
-                ai: t("templateLanding.design.s055"),
-                design: t("templateLanding.design.s056"),
-              },
-            },
-          ]}
-        />
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateFinalCta
-        title={t("templateLanding.design.s057")}
-        template={template}
-      >
-        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
-          {t("templateLanding.design.s058")}
-        </p>
-      </TemplateFinalCta>
-
-      <TemplateLandingFaq
-        idPrefix="design-faq"
-        eyebrow={
-          <span className="text-[var(--fg-secondary)]">
-            {t("templateLanding.faq.eyebrow")}
-          </span>
-        }
-        title={t("templateLanding.faq.title")}
-        items={faqItems}
-      />
-    </TemplateLandingShell>
+            {t("templateLanding.design.finalCtaButton")}
+          </Button>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

@@ -19,11 +19,11 @@ function createInlineDatabaseBlockId(): string {
 
 export default defineAction({
   description:
-    "Create a content database owned by an inline database block in a host page.",
+    "Create a content collection owned by an inline collection block in a host page.",
   schema: z.object({
     hostDocumentId: z.string().describe("Host page document ID"),
-    title: z.string().optional().describe("Database title"),
-    description: z.string().optional().describe("Stable database guidance"),
+    title: z.string().optional().describe("Collection title"),
+    description: z.string().optional().describe("Stable collection guidance"),
   }),
   run: async ({
     hostDocumentId,

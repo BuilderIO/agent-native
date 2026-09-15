@@ -130,7 +130,9 @@ export default defineAction({
 
     // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [
-      accessFilter(schema.designs, schema.designShares),
+      accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+        includePublic: true,
+      }),
       eq(schema.designFiles.designId, designId),
       fileId
         ? eq(schema.designFiles.id, fileId)

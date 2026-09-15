@@ -113,6 +113,15 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "Interface utilisateur",
+  "agentPanel.keyScope": "Portée de la clé",
+  "agentPanel.personalKeyScope": "Personnelle",
+  "agentPanel.organizationKeyScope": "Organisation",
+  "agentPanel.personalKeyInEffect": "Votre clé personnelle est utilisée.",
+  "agentPanel.organizationKeyInEffect":
+    "La clé de l’organisation est utilisée.",
+  "agentPanel.sharedKeyInEffect": "Une clé partagée est utilisée.",
+  "agentPanel.useOrganizationKey": "Utiliser la clé de l’organisation",
+  "agentPanel.keyStatusUnavailable": "L’état de la clé est indisponible.",
   "agentHostNudge.sidebarTitle": "Utiliser le chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Vous discutez déjà avec {{agent}}. Demandez-lui de travailler directement avec cette app.",
@@ -135,6 +144,25 @@ const messages: AgentChatTranslation = {
   "common.no": "Non",
   "common.retry": "Réessayer",
   "common.save": "Enregistrer",
+  "agents.hostedAgent": "Agent hébergé",
+  "agents.cardUrl": "URL de la carte de l’agent",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Authentification",
+  "agents.authNone": "Aucune authentification",
+  "agents.authBearer": "Jeton Bearer",
+  "agents.authClientCredentials": "Identifiants client OAuth",
+  "agents.chooseCredential": "Choisir un identifiant",
+  "agents.vault": "Coffre",
+  "agents.tokenUrl": "URL du jeton",
+  "agents.clientId": "ID client",
+  "agents.scope": "Portée",
+  "agents.authIncomplete":
+    "Complétez les champs d’authentification de l’agent hébergé.",
+  "agents.invalidUrl":
+    "Les URL d’agent doivent utiliser HTTPS, sauf pour localhost ou les URL de développement de bouclage.",
+  "agents.statusReachable": "Accessible",
+  "agents.statusAuthRejected": "Authentification refusée",
+  "agents.statusNoJsonRpc": "Pas de JSON-RPC",
   "common.saveFailed": "Échec de l’enregistrement",
   "common.saveFailedStatus": "Échec de l’enregistrement ({{status}})",
   "common.saving": "Enregistrement...",
@@ -149,6 +177,7 @@ const messages: AgentChatTranslation = {
     "Ouvrez l’application de bureau pour utiliser ce chat.",
   "composer.removeAttachment": "Supprimer {{name}}",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
+  "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",
   "composer.subAgentReadOnly":
     "Envoyez des messages au chat de l’orchestrateur ; ce sous-agent s’exécute automatiquement",
@@ -225,6 +254,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Retirer de la file d’attente",
   "queue.sendNow": "Envoyer maintenant",
   "queue.sendNowHint": "Envoyer maintenant (arrête la réponse actuelle)",
+  "queue.steer": "Orienter",
+  "queue.steerHint": "Envoyer ce message ensuite",
+  "queue.moreActions": "Autres actions",
+  "queue.moveToTop": "Déplacer en haut",
   "recovery.connectingBuilder": "Connexion à Builder.io",
   "recovery.copyDebug": "Copier les informations de débogage",
   "recovery.copyFailed": "Échec de la copie",
@@ -341,6 +374,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Informations sur les données",
   "widget.dataTable": "Tableau de données",
   "widget.downloadCsv": "Télécharger le CSV",
+  "widget.connectProvider": "Connecter {{provider}}",
   "widget.loadingToolResult": "Chargement du résultat de l’outil",
   "widget.noRows": "Aucune ligne",
   "widget.points": "{{formattedCount}} points",
@@ -375,6 +409,7 @@ const messages: AgentChatTranslation = {
   "composer.connectAbove":
     "Connectez un fournisseur d’IA ci-dessus pour continuer...",
   "composer.connectBuilder": "Connecter Builder.io",
+  "composer.connectKeys": "Connecter des clés",
   "composer.connectingBuilder": "Connexion à Builder.io…",
   "composer.costHigher": "Coût plus élevé",
   "composer.costLower": "Coût inférieur",
@@ -515,7 +550,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Ce navigateur ne prend pas en charge les conversations vocales en temps réel.",
   "voiceMode.hideChat": "Masquer la discussion",
-  "voiceMode.keepDictating": "Dicter",
+  "voiceMode.keepDictating": "Dicter un message",
   "voiceMode.promptDescription":
     "Le mode vocal continue d’écouter pendant que l’agent navigue et effectue des actions.",
   "voiceMode.promptTitle": "Utilisez votre voix",
@@ -557,7 +592,7 @@ const messages: AgentChatTranslation = {
     "Connectez Builder.io pour utiliser la voix gérée avec des crédits gratuits, ou ajoutez vos propres clés.",
   "voiceMode.setupTitle": "Configurer le mode vocal",
   "voiceMode.showChat": "Afficher le chat",
-  "voiceMode.start": "Voix en temps réel",
+  "voiceMode.start": "Démarrer le chat vocal",
   "voiceMode.startWithOpenAiKey": "Démarrer avec une clé OpenAI",
   "voiceMode.status.connecting": "Connexion en cours",
   "voiceMode.status.ending": "Fin du mode vocal",
@@ -601,10 +636,16 @@ const messages: AgentChatTranslation = {
     "La passerelle du modèle a rencontré une erreur interne avant que l'agent puisse répondre. Réessayez dans un instant et indiquez l'identifiant d'erreur ci-dessous si cela persiste.",
   "errorMessages.gatewayNoDetails":
     "La passerelle du modèle n’a fourni aucun détail sur l’erreur et la discussion n’a pas pu reprendre. Patientez un instant et réessayez. Si le problème persiste, démarrez une nouvelle discussion.",
+  "errorMessages.creditsLimitReached":
+    "Vous avez atteint votre limite de crédits IA.",
   "errorMessages.inactivityTimeout":
     "La connexion à l’agent a expiré avant la fin. Vous pouvez poursuivre à partir du travail partiel ou réessayer.",
   "errorMessages.invalidToolSchema":
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
+  "errorMessages.malformedRequest":
+    "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.malformedRequestAttachment":
+    "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
   "errorMessages.noProviderConnected":
     "Aucun fournisseur de LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs d’IA, puis connectez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":
@@ -619,6 +660,8 @@ const messages: AgentChatTranslation = {
     "Le fournisseur du modèle est injoignable. Vérifiez votre connexion et réessayez.",
   "errorMessages.providerRateLimit":
     "Le fournisseur du modèle limite temporairement cette discussion. Patientez un instant, puis réessayez.",
+  "errorMessages.providerTransientRejection":
+    "Le fournisseur d'IA a temporairement refusé cette demande. Cela se résout généralement en moins d'une minute : réessayez.",
   "errorMessages.startNewChat": "Démarrer une nouvelle discussion",
   "errorMessages.upgradeAtBuilder": "Mettre à niveau sur Builder.io",
   "feedback.inaccurate": "Inexact",
@@ -626,6 +669,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Peu utile",
   "feedback.placeholder": "Dites-nous ce qui n'a pas fonctionné...",
   "feedback.submit": "Envoyer",
+  "feedback.submitted": "Commentaires envoyés",
   "feedback.thumbsDown": "Pouce vers le bas",
   "feedback.thumbsUp": "Pouce vers le haut",
   "feedback.tooSlow": "Trop lent",
@@ -751,6 +795,14 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Lecteur",
   "share.viewerDescription": "Peut consulter",
   "share.userGroup": "Groupe d’utilisateurs",
+  "settings.emailTitle": "Adresse e-mail",
+  "settings.emailChange": "Changer d’adresse e-mail",
+  "settings.emailChanging": "Envoi...",
+  "settings.emailChangeSent":
+    "Consultez vos e-mails pour confirmer ce changement.",
+  "settings.emailChangeError": "Impossible d’envoyer la confirmation.",
+  "settings.emailNewLabel": "Nouvelle adresse e-mail",
+  "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
 };
 
 export default messages;

@@ -67,6 +67,8 @@ const messages = {
     recordings: "Aufnahmen",
     newFolder: "Neuer Ordner",
     noSpaces: "Noch keine Bereiche",
+    noSpacesAdminCta:
+      "Bitte einen Organisationsadmin, den ersten Bereich anzulegen.",
     desktopCta: "Desktop-App laden",
     desktopTitle: "Hol dir die Clips-Desktop-App.",
     desktopBody:
@@ -736,16 +738,17 @@ const messages = {
     agentTitle: "Agent verwalten",
     title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
-    experiments: "Experimente",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
-    experimentVideoEditing: "Videobearbeitung",
-    experimentVideoEditingDescription: "Teste den neuen Videoeditor.",
-    experimentMeetings: "Meetings und Transkription",
-    experimentMeetingsDescription:
+    labVideoEditing: "Videobearbeitung",
+    labVideoEditingDescription: "Teste den neuen Videoeditor.",
+    labMeetings: "Meetings und Transkription",
+    labMeetingsDescription:
       "Teste die automatische Erfassung und Transkription von Meetings.",
-    experimentWisprFlow: "Sprachdiktat",
-    experimentWisprFlowDescription: "Teste die neue Sprachdiktierfunktion.",
+    labWisprFlow: "Sprachdiktat",
+    labWisprFlowDescription:
+      "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
     preferencesTitle: "Voreinstellungen",
@@ -983,6 +986,8 @@ const messages = {
     renameFailed: "Clip konnte nicht umbenannt werden",
     renameClip: "Clip umbenennen",
     clipTitle: "Clip-Titel",
+    archiveAction: "Archivieren",
+    moveToTrashAction: "In den Papierkorb verschieben",
     movedToTrash: "In den Papierkorb verschoben",
     restoredFromArchive: "Aus dem Archiv wiederhergestellt",
     archived: "Archiviert",
@@ -1876,6 +1881,7 @@ const messages = {
       "{{consoleCount}} Konsolenprobleme · {{networkCount}} fehlgeschlagene Anfragen",
     noFailures: "Keine Fehler erkannt",
     failuresPresent: "Browserfehler erkannt",
+    unviewedCount: "{{count}} ungesehen",
     captureSuccessful: "Diagnosedaten erfolgreich erfasst",
     capturedFrom: "Erfasst von {{source}}",
     browserCapture: "Browseraufnahme",

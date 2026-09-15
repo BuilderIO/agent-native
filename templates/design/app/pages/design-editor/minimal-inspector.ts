@@ -31,7 +31,7 @@ export const DOCKED_RIGHT_INSPECTOR_CLASSNAME =
  * underneath (Figma minimal inspector).
  */
 export const FLOATING_RIGHT_INSPECTOR_CLASSNAME =
-  "absolute top-14 right-3 bottom-3 z-[70] hidden min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:flex";
+  "absolute top-3 right-3 bottom-3 z-[70] hidden min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:flex";
 
 export function rightInspectorPanelClassName(minimalUi: boolean): string {
   return minimalUi

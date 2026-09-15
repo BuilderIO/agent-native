@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { signA2AToken } from "@agent-native/core/a2a";
+import { isActionContractError } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
   getOrgA2ASecret,
@@ -11,6 +12,8 @@ import {
   isWorkspaceAppAccessAllowed,
 } from "@agent-native/core/org";
 import {
+  CredentialStoreUnavailableError,
+  FeatureNotConfiguredError,
   createBuilderProject,
   getBuilderBranchProjectId,
   getRequestContext,
@@ -18,6 +21,7 @@ import {
   resolveAppRuntimeUrl,
   resolveVercelDeploymentProtectionHeaders,
   runBuilderAgent,
+  type BuilderAgentAttachment,
 } from "@agent-native/core/server";
 import { getOrgSetting } from "@agent-native/core/settings";
 import {
@@ -25,7 +29,14 @@ import {
   mutateSetting,
   putSetting,
 } from "@agent-native/core/settings";
-import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
+import {
+  BUILDER_CONNECT_PROVIDER,
+  BUILDER_CONNECT_PROVIDER_LABEL,
+  assertValidWorkspaceAppId,
+  connectRequiredResult,
+  normalizeWorkspaceAppHomePath,
+  type ConnectRequiredCard,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 
 // Register the workspace-app shareable resource before any access lookup.
@@ -94,6 +105,18 @@ class AppCreationSettingsAuthorizationError extends Error {
   }
 }
 
+class WorkspaceAppsGatewayAuthorizationError extends Error {
+  constructor(statusCode: 401 | 403) {
+    super(
+      `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
+    );
+    this.name = "WorkspaceAppsGatewayAuthorizationError";
+    this.statusCode = statusCode;
+  }
+
+  statusCode: 401 | 403;
+}
+
 type WorkspaceAppAudience = "internal" | "public";
 type WorkspaceAppVisibility = "private" | "org";
 
@@ -102,6 +125,7 @@ export interface WorkspaceAppSummary {
   name: string;
   description: string;
   path: string;
+  homePath?: string;
   url: string | null;
   isDispatch: boolean;
   audience: WorkspaceAppAudience;
@@ -679,6 +703,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         description:
           typeof entry.description === "string" ? entry.description : "",
         path: pathValue,
+        homePath: normalizeWorkspaceAppHomePath(entry.homePath),
         url: workspaceAppLink(pathValue, entry.url),
         isDispatch:
           typeof entry.isDispatch === "boolean"
@@ -1044,6 +1069,7 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     name: app.name,
     description: app.description,
     path: app.path,
+    homePath: "/home",
     url: app.builderUrl,
     isDispatch: false,
     audience: app.audience ?? DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -1718,6 +1744,9 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       ...protectedRedirect,
       signal: controller.signal,
     });
+    if (actionResponse.status === 401 || actionResponse.status === 403) {
+      throw new WorkspaceAppsGatewayAuthorizationError(actionResponse.status);
+    }
     if (!actionResponse.ok) return null;
     const apps = parseWorkspaceAppsManifest(
       // coercion-ok: malformed gateway JSON is an unavailable registry and
@@ -1725,7 +1754,8 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       await actionResponse.json().catch(() => null),
     );
     return apps ? { apps, authoritative: false } : null;
-  } catch {
+  } catch (error) {
+    if (error instanceof WorkspaceAppsGatewayAuthorizationError) throw error;
     return null;
   } finally {
     clearTimeout(timeout);
@@ -1784,6 +1814,7 @@ function readWorkspaceAppsFromFilesystem(
         name: pkg.displayName || titleCase(entry.name),
         description: pkg.description || "",
         path: `/${entry.name}`,
+        homePath: "/home",
         url: workspaceAppUrl(`/${entry.name}`),
         isDispatch: entry.name === "dispatch",
         audience:
@@ -1985,6 +2016,7 @@ export async function listWorkspaceApps(
         name: "Dispatch",
         description: "Workspace control plane",
         path: "/dispatch",
+        homePath: "/home",
         url: workspaceAppUrl("/dispatch"),
         isDispatch: true,
         audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -2195,6 +2227,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
       name: titleCase(appId),
       description: "",
       path: `/${appId}`,
+      homePath: "/home",
       url: workspaceAppUrl(`/${appId}`),
       isDispatch: false,
       audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -2642,6 +2675,78 @@ async function grantSelectedWorkspaceResources(input: {
 }
 
 /**
+ * Builder authorization failures arrive as a generic throw from the Builder
+ * API helpers. Left unclassified they all became `builder-error` ("try again
+ * in a moment"), which is wrong for the one cause the user can actually fix,
+ * and left the `builder-not-connected` Connect control unreachable.
+ */
+const BUILDER_NOT_CONNECTED_ERROR_CODES = new Set([
+  "builder_not_connected",
+  "builder_oauth_reauthorization_required",
+]);
+
+function builderFailureReason(
+  err: unknown,
+): Exclude<
+  AppCreationUnavailableReason,
+  "identity-not-linked" | "settings-management-required"
+> {
+  if (err instanceof CredentialStoreUnavailableError) {
+    return "credential-store-unavailable";
+  }
+  if (err instanceof FeatureNotConfiguredError) return "builder-not-connected";
+  if (
+    isActionContractError(err) &&
+    BUILDER_NOT_CONNECTED_ERROR_CODES.has(err.errorCode)
+  ) {
+    return "builder-not-connected";
+  }
+  return "builder-error";
+}
+
+function builderUnavailable(input: {
+  appId: string;
+  projectId: string;
+  err: unknown;
+  fallbackDetail: string;
+  builderErrorMessage: string;
+}): AppCreationBuilderUnavailableResult {
+  const reason = builderFailureReason(input.err);
+  const detail =
+    input.err instanceof Error && input.err.message
+      ? input.err.message
+      : input.fallbackDetail;
+  const base = {
+    mode: "builder-unavailable" as const,
+    appId: input.appId,
+    projectId: input.projectId,
+    detail,
+  };
+  if (reason === "builder-not-connected") {
+    const connect = connectRequiredResult({
+      provider: BUILDER_CONNECT_PROVIDER,
+      providerLabel: BUILDER_CONNECT_PROVIDER_LABEL,
+      reason: `${BUILDER_CONNECT_PROVIDER_LABEL} is not connected for this workspace, so the app could not be created.`,
+    });
+    return {
+      ...base,
+      reason,
+      message: connect.connectRequired.message,
+      connectRequired: connect.connectRequired,
+    };
+  }
+  if (reason === "credential-store-unavailable") {
+    return {
+      ...base,
+      reason,
+      message:
+        "Could not read this workspace's saved connections, so the app was not created. This is temporary - try again.",
+    };
+  }
+  return { ...base, reason, message: input.builderErrorMessage };
+}
+
+/**
  * Discriminates why `startWorkspaceAppCreation` could not hand off to Builder.
  * UIs and agents should branch on this instead of parsing `message` text.
  */
@@ -2667,6 +2772,9 @@ export interface AppCreationBuilderUnavailableResult {
   /** Raw underlying error text for agents/operators debugging the deployment. */
   detail?: string;
   projectId: string;
+  /** Present only for `builder-not-connected`, so chat and the create-app UI
+   *  render a Connect control instead of restating the blocker. */
+  connectRequired?: ConnectRequiredCard;
 }
 
 export interface AppCreationLocalAgentResult {
@@ -2708,6 +2816,7 @@ export async function startWorkspaceAppCreation(input: {
   template?: string | null;
   secretIds?: string[];
   resourceIds?: string[];
+  attachments?: BuilderAgentAttachment[];
 }): Promise<StartWorkspaceAppCreationResult> {
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
@@ -2797,19 +2906,14 @@ export async function startWorkspaceAppCreation(input: {
           message: APP_CREATION_SETTINGS_REQUIRED_MESSAGE,
         };
       }
-      const detail =
-        err instanceof Error && err.message
-          ? err.message
-          : "Builder could not provision the workspace project";
-      return {
-        mode: "builder-unavailable",
+      return builderUnavailable({
         appId: built.appId,
-        reason: "builder-error",
         projectId: "",
-        detail,
-        message:
+        err,
+        fallbackDetail: "Builder could not provision the workspace project",
+        builderErrorMessage:
           "Builder could not prepare the connected Agent-Native workspace. Try again in a moment.",
-      };
+      });
     }
   }
 
@@ -2829,6 +2933,7 @@ export async function startWorkspaceAppCreation(input: {
     result = normalizeBuilderRunResult(
       await runBuilderAgent({
         prompt,
+        attachments: input.attachments,
         projectId: builderProjectId,
         userEmail: currentOwnerEmail(),
       }),
@@ -2842,19 +2947,14 @@ export async function startWorkspaceAppCreation(input: {
         cleanupError,
       );
     }
-    const detail =
-      err instanceof Error && err.message
-        ? err.message
-        : "Builder could not start the app branch";
-    return {
-      mode: "builder-unavailable",
+    return builderUnavailable({
       appId: built.appId,
-      reason: "builder-error",
       projectId: builderProjectId,
-      detail,
-      message:
+      err,
+      fallbackDetail: "Builder could not start the app branch",
+      builderErrorMessage:
         "Builder could not start the app branch. This is usually temporary — try again.",
-    };
+    });
   }
 
   await recordPendingWorkspaceApp({

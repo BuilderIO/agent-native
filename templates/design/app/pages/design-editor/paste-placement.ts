@@ -1,6 +1,7 @@
 import {
   buildCodeLayerProjection,
   type CodeLayerNode,
+  type CodeLayerSource,
 } from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -120,10 +121,13 @@ function pasteTargetFromCodeLayerNode(
 
 export function resolvePastePlacementForSelection(args: {
   content: string;
+  source?: CodeLayerSource;
   selectedElement: ElementInfo | null | undefined;
 }): PastePlacementDecision | null {
   if (!args.content || !args.selectedElement) return null;
-  const projection = buildCodeLayerProjection(args.content);
+  const projection = buildCodeLayerProjection(args.content, {
+    ...(args.source ? { source: args.source } : {}),
+  });
   const node = resolveCodeLayerNodeFromElementInfo(
     projection,
     args.selectedElement,
@@ -158,7 +162,9 @@ export function resolvePasteSourceAnchor(args: {
   }
   const content = args.getContent(first.sourceFileId);
   if (!content) return null;
-  const projection = buildCodeLayerProjection(content);
+  const projection = buildCodeLayerProjection(content, {
+    source: { kind: "design-file", fileId: first.sourceFileId },
+  });
   const unresolved: PasteSourceAnchor = {
     fileId: first.sourceFileId,
     parentSelectors: null,

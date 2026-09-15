@@ -75,6 +75,38 @@ describe("normalizeMailSettings", () => {
     ).toBe(true);
   });
 
+  it("defaults autocomplete off and rejects non-boolean stored values", () => {
+    expect(
+      normalizeMailSettings(null, "owner@example.com").autocompleteEnabled,
+    ).toBe(false);
+    expect(
+      normalizeMailSettings(
+        { autocompleteEnabled: "true" } as unknown as Record<string, unknown>,
+        "owner@example.com",
+      ).autocompleteEnabled,
+    ).toBe(false);
+    expect(
+      normalizeMailSettings({ autocompleteEnabled: true }, "owner@example.com")
+        .autocompleteEnabled,
+    ).toBe(true);
+  });
+
+  it("defaults Send + Mark Done off and rejects non-boolean stored values", () => {
+    expect(
+      normalizeMailSettings(null, "owner@example.com").sendAndArchive,
+    ).toBe(false);
+    expect(
+      normalizeMailSettings(
+        { sendAndArchive: "true" } as unknown as Record<string, unknown>,
+        "owner@example.com",
+      ).sendAndArchive,
+    ).toBe(false);
+    expect(
+      normalizeMailSettings({ sendAndArchive: true }, "owner@example.com")
+        .sendAndArchive,
+    ).toBe(true);
+  });
+
   it("keeps only bounded, usable saved filters", () => {
     const settings = normalizeMailSettings(
       {

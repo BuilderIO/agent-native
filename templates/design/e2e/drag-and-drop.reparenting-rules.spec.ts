@@ -88,10 +88,9 @@ test.describe("reparenting rules", () => {
     );
     await page.mouse.up();
     await page.waitForTimeout(2200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
-    test.skip(
-      await inRow(page),
-      "an unmodified drag does not reparent either, so the Space modifier is untestable",
-    );
+    // peer PR (hotkeys) owns the Space-modifier retain-parent behavior; if an
+    // unmodified drag also fails to reparent, the assertion below fails for
+    // that real reason instead of silently skipping.
 
     const id = await newDesign(page);
     await openEditor(page, id);

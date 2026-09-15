@@ -31,7 +31,6 @@ import type {
 import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
   IconArrowUp,
-  IconClock,
   IconMessage,
   IconX,
   IconPlayerStopFilled,
@@ -50,7 +49,11 @@ import React, {
   useImperativeHandle,
 } from "react";
 
-import type { AgentChatAttachment } from "../agent/types.js";
+import {
+  normalizeAgentActionScope,
+  type AgentActionScope,
+  type AgentChatAttachment,
+} from "../agent/types.js";
 import { createPollEngine } from "../shared/poll-engine.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { ThinkingDisplay } from "../shared/thinking-display.js";
@@ -70,6 +73,7 @@ import {
 import {
   activeRunLooksAlive,
   createAgentChatAdapter,
+  generateAgentChatTurnId,
   hasInFlightToolCall,
   type AgentChatSurfaceKind,
 } from "./agent-chat-adapter.js";
@@ -95,6 +99,7 @@ import {
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { modelCatalogConfirmsMissing } from "./chat-model-groups.js";
 import { AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT } from "./chat-view-transition.js";
+import { AgentActivityTrace } from "./chat/agent-activity-trace.js";
 // ─── chat/ module imports ─────────────────────────────────────────────────────
 import {
   DownscalingImageAttachmentAdapter,
@@ -114,8 +119,8 @@ import {
   writeAssistantChatComposerDraft,
 } from "./chat/composer-draft.js";
 import {
+  AgentTextStreamingProvider,
   ExternalTextStreamingContext,
-  TextStreamingContext,
 } from "./chat/markdown-renderer.js";
 import {
   AssistantChatHistoryContext,
@@ -132,7 +137,6 @@ import {
   AssistantMessage,
   ExternalUserStoppedRunContext,
   SelectionAttachedPill,
-  RunningActivityStatus,
   displayableUserMessageText,
   isHiddenUserMessage,
   ServerRunActiveContext,
@@ -195,8 +199,13 @@ import {
 } from "./components/ui/tooltip.js";
 import {
   AgentComposerFrame,
+  AgentSuggestionBar,
+  agentSuggestionPrompt,
+  MessageQueueDrawer,
+  PromptBar,
   TiptapComposer,
   type AgentComposerLayoutVariant,
+  type AgentSuggestionInput,
   type ComposerSubmitIntent,
   type Reference,
   type TiptapComposerHandle,
@@ -205,7 +214,10 @@ import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
-import { isProviderAuthenticationError } from "./error-format.js";
+import {
+  isCreditsLimitErrorCode,
+  isProviderAuthenticationError,
+} from "./error-format.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -217,7 +229,6 @@ import {
   consumeMcpConnectionResume,
   type McpConnectionResumeRequest,
 } from "./resources/mcp-connection-resume.js";
-import { McpConnectionSuggestion } from "./resources/McpConnectionSuggestion.js";
 import {
   claimRunStream,
   createRunStreamToken,
@@ -314,6 +325,7 @@ export interface AssistantChatSendOptions {
   submitMessageId?: string;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
+  actionScope?: AgentActionScope;
 }
 
 export function createUserMessageRunConfig(
@@ -331,6 +343,7 @@ export function createUserMessageRunConfig(
   },
   turnId?: string,
   usageLabel?: string,
+  actionScope?: AgentActionScope,
 ) {
   const custom: {
     references?: Reference[];
@@ -343,6 +356,7 @@ export function createUserMessageRunConfig(
     effort?: ReasoningEffort;
     turnId?: string;
     usageLabel?: string;
+    actionScope?: AgentActionScope;
   } = {};
   if (modelSnapshot?.model) custom.model = modelSnapshot.model;
   if (modelSnapshot?.engine) custom.engine = modelSnapshot.engine;
@@ -368,6 +382,9 @@ export function createUserMessageRunConfig(
   if (usageLabel) {
     custom.usageLabel = usageLabel;
   }
+  if (actionScope) {
+    custom.actionScope = actionScope;
+  }
   const options: {
     runConfig?: { custom: typeof custom };
     metadata?: {
@@ -375,13 +392,21 @@ export function createUserMessageRunConfig(
         agentNativeRecoveryAction?: AgentRecoveryAction;
         agentNativeHiddenUserMessage?: boolean;
         agentNativeQueuedMessageId?: string;
+        turnId?: string;
+        actionScope?: AgentActionScope;
       };
     };
   } = {};
   if (Object.keys(custom).length > 0) {
     options.runConfig = { custom };
   }
-  if (recoveryAction || hideUserMessage || queuedMessageId) {
+  if (
+    recoveryAction ||
+    hideUserMessage ||
+    queuedMessageId ||
+    turnId ||
+    actionScope
+  ) {
     options.metadata = {
       custom: {
         ...(recoveryAction
@@ -391,6 +416,8 @@ export function createUserMessageRunConfig(
         ...(queuedMessageId
           ? { agentNativeQueuedMessageId: queuedMessageId }
           : {}),
+        ...(turnId ? { turnId } : {}),
+        ...(actionScope ? { actionScope } : {}),
       },
     };
   }
@@ -423,7 +450,8 @@ const RECONNECT_EMPTY_RETRY_MESSAGE =
 // through transient labels ("Contacting model", "Preparing X action"); past it
 // the live label appears so a genuinely slow step reads as working, not hung.
 const ACTIVITY_LABEL_REVEAL_DELAY_MS = 6_000;
-const DEFAULT_ASSISTANT_CHAT_COMPOSER_PLACEHOLDER = "Write a message...";
+const DEFAULT_ASSISTANT_CHAT_COMPOSER_PLACEHOLDER =
+  "Ask the agent to explore, build, or explain…";
 type ActiveRunLookup = {
   active?: boolean;
   runId?: string;
@@ -1557,6 +1585,76 @@ const RECOVERY_USER_MESSAGE_PREFIXES = [
   "Retry the previous request from a clean approach",
 ];
 
+function protocolMessageCustomMetadata(
+  message: unknown,
+): Record<string, unknown> | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata;
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const custom = (metadata as { custom?: unknown }).custom;
+  return custom && typeof custom === "object"
+    ? (custom as Record<string, unknown>)
+    : undefined;
+}
+
+function protocolMessageTurnId(message: unknown): string | undefined {
+  const turnId = protocolMessageCustomMetadata(message)?.turnId;
+  return typeof turnId === "string" && turnId ? turnId : undefined;
+}
+
+export function protocolContinuationContext(
+  messages: readonly unknown[],
+  turnId: string | undefined,
+): { turnId?: string; actionScope?: AgentActionScope } {
+  if (!turnId) return {};
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (protocolMessageTurnId(message) !== turnId) continue;
+    const custom = protocolMessageCustomMetadata(message);
+    if (!custom || !Object.hasOwn(custom, "actionScope")) continue;
+    return {
+      turnId,
+      actionScope: normalizeAgentActionScope(custom.actionScope),
+    };
+  }
+  return { turnId };
+}
+
+export function latestProtocolContinuationContext(
+  messages: readonly unknown[],
+): { turnId?: string; actionScope?: AgentActionScope } {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const turnId = protocolMessageTurnId(messages[index]);
+    if (turnId) return protocolContinuationContext(messages, turnId);
+  }
+  return {};
+}
+
+export function approvalProtocolContinuationContext(
+  messages: readonly unknown[],
+  approvalKey: string,
+): { turnId?: string; actionScope?: AgentActionScope } {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as { role?: unknown; content?: unknown };
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) {
+      continue;
+    }
+    const hasApproval = message.content.some((part) => {
+      if (!part || typeof part !== "object") return false;
+      const approval = (part as { approval?: unknown }).approval;
+      return (
+        approval !== null &&
+        typeof approval === "object" &&
+        (approval as { approvalKey?: unknown }).approvalKey === approvalKey
+      );
+    });
+    if (!hasApproval) continue;
+    const turnId = protocolMessageTurnId(message);
+    if (turnId) return protocolContinuationContext(messages, turnId);
+    return latestProtocolContinuationContext(messages.slice(0, index + 1));
+  }
+  return {};
+}
+
 function getRecoveryActionMetadata(
   message: unknown,
 ): AgentRecoveryAction | null {
@@ -1586,6 +1684,23 @@ export function latestNonRecoveryUserMessageText(
     if (text) return text;
   }
   return "";
+}
+
+export function resolveAssistantChatSuggestionInputs(
+  resolvedPrompts: readonly string[] | undefined,
+  providedSuggestions: readonly AgentSuggestionInput[] | undefined,
+): AgentSuggestionInput[] | undefined {
+  if (!resolvedPrompts || resolvedPrompts.length === 0) return undefined;
+
+  const providedByPrompt = new Map(
+    (providedSuggestions ?? []).map((suggestion) => [
+      agentSuggestionPrompt(suggestion),
+      suggestion,
+    ]),
+  );
+  return resolvedPrompts.map(
+    (prompt) => providedByPrompt.get(prompt) ?? prompt,
+  );
 }
 
 export function resolveAssistantChatSubmitIntent({
@@ -1825,6 +1940,7 @@ type QueuedMessage = {
   turnId?: string;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
+  actionScope?: AgentActionScope;
   /**
    * Model/engine/effort snapshotted at enqueue time, for the same reason
    * `requestMode` is: the picker is global and live, so a queue that flushes
@@ -1858,24 +1974,29 @@ export function promoteQueuedMessage<T extends { id: string }>(
 export function queuedMessageImageSources(
   message: Pick<QueuedMessage, "attachments" | "images">,
 ): string[] {
-  const sources = (message.attachments ?? []).flatMap((attachment) =>
-    attachment.content.flatMap((part) =>
-      part.type === "image" &&
-      "image" in part &&
-      typeof part.image === "string" &&
-      part.image.trim().length > 0
-        ? [part.image]
-        : [],
-    ),
-  );
+  const sources = new Set<string>();
 
-  for (const image of message.images ?? []) {
-    if (image.trim().length > 0 && !sources.includes(image)) {
-      sources.push(image);
+  // ponytail: cap queue previews at four; all references remain queued and are sent on dequeue.
+  for (const attachment of message.attachments ?? []) {
+    for (const part of attachment.content) {
+      if (
+        part.type === "image" &&
+        "image" in part &&
+        typeof part.image === "string" &&
+        part.image.trim().length > 0
+      ) {
+        sources.add(part.image);
+      }
+      if (sources.size === 4) return [...sources];
     }
   }
+  for (const image of message.images ?? []) {
+    if (image.trim().length === 0) continue;
+    sources.add(image);
+    if (sources.size === 4) break;
+  }
 
-  return sources;
+  return [...sources];
 }
 
 function AssistantChatUserMessageItem() {
@@ -1975,6 +2096,17 @@ export type AssistantChatThreadFooterSlot =
       tabId: string | null;
     }) => React.ReactNode);
 
+export type AssistantChatSuggestionVisibility =
+  | "always"
+  | "after-agent-response";
+
+export function shouldShowAssistantChatSuggestions(
+  visibility: AssistantChatSuggestionVisibility,
+  hasAssistantMessage: boolean,
+): boolean {
+  return visibility === "always" || hasAssistantMessage;
+}
+
 export interface AssistantChatAdapterContext {
   apiUrl: string;
   streamingUrl?: string;
@@ -2053,10 +2185,16 @@ export interface AssistantChatProps {
   suppressInlineOpenApp?: boolean;
   /** Placeholder text for empty state */
   emptyStateText?: string;
-  /** Suggestion prompts shown when no messages */
-  suggestions?: string[];
+  /** Static or agent-authored next actions shown at the base of the chat. */
+  suggestions?: AgentSuggestionInput[];
   /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
   dynamicSuggestions?: AgentDynamicSuggestionsOption;
+  /** Where suggestions appear. The panel uses a next-action bar at the thread base. */
+  suggestionPlacement?: "empty-state" | "context-chips" | "hidden";
+  /** When suggestions become visible. Full-page chat can defer them until the agent has replied. */
+  suggestionVisibility?: AssistantChatSuggestionVisibility;
+  /** Optional content rendered as part of the conversation before persisted messages. */
+  threadContentSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered at the bottom of the scrollable thread, after messages. */
   threadFooterSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered in the empty state, above the suggestion buttons. */
@@ -2528,6 +2666,9 @@ const AssistantChatInner = forwardRef<
     emptyStateText,
     suggestions,
     dynamicSuggestions,
+    suggestionPlacement = "empty-state",
+    suggestionVisibility = "always",
+    threadContentSlot,
     threadFooterSlot,
     emptyStateFooter,
     emptyStateAddon,
@@ -2612,6 +2753,10 @@ const AssistantChatInner = forwardRef<
   const isRuntimeRunningRef = useRef(isRuntimeRunning);
   isRuntimeRunningRef.current = isRuntimeRunning;
   const messages = thread.messages;
+  const showSuggestions = shouldShowAssistantChatSuggestions(
+    suggestionVisibility,
+    messages.some((message) => message.role === "assistant"),
+  );
   // Latest-value ref (same pattern as isRuntimeRunningRef above) so the
   // `hasInFlightWork` imperative handle method — called from outside React's
   // render cycle by RunStuckBanner right before a destructive Retry — always
@@ -2621,14 +2766,23 @@ const AssistantChatInner = forwardRef<
   // does not change while an in-flight call's content mutates.
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const staticSuggestionPrompts = useMemo(
+    () => suggestions?.map(agentSuggestionPrompt),
+    [suggestions],
+  );
   const { suggestions: resolvedSuggestions } = useAgentDynamicSuggestionsResult(
     {
-      staticSuggestions: suggestions,
+      staticSuggestions: staticSuggestionPrompts,
       dynamicSuggestions,
       browserTabId,
       scope: contextScope,
-      enabled: messages.length === 0,
+      enabled: suggestionPlacement === "context-chips" || messages.length === 0,
     },
+  );
+  const resolvedSuggestionInputs = useMemo(
+    () =>
+      resolveAssistantChatSuggestionInputs(resolvedSuggestions, suggestions),
+    [resolvedSuggestions, suggestions],
   );
   const messageListResetKey = useMemo(
     () => assistantUiMessageListStructureKey(messages),
@@ -2658,16 +2812,13 @@ const AssistantChatInner = forwardRef<
     () => readAssistantChatComposerDraft(composerDraftScope),
     [composerDraftScope],
   );
-  const [composerText, setComposerText] = useState(initialComposerText ?? "");
   useEffect(() => {
     const restoredText = initialComposerText ?? "";
-    setComposerText(restoredText);
     if (!isActiveComposer) return;
     onComposerTextChange?.(restoredText);
   }, [initialComposerText, isActiveComposer, onComposerTextChange]);
   const handleComposerTextChange = useCallback(
     (text: string) => {
-      setComposerText(text);
       writeAssistantChatComposerDraft(composerDraftScope, text);
       onComposerTextChange?.(text);
     },
@@ -3195,6 +3346,28 @@ const AssistantChatInner = forwardRef<
     (activeRunMatchesThread(storedActiveRun, threadId)
       ? storedActiveRun?.turnId
       : undefined) ?? (showRunningInUI ? reconnectTurnIdRef.current : null);
+  const textStreamingThreadId = threadId ?? null;
+  const [retainedTextStreamingState, setRetainedTextStreamingState] = useState<{
+    threadId: string | null;
+    identity: { runId: string | null; turnId: string | null } | null;
+  }>(() => ({ threadId: textStreamingThreadId, identity: null }));
+  useEffect(() => {
+    setRetainedTextStreamingState((current) => {
+      if (activeChatRunId || activeChatTurnId) {
+        return {
+          threadId: textStreamingThreadId,
+          identity: { runId: activeChatRunId, turnId: activeChatTurnId },
+        };
+      }
+      return current.threadId === textStreamingThreadId
+        ? current
+        : { threadId: textStreamingThreadId, identity: null };
+    });
+  }, [activeChatRunId, activeChatTurnId, textStreamingThreadId]);
+  const activeTextStreamingIdentity =
+    retainedTextStreamingState.threadId === textStreamingThreadId
+      ? retainedTextStreamingState.identity
+      : null;
   const chatRunStartedAtRef = useRef<number | null>(null);
   const chatRunTurnIdRef = useRef<string | null>(null);
   const [lastChatRunDurationMs, setLastChatRunDurationMs] = useState<
@@ -4970,6 +5143,7 @@ const AssistantChatInner = forwardRef<
                   },
                   currentNext.turnId,
                   currentNext.usageLabel,
+                  currentNext.actionScope,
                 ).runConfig ?? {},
             });
             applyLocalQueuedMessages((prev) =>
@@ -5011,6 +5185,7 @@ const AssistantChatInner = forwardRef<
                 },
                 currentNext.turnId,
                 currentNext.usageLabel,
+                currentNext.actionScope,
               ),
             } as Parameters<typeof threadRuntime.append>[0]);
           }
@@ -5413,6 +5588,7 @@ const AssistantChatInner = forwardRef<
             },
             message.turnId,
             message.usageLabel,
+            message.actionScope,
           ),
           startRun: false,
         } as Parameters<typeof threadRuntime.append>[0]);
@@ -5456,6 +5632,7 @@ const AssistantChatInner = forwardRef<
       approvedToolCalls?: string[],
       continuationTurnId?: string,
       usageLabel?: string,
+      actionScope?: AgentActionScope,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return false;
       const stoppedRunAtSubmitStart = userStoppedRunRef.current;
@@ -5599,6 +5776,9 @@ const AssistantChatInner = forwardRef<
         engine: selectedEngine,
         effort: selectedEffort,
       };
+      const effectiveContinuationTurnId =
+        continuationTurnId ??
+        (actionScope ? generateAgentChatTurnId() : undefined);
       if (isRunning && intent === "immediate") {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
@@ -5620,8 +5800,11 @@ const AssistantChatInner = forwardRef<
             trackInRunsTray,
             hideUserMessage,
             approvedToolCalls,
-            ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(effectiveContinuationTurnId
+              ? { turnId: effectiveContinuationTurnId }
+              : {}),
             ...(usageLabel ? { usageLabel } : {}),
+            ...(actionScope ? { actionScope } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5644,8 +5827,11 @@ const AssistantChatInner = forwardRef<
             trackInRunsTray,
             hideUserMessage,
             approvedToolCalls,
-            ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(effectiveContinuationTurnId
+              ? { turnId: effectiveContinuationTurnId }
+              : {}),
             ...(usageLabel ? { usageLabel } : {}),
+            ...(actionScope ? { actionScope } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5667,8 +5853,9 @@ const AssistantChatInner = forwardRef<
               undefined,
               hideUserMessage,
               undefined,
-              continuationTurnId,
+              effectiveContinuationTurnId,
               usageLabel,
+              actionScope,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
         } catch (error) {
@@ -5722,7 +5909,27 @@ const AssistantChatInner = forwardRef<
       }
       mcpResumeTimerRef.current = window.setTimeout(() => {
         mcpResumeTimerRef.current = null;
-        void addToQueue(request.message);
+        const continuation = latestProtocolContinuationContext(
+          messagesRef.current,
+        );
+        void addToQueue(
+          request.message,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          "queued",
+          undefined,
+          false,
+          false,
+          false,
+          false,
+          undefined,
+          undefined,
+          continuation.turnId,
+          undefined,
+          continuation.actionScope,
+        );
       }, 0);
     },
     [addToQueue],
@@ -5755,6 +5962,9 @@ const AssistantChatInner = forwardRef<
       setPendingReconnectRecovery((current) =>
         current?.id === recovery.id ? null : current,
       );
+      const continuation = recovery.turnId
+        ? protocolContinuationContext(messagesRef.current, recovery.turnId)
+        : latestProtocolContinuationContext(messagesRef.current);
       void addToQueue(
         recovery.message,
         undefined,
@@ -5769,7 +5979,9 @@ const AssistantChatInner = forwardRef<
         true,
         undefined,
         undefined,
-        recovery.turnId,
+        continuation.turnId,
+        undefined,
+        continuation.actionScope,
       );
     }, 0);
     return () => window.clearTimeout(timer);
@@ -5789,12 +6001,24 @@ const AssistantChatInner = forwardRef<
   const handleImplementPlan = useCallback(() => {
     if (!canImplementPlan) return false;
     onExecModeChange?.("build");
+    const continuation = latestProtocolContinuationContext(messagesRef.current);
     void addToQueue(
       "Implement the plan.",
       undefined,
       undefined,
       undefined,
       "act",
+      "queued",
+      undefined,
+      false,
+      false,
+      false,
+      false,
+      undefined,
+      undefined,
+      continuation.turnId,
+      undefined,
+      continuation.actionScope,
     );
     return true;
   }, [addToQueue, canImplementPlan, onExecModeChange]);
@@ -5827,6 +6051,7 @@ const AssistantChatInner = forwardRef<
           undefined,
           undefined,
           options?.usageLabel,
+          options?.actionScope,
         );
       },
       implementPlan() {
@@ -5859,6 +6084,9 @@ const AssistantChatInner = forwardRef<
         recoveryAction: AgentRecoveryAction,
         images?: string[],
       ) {
+        const continuation = latestProtocolContinuationContext(
+          messagesRef.current,
+        );
         void addToQueue(
           text,
           images,
@@ -5867,6 +6095,15 @@ const AssistantChatInner = forwardRef<
           undefined,
           "queued",
           recoveryAction,
+          false,
+          false,
+          false,
+          false,
+          undefined,
+          undefined,
+          continuation.turnId,
+          undefined,
+          continuation.actionScope,
         );
       },
       queueMessage(text: string, images?: string[]) {
@@ -6014,6 +6251,10 @@ const AssistantChatInner = forwardRef<
   );
   const retryAfterRunError = useCallback(() => {
     setRunErrorInfo(null);
+    const failedTurnId = runErrorInfo?.turnId ?? lastMessageRunError?.turnId;
+    const continuation = failedTurnId
+      ? protocolContinuationContext(messagesRef.current, failedTurnId)
+      : latestProtocolContinuationContext(messagesRef.current);
     void addToQueue(
       lastUserText
         ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
@@ -6024,8 +6265,17 @@ const AssistantChatInner = forwardRef<
       undefined,
       "queued",
       "retry",
+      false,
+      false,
+      false,
+      false,
+      undefined,
+      undefined,
+      continuation.turnId,
+      undefined,
+      continuation.actionScope,
     );
-  }, [addToQueue, lastUserText]);
+  }, [addToQueue, lastMessageRunError?.turnId, lastUserText, runErrorInfo]);
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -6054,6 +6304,7 @@ const AssistantChatInner = forwardRef<
     !authError;
   const shouldShowRunError =
     !!visibleRunError &&
+    !isCreditsLimitErrorCode(visibleRunError.errorCode) &&
     !showRunningInUI &&
     visibleRunErrorKey !== dismissedRunErrorKey &&
     !showProviderAuthSetup &&
@@ -6101,9 +6352,18 @@ const AssistantChatInner = forwardRef<
           tabId: tabId ?? null,
         })
       : threadFooterSlot;
+  const resolvedThreadContentSlot =
+    typeof threadContentSlot === "function"
+      ? threadContentSlot({
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+        })
+      : threadContentSlot;
+  const hasThreadContentSlot = Boolean(resolvedThreadContentSlot);
   const hasThreadFooterSlot = Boolean(resolvedThreadFooterSlot);
   const isFreshEmptyChat =
     messages.length === 0 &&
+    !hasThreadContentSlot &&
     !hasActiveChatWork &&
     !isRestoring &&
     !isReconnecting &&
@@ -6118,7 +6378,10 @@ const AssistantChatInner = forwardRef<
   const centeredEmptyState =
     centerComposerWhenEmpty && (isFreshEmptyChat || centeredRestoringState);
   const showEmptyState =
-    messages.length === 0 && !isReconnecting && !hasActiveChatWork;
+    messages.length === 0 &&
+    !hasThreadContentSlot &&
+    !isReconnecting &&
+    !hasActiveChatWork;
   const showInlineEmptyThreadFooterSlot =
     showEmptyState &&
     !centeredEmptyState &&
@@ -6181,6 +6444,7 @@ const AssistantChatInner = forwardRef<
     showCenteredEmptyThreadFooterSlot ||
     (guidedQuestions && guidedQuestions.length > 0) ||
     visibleComposerContextItems.length > 0 ||
+    visibleQueuedMessages.length > 0 ||
     showPlanModeCallout ||
     showMissingKeySetup,
   );
@@ -6235,6 +6499,10 @@ const AssistantChatInner = forwardRef<
   // queued messages (no hand-written fetch).
   const approveToolCall = useCallback(
     (approvalKey: string) => {
+      const continuation = approvalProtocolContinuationContext(
+        messagesRef.current,
+        approvalKey,
+      );
       void addToQueue(
         "Approved. Go ahead and run the requested action.", // i18n-ignore -- stable hidden agent instruction, not UI copy.
         undefined,
@@ -6249,6 +6517,9 @@ const AssistantChatInner = forwardRef<
         true, // hideUserMessage: this is a protocol continuation, not a new prompt
         undefined,
         [approvalKey],
+        continuation.turnId,
+        undefined,
+        continuation.actionScope,
       );
     },
     [addToQueue],
@@ -6306,7 +6577,11 @@ const AssistantChatInner = forwardRef<
                       // ownership below.
                       value={showRunningInUI || runErrorInfo !== null}
                     >
-                      <TextStreamingContext.Provider value={textStreaming}>
+                      <AgentTextStreamingProvider
+                        identity={activeTextStreamingIdentity}
+                        streaming={textStreaming}
+                        runActive={showRunningInUI}
+                      >
                         <div
                           data-agent-empty-state={
                             centeredEmptyState
@@ -6493,20 +6768,21 @@ const AssistantChatInner = forwardRef<
                                         t("agentChat.empty.prompt")}
                                     </p>
                                     {emptyStateAddon}
-                                    {resolvedSuggestions &&
+                                    {showSuggestions &&
+                                    suggestionPlacement === "empty-state" &&
+                                    resolvedSuggestions &&
                                     resolvedSuggestions.length > 0 ? (
-                                      <div className="flex w-full max-w-[280px] flex-col gap-1">
+                                      <div className="flex w-full max-w-[320px] flex-col gap-1.5">
                                         {resolvedSuggestions.map(
                                           (suggestion) => (
                                             <button
                                               key={suggestion}
+                                              type="button"
                                               onClick={() => {
-                                                if (engineSetupRequired) {
-                                                  return;
-                                                }
+                                                if (engineSetupRequired) return;
                                                 void addToQueue(suggestion);
                                               }}
-                                              className="w-full px-2 py-1 text-center text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                              className="agent-empty-suggestion w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-left text-[13px] text-muted-foreground shadow-sm transition-[border-color,background-color,color,transform] hover:-translate-y-px hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                             >
                                               {suggestion}
                                             </button>
@@ -6527,6 +6803,13 @@ const AssistantChatInner = forwardRef<
                                   </div>
                                 ) : (
                                   <MessageScrollerContent className="agent-thread-content gap-4 px-4 py-4">
+                                    {resolvedThreadContentSlot ? (
+                                      <MessageScrollerItem>
+                                        <div className="agent-thread-content-slot">
+                                          {resolvedThreadContentSlot}
+                                        </div>
+                                      </MessageScrollerItem>
+                                    ) : null}
                                     {threadRestoreErrorSurface ? (
                                       <MessageScrollerItem>
                                         {threadRestoreErrorSurface}
@@ -6578,6 +6861,10 @@ const AssistantChatInner = forwardRef<
                                           onContinue={() => {
                                             setShowContinue(false);
                                             setLoopLimitInfo(null);
+                                            const continuation =
+                                              latestProtocolContinuationContext(
+                                                messagesRef.current,
+                                              );
                                             void addToQueue(
                                               "Continue from where you left off.",
                                               undefined,
@@ -6586,6 +6873,15 @@ const AssistantChatInner = forwardRef<
                                               undefined,
                                               "queued",
                                               "continue",
+                                              false,
+                                              false,
+                                              false,
+                                              false,
+                                              undefined,
+                                              undefined,
+                                              continuation.turnId,
+                                              undefined,
+                                              continuation.actionScope,
                                             );
                                           }}
                                         />
@@ -6597,6 +6893,15 @@ const AssistantChatInner = forwardRef<
                                           info={visibleRunError}
                                           onContinue={() => {
                                             setRunErrorInfo(null);
+                                            const continuation =
+                                              visibleRunError.turnId
+                                                ? protocolContinuationContext(
+                                                    messagesRef.current,
+                                                    visibleRunError.turnId,
+                                                  )
+                                                : latestProtocolContinuationContext(
+                                                    messagesRef.current,
+                                                  );
                                             void addToQueue(
                                               RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
                                               undefined,
@@ -6605,6 +6910,15 @@ const AssistantChatInner = forwardRef<
                                               undefined,
                                               "queued",
                                               "continue",
+                                              false,
+                                              false,
+                                              false,
+                                              false,
+                                              undefined,
+                                              undefined,
+                                              continuation.turnId,
+                                              undefined,
+                                              continuation.actionScope,
                                             );
                                           }}
                                           onRetry={retryAfterRunError}
@@ -6649,96 +6963,37 @@ const AssistantChatInner = forwardRef<
                                       )}
                                     {showGlobalRunningStatus && (
                                       <MessageScrollerItem>
-                                        <RunningActivityStatus
-                                          label={runningStatusLabel}
+                                        <AgentActivityTrace
+                                          items={[
+                                            {
+                                              id:
+                                                runningActivityTool ??
+                                                "working",
+                                              label:
+                                                runningActivityTool ??
+                                                "Working on your request",
+                                              variant: runningActivityTool
+                                                ?.toLowerCase()
+                                                .includes("search")
+                                                ? "search"
+                                                : "steps",
+                                              status: "running",
+                                            },
+                                          ]}
+                                          summary={
+                                            runningActivityLabel === "Thinking"
+                                              ? t("agentChat.status.working")
+                                              : runningStatusLabel
+                                          }
+                                          activeSummary={
+                                            runningActivityLabel === "Thinking"
+                                              ? t("agentChat.status.working")
+                                              : runningStatusLabel
+                                          }
+                                          running
                                         />
                                       </MessageScrollerItem>
                                     )}
-                                    {visibleQueuedMessages.length > 0 && (
-                                      <MessageScrollerItem>
-                                        <div className="flex items-center justify-end gap-1.5 pr-0.5 text-xs text-muted-foreground">
-                                          <IconClock className="h-3 w-3" />
-                                          <span>
-                                            {t("agentChat.queue.count", {
-                                              count:
-                                                visibleQueuedMessages.length,
-                                            })}
-                                          </span>
-                                        </div>
-                                      </MessageScrollerItem>
-                                    )}
-                                    {visibleQueuedMessages.map((msg) => {
-                                      const displayText =
-                                        displayableUserMessageText(msg.text);
-                                      const imageSources =
-                                        queuedMessageImageSources(msg);
-                                      return (
-                                        <MessageScrollerItem
-                                          key={msg.id}
-                                          messageId={msg.id}
-                                        >
-                                          <div className="group flex items-start justify-end gap-1.5">
-                                            {isRunning && (
-                                              <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                      sendQueuedMessageNow(
-                                                        msg.id,
-                                                      )
-                                                    }
-                                                    aria-label={t(
-                                                      "agentChat.queue.sendNow",
-                                                    )}
-                                                    className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                                                  >
-                                                    <IconArrowUp className="h-3 w-3" />
-                                                  </button>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                  {t("agentChat.queue.sendNow")}
-                                                </TooltipContent>
-                                              </Tooltip>
-                                            )}
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                applyLocalQueuedMessages(
-                                                  (prev) =>
-                                                    prev.filter(
-                                                      (m) => m.id !== msg.id,
-                                                    ),
-                                                )
-                                              }
-                                              aria-label={t(
-                                                "agentChat.queue.remove",
-                                              )}
-                                              className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                                            >
-                                              <IconX className="h-3 w-3" />
-                                            </button>
-                                            <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
-                                              {displayText}
-                                              {imageSources.length > 0 && (
-                                                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                                  {imageSources.map(
-                                                    (img, j) => (
-                                                      <img
-                                                        key={j}
-                                                        src={img}
-                                                        alt=""
-                                                        className="h-12 w-12 rounded object-cover border border-border/50"
-                                                      />
-                                                    ),
-                                                  )}
-                                                </div>
-                                              )}
-                                            </div>
-                                          </div>
-                                        </MessageScrollerItem>
-                                      );
-                                    })}
                                     {resolvedThreadFooterSlot ? (
                                       <MessageScrollerItem>
                                         <div className="agent-thread-footer-slot">
@@ -6756,9 +7011,6 @@ const AssistantChatInner = forwardRef<
                           </MessageScrollerProvider>
 
                           {showComposerSlot ? composerSlot : null}
-                          {isActiveComposer && (
-                            <McpConnectionSuggestion text={composerText} />
-                          )}
                           {showCenteredEmptyThreadFooterSlot ? (
                             <div className="agent-thread-footer-slot agent-thread-footer-slot--centered-empty">
                               {resolvedThreadFooterSlot}
@@ -6774,13 +7026,17 @@ const AssistantChatInner = forwardRef<
                                   ? { title: guidedQuestionsTitle }
                                   : {})}
                                 {...(guidedQuestionsDescription
-                                  ? { description: guidedQuestionsDescription }
+                                  ? {
+                                      description: guidedQuestionsDescription,
+                                    }
                                   : {})}
                                 {...(guidedQuestionsSkipLabel
                                   ? { skipLabel: guidedQuestionsSkipLabel }
                                   : {})}
                                 {...(guidedQuestionsSubmitLabel
-                                  ? { submitLabel: guidedQuestionsSubmitLabel }
+                                  ? {
+                                      submitLabel: guidedQuestionsSubmitLabel,
+                                    }
                                   : {})}
                                 className="h-auto items-stretch justify-stretch bg-transparent"
                               />
@@ -6806,6 +7062,23 @@ const AssistantChatInner = forwardRef<
                               </button>
                             </div>
                           )}
+                          {showSuggestions &&
+                          suggestionPlacement === "context-chips" &&
+                          resolvedSuggestionInputs &&
+                          resolvedSuggestionInputs.length > 0 ? (
+                            <AgentSuggestionBar
+                              ariaLabel={t(
+                                "agentChat.composer.suggestedPrompts",
+                              )}
+                              suggestions={resolvedSuggestionInputs}
+                              onSelect={(suggestion) => {
+                                if (engineSetupRequired) return;
+                                void addToQueue(
+                                  agentSuggestionPrompt(suggestion),
+                                );
+                              }}
+                            />
+                          ) : null}
                           <div
                             className="agent-composer-stack"
                             data-agent-composer-adjacent-ui={
@@ -6843,157 +7116,228 @@ const AssistantChatInner = forwardRef<
                               />
                             ) : null}
                             {/* Input area */}
-                            <AgentComposerFrame
-                              layoutVariant={composerLayoutVariant}
-                              className={cn(
-                                composerAreaClassName,
-                                showMissingKeySetup &&
-                                  "agent-composer-area--attached-above",
-                                isComposerDisabled &&
-                                  !showMissingKeySetup &&
-                                  "opacity-70",
-                              )}
-                              onClick={
-                                showMissingKeySetup
-                                  ? bounceMissingKeySetup
-                                  : undefined
-                              }
-                            >
-                              <>
-                                <ComposerAttachmentPreviewStrip />
-                                <TiptapComposer
-                                  focusRef={tiptapRef}
-                                  initialText={initialComposerText ?? undefined}
-                                  initialTextKey={composerDraftScope}
-                                  onTextChange={
-                                    isActiveComposer
-                                      ? handleComposerTextChange
-                                      : undefined
-                                  }
-                                  disabled={
-                                    isComposerDisabled || showMissingKeySetup
-                                  }
-                                  placeholder={
-                                    showMissingKeySetup
-                                      ? t("agentChat.setup.connectPlaceholder")
-                                      : engineSetupRequired
+                            <PromptBar mode="inline" className="contents">
+                              <AgentComposerFrame
+                                attachedAccessory={
+                                  <MessageQueueDrawer
+                                    variant="recessed"
+                                    items={visibleQueuedMessages.map(
+                                      (message) => ({
+                                        id: message.id,
+                                        text: displayableUserMessageText(
+                                          message.text,
+                                        ),
+                                        images:
+                                          queuedMessageImageSources(message),
+                                      }),
+                                    )}
+                                    labels={{
+                                      region: t("agentChat.queue.count", {
+                                        count: visibleQueuedMessages.length,
+                                      }),
+                                      steer: t("agentChat.queue.steer"),
+                                      steerHint: t("agentChat.queue.steerHint"),
+                                      remove: t("agentChat.queue.remove"),
+                                      moreActions: t(
+                                        "agentChat.queue.moreActions",
+                                      ),
+                                    }}
+                                    onSteer={(item) =>
+                                      sendQueuedMessageNow(item.id)
+                                    }
+                                    onRemove={(item) =>
+                                      applyLocalQueuedMessages((previous) =>
+                                        previous.filter(
+                                          (message) => message.id !== item.id,
+                                        ),
+                                      )
+                                    }
+                                    getItemActions={(item) => [
+                                      {
+                                        id: "move-to-top",
+                                        label: t("agentChat.queue.moveToTop"),
+                                        icon: (
+                                          <IconArrowUp
+                                            aria-hidden="true"
+                                            className="size-3.5"
+                                          />
+                                        ),
+                                        onSelect: () =>
+                                          applyLocalQueuedMessages((previous) =>
+                                            hoistQueuedMessageToFront(
+                                              previous,
+                                              item.id,
+                                            ),
+                                          ),
+                                      },
+                                    ]}
+                                  />
+                                }
+                                layoutVariant={composerLayoutVariant}
+                                className={cn(
+                                  composerAreaClassName,
+                                  showMissingKeySetup &&
+                                    "agent-composer-area--attached-above",
+                                  isComposerDisabled &&
+                                    !showMissingKeySetup &&
+                                    "opacity-70",
+                                )}
+                                onClick={
+                                  showMissingKeySetup
+                                    ? bounceMissingKeySetup
+                                    : undefined
+                                }
+                              >
+                                <>
+                                  <ComposerAttachmentPreviewStrip />
+                                  <TiptapComposer
+                                    focusRef={tiptapRef}
+                                    initialText={
+                                      initialComposerText ?? undefined
+                                    }
+                                    initialTextKey={composerDraftScope}
+                                    onTextChange={
+                                      isActiveComposer
+                                        ? handleComposerTextChange
+                                        : undefined
+                                    }
+                                    disabled={
+                                      isComposerDisabled || showMissingKeySetup
+                                    }
+                                    placeholder={
+                                      showMissingKeySetup
                                         ? t(
                                             "agentChat.setup.connectPlaceholder",
                                           )
-                                        : composerDisabled
-                                          ? (composerDisabledPlaceholder ??
-                                            t("agentChat.composer.openDesktop"))
-                                          : isRunning
-                                            ? queuedMessages.length > 0
-                                              ? t(
-                                                  "agentChat.queue.followUpWithCount",
-                                                  {
-                                                    count:
-                                                      queuedMessages.length,
-                                                  },
+                                        : engineSetupRequired
+                                          ? t(
+                                              "agentChat.setup.connectPlaceholder",
+                                            )
+                                          : composerDisabled
+                                            ? (composerDisabledPlaceholder ??
+                                              t(
+                                                "agentChat.composer.openDesktop",
+                                              ))
+                                            : isRunning
+                                              ? queuedMessages.length > 0
+                                                ? t(
+                                                    "agentChat.queue.followUpWithCount",
+                                                    {
+                                                      count:
+                                                        queuedMessages.length,
+                                                    },
+                                                  )
+                                                : t("agentChat.queue.followUp")
+                                              : resolveAssistantChatComposerPlaceholder(
+                                                  composerPlaceholder,
                                                 )
-                                              : t("agentChat.queue.followUp")
-                                            : resolveAssistantChatComposerPlaceholder(
-                                                composerPlaceholder,
-                                              )
-                                  }
-                                  onSubmit={async (
-                                    text,
-                                    references,
-                                    attachments,
-                                    options,
-                                  ) => {
-                                    const accepted = await addToQueue(
-                                      text,
-                                      undefined,
-                                      references.length > 0
-                                        ? references
-                                        : undefined,
-                                      attachments,
-                                      undefined,
-                                      resolveAssistantChatSubmitIntent({
-                                        isRunning,
-                                        requestedIntent: options?.intent,
-                                      }),
-                                      undefined,
-                                      true,
-                                    );
-                                    if (!accepted) {
-                                      throw new Error(
-                                        "Attachment submission was not accepted",
-                                      );
                                     }
-                                  }}
-                                  willQueue={engineSetupRequired || isRunning}
-                                  onSlashCommand={onSlashCommand}
-                                  execMode={execMode}
-                                  onExecModeChange={onExecModeChange}
-                                  planModeDisabled={planModeDisabled}
-                                  planModeDisabledReason={
-                                    planModeDisabledReason
-                                  }
-                                  selectedModel={selectedModel ?? defaultModel}
-                                  selectedEffort={selectedEffort}
-                                  availableModels={availableModels}
-                                  availableAgents={availableAgents}
-                                  selectedAgent={selectedAgent}
-                                  hostedHarness={hostedHarness}
-                                  modelListLoading={modelListLoading}
-                                  onModelChange={
-                                    shouldShowAssistantChatModelSelector(
-                                      showModelSelector,
-                                    )
-                                      ? onModelChange
-                                      : undefined
-                                  }
-                                  onEffortChange={onEffortChange}
-                                  onAgentChange={onAgentChange}
-                                  imageModelMenu={imageModelMenu}
-                                  onConnectProvider={onConnectProvider}
-                                  onConnectLocalRuntime={onConnectLocalRuntime}
-                                  toolbarSlot={composerToolbarSlot}
-                                  contextItems={visibleComposerContextItems}
-                                  onRemoveContextItem={
-                                    removeComposerContextItem
-                                  }
-                                  plusMenuMode={plusMenuMode}
-                                  layoutVariant={composerLayoutVariant}
-                                  providerConnectStatusEnabled={
-                                    providerStatusChecksEnabled
-                                  }
-                                  voiceEnabled
-                                  draftScope={composerDraftScope}
-                                  interceptBuildRequestsForBuilder
-                                  onAttachmentError={setComposerError}
-                                  extraActionButton={composerExtraActionButton}
-                                  stopButton={
-                                    showRunningInUI ? (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <button
-                                            type="button"
-                                            onClick={handleComposerStop}
-                                            aria-label={t(
+                                    onSubmit={async (
+                                      text,
+                                      references,
+                                      attachments,
+                                      options,
+                                    ) => {
+                                      const accepted = await addToQueue(
+                                        text,
+                                        undefined,
+                                        references.length > 0
+                                          ? references
+                                          : undefined,
+                                        attachments,
+                                        undefined,
+                                        resolveAssistantChatSubmitIntent({
+                                          isRunning,
+                                          requestedIntent: options?.intent,
+                                        }),
+                                        undefined,
+                                        true,
+                                      );
+                                      if (!accepted) {
+                                        throw new Error(
+                                          "Attachment submission was not accepted",
+                                        );
+                                      }
+                                    }}
+                                    willQueue={engineSetupRequired || isRunning}
+                                    onSlashCommand={onSlashCommand}
+                                    execMode={execMode}
+                                    onExecModeChange={onExecModeChange}
+                                    planModeDisabled={planModeDisabled}
+                                    planModeDisabledReason={
+                                      planModeDisabledReason
+                                    }
+                                    selectedModel={
+                                      selectedModel ?? defaultModel
+                                    }
+                                    selectedEffort={selectedEffort}
+                                    availableModels={availableModels}
+                                    availableAgents={availableAgents}
+                                    selectedAgent={selectedAgent}
+                                    hostedHarness={hostedHarness}
+                                    modelListLoading={modelListLoading}
+                                    onModelChange={
+                                      shouldShowAssistantChatModelSelector(
+                                        showModelSelector,
+                                      )
+                                        ? onModelChange
+                                        : undefined
+                                    }
+                                    onEffortChange={onEffortChange}
+                                    onAgentChange={onAgentChange}
+                                    imageModelMenu={imageModelMenu}
+                                    onConnectProvider={onConnectProvider}
+                                    onConnectLocalRuntime={
+                                      onConnectLocalRuntime
+                                    }
+                                    toolbarSlot={composerToolbarSlot}
+                                    contextItems={visibleComposerContextItems}
+                                    onRemoveContextItem={
+                                      removeComposerContextItem
+                                    }
+                                    plusMenuMode={plusMenuMode}
+                                    layoutVariant={composerLayoutVariant}
+                                    providerConnectStatusEnabled={
+                                      providerStatusChecksEnabled
+                                    }
+                                    voiceEnabled
+                                    draftScope={composerDraftScope}
+                                    interceptBuildRequestsForBuilder
+                                    onAttachmentError={setComposerError}
+                                    extraActionButton={
+                                      composerExtraActionButton
+                                    }
+                                    stopButton={
+                                      showRunningInUI ? (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <button
+                                              type="button"
+                                              onClick={handleComposerStop}
+                                              aria-label={t(
+                                                "agentChat.composer.stopResponse",
+                                              )}
+                                              data-agent-composer-slot="stop-button"
+                                              className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                            >
+                                              <IconPlayerStopFilled className="h-3 w-3" />
+                                            </button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            {t(
                                               "agentChat.composer.stopResponse",
                                             )}
-                                            data-agent-composer-slot="stop-button"
-                                            className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                          >
-                                            <IconPlayerStopFilled className="h-3 w-3" />
-                                          </button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                          {t("agentChat.composer.stopResponse")}
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    ) : undefined
-                                  }
-                                />
-                              </>
-                            </AgentComposerFrame>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      ) : undefined
+                                    }
+                                  />
+                                </>
+                              </AgentComposerFrame>
+                            </PromptBar>
                           </div>
                         </div>
-                      </TextStreamingContext.Provider>
+                      </AgentTextStreamingProvider>
                     </ChatRunningContext.Provider>
                   </ChatRunningTurnIdContext.Provider>
                 </ChatRunningRunIdContext.Provider>

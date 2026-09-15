@@ -356,6 +356,90 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## होस्ट किए गए एजेंट कनेक्शन {#hosted-agent-connections}
+
+होस्ट किया गया एजेंट तब A2A में भाग ले सकता है जब वह संगत A2A एंडपॉइंट उपलब्ध
+कराता है। केवल मॉडल प्रदाता या एजेंट SDK A2A पीयर नहीं होता। ऐप का UI,
+actions और डेटाबेस सामान्य ऐप होस्ट पर रखें, फिर एजेंट रनटाइम को उसके A2A
+एंडपॉइंट या किसी अडैप्टर के माध्यम से जोड़ें।
+
+होस्ट किए गए कनेक्शन में एंडपॉइंट मेटाडेटा और auth descriptor होता है। यह
+मेटाडेटा remote-agent resource या connection record के साथ रखें। manifest में
+कभी token या client secret न रखें:
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url` invocation endpoint या base URL है। जब discovery `/.well-known/agent-card.json`
+का उपयोग करता है तब `cardUrl` वैकल्पिक है। जब provider card को किसी दूसरे पथ
+पर प्रकाशित करता है तब इसे इस्तेमाल करें। Client agent card से protocol version
+पढ़ता है। यदि provider card में version नहीं है, तो `protocolVersion` सीधे
+`A2AClient` को दें। `auth` बताता है कि server-side code bearer token कैसे प्राप्त
+करेगा। समर्थित descriptor हैं vault-backed
+`credentialRef` वाला `bearer`, या `tokenUrl`, `clientId`, `clientSecretRef` और
+`scope` वाला `oauth-client-credentials`। `credentialRef` और `clientSecretRef`
+secret के references हैं, secret values नहीं।
+
+### सामान्य bearer A2A {#generic-bearer-a2a}
+
+जब peer `Authorization: Bearer ...` स्वीकार करता है, संगत card देता है और
+Agent-Native JSON-RPC स्वीकार करता है, तब standard client इस्तेमाल करें:
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+`token` को workspace connection या vault से server-side हल करें। इसे browser
+code से न भेजें, manifest में न लिखें और prompt में न रखें। Static API key
+केवल remote service के लिए transport credential है। यह Agent-Native caller
+identity स्थापित नहीं करती और `approvedActions` नहीं ले जाती।
+
+### Microsoft Foundry {#microsoft-foundry}
+
+[Azure AI Foundry hosted agents](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+आपके agent code या container को managed endpoint, identity, scaling, session
+state और observability के पीछे चलाते हैं। यह agent runtime के लिए hosting model
+है। Agent-Native UI, actions और PostgreSQL deployment को app host पर रखें और
+Foundry endpoint को server-side code से call करें।
+
+Foundry [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint)
+के माध्यम से A2A endpoint expose कर सकता है। इसके लिए Microsoft Entra auth
+चाहिए और caller को Foundry Agent Consumer permission चाहिए। जब endpoint
+Agent-Native JSON-RPC बोलता है तब provider के v0.3 card और endpoint के साथ
+`cardUrl` और `protocolVersion` का उपयोग करें। Token provider को Entra access
+token प्राप्त और refresh करना होगा। `A2A_SECRET` और static API key Foundry auth
+के लिए पर्याप्त नहीं हैं।
+
+### Gemini Enterprise {#gemini-enterprise}
+
+[Gemini Enterprise external A2A agents को register कर सकता है](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent)
+और उसका Agent Registry proxy endpoint प्रकाशित कर सकता है। इसका HTTP+JSON
+binding provider-specific paths उपयोग करता है: discovery के लिए `GET {url}/v1/card`,
+invocation के लिए `POST {url}/v1/message:send` और streaming के लिए
+`POST {url}/v1/message:stream`। Requests Google OAuth या ADC bearer tokens और
+Google Cloud IAM का उपयोग करती हैं। Endpoint और permissions के लिए [registry A2A endpoint से agent को call करें](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)।
+
+ये paths Agent-Native JSON-RPC paths (`/.well-known/agent-card.json` और
+`/_agent-native/a2a`) से अलग हैं। Endpoint को register करने से पहले ऐसा
+server-side adapter जोड़ें जो wire format translate करे और Google credentials
+प्राप्त तथा refresh करे। यदि target अलग standard A2A endpoint देता है, तो
+generic bearer guidance का उपयोग करें। Gemini Enterprise registration traffic
+Agent Gateway policies से होकर नहीं जाता, इसलिए target की अपनी auth और
+authorization policy लागू करें।
+
 ## प्रोग्रामेटिक वर्कस्पेस इनवोक {#programmatic-invoke}
 
 एजेंट-मूल कार्यस्थानों के लिए, कोड या ए के समय `agentNative` सहायक को प्राथमिकता दें

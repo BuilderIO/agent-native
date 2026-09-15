@@ -2,6 +2,7 @@ import {
   table,
   text,
   bigint,
+  boolean,
   ownableColumns,
   createSharesTable,
 } from "../db/schema.js";
@@ -9,6 +10,7 @@ import {
 export const organizations = table("organizations", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  // guard:allow-identity-column — immutable organization creation provenance
   createdBy: text("created_by").notNull(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   allowedDomain: text("allowed_domain"),
@@ -51,6 +53,32 @@ export const appMemberRoles = table("app_member_roles", {
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
+export const appPermissionOverrides = table("app_permission_overrides", {
+  orgId: text("org_id").notNull(),
+  appId: text("app_id").notNull(),
+  permission: text("permission").notNull(),
+  rolesJson: text("roles_json").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+/**
+ * Durable SCIM-to-framework membership ownership marker. This row intentionally
+ * stores only Better Auth's immutable user id, never an email identity. A
+ * `createdMembership=false` row means SCIM must leave an existing human-managed
+ * membership in place when the directory deactivates the user.
+ */
+export const orgScimMemberships = table("org_scim_memberships", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  // guard:allow-identity-column - immutable Better Auth user id
+  userId: text("user_id").notNull(),
+  /** The framework member row SCIM created, if any. */
+  memberId: text("member_id"),
+  createdMembership: boolean("created_membership").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
 export const orgInvitations = table("org_invitations", {
   id: text("id").primaryKey(),
   orgId: text("org_id").notNull(),
@@ -59,6 +87,7 @@ export const orgInvitations = table("org_invitations", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   status: text("status").notNull(),
   role: text("role"),
+  appRolesJson: text("app_roles_json"),
 });
 
 /** Workspace app access is framework-owned so every mounted app can enforce it. */

@@ -13,9 +13,12 @@ export default defineConfig({
 });
 ```
 
-Los proyectos nuevos pueden llamar `agentNativePlugins` a la función importada
-y expandir su resultado para mantener alineados los tipos de paquete de Vite.
-Es el mismo plugin `agentNative` y acepta las mismas opciones.
+En el scaffold de Chat generado, la importación sigue siendo `agentNative`. La configuración la
+asigna al alias local `agentNativePlugins` con una aserción de tipos y luego expande el arreglo de
+plugins resultante para mantener alineados los tipos de los paquetes de Vite. Acepta las mismas
+opciones que el ejemplo `agentNative` anterior. Añade `nitro: { preset: "netlify" }` a las
+opciones de esa llamada existente a `agentNativePlugins({ ... })`. Mantén sin cambios los demás
+plugins, opciones y alias propios de Chat.
 
 …o establece `NITRO_PRESET=netlify` en el momento de la compilación.
 

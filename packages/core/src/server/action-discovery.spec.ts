@@ -445,6 +445,20 @@ describe("action discovery", () => {
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
 
+  it("preserves WebMCP capability scopes in the action registry", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "visual-edit": {
+        default: {
+          tool: { description: "Visual edit", parameters: {} },
+          capabilityScopes: ["visual-edit"],
+          run: async () => ({}),
+        },
+      },
+    });
+
+    expect(registry["visual-edit"].capabilityScopes).toEqual(["visual-edit"]);
+  });
+
   it(
     "merges app-facing MCP actions without exposing them as agent tools",
     async () => {
@@ -491,6 +505,22 @@ describe("action discovery", () => {
       method: "GET",
     });
     expect(registry["set-localization-preference"]).toBeDefined();
+  });
+
+  it("merges Labs actions and their legacy experiment aliases", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "get-labs",
+      "set-lab",
+      "get-experiments",
+      "set-experiment",
+    ]) {
+      expect(registry[name], `${name} should be merged`).toBeDefined();
+      expect(registry[name].frameworkGroup).toBe("labs");
+    }
+    expect(registry["get-experiments"].http).toEqual({ method: "GET" });
   });
 
   it("merges toolkit history and review actions", async () => {

@@ -40,7 +40,7 @@ export interface DesignHotkeyTabDetails extends DesignHotkeyDetails {
 }
 
 export interface DesignHotkeyOpacityDetails extends DesignHotkeyDetails {
-  /** 1-100. Digit "1".."9" (no modifier) map to 10-90; "0" maps to 100. */
+  /** 0-100. Rapid digits use the last two as a percentage; a single "0" maps to 100. */
   opacity: number;
 }
 
@@ -126,6 +126,7 @@ export interface UseDesignHotkeysProps {
   /** Figma's Cmd+Alt+G — "Frame selection": wrap the selection in a frame
    *  container (distinct from onGroup's plain-group wrapper). */
   onFrameSelection?: DesignHotkeyHandler;
+  onBooleanSubtract?: DesignHotkeyHandler;
   onUndo?: DesignHotkeyHandler;
   onRedo?: DesignHotkeyHandler;
   onBringForward?: DesignHotkeyHandler;
@@ -152,12 +153,16 @@ export interface UseDesignHotkeysProps {
    */
   onDetachInstance?: DesignHotkeyHandler;
   /**
-   * Figma's plain digit 1-9 / 0 — set selection opacity (10-90%, 0 = 100%).
+   * Figma's plain digits set selection opacity immediately; consecutive digits
+   * form a percentage (a single "0" sets 100%, "00" sets 0%).
    * Only fires when a layer is selected (caller decides via presence of the
    * handler / its own guard) and the event isn't a modifier combo or an
    * editable-target keystroke (already filtered by ignoreEditableTargets).
    */
   onOpacityChange?: DesignHotkeyOpacityHandler;
+  /** Stable identity for the selected layer and screen; changing it clears a
+   *  partially typed opacity so digits cannot cross selections. */
+  opacitySelectionKey?: string | null;
   /** Figma's Cmd+Shift+H — toggle hide/show for the current selection (all
    *  selected layers/screens). */
   onToggleHidden?: DesignHotkeyHandler;
@@ -222,12 +227,15 @@ export interface UseDesignHotkeysProps {
   onShowKeyboardShortcuts?: DesignHotkeyHandler;
 }
 
+const OPACITY_SEQUENCE_WINDOW_MS = 1000;
+
 const TOOL_SHORTCUTS: Record<
   string,
   { tool: DesignHotkeyTool; handler: keyof UseDesignHotkeysProps }
 > = {
   v: { tool: "move", handler: "onMoveTool" },
   f: { tool: "frame", handler: "onFrameTool" },
+  a: { tool: "frame", handler: "onFrameTool" },
   r: { tool: "rectangle", handler: "onRectangleTool" },
   o: { tool: "ellipse", handler: "onEllipseTool" },
   l: { tool: "line", handler: "onLineTool" },
@@ -368,13 +376,69 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
       (typeof window === "undefined" ? null : (window as DesignHotkeyTarget));
     if (!eventTarget || props.enabled === false) return;
 
+    let opacityDigits = "";
+    let opacityLastDigitAt = 0;
+    let opacitySelectionKey: string | null = null;
+
+    const resetOpacitySequence = () => {
+      opacityDigits = "";
+      opacityLastDigitAt = 0;
+      opacitySelectionKey = null;
+    };
+
+    const applyOpacityDigit = (
+      event: KeyboardEvent,
+      digit: string,
+      current: UseDesignHotkeysProps,
+    ) => {
+      const selectionKey = current.opacitySelectionKey ?? null;
+      const now = Date.now();
+      if (
+        selectionKey !== opacitySelectionKey ||
+        now - opacityLastDigitAt > OPACITY_SEQUENCE_WINDOW_MS
+      ) {
+        opacityDigits = "";
+      }
+      opacitySelectionKey = selectionKey;
+      // Figma keeps the latest two digits, so a rapid "100" finishes at 0%.
+      opacityDigits = `${opacityDigits}${digit}`.slice(-2);
+      opacityLastDigitAt = now;
+      const opacity =
+        opacityDigits === "0"
+          ? 100
+          : Math.min(
+              100,
+              opacityDigits.length === 1
+                ? Number(opacityDigits) * 10
+                : Number(opacityDigits),
+            );
+      if (current.preventDefault !== false) event.preventDefault();
+      current.onOpacityChange?.({
+        event,
+        key: normalizedKey(event),
+        primary: false,
+        shift: false,
+        alt: false,
+        repeat: event.repeat,
+        opacity,
+      });
+    };
+
     const handleKeyDown = (event: Event) => {
       if (!(event instanceof KeyboardEvent)) return;
       const current = propsRef.current;
-      if (current.enabled === false) return;
-      if (event.defaultPrevented || event.isComposing) return;
-      if (current.shouldHandleEvent && !current.shouldHandleEvent(event))
+      if (current.enabled === false) {
+        resetOpacitySequence();
         return;
+      }
+      if (event.defaultPrevented || event.isComposing) {
+        resetOpacitySequence();
+        return;
+      }
+      if (current.shouldHandleEvent && !current.shouldHandleEvent(event)) {
+        resetOpacitySequence();
+        return;
+      }
       if (
         current.ignoreEditableTargets !== false &&
         isDesignHotkeyEditableTarget(event.target) &&
@@ -384,21 +448,46 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
           isDesignHistoryHotkeyTarget(event.target)
         )
       ) {
+        resetOpacitySequence();
         return;
       }
+
+      const digit = digitFromEvent(event);
+      if (
+        digit &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        current.onOpacityChange
+      ) {
+        applyOpacityDigit(event, digit, current);
+        return;
+      }
+
+      resetOpacitySequence();
 
       handleDesignHotkey(event, current);
     };
 
+    const handleBoundary = () => resetOpacitySequence();
+
     eventTarget.addEventListener("keydown", handleKeyDown, {
       capture: props.capture,
     });
+    eventTarget.addEventListener("pointerdown", handleBoundary);
+    eventTarget.addEventListener("focusin", handleBoundary);
+    eventTarget.addEventListener("blur", handleBoundary);
     return () => {
+      resetOpacitySequence();
       eventTarget.removeEventListener("keydown", handleKeyDown, {
         capture: props.capture,
       });
+      eventTarget.removeEventListener("pointerdown", handleBoundary);
+      eventTarget.removeEventListener("focusin", handleBoundary);
+      eventTarget.removeEventListener("blur", handleBoundary);
     };
-  }, [props.capture, props.enabled, props.target]);
+  }, [props.capture, props.enabled, props.opacitySelectionKey, props.target]);
 }
 
 export function handleDesignHotkey(
@@ -501,6 +590,10 @@ export function handleDesignHotkey(
         props[toolShortcut.handler] as DesignHotkeyHandler | undefined,
       );
     }
+  }
+
+  if (!primary && event.altKey && event.shiftKey && key === "s") {
+    return run(props.onBooleanSubtract);
   }
 
   if (event.key.startsWith("Arrow") && !primary && !event.altKey) {
@@ -629,10 +722,11 @@ export function handleDesignHotkey(
   if (primary && key === "d") {
     return runSharedCanvasCommand() || claim(props.onDuplicate);
   }
-  // Keep Shift+Cmd+R available for Figma's "Paste to replace" command. Bare
-  // Cmd/Ctrl+R stays native so browser refresh keeps its expected meaning.
-  // Deliberately `run`, not `claim`: with no handler the design is read-only,
-  // and Design has nothing to offer in exchange for a hard reload.
+  // Figma uses Cmd/Ctrl+R to rename the selected layer. Shift keeps its
+  // separate Paste to replace command below.
+  if (primary && !event.altKey && !event.shiftKey && key === "r") {
+    return claim(props.onRename);
+  }
   if (primary && event.shiftKey && key === "r") {
     return run(props.onPasteToReplace);
   }
@@ -704,11 +798,9 @@ export function handleDesignHotkey(
   if (event.shiftKey && !primary && digit === "2") {
     return run(props.onZoomToSelection);
   }
-  // H2: plain digit 1-9/0 (no modifier) — set selection opacity. Figma maps
-  // 1-9 to 10%-90% and 0 to 100%. Only handled when nothing else claimed the
-  // digit (e.g. Shift+1/Shift+2 zoom above) and no modifier is held; the
-  // caller supplies onOpacityChange only when a layer is selected and canvas
-  // has focus, so an absent handler naturally no-ops here.
+  // H2: plain digit 1-9/0 (no modifier) — set selection opacity. The hook
+  // buffers rapid digits as a percentage; this fallback remains for direct
+  // callers of handleDesignHotkey and maps a single digit to 10%-90%/100%.
   if (
     !primary &&
     !event.altKey &&

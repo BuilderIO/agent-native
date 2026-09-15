@@ -1,10 +1,11 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import { ShareTrigger } from "@agent-native/toolkit/sharing";
@@ -43,6 +44,8 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -52,6 +55,14 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+
+// The share controller + dialog surface stays out of the editor's first-load
+// bundle; it loads the first time the Share flow opens.
+const ShareButton = lazy(() =>
+  import("@agent-native/core/client/sharing").then((m) => ({
+    default: m.ShareButton,
+  })),
+);
 
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
@@ -87,7 +98,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useCreativeContextExperiment } from "@/hooks/use-creative-context-experiment";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -585,12 +596,13 @@ export function DocumentToolbar({
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
-  const creativeContextEnabled = useCreativeContextExperiment();
+  const creativeContextEnabled = useCreativeContextLab();
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
+  const [shareRequested, setShareRequested] = useState(false);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
@@ -704,10 +716,15 @@ export function DocumentToolbar({
     [documentId, hideFromSearch, queryClient, setDocumentDiscoverability, t],
   );
 
-  const handleCopyLocalRelativePath = useCallback(() => {
+  const handleCopyLocalRelativePath = useCallback(async () => {
     const filePath = source?.path;
     if (!filePath) return;
-    void navigator.clipboard?.writeText(filePath);
+    if (!(await writeClipboardText(filePath))) {
+      toast.error(t("empty.genericError"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+      return;
+    }
     toast.success(t("editor.toolbar.copiedRelativePath"));
   }, [source?.path, t]);
 
@@ -719,34 +736,31 @@ export function DocumentToolbar({
       });
       return;
     }
-    void navigator.clipboard?.writeText(filePath);
+    if (!(await writeClipboardText(filePath))) {
+      toast.error(t("empty.genericError"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+      return;
+    }
     toast.success(t("editor.toolbar.copiedAbsolutePath"));
   }, [source, t]);
 
   const handleCopyPageLink = useCallback(async () => {
-    if (!navigator.clipboard?.writeText) {
+    if (!(await writeClipboardText(copyPageUrl))) {
       toast.error(t("editor.toolbar.couldNotCopyLink"), {
         description: t("editor.toolbar.clipboardAccessUnavailable"),
       });
       return;
     }
 
-    try {
-      await navigator.clipboard.writeText(copyPageUrl);
-      if (!isLocalFileDocument) {
-        trackEvent("share_link_copied", {
-          resource_type: "document",
-          resource_id: documentId,
-          link_type: "share",
-        });
-      }
-      toast.success(t("editor.toolbar.copiedPageLink"));
-    } catch (error) {
-      toast.error(t("editor.toolbar.couldNotCopyLink"), {
-        description:
-          error instanceof Error ? error.message : t("empty.genericError"),
+    if (!isLocalFileDocument) {
+      trackEvent("share_link_copied", {
+        resource_type: "document",
+        resource_id: documentId,
+        link_type: "share",
       });
     }
+    toast.success(t("editor.toolbar.copiedPageLink"));
   }, [copyPageUrl, documentId, isLocalFileDocument, t]);
 
   const handleRevealLocalPath = useCallback(async () => {
@@ -910,8 +924,8 @@ export function DocumentToolbar({
   );
 
   const handleSetup = () => {
-    toast.info(t("editor.toolbar.setUpNotionFirst"));
     setOpen(false);
+    void navigate(`${buildSettingsRoute("integrations")}?q=Notion`);
   };
 
   const handleExport = useCallback(
@@ -997,57 +1011,73 @@ export function DocumentToolbar({
               onPress={() => void handleShareLocalFile()}
             />
           ) : (
-            <>
-              <ShareButton
-                resourceType="document"
-                resourceId={documentId}
-                resourceTitle={documentTitle}
-                shareUrl={shareUrl}
-                defaultOpen={openShareOnLoad}
-                onOpenChange={handleDbShareOpenChange}
-                visibilityCopy={{
-                  org: {
-                    description: effectiveHideFromSearch
-                      ? t("editor.toolbar.orgLinkCanView")
-                      : t("editor.toolbar.orgCanFindAndView"),
-                  },
-                }}
-                hideInSearchControl={{
-                  checked: effectiveHideFromSearch,
-                  pending: setDocumentDiscoverability.isPending,
-                  label: t("editor.toolbar.hideInSearch"),
-                  description: t("editor.toolbar.hideInSearchDescription"),
-                  onCheckedChange: handleHideFromSearchChange,
-                }}
-                variant="compact"
-                shareTabs={
-                  creativeContextEnabled
-                    ? {
-                        tabs: [
-                          {
-                            value: "context",
-                            label: t("creativeContext.share.tabLabel"),
-                            content: (
-                              <CreativeContextShareTab
-                                resource={{
-                                  appId: "content",
-                                  resourceType: "document",
-                                  resourceId: documentId,
-                                  title: documentTitle || "Untitled",
-                                  updatedAt: documentUpdatedAt ?? undefined,
-                                  preview: {
-                                    kind: "document",
-                                    label: t("root.commandDocumentsHeading"),
-                                  },
-                                }}
-                              />
-                            ),
-                          },
-                        ],
-                      }
-                    : undefined
-                }
-              />
+            <Suspense
+              fallback={
+                <ShareTrigger
+                  aria-expanded={false}
+                  label={t("editor.toolbar.share")}
+                  onPress={() => setShareRequested(true)}
+                />
+              }
+            >
+              {shareRequested || openShareOnLoad ? (
+                <ShareButton
+                  resourceType="document"
+                  resourceId={documentId}
+                  resourceTitle={documentTitle}
+                  shareUrl={shareUrl}
+                  defaultOpen={shareRequested || openShareOnLoad}
+                  onOpenChange={handleDbShareOpenChange}
+                  visibilityCopy={{
+                    org: {
+                      description: effectiveHideFromSearch
+                        ? t("editor.toolbar.orgLinkCanView")
+                        : t("editor.toolbar.orgCanFindAndView"),
+                    },
+                  }}
+                  hideInSearchControl={{
+                    checked: effectiveHideFromSearch,
+                    pending: setDocumentDiscoverability.isPending,
+                    label: t("editor.toolbar.hideInSearch"),
+                    description: t("editor.toolbar.hideInSearchDescription"),
+                    onCheckedChange: handleHideFromSearchChange,
+                  }}
+                  variant="compact"
+                  shareTabs={
+                    creativeContextEnabled
+                      ? {
+                          tabs: [
+                            {
+                              value: "context",
+                              label: t("creativeContext.share.tabLabel"),
+                              content: (
+                                <CreativeContextShareTab
+                                  resource={{
+                                    appId: "content",
+                                    resourceType: "document",
+                                    resourceId: documentId,
+                                    title: documentTitle || "Untitled",
+                                    updatedAt: documentUpdatedAt ?? undefined,
+                                    preview: {
+                                      kind: "document",
+                                      label: t("root.commandDocumentsHeading"),
+                                    },
+                                  }}
+                                />
+                              ),
+                            },
+                          ],
+                        }
+                      : undefined
+                  }
+                />
+              ) : (
+                <ShareTrigger
+                  aria-expanded={false}
+                  label={t("editor.toolbar.share")}
+                  onPress={() => setShareRequested(true)}
+                />
+              )}
 
               <VersionHistoryPanel
                 documentId={documentId}
@@ -1060,7 +1090,7 @@ export function DocumentToolbar({
                 onRestored={onHistoryRestored}
                 restoreUnavailableReason={restoreUnavailableReason}
               />
-            </>
+            </Suspense>
           )}
 
           {suggesting ? (
@@ -1097,11 +1127,17 @@ export function DocumentToolbar({
                   )}
                   aria-label={t("comments.title")}
                   aria-pressed={commentsHistoryOpen}
-                  onClick={() =>
-                    onUtilityPanelChange(
-                      commentsHistoryOpen ? null : "comments",
-                    )
-                  }
+                  onClick={() => {
+                    const nextPanel = commentsHistoryOpen ? null : "comments";
+                    if (nextPanel === "comments") {
+                      trackEvent("document_utility_panel_opened", {
+                        app_name: "content",
+                        template_name: "content",
+                        panel: "comments",
+                      });
+                    }
+                    onUtilityPanelChange(nextPanel);
+                  }}
                 >
                   <IconMessageCircle size={16} />
                 </button>
@@ -1189,11 +1225,17 @@ export function DocumentToolbar({
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem
-                  onSelect={() =>
-                    onUtilityPanelChange(
-                      utilityPanel === "info" ? null : "info",
-                    )
-                  }
+                  onSelect={() => {
+                    const nextPanel = utilityPanel === "info" ? null : "info";
+                    if (nextPanel === "info") {
+                      trackEvent("document_utility_panel_opened", {
+                        app_name: "content",
+                        template_name: "content",
+                        panel: "info",
+                      });
+                    }
+                    onUtilityPanelChange(nextPanel);
+                  }}
                   className={cn(
                     utilityPanel === "info" &&
                       "bg-accent text-accent-foreground",
@@ -1220,7 +1262,9 @@ export function DocumentToolbar({
                     <IconFolderOpen className="me-2 h-4 w-4" />
                     {t("editor.toolbar.revealInFinder")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={handleCopyLocalRelativePath}>
+                  <DropdownMenuItem
+                    onSelect={() => void handleCopyLocalRelativePath()}
+                  >
                     <IconCopy className="me-2 h-4 w-4" />
                     {t("editor.toolbar.copyRelativePath")}
                   </DropdownMenuItem>
@@ -1235,7 +1279,15 @@ export function DocumentToolbar({
               ) : (
                 <>
                   <DropdownMenuGroup>
-                    <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        trackEvent("document_history_opened", {
+                          app_name: "content",
+                          template_name: "content",
+                        });
+                        setHistoryOpen(true);
+                      }}
+                    >
                       <IconHistory className="me-2 h-4 w-4" />
                       {t("editor.toolbar.versionHistory")}
                     </DropdownMenuItem>
@@ -1294,12 +1346,7 @@ export function DocumentToolbar({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className={cn(
-                          "flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                          isLinked
-                            ? "text-foreground"
-                            : "text-muted-foreground",
-                        )}
+                        className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
                       >
                         <span className="me-2 flex h-4 w-4 shrink-0 items-center justify-center">
                           {hasConflict ? (

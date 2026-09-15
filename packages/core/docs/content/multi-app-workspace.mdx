@@ -13,6 +13,22 @@ description: "Host many agent-native apps in one monorepo with shared auth, RBAC
 
 </Callout>
 
+## Standalone or workspace? {#standalone-or-workspace}
+
+Choose a **workspace** when one company operates several internal apps that
+should share deployment configuration, organization context, and team
+administration. A workspace can also deploy its apps independently when
+separate hostnames or release schedules are needed.
+
+Choose a **standalone app** when you are building one independent app, such as
+a one-off customer-facing tool or a prototype. Standalone is a supported
+deployment shape. It does not provide the shared workspace package, root
+configuration, or multi-app conventions. It can still use the framework's
+organization and access features.
+
+For a single-org internal deployment, start with a workspace and configure
+invite-only access in [Administered Deployments](/docs/administered-deployments).
+
 When vibe-coding an internal tool takes an afternoon, you don't stop at one. A team ends up with a CRM, a support inbox, a dashboard, an ops console — ten small apps, each scaffolded independently. That's great until you need to change something in all of them.
 
 At that point every app has its own `AGENTS.md`, its own auth plugin, its own copy-pasted layout component, its own hard-coded Slack token, its own idea of what an "organization" is. A compliance rule change means ten PRs. Rotating an API key means ten redeployments. A brand refresh means ten different headers drifting out of sync. The thing that made it easy to build them is now making it hard to manage them.

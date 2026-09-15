@@ -45,6 +45,12 @@ import { Link, useNavigate } from "react-router";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { signOut } from "../sign-out.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
@@ -432,17 +438,28 @@ export function OrgSwitcher({
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      <PopoverPrimitive.Trigger asChild>
-        {compact ? (
-          <button
-            type="button"
-            title={triggerLabel}
-            aria-label={triggerLabel}
-            className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-          >
-            <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
-          </button>
-        ) : (
+      {compact ? (
+        // The popover trigger has to sit directly on the button: both Radix
+        // slots merge their props into the same DOM node, and a provider
+        // between them would swallow the click that opens the switcher.
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverPrimitive.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label={triggerLabel}
+                  className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+                >
+                  <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+                </button>
+              </PopoverPrimitive.Trigger>
+            </TooltipTrigger>
+            <TooltipContent side="right">{triggerLabel}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <PopoverPrimitive.Trigger asChild>
           <button
             type="button"
             aria-label={triggerLabel}
@@ -458,15 +475,15 @@ export function OrgSwitcher({
             )}
             <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
           </button>
-        )}
-      </PopoverPrimitive.Trigger>
+        </PopoverPrimitive.Trigger>
+      )}
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           side="top"
           align="start"
           sideOffset={6}
           collisionPadding={12}
-          className={`${POPOVER_CONTENT_CLASS} ${mode === "list" ? "" : "w-64"}`}
+          className={`${POPOVER_CONTENT_CLASS} w-64 max-w-[calc(100vw-1.5rem)]`}
           onOpenAutoFocus={(e) => {
             // Don't auto-focus the first item — feels heavy on a switcher.
             if (mode === "list") e.preventDefault();
@@ -526,7 +543,7 @@ export function OrgSwitcher({
                   aria-disabled="true"
                 >
                   <IconUser className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate flex-1 text-start">
+                  <span className="min-w-0 truncate flex-1 text-start">
                     Personal ({personalLabel})
                   </span>
                 </div>
@@ -552,7 +569,7 @@ export function OrgSwitcher({
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconBriefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate flex-1 text-start">
+                  <span className="min-w-0 truncate flex-1 text-start">
                     {o.orgName}
                   </span>
                   {o.orgId === org.orgId && (
@@ -569,7 +586,7 @@ export function OrgSwitcher({
                     <div key={inv.id} className="px-2.5 py-1.5 text-xs">
                       <div className="flex items-center gap-2">
                         <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate flex-1 text-foreground">
+                        <span className="min-w-0 truncate flex-1 text-foreground">
                           {inv.orgName}
                         </span>
                         <button
@@ -622,7 +639,7 @@ export function OrgSwitcher({
                         className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
                       >
                         <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate flex-1 text-foreground">
+                        <span className="min-w-0 truncate flex-1 text-foreground">
                           {match.orgName}
                         </span>
                         <button

@@ -62,9 +62,32 @@ describe("org switcher app links", () => {
     expect(apps?.map((app) => app.id)).toEqual(["dispatch", "mail"]);
     expect(apps?.map((app) => app.icon)).toEqual(["MessageCircle", "Mail"]);
     expect(apps?.[0]?.href).toBe("http://127.0.0.1:8080/dispatch/overview");
-    expect(apps?.[1]?.href).toBe("http://127.0.0.1:8080/mail");
+    expect(apps?.[1]?.href).toBe("http://127.0.0.1:8080/mail/home");
     expect(dispatchAppsHref(apps ?? [])).toBe(
       "http://127.0.0.1:8080/dispatch/apps",
+    );
+  });
+
+  it("uses a published custom home path for workspace app links", () => {
+    const apps = parseWorkspaceAppLinks({
+      apps: [{ id: "mail", path: "/mail", homePath: "/inbox" }],
+    });
+    expect(apps?.[0]?.href).toBe("/mail/inbox");
+  });
+
+  it("preserves legacy hosted URLs when no home path is published", () => {
+    const apps = parseWorkspaceAppLinks({
+      apps: [
+        {
+          id: "mail",
+          path: "/mail",
+          url: "https://mail.example.test/inbox?tenant=acme#today",
+        },
+      ],
+    });
+
+    expect(apps?.[0]?.href).toBe(
+      "https://mail.example.test/inbox?tenant=acme#today",
     );
   });
 

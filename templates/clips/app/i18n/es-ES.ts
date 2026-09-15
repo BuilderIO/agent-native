@@ -67,6 +67,8 @@ const messages = {
     recordings: "Grabaciones",
     newFolder: "Nueva carpeta",
     noSpaces: "Aún no hay espacios",
+    noSpacesAdminCta:
+      "Pide a un administrador de la organización que cree el primer espacio.",
     desktopCta: "Obtener la app de escritorio",
     desktopTitle: "Obtén la app de escritorio de Clips.",
     desktopBody:
@@ -732,17 +734,17 @@ const messages = {
     agentTitle: "Gestionar agente",
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
-    experiments: "Experimentos",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
-    experimentVideoEditing: "Edición de vídeo",
-    experimentVideoEditingDescription: "Prueba el nuevo editor de vídeo.",
-    experimentMeetings: "Reuniones y transcripción",
-    experimentMeetingsDescription:
+    labVideoEditing: "Edición de vídeo",
+    labVideoEditingDescription: "Prueba el nuevo editor de vídeo.",
+    labMeetings: "Reuniones y transcripción",
+    labMeetingsDescription:
       "Prueba la captura y transcripción automática de reuniones.",
-    experimentWisprFlow: "Dictado por voz",
-    experimentWisprFlowDescription:
-      "Prueba la nueva función de dictado por voz.",
+    labWisprFlow: "Dictado por voz",
+    labWisprFlowDescription:
+      "Muestra u oculta el dictado por voz en Clips Desktop.",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
     preferencesTitle: "Preferencias",
     languageTitle: "Idioma",
@@ -979,6 +981,8 @@ const messages = {
     renameFailed: "No se pudo renombrar el clip",
     renameClip: "Renombrar clip",
     clipTitle: "Título del clip",
+    archiveAction: "Archivar",
+    moveToTrashAction: "Mover a la papelera",
     movedToTrash: "Movido a la papelera",
     restoredFromArchive: "Restaurado desde el archivo",
     archived: "Archivado",
@@ -1866,6 +1870,7 @@ const messages = {
       "{{consoleCount}} problemas de consola · {{networkCount}} solicitudes fallidas",
     noFailures: "No se detectaron fallos",
     failuresPresent: "Se detectaron fallos del navegador",
+    unviewedCount: "{{count}} sin ver",
     captureSuccessful: "Diagnósticos capturados correctamente",
     capturedFrom: "Capturado desde {{source}}",
     browserCapture: "Captura del navegador",

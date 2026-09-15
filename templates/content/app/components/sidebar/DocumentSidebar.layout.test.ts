@@ -20,6 +20,24 @@ function treeNode(
 }
 
 describe("document sidebar layout", () => {
+  it("opens search from expanded and collapsed sidebar branches", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const collapsedBranchStart = sidebar.indexOf("if (collapsed)");
+    const expandedBranchStart = sidebar.indexOf(
+      "className={cn(",
+      collapsedBranchStart,
+    );
+
+    expect(sidebar).toContain("openCommandMenu");
+    expect(sidebar).toContain('t("sidebar.search")');
+    expect(sidebar.slice(collapsedBranchStart, expandedBranchStart)).toContain(
+      "renderSearchButton()",
+    );
+    expect(sidebar.slice(expandedBranchStart)).toContain(
+      "renderSearchButton()",
+    );
+  });
+
   it("keeps deeply nested page rows within the sidebar viewport", () => {
     const layout = readSidebarSource("../layout/Layout.tsx");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
@@ -367,7 +385,8 @@ describe("document sidebar layout", () => {
       "return { databaseId: expanded ? databaseId : null, enabled: ready }",
     );
     expect(sidebar).toContain("deferredFilesDatabase.databaseId");
-    expect(sidebar).toContain("{ enabled: deferredFilesDatabase.enabled }");
+    expect(sidebar).toContain("enabled: deferredFilesDatabase.enabled");
+    expect(sidebar).toContain('systemRole: "files"');
     expect(hooks).toContain(
       "isContentDatabaseByIdQueryEnabled(databaseId, options)",
     );
@@ -446,10 +465,10 @@ describe("document sidebar layout", () => {
     expect(messages).toContain('restorePage: "Restore"');
     expect(messages).toContain('trashEmpty: "Trash is empty"');
     expect(messages).toContain(
-      'deleteDatabasePermanentlyQuestion: "Delete database permanently?"',
+      'deleteDatabasePermanentlyQuestion: "Delete collection permanently?"',
     );
     expect(messages).toContain(
-      'failedRestoreDatabase: "Failed to restore database"',
+      'failedRestoreDatabase: "Failed to restore collection"',
     );
   });
 

@@ -67,6 +67,7 @@ const messages = {
     recordings: "録画",
     newFolder: "新規フォルダ",
     noSpaces: "スペースはまだありません",
+    noSpacesAdminCta: "組織の管理者に最初のスペース作成を依頼してください。",
     desktopCta: "デスクトップアプリを入手",
     desktopTitle: "Clips デスクトップアプリを入手しましょう。",
     desktopBody:
@@ -725,16 +726,17 @@ const messages = {
     agentTitle: "エージェントを管理",
     title: "設定",
     pageTitle: "設定 · Clips",
-    experiments: "実験機能",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
-    experimentVideoEditing: "動画編集",
-    experimentVideoEditingDescription: "新しい動画エディターをお試しください。",
-    experimentMeetings: "会議と文字起こし",
-    experimentMeetingsDescription:
+    labVideoEditing: "動画編集",
+    labVideoEditingDescription: "新しい動画エディターをお試しください。",
+    labMeetings: "会議と文字起こし",
+    labMeetingsDescription:
       "会議の自動キャプチャと文字起こしをお試しください。",
-    experimentWisprFlow: "音声入力",
-    experimentWisprFlowDescription: "新しい音声入力機能をお試しください。",
+    labWisprFlow: "音声入力",
+    labWisprFlowDescription:
+      "Clips Desktop の音声入力を表示または非表示にします。",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
     preferencesTitle: "環境設定",
     languageTitle: "言語",
@@ -965,6 +967,8 @@ const messages = {
     renameFailed: "クリップ名の変更に失敗しました",
     renameClip: "クリップ名を変更",
     clipTitle: "クリップタイトル",
+    archiveAction: "アーカイブ",
+    moveToTrashAction: "ゴミ箱に移動",
     movedToTrash: "ゴミ箱に移動しました",
     restoredFromArchive: "アーカイブから復元しました",
     archived: "アーカイブしました",
@@ -1860,6 +1864,7 @@ const messages = {
       "コンソールの問題 {{consoleCount}} 件 · 失敗したリクエスト {{networkCount}} 件",
     noFailures: "失敗は検出されませんでした",
     failuresPresent: "ブラウザの問題が検出されました",
+    unviewedCount: "未確認 {{count}} 件",
     captureSuccessful: "診断情報を取得しました",
     capturedFrom: "{{source}} から取得",
     browserCapture: "ブラウザキャプチャ",

@@ -96,6 +96,78 @@ describe("Google callback deploy verification guard", () => {
       /directly with the supported Node loader|only definitive/,
     );
   });
+
+  it("accepts a pinned beta source while main advances during the queue", () => {
+    assert.match(
+      reusableSource,
+      /const comparison = await github\.rest\.repos\.compareCommits\([\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
+    assert.doesNotMatch(
+      reusableSource,
+      /Beta source_ref must equal current main/,
+    );
+  });
+
+  it("checks the published beta runtime context for the relay secret", () => {
+    const relayStep =
+      "      - name: Verify Netlify Google OAuth relay metadata";
+    const packageStep = "      - name: Package the prebuilt artifact";
+    const uploadStep = "      - name: Upload the prebuilt artifact";
+    const smokeStep = "      - name: Smoke-test the uploaded deploy";
+    assert.equal(reusableSource.split(relayStep).length, 2);
+    assert.equal(reusableSource.split(packageStep).length, 2);
+    assert.equal(reusableSource.split(uploadStep).length, 2);
+    assert.equal(reusableSource.split(smokeStep).length, 2);
+    const start = reusableSource.indexOf(relayStep);
+    const end = reusableSource.indexOf(smokeStep, start);
+    assert.ok(start >= 0 && end > start);
+    const step = reusableSource.slice(start, end);
+
+    assert.match(step, /\(inputs\.deploy \|\| inputs\.target == 'beta'\)/);
+    assert.match(step, /DEPLOY_MODE: \$\{\{ inputs\.deploy_mode \}\}/);
+    assert.match(step, /TARGET: \$\{\{ inputs\.target \}\}/);
+    assert.match(
+      step,
+      /if \[\[ \"\$TARGET\" == \"beta\" && \"\$DEPLOY_MODE\" == \"production\" \]\]/,
+    );
+    assert.match(step, /relay_context=production/);
+    assert.match(step, /!value/);
+    assert.match(step, /Netlify masks secret values/);
+    assert.match(step, /Verified Google OAuth relay metadata/);
+    assert.doesNotMatch(step, /netlify env:get/);
+    const metadataScript = step.match(
+      /printf '%s' "\$env_json" \|\n\s*node -e '\n([\s\S]*?)\n\s*' "\$relay_context"/,
+    )?.[1];
+    assert.ok(metadataScript);
+    const runMetadataCheck = (variables: unknown[], context: string) =>
+      execFileSync(process.execPath, ["-e", metadataScript, context], {
+        encoding: "utf8",
+        input: JSON.stringify(variables),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    const allContextRelay = {
+      key: "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
+      is_secret: true,
+      scopes: ["runtime"],
+      values: [{ context: "all" }],
+    };
+    assert.doesNotThrow(() =>
+      runMetadataCheck([allContextRelay], "branch-deploy"),
+    );
+    assert.throws(() =>
+      runMetadataCheck([{ ...allContextRelay, values: [] }], "branch-deploy"),
+    );
+    assert.match(
+      step,
+      /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,
+    );
+    const relayIndex = reusableSource.indexOf(relayStep);
+    const packageIndex = reusableSource.indexOf(packageStep);
+    const uploadIndex = reusableSource.indexOf(uploadStep);
+    assert.ok(
+      relayIndex >= 0 && relayIndex < packageIndex && relayIndex < uploadIndex,
+    );
+  });
 });
 
 describe("Netlify PR preview workflow guard", () => {
@@ -481,6 +553,7 @@ describe("production Netlify site concurrency guard", () => {
       "resolve-source",
       "discover-sites",
       "build",
+      "confirm-current-source",
     ]);
     assert.equal((beta.jobs as Workflow).deploy.with.artifact_download, true);
     assert.match(
@@ -488,6 +561,17 @@ describe("production Netlify site concurrency guard", () => {
       /github\.run_id/,
     );
     assert.equal((beta.jobs as Workflow)["schema-gate"], undefined);
+    const betaSource = readFileSync(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      "utf8",
+    );
+    // build is a fail-fast:false matrix over ~18 sites; one site's failed
+    // build must not skip confirm-current-source/deploy for every other site.
+    assert.doesNotMatch(betaSource, /needs\.build\.result == 'success'/);
+    assert.match(
+      betaSource,
+      /contains\(fromJSON\('\["success","failure"\]'\), needs\.build\.result\)/,
+    );
     const production = readWorkflow(
       ".github/workflows/deploy-production-sites-prebuilt.yml",
     );
@@ -530,6 +614,18 @@ describe("production Netlify site concurrency guard", () => {
       (step) =>
         step.name === "Verify beta source is current immediately before upload",
     );
+    const betaFreshness = reusableSteps[betaFreshnessIndex];
+    const betaPreMigrationFreshness =
+      reusableSteps[betaPreMigrationFreshnessIndex];
+    const betaFirstPublishFreshness = reusableSteps.find(
+      (step) =>
+        step.name ===
+        "Verify first beta deploy source immediately before publish",
+    );
+    const betaPostFreshness = reusableSteps.find(
+      (step) => step.name === "Verify beta source is current after publish",
+    );
+    const previousStep = reusableSteps.find((step) => step.id === "previous");
     const buildIndex = reusableSteps.findIndex(
       (step) => step.name === "Build with the Netlify project configuration",
     );
@@ -551,6 +647,33 @@ describe("production Netlify site concurrency guard", () => {
       String(betaMigration?.if),
       /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
     );
+    assert.match(
+      String(betaFreshness?.if),
+      /steps\.beta_pre_migration_freshness\.outcome == 'success'/,
+    );
+    assert.doesNotMatch(
+      String(betaFreshness?.if),
+      /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
+    );
+    // Both freshness checks must be monotonic (ancestor-of-main and
+    // not-a-regression-of-the-published-deploy), not exact equality — an
+    // exact match livelocks the fleet against a merge every few minutes.
+    for (const freshnessStep of [betaPreMigrationFreshness, betaFreshness]) {
+      const script = String(freshnessStep?.with?.script ?? "");
+      assert.match(script, /compareCommits/);
+      assert.match(script, /\['ahead', 'identical'\]\.includes/);
+      assert.doesNotMatch(script, /mainSha\.toLowerCase\(\) === sourceRef/);
+      assert.match(script, /not on main/);
+      assert.match(
+        script,
+        /published deploy \$\{publishedSha\} is already newer/,
+      );
+      assert.equal(
+        freshnessStep?.env?.PUBLISHED_SOURCE_REF,
+        "${{ steps.previous.outputs.published_deploy_source_ref }}",
+      );
+    }
+    assert.match(String(previousStep?.run), /published_deploy_source_ref/);
     assert.equal(betaMigration?.env?.BUILD_CONTEXT, "production");
     assert.equal(
       betaMigration?.env?.NETLIFY_MIGRATION_SITE_ID,
@@ -627,10 +750,29 @@ describe("production Netlify site concurrency guard", () => {
       /steps\.beta_freshness\.outputs\.current == 'true'/,
     );
     assert.doesNotMatch(reusableSource, /allowPinnedRecovery/);
+    // The post-publish freshness checks must also be monotonic
+    // (ancestor-of-main), not exact equality — otherwise a source that
+    // legitimately cleared the pre-publish gate gets reverted the moment
+    // main advances during migration/upload, and the livelock just moves
+    // here. Unlike the pre-publish checks, these apply check 1 only: there
+    // is either no previous published deploy yet (first publish) or the
+    // published deploy IS this source (post-publish), so there is nothing
+    // to regress against.
+    for (const freshnessStep of [
+      betaFirstPublishFreshness,
+      betaPostFreshness,
+    ]) {
+      const script = String(freshnessStep?.with?.script ?? "");
+      assert.match(script, /compareCommits/);
+      assert.match(script, /\['ahead', 'identical'\]\.includes/);
+      assert.doesNotMatch(script, /sourceRef === mainSha/);
+      assert.match(script, /is no longer on main \(main is \$\{mainSha\}\)/);
+    }
     assert.match(
-      reusableSource,
-      /core\.setOutput\('current', String\(current\)\)/,
+      String(betaFirstPublishFreshness?.with?.script),
+      /skipping\.`/,
     );
+    assert.match(String(betaPostFreshness?.with?.script), /reverting\.`/);
     assert.match(reusableSource, /Verify beta source is current after publish/);
     assert.match(
       reusableSource,
@@ -722,7 +864,7 @@ describe("production Netlify site concurrency guard", () => {
     ).find((step) => step.id === "source");
     assert.equal(
       ((betaResolveSource.jobs as Workflow).deploy as Workflow).with?.caller,
-      "${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}",
+      "${{ github.event_name == 'workflow_dispatch' && inputs.handoff && 'automatic' || github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}",
     );
     assert.match(
       String(betaResolveStep?.with?.script),
@@ -732,6 +874,27 @@ describe("production Netlify site concurrency guard", () => {
       String(betaResolveStep?.with?.script),
       /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
     );
+    const confirmCurrentSourceStep = (
+      (
+        (betaResolveSource.jobs as Workflow)[
+          "confirm-current-source"
+        ] as Workflow
+      ).steps as Array<Workflow>
+    ).find((step) => step.id === "source");
+    const confirmCurrentSourceScript = String(
+      confirmCurrentSourceStep?.with?.script,
+    );
+    // The top-level fleet gate only needs check 1 (ancestor-of-main); it runs
+    // before anything is built, so it no longer requires an exact match.
+    assert.match(confirmCurrentSourceScript, /compareCommits/);
+    assert.match(
+      confirmCurrentSourceScript,
+      /\['ahead', 'identical'\]\.includes/,
+    );
+    assert.doesNotMatch(
+      confirmCurrentSourceScript,
+      /process\.env\.SOURCE_SHA\.toLowerCase\(\) === mainSha\.toLowerCase\(\)/,
+    );
     assert.match(
       String(betaResolveStep?.with?.script),
       /Manual beta source_ref must equal current main/,
@@ -740,7 +903,10 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /Beta source_ref must be a full 40-character commit SHA/,
     );
-    assert.match(reusableSource, /Beta source_ref must equal current main/);
+    assert.match(
+      reusableSource,
+      /Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
     assert.match(
       reusableSource,
       /Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt\.yml\./,
@@ -771,7 +937,14 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /did not become ready and published within 30 minutes/,
     );
-    assert.match(reusableSource, /main_sha,,\}" != "\$\{SOURCE_REF,,\}"/);
+    // Monotonic, not exact-equality: the immediate pre-publish recheck
+    // inside this step must use the same ancestor-of-main compare as
+    // beta_first_publish_freshness above, not a hard SHA match.
+    assert.match(reusableSource, /compare_status/);
+    assert.doesNotMatch(
+      reusableSource,
+      /"\$\{main_sha,,\}" != "\$\{SOURCE_REF,,\}"/,
+    );
     assert.doesNotMatch(
       reusableSource.slice(
         reusableSource.indexOf(

@@ -49,6 +49,7 @@ import { mcpIntegrationLogo } from "../resources/mcp-integration-logos.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
+  isMcpServersPending,
   useCreateMcpServer,
   useDeleteMcpServer,
   useMcpServers,
@@ -99,7 +100,7 @@ const PLATFORMS: PlatformInfo[] = [
     setupSteps: [
       "At api.slack.com/apps, create an app for your workspace, then under OAuth & Permissions add the bot scopes app_mentions:read, chat:write, channels:history, and im:history",
       "Click Install to Workspace, then copy the Bot User OAuth Token and the Signing Secret (Basic Information → App Credentials) into the two secrets listed below",
-      "Under Event Subscriptions, turn events on, paste the webhook URL below as the Request URL, and subscribe to the bot events app_mention and message.im",
+      "Turn off Socket Mode. Then under Event Subscriptions, turn events on, paste the webhook URL below as the Request URL, and subscribe to the bot events app_mention and message.im",
       "Invite the bot to a channel, @mention it in a thread, and confirm it replies in that same thread",
       "Running inside a Dispatch workspace instead? Connect Slack from Settings → Messaging there — it stores workspace tokens for you and this page is not needed.",
     ],
@@ -684,7 +685,9 @@ function useMcpIntegrationsController({
 }: {
   integrations?: DefaultMcpIntegration[];
 } = {}) {
-  const serversQuery = useMcpServers();
+  // Settings surface: mounted while the panel itself may still be off-screen,
+  // so it waits out the paint window.
+  const serversQuery = useMcpServers({ defer: true });
   const createServer = useCreateMcpServer();
   const deleteServer = useDeleteMcpServer();
   const reconnectServer = useReconnectMcpServer();
@@ -713,9 +716,11 @@ function useMcpIntegrationsController({
   const connectedServers = servers.filter(
     (server) => server.status.state === "connected",
   );
-  const hasOrg = Boolean(serversQuery.data?.orgId);
+  const serversPending = isMcpServersPending(serversQuery);
+  const hasOrg = !serversPending && Boolean(serversQuery.data?.orgId);
   const canCreateOrgMcp = Boolean(
     hasOrg &&
+    !serversPending &&
     (serversQuery.data?.role === "owner" ||
       serversQuery.data?.role === "admin"),
   );
@@ -1160,7 +1165,12 @@ export function IntegrationsPanel() {
     null,
   );
   const [showEmailDetail, setShowEmailDetail] = useState(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(
+    () =>
+      (typeof window === "undefined"
+        ? ""
+        : new URLSearchParams(window.location.search).get("q")) ?? "",
+  );
   const { configured: emailConfigured, refresh: refreshEmailConfigured } =
     useEmailProviderConfigured();
   const statusMap = new Map(statuses.map((s) => [s.platform, s]));

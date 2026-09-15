@@ -17,6 +17,13 @@ import {
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 
+export {
+  isSelfScopedUsageRead,
+  usageOrgScope,
+  type UsageOrgScope,
+  type UsageOrgScopeOptions,
+} from "./org-scope.js";
+
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of
  * input; cache write (5m TTL) is ~125%. Pricing is best-effort — keep
@@ -254,6 +261,7 @@ export async function ensureUsageTable(): Promise<void> {
           run_id TEXT,
           thread_id TEXT,
           task_id TEXT,
+          -- guard:allow-identity-column integration scope IDs identify an integration record, not a user principal.
           integration_scope_id TEXT,
           source_platform TEXT,
           source_id TEXT,

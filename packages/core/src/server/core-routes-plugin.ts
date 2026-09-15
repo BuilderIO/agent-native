@@ -71,9 +71,8 @@ import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
-  registerFileUploadProvider,
 } from "../file-upload/index.js";
-import { s3FileUploadProvider } from "../file-upload/s3.js";
+import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -88,6 +87,11 @@ import {
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { getOrgContext } from "../org/context.js";
 import { createProgressHandler } from "../progress/routes.js";
+import {
+  parseRemoteAgentAuth,
+  parseRemoteAgentUrl,
+  type RemoteAgentAuth,
+} from "../resources/metadata.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import {
@@ -156,6 +160,7 @@ import {
   appendBuilderConnectToken,
   appendBuilderConnectStateCookie,
   builderConnectTrackingProperties,
+  BUILDER_UPSTREAM_FAILURE_STATUS,
   createBuilderConnectState,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
@@ -168,6 +173,7 @@ import {
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
   normalizeBuilderAgentContext,
+  parseBuilderConnectStateCookie,
   provisionBuilderAccount,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
@@ -175,6 +181,7 @@ import {
   resolveBuilderPreviewRelayParentOrigin,
   removeBuilderConnectStateCookie,
   runBuilderAgent,
+  sendBuilderPopupErrorPage,
   verifyBuilderRelayRequest,
   verifyBuilderPreviewRelayStateForCallback,
   verifyBuilderConnectTokenAndGetOwner,
@@ -227,6 +234,7 @@ import { shouldReportError } from "./error-noise-filter.js";
 import {
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
+  type H3AppShim,
   awaitBootstrap,
   markDefaultPluginProvided,
   markFrameworkRoutesReadyBeforeBootstrap,
@@ -1272,6 +1280,36 @@ export async function readBuilderConnectPendingState(
   }
 }
 
+/**
+ * Narrows cookie-recovered states to the flows that could still complete.
+ * Returns null when the pending store cannot be read: unreadable is not the
+ * same as dead, and treating it as dead would discard live flows.
+ */
+export async function selectLiveBuilderConnectStates(
+  states: string[],
+  now = Date.now(),
+  read: typeof getSetting = getSetting,
+): Promise<string[] | null> {
+  const live: string[] = [];
+  for (const state of states) {
+    let pending: Record<string, unknown> | null;
+    try {
+      pending = await read(`builder-connect-pending:${state}`);
+    } catch (err) {
+      console.error(
+        "[builder] Could not read pending-connect state:",
+        (err as Error)?.message ?? err,
+      );
+      return null;
+    }
+    if (!pending || pending.consumed === true) continue;
+    const expiresAt = pending.expiresAt;
+    if (typeof expiresAt !== "number" || now >= expiresAt) continue;
+    live.push(state);
+  }
+  return live;
+}
+
 const BUILDER_CONNECT_PENDING_PREFIX = "builder-connect-pending:";
 
 export async function purgeExpiredBuilderConnectPendingStates(
@@ -1683,6 +1721,67 @@ export function shouldRunCoreRouteBootDatabaseWork(
   return !isProductionServerlessFunctionRuntime(env);
 }
 
+/** Public discovery is a picker, not a credential registry. */
+export function stripRemoteAgentAuth<T extends { auth?: unknown }>(
+  agent: T,
+): Omit<T, "auth"> {
+  const { auth: _auth, ...publicAgent } = agent;
+  return publicAgent;
+}
+
+/** Credentialed probes may only replay a saved, access-scoped connection. */
+export function matchesSavedHostedAgentProbe(
+  agent: { url: string; cardUrl?: string; auth?: RemoteAgentAuth },
+  requested: { url: string; cardUrl?: string; auth: RemoteAgentAuth },
+): boolean {
+  if (!agent.auth) return false;
+  const normalize = (value: string) =>
+    parseRemoteAgentUrl(value, { allowLoopbackHttp: true }) ?? value.trim();
+  if (
+    normalize(agent.url) !== normalize(requested.url) ||
+    (agent.cardUrl ? normalize(agent.cardUrl) : undefined) !==
+      (requested.cardUrl ? normalize(requested.cardUrl) : undefined) ||
+    agent.auth.type !== requested.auth.type
+  ) {
+    return false;
+  }
+  if (agent.auth.type === "bearer") {
+    return (
+      requested.auth.type === "bearer" &&
+      agent.auth.credentialRef === requested.auth.credentialRef
+    );
+  }
+  return (
+    requested.auth.type === "oauth-client-credentials" &&
+    agent.auth.tokenUrl === requested.auth.tokenUrl &&
+    agent.auth.clientId === requested.auth.clientId &&
+    agent.auth.clientSecretRef === requested.auth.clientSecretRef &&
+    agent.auth.scope === requested.auth.scope
+  );
+}
+
+type PublicAgentDiscovery = (
+  selfAppId?: string,
+) => Promise<import("./agent-discovery.js").DiscoveredAgent[]>;
+
+export function createPublicRemoteAgentsHandler(
+  discover: PublicAgentDiscovery = async (selfAppId) => {
+    const { discoverAgents } = await import("./agent-discovery.js");
+    return discoverAgents(selfAppId);
+  },
+) {
+  return defineEventHandler(async (event) => {
+    if (getMethod(event) !== "GET") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const selfAppId =
+      getRequestURL(event).searchParams.get("selfAppId") ?? undefined;
+    const agents = await discover(selfAppId);
+    return { agents: agents.map(stripRemoteAgentAuth) };
+  });
+}
+
 export function getBuilderConnectErrorDisposition(
   error: unknown,
   connectAttemptId: string | null,
@@ -1785,16 +1884,7 @@ function wireRouteErrorCapture(nitroApp: any): void {
   );
 }
 
-export function ensureS3FileUploadProvider(): void {
-  if (
-    listFileUploadProviders().some(
-      (provider) => provider.id === s3FileUploadProvider.id,
-    )
-  ) {
-    return;
-  }
-  registerFileUploadProvider(s3FileUploadProvider);
-}
+export { ensureS3FileUploadProvider };
 
 export interface OAuthCustodyBuilderKeyStatus {
   privateKeyConfigured: boolean;
@@ -1859,6 +1949,57 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
   }
 }
 
+export function mountApplicationStateRoutes(
+  nitroApp: any,
+  routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
+  app: H3AppShim = getH3App(nitroApp),
+): void {
+  app.use(
+    `${routePrefix}/application-state/compose`,
+    defineEventHandler(async (event: H3Event) => {
+      const id =
+        (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+      if (event.context) {
+        event.context.params = { ...event.context.params, id };
+      }
+      const method = getMethod(event);
+      if (!id) {
+        if (method === "GET") return listComposeDrafts(event);
+        if (method === "DELETE") return deleteAllComposeDrafts(event);
+      } else {
+        if (method === "GET") return getComposeDraft(event);
+        if (method === "PUT") return putComposeDraft(event);
+        if (method === "DELETE") return deleteComposeDraft(event);
+      }
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }),
+  );
+
+  app.use(
+    `${routePrefix}/application-state`,
+    defineEventHandler(async (event: H3Event) => {
+      const key =
+        (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+      if (key === "compose") return;
+      if (key === "") {
+        if (getMethod(event) === "GET") return getStateMany(event);
+        return;
+      }
+      if (event.context) {
+        event.context.params = { ...event.context.params, key };
+      }
+      const method = getMethod(event);
+      if (method === "GET") return getState(event);
+      if (method === "PUT") return putState(event);
+      if (method === "PATCH") return compareAndSetState(event);
+      if (method === "DELETE") return deleteState(event);
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }),
+  );
+}
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -1893,6 +2034,7 @@ export function createCoreRoutesPlugin(
         `${FRAMEWORK_ROUTE_PREFIX}/health`,
         `${FRAMEWORK_ROUTE_PREFIX}/identity`,
         `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
+        `${FRAMEWORK_ROUTE_PREFIX}/application-state`,
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
     });
@@ -1903,6 +2045,7 @@ export function createCoreRoutesPlugin(
         ...(!options.disableHealth ? [`${P}/health`] : []),
         `${P}/identity`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
+        ...(!options.disableAppState ? [`${P}/application-state`] : []),
       ]);
 
       // Keep the framework-owned S3-compatible provider available even when an
@@ -1911,6 +2054,13 @@ export function createCoreRoutesPlugin(
       // provider under the conventional `s3` id, so preserve that explicit
       // registration instead of replacing it during core bootstrap.
       ensureS3FileUploadProvider();
+
+      if (!options.disableAppState) {
+        // Application state is part of the client bootstrap contract. Register
+        // it before optional plugin/bootstrap work so the first localization
+        // write cannot fall through to the template router on a cold start.
+        mountApplicationStateRoutes(nitroApp, P);
+      }
 
       // This response is a side-effect-free static contract used by the SSR
       // shell. Mount it before optional default-plugin/bootstrap work so a
@@ -2484,13 +2634,67 @@ export function createCoreRoutesPlugin(
                 return { error: "url is required" };
               }
 
-              const result = await probePeerAgent({
-                id: "probe",
-                name: urlParam,
-                description: "",
-                url: urlParam,
-                color: "",
-              });
+              const cardUrlParam = query.get("cardUrl");
+              const cardUrl =
+                cardUrlParam === null
+                  ? undefined
+                  : parseRemoteAgentUrl(cardUrlParam);
+              if (cardUrlParam !== null && !cardUrl) {
+                setResponseStatus(event, 400);
+                return { error: "cardUrl must be an http or https URL" };
+              }
+
+              const authParam = query.get("auth");
+              let auth;
+              if (authParam !== null) {
+                try {
+                  auth = parseRemoteAgentAuth(JSON.parse(authParam));
+                } catch {
+                  auth = undefined;
+                }
+                if (!auth) {
+                  setResponseStatus(event, 400);
+                  return {
+                    error: "auth must be a valid hosted-agent reference",
+                  };
+                }
+              }
+
+              if (auth) {
+                const { discoverAgents } = await import("./agent-discovery.js");
+                const savedAgents = await discoverAgents(
+                  query.get("selfAppId") ?? undefined,
+                );
+                if (
+                  !savedAgents.some((agent) =>
+                    matchesSavedHostedAgentProbe(agent, {
+                      url: urlParam,
+                      ...(cardUrl ? { cardUrl } : {}),
+                      auth,
+                    }),
+                  )
+                ) {
+                  setResponseStatus(event, 403);
+                  return {
+                    error:
+                      "Credentialed probes require a saved hosted-agent connection.",
+                  };
+                }
+              }
+
+              const result = await probePeerAgent(
+                {
+                  id: "probe",
+                  name: urlParam,
+                  description: "",
+                  url: urlParam,
+                  color: "",
+                  ...(cardUrl ? { cardUrl } : {}),
+                  ...(auth ? { auth } : {}),
+                },
+                undefined,
+                { verifyAuth: auth !== undefined },
+              );
 
               // Reachability and auth are independent, but a malformed/SSRF-blocked
               // URL is a caller input error, not a peer that failed to answer — the
@@ -2510,21 +2714,7 @@ export function createCoreRoutesPlugin(
       // Agent discovery primitive — shared by headless CLI/A2A surfaces and
       // UI shells that need to show connected peer apps without depending on
       // the chat route namespace.
-      getH3App(nitroApp).use(
-        `${P}/agents`,
-        defineEventHandler(async (event) => {
-          const method = getMethod(event);
-          if (method !== "GET") {
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }
-          const query = getRequestURL(event).searchParams;
-          const selfAppId = query.get("selfAppId") ?? undefined;
-          const { discoverAgents } = await import("./agent-discovery.js");
-          const agents = await discoverAgents(selfAppId);
-          return { agents };
-        }),
-      );
+      getH3App(nitroApp).use(`${P}/agents`, createPublicRemoteAgentsHandler());
 
       // Polling
       getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
@@ -3227,13 +3417,7 @@ export function createCoreRoutesPlugin(
                   stage: "provision",
                 },
               );
-              setResponseStatus(event, status);
-              setResponseHeader(
-                event,
-                "Content-Type",
-                "text/html; charset=utf-8",
-              );
-              return createBuilderBrowserCallbackErrorPage(message, {
+              return sendBuilderPopupErrorPage(event, status, message, {
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
                 ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
                 ...(code ? { code } : {}),
@@ -3331,7 +3515,7 @@ export function createCoreRoutesPlugin(
                 );
               }
               return failProvisioning(
-                502,
+                BUILDER_UPSTREAM_FAILURE_STATUS,
                 "Couldn't create your Builder account. Try again or connect an existing account.",
                 "provision_failed",
               );
@@ -3666,7 +3850,7 @@ export function createCoreRoutesPlugin(
                 useCase: waitlistUseCase,
               },
             );
-            setResponseStatus(event, 502);
+            setResponseStatus(event, BUILDER_UPSTREAM_FAILURE_STATUS);
             return {
               error:
                 "Couldn't join the waitlist. Please try again in a moment.",
@@ -3852,18 +4036,17 @@ export function createCoreRoutesPlugin(
                   : "Builder preview relay failed.";
               // Never log the first-hop URL or relay body: both contain
               // credentials. The popup gets a bounded, credential-free error.
-              setResponseStatus(event, 502);
-              setResponseHeader(
+              return sendBuilderPopupErrorPage(
                 event,
-                "Content-Type",
-                "text/html; charset=utf-8",
+                BUILDER_UPSTREAM_FAILURE_STATUS,
+                message,
+                {
+                  parentOrigin: relayParentOrigin,
+                  ...(requestConnectAttemptId
+                    ? { attemptId: requestConnectAttemptId }
+                    : {}),
+                },
               );
-              return createBuilderBrowserCallbackErrorPage(message, {
-                parentOrigin: relayParentOrigin,
-                ...(requestConnectAttemptId
-                  ? { attemptId: requestConnectAttemptId }
-                  : {}),
-              });
             }
 
             setResponseHeader(
@@ -3886,12 +4069,50 @@ export function createCoreRoutesPlugin(
           // from the host-only cookie set by /builder/connect; the pending row
           // and authenticated session still bind it to this account.
           const queryState = requestUrl.searchParams.get("state");
-          const state = resolveBuilderConnectCallbackState(
-            queryState,
-            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
-          );
+          const rawStateCookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
+          const cookieStates = parseBuilderConnectStateCookie(rawStateCookie);
+          // A consumed, expired, or already-failed state must not make a
+          // recoverable callback look ambiguous. A null selection means the
+          // pending store could not be read, so keep the cookie as-is and let
+          // the resolver fail closed on it.
+          const liveStates = cookieStates?.length
+            ? await selectLiveBuilderConnectStates(cookieStates)
+            : cookieStates;
+          const { state, resetStateCookie } =
+            resolveBuilderConnectCallbackState(
+              queryState,
+              liveStates ? liveStates.join(",") : rawStateCookie,
+            );
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
           let callbackAttemptId = requestConnectAttemptId;
+          // A finished attempt — succeeded or failed — must not leave its
+          // state in the cookie, or the next restart resolves against two
+          // states and fails for a reason the user cannot clear.
+          const dropConnectStateCookie = (finishedState: string) => {
+            const cookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
+            if (!cookie) return;
+            const remaining = removeBuilderConnectStateCookie(
+              cookie,
+              finishedState,
+            );
+            // Rewriting a cookie this attempt does not own would resurrect
+            // states a concurrent callback just finished with.
+            if (remaining === cookie) return;
+            if (!remaining) {
+              deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
+              return;
+            }
+            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remaining, {
+              httpOnly: true,
+              secure: (
+                resolveBuilderConnectCallbackUrl(event, finishedState) ??
+                parentOrigin
+              ).startsWith("https://"),
+              sameSite: "lax",
+              path: "/",
+              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
+            });
+          };
           const fail = async (
             status: number,
             message: string,
@@ -3899,6 +4120,7 @@ export function createCoreRoutesPlugin(
             reason?: string,
             tracking: BuilderConnectTrackingParams = {},
           ) => {
+            if (state) dropConnectStateCookie(state);
             if (ownerEmail) {
               await putSetting(
                 getBuilderConnectErrorKey(ownerEmail, callbackAttemptId),
@@ -3921,19 +4143,23 @@ export function createCoreRoutesPlugin(
                 },
               );
             }
-            setResponseStatus(event, status);
-            setResponseHeader(
-              event,
-              "Content-Type",
-              "text/html; charset=utf-8",
-            );
-            return createBuilderBrowserCallbackErrorPage(message, {
+            return sendBuilderPopupErrorPage(event, status, message, {
               parentOrigin,
               ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
             });
           };
 
           if (!state || !isSignedBuilderConnectState(state)) {
+            // This route is a SameSite=Lax GET, so a prefetch, a history
+            // revisit, or a cross-site link reaches it without a payload.
+            // Only a request carrying a real OAuth result may discard the
+            // recovery states of flows still running in other tabs.
+            const carriesOAuthResult =
+              requestUrl.searchParams.has("code") ||
+              requestUrl.searchParams.has("error");
+            if (resetStateCookie && carriesOAuthResult) {
+              deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
+            }
             return fail(
               403,
               "No active Builder connect flow found. Restart the connection from Settings.",
@@ -4029,7 +4255,7 @@ export function createCoreRoutesPlugin(
             });
           } catch {
             return fail(
-              502,
+              BUILDER_UPSTREAM_FAILURE_STATUS,
               "Builder could not exchange the authorization code. Restart the connection.",
               ownerEmail,
               "code_exchange_failed",
@@ -4084,21 +4310,7 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          const remainingStates = removeBuilderConnectStateCookie(
-            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
-            state,
-          );
-          if (remainingStates) {
-            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remainingStates, {
-              httpOnly: true,
-              secure: expectedRedirectUri.startsWith("https://"),
-              sameSite: "lax",
-              path: "/",
-              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
-            });
-          } else {
-            deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
-          }
+          dropConnectStateCookie(state);
 
           try {
             await Promise.all([
@@ -5278,64 +5490,6 @@ export function createCoreRoutesPlugin(
         );
       }
 
-      if (!options.disableAppState) {
-        // Compose draft routes (more specific path, mounted first so the
-        // generic app-state matcher below doesn't shadow them). The framework
-        // strips the mount prefix from event.url.pathname before calling us,
-        // so we just see e.g. `/abc-123` (id) or `/` (collection root).
-        getH3App(nitroApp).use(
-          `${P}/application-state/compose`,
-          defineEventHandler(async (event: H3Event) => {
-            const id =
-              (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] ||
-              "";
-            if (event.context) {
-              event.context.params = { ...event.context.params, id };
-            }
-            const method = getMethod(event);
-            if (!id) {
-              if (method === "GET") return listComposeDrafts(event);
-              if (method === "DELETE") return deleteAllComposeDrafts(event);
-            } else {
-              if (method === "GET") return getComposeDraft(event);
-              if (method === "PUT") return putComposeDraft(event);
-              if (method === "DELETE") return deleteComposeDraft(event);
-            }
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }),
-        );
-
-        // Generic application state — match `/application-state/:key` only
-        // (NOT `/application-state/compose/...` which the handler above owns).
-        getH3App(nitroApp).use(
-          `${P}/application-state`,
-          defineEventHandler(async (event: H3Event) => {
-            const key =
-              (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] ||
-              "";
-            // Skip — compose handler above already handled it
-            if (key === "compose") return;
-            // Collection root: `GET ?keys=a,b,c` batches many single-key reads
-            // into one request (and one identity resolution) — the chat rail
-            // alone reads ~6 keys on every mount.
-            if (key === "") {
-              if (getMethod(event) === "GET") return getStateMany(event);
-              return;
-            }
-            if (event.context) {
-              event.context.params = { ...event.context.params, key };
-            }
-            const method = getMethod(event);
-            if (method === "GET") return getState(event);
-            if (method === "PUT") return putState(event);
-            if (method === "PATCH") return compareAndSetState(event);
-            if (method === "DELETE") return deleteState(event);
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }),
-        );
-      }
       resolveInit();
     } catch (error) {
       // Do NOT rethrow. Nitro invokes plugins as `try { plugin(app) } catch`,

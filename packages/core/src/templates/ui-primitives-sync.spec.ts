@@ -19,6 +19,15 @@ import { describe, expect, it } from "vitest";
 
 // Each entry: [primitive filename, template name, reason for deviation]
 const ALLOW_LIST: Array<[string, string, string]> = [
+  // toolkit-provider.tsx — Chat uses the narrow provider entrypoint so the
+  // AgentKit bootstrap does not pull the entire Toolkit root into its client
+  // graph.
+  [
+    "toolkit-provider.tsx",
+    "chat",
+    "AgentKit bootstrap uses the narrow Toolkit provider entrypoint",
+  ],
+
   // popover.tsx — forms keeps a wider collision boundary so form-editor
   // controls remain within the viewport on narrow screens.
   [

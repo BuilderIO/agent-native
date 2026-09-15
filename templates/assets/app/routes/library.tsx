@@ -1394,6 +1394,15 @@ function AllAssetsBrowser({
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setDebouncedQuery(query);
+      const trimmedQuery = query.trim();
+      if (trimmedQuery.length >= 2 && query !== urlQuery) {
+        trackEvent("asset_search_used", {
+          app_name: "assets",
+          template_name: "assets",
+          asset_tab: assetTab,
+          query_length_bucket: trimmedQuery.length <= 10 ? "2_10" : "11_plus",
+        });
+      }
       if (query === urlQuery) return;
       setSearchParams(
         (prev) => {
@@ -1406,9 +1415,14 @@ function AllAssetsBrowser({
       );
     }, LIBRARY_SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [query, setSearchParams, urlQuery]);
+  }, [assetTab, query, setSearchParams, urlQuery]);
   const handleAssetTabChange = useCallback(
     (value: AssetTab) => {
+      trackEvent("asset_library_tab_changed", {
+        app_name: "assets",
+        template_name: "assets",
+        tab: value,
+      });
       setAssetTab(value);
       setSearchParams(
         (prev) => {
@@ -1744,7 +1758,14 @@ function AllAssetsBrowser({
                   <button
                     type="button"
                     aria-label={`${t("library.openDetails")}: ${assetDisplayTitle(asset)}`}
-                    onClick={() => setPreviewAsset(asset)}
+                    onClick={() => {
+                      trackEvent("asset_preview_opened", {
+                        app_name: "assets",
+                        template_name: "assets",
+                        media_type: asset.mediaType,
+                      });
+                      setPreviewAsset(asset);
+                    }}
                     title={assetDisplayTitle(asset)}
                     className="block w-full text-left focus-visible:outline-none"
                   >

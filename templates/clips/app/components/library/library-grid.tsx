@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   getBrowserTabId,
   setClientAppState,
@@ -202,6 +203,18 @@ export function LibraryGrid({
     useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
   const [page, setPage] = useState(1);
+  const handleSortChange = useCallback(
+    (nextSort: SortKey) => {
+      setSort(nextSort);
+      trackEvent("recording_sort_changed", {
+        app_name: "clips",
+        template_name: "clips",
+        surface: view,
+        sort: nextSort,
+      });
+    },
+    [view],
+  );
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
   const pageBreadcrumbItems =
     breadcrumbItems ?? (title ? [{ label: title }] : []);
@@ -453,7 +466,18 @@ export function LibraryGrid({
       key: `tag:${tagFilter}`,
       label: `#${tagFilter}`,
       active: true,
-      onRemove: onClearTag,
+      onRemove: onClearTag
+        ? () => {
+            trackEvent("recording_filter_changed", {
+              app_name: "clips",
+              template_name: "clips",
+              surface: view,
+              filter_type: "tag",
+              action: "removed",
+            });
+            onClearTag();
+          }
+        : undefined,
     });
   }
 
@@ -509,7 +533,7 @@ export function LibraryGrid({
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
-        <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_auto]">
           <div className="min-w-0 flex-1 lg:flex-none">
             {pageBreadcrumbItems.length > 0 ? (
               <PageBreadcrumb items={pageBreadcrumbItems} />
@@ -519,9 +543,9 @@ export function LibraryGrid({
             side="bottom"
             className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
           />
-          <div className="ms-auto flex min-w-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
+          <div className="ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
             {extraActions}
-            <SortMenu value={sort} onChange={setSort} />
+            <SortMenu value={sort} onChange={handleSortChange} />
           </div>
         </div>
       </PageHeader>
@@ -758,12 +782,17 @@ export function LibraryGrid({
                 allSelected={allSelected}
                 onSelectAll={toggleSelectAll}
                 moveTargets={moveTargets}
+                archiveAction={view === "archive" ? "unarchive" : "archive"}
                 onArchive={async () => {
                   setIsBulkPending(true);
                   try {
                     const ids = Array.from(selected);
                     const results = await Promise.allSettled(
-                      ids.map((id) => archiveRecording.mutateAsync({ id })),
+                      ids.map((id) =>
+                        view === "archive"
+                          ? restoreRecording.mutateAsync({ id })
+                          : archiveRecording.mutateAsync({ id }),
+                      ),
                     );
                     const succeededIds = ids.filter(
                       (_, i) => results[i].status === "fulfilled",
@@ -771,9 +800,12 @@ export function LibraryGrid({
                     const failed = ids.length - succeededIds.length;
                     if (succeededIds.length > 0) {
                       toast.success(
-                        t("libraryGrid.clipsArchived", {
-                          count: succeededIds.length,
-                        }),
+                        t(
+                          view === "archive"
+                            ? "trashRoute.clipsRestored"
+                            : "libraryGrid.clipsArchived",
+                          { count: succeededIds.length },
+                        ),
                       );
                       setSelected((prev) => {
                         const next = new Set(prev);
@@ -783,7 +815,12 @@ export function LibraryGrid({
                     }
                     if (failed > 0) {
                       toast.error(
-                        t("libraryGrid.clipsArchiveFailed", { count: failed }),
+                        t(
+                          view === "archive"
+                            ? "trashRoute.clipsRestoreFailed"
+                            : "libraryGrid.clipsArchiveFailed",
+                          { count: failed },
+                        ),
                       );
                     }
                   } finally {

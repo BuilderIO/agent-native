@@ -53,12 +53,16 @@ export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
+  BETA_LANE_REDIRECT_QUERY_PARAM,
+  BETA_LANE_RETURN_STORAGE_KEY,
+  BETA_LANE_RETURNED_STORAGE_KEY,
   BETA_REDIRECT_DURATION_MS,
   BETA_REDIRECT_STORAGE_KEY,
   BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
+  buildAutomaticBetaRedirectUrl,
   ENVIRONMENT_BETA_HOSTS,
   resolveEnvironmentTargets,
   type EnvironmentBadgeTargets,
@@ -110,6 +114,14 @@ export {
   type AgentNativeLifecycleEventName,
 } from "./analytics-events.js";
 export {
+  BUILDER_CONNECT_PROVIDER,
+  BUILDER_CONNECT_PROVIDER_LABEL,
+  connectRequiredResult,
+  normalizeConnectRequiredResult,
+  type ConnectRequiredCard,
+  type ConnectRequiredResult,
+} from "./connect-required.js";
+export {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   RESERVED_WORKSPACE_APP_IDS,
   assertValidWorkspaceAppId,
@@ -119,8 +131,10 @@ export {
 } from "./workspace-app-id.js";
 export {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  DEFAULT_WORKSPACE_APP_HOME_PATH,
   WORKSPACE_APP_AUDIENCES,
   normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromEnv,
   workspaceAppAudienceFromPackageJson,

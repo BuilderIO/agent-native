@@ -20,7 +20,9 @@ import {
   canHugContent,
   commitElementMinMax,
   commitElementSizing,
+  commitFixedElementSizes,
   componentNameForElementInfo,
+  elementHasComponentAnnotation,
   inferElementSizing,
   isContainerElement,
   measuredElementSize,
@@ -82,6 +84,17 @@ describe("isTextElement — B5-12 nested board text regression", () => {
       textContent: "Some caption",
     });
     expect(isTextElement(element)).toBe(true);
+  });
+
+  it("classifies owned text in a mixed-content headline without hiding its layout controls", () => {
+    const element = makeElement({
+      classes: ["headline"],
+      childElementCount: 2,
+      textContent: "Your prompt. Production UI.",
+      hasOwnText: true,
+    });
+    expect(isTextElement(element)).toBe(true);
+    expect(isContainerElement(element)).toBe(true);
   });
 
   it("still rejects empty shapes (no text content)", () => {
@@ -356,6 +369,51 @@ describe("availableSizingForElement — hug availability", () => {
   });
 });
 
+describe("availableSizingForElement — fill eligibility", () => {
+  const fillFor = (element: ElementInfo, axis: AutoLayoutSizingAxis) =>
+    availableSizingForElement(element)[axis]?.includes("fill") ?? false;
+
+  it.each(["flex", "grid"])(
+    "withholds fill from out-of-flow children of a %s parent",
+    (parentDisplay) => {
+      for (const position of ["absolute", "fixed"]) {
+        const element = makeElement({
+          parentDisplay,
+          textContent: "Ignored child",
+          computedStyles: { position },
+        });
+        expect(fillFor(element, "horizontal")).toBe(false);
+        expect(fillFor(element, "vertical")).toBe(false);
+        expect(availableSizingForElement(element).horizontal).toContain("hug");
+      }
+    },
+  );
+
+  it("uses authored position when computed position is unavailable", () => {
+    const element = makeElement({
+      parentDisplay: "flex",
+      inlineStyles: { position: "absolute" },
+    });
+    expect(fillFor(element, "horizontal")).toBe(false);
+    expect(fillFor(element, "vertical")).toBe(false);
+  });
+
+  it.each(["flex", "grid"])(
+    "keeps fill for an in-flow child of a %s parent",
+    (parentDisplay) => {
+      const element = makeElement({ parentDisplay });
+      expect(fillFor(element, "horizontal")).toBe(true);
+      expect(fillFor(element, "vertical")).toBe(true);
+    },
+  );
+
+  it("keeps block-flow horizontal fill", () => {
+    const element = makeElement({ parentDisplay: "block" });
+    expect(fillFor(element, "horizontal")).toBe(true);
+    expect(fillFor(element, "vertical")).toBe(false);
+  });
+});
+
 describe("inferElementSizing — authored vs resolved size", () => {
   it("reads hug from the authored width when computedStyles resolved it to px", () => {
     // A bridge selection payload: getComputedStyle always resolves
@@ -433,6 +491,102 @@ describe("commitElementSizing — hug must undo a previous fill", () => {
       (hug.mock.calls[0]?.[0] as Record<string, string> | undefined)
         ?.justifySelf,
     ).toBe("auto");
+  });
+
+  it("commits numeric main-axis dimensions as fixed and preserves cross-axis Fill", () => {
+    const onStylesChange = vi.fn();
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: { display: "flex", flexDirection: "column" },
+      inlineStyles: { width: "auto", height: "auto", alignSelf: "stretch" },
+      computedStyles: {
+        width: "278px",
+        height: "227.2px",
+        flexGrow: "1",
+        flexShrink: "1",
+        flexBasis: "0px",
+        alignSelf: "stretch",
+      },
+    });
+
+    commitFixedElementSizes(
+      element,
+      { vertical: 242 },
+      vi.fn(),
+      onStylesChange,
+      { phase: "commit" },
+    );
+
+    const patch = onStylesChange.mock.calls[0]?.[0] as Record<string, string>;
+    expect(patch).toEqual({
+      height: "242px",
+      flexGrow: "0",
+      flexShrink: "0",
+      flexBasis: "auto",
+    });
+    expect(onStylesChange).toHaveBeenCalledTimes(1);
+
+    const updated = makeElement({
+      ...element,
+      inlineStyles: { ...element.inlineStyles, ...patch },
+      computedStyles: { ...element.computedStyles, ...patch },
+    });
+    expect(inferElementSizing(updated, "vertical")).toBe("fixed");
+    expect(inferElementSizing(updated, "horizontal")).toBe("fill");
+  });
+
+  it("clears cross-axis stretch when a layer changes from Fill to Fixed", () => {
+    const onStylesChange = vi.fn();
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: { display: "flex", flexDirection: "row" },
+      inlineStyles: { height: "auto", alignSelf: "stretch" },
+      computedStyles: { height: "242px", alignSelf: "stretch" },
+    });
+
+    commitElementSizing(element, "vertical", "fixed", vi.fn(), onStylesChange);
+
+    const patch = onStylesChange.mock.calls[0]?.[0] as Record<string, string>;
+    expect(patch).toEqual({ height: "242px", alignSelf: "auto" });
+    expect(
+      inferElementSizing(
+        makeElement({
+          ...element,
+          inlineStyles: { ...element.inlineStyles, ...patch },
+          computedStyles: { ...element.computedStyles, ...patch },
+        }),
+        "vertical",
+      ),
+    ).toBe("fixed");
+  });
+
+  it("commits both aspect-locked fixed dimensions in one patch", () => {
+    const onStylesChange = vi.fn();
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: { display: "flex", flexDirection: "column" },
+      computedStyles: { width: "40px", height: "40px", flexShrink: "1" },
+    });
+
+    commitFixedElementSizes(
+      element,
+      { horizontal: 40, vertical: 242 },
+      vi.fn(),
+      onStylesChange,
+    );
+
+    expect(onStylesChange).toHaveBeenCalledTimes(1);
+    expect(onStylesChange.mock.calls[0]?.[0]).toEqual({
+      width: "40px",
+      height: "242px",
+      alignSelf: "auto",
+      flexGrow: "0",
+      flexShrink: "0",
+      flexBasis: "auto",
+    });
   });
 });
 
@@ -555,7 +709,19 @@ describe("measuredElementSize — zero is a size, not an absence", () => {
   });
 });
 
-describe("canHugContent — hug needs something to measure", () => {
+describe("canHugContent — Hug availability", () => {
+  it("offers Hug to an empty auto-layout frame before it has children", () => {
+    const element = makeElement({
+      primitiveKind: "frame",
+      isFlexContainer: true,
+      childElementCount: 0,
+      textContent: undefined,
+      computedStyles: { padding: "10px" },
+    });
+    expect(canHugContent(element)).toBe(true);
+    expect(availableSizingForElement(element).vertical).toContain("hug");
+  });
+
   it("withholds hug from an empty drawn rectangle", () => {
     const element = makeElement({
       primitiveKind: "rectangle",
@@ -605,7 +771,26 @@ describe("isVectorShapeElement", () => {
         makeElement({ tagName: "svg", primitiveKind: "polygon" }),
       ),
     ).toBe(true);
+    expect(
+      isVectorShapeElement(
+        makeElement({ tagName: "svg", primitiveKind: "boolean" }),
+      ),
+    ).toBe(true);
+    expect(
+      isVectorShapeElement(
+        makeElement({ tagName: "svg", primitiveKind: "boolean-operand" }),
+      ),
+    ).toBe(true);
   });
+
+  it.each(["rect", "rectangle", "ellipse", "circle"])(
+    "accepts an SVG %s wrapper for vector paint controls",
+    (primitiveKind) => {
+      expect(
+        isVectorShapeElement(makeElement({ tagName: "svg", primitiveKind })),
+      ).toBe(true);
+    },
+  );
 
   it("rejects a board-migrated polygon, which is a div painted with background", () => {
     // board-file.ts serializes polygon/star as plain divs carrying the same
@@ -618,6 +803,15 @@ describe("isVectorShapeElement", () => {
     ).toBe(false);
   });
 
+  it.each(["rectangle", "ellipse"])(
+    "keeps the canvas %s div out of SVG vector controls",
+    (primitiveKind) => {
+      expect(
+        isVectorShapeElement(makeElement({ tagName: "div", primitiveKind })),
+      ).toBe(false);
+    },
+  );
+
   it("rejects frames, text and unmarked svgs", () => {
     expect(
       isVectorShapeElement(
@@ -625,5 +819,76 @@ describe("isVectorShapeElement", () => {
       ),
     ).toBe(false);
     expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+  });
+});
+
+describe("elementHasComponentAnnotation", () => {
+  it("is true only for an explicit annotation", () => {
+    expect(
+      elementHasComponentAnnotation({ componentName: "Button" } as never),
+    ).toBe(true);
+  });
+
+  it("ignores React provenance, which names the renderer not the element", () => {
+    expect(
+      elementHasComponentAnnotation({
+        provenance: { component: "Card" },
+      } as never),
+    ).toBe(false);
+    expect(elementHasComponentAnnotation(null)).toBe(false);
+  });
+});
+
+describe("a tag that usually carries text but holds none", () => {
+  const row = (hasOwnText?: boolean): ElementInfo => ({
+    tagName: "li",
+    classes: [],
+    computedStyles: {},
+    boundingRect: { x: 0, y: 0, width: 260, height: 40 },
+    isFlexChild: true,
+    isFlexContainer: false,
+    ...(hasOwnText === undefined ? {} : { hasOwnText }),
+  });
+
+  it("is a container, so its Fill is a background", () => {
+    expect(isTextElement(row(false))).toBe(false);
+  });
+
+  it("is still text when it holds text directly", () => {
+    expect(isTextElement(row(true))).toBe(true);
+  });
+
+  it("keeps the tag-only reading when the payload does not say", () => {
+    expect(isTextElement(row())).toBe(true);
+  });
+});
+
+describe("inline text style roots", () => {
+  it("exposes Typography for a paragraph whose text is in inline spans", () => {
+    const paragraph = makeElement({
+      tagName: "p",
+      hasOwnText: false,
+      wholeTextStyleRoot: true,
+      childElementCount: 1,
+      textContent: "Shared note",
+    });
+
+    expect(isTextElement(paragraph)).toBe(true);
+    expect(isContainerElement(paragraph)).toBe(false);
+  });
+
+  it("keeps a dot-label-checkbox row as a background-bearing container", () => {
+    const row = makeElement({
+      tagName: "li",
+      hasOwnText: false,
+      wholeTextStyleRoot: false,
+      childElementCount: 3,
+      isFlexContainer: true,
+      textContent: "Done",
+      computedStyles: { display: "flex", backgroundColor: "white" },
+    });
+
+    expect(isTextElement(row)).toBe(false);
+    expect(isContainerElement(row)).toBe(true);
   });
 });

@@ -2,8 +2,8 @@ import {
   AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
@@ -18,10 +18,8 @@ import {
   FeedbackButton,
 } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
-import {
-  isInboxScopedAppLabel,
-  normalizeMailLabel,
-} from "@shared/gmail-labels";
+import { isInboxScopedAppLabel } from "@shared/gmail-labels";
+import { inboxTabHref } from "@shared/inbox-threads";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
   IconMenu2,
@@ -41,14 +39,17 @@ import {
   IconMailForward,
   IconStar,
   IconTrash,
-  IconAlertCircle,
+  IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { ComposeModal } from "@/components/email/ComposeModal";
+import {
+  ComposeModal,
+  type ComposePaletteCommands,
+} from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -66,19 +67,24 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  applyDraftSaveResult,
+  DRAFT_DELETE_FAILED_EVENT,
+  DRAFT_SAVE_FAILED_EVENT,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import {
   useLabels,
   useSettings,
   useUpdateSettings,
   useEmails,
-  prefetchEmails,
   useReportSpam,
   useBlockSender,
   useMuteThread,
   markExternalEmailRefresh,
   EMPTY_LABELS,
+  LABELS_QUERY_KEY,
 } from "@/hooks/use-emails";
 import {
   useGoogleAuthStatus,
@@ -86,6 +92,13 @@ import {
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
 import {
+  INBOX_PAGE_SIZE,
+  invalidateInboxThreads,
+  resolveInboxTabId,
+  useInboxThreads,
+} from "@/hooks/use-inbox-threads";
+import {
+  shouldCycleMailTab,
   useKeyboardShortcuts,
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
@@ -93,27 +106,18 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { runUndo } from "@/hooks/use-undo";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
-  OTHER_INBOX_TAB_ID,
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
-  pinnedTriageLabels,
-  augmentSelfSentLabels,
-  filterInboxTabEmails,
-  inboxThreadKey,
-  savedFilterThreadIds,
-  labelTabHref,
   resolveDefaultMailHref,
 } from "@/lib/inbox-tabs";
-
-export { labelTabHref } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import { groupIntoThreads } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 import { isKnownMailView } from "@/routes/$view";
 
 import { CommandPalette } from "./CommandPalette";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
+import { useCommandPaletteFocus } from "./use-command-palette-focus";
 
 const BARE_ROUTES = new Set(["/email"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
@@ -219,70 +223,65 @@ function labelDepth(name: string): number {
   return Math.max(0, name.split("/").length - 1);
 }
 
-// Gmail's inbox-only categories (important, social, promotions, ...) only
-// ever exist inside the inbox, so their tab stays scoped there. Regular user
-type MailPrefetchTarget = {
-  view: string;
-  search?: string;
-  label?: string;
-};
-
-const MAIL_TAB_PREFETCH_CONCURRENCY = 2;
-let mailTabPrefetchGeneration = 0;
-let mailTabPrefetchTail: Promise<unknown> = Promise.resolve();
-
-export function prefetchMailTabTargets(
-  targets: readonly MailPrefetchTarget[],
-  prefetch: (target: MailPrefetchTarget) => Promise<unknown>,
-) {
-  const generation = ++mailTabPrefetchGeneration;
-  const run = mailTabPrefetchTail.then(async () => {
-    const queue = [...targets];
-    const worker = async () => {
-      while (generation === mailTabPrefetchGeneration && queue.length > 0) {
-        const target = queue.shift();
-        if (!target) return;
-        await Promise.allSettled([
-          Promise.resolve().then(() => prefetch(target)),
-        ]);
-      }
-    };
-
-    return Promise.all(
-      Array.from(
-        {
-          length: Math.min(MAIL_TAB_PREFETCH_CONCURRENCY, queue.length),
-        },
-        worker,
-      ),
-    );
-  });
-  mailTabPrefetchTail = run;
-  return run;
+export interface LabelTreeRow {
+  label: Label;
+  depth: number;
+  displayName: string;
 }
 
-export function getTabPrefetchTarget(
-  tab: {
-    id: string;
-    href: string;
-    type: "system" | "label" | "filter";
-  },
-  savedFilters: readonly Pick<SavedMailFilter, "id" | "query">[],
-): MailPrefetchTarget | null {
-  if (tab.type === "filter") {
-    const filter = savedFilters.find(
-      (candidate) => candidate.id === tab.id.slice("filter:".length),
-    );
-    return filter ? { view: "inbox", search: filter.query } : null;
-  }
+/**
+ * Sort labels by full path (case-insensitive, natural) and compute each
+ * row's nesting depth and leaf display name. A parent path that has no
+ * label of its own (e.g. "1-clients" when only "1-clients/electric kiwi"
+ * exists) is never synthesized — the child just sorts and indents where
+ * the parent would have been.
+ */
+export function labelTreeRows(labels: readonly Label[]): LabelTreeRow[] {
+  return [...labels]
+    .sort((a, b) =>
+      a.name
+        .toLowerCase()
+        .localeCompare(b.name.toLowerCase(), undefined, { numeric: true }),
+    )
+    .map((label) => ({
+      label,
+      depth: labelDepth(label.name),
+      displayName: shortLabelName(label.name),
+    }));
+}
 
-  const url = new URL(tab.href, "https://mail.local");
-  const view = url.pathname.split("/").filter(Boolean)[0] || "inbox";
-  const label = url.searchParams.get("label") ?? undefined;
-  if (view === "inbox" && (!label || isInboxScopedAppLabel(label))) {
-    return { view: "inbox" };
-  }
-  return { view, ...(label ? { label } : {}) };
+/**
+ * Move `draggedId` next to `targetId` (before it when `side` is "left",
+ * after when "right"), or to the end of the list when `targetId` is
+ * undefined — the drop landed outside this list's own items (e.g. a saved
+ * filter dropped on a pinned-label tab). Shared by both drag-reorderable
+ * groups in the top bar: pinned labels and saved filters each reorder their
+ * own array through this, never each other's.
+ */
+export function reorderById<T>(
+  items: readonly T[],
+  getId: (item: T) => string,
+  draggedId: string,
+  targetId: string | undefined,
+  side: "left" | "right",
+): T[] {
+  const draggedIndex = items.findIndex((item) => getId(item) === draggedId);
+  if (draggedIndex < 0) return [...items];
+  const dragged = items[draggedIndex];
+  const without = items.filter((item) => getId(item) !== draggedId);
+  const targetIndex =
+    targetId === undefined
+      ? -1
+      : without.findIndex((item) => getId(item) === targetId);
+  const insertAt =
+    targetIndex < 0
+      ? without.length
+      : side === "left"
+        ? targetIndex
+        : targetIndex + 1;
+  const next = [...without];
+  next.splice(insertAt, 0, dragged);
+  return next;
 }
 
 interface AppLayoutProps {
@@ -336,8 +335,64 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const compose = useComposeState();
+  useEffect(() => {
+    const handleDraftSaveFailed = () => {
+      toast.error(t("mail.toasts.failedToSaveDraft"));
+    };
+    const handleDraftDeleteFailed = () => {
+      toast.error(t("mail.toasts.failedToDeleteDraft"));
+    };
+    window.addEventListener(DRAFT_SAVE_FAILED_EVENT, handleDraftSaveFailed);
+    window.addEventListener(DRAFT_DELETE_FAILED_EVENT, handleDraftDeleteFailed);
+    return () => {
+      window.removeEventListener(
+        DRAFT_SAVE_FAILED_EVENT,
+        handleDraftSaveFailed,
+      );
+      window.removeEventListener(
+        DRAFT_DELETE_FAILED_EVENT,
+        handleDraftDeleteFailed,
+      );
+    };
+  }, [t]);
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOpenedFromCompose, setPaletteOpenedFromCompose] =
+    useState(false);
+  const [composeCommandsAvailable, setComposeCommandsAvailable] =
+    useState(false);
+  const composePaletteCommandsRef = useRef<ComposePaletteCommands | null>(null);
+  const registerComposePaletteCommands = useCallback(
+    (commands: ComposePaletteCommands | null) => {
+      composePaletteCommandsRef.current = commands;
+      setComposeCommandsAvailable(commands !== null);
+    },
+    [],
+  );
+  const sendComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.send();
+  }, []);
+  const scheduleComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendLater();
+  }, []);
+  const sendAndMarkDoneFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendAndMarkDone();
+  }, []);
+  const {
+    openPalette: rememberAndOpenPalette,
+    handleOpenChange: handlePaletteOpenChange,
+    restoreFocusAfterEscape: restorePaletteFocus,
+  } = useCommandPaletteFocus(paletteOpen, setPaletteOpen);
+  const openPalette = useCallback(() => {
+    if (!paletteOpen) {
+      const activeElement = document.activeElement;
+      setPaletteOpenedFromCompose(
+        activeElement instanceof HTMLElement &&
+          Boolean(activeElement.closest("[data-mail-compose]")),
+      );
+    }
+    rememberAndOpenPalette();
+  }, [paletteOpen, rememberAndOpenPalette]);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   // When the user requests snooze from the list, we need to snooze the live
   // focused/selected rows — not whatever is currently in navigation state.
@@ -456,14 +511,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       );
     }
   }, [activeAccounts]);
-  const {
-    data: labelsData,
-    isLoading: labelsLoading,
-    isError: labelsError,
-    error: labelsQueryError,
-    isFetching: labelsFetching,
-    refetch: refetchLabels,
-  } = useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined);
+  // useLabels degrades gracefully on its own (placeholderData keeps the last
+  // known labels around on a failed background refresh) — there is no error
+  // state to surface here.
+  const { data: labelsData } = useLabels(
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
+  );
   const labels = labelsData ?? EMPTY_LABELS;
   const labelDisplayNames = useMemo(
     () => buildLabelDisplayNames(labels),
@@ -477,10 +530,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [isManuallyRefreshing, setIsManuallyRefreshing] = useState(false);
 
   const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
-  const connectedEmails = useMemo(
-    () => new Set(accounts.map((a) => a.email.toLowerCase())),
-    [accounts],
-  );
   // Keep the pinned label order exactly as stored so the settings checkbox can
   // actually turn Important off.
   const userPinnedLabels = settings?.pinnedLabels;
@@ -489,25 +538,29 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
   );
-  const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
   const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
-  const savedFilterQueries = useMemo(
-    () => savedFilters.map((filter) => filter.query),
-    [savedFilters],
-  );
-  const activeSavedFilter = savedFilters.find(
-    (filter) => filter.id === activeFilterId,
-  );
-  const {
-    data: activeFilterEmails = [],
-    totalEstimate: activeFilterTotalEstimate,
-    hasNextPage: activeFilterHasNextPage,
-  } = useEmails("inbox", activeSavedFilter?.query, undefined, {
-    enabled: Boolean(activeSavedFilter),
+
+  // The top bar's tabs, their counts, and the account/sync status all come
+  // from one server call — see shared/inbox-threads.ts. InboxPage requests
+  // the identical `input` while on /inbox, so React Query dedupes the two
+  // into a single request; here the bar stays populated (with the default
+  // tab's data) on every other route too.
+  const resolvedInboxTab = resolveInboxTabId(searchParams);
+  const inboxAccountEmails =
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined;
+  const inboxThreads = useInboxThreads({
+    tab: resolvedInboxTab,
+    accountEmails: inboxAccountEmails,
+    limit: INBOX_PAGE_SIZE,
+    offset: 0,
   });
-  const { data: rawInboxEmails = [], isFetching: inboxIsFetching } =
-    useEmails("inbox");
+  const inboxIsFetching = inboxThreads.isFetching;
+  const inboxSyncing = inboxThreads.data?.syncing === true;
+  const needsReauthAccount = inboxThreads.data?.accounts.find(
+    (account) => account.state === "needs_reauth",
+  );
+
   const { data: rawAllLocalEmails = [] } = useEmails(
     "all",
     undefined,
@@ -519,22 +572,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const hasLocalMailboxData =
     !hasAccounts &&
     (rawAllLocalEmails.length > 0 ||
-      rawInboxEmails.length > 0 ||
+      (inboxThreads.data?.items.length ?? 0) > 0 ||
       labels.some(
         (label) => (label.totalCount ?? 0) > 0 || (label.unreadCount ?? 0) > 0,
       ));
-  // Augment emails: self-sent → "important" (or "note-to-self" if pinned)
-  const inboxEmails = useMemo(
-    () =>
-      augmentSelfSentLabels(rawInboxEmails, {
-        isGoogleConnected,
-        connectedEmails,
-        hasNoteToSelf,
-      }),
-    [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf],
-  );
   const tabsLoading =
-    (labelsLoading && labels.length === 0) || (settingsLoading && !settings);
+    (inboxThreads.isLoading && !inboxThreads.data) ||
+    (settingsLoading && !settings);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPinned, setSidebarPinned] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -613,278 +657,81 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     />
   );
 
-  // Drag-to-reorder tabs
-  const [dragPinnedId, setDragPinnedId] = useState<string | null>(null);
+  // Drag-to-reorder tabs. Two independently-orderable groups share this one
+  // mechanism: pinned labels reorder `pinnedLabels`, saved filters reorder
+  // `savedFilters` — a drag never crosses groups, it just falls back to
+  // "append within its own group" (see handleTabDrop).
+  type DragItem = { group: "label" | "filter"; id: string };
+  const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{
     tabIndex: number;
     side: "left" | "right";
   } | null>(null);
 
-  // Compute local thread counts for virtual labels and local/demo mail. Gmail
-  // system/user labels use server-provided counts when available.
-  const labelThreadCounts = useMemo(() => {
-    const unread: Record<string, number> = {};
-    const total: Record<string, number> = {};
-    // Filter emails by active accounts before counting
-    const filtered =
-      activeAccounts.size > 0
-        ? inboxEmails.filter(
-            (e) => e.accountEmail && activeAccounts.has(e.accountEmail),
-          )
-        : inboxEmails;
-    const threadRows = groupIntoThreads(filtered);
-    // "Other" = the inbox remainder. Shared with the rendered list
-    // (InboxPage) so a tab's badge can never disagree with the emails it
-    // actually shows. Group after filtering so counts use the same bare
-    // thread identity as the rendered list.
-    const inboxRows = groupIntoThreads(
-      filterInboxTabEmails(filtered, null, pinnedLabels, savedFilterQueries),
-    );
-    const savedFilterThreads = savedFilterThreadIds(
-      filtered,
-      savedFilterQueries,
-    );
-    const savedFilterExclusiveRows = groupIntoThreads(
-      filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e))),
-    );
-    total["__inboxTotal"] = threadRows.length;
-    unread["__inboxTotal"] = threadRows.filter(
-      (thread) => thread.hasUnread,
-    ).length;
-    total["inbox"] = inboxRows.length;
-    unread["inbox"] = inboxRows.filter((thread) => thread.hasUnread).length;
-    total["__inboxExclusive"] = savedFilterExclusiveRows.length;
-    unread["__inboxExclusive"] = savedFilterExclusiveRows.filter(
-      (thread) => thread.hasUnread,
-    ).length;
-    // Count threads per pinned label using the exact same membership rule as
-    // the rendered list: latest message has the label; "important" is
-    // exclusive of any other pinned tab.
-    for (let i = 0; i < pinnedLabels.length; i++) {
-      const full = pinnedLabels[i];
-      const rows = groupIntoThreads(
-        filterInboxTabEmails(filtered, full, pinnedLabels, savedFilterQueries),
-      );
-      total[full] = rows.length;
-      unread[full] = rows.filter((thread) => thread.hasUnread).length;
-      // Also index by the canonical label.id (which uses spaces, not
-      // underscores) so count lookups find it for nested labels.
-      const canonical = labels.find(
-        (l) =>
-          l.id === full ||
-          l.id === normalizeMailLabel(full) ||
-          l.name.toLowerCase() === full.toLowerCase(),
-      );
-      if (canonical) {
-        total[canonical.id] = total[full];
-        unread[canonical.id] = unread[full];
-      }
-    }
-    return { total, unread };
-  }, [inboxEmails, pinnedLabels, activeAccounts, labels, savedFilterQueries]);
+  // Pinned collapsible system views (Sent, Archive, ...) render as their own
+  // top-bar shortcuts, ahead of the server-computed inbox-split tabs below —
+  // an orthogonal feature from the inbox split itself, so it stays
+  // client-side off the same `pinnedLabels` settings list.
+  type RenderedTab = {
+    id: string;
+    pinnedId?: string;
+    filterId?: string;
+    label: string;
+    fullLabel?: string;
+    href: string;
+    isActive: boolean;
+    color?: string;
+    tooltip?: string;
+    total?: number;
+    unread?: number;
+    isSystemView: boolean;
+  };
 
-  const activeFilterCounts = useMemo(() => {
-    const threadUnread = new Map<string, boolean>();
-    const scopedEmails =
-      activeAccounts.size > 0
-        ? activeFilterEmails.filter(
-            (email) =>
-              email.accountEmail && activeAccounts.has(email.accountEmail),
-          )
-        : activeFilterEmails;
-    for (const email of scopedEmails) {
-      const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
-      threadUnread.set(key, (threadUnread.get(key) ?? false) || !email.isRead);
-    }
-    return {
-      total:
-        activeAccounts.size === 0 &&
-        typeof activeFilterTotalEstimate === "number"
-          ? activeFilterTotalEstimate
-          : threadUnread.size,
-      unread: activeFilterHasNextPage
-        ? undefined
-        : [...threadUnread.values()].filter(Boolean).length,
-    };
-  }, [
-    activeAccounts,
-    activeFilterEmails,
-    activeFilterHasNextPage,
-    activeFilterTotalEstimate,
-  ]);
-
-  // Tabs to show in the bar: pinned triage filters first, then the inbox
-  // remainder as "Other". Without pinned filters, the inbox is just "Inbox".
-  const hasPinnedFilters =
-    !combineInbox &&
-    pinnedLabels.some((id) => !collapsibleViews.some((v) => v.id === id));
-
-  const visibleTabs = useMemo(() => {
-    const tabs: {
-      id: string;
-      pinnedId?: string;
-      label: string;
-      fullLabel?: string;
-      href: string;
-      isActive: boolean;
-      color?: string;
-      type: "system" | "label" | "filter";
-    }[] = [];
-
-    if (!hasPinnedFilters) {
-      tabs.push({
-        id: "inbox",
-        label: t("mail.views.inbox"),
-        href: "/inbox",
-        isActive:
-          view === "inbox" &&
-          !activeLabel &&
-          !activeFilterId &&
-          activeInboxTab !== OTHER_INBOX_TAB_PARAM,
-        type: "system",
-      });
-    }
-
-    const seenLabels = new Set<string>(["inbox"]);
-    for (const id of pinnedLabels) {
-      // Check if it's a system view
-      const sysView = collapsibleViews.find((v) => v.id === id);
-      if (sysView) {
-        if (seenLabels.has(sysView.id)) continue;
-        seenLabels.add(sysView.id);
-        tabs.push({
+  const systemViewTabs = useMemo<RenderedTab[]>(() => {
+    if (combineInbox) return [];
+    return pinnedLabels
+      .filter((id) => collapsibleViews.some((v) => v.id === id))
+      .map((id) => {
+        const sysView = collapsibleViews.find((v) => v.id === id)!;
+        return {
           id: sysView.id,
-          pinnedId: id,
           label: t(sysView.labelKey),
           href: `/${sysView.id}`,
           isActive: view === sysView.id,
-          type: "system",
-        });
-        continue;
-      }
-      if (combineInbox) continue;
-      // Check if it's a user label (handle old nested-path IDs like "[superhuman]/ai/pitch")
-      const normalizedId = id.includes("/")
-        ? id
-            .slice(id.lastIndexOf("/") + 1)
-            .replace(/_/g, " ")
-            .toLowerCase()
-        : id.toLowerCase();
-      const lbl = labels.find(
-        (l) =>
-          l.id === normalizedId ||
-          l.id === id ||
-          l.name.toLowerCase() === id.toLowerCase(),
-      );
-      if (lbl) {
-        const rawName =
-          labelDisplayNames.get(lbl.id) || shortLabelName(lbl.name);
-        const aliasedName = labelAliases[lbl.id] || labelAliases[id] || rawName;
-        const displayKey = aliasedName.toLowerCase();
-        if (seenLabels.has(displayKey)) continue;
-        seenLabels.add(displayKey);
-        tabs.push({
-          id: lbl.id,
-          pinnedId: id,
-          label: aliasedName,
-          fullLabel: lbl.name,
-          href: labelTabHref(lbl.id),
-          isActive: activeLabel === lbl.id,
-          color: lbl.color,
-          type: "label",
-        });
-      }
-    }
-
-    for (const filter of savedFilters) {
-      const id = `filter:${filter.id}`;
-      if (seenLabels.has(id)) continue;
-      seenLabels.add(id);
-      tabs.push({
-        id,
-        label: filter.name,
-        href: `/inbox?filter=${encodeURIComponent(filter.id)}`,
-        isActive: view === "inbox" && activeFilterId === filter.id,
-        type: "filter",
+          isSystemView: true,
+        };
       });
-    }
+  }, [combineInbox, pinnedLabels, view, t]);
 
-    if (hasPinnedFilters) {
-      tabs.push({
-        id: OTHER_INBOX_TAB_ID,
-        label: t("mail.views.other"),
-        href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`,
-        isActive:
-          view === "inbox" &&
-          !activeLabel &&
-          !activeFilterId &&
-          activeInboxTab === OTHER_INBOX_TAB_PARAM,
-        type: "system",
-      });
-    }
+  // The inbox split (Important / pinned labels / saved filters / Other) with
+  // its counts comes straight from the server — see the useInboxThreads call
+  // above. A tab's badge can never disagree with what it lists because both
+  // are read off the same row.
+  const dataTabs = useMemo<RenderedTab[]>(() => {
+    const tabs = inboxThreads.data?.tabs ?? [];
+    return tabs.map((tab) => {
+      const label = labels.find((l) => l.id === tab.id);
+      return {
+        id: tab.id,
+        pinnedId: tab.kind === "label" ? tab.id : undefined,
+        filterId: tab.kind === "filter" ? tab.id : undefined,
+        label: tab.name,
+        fullLabel: label?.name,
+        href: inboxTabHref(tab.id),
+        isActive: view === "inbox" && inboxThreads.data?.activeTabId === tab.id,
+        color: label?.color,
+        tooltip: tab.query,
+        total: tab.total,
+        unread: tab.unread,
+        isSystemView: false,
+      };
+    });
+  }, [inboxThreads.data?.tabs, inboxThreads.data?.activeTabId, labels, view]);
 
-    return tabs;
-  }, [
-    labels,
-    labelDisplayNames,
-    pinnedLabels,
-    labelAliases,
-    savedFilters,
-    view,
-    activeLabel,
-    activeInboxTab,
-    activeFilterId,
-    combineInbox,
-    hasPinnedFilters,
-    t,
-  ]);
-
-  const topBarTabs = useMemo(() => {
-    const tabs = [...visibleTabs];
-    if (activeLabel && !tabs.some((tab) => tab.id === activeLabel)) {
-      const active = labels.find((label) => label.id === activeLabel);
-      if (active) {
-        const aliasedName =
-          labelAliases[active.id] ||
-          labelDisplayNames.get(active.id) ||
-          shortLabelName(active.name);
-        tabs.push({
-          id: active.id,
-          label: aliasedName,
-          fullLabel: active.name,
-          href: labelTabHref(active.id),
-          isActive: true,
-          color: active.color,
-          type: "label",
-        });
-      }
-    }
-    return tabs;
-  }, [activeLabel, labels, labelAliases, labelDisplayNames, visibleTabs]);
-
-  const initialForegroundEmailsReady =
-    !inboxIsFetching || rawInboxEmails.length > 0;
-
-  useEffect(() => {
-    if (tabsLoading || !initialForegroundEmailsReady) return;
-    const targets = new Map<string, MailPrefetchTarget>();
-    for (const tab of visibleTabs) {
-      if (tab.isActive) continue;
-      const target = getTabPrefetchTarget(tab, savedFilters);
-      if (!target) continue;
-      targets.set(JSON.stringify(target), target);
-    }
-    void queryClient.cancelQueries({ queryKey: ["email-prefetch"] });
-    void prefetchMailTabTargets([...targets.values()], (target) =>
-      prefetchEmails(queryClient, target.view, target.search, target.label),
-    );
-  }, [
-    initialForegroundEmailsReady,
-    queryClient,
-    savedFilters,
-    tabsLoading,
-    visibleTabs,
-  ]);
+  const topBarTabs = useMemo<RenderedTab[]>(
+    () => [...systemViewTabs, ...dataTabs],
+    [systemViewTabs, dataTabs],
+  );
 
   // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
@@ -892,14 +739,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     [pinnedLabels],
   );
 
-  // The top-bar inbox tabs are hidden on mobile, so mirror their non-standard
-  // entries in the drawer. Collapsible system views already appear in the
-  // fixed drawer list below and must not be duplicated here.
-  const mobileInboxTabs = visibleTabs.filter(
-    (tab) =>
-      tab.id !== "inbox" &&
-      !collapsibleViews.some((view) => view.id === tab.id),
-  );
+  // The top-bar inbox tabs are hidden on mobile, so mirror the label/filter
+  // ones in the drawer. Pinned system views already appear in the fixed
+  // drawer list below and must not be duplicated here.
+  const mobileInboxTabs = dataTabs;
 
   // Is current view one of the hidden ones? If so force-show it
   const currentInHidden = hiddenViews.some((v) => v.id === view);
@@ -913,6 +756,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [labels]);
 
   const handleCompose = useCallback(() => {
+    trackEvent("compose_opened", {
+      app_name: "mail",
+      template_name: "mail",
+      compose_mode: "new",
+    });
     compose.open({
       to: "",
       cc: "",
@@ -998,6 +846,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     reportSpam.mutate({
       id: targetEmail.id,
       threadId: targetEmail.threadId || targetEmail.id,
+      accountEmail: targetEmail.accountEmail,
     });
     toast(t("mail.toasts.reportedSpam"));
   }, [targetEmail, reportSpam, dismissEmail, t]);
@@ -1012,6 +861,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       id: targetEmail.id,
       threadId: targetEmail.threadId || targetEmail.id,
       senderEmail: targetEmail.from.email,
+      accountEmail: targetEmail.accountEmail,
     });
     toast(
       t("mail.toasts.reportedSpamBlocked", { email: targetEmail.from.email }),
@@ -1027,7 +877,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     if (targetEmail) dismissEmail(targetEmail.id);
-    muteThread.mutate(tid);
+    muteThread.mutate({
+      threadId: tid,
+      accountEmail: targetEmail?.accountEmail,
+    });
     toast(t("mail.toasts.threadMuted"));
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
 
@@ -1149,8 +1002,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   // Drag-to-reorder tab handlers
   const handleTabDragStart = useCallback(
-    (e: React.DragEvent, pinnedId: string) => {
-      setDragPinnedId(pinnedId);
+    (e: React.DragEvent, item: DragItem) => {
+      setDragItem(item);
       e.dataTransfer.effectAllowed = "move";
     },
     [],
@@ -1158,7 +1011,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const handleTabDragOver = useCallback(
     (e: React.DragEvent, tabIndex: number) => {
-      if (!dragPinnedId) return;
+      if (!dragItem) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -1168,39 +1021,50 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         side: e.clientX < midX ? "left" : "right",
       });
     },
-    [dragPinnedId],
+    [dragItem],
   );
 
   const handleTabDrop = useCallback(() => {
-    if (!dragPinnedId || !dropIndicator) return;
-    const current = pinnedLabels;
-    if (!current.includes(dragPinnedId)) return;
-
-    const targetTab = visibleTabs[dropIndicator.tabIndex];
+    if (!dragItem || !dropIndicator) return;
+    const targetTab = topBarTabs[dropIndicator.tabIndex];
     if (!targetTab) return;
 
-    const without = current.filter((id) => id !== dragPinnedId);
-    let insertAt: number;
-
-    if (!targetTab.pinnedId) {
-      insertAt = without.length;
+    if (dragItem.group === "label") {
+      if (!pinnedLabels.includes(dragItem.id)) return;
+      updateSettings.mutate({
+        pinnedLabels: reorderById(
+          pinnedLabels,
+          (id) => id,
+          dragItem.id,
+          targetTab.pinnedId,
+          dropIndicator.side,
+        ),
+      });
     } else {
-      const targetIdx = without.indexOf(targetTab.pinnedId);
-      if (targetIdx < 0) {
-        insertAt = without.length;
-      } else {
-        insertAt = dropIndicator.side === "left" ? targetIdx : targetIdx + 1;
-      }
+      if (!savedFilters.some((filter) => filter.id === dragItem.id)) return;
+      updateSettings.mutate({
+        savedFilters: reorderById(
+          savedFilters,
+          (filter) => filter.id,
+          dragItem.id,
+          targetTab.filterId,
+          dropIndicator.side,
+        ),
+      });
     }
-
-    without.splice(insertAt, 0, dragPinnedId);
-    updateSettings.mutate({ pinnedLabels: without });
-    setDragPinnedId(null);
+    setDragItem(null);
     setDropIndicator(null);
-  }, [dragPinnedId, dropIndicator, pinnedLabels, visibleTabs, updateSettings]);
+  }, [
+    dragItem,
+    dropIndicator,
+    pinnedLabels,
+    savedFilters,
+    topBarTabs,
+    updateSettings,
+  ]);
 
   const handleTabDragEnd = useCallback(() => {
-    setDragPinnedId(null);
+    setDragItem(null);
     setDropIndicator(null);
   }, []);
 
@@ -1224,37 +1088,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const canCycleTab = useCallback(
     (event: KeyboardEvent) => {
       if (topBarTabs.length < 2) return false;
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target) return true;
-
-      // Keep native Tab behavior inside modal/dialog popups where focus trapping is required
-      if (
-        target.closest(
-          '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]',
-        ) !== null
-      ) {
-        return false;
-      }
-
-      // Preserve native Tab traversal when focused on interactive controls outside the tab bar
-      // (buttons, links, checkboxes, selects, etc.), except for the tab bar itself or body/main view.
-      if (target.closest("[data-mail-tab-list]") !== null) {
-        return true;
-      }
-
-      const isInteractive =
-        target.matches(
-          'button, a[href], select, [role="button"], [role="checkbox"], [role="menuitem"], [role="option"], [tabindex]:not([tabindex="-1"])',
-        ) ||
-        target.closest(
-          'button, a[href], select, [role="button"], [role="checkbox"], [role="menuitem"], [role="option"]',
-        ) !== null;
-
-      if (isInteractive) {
-        return false;
-      }
-
-      return true;
+      return shouldCycleMailTab(event.target);
     },
     [topBarTabs.length],
   );
@@ -1305,11 +1139,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     {
       key: "k",
       meta: true,
-      handler: () => setPaletteOpen(true),
+      handler: openPalette,
       skipInInput: false,
     },
     {
       key: "/",
+      shift: "either",
       handler: () => {
         document.getElementById("mail-search")?.focus();
       },
@@ -1322,12 +1157,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       key: "Tab",
       shouldHandle: canCycleTab,
       handler: () => cycleTab(false),
+      skipInInput: false,
     },
     {
       key: "Tab",
       shift: true,
       shouldHandle: canCycleTab,
       handler: () => cycleTab(true),
+      skipInInput: false,
     },
     {
       key: "Escape",
@@ -1343,11 +1180,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   ]);
 
   useEffect(() => {
-    const handler = () => setPaletteOpen(true);
+    const handler = openPalette;
     window.addEventListener("agent-native:open-command-menu", handler);
     return () =>
       window.removeEventListener("agent-native:open-command-menu", handler);
-  }, []);
+  }, [openPalette]);
 
   // Sequence shortcuts (g + key = go to view)
   useSequenceShortcuts([
@@ -1356,97 +1193,25 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       handler: () => {
         void navigate("/inbox");
         void queryClient.invalidateQueries({ queryKey: ["emails"] });
-        void queryClient.invalidateQueries({ queryKey: ["labels"] });
+        void queryClient.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+        void invalidateInboxThreads(queryClient);
       },
     },
     { keys: ["g", "s"], handler: () => navigate("/starred") },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },
-    { keys: ["g", "a"], handler: () => navigate("/archive") },
+    { keys: ["g", "a"], handler: () => navigate("/all") },
     { keys: ["g", "e"], handler: () => navigate("/archive") },
     { keys: ["g", "#"], handler: () => navigate("/trash") },
   ]);
 
-  const resolveLabelForCount = (id: string) => {
-    const normalizedId = id.includes("/")
-      ? id
-          .slice(id.lastIndexOf("/") + 1)
-          .replace(/_/g, " ")
-          .toLowerCase()
-      : id.toLowerCase();
-    return labels.find(
-      (label) =>
-        label.id === id ||
-        label.id === normalizedId ||
-        label.name.toLowerCase() === id.toLowerCase(),
-    );
-  };
-
-  // Gmail category tabs partition the inbox; regular labels span the mailbox.
-  // Keep only the former tied to the loaded inbox partition.
-  const inboxPartitionTabIds = new Set<string>([OTHER_INBOX_TAB_ID]);
-  for (const pinnedId of pinnedTriageLabels(pinnedLabels)) {
-    const label = resolveLabelForCount(pinnedId);
-    if (!isInboxScopedAppLabel(label?.id ?? pinnedId)) continue;
-    inboxPartitionTabIds.add(pinnedId);
-    if (label) inboxPartitionTabIds.add(label.id);
-  }
-
-  type CountKind = "unread" | "total";
-  const countFieldForKind = (kind: CountKind) =>
-    kind === "total" ? "totalCount" : "unreadCount";
-  const localCountsForKind = (kind: CountKind) =>
-    kind === "total" ? labelThreadCounts.total : labelThreadCounts.unread;
-
-  // Prefer the complete server count when Gmail provides one. Falling back to
-  // loaded rows is useful for local/demo mail, but merging the two with
-  // Math.max makes badges grow as more pages happen to be loaded.
-  const getInboxCount = (kind: CountKind) => {
-    const localCounts = localCountsForKind(kind);
-    if (savedFilterQueries.length > 0) {
-      return localCounts["__inboxExclusive"] ?? 0;
-    }
-    const inboxLabel = resolveLabelForCount("inbox");
-    const countField = countFieldForKind(kind);
-    const serverCount = inboxLabel?.[countField];
-    const localCount = localCounts["__inboxTotal"] ?? 0;
-    return typeof serverCount === "number" ? serverCount : localCount;
-  };
-
-  const getOtherCount = (kind: CountKind) => {
-    if (!hasPinnedFilters) return getInboxCount(kind);
-    const localCounts = localCountsForKind(kind);
-    // Don't subtract pinned-label server counts from inbox server count:
-    // Gmail's label totals include archived/sent/trash threads outside the
-    // inbox, so the subtraction can drop "Other" to zero or undercount. The
-    // local count (computed from loaded inbox emails, filtered by pinned-tab
-    // membership) is the authoritative "Other" number.
-    return localCounts["inbox"] ?? 0;
-  };
-
-  const getTabCount = (viewId: string, kind: CountKind) => {
-    if (viewId === OTHER_INBOX_TAB_ID) return getOtherCount(kind);
-    if (viewId === "inbox") return getInboxCount(kind);
-    if (viewId.startsWith("filter:")) {
-      return viewId === `filter:${activeFilterId}`
-        ? activeFilterCounts[kind]
-        : undefined;
-    }
-    const label = resolveLabelForCount(viewId);
-    const countField = countFieldForKind(kind);
-    const localCounts = localCountsForKind(kind);
-    const localCount =
-      localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
-    if (inboxPartitionTabIds.has(viewId)) return localCount;
-    const serverCount = label?.[countField];
-    return typeof serverCount === "number" ? serverCount : localCount;
-  };
-  const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
-  const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");
-  // The rail badge represents the whole inbox. The top-bar "Other" tab can
-  // only count loaded rows when pinned filters are active, but Gmail's label
-  // count covers the mailbox beyond the current page.
-  const inboxSidebarUnreadCount = getInboxCount("unread");
+  // The whole-inbox rail badge reads the Gmail "inbox" system label's own
+  // unread count from the same sync-cache label list the tab bar uses —
+  // summing the (possibly overlapping) split tabs would double-count threads
+  // that match more than one label/filter tab.
+  const inboxSidebarUnreadCount = inboxThreads.data?.labels.find(
+    (label) => label.id === "inbox",
+  )?.unreadCount;
   const railNavItems = [
     {
       id: "inbox",
@@ -1538,62 +1303,78 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               </nav>
             ) : (
               <nav
-                className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar"
+                className="hidden sm:flex flex-nowrap min-w-0 items-center gap-1 overflow-x-auto hide-scrollbar"
                 data-mail-tab-list
               >
-                {topBarTabs.map((tab, idx) => {
-                  const visibleIndex = visibleTabs.findIndex(
-                    (item) => item.id === tab.id,
-                  );
-                  const tabIndex = visibleIndex >= 0 ? visibleIndex : idx;
-                  const count = getTopBarCount(tab.id);
-                  const canDrag = !!tab.pinnedId;
+                {topBarTabs.map((tab, tabIndex) => {
+                  const count = tab.total;
+                  const dragItemForTab: DragItem | undefined = tab.pinnedId
+                    ? { group: "label", id: tab.pinnedId }
+                    : tab.filterId
+                      ? { group: "filter", id: tab.filterId }
+                      : undefined;
+                  const canDrag = !!dragItemForTab;
                   const showLeft =
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "left";
                   const showRight =
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "right";
+                  const link = (
+                    <Link
+                      to={tab.href}
+                      aria-current={tab.isActive ? "page" : undefined}
+                      draggable={canDrag}
+                      onDragStart={(e) =>
+                        dragItemForTab && handleTabDragStart(e, dragItemForTab)
+                      }
+                      onDragEnd={handleTabDragEnd}
+                      className={cn(
+                        "flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] transition-colors",
+                        tab.isActive
+                          ? "bg-accent text-foreground font-semibold"
+                          : "text-muted-foreground font-medium hover:bg-accent/50 hover:text-foreground/80",
+                      )}
+                    >
+                      {tab.color && (
+                        <span
+                          className="h-1.5 w-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: tab.color }}
+                        />
+                      )}
+                      {tab.label}
+                      {count !== undefined && count > 0 && (
+                        <span
+                          className={cn(
+                            "text-[11px] tabular-nums",
+                            tab.isActive
+                              ? "text-foreground/60"
+                              : "text-muted-foreground/70",
+                          )}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </Link>
+                  );
                   return (
                     <div
                       key={tab.pinnedId || tab.id}
-                      className="relative flex items-center"
+                      className="relative flex shrink-0 items-center"
                       onDragOver={(e) => handleTabDragOver(e, tabIndex)}
                       onDrop={handleTabDrop}
                     >
                       {showLeft && (
                         <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
                       )}
-                      <Link
-                        to={tab.href}
-                        draggable={canDrag}
-                        onDragStart={(e) =>
-                          canDrag &&
-                          tab.pinnedId &&
-                          handleTabDragStart(e, tab.pinnedId)
-                        }
-                        onDragEnd={handleTabDragEnd}
-                      >
-                        {tab.color && (
-                          <span
-                            className="h-1.5 w-1.5 rounded-full shrink-0"
-                            style={{ backgroundColor: tab.color }}
-                          />
-                        )}
-                        {tab.label}
-                        {count !== undefined && count > 0 && (
-                          <span
-                            className={cn(
-                              "text-[11px] tabular-nums",
-                              tab.isActive
-                                ? "text-foreground/60"
-                                : "text-muted-foreground/70",
-                            )}
-                          >
-                            {count}
-                          </span>
-                        )}
-                      </Link>
+                      {tab.tooltip ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>{link}</TooltipTrigger>
+                          <TooltipContent>{tab.tooltip}</TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        link
+                      )}
                       {showRight && (
                         <div className="absolute right-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
                       )}
@@ -1603,7 +1384,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
                 {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
                 {currentInHidden && (
-                  <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
+                  <span className="flex shrink-0 items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
                     {t(
                       collapsibleViews.find((v) => v.id === view)?.labelKey ??
                         "mail.views.inbox",
@@ -1678,6 +1459,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
           <div className="flex-1" />
 
+          {inboxSyncing && (
+            <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
+              <IconRefresh className="h-3 w-3 animate-spin" />
+              {t("mail.inbox.syncing")}
+            </span>
+          )}
+
           {headerActions && (
             <div className="flex shrink-0 items-center gap-1">
               {headerActions}
@@ -1719,6 +1507,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {!searchFocused && !activeSearchQuery && (
             <input
               id="mail-search"
+              aria-label={t("mail.search.label")}
               className="sr-only"
               tabIndex={-1}
               onFocus={() => setSearchFocused(true)}
@@ -1737,7 +1526,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   setIsManuallyRefreshing(true);
                   markExternalEmailRefresh();
                   void queryClient.invalidateQueries({ queryKey: ["emails"] });
-                  void queryClient.invalidateQueries({ queryKey: ["labels"] });
+                  void queryClient.invalidateQueries({
+                    queryKey: LABELS_QUERY_KEY,
+                  });
+                  void invalidateInboxThreads(queryClient);
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
                 }}
                 disabled={inboxIsFetching}
@@ -1893,42 +1685,55 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               >
                 {!showCollapsedSidebar && (
                   <div className="ms-auto flex items-center gap-1">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (sidebarPinned) {
-                              setSidebarPinned(false);
-                              setSidebarOpen(!isMobile);
-                              return;
+                    {isMobile ? (
+                      // The drawer is always a slide-out overlay on mobile,
+                      // so "pin" has nothing to pin here — offer to close it.
+                      <button
+                        type="button"
+                        onClick={() => setSidebarOpen(false)}
+                        className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        aria-label={t("mail.toolbar.closeSidebar")}
+                      >
+                        <IconX className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (sidebarPinned) {
+                                setSidebarPinned(false);
+                                setSidebarOpen(true);
+                                return;
+                              }
+                              setSidebarPinned(true);
+                              setSidebarOpen(true);
+                            }}
+                            className={cn(
+                              "flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                              sidebarPinned && "text-foreground bg-accent/50",
+                            )}
+                            aria-label={
+                              sidebarPinned
+                                ? t("mail.toolbar.unpinSidebar")
+                                : t("mail.toolbar.pinSidebar")
                             }
-                            setSidebarPinned(true);
-                            setSidebarOpen(true);
-                          }}
-                          className={cn(
-                            "flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                            sidebarPinned && "text-foreground bg-accent/50",
-                          )}
-                          aria-label={
-                            sidebarPinned
-                              ? t("mail.toolbar.unpinSidebar")
-                              : t("mail.toolbar.pinSidebar")
-                          }
-                        >
-                          {sidebarPinned ? (
-                            <IconPinnedFilled className="h-4 w-4" />
-                          ) : (
-                            <IconPin className="h-4 w-4" />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {sidebarPinned
-                          ? t("mail.toolbar.unpinSidebar")
-                          : t("mail.toolbar.pinSidebar")}
-                      </TooltipContent>
-                    </Tooltip>
+                          >
+                            {sidebarPinned ? (
+                              <IconPinnedFilled className="h-4 w-4" />
+                            ) : (
+                              <IconPin className="h-4 w-4" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {sidebarPinned
+                            ? t("mail.toolbar.unpinSidebar")
+                            : t("mail.toolbar.pinSidebar")}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </div>
                 )}
               </AppSidebarHeader>
@@ -2089,6 +1894,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                 </span>
                               )}
                             {item.id === "inbox" &&
+                              !!inboxSidebarUnreadCount &&
                               inboxSidebarUnreadCount > 0 && (
                                 <span className="text-[12px] text-muted-foreground/50 tabular-nums">
                                   {inboxSidebarUnreadCount}
@@ -2106,11 +1912,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           </h2>
                           <div className="space-y-0.5">
                             {mobileInboxTabs.map((tab) => {
-                              const count = getUnreadCount(tab.id);
-                              const depth =
-                                tab.type === "label"
-                                  ? labelDepth(tab.fullLabel ?? tab.label)
-                                  : 0;
+                              const count = tab.unread;
+                              const depth = tab.fullLabel
+                                ? labelDepth(tab.fullLabel)
+                                : 0;
                               return (
                                 <Link
                                   key={tab.id}
@@ -2208,30 +2013,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         >
           <InvitationBanner />
 
-          {labelsError && (
-            <div
-              role="alert"
-              className="flex shrink-0 items-center gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-muted-foreground"
-            >
-              <IconAlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-              <span className="min-w-0 flex-1 truncate">
-                {labelsQueryError instanceof Error && labelsQueryError.message
-                  ? labelsQueryError.message
-                  : t("mail.error.loadTitle")}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={labelsFetching}
-                onClick={() => void refetchLabels()}
-              >
-                {labelsFetching
-                  ? t("mail.error.retrying")
-                  : t("mail.error.tryAgain")}
-              </Button>
-            </div>
-          )}
+          {/* Compact, non-blocking — reuses the existing account-strip
+              reconnect UI instead of a second banner system. */}
+          {needsReauthAccount && <GoogleConnectBanner variant="banner" />}
 
           {/* Show full-page takeover when no accounts connected (except on
               settings page, or on an unknown route — an unmatched path must
@@ -2276,30 +2060,35 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               const draft = popoutDrafts.find((d) => d.id === id);
               const hasContent = !!(
                 draft?.to?.trim() ||
+                draft?.cc?.trim() ||
+                draft?.bcc?.trim() ||
                 draft?.subject?.trim() ||
                 draft?.body?.trim()
               );
               const snapshot = draft ? { ...draft } : null;
-              compose.close(id);
+              const savePromise = compose.close(id);
               if (hasContent && snapshot) {
-                toast("Draft saved.", {
+                toast(t("mail.toasts.draftClosed"), {
                   action: {
-                    label: "REOPEN",
-                    onClick: () => {
-                      const { id: _id, ...reopenData } = snapshot;
+                    label: t("mail.compose.reopenDraft"),
+                    onClick: async () => {
+                      const savedSnapshot = applyDraftSaveResult(
+                        snapshot,
+                        await savePromise,
+                      );
+                      const { id: _id, ...reopenData } = savedSnapshot;
                       compose.open(reopenData);
                     },
                   },
                   cancel: {
-                    label: "DELETE DRAFT",
-                    onClick: () => {
-                      if (snapshot.savedDraftId) {
-                        void fetch(
-                          appApiPath(`/api/emails/${snapshot.savedDraftId}`),
-                          {
-                            method: "DELETE",
-                          },
-                        );
+                    label: t("mail.compose.deleteDraft"),
+                    onClick: async () => {
+                      const savedSnapshot = applyDraftSaveResult(
+                        snapshot,
+                        await savePromise,
+                      );
+                      if (savedSnapshot.savedDraftId) {
+                        await compose.deleteSavedDraft(savedSnapshot);
                       }
                     },
                   },
@@ -2308,57 +2097,119 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             }}
             onCloseAll={() => {
               const draftsWithContent = popoutDrafts.filter(
-                (d) => !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
+                (d) =>
+                  !!(
+                    d.to?.trim() ||
+                    d.cc?.trim() ||
+                    d.bcc?.trim() ||
+                    d.subject?.trim() ||
+                    d.body?.trim()
+                  ),
               );
               const snapshots = draftsWithContent.map((d) => ({ ...d }));
-              const ids = popoutDrafts.map((d) => d.id);
-              ids.forEach((id) => compose.close(id));
+              const savePromises = compose.closeAll(
+                popoutDrafts.map((draft) => draft.id),
+              );
               if (snapshots.length > 0) {
-                toast(`${snapshots.length} draft(s) saved.`, {
-                  action: {
-                    label: "REOPEN",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        const { id: _id, ...reopenData } = snap;
-                        compose.open(reopenData);
-                      }
-                    },
-                  },
-                  cancel: {
-                    label: "DELETE DRAFTS",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        if (snap.savedDraftId) {
-                          void fetch(
-                            appApiPath(`/api/emails/${snap.savedDraftId}`),
-                            {
-                              method: "DELETE",
-                            },
+                toast(
+                  t("mail.toasts.draftsClosed", { count: snapshots.length }),
+                  {
+                    action: {
+                      label: t("mail.compose.reopenDraft"),
+                      onClick: async () => {
+                        const saveResults = await Promise.all(
+                          snapshots.map(async (snapshot) => ({
+                            snapshot,
+                            result: await savePromises.get(snapshot.id),
+                          })),
+                        );
+                        for (const { snapshot, result } of saveResults) {
+                          if (
+                            result?.status === "failed" ||
+                            result?.status === "unavailable" ||
+                            result?.status === "cancelled"
+                          ) {
+                            compose.setActiveId(snapshot.id);
+                            continue;
+                          }
+                          const savedSnapshot = applyDraftSaveResult(
+                            snapshot,
+                            result,
                           );
+                          const { id: _id, ...reopenData } = savedSnapshot;
+                          compose.open(reopenData);
                         }
-                      }
+                      },
+                    },
+                    cancel: {
+                      label: t("mail.compose.deleteDrafts"),
+                      onClick: async () => {
+                        const saveResults = await Promise.all(
+                          snapshots.map(async (snapshot) => ({
+                            snapshot,
+                            result: await savePromises.get(snapshot.id),
+                          })),
+                        );
+                        for (const { snapshot, result } of saveResults) {
+                          if (
+                            result?.status === "failed" ||
+                            result?.status === "unavailable" ||
+                            result?.status === "cancelled"
+                          ) {
+                            compose.discard(snapshot.id);
+                            continue;
+                          }
+                          const savedSnapshot = applyDraftSaveResult(
+                            snapshot,
+                            result,
+                          );
+                          if (savedSnapshot.savedDraftId) {
+                            await compose.deleteSavedDraft(savedSnapshot);
+                          }
+                        }
+                      },
                     },
                   },
-                });
+                );
               }
             }}
             onDiscard={compose.discard}
+            onStageForSend={compose.stageForSend}
+            onRestoreAfterSend={compose.restoreAfterSend}
             onNewDraft={handleCompose}
             onFlush={compose.flush}
-            onReopen={compose.open}
             onInitialExpandedConsumed={clearComposeInitialExpanded}
+            onRegisterComposeCommands={registerComposePaletteCommands}
           />
         );
       })()}
       <CommandPalette
         open={paletteOpen}
-        onOpenChange={setPaletteOpen}
+        onOpenChange={handlePaletteOpenChange}
+        onCloseAutoFocus={restorePaletteFocus}
         onCompose={handleCompose}
+        onSearch={() => document.getElementById("mail-search")?.focus()}
         onSnooze={targetEmail ? handleSnooze : undefined}
         onSpam={handleSpam}
         onBlockSender={handleBlockSender}
         onMuteThread={handleMuteThread}
         hasEmail={!!targetEmail}
+        isComposeContext={paletteOpenedFromCompose}
+        onSend={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendComposeFromCommandPalette
+            : undefined
+        }
+        onSendLater={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? scheduleComposeFromCommandPalette
+            : undefined
+        }
+        onSendAndMarkDone={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendAndMarkDoneFromCommandPalette
+            : undefined
+        }
       />
       <SnoozeModal
         open={snoozeOpen}
@@ -2655,16 +2506,19 @@ function CheckboxRow({
   checked,
   label,
   color,
+  indent = 0,
   onToggle,
 }: {
   checked: boolean;
   label: string;
   color?: string;
+  indent?: number;
   onToggle: () => void;
 }) {
   return (
     <button
       onClick={onToggle}
+      style={indent ? { paddingInlineStart: 12 + indent } : undefined}
       className="flex items-center gap-2.5 w-full px-3 py-1.5 text-start hover:bg-accent/50 transition-colors"
     >
       <span
@@ -2772,17 +2626,15 @@ function TabSettingsPopover({
     : mergedCategories;
   const filteredLabels = allLabels.filter((l) => !gmailCategoryIds.has(l.id));
 
-  // Sort: pinned first, then alphabetical
-  const sortedLabels = [...filteredLabels].sort((a, b) => {
-    const ap = pinnedLabels.includes(a.id) ? 0 : 1;
-    const bp = pinnedLabels.includes(b.id) ? 0 : 1;
-    return ap - bp || a.name.localeCompare(b.name);
-  });
+  // Nested by full label path so e.g. "1-clients/electric kiwi" sorts and
+  // indents under where "1-clients" would sort, even when "1-clients" isn't
+  // a label of its own.
+  const labelRows = labelTreeRows(filteredLabels);
 
   const showViews = filteredViews.length > 0;
   const showSavedFilters = filteredSavedFilters.length > 0;
   const showCategories = filteredCategories.length > 0;
-  const showLabels = sortedLabels.length > 0;
+  const showLabels = labelRows.length > 0;
   const noResults =
     !showViews && !showSavedFilters && !showCategories && !showLabels && search;
 
@@ -2893,20 +2745,25 @@ function TabSettingsPopover({
             >
               {t("mail.views.labels")}
             </p>
-            {sortedLabels.map((label) => {
+            {labelRows.map(({ label, depth, displayName: leafName }) => {
               const isPinned = pinnedLabels.includes(label.id);
               const isEditing = editingId === label.id;
               const alias = labelAliases[label.id];
               const displayName =
-                alias ||
-                labelDisplayNames.get(label.id) ||
-                shortLabelName(label.name);
+                alias || labelDisplayNames.get(label.id) || leafName;
 
               return (
                 <div key={label.id} className="group flex items-center">
                   <div className="flex-1 min-w-0">
                     {isEditing ? (
-                      <div className="flex items-center gap-1 px-3 py-1">
+                      <div
+                        className="flex items-center gap-1 px-3 py-1"
+                        style={
+                          depth
+                            ? { paddingInlineStart: 12 + depth * 12 }
+                            : undefined
+                        }
+                      >
                         <input
                           autoFocus
                           value={editValue}
@@ -2924,8 +2781,7 @@ function TabSettingsPopover({
                           }}
                           className="flex-1 bg-transparent text-[13px] text-foreground outline-none border-b border-primary/50 px-0 py-0.5"
                           placeholder={
-                            labelDisplayNames.get(label.id) ||
-                            shortLabelName(label.name)
+                            labelDisplayNames.get(label.id) || leafName
                           }
                         />
                       </div>
@@ -2934,6 +2790,7 @@ function TabSettingsPopover({
                         checked={isPinned}
                         label={displayName}
                         color={label.color}
+                        indent={depth * 12}
                         onToggle={() => onToggle(label.id)}
                       />
                     )}

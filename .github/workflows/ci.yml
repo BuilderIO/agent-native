@@ -213,7 +213,7 @@ jobs:
     # Cap the run so a hung test fails fast instead of pinning a runner for
     # GitHub's 6h default. Slow DB/integration/e2e specs run in separate jobs
     # below so they can run in parallel instead of serially behind fast tests.
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       # Report every lane's result; don't cancel siblings on the first failure.
       fail-fast: false
@@ -241,7 +241,9 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
-        run: pnpm exec playwright install --only-shell chromium
+        run: |
+          pnpm exec playwright install --only-shell --force chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
@@ -291,7 +293,7 @@ jobs:
     # Keep each runner bounded to one package at a time, but shard the affected
     # package set across runners. Core is also split into a Vitest shard so a
     # core change does not serialize its whole dependent graph behind one job.
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover-targeted-lanes.outputs.matrix) }}
@@ -318,7 +320,9 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
-        run: pnpm exec playwright install --only-shell chromium
+        run: |
+          pnpm exec playwright install --only-shell --force chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
@@ -600,7 +604,9 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed integration tests
-        run: pnpm exec playwright install --only-shell chromium
+        run: |
+          pnpm exec playwright install --only-shell --force chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
       - name: Run Core integration tests
         run: pnpm test:core-integration
@@ -904,9 +910,10 @@ jobs:
 
       # Build the extracted recap CLI before core so its compatibility shim is
       # available to source imports, then produce the real serverless bundle.
-      - name: Build recap CLI, toolkit, core, and creative context
+      - name: Build recap CLI, AgentKit, toolkit, core, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
+          pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
@@ -970,12 +977,16 @@ jobs:
       - name: Test serverless function size baseline guard
         run: pnpm test:function-size-baseline
 
+      - name: Test AgentKit stream ownership guard
+        run: pnpm test:agentkit-stream-ownership
+
       # Source-backed guards import published-style package entrypoints, so
       # build the workspace packages they inspect before loading locale data.
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/toolkit build
+          pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
 

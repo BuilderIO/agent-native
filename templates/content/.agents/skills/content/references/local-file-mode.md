@@ -12,7 +12,7 @@ folders to SQL-backed documents. The UI uses folder rows: **Pull** calls
 `sync-local-folder-source`, **Check** runs the same action with
 `dryRun: true`, and **Push** uses the source-scoped `export-content-source`.
 Imported files become ordinary SQL documents in the target space's canonical
-Files database. Preserve frontmatter `id` across renames; missing files and
+Files collection. Preserve frontmatter `id` across renames; missing files and
 concurrent changes become reviewable incoming change sets instead of
 silently deleting or overwriting a page. SQL stores only opaque connection
 identity, relative paths, and hashes. Disconnecting a folder keeps both the
@@ -101,7 +101,7 @@ unless a dedicated Builder retargeting workflow is added.
 
 ## Builder source components
 
-Builder CMS database body hydration renders unsupported provider-native body
+Builder CMS collection body hydration renders unsupported provider-native body
 blocks as `<SourceComponent ... />` markers. These markers include
 `mappingStatus` and `sourceEditState`: `mapped` / `safe-to-edit` content has
 an explicit Markdown/NFM mapper, `preserved` / `needs-review` content keeps a

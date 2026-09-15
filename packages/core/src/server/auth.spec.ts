@@ -1435,6 +1435,165 @@ describe("server/auth", () => {
       );
     });
 
+    it("clears the HttpOnly session cookie in the same partition it was set in", async () => {
+      // CHIPS keeps a `Partitioned` cookie and an unpartitioned cookie of the
+      // same name in separate jars. `setFrameworkSessionCookie` writes
+      // `an_session` with `Partitioned` on HTTPS, so a delete without it
+      // targets the wrong jar: the browser keeps sending the session token
+      // after logout, and any instance whose session-email cache still holds
+      // that token answers "authenticated" as the previous account.
+      //
+      // The looser `toContain("Partitioned")` assertion above passes on the
+      // non-HttpOnly hint cookie alone, so it never inspected the cookie that
+      // actually carries the session.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(async () => ({ headers: new Headers() })),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth, COOKIE_NAME } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        {
+          "x-forwarded-proto": "https",
+          cookie: `${COOKIE_NAME}=session-token-abc`,
+        },
+      );
+
+      await logoutHandler(event);
+
+      const clears = (event.res.headers.get("set-cookie") ?? "")
+        .split(/,\s*(?=[^;,\s]+=)/)
+        .map((cookie: string) => cookie.trim())
+        .filter((cookie: string) =>
+          cookie.startsWith(`${COOKIE_NAME}=; Max-Age=0`),
+        );
+
+      // Both jars, in both domain scopes. The partitioned delete is what
+      // logout was missing; the unpartitioned one still has to go out for a
+      // cookie stored before CHIPS or over plain HTTP on a host later served
+      // over HTTPS. h3's set-cookie dedupe ignores `Partitioned`, so these two
+      // only coexist because the helper works around it.
+      expect(new Set(clears)).toEqual(
+        new Set([
+          `${COOKIE_NAME}=; Max-Age=0; Path=/; Secure; Partitioned; SameSite=None`,
+          `${COOKIE_NAME}=; Max-Age=0; Path=/; Secure; SameSite=None`,
+          `${COOKIE_NAME}=; Max-Age=0; Domain=.example.com; Path=/; Secure; Partitioned; SameSite=None`,
+          `${COOKIE_NAME}=; Max-Age=0; Domain=.example.com; Path=/; Secure; SameSite=None`,
+        ]),
+      );
+    });
+
+    it("leaves the new token as the last word when a session replaces an old one", async () => {
+      // setFrameworkSessionCookie clears before it sets, and clearing now
+      // emits a delete per CHIPS jar. h3 already lets a domain-scoped delete
+      // survive alongside the set (it does on `main` too), which is harmless
+      // only because a browser applies Set-Cookie in order. So the invariant
+      // is not "one header" — it is that nothing after the set takes the
+      // session back off. A stray trailing delete would log the user out on
+      // the very request that signed them in.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { setFrameworkSessionCookie, COOKIE_NAME } =
+        await import("./auth.js");
+      const event = createMockEvent({
+        headers: { "x-forwarded-proto": "https" },
+      });
+
+      setFrameworkSessionCookie(event, "fresh-token");
+
+      const sessionCookies = event.res.headers
+        .getSetCookie()
+        .filter((cookie: string) => cookie.startsWith(`${COOKIE_NAME}=`));
+
+      expect(sessionCookies.at(-1)).toContain(`${COOKIE_NAME}=fresh-token`);
+      expect(sessionCookies.at(-1)).toContain("Partitioned");
+      // And the clear does not emit the same header twice.
+      expect(new Set(sessionCookies).size).toBe(sessionCookies.length);
+    });
+
+    it("keeps logout cookie clears unpartitioned over plain HTTP", async () => {
+      // `Partitioned` requires `Secure`; emitting it on a plain-HTTP dev
+      // origin would make the serializer throw and take the whole logout
+      // response down.
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.COOKIE_DOMAIN;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(async () => ({ headers: new Headers() })),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth, COOKIE_NAME } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { cookie: `${COOKIE_NAME}=session-token-abc` },
+      );
+
+      await expect(logoutHandler(event)).resolves.toEqual({ ok: true });
+
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain(`${COOKIE_NAME}=; Max-Age=0; Path=/`);
+      expect(setCookie).not.toContain("Partitioned");
+    });
+
     it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {
       // Reproduces the reported bug: a token whose legacy `sessions` row was
       // never written (the magic-link `addSession` mirror is best-effort —
@@ -1681,6 +1840,107 @@ describe("server/auth", () => {
           "http://localhost/_agent-native/google/callback",
         ).mobile,
       ).toBe(true);
+    });
+
+    it("maps an invite-only Google callback rejection to the public auth error page", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_SIGNUP", "invited");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const ensureGoogleAuthIdentity = vi.fn(async () => {
+        throw Object.assign(new Error("This workspace is invite-only"), {
+          code: "INVITE_ONLY",
+        });
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+        }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("../org/auth-policy.js", () => ({
+        authProviderRequiredMessage: vi.fn(
+          (provider: string) => `Continue with ${provider}.`,
+        ),
+        getRequiredAuthProviderForEmail: vi.fn(async () => null),
+        isGoogleSignInRequiredForEmail: vi.fn(async () => false),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        ensureGoogleAuthIdentity,
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify({ access_token: "google-token" }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response(
+              JSON.stringify({
+                id: "google-id",
+                email: "stranger@example.com",
+                verified_email: true,
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+          ),
+      );
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { encodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const callbackHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/callback",
+      )?.[1];
+      const state = encodeOAuthState({
+        redirectUri:
+          "https://agent-workspace.builder.io/_agent-native/google/callback",
+      });
+      const response = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "oauth-code", state },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect(response.status).toBe(403);
+      await expect(response.text()).resolves.toContain(
+        "This workspace is invite-only. Ask an administrator for an invitation.",
+      );
+      expect(ensureGoogleAuthIdentity).toHaveBeenCalledWith(
+        expect.objectContaining({ email: "stranger@example.com" }),
+      );
     });
 
     it("rejects unbound desktop flow ids and URL verifiers", async () => {
@@ -2549,6 +2809,62 @@ describe("server/auth", () => {
       );
     });
 
+    it("redirects preview Google callbacks to the preview origin for cookie scoping", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("BETTER_AUTH_SECRET", "preview-relay-state-secret");
+      const { autoMountAuth } = await import("./auth.js");
+      const {
+        AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+        encodeOAuthState,
+        encodeNetlifyPreviewGoogleOAuthRelayState,
+      } = await import("./google-oauth.js");
+      vi.stubEnv(
+        AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+        "shared-netlify-google-oauth-relay-secret-32",
+      );
+      const callbackUri =
+        "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
+      const innerState = encodeOAuthState({
+        redirectUri:
+          "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      });
+      const outerState = encodeNetlifyPreviewGoogleOAuthRelayState(
+        innerState,
+        callbackUri,
+      );
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "google-code", state: outerState },
+          headers: {
+            host: "beta.dispatch.agent-native.com",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(302);
+      const location = new URL(
+        (result as Response).headers.get("location") ?? "",
+      );
+      expect(location.origin).toBe(new URL(callbackUri).origin);
+      expect(location.pathname).toBe("/_agent-native/google/callback");
+      expect(location.searchParams.get("code")).toBe("google-code");
+      expect(location.searchParams.get("state")).toBe(innerState);
+      expect((result as Response).headers.get("set-cookie")).toBeNull();
+      expect((result as Response).headers.get("cache-control")).toBe(
+        "no-store",
+      );
+    });
+
     it("relays mounted-app callbacks when only the workspace app id survives", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -3137,7 +3453,7 @@ describe("server/auth", () => {
       });
     });
 
-    it("bypasses only the two federated-SSO entry routes", async () => {
+    it("limits preview SSO bypass to trusted login and callback requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
@@ -3162,6 +3478,39 @@ describe("server/auth", () => {
           error: "Unauthorized",
         });
       }
+
+      vi.stubEnv("SITE_NAME", "agent-native-mail");
+      const previewHeaders = {
+        host: "0123456789abcdef01234567--agent-native-mail.netlify.app",
+        "x-forwarded-proto": "https",
+      };
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        await expect(
+          guard(createMockEvent({ path, headers: previewHeaders })),
+        ).resolves.toBeUndefined();
+      }
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/identity/bootstrap",
+            headers: previewHeaders,
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/identity/login",
+            headers: {
+              ...previewHeaders,
+              host: "deploy-preview-123--agent-native-mail.netlify.app",
+            },
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
 
       vi.stubEnv("APP_URL", "https://mail.agent-native.com");
       for (const path of [
@@ -3384,6 +3733,56 @@ describe("server/auth", () => {
       expect(handoff).toBeLessThan(firstHtml.indexOf("</HEAD>"));
       expect(firstHtml).not.toContain("first.example");
       expect(firstHtml).not.toContain("second.example");
+    });
+
+    it("renders the preview SSO flag in the request-scoped root login document", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_NAME", "calendar");
+      vi.stubEnv("SITE_NAME", "agent-native-calendar");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        googleOnly: true,
+        marketing: {
+          appName: "Calendar",
+          tagline: "Coordinate your calendar.",
+        },
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const result = await guard(
+        createMockEvent({
+          path: "/",
+          headers: {
+            host: `${"a".repeat(24)}--agent-native-calendar.netlify.app`,
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+
+      expect(readAuthPageData(await (result as Response).text())).toMatchObject(
+        { googleViaIdentitySso: true },
+      );
     });
 
     it("keeps the cached login document independent of workspace mount", async () => {
@@ -8600,6 +8999,108 @@ describe("server/auth", () => {
   });
 
   describe("resolveOAuthRedirectUri", () => {
+    it("uses the fixed beta callback for immutable Netlify preview OAuth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("SITE_NAME", "agent-native-mail");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: `${"a".repeat(24)}--agent-native-mail.netlify.app`,
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(
+        resolveOAuthRedirectUri(event, "/_agent-native/google/callback", {
+          useNetlifyPreviewGoogleOAuthRelay: true,
+        }),
+      ).toBe(
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      );
+      expect(
+        resolveOAuthRedirectUri(
+          createMockEvent({
+            path: "/_agent-native/google/auth-url",
+            query: {
+              redirect_uri: `https://${"a".repeat(24)}--agent-native-mail.netlify.app/_agent-native/google/callback`,
+            },
+            headers: {
+              host: `${"a".repeat(24)}--agent-native-mail.netlify.app`,
+              "x-forwarded-proto": "https",
+            },
+          }),
+          "/_agent-native/google/callback",
+          { useNetlifyPreviewGoogleOAuthRelay: true },
+        ),
+      ).toBe(
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      );
+      expect(
+        resolveOAuthRedirectUri(
+          createMockEvent({
+            path: "/_agent-native/google/auth-url",
+            query: { redirect_uri: "https://evil.example/callback" },
+            headers: {
+              host: `${"a".repeat(24)}--agent-native-mail.netlify.app`,
+              "x-forwarded-proto": "https",
+            },
+          }),
+          "/_agent-native/google/callback",
+          { useNetlifyPreviewGoogleOAuthRelay: true },
+        ),
+      ).toBeNull();
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        `https://${"a".repeat(24)}--agent-native-mail.netlify.app/_agent-native/google/callback`,
+      );
+    });
+
+    it("accepts the fixed beta callback only for immutable preview completion", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("SITE_NAME", "agent-native-mail");
+      const {
+        isAllowedOAuthRedirectUri,
+        NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
+      } = await import("./google-oauth.js");
+      const previewEvent = createMockEvent({
+        path: "/_agent-native/google/callback",
+        headers: {
+          host: `${"a".repeat(24)}--agent-native-mail.netlify.app`,
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(
+        isAllowedOAuthRedirectUri(
+          NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
+          previewEvent,
+          undefined,
+          { useNetlifyPreviewGoogleOAuthRelay: true },
+        ),
+      ).toBe(true);
+      expect(
+        isAllowedOAuthRedirectUri(
+          NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
+          previewEvent,
+        ),
+      ).toBe(false);
+      expect(
+        isAllowedOAuthRedirectUri(
+          NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
+          createMockEvent({
+            path: "/_agent-native/google/callback",
+            headers: {
+              host: "deploy-preview-42--agent-native-mail.netlify.app",
+              "x-forwarded-proto": "https",
+            },
+          }),
+          undefined,
+          { useNetlifyPreviewGoogleOAuthRelay: true },
+        ),
+      ).toBe(false);
+    });
+
     it("defaults root workspace framework-route requests to the root callback", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       const { resolveOAuthRedirectUri } = await import("./google-oauth.js");

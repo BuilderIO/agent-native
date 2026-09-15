@@ -8,7 +8,13 @@ import {
   useBuilderConnectFlow,
 } from "@agent-native/core/client/settings";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
-import { propNameToDataAttribute } from "@shared/component-model";
+import type { CodeLayerNode, CodeLayerProjection } from "@shared/code-layer";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_OVERRIDES_ATTR,
+  COMPONENT_REF_ATTR,
+  propNameToDataAttribute,
+} from "@shared/component-model";
 import {
   IconArrowRight,
   IconArrowsLeftRight,
@@ -16,6 +22,7 @@ import {
   IconComponents,
   IconExternalLink,
   IconLoader2,
+  IconRefresh,
   IconUnlink,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -355,6 +362,39 @@ export type PropRow = {
   surface: "alpineData" | "attribute";
 };
 
+/** Whether a selected linked instance subtree carries explicit override keys. */
+export function componentInstanceHasLocalOverrides(
+  projection: CodeLayerProjection,
+  root: CodeLayerNode | null | undefined,
+): boolean {
+  if (
+    !root?.dataAttributes[COMPONENT_REF_ATTR] ||
+    root.dataAttributes[COMPONENT_ID_ATTR]
+  ) {
+    return false;
+  }
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  return projection.nodes.some((node) => {
+    const raw = node.dataAttributes[COMPONENT_OVERRIDES_ATTR];
+    if (typeof raw !== "string" || !raw.trim()) return false;
+    let current: CodeLayerNode | undefined = node;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      if (current.id === root.id) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(raw)) as unknown;
+          return !Array.isArray(parsed) || parsed.length > 0;
+        } catch {
+          return true;
+        }
+      }
+      visited.add(current.id);
+      current = current.parentId ? nodesById.get(current.parentId) : undefined;
+    }
+    return false;
+  });
+}
+
 /**
  * Build the editable prop rows for a component instance from
  * `get-component-details`'s response: Alpine `x-data` keys first (they drive
@@ -471,8 +511,11 @@ export function ComponentSection({
   fileId,
   activeContent,
   activeFileUpdatedAt,
+  componentDetailsReady = true,
   nodeId,
   swapPickerRequest = 0,
+  hasLocalOverrides = false,
+  onResetOverrides,
   onComponentPropApplied,
   sourceCapabilities = [],
 }: {
@@ -480,9 +523,15 @@ export function ComponentSection({
   fileId?: string;
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
+  /** Whether the selected component is present in the accepted source snapshot. */
+  componentDetailsReady?: boolean;
   nodeId: string;
   /** Increment to open the Swap instance picker from another UI entry point. */
   swapPickerRequest?: number;
+  /** True when the selected linked instance subtree has local override keys. */
+  hasLocalOverrides?: boolean;
+  /** Reset the selected linked instance through the editor's mutation queue. */
+  onResetOverrides?: () => void;
   onComponentPropApplied?: (
     fileId: string,
     content: string,
@@ -502,6 +551,8 @@ export function ComponentSection({
     content: activeContent ?? "",
     revision: activeFileUpdatedAt ?? null,
   });
+  const componentDetailsReadyRef = useRef(componentDetailsReady);
+  componentDetailsReadyRef.current = componentDetailsReady;
 
   useEffect(() => {
     latestSourceRef.current = {
@@ -514,7 +565,7 @@ export function ComponentSection({
     useActionQuery<ComponentDetailsResult>(
       "get-component-details",
       detailsParams,
-      { refetchOnMount: "always" },
+      { refetchOnMount: "always", enabled: componentDetailsReady },
     );
 
   const openSourceMutation = useActionMutation("open-component-source");
@@ -561,7 +612,6 @@ export function ComponentSection({
     }
     void queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
     void queryClient.invalidateQueries({ queryKey: detailsKey });
-    void refetch();
   };
 
   const sourceForMutation = () => {
@@ -761,7 +811,6 @@ export function ComponentSection({
             queryKey: ["action", "get-design"],
           });
           void queryClient.invalidateQueries({ queryKey: detailsKey });
-          void refetch();
         },
       },
     );
@@ -777,7 +826,7 @@ export function ComponentSection({
         return;
       }
       if (!isMessageFromOwnPreviewIframe(event.source)) return;
-      void refetch();
+      if (componentDetailsReadyRef.current) void refetch();
     };
     window.addEventListener("message", handleMessage);
     return () => {
@@ -786,7 +835,7 @@ export function ComponentSection({
   }, [refetch]);
 
   // While loading, show a compact skeleton that matches the section width.
-  if (isLoading) {
+  if (isLoading || !componentDetailsReady) {
     return (
       <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
         <div className="flex min-h-[var(--design-section-height)] items-center gap-2 px-2">
@@ -1057,6 +1106,30 @@ export function ComponentSection({
                       </span>
                     </TooltipContent>
                   </Tooltip>
+                  {hasLocalOverrides && onResetOverrides ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={
+                            !editingEnabled || applyPropMutation.isPending
+                          }
+                          aria-label={t(
+                            "editPanel.interactionStates.resetOverride",
+                          )}
+                          onClick={onResetOverrides}
+                        >
+                          <IconRefresh className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("editPanel.interactionStates.resetOverride")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
                 </>
               )}
               {/* Jump-to-source action */}

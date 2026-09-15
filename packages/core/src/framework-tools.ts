@@ -23,7 +23,7 @@ export const FRAMEWORK_TOOL_GROUPS = [
   "review",
   "history",
   "featureFlags",
-  "experiments",
+  "labs",
   "localization",
   "audit",
   "contextXray",
@@ -38,6 +38,7 @@ export const FRAMEWORK_TOOL_GROUPS = [
   "emailCatalog",
   "workspaceUserGroups",
   "orgServiceTokens",
+  "orgAdministration",
 ] as const;
 
 export type FrameworkToolGroup = (typeof FRAMEWORK_TOOL_GROUPS)[number];
@@ -77,7 +78,9 @@ export interface FrameworkToolsOption {
   history?: boolean;
   /** `get-feature-flags`, `list-feature-flags`, `set-feature-flag`. */
   featureFlags?: boolean;
-  /** `get-experiments`, `set-experiment`. */
+  /** `get-labs`, `set-lab`. */
+  labs?: boolean;
+  /** @deprecated Use `frameworkTools.labs`. */
   experiments?: boolean;
   /** `get-localization-preference`, `set-localization-preference`. */
   localization?: boolean;
@@ -116,6 +119,8 @@ export interface FrameworkToolsOption {
    *  `mcp.enabled` decides whether the ROUTES exist, this decides whether the
    *  model can call them. */
   orgServiceTokens?: boolean;
+  /** Administer app roles and app permission mappings for the active org. */
+  orgAdministration?: boolean;
   /** `"minimal"` turns every group above off, for voice-first and
    *  single-purpose apps that want the template's own actions and nothing else.
    *  Any explicit group key wins over the preset, so
@@ -211,13 +216,27 @@ export function resolveFrameworkTools(
     );
   }
 
+  const legacyLabs = option.experiments;
+  if (legacyLabs !== undefined) {
+    if (
+      option.labs !== undefined &&
+      (legacyLabs === true) !== (option.labs === true)
+    ) {
+      conflict("labs", "frameworkTools.experiments", legacyLabs, option.labs);
+    }
+    console.warn(
+      "[agent-native] `frameworkTools.experiments` is deprecated - use `frameworkTools: { labs: … }`.",
+    );
+  }
+
   const database =
     option.database ?? legacyDatabase ?? (minimal ? "off" : undefined);
   const extensions = option.extensions ?? legacyExtensions ?? false;
+  const labs = option.labs ?? legacyLabs;
 
   const disabledGroups = new Set<FrameworkToolGroup>();
   for (const group of FRAMEWORK_TOOL_GROUPS) {
-    const explicit = option[group];
+    const explicit = group === "labs" ? labs : option[group];
     if (explicit === false || (explicit === undefined && minimal)) {
       disabledGroups.add(group);
     }
@@ -254,6 +273,10 @@ export function resolveFrameworkTools(
  * rather than the default that happens when a map goes un-updated.
  */
 export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
+  "list-app-member-roles": "orgAdministration",
+  "set-app-member-roles": "orgAdministration",
+  "list-app-permissions": "orgAdministration",
+  "set-app-permission-roles": "orgAdministration",
   "share-resource": "sharing",
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",
@@ -264,8 +287,10 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-feature-flags": "featureFlags",
   "set-feature-flag": "featureFlags",
 
-  "get-experiments": "experiments",
-  "set-experiment": "experiments",
+  "get-labs": "labs",
+  "set-lab": "labs",
+  "get-experiments": "labs",
+  "set-experiment": "labs",
 
   "list-recurring-jobs": "automation",
   "manage-recurring-job": "automation",

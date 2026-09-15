@@ -6,7 +6,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../components/ui/tooltip.js";
-import { AgentsSection } from "./AgentsSection.js";
+import {
+  AgentsSection,
+  normalizeHostedAgentUrl,
+  parseHostedAuth,
+} from "./AgentsSection.js";
 
 vi.mock("../api-path.js", () => ({
   agentNativePath: (path: string) => path,
@@ -167,5 +171,55 @@ describe("AgentsSection", () => {
     expect(container.textContent).toContain(
       "Only workspace owners and admins can connect agents.",
     );
+  });
+
+  it("validates remote URLs and hosted auth references before saving", () => {
+    expect(normalizeHostedAgentUrl("https://agent.example")).toBe(
+      "https://agent.example",
+    );
+    expect(normalizeHostedAgentUrl("http://localhost:8085")).toBe(
+      "http://localhost:8085",
+    );
+    expect(normalizeHostedAgentUrl("http://agent.example")).toBe(
+      "http://agent.example",
+    );
+    expect(
+      normalizeHostedAgentUrl("http://agent.example", { requireHttps: true }),
+    ).toBeUndefined();
+    expect(
+      normalizeHostedAgentUrl("http://127.0.0.1:8085", {
+        requireHttps: true,
+      }),
+    ).toBe("http://127.0.0.1:8085");
+    expect(
+      normalizeHostedAgentUrl("https://user:pass@agent.example"),
+    ).toBeUndefined();
+
+    expect(
+      parseHostedAuth({ type: "bearer", credentialRef: "   " }),
+    ).toBeUndefined();
+    expect(
+      parseHostedAuth({
+        type: "oauth-client-credentials",
+        tokenUrl: "http://localhost:8080/token",
+        clientId: "client",
+        clientSecretRef: "secret",
+      }),
+    ).toBeUndefined();
+    expect(
+      parseHostedAuth({
+        type: "oauth-client-credentials",
+        tokenUrl: "https://issuer.example/token",
+        clientId: " client ",
+        clientSecretRef: " secret ",
+        scope: " read ",
+      }),
+    ).toEqual({
+      type: "oauth-client-credentials",
+      tokenUrl: "https://issuer.example/token",
+      clientId: "client",
+      clientSecretRef: "secret",
+      scope: "read",
+    });
   });
 });

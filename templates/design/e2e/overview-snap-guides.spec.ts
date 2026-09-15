@@ -406,8 +406,14 @@ async function dragInsideScreen(
       };
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
+      // The bridge starts the move on the first pointermove past its 3px
+      // threshold and measures from THAT event, so whatever this priming move
+      // covers is lost. Keep it just over the threshold instead of a flat 8px,
+      // which at low zoom exceeded the whole intended delta and moved the
+      // element backwards.
+      const prime = 3.5;
       fire("down", cx, cy);
-      fire("move", cx + Math.sign(dx) * 8, cy + Math.sign(dy) * 8);
+      fire("move", cx + Math.sign(dx) * prime, cy + Math.sign(dy) * prime);
       fire("move", cx + dx, cy + dy);
 
       const layer = document.querySelector<HTMLElement>(
@@ -574,6 +580,11 @@ test("a lone element far from anything stays quiet", async ({
   const designId = await createSingleScreenDesign(request);
   try {
     await openScreenEditor(page, designId);
+    // The proximity range is a constant 160px ON SCREEN, so zoomed out it
+    // spans hundreds of content px and this fixture has no "far away" left.
+    // Reset to 1:1 and the fixture's own distances mean what they say.
+    await page.keyboard.press("ControlOrMeta+0");
+    await page.waitForTimeout(400);
     // Box C sits 620px down; dragging Box A up and away leaves every
     // neighbour outside the proximity range.
     const result = await dragInsideScreen(page, "box-a", 0, -240);

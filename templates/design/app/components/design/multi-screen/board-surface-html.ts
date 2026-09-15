@@ -104,6 +104,11 @@ export function getBoardSurfaceContentBounds(
     const style = getHtmlAttributeValue(token, "style");
     const left = getCssPixelValue(style, "left") ?? 0;
     const top = getCssPixelValue(style, "top") ?? 0;
+    const primitiveKind = getHtmlAttributeValue(
+      token,
+      "data-an-primitive",
+    ).toLowerCase();
+    const position = getCssDeclarationValue(style, "position").toLowerCase();
     const parentOffsetX = stack.reduce(
       (total, entry) => total + entry.offsetX,
       0,
@@ -117,11 +122,12 @@ export function getBoardSurfaceContentBounds(
       tagName === "body" ||
       tagName === "style" ||
       tagName === "script";
-    if (nodeId && !isDocumentRootTag && !isAccidentalBoardBackdropTag(token)) {
-      const primitiveKind = getHtmlAttributeValue(
-        token,
-        "data-an-primitive",
-      ).toLowerCase();
+    if (
+      nodeId &&
+      !isDocumentRootTag &&
+      !isAccidentalBoardBackdropTag(token) &&
+      (primitiveKind || position === "absolute")
+    ) {
       // Auto-sized text has no persisted width/height. A one-pixel extent is
       // not enough when it sits near a render-window edge. Reserve a modest
       // intrinsic text box; the camera viewport remains the final authority

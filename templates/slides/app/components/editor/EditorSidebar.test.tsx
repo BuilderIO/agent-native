@@ -69,7 +69,10 @@ vi.stubGlobal(
 
 Element.prototype.scrollIntoView = scrollIntoView;
 
-import EditorSidebar, { getSlideSelection } from "./EditorSidebar";
+import EditorSidebar, {
+  getSlideSelection,
+  isContiguousSlideSelection,
+} from "./EditorSidebar";
 
 afterEach(() => {
   cleanup();
@@ -202,6 +205,15 @@ describe("slide thumbnail selection", () => {
       }).selectedSlideIds,
     ).toEqual(["slide-1", "slide-3"]);
   });
+
+  it("identifies only adjacent thumbnail selections as contiguous", () => {
+    expect(isContiguousSlideSelection(slideIds, ["slide-1", "slide-2"])).toBe(
+      true,
+    );
+    expect(isContiguousSlideSelection(slideIds, ["slide-1", "slide-3"])).toBe(
+      false,
+    );
+  });
 });
 
 describe("EditorSidebar arrow navigation", () => {
@@ -231,6 +243,121 @@ describe("EditorSidebar arrow navigation", () => {
     fireEvent.keyDown(thumbnail ?? document, { key: "Enter" });
 
     expect(sortableKeyDown).toHaveBeenCalledOnce();
+  });
+
+  it("moves a focused slide with the platform-primary arrow shortcut", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-3", content: "<div />", notes: "", layout: "content" },
+    ];
+    const onReorderSlides = vi.fn();
+    const onSelectSlide = vi.fn();
+    const { container } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={onSelectSlide}
+        onReorderSlides={onReorderSlides}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-2"]',
+    );
+    thumbnail?.focus();
+    onSelectSlide.mockClear();
+
+    fireEvent.keyDown(thumbnail ?? document, {
+      key: "ArrowUp",
+      metaKey: true,
+    });
+
+    expect(onReorderSlides).toHaveBeenCalledWith("slide-2", "slide-1", [
+      "slide-2",
+    ]);
+    expect(onSelectSlide).not.toHaveBeenCalled();
+    expect(sortableKeyDown).not.toHaveBeenCalled();
+  });
+
+  it("moves a selected slide range to a deck boundary with Shift", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-3", content: "<div />", notes: "", layout: "content" },
+    ];
+    const onReorderSlides = vi.fn();
+    const { container } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        selectedSlideIds={["slide-1", "slide-2"]}
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        onReorderSlides={onReorderSlides}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-2"]',
+    );
+
+    fireEvent.keyDown(thumbnail ?? document, {
+      key: "ArrowDown",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(onReorderSlides).toHaveBeenCalledWith("slide-2", "slide-3", [
+      "slide-1",
+      "slide-2",
+    ]);
+  });
+
+  it("moves only the focused slide for a non-contiguous selection", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-3", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-4", content: "<div />", notes: "", layout: "content" },
+    ];
+    const onReorderSlides = vi.fn();
+    const { container } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-3"
+        selectedSlideIds={["slide-1", "slide-3"]}
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        onReorderSlides={onReorderSlides}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-3"]',
+    );
+    thumbnail?.focus();
+
+    fireEvent.keyDown(thumbnail ?? document, {
+      key: "ArrowUp",
+      metaKey: true,
+    });
+
+    expect(onReorderSlides).toHaveBeenCalledExactlyOnceWith(
+      "slide-3",
+      "slide-2",
+      ["slide-3"],
+    );
   });
 
   it("moves to the next thumbnail with arrows after a thumbnail click", () => {
@@ -269,6 +396,138 @@ describe("EditorSidebar arrow navigation", () => {
 
     expect(onSelectSlide).toHaveBeenCalledOnce();
     expect(onSelectSlide).toHaveBeenCalledWith("slide-2");
+  });
+
+  it("extends the slide selection with Shift+Arrow from the focused thumbnail", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-3", content: "<div />", notes: "", layout: "content" },
+    ];
+    const onSelectSlide = vi.fn();
+    const { container } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={onSelectSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-1"]',
+    );
+    thumbnail?.focus();
+    onSelectSlide.mockClear();
+
+    fireEvent.keyDown(thumbnail ?? document, {
+      key: "ArrowDown",
+      shiftKey: true,
+    });
+
+    expect(onSelectSlide).toHaveBeenCalledExactlyOnceWith("slide-2", {
+      shiftKey: true,
+    });
+    expect(sortableKeyDown).toHaveBeenCalledOnce();
+  });
+
+  it("extends slide selection with Shift+Arrow from the document shortcut", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+    ];
+    const onSelectSlide = vi.fn();
+    render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={onSelectSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+
+    fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
+
+    expect(onSelectSlide).toHaveBeenCalledExactlyOnceWith("slide-2", {
+      shiftKey: true,
+    });
+  });
+
+  it.each([
+    ["Home", "slide-1"],
+    ["End", "slide-3"],
+    ["PageUp", "slide-1"],
+    ["PageDown", "slide-3"],
+  ])("navigates the filmstrip with %s", (key, targetSlideId) => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-3", content: "<div />", notes: "", layout: "content" },
+    ];
+    const onSelectSlide = vi.fn();
+    const { container } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-2"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={onSelectSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-2"]',
+    );
+    thumbnail?.focus();
+    onSelectSlide.mockClear();
+
+    fireEvent.keyDown(thumbnail ?? document, { key });
+
+    expect(onSelectSlide).toHaveBeenCalledExactlyOnceWith(targetSlideId);
+  });
+
+  it.each([
+    ["Home", "slide-1"],
+    ["End", "slide-3"],
+  ])("extends the selection with Shift+%s to %s", (key, targetSlideId) => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-3", content: "<div />", notes: "", layout: "content" },
+    ];
+    const onSelectSlide = vi.fn();
+    const { container } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-2"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={onSelectSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-2"]',
+    );
+    thumbnail?.focus();
+    onSelectSlide.mockClear();
+
+    fireEvent.keyDown(thumbnail ?? document, { key, shiftKey: true });
+
+    expect(onSelectSlide).toHaveBeenCalledExactlyOnceWith(targetSlideId, {
+      shiftKey: true,
+    });
   });
 
   it("does not navigate while a slide text block owns the arrow keys", () => {
