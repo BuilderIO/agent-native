@@ -7,6 +7,7 @@ import { inferElementSizing } from "./element-classification";
 import {
   autoLayoutStylesForFlow,
   gridTemplateForTracks,
+  gridTemplatePatchForChange,
   gridValueForElement,
   justifyContentForGapMode,
   LayoutContextProperties,
@@ -88,6 +89,37 @@ describe("LayoutContextProperties", () => {
       gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
       gridTemplateRows: "repeat(1, max-content)",
       gridAutoFlow: "row",
+    });
+  });
+
+  it("leaves an untouched grid axis alone so stylesheet-authored tracks survive", () => {
+    const previous = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {},
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "50px 50px",
+          gridTemplateRows: "40px 60px",
+          columnGap: "0px",
+          rowGap: "0px",
+          width: "100px",
+          height: "100px",
+        },
+      }),
+    );
+    // Gap-only change: neither template is written.
+    expect(
+      gridTemplatePatchForChange(previous, { ...previous, columnGap: 16 }),
+    ).toEqual({});
+    // Column count change: columns regenerate, rows stay authored.
+    expect(
+      gridTemplatePatchForChange(previous, { ...previous, columns: 3 }),
+    ).toEqual({ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" });
+    // First grid conversion (no previous value) writes both axes.
+    expect(gridTemplatePatchForChange(undefined, previous)).toEqual({
+      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+      gridTemplateRows: "repeat(2, minmax(0, 1fr))",
     });
   });
 

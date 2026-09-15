@@ -577,7 +577,12 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
       selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
     )
     .toBe("0.02em");
-  await setScrubInput(typographySection, "Letter spacing", "0.64");
+  // The field now reads back in percent, so a bare number would be a
+  // percentage; an explicit px keeps absolute tracking.
+  await expect(
+    typographySection.locator('input[aria-label="Letter spacing" i]'),
+  ).toHaveValue("2%");
+  await setScrubInput(typographySection, "Letter spacing", "0.64px");
   await expect
     .poll(() =>
       selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),

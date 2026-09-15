@@ -10,6 +10,7 @@ import {
   nextTextDecorationLineValue,
   parseLetterSpacingInput,
   parseLineHeightInput,
+  resolveLetterSpacingFieldValue,
   parseTextDecorationLineTokens,
   resolveLineHeightFieldValue,
   resolveFixedResizeDimension,
@@ -521,26 +522,49 @@ describe("text truncation styles", () => {
 // font size, so "2%" is 0.02em; a bare number stays px like the scrub unit.
 // ---------------------------------------------------------------------------
 
-describe("parseLetterSpacingInput", () => {
-  it("turns a percentage into em", () => {
-    expect(parseLetterSpacingInput("2%", 0)).toEqual({
-      text: "0.02em",
-      value: 0.02,
-      unit: "em",
+describe("parseLetterSpacingInput / resolveLetterSpacingFieldValue", () => {
+  const px = { value: 0, unit: "px" as const };
+  const pct = { value: 2, unit: "%" as const };
+
+  it("turns a percentage into em and shows it as a percentage", () => {
+    expect(parseLetterSpacingInput("2%", px)).toEqual({
+      text: "2%",
+      value: 2,
+      unit: "%",
       cssValue: "0.02em",
     });
   });
 
-  it("keeps an explicit em value", () => {
-    expect(parseLetterSpacingInput("0.05em", 0)?.cssValue).toBe("0.05em");
+  it("keeps an explicit em value as a percentage field", () => {
+    expect(parseLetterSpacingInput("0.05em", px)).toMatchObject({
+      text: "5%",
+      cssValue: "0.05em",
+    });
   });
 
-  it("keeps a bare number and an explicit px in px with two decimals", () => {
-    expect(parseLetterSpacingInput("0.64", 0)?.cssValue).toBe("0.64px");
-    expect(parseLetterSpacingInput("-1.5px", 0)?.cssValue).toBe("-1.5px");
+  it("keeps a bare number in the field's current unit", () => {
+    expect(parseLetterSpacingInput("0.64", px)?.cssValue).toBe("0.64px");
+    expect(parseLetterSpacingInput("3", pct)?.cssValue).toBe("0.03em");
+    expect(parseLetterSpacingInput("-1.5px", pct)?.cssValue).toBe("-1.5px");
   });
 
   it("rejects text that is not a number", () => {
-    expect(parseLetterSpacingInput("wide", 0)).toBeNull();
+    expect(parseLetterSpacingInput("wide", px)).toBeNull();
+  });
+
+  it("resolves an authored em as a percentage and px otherwise", () => {
+    expect(resolveLetterSpacingFieldValue("0.02em", "0.64px")).toEqual({
+      text: "2%",
+      value: 2,
+      unit: "%",
+    });
+    expect(resolveLetterSpacingFieldValue("2px", "2px")).toEqual({
+      text: "2px",
+      value: 2,
+      unit: "px",
+    });
+    expect(resolveLetterSpacingFieldValue(undefined, "normal")).toMatchObject({
+      unit: "px",
+    });
   });
 });

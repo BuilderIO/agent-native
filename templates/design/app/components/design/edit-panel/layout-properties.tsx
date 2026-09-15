@@ -189,6 +189,47 @@ export function gridTemplateForTracks(
   return `repeat(${safeCount}, minmax(0, 1fr))`;
 }
 
+/**
+ * Template properties to write for a grid change. An axis the user did not
+ * touch is left out: a stylesheet rule has no inline template to read back,
+ * so rewriting it would replace hug/fixed/custom tracks with the fill default.
+ */
+export function gridTemplatePatchForChange(
+  previous: AutoLayoutGridValue | undefined,
+  next: AutoLayoutGridValue,
+): Partial<Record<"gridTemplateColumns" | "gridTemplateRows", string>> {
+  const patch: Partial<
+    Record<"gridTemplateColumns" | "gridTemplateRows", string>
+  > = {};
+  const changed = (axis: "column" | "row") =>
+    !previous ||
+    previous[axis === "column" ? "columns" : "rows"] !==
+      next[axis === "column" ? "columns" : "rows"] ||
+    previous[`${axis}Sizing`] !== next[`${axis}Sizing`] ||
+    previous[`${axis}Size`] !== next[`${axis}Size`];
+  if (changed("column")) {
+    patch.gridTemplateColumns = gridTemplateForTracks(
+      next.columns,
+      next.columnSizing,
+      next.columnSize,
+      next.columnSizing === "custom" && previous?.columns === next.columns
+        ? next.columnTemplate
+        : undefined,
+    );
+  }
+  if (changed("row")) {
+    patch.gridTemplateRows = gridTemplateForTracks(
+      next.rows,
+      next.rowSizing,
+      next.rowSize,
+      next.rowSizing === "custom" && previous?.rows === next.rows
+        ? next.rowTemplate
+        : undefined,
+    );
+  }
+  return patch;
+}
+
 // A computed grid template is the browser's resolved px list ("50px 50px"),
 // so it can only say how many tracks exist, never how they were sized.
 // Treating it as authored turned fill/hug tracks into fixed px the moment a
@@ -444,29 +485,9 @@ function FlexContainerControls({
           onStyleChange("flexWrap", wrap);
         }}
         onGridChange={(nextGrid, meta) => {
-          const previousGrid = autoLayoutValue.grid;
-          const columnTemplate = gridTemplateForTracks(
-            nextGrid.columns,
-            nextGrid.columnSizing,
-            nextGrid.columnSize,
-            nextGrid.columnSizing === "custom" &&
-              previousGrid?.columns === nextGrid.columns
-              ? nextGrid.columnTemplate
-              : undefined,
-          );
-          const rowTemplate = gridTemplateForTracks(
-            nextGrid.rows,
-            nextGrid.rowSizing,
-            nextGrid.rowSize,
-            nextGrid.rowSizing === "custom" &&
-              previousGrid?.rows === nextGrid.rows
-              ? nextGrid.rowTemplate
-              : undefined,
-          );
           const patch = {
             display: "grid",
-            gridTemplateColumns: columnTemplate,
-            gridTemplateRows: rowTemplate,
+            ...gridTemplatePatchForChange(autoLayoutValue.grid, nextGrid),
             gridAutoFlow: "row",
             columnGap: `${nextGrid.columnGap}px`,
             rowGap: `${nextGrid.rowGap}px`,

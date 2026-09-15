@@ -5,6 +5,7 @@ import {
 } from "@agent-native/toolkit/design-tweaks";
 
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
+import { parseNumericValue } from "./style-options";
 
 export {
   displayFontFamilyName,
@@ -250,23 +251,65 @@ export function parseLineHeightInput(
   return { text, value, unit, cssValue: text };
 }
 
-export type LetterSpacingUnit = "px" | "em";
+export type LetterSpacingUnit = "px" | "%";
 
-export interface ParsedLetterSpacingInput {
+export interface LetterSpacingFieldValue {
   text: string;
   value: number;
   unit: LetterSpacingUnit;
+}
+
+export interface ParsedLetterSpacingInput extends LetterSpacingFieldValue {
   cssValue: string;
 }
 
+const LETTER_SPACING_EM_PRECISION = 3;
+
+function letterSpacingCssValue(value: number, unit: LetterSpacingUnit): string {
+  return unit === "%"
+    ? formatScrubValue(value / 100, {
+        unit: "em",
+        precision: LETTER_SPACING_EM_PRECISION,
+      })
+    : formatScrubValue(value, { unit: "px", precision: 2 });
+}
+
 /**
- * Figma's tracking field takes a percentage of the font size, so "2%" must
- * mean 0.02em, not be dropped on the floor. A bare number stays px (the
- * scrub unit), and "em" is accepted verbatim.
+ * Figma's tracking field is a percentage of the font size, which CSS spells
+ * as em. An authored em (or %) value is shown and scrubbed as a percentage so
+ * a later nudge keeps the relative semantics; anything else is px.
  */
+export function resolveLetterSpacingFieldValue(
+  authoredLetterSpacing: string | undefined,
+  computedLetterSpacing: string | undefined,
+): LetterSpacingFieldValue {
+  const authored = authoredLetterSpacing?.trim() ?? "";
+  const relative = authored.match(/^([+-]?(?:\d*\.)?\d+)\s*(em|%)$/i);
+  if (relative) {
+    const number = Number(relative[1]);
+    if (Number.isFinite(number)) {
+      const value = relative[2]!.toLowerCase() === "em" ? number * 100 : number;
+      return {
+        text: formatScrubValue(value, { unit: "%", precision: 2 }),
+        value,
+        unit: "%",
+      };
+    }
+  }
+  const value = computedLetterSpacing
+    ? parseNumericValue(computedLetterSpacing)
+    : 0;
+  return {
+    text: formatScrubValue(value, { unit: "px", precision: 2 }),
+    value,
+    unit: "px",
+  };
+}
+
+/** Parse Figma-style px / percent / em input; bare values keep the field's unit. */
 export function parseLetterSpacingInput(
   input: string,
-  currentPx: number,
+  current: Pick<LetterSpacingFieldValue, "value" | "unit">,
 ): ParsedLetterSpacingInput | null {
   const raw = input.trim();
   const explicitUnit = raw
@@ -274,15 +317,22 @@ export function parseLetterSpacingInput(
     ?.trim()
     .toLowerCase();
   const unit: LetterSpacingUnit =
-    explicitUnit === "px" ? "px" : explicitUnit ? "em" : "px";
-  const parsed = parseScrubExpression(raw, currentPx, {
-    unit: explicitUnit ?? "px",
+    explicitUnit === "px" ? "px" : explicitUnit ? "%" : current.unit;
+  const parsed = parseScrubExpression(raw, current.value, {
+    unit: explicitUnit ?? (unit === "%" ? "%" : "px"),
     precision: 2,
   });
   if (!parsed) return null;
-  const value = explicitUnit === "%" ? parsed.value / 100 : parsed.value;
+  const value = explicitUnit === "em" ? parsed.value * 100 : parsed.value;
   const text = formatScrubValue(value, { unit, precision: 2 });
-  return { text, value, unit, cssValue: text };
+  return { text, value, unit, cssValue: letterSpacingCssValue(value, unit) };
+}
+
+export function letterSpacingScrubCssValue(
+  value: number,
+  unit: LetterSpacingUnit,
+): string {
+  return letterSpacingCssValue(value, unit);
 }
 
 /**
