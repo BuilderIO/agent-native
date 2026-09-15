@@ -1,0 +1,94 @@
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+
+const LOCAL_STORAGE_CHANGE_EVENT = "content-local-storage-change";
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+function readStorage<T>(key: string, defaultValue: T): T {
+  if (typeof window === "undefined") return defaultValue;
+
+  try {
+    const stored = window.localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
+export function useLocalStorage<T>(
+  key: string,
+  defaultValue: T,
+): [T, (val: T | ((prev: T) => T)) => void] {
+  const prevKeyRef = useRef(key);
+  const [value, setValue] = useState<T>(() => readStorage(key, defaultValue));
+  const valueRef = useRef(value);
+  const keyChanged = prevKeyRef.current !== key;
+  const visibleValue = keyChanged ? readStorage(key, defaultValue) : value;
+
+  useIsomorphicLayoutEffect(() => {
+    if (prevKeyRef.current !== key) {
+      prevKeyRef.current = key;
+      valueRef.current = visibleValue;
+      setValue(visibleValue);
+    }
+  }, [key, visibleValue]);
+
+  useEffect(() => {
+    function handleStorage(event: StorageEvent) {
+      if (event.key === key) {
+        const next = readStorage(key, defaultValue);
+        valueRef.current = next;
+        setValue(next);
+      }
+    }
+
+    function handleLocalStorageChange(event: Event) {
+      const detail = (event as CustomEvent<{ key?: string; value?: T }>).detail;
+      if (detail?.key === key) {
+        const next = detail.value as T;
+        valueRef.current = next;
+        setValue(next);
+      }
+    }
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener(
+      LOCAL_STORAGE_CHANGE_EVENT,
+      handleLocalStorageChange,
+    );
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(
+        LOCAL_STORAGE_CHANGE_EVENT,
+        handleLocalStorageChange,
+      );
+    };
+  }, [key, defaultValue]);
+
+  const set = useCallback(
+    (val: T | ((prev: T) => T)) => {
+      const next = val instanceof Function ? val(valueRef.current) : val;
+      valueRef.current = next;
+      setValue(next);
+      try {
+        window.localStorage.setItem(key, JSON.stringify(next));
+        window.dispatchEvent(
+          new CustomEvent(LOCAL_STORAGE_CHANGE_EVENT, {
+            detail: { key, value: next },
+          }),
+        );
+        // coercion-ok: local persistence is optional; the in-memory value remains available.
+      } catch {}
+    },
+    [key],
+  );
+
+  return [visibleValue, set];
+}

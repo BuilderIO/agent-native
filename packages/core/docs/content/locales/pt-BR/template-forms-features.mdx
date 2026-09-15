@@ -1,0 +1,154 @@
+---
+title: "Forms: Funcionalidades"
+description: "Todas as funcionalidades essenciais do Forms, incluindo tipos de campo, publicação, proteções, respostas, insights e encaminhamento, com passos de configuração para cada uma."
+---
+
+# Funcionalidades
+
+Todas as funcionalidades essenciais do Forms: como funcionam e como configurá-las. Veja [Forms](/docs/template-forms) para a visão geral e [Conversar com o Agent](/docs/template-forms-agent) para a lista completa de prompts.
+
+## Criar um formulário
+
+Todo formulário começa com um conjunto de campos. Descreva o que você quer para o agente e ele constrói o formulário para você, ou comece do zero e adicione os campos você mesmo no construtor visual. Os dois caminhos editam o mesmo formulário, então alternar entre eles nunca causa dessincronização. Depois que um formulário existe, seu construtor tem quatro abas, Editar, Respostas, Configurações e Integrações, para ajustar rótulos, textos de espaço reservado, campos obrigatórios, opções e ordem dos campos manualmente sempre que você quiser mais controle direto do que descrever uma mudança no chat.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1d93690182e42089cdd41c9b1eb9806?alt=media&token=da8d18fd-b0d7-4720-aabd-9e6f6edcc93a&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Um breve vídeo mostrando um formulário existente, incluindo como adicionar 'obrigatório' a um campo."
+  caption="Um breve vídeo mostrando um formulário existente, incluindo como adicionar 'obrigatório' a um campo."
+  autoplay={true}
+  loop={true}
+/>
+
+### Tipos de campo {#field-types}
+
+Forms vem com 11 tipos de campo prontos para uso. Peça ao agente qualquer um deles pelo nome, ou apenas descreva a pergunta que você quer fazer e deixe que ele escolha o tipo certo.
+
+<Table
+  id="doc-block-forms3"
+  title="Tipos de campo disponíveis"
+  columns={["Tipo", "Precisa de opções", "Exemplo de uso"]}
+  rows={[
+    ["text", "Não", "Nome, empresa"],
+    ["email", "Não", "E-mail de contato"],
+    ["number", "Não", "Idade, quantidade"],
+    ["textarea", "Não", "Mensagem, comentários"],
+    ["select", "Sim", "País, departamento"],
+    ["multiselect", "Sim", "Habilidades, interesses"],
+    ["checkbox", "Não", "Consentimento, opt-in"],
+    ["radio", "Sim", "Gênero, preferência"],
+    ["date", "Não", "Aniversário, prazo"],
+    ["rating", "Não", "Satisfação, qualidade (1 a 5 estrelas)"],
+    ["scale", "Não", "NPS, probabilidade (intervalo numérico)"],
+  ]}
+/>
+
+Todo campo precisa de um rótulo e um tipo. Campos como `select`, `multiselect` e `radio` também precisam de uma lista de opções para as pessoas escolherem. Você pode marcar qualquer campo como obrigatório, adicionar validações como um valor mínimo ou máximo, e escolher se ele ocupa a largura total do formulário ou fica lado a lado com outro campo.
+
+### Campos condicionais
+
+Um campo pode ficar oculto até que uma resposta anterior corresponda a uma regra que você define. Por exemplo, você poderia ocultar um campo de texto "Conte-nos mais" a menos que alguém escolha "Outro" em uma pergunta anterior.
+
+O campo que você está usando como referência precisa vir antes no formulário. Uma regra que aponta para um campo posterior, ou para um campo que não existe, é rejeitada antes de poder ser salva. Você pode verificar se uma resposta anterior é igual a um valor, é diferente de um valor, ou contém um valor, o que também funciona para perguntas em que alguém pode escolher mais de uma opção. Se um campo acabar oculto pela sua condição, sua resposta nunca é armazenada nem enviada a lugar nenhum, então um campo oculto não pode deixar um valor antigo ou padrão nos seus dados.
+
+Está criando formulários por script em vez de descrevê-los no chat? Veja a referência JSON de campos e configurações no [Guia do desenvolvedor](/docs/template-forms-developers#data-model).
+
+## Publique seu formulário
+
+Um formulário passa por três status:
+
+| Status      | Significado                               | Acesso público                      |
+| ----------- | ----------------------------------------- | ----------------------------------- |
+| `draft`     | Em andamento, não disponível publicamente | Não                                 |
+| `published` | Ativo e aceitando respostas               | Sim                                 |
+| `closed`    | Não aceita mais respostas                 | Mostra uma mensagem de encerramento |
+
+Um formulário não pode ser publicado se não tiver campos, se algum campo estiver sem rótulo, ou se um campo `select`, `multiselect` ou `radio` não tiver opções. Se a publicação for rejeitada, você recebe um motivo específico.
+
+A URL pública tem a forma `/f/<slug>`, em que o slug é gerado a partir do título mais um sufixo curto e único, como `beta-signup-a1b2c3`. Ele é regenerado automaticamente sempre que o título muda, a menos que você defina um slug personalizado.
+
+### Colete respostas
+
+Todo envio para um formulário publicado vira uma resposta: as respostas dadas, o momento em que chegou, e, a menos que o formulário seja anônimo, quem enviou e de onde. Abra a aba Respostas de qualquer formulário para ver cada uma em detalhes, ou simplesmente pergunte ao agente:
+
+- "Quantas respostas o formulário de inscrição beta tem?"
+- "Quem enviou hoje?"
+- "Mostre as respostas do formulário de feedback do cliente."
+
+Se uma resposta chegou através de um botão de feedback incorporado em outro aplicativo, em vez da própria página pública do formulário, a tabela de respostas também mostra de qual página e de qual aplicativo ela veio. Essas colunas só aparecem quando pelo menos uma resposta realmente carrega essa informação.
+
+## Configurações
+
+Cada formulário tem suas próprias configurações, na aba Configurações do construtor, para como ele se comporta e o que os respondentes veem.
+
+- **Texto do botão de envio.** Altere o rótulo do botão de envio do padrão "Enviar" para algo mais específico, como "Enviar feedback" ou "Reservar minha vaga."
+- **Mensagem de sucesso.** Escolha o que os respondentes veem logo depois de enviar, em vez da confirmação padrão.
+- **URL de redirecionamento.** Envie os respondentes para outra página depois que enviarem, em vez de mostrar uma mensagem de sucesso no próprio formulário.
+- **Barra de progresso.** Mostre uma barra de progresso no topo de um formulário mais longo para que os respondentes vejam quanto falta.
+- **Modo anônimo.** Desative todo o rastreamento de quem respondeu, para que os envios nunca capturem endereço IP, e-mail ou localização.
+- **Enviar-me um e-mail sobre novas respostas.** Receba um e-mail toda vez que alguém enviar, enviado através do seu provedor de e-mail configurado.
+
+## Proteja e identifique seu formulário público
+
+### Proteção contra spam
+
+Envios públicos podem exigir verificação através do [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) antes de serem aceitos. Ative isso definindo uma chave de site e uma chave secreta em Configurações. Duas proteções permanecem ativas mesmo sem o Turnstile: um campo oculto que descarta silenciosamente envios de bots, e uma verificação que rejeita qualquer coisa enviada mais rápido do que uma pessoa conseguiria preencher o formulário razoavelmente.
+
+<Callout tone="warning">
+
+Defina as duas chaves do Turnstile juntas. A página pública do formulário só mostra o widget de verificação quando a chave de site está definida, e o servidor só verifica quando as duas chaves estão definidas. Definir apenas a chave secreta não verifica nada, e definir apenas a chave de site mostra um widget que o servidor nunca realmente verifica.
+
+</Callout>
+
+### Marca
+
+Todo formulário público independente mostra um pequeno selo "Built with Agent-Native" no canto. Isso não é algo que você ativa ou desativa por formulário. Ele é ocultado automaticamente apenas quando o formulário é incorporado dentro de outra página, como um popover de feedback, já que essa página já tem sua própria marca.
+
+### Restrinja as origens de envio
+
+Por padrão, o link de envio de um formulário aceita envios de qualquer lugar, que é como um link público simples de formulário deve se comportar. Se você está incorporando o link de envio de um formulário dentro de um widget em outro site e quer garantir que só aquele site possa usá-lo, você pode restringir os envios a uma lista específica de origens de site.
+
+Hoje não existe um controle para isso no construtor. Peça ao agente para configurar, por exemplo "só permita que este formulário seja enviado de https://example.com." Informe ao agente a origem exata (o esquema e o domínio, como `https://example.com`, sem um caminho no final) para cada site que deve ser permitido.
+
+## Insights de respostas {#response-insights}
+
+Peça tendências ou resumos em vez de rolar por linhas. Experimente "envios por dia," "quantas respostas esta semana," ou "resuma o feedback desta semana," e o agente te dá de volta um gráfico, uma tabela, ou os dois, em vez de uma parede de dados brutos.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc594fa6d6bfe4479a36114306401bb60?alt=media&token=fa7e9243-7a96-4418-9aeb-9eb3fa441e76&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Um exemplo de solicitação de dados tabulares de um formulário, com base em temas das respostas."
+  caption="Um exemplo de solicitação de dados tabulares de um formulário, com base em temas das respostas."
+  autoplay={true}
+  loop={true}
+/>
+
+Quando você não nomeia um formulário específico, o agente procura entre seus formulários mais recentemente atualizados, até 50 por padrão e 100 no máximo. Isso é útil para uma pergunta como "como estão as tendências de envios em todos os meus formulários este mês?" Toda resposta informa se está mostrando tudo ou apenas uma amostra, junto com quantas linhas isso cobre, para que você sempre saiba o que está vendo.
+
+## Exportação
+
+Na aba Respostas de um formulário, clique em **Exportar CSV** para baixar um CSV do que está na tela imediatamente, incluindo qualquer busca ou ordenação que você aplicou. Isso funciona na hora, sem necessidade de configuração.
+
+Você também pode pedir ao agente por "um CSV deste formulário" ou "uma exportação JSON de todas as respostas." Isso sempre exporta todas as respostas, não apenas o que está filtrado no momento, e precisa de um provedor de armazenamento de arquivos conectado primeiro. Se nenhum estiver conectado ainda, o agente avisa e te direciona para Configurações → Uploads de arquivo, onde uma conta gratuita do Builder.io funciona como uma opção rápida. Depois que o armazenamento está conectado, o agente te devolve um link para o arquivo em vez de baixá-lo diretamente. Cada exportação usa os rótulos dos seus campos como cabeçalhos de coluna (no CSV), e se alguém selecionou mais de uma opção em um campo, essas escolhas são unidas em uma única célula. Qualquer resposta que pareça poder ser uma fórmula de planilha é neutralizada antes, o que te protege de um envio que tenta executar código quando você abre o arquivo.
+
+## Encaminhe envios
+
+Ative a entrega automática para que as novas respostas apareçam onde sua equipe já trabalha, em vez de alguém precisar checar a aba Respostas. Essa é uma configuração por formulário, feita na aba Integrações do construtor.
+
+| Destino          | O que é necessário                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| Slack            | Uma URL de Incoming Webhook para o canal desejado                                                             |
+| Discord          | Uma URL de webhook para o canal desejado                                                                      |
+| Planilhas Google | Uma URL de Google Apps Script configurada para receber envios. Um link simples de planilha não vai funcionar. |
+| Webhook          | Qualquer endereço web que possa receber o envio como dados                                                    |
+
+Isso é diferente de conectar o Slack para que o agente poste lá diretamente, o que é coberto em [Messaging](/docs/messaging). Conecte isso primeiro se você quiser que o próprio agente poste atualizações no Slack. Todo endereço de destino é verificado para garantir que não aponta para uma rede privada ou um endereço interno, tanto quando você o salva quanto toda vez que uma resposta chega, para que um formulário não possa ser transformado em uma forma de sondar sua própria rede.
+
+Você também pode ativar uma notificação por e-mail para que o dono do formulário receba um e-mail toda vez que houver uma nova resposta, enviado através do serviço de e-mail que já estiver configurado. O envio desse e-mail é best-effort (melhor esforço). Um envio ainda é registrado mesmo que o e-mail de notificação falhe ao ser enviado.
+
+## Próximos passos
+
+- [**Forms**](/docs/template-forms) — a visão geral e o que ele substitui
+- [**Conversar com o Agent**](/docs/template-forms-agent) — todos os prompts por tarefa e como o agente vê sua tela
+- [**Forms em um workspace com múltiplos apps**](/docs/template-forms-integrations) — delegação e o endpoint público de envio que outros aplicativos usam
+- [**Guia do desenvolvedor**](/docs/template-forms-developers) — a referência de campos, configurações e actions por trás dessas funcionalidades
+- [**Compartilhamento**](/docs/sharing) — o modelo de concessão de compartilhamento sobre o qual o compartilhamento de formulários é construído
+- [**Messaging**](/docs/messaging) — conectando o Slack para que o agente poste diretamente

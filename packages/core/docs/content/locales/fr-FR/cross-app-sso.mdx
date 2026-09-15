@@ -1,0 +1,132 @@
+---
+title: "SSO inter-applications"
+description: "Documente le SSO d'espace de travail dans Desktop et la fédération d'organisations côté serveur. La connexion navigateur avec Agent-Native a été supprimée."
+---
+
+# SSO inter-applications
+
+L'option navigateur "Sign in with Agent-Native" et le transfert automatique du
+navigateur ont été supprimés. La connexion propre à chaque application reste le
+comportement par défaut pour les utilisateurs web. Cette page décrit les contrats
+restants de Desktop et de la fédération côté serveur.
+
+## Ce qui reste
+
+### Espace de travail Desktop
+
+La connexion à l'espace de travail est une action explicite dans les réglages de
+Desktop. Lorsqu'elle est activée, Desktop peut provisionner les applications
+enregistrées et éligibles par son intermédiaire dédié. Chaque application garde
+son propre magasin d'utilisateurs, sa session et ses contrôles d'accès. Desktop
+n'intercepte pas la navigation anonyme du navigateur vers une page de connexion.
+
+Une application est éligible seulement si:
+
+- Desktop active le SSO d'espace de travail pour cette application.
+- L'URL de production est une URL HTTPS exacte.
+- Dispatch possède un enregistrement serveur exact pour l'application.
+- Le flag de déploiement <code>desktop.workspace-sso</code> est activé.
+
+La préférence par appareil <code>desktopSsoEnabled</code> est activée par défaut.
+Une valeur false explicite reste une option de retrait. Si le flag, la préférence,
+l'enregistrement ou le contrôle d'éligibilité est indisponible, la connexion
+propre à l'application reste disponible.
+
+### Fédération côté serveur
+
+L'intermédiaire et les clients côté serveur restants utilisent un protocole
+court et vérifié par le serveur. Il n'est pas exposé comme contrôle de connexion
+du navigateur:
+
+1. Le client demande une liaison exacte avec une application enregistrée.
+2. Dispatch authentifie l'identité de l'espace de travail et renvoie un code
+   d'autorisation court et à usage unique.
+3. Le serveur de l'application échange le code avec son vérificateur PKCE.
+4. L'application vérifie l'assertion signée, l'application exacte, le callback,
+   le scope, le nonce et l'expiration.
+5. L'application lie ou crée un utilisateur local par e-mail vérifié et crée sa
+   session locale normale.
+
+L'assertion est renvoyée uniquement par l'échange serveur à serveur. Elle
+n'apparaît jamais dans une URL de navigateur et n'est pas un jeton porteur
+réutilisable.
+
+## Fédération d'organisations
+
+Le flag <code>organization.cross-app-federation</code> est désactivé par défaut.
+Une fois activé, l'application source enregistre son organisation locale auprès de
+Dispatch et conserve le mappage exact
+
+<code>(identity_authority, identity_id)</code>. L'application cible n'accepte
+l'ID canonique, le nom et le rôle vérifié que depuis l'assertion vérifiée par le
+serveur.
+
+Les noms d'organisation, domaines e-mail et cookies du navigateur ne sont pas
+des clés de rapprochement. Une organisation locale sans mappage reste inchangée
+jusqu'à une migration explicite. Les appartenances liées utilisent toujours les
+contrôles d'accès normaux de l'application cible.
+
+La fédération utilise une identifiant distinct pour chaque application source:
+
+- Définissez <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> dans
+  l'application source.
+- Définissez la valeur correspondante
+  <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_&lt;NORMALIZED_APP_ID&gt;</code>
+  dans Dispatch.
+- Ne réutilisez pas <code>A2A_SECRET</code> pour cette limite d'autorité.
+
+Le suffixe de l'ID d'application remplace chaque suite de caractères non
+alphanumériques par un trait de soulignement et convertit le résultat en
+majuscules. Par exemple, l'ID <code>workspace-reports</code> utilise
+
+<code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE_REPORTS</code>.
+
+Les écritures d'identité et d'organisation sont additives. Les utilisateurs
+existants avec le même e-mail sont réutilisés sans modification. Un nouvel
+e-mail vérifié crée un utilisateur local. Désactiver la fédération ne supprime
+pas les données.
+
+## Configuration
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> sert uniquement à la voie restante
+côté serveur et Desktop lorsqu'une application auto-hébergée a besoin d'un
+déploiement Dispatch explicite. Il n'ajoute ni option de connexion navigateur ni
+transfert automatique.
+
+Pour un déploiement Dispatch auto-hébergé, enregistrez chaque application
+personnalisée avec son ID, son client ID, son origine HTTPS, son chemin de callback
+et sa capacité <code>identity-sso</code> exacts via
+
+<code>IDENTITY_SSO_APP_REGISTRY_JSON</code>.
+
+Les enregistrements de production doivent utiliser HTTPS et un chemin de callback
+exact. Localhost est autorisé uniquement pour le développement local. Les
+sous-domaines inconnus, les IDs d'application incompatibles, les chemins
+arbitraires et les callbacks inter-origines sont rejetés.
+
+## Vérification et retour arrière
+
+Après le déploiement:
+
+1. Vérifiez que l'e-mail, le mot de passe, le lien magique et les fournisseurs
+   configurés fonctionnent toujours dans un navigateur.
+2. Vérifiez que la surface d'authentification du navigateur ne propose aucune
+   option de connexion Agent-Native.
+3. Si le SSO Desktop est activé, vérifiez une application enregistrée exacte
+   depuis l'action explicite des réglages Desktop.
+4. Si la fédération d'organisations est activée, vérifiez l'ID exact de
+   l'organisation et le rôle d'appartenance dans l'application cible.
+
+Pour revenir en arrière, désactivez le flag concerné et supprimez
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> du déploiement auto-hébergé, puis
+redéployez. Les enregistrements additifs restent disponibles pour
+l'authentification locale normale.
+
+## Documentation associée
+
+- [Authentification](/docs/authentication)
+- [Protocole A2A](/docs/a2a-protocol)
+- [Dispatch](/docs/dispatch)
+- [Sécurité et portée des données](/docs/security)
+- [Espaces de travail multi-applications](/docs/multi-app-workspace)

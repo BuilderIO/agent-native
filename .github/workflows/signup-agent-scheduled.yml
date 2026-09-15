@@ -1,0 +1,149 @@
+name: Signup agent review (scheduled)
+
+# The deterministic canary (`Signup E2E (scheduled)`) asserts the boundaries we
+# already know how to name: link host, session, refresh. This lane exists for
+# the failures nobody wrote an assertion for — the clip that started this work
+# showed a first-time signup that simply sat there until the user reloaded, and
+# no status code or session check describes that.
+#
+# Deliberately a separate workflow rather than another lane in `beta-e2e.yml`:
+# this one spends model tokens, needs a second credential, and must never gate
+# or page. Keeping it out of the gating workflow means a model outage or a
+# noisy review can never block a merge or wake anyone.
+on:
+  schedule:
+    # An hour after the deterministic canary, so a fleet-wide breakage is
+    # already paged by the lane that is allowed to page before this one spends
+    # a single token describing it.
+    - cron: "15 17 * * *"
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "Comma-separated apps, or 'all'. Default rotates one app per day."
+        required: false
+        default: ""
+      environments:
+        description: "Comma-separated environments: beta,production"
+        required: false
+        default: "beta"
+
+concurrency:
+  group: signup-agent-scheduled
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  agent-review:
+    name: Agent signup review
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    env:
+      SIGNUP_E2E_APPS: all
+      SIGNUP_E2E_ENVIRONMENTS: ${{ inputs.environments || 'beta' }}
+      SIGNUP_AGENT_APPS: ${{ inputs.apps || '' }}
+      MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
+      MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck the agent lane
+        run: pnpm exec tsc --noEmit -p e2e/signup/tsconfig.json
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Walk the signup flow and review it
+        id: review
+        run: pnpm exec playwright test --config e2e/signup/agent.playwright.config.ts
+
+      - name: Classify provider result
+        id: classify
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if find e2e/signup/test-results/signup-agent -type f -name 'mailosaur-inconclusive.txt' -print -quit | grep -q .; then
+            echo "inconclusive=true" >> "$GITHUB_OUTPUT"
+            echo "INCONCLUSIVE: Mailosaur rate-limited the verification inbox; no model review was recorded." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "inconclusive=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish findings
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          findings="e2e/signup/test-results/signup-agent/findings.md"
+          if [ ! -s "$findings" ]; then
+            # No file means the journey or the review did not complete. That is a
+            # lane failure, not a clean result, and the step above has already
+            # failed for it — say so rather than printing a reassuring summary.
+            echo "### Signup agent review" >> "$GITHUB_STEP_SUMMARY"
+            echo "No findings file was produced; the run did not complete a review." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "### Signup agent review"
+            echo
+            cat "$findings"
+            echo
+            echo "[run]($RUN_URL)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the advisory issue
+        # Only when the review actually ran and reported something. A failed
+        # lane is reported by the failing step, not by an issue that would read
+        # as a product problem.
+        if: ${{ success() && steps.classify.outputs.inconclusive != 'true' }}
+        run: |
+          set -euo pipefail
+          findings="e2e/signup/test-results/signup-agent/findings.md"
+          [ -s "$findings" ] || exit 0
+
+          title="[signup-agent] Model-reported signup issues"
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title \
+            | jq -r --arg t "$title" '[.[] | select(.title == $t) | .number] | first // empty')"
+
+          if grep -qiE '^\| *(high|medium)' "$findings"; then
+            body="$(printf 'A scheduled agent review reported issues in the signup flow.\n\nRun: %s\n\n%s\n\nThis lane is advisory: it never fails a build and never pages. Close this issue once the findings are triaged.\n' "$RUN_URL" "$(cat "$findings")")"
+            if [ -n "$number" ]; then
+              gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+            fi
+          elif [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" \
+              --body "The latest agent review reported no high or medium findings: $RUN_URL"
+            gh issue close "$number" --repo "$GITHUB_REPOSITORY"
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: signup-agent-${{ github.run_id }}
+          path: e2e/signup/test-results/signup-agent/
+          if-no-files-found: warn
+          retention-days: 14

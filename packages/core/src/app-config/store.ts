@@ -1,0 +1,189 @@
+import { deriveAppIdentity } from "./app-identity.js";
+import { readEnvConfigLayer } from "./env-layer.js";
+import { assertRunLifecycleInvariants } from "./run-lifecycle-invariants.js";
+import {
+  appConfigSchema,
+  type AppConfig,
+  type AppConfigInput,
+} from "./schema.js";
+
+/**
+ * Resolution order for app configuration, lowest opinion first.
+ *
+ * `legacy` is where the bespoke `configure*` / `set*` setters this schema
+ * replaces write their values, so a deprecated call still works and still has
+ * a stated position rather than whichever `if` happens to run first.
+ */
+const LAYER_ORDER = ["env", "legacy", "app"] as const;
+
+export type AppConfigLayer = (typeof LAYER_ORDER)[number];
+
+interface AppConfigState {
+  layers: Partial<Record<AppConfigLayer, AppConfigInput>>;
+  resolved?: AppConfig;
+  /** Serialized env layer the cached `resolved` was built from. */
+  envSignature?: string;
+}
+
+interface AppConfigGlobals {
+  __agentNativeAppConfig?: AppConfigState;
+}
+
+// Same reason the provider registries do this: core can be loaded more than
+// once in a dev server or a dual-format build, and a config set by a plugin
+// has to be visible to a reader that resolved a different copy of the module.
+const globals = globalThis as typeof globalThis & AppConfigGlobals;
+const state: AppConfigState = (globals.__agentNativeAppConfig ??= {
+  layers: {},
+});
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+/**
+ * Merges `override` onto `base`, recursing into domain subobjects so two
+ * layers can each set a different field of the same domain. Functions, arrays,
+ * and scalars replace rather than merge.
+ */
+function mergeLayers(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    if (value === undefined) continue;
+    const existing = result[key];
+    result[key] =
+      isPlainObject(existing) && isPlainObject(value)
+        ? mergeLayers(existing, value)
+        : value;
+  }
+  return result;
+}
+
+function resolve(envLayer: Record<string, unknown>): AppConfig {
+  state.layers.env = envLayer as AppConfigInput;
+
+  let merged: Record<string, unknown> = {};
+  for (const layer of LAYER_ORDER) {
+    const value = state.layers[layer];
+    if (value) merged = mergeLayers(merged, value as Record<string, unknown>);
+  }
+  const parsed = appConfigSchema.parse(merged);
+  // Checked on the MERGED result, not per layer: a deployment may legitimately
+  // set one half of a relationship in the environment and the other in a
+  // plugin, and a per-layer check would reject that pairing before it exists.
+  // Defaults go through here too — the pair that shipped violated was a pair of
+  // defaults.
+  assertRunLifecycleInvariants(parsed.agent);
+  // After parsing, not as a layer: it derives from `packageName`, which the
+  // layers above have to have resolved first.
+  parsed.app = deriveAppIdentity(parsed.app);
+  return parsed;
+}
+
+/**
+ * Nitro embeds build-only deployment markers into direct env reads. Netlify's
+ * prebuilt beta lane has those markers while building, but does not copy them
+ * into the deployed Function environment. Keep the embedded values as the
+ * fallback for this one config boundary so a later dynamic `env[key]` read
+ * cannot erase the build decision from the server bundle.
+ */
+export function readConfigEnvironment(
+  embedded: Record<string, string | undefined> = {
+    AGENT_NATIVE_RELEASE_MIGRATIONS:
+      process.env.AGENT_NATIVE_RELEASE_MIGRATIONS,
+    AGENT_NATIVE_BETA_SCHEMA_OWNER: process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER,
+    AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY:
+      process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY,
+    AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT:
+      process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT,
+    AGENT_NATIVE_BUILD_ENGINE_PACKAGES:
+      process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES,
+  },
+): Record<string, string | undefined> {
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(embedded)) {
+    if (!env[key] && value) env[key] = value;
+  }
+  return env;
+}
+
+/**
+ * Writes one layer of the ladder. Framework-internal: the deprecated setters
+ * use it to keep working without reintroducing a second namespace.
+ */
+export function setAppConfigLayer(
+  layer: AppConfigLayer,
+  config: AppConfigInput,
+): void {
+  const existing = state.layers[layer];
+  const next = existing
+    ? (mergeLayers(
+        existing as Record<string, unknown>,
+        config as Record<string, unknown>,
+      ) as AppConfigInput)
+    : config;
+  // Validate where the value is set, so a bad value names the call site that
+  // set it instead of whichever unrelated read happened to run first.
+  appConfigSchema.parse(next);
+  state.layers[layer] = next;
+  state.resolved = undefined;
+}
+
+/**
+ * Sets this app's server configuration.
+ *
+ * Values given here beat any environment variable aliased to the same field.
+ * Calling it more than once merges, so an app can split its configuration by
+ * domain across plugin files.
+ *
+ * Returns a Nitro plugin so the canonical home is `server/plugins/config.ts`
+ * with `export default defineAppConfig({ … })` — the same shape as every other
+ * framework plugin an app already writes. Before that, the docs said "call it
+ * from a server plugin" without saying what such a file looks like, and no app
+ * in this repo ever did.
+ *
+ * The layer is applied here, at module load, not when the returned plugin runs:
+ * configuration has to be resolved before another plugin reads it, and plugin
+ * invocation order is not something an app should have to reason about.
+ */
+export function defineAppConfig(config: AppConfigInput): () => void {
+  setAppConfigLayer("app", config);
+  return () => {};
+}
+
+/**
+ * The resolved configuration, with declared defaults applied.
+ *
+ * The parsed result is cached, but the env layer is rebuilt each call and the
+ * cache is dropped when it differs. Re-reading a handful of declared keys is
+ * cheap next to re-parsing the schema, and caching the env read outright would
+ * mean whichever code path ran first froze the configuration for the process —
+ * a stale value nobody can see, which is the failure this module exists to
+ * remove.
+ */
+export function getAppConfig(): AppConfig {
+  const envLayer = readEnvConfigLayer(appConfigSchema, readConfigEnvironment());
+  const signature = JSON.stringify(envLayer);
+  if (state.resolved && state.envSignature === signature) return state.resolved;
+  state.envSignature = signature;
+  return (state.resolved = resolve(envLayer));
+}
+
+/**
+ * Drops every layer and the resolved cache.
+ *
+ * The resolved object is cached on first read, so a test that mutates
+ * `process.env` between cases has to call this to be seen.
+ */
+export function resetAppConfigForTests(): void {
+  state.layers = {};
+  state.resolved = undefined;
+  state.envSignature = undefined;
+}

@@ -1,0 +1,153 @@
+---
+title: "Dispatch"
+description: "Dispatch est le plan de contrôle de l'espace de travail : boîte de réception centrale, orchestration inter-applications, coffre-fort de secrets, intégration Slack/Telegram et tâches planifiées."
+---
+
+# Dispatch
+
+Dispatch est l'application que vous exécutez aux côtés de vos autres applications Agent-Native pour garder un espace de travail multi-applications coordonné : une seule boîte de réception pour tous les canaux, un seul coffre-fort de secrets et un seul agent qui achemine chaque demande vers la bonne application spécialisée au lieu d'essayer de tout faire lui-même. Cette application s'adresse à celui qui gère l'espace de travail, et non à celui qui construit une seule application autonome.
+
+<Callout tone="info">
+
+**Voir aussi :** pour une présentation conceptuelle de ce que fait Dispatch et du moment où vous en avez besoin, consultez [Dispatch](/docs/dispatch). Cette page est la référence spécifique au modèle.
+
+</Callout>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65b2b76a0dec44dbbbaec738e5512228?alt=media&token=f5ad219e-c566-43b2-90ca-a51c72d9a607&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Un bref enregistrement d'écran présentant la vue d'ensemble de Dispatch, la boîte de réception et le lanceur d'applications."
+  caption="Une brève visite guidée de Dispatch."
+  autoplay={true}
+  loop={true}
+/>
+
+Si vous exécutez un [espace de travail multi-applications](/docs/multi-app-workspace) avec de nombreuses applications, Dispatch est la colle qui les relie.
+
+## Dispatch en pratique {#in-practice}
+
+### Une question dans Slack devient une note d'analyse
+
+Un message dans un canal peut se transformer en une modification dans une toute autre application, sans que personne n'ait à copier les informations à la main.
+
+<Sequence>
+
+### Le canal **#marketing** reçoit une mise à jour sur un client clé
+
+### :blue: **Dispatch** voit le message et le reconnaît comme une note d'analyse
+
+### Une note est ajoutée dans **Analyse** au sujet de ce client
+
+</Sequence>
+
+### Un rapport du lundi extrait des données d'une autre application
+
+Une tâche récurrente n'a pas besoin de sa propre copie des données d'une autre application. Elle les demande simplement, à chaque exécution.
+
+<Sequence>
+
+### Une tâche récurrente **se réveille** chaque lundi à 7 h
+
+### :blue: **Dispatch** demande à l'agent d'analyse les inscriptions de la semaine dernière
+
+### Un résumé est **envoyé par e-mail** à l'équipe
+
+</Sequence>
+
+### Une offre avec remise obtient l'accord de deux autres équipes
+
+Une seule approbation peut impliquer plusieurs applications et équipes avant d'aboutir, Dispatch relayant chaque demande et chaque réponse afin que personne n'ait à quitter sa propre application pour la faire avancer.
+
+<Sequence>
+
+### Un **commercial** demande l'approbation d'une remise dans le CRM
+
+### :blue: **Dispatch** demande à l'agent de Finance si cela respecte la politique
+
+### **Finance** l'approuve dans sa propre application
+
+### :blue: **Dispatch** demande à l'agent Juridique de vérifier les termes du contrat
+
+### **Juridique** signale une clause et demande une modification
+
+### :blue: **Dispatch** transmet la modification au commercial
+
+</Sequence>
+
+## Ce qu'il remplace {#what-it-replaces}
+
+<Comparison>
+
+### Avant
+
+- Un robot Slack, une boîte de réception e-mail et un alias de support, chacun connecté manuellement à une application différente
+- Un fichier `.env`, et une copie de chaque clé qu'il contient, dupliquée par application
+- Une tâche cron ou un script d'administration par application pour tout ce qui est récurrent
+- Aucun endroit unique pour voir ce qui a changé, qui l'a approuvé, ou ce qu'une application dépense en appels LLM
+
+### Après
+
+- Une seule boîte de réception : Slack, Teams, Discord, Telegram, WhatsApp et l'e-mail atteignent tous le même agent
+- Un seul coffre-fort : chaque identifiant enregistré une fois, accordé ou synchronisé aux applications qui en ont besoin
+- Un seul endroit pour les tâches récurrentes, la boucle de révision de la mémoire de Dreams et les approbations administratives
+- Une seule console d'opérateur pour l'historique d'audit, l'utilisation et le débogage des fils de discussion dans toutes les applications
+
+</Comparison>
+
+<Callout tone="success">
+
+**Dispatch peut créer la prochaine application pour vous.** Décrivez ce dont vous avez besoin dans le chat — « crée-moi une application pour suivre l'intégration des clients » — et Dispatch démarre une toute nouvelle application sœur sous `apps/` plutôt que d'ajouter des écrans supplémentaires à une application existante. Consultez [Transfert de création d'application](/docs/template-dispatch-developers#app-creation) pour voir comment cela fonctionne réellement, en local et dans un déploiement hébergé.
+
+</Callout>
+
+## Ce qu'il fait {#what-it-does}
+
+- **Boîte de réception centrale.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp et l'e-mail arrivent tous au même endroit. Dispatch trie et traite lui-même la demande ou la délègue. Voir [Boîte de réception centrale et routage](/docs/template-dispatch-features#central-inbox-and-routing).
+- **Interface du plan de contrôle.** Les discussions, projets, exécutions, applications de l'espace de travail, agents et automatisations vivent dans une seule interface opérationnelle, avec des listes axées sur le statut et des vues détaillées plutôt que des tableaux de bord ponctuels.
+- **Orchestrateur, pas spécialiste.** Dispatch n'essaie _pas_ d'être l'application e-mail ou l'application d'analyse. Quand quelqu'un demande « résume les inscriptions de la semaine dernière », Dispatch appelle l'agent d'analyse via A2A et renvoie la réponse.
+- **Coffre-fort de secrets et intégrations réutilisables.** Les clés API, les jetons OAuth et les comptes fournisseurs sont enregistrés une fois et accordés aux applications qui en ont besoin, avec un flux de demande/approbation et une piste d'audit. Voir [Identifiants et intégrations](/docs/template-dispatch-features#credentials-and-integrations).
+- **Ressources de l'espace de travail.** Les Skills globales, les instructions de garde-corps, les profils d'agent personnalisés, les ressources de référence et les serveurs MCP HTTP peuvent être créés une seule fois dans Dispatch. Les ressources « toutes les applications » sont héritées au moment de l'exécution par chaque application sans étape de copie ; des octrois sélectifs couvrent les exceptions propres à une application.
+- **Tâches planifiées et Dreams.** Les tâches récurrentes inter-applications vivent ici, aux côtés d'une boucle de révision qui examine les exécutions récentes et propose des améliorations de mémoire, de skills et d'instructions. Voir [Automatisations et tâches planifiées](/docs/template-dispatch-features#automations-and-scheduled-jobs) et [Dreams et approbations](/docs/template-dispatch-features#dreams-and-approvals).
+- **Flux d'approbation.** Les modifications durables — destinations d'envoi enregistrées, ressources d'espace de travail « toutes les applications » et propositions de mémoire Dream partagées ou concernant toute l'équipe — peuvent nécessiter l'accord d'un second administrateur avant de prendre effet.
+- **Créer de nouvelles applications depuis le chat.** Décrivez un besoin en langage naturel et Dispatch échafaude une véritable application sœur indépendante au lieu d'ajouter un écran de plus à une application existante.
+
+## Quand l'utiliser {#when-to-use}
+
+Utilisez Dispatch lorsque :
+
+- Vous avez **deux applications agent-native ou plus** dans un espace de travail et voulez un seul endroit pour les coordonner.
+- Vous avez besoin de **secrets centralisés** avec des octrois par application et une piste d'audit.
+- Vous voulez un **hub de messagerie** qui achemine Slack, Teams, Discord, Telegram, WhatsApp ou l'e-mail vers le bon agent de domaine.
+- Vous voulez des **tâches planifiées** qui extraient des données de plusieurs applications.
+
+Passez votre chemin pour un échafaudage à une seule application — utilisez directement le [modèle Chat](/docs/template-chat) ou l'un des modèles de domaine.
+
+Démo en direct : [dispatch.agent-native.com](https://dispatch.agent-native.com).
+
+## Ce que vous ferez avec au quotidien {#what-youll-do}
+
+- **Connectez vos canaux.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp ou l'e-mail — voir [Connecter un canal](/docs/template-dispatch-features#connecting-a-channel) pour les étapes de configuration.
+- **Enregistrez les secrets et connectez les fournisseurs une seule fois.** Chaque autre application de l'espace de travail puise dans le coffre-fort ou une connexion partagée au lieu de détenir sa propre copie. Voir [Identifiants et intégrations](/docs/template-dispatch-features#credentials-and-integrations).
+- **Gardez le contexte de l'entreprise global.** Placez les personas, le positionnement, les faits sur l'entreprise et les garde-corps dans les Ressources Dispatch une seule fois, puis prévisualisez la pile effective espace de travail → application/organisation → personnel pour n'importe quelle application ou utilisateur.
+- **Configurez des tâches récurrentes.** « Chaque lundi à 7 h, demande à l'agent d'analyse les inscriptions de la semaine dernière et envoie-moi un résumé par e-mail. » Voir [Automatisations et tâches planifiées](/docs/template-dispatch-features#automations-and-scheduled-jobs).
+- **Examinez les propositions Dream.** La boucle de révision de la mémoire de Dispatch examine les exécutions précédentes et propose des modifications étayées par des sources à ce dont l'espace de travail se souvient.
+- **Verrouillez les modifications durables.** Les destinations enregistrées, les ressources d'espace de travail « toutes les applications » et les propositions Dream partagées peuvent nécessiter l'accord d'un second administrateur avant de s'appliquer — voir le [flux d'approbation](/docs/template-dispatch-features#approval-flow).
+- **Surveillez la console d'opérateur.** La supervision, l'administration de la base de données, le débogage des fils de discussion, l'historique d'audit et les métriques d'utilisation vivent tous sous un même toit — voir [Console d'opérateur, en un coup d'œil](/docs/template-dispatch-features#operator-console-at-a-glance).
+- **Créez une nouvelle application depuis le chat.** Demandez ce dont vous avez besoin et Dispatch échafaude une nouvelle application sœur plutôt que de faire grossir une application existante.
+
+## Prise en main {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-platform
+# Dispatch est inclus automatiquement. Désélectionnez Chat pour n'utiliser que Dispatch, ou sélectionnez les applications métier à générer avec lui
+```
+
+Dispatch est presque toujours échafaudé dans un espace de travail aux côtés des applications qu'il coordonne — un plan de contrôle sans rien à coordonner n'est qu'une boîte de réception vide. Voir [Mise en route](/docs/getting-started) pour installer les dépendances, lancer le serveur de développement et créer votre premier compte.
+
+## Et ensuite
+
+- [**Fonctionnalités**](/docs/template-dispatch-features) — chaque domaine fonctionnel, avec les étapes de configuration pour chacun
+- [**Parler à l'agent**](/docs/template-dispatch-agent) — des invites par tâche et la façon dont l'agent voit votre écran
+- [**Dispatch dans un espace de travail multi-applications**](/docs/template-dispatch-integrations) — comment les autres applications se connectent à Dispatch, et comment Dispatch les découvre
+- [**Guide développeur de Dispatch**](/docs/template-dispatch-developers) — la répartition package/application, l'échafaudage et la personnalisation
+- [**Référence des actions et des données de Dispatch**](/docs/template-dispatch-reference) — l'inventaire complet des actions, le schéma de base de données et la liste des routes
+- [**Espace de travail multi-applications**](/docs/multi-app-workspace) — exécuter Dispatch aux côtés de plusieurs applications
