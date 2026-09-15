@@ -244,14 +244,17 @@ describe("widenTextBoxes", () => {
     expect(widenTextBoxes(xml)).toBe(xml);
   });
 
-  it("leaves a justified paragraph untouched", () => {
-    const xml = textBoxShape({
-      algn: "just",
-      bodyXml: textRun("1234567890", -160),
-    });
+  it.each(["just", "justLow", "dist", "thaiDist"])(
+    "leaves a %s paragraph, which has no single edge to hold, untouched",
+    (algn) => {
+      const xml = textBoxShape({
+        algn,
+        bodyXml: textRun("1234567890", -160),
+      });
 
-    expect(widenTextBoxes(xml)).toBe(xml);
-  });
+      expect(widenTextBoxes(xml)).toBe(xml);
+    },
+  );
 
   it("leaves a shape with no text body untouched", () => {
     const xml =

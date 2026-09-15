@@ -1106,4 +1106,36 @@ describe("markWrappedLines", () => {
       `BIG small ${WRAP_MARK}next`,
     );
   });
+
+  it("marks a wrap after a tall inline run in right-to-left text, where the next line starts on the right", () => {
+    document.body.innerHTML =
+      '<div><p style="direction: rtl">BIG small next</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const offset = this.startOffset;
+        const rect =
+          offset < 3
+            ? { top: 0, height: 60, left: 400 - offset * 30 }
+            : offset < 10
+              ? { top: 44, height: 12, left: 300 - offset * 8 }
+              : { top: 50, height: 12, left: 400 - (offset - 10) * 8 };
+        return [
+          {
+            ...rect,
+            bottom: rect.top + rect.height,
+            right: rect.left + 8,
+            width: 8,
+          },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(1);
+    expect(root.querySelector("p")?.textContent).toBe(
+      `BIG small ${WRAP_MARK}next`,
+    );
+  });
 });

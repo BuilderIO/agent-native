@@ -78,7 +78,7 @@ export function widenTextBoxes(xml: string): string {
       ),
     );
     const [align = "l"] = alignments;
-    if (alignments.size > 1 || align === "just" || align === "dist") {
+    if (alignments.size > 1 || !["l", "ctr", "r"].includes(align)) {
       return shape;
     }
 

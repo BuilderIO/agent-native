@@ -2082,8 +2082,8 @@ export function markWrappedLines(root: HTMLElement): number {
   const rotation = new Map<Element, boolean>();
   const lineBottoms = new Map<Element, number>();
   // A tall inline run can reach below the centres of the next line's glyphs,
-  // so a glyph that lands left of and below the one before it also starts a
-  // line.
+  // so a glyph that lands below the one before it and back toward the side
+  // lines start on also starts a line.
   const previousGlyphs = new Map<Element, DOMRect>();
   const marks: Array<{ node: Text; offset: number }> = [];
   const range = document.createRange();
@@ -2116,6 +2116,7 @@ export function markWrappedLines(root: HTMLElement): number {
     const keepsNewlines = PRESERVED_NEWLINE_WHITE_SPACE.test(
       window.getComputedStyle(parent).whiteSpace,
     );
+    const rightToLeft = window.getComputedStyle(container).direction === "rtl";
     const text = node.data;
     for (let offset = 0; offset < text.length; offset++) {
       const character = text[offset];
@@ -2135,8 +2136,10 @@ export function markWrappedLines(root: HTMLElement): number {
         bottom !== undefined &&
         (rect.top + rect.height / 2 > bottom ||
           (previous !== undefined &&
-            rect.left < previous.left - 0.5 &&
-            rect.top > previous.top + 0.5));
+            rect.top > previous.top + 0.5 &&
+            (rightToLeft
+              ? rect.right > previous.right + 0.5
+              : rect.left < previous.left - 0.5)));
       if (wrapped) {
         marks.push({ node, offset });
         lineBottoms.set(container, rect.bottom);
