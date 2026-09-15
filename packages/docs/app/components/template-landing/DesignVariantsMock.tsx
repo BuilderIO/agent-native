@@ -90,7 +90,7 @@ function VariantABoard() {
         </div>
       </div>
       <div className="kt-card-row">
-        {["Single origin", "House blend", "Decaf, done right"].map((title) => (
+        {["Single origin", "House blend", "Decaf"].map((title) => (
           <div key={title} className="kt-card">
             <div className="kt-card-art" />
             <span className="kt-card-title">{title}</span>
