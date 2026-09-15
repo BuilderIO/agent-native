@@ -2,7 +2,6 @@
   "name": "{{APP_NAME}}",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.29.1",
   "scripts": {
     "dev": "agent-native dev --inspect",
     "build": "agent-native build",
@@ -50,5 +49,6 @@
     "tsx": "^4.20.3",
     "typescript-7": "catalog:",
     "vite": "8.1.0"
-  }
+  },
+  "packageManager": "pnpm@10.29.1"
 }
