@@ -98,8 +98,8 @@ UI と [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes);させて
 
 それらのランタイム パッケージは **オプションのピア依存関係**であり、遅延ロードされるため、
 ハーネスを使用しないアプリには料金がかかりません。各アダプターには、
-`installPackage` ヒント (例: `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` はクリア インストールをスローします
+`installPackage` ヒント (例: `@ai-sdk/harness@latest
+@ai-sdk/harness-codex@latest`); `resolveAgentHarness` はクリア インストールをスローします
 パッケージが見つからない場合のエラー、および `isAgentHarnessPackageInstalled(entry)`
 最初に確認できます。
 
@@ -162,38 +162,18 @@ AI SDK と同様に、`installPackage` ヒントを通じて遅延ロードさ�
 it) と書き込みにより `file-change` イベントが発行されます。ターミナルメソッドはアドバタイズされません。
 したがって、エージェントは独自のシェルを使用します。
 
-## Codex 認証: コード UI とハーネス サンドボックス {#codex-auth}
+## Codex 認証: コード UI とハーネス アダプター {#codex-auth}
 
-Codex サーフェスは 2 つあり、それぞれ異なる方法で認証されます。
+Codex サーフェスは 2 つあります。
 
-- **Agent-Native コード / デスクトップ** はユーザーのマシン上で `codex exec` を実行します。もし
-  ユーザーは `codex login` を実行しました。このローカル実行では ChatGPT が再利用されます
-  サブスクリプションまたは API キーは、インストールされた Codex CLI レポートを認証します
-  `codex login status`.
-- **`ai-sdk-harness:codex`** は `@ai-sdk/harness-codex` をロードし、Codex を駆動します
-  `@openai/codex-sdk` を介してハーネス サンドボックス内にあります。黙って行わない
-  サンドボックスがリモートである可能性があるため、ユーザーのデスクトップ `~/.codex` ログインを継承します
-  または孤立しています。信頼できる/プライベート サンドボックスの場合は、`codexCliAuth: true` でオプトインします。
-  Agent-Native は、ローカル Codex CLI 認証ファイルをサンドボックスにコピーしてから、
-  ハーネスが起動します。ホストまたは共有サンドボックスの場合、API キー / ゲートウェイを構成します
-  代わりに認証を行ってください。
-
-誰かが Codex OAuth パスを持つパッケージを尋ねたら: ローカル コーディング用
-セッション、`@agent-native/core` / デスクトップとインストール済みのものを使用します
-`@openai/codex` CLI および `codex login`。サンドボックス化された `ai-sdk-harness:codex` の場合、
-ログインをサンドボックスにコピーするときに、明示的な `codexCliAuth` オプトインを使用します
-許容されます。
-
-```ts
-const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
-  codexCliAuth: true,
-});
-```
-
-`codexCliAuth: true` は、`CODEX_HOME/auth.json` または `~/.codex/auth.json` を読み取ります。へ
-別のローカル ログインをポイントし、パス
-`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` または
-`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
+- **Agent-Native コード / デスクトップ** はユーザーのマシン上で `codex exec` を実行し、
+  `codex login status` が報告するローカル Codex CLI ログインを再利用します。
+- **`ai-sdk-harness:codex`** は、基盤となるハーネスがサポートする場合、AI SDK Harness
+  のネイティブ サブスクリプション フローを使用します。追加設定は不要です。
+  認証情報はホストに残り、明示的な API キー認証情報が優先され、ローカル認証ファイルを
+  コピーせずに結果の認証がサンドボックスに渡されます。AI Gateway のみを使用するには
+  `harnessOptions.auth` を `"ai-gateway"` に設定します。このモードはネイティブ
+  サブスクリプションを読み取りません。
 
 ## 登録して解決 {#register-resolve}
 
@@ -210,8 +190,8 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `resolveAgentHarness(name, config?)` は `AgentHarnessAdapter` を返します。
 オプションの `config` は、AI SDK アダプター用にアダプター工場に転送されます
 `AiSdkHarnessAdapterOptions` (`label`、`description`) にマッピングされます
-`permissionMode`、`harnessOptions`、`agentOptions`、および Codex のみ
-`codexCliAuth`)。 `listAgentHarnesses()` を使用して、登録されているものを列挙します。
+`permissionMode`、`harnessOptions`、`agentOptions`)。`listAgentHarnesses()` を使用して、
+登録されているものを列挙します。
 ピッカー。
 
 ## ターンを実行する {#run-a-turn}
