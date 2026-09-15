@@ -7,6 +7,7 @@ import {
 } from "h3";
 import * as jose from "jose";
 
+import "../authorization/check-action.js";
 import { redactArgsToJson } from "../audit/redact.js";
 import {
   extractBearerToken,

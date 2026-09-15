@@ -15,6 +15,7 @@ import { spawnSync } from "node:child_process";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import {

@@ -10,6 +10,7 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
+import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {

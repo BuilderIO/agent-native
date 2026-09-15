@@ -1,5 +1,6 @@
 import nodePath from "node:path";
 
+import "../authorization/check-action.js";
 /**
  * Auto-discover actions from a template's actions/ directory.
  *
