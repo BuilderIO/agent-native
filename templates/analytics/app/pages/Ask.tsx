@@ -3,7 +3,10 @@ import {
   useAgentChatContext,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { useEffect, useMemo } from "react";
 
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
@@ -20,6 +23,7 @@ const DASHBOARD_CONTEXT_KEYS = new Set([
 
 export default function AskPage() {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const chatContext = useAgentChatContext();
   const chatContextItems = chatContext.items;
   const removeChatContextItem = chatContext.remove.bind(chatContext);
@@ -73,7 +77,7 @@ export default function AskPage() {
         composerPlaceholder={t("common.askPlaceholder")}
         composerSlot={
           <>
-            <CreativeContextComposerChip />
+            {creativeContextEnabled ? <CreativeContextComposerChip /> : null}
             <div className="analytics-chat-intro">
               <h1>{t("common.askIntroTitle")}</h1>
               <p>{t("common.askIntroBody")}</p>

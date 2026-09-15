@@ -80,6 +80,7 @@ export function RequireActiveOrg({
       pendingInvitations={org?.pendingInvitations ?? []}
       domainMatches={org?.domainMatches ?? []}
       email={org?.email ?? ""}
+      allowCreateOrg={org?.access?.orgCreation !== "closed"}
       title={title ?? t("org.createTitle")}
       description={description ?? t("org.createDescription")}
       className={className}
@@ -137,6 +138,7 @@ function CreateOrgPane({
   pendingInvitations,
   domainMatches,
   email,
+  allowCreateOrg,
   title,
   description,
   className,
@@ -149,6 +151,7 @@ function CreateOrgPane({
   }>;
   domainMatches: Array<{ orgId: string; orgName: string }>;
   email: string;
+  allowCreateOrg: boolean;
   title: string;
   description: string;
   className?: string;
@@ -163,8 +166,12 @@ function CreateOrgPane({
   const hasDomainMatches = domainMatches.length > 0;
   const userDomain = email.split("@")[1] ?? "";
   const [showCreateForm, setShowCreateForm] = useState(
-    !hasDomainMatches && !hasInvites,
+    allowCreateOrg && !hasDomainMatches && !hasInvites,
   );
+  const paneTitle = allowCreateOrg ? title : t("org.askAdminTitle");
+  const paneDescription = allowCreateOrg
+    ? description
+    : t("org.askAdminDescription");
 
   const busy =
     createOrg.isPending || acceptInvitation.isPending || joinByDomain.isPending;
@@ -179,9 +186,9 @@ function CreateOrgPane({
       <div className="my-auto w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg">
         <div className="mb-6 flex items-center gap-2">
           <IconUsersGroup className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-lg font-semibold">{title}</h1>
+          <h1 className="text-lg font-semibold">{paneTitle}</h1>
         </div>
-        <p className="mb-6 text-sm text-muted-foreground">{description}</p>
+        <p className="mb-6 text-sm text-muted-foreground">{paneDescription}</p>
 
         {hasDomainMatches && (
           <div className="mb-4">
@@ -261,7 +268,7 @@ function CreateOrgPane({
           </div>
         )}
 
-        {(hasDomainMatches || hasInvites) && (
+        {allowCreateOrg && (hasDomainMatches || hasInvites) && (
           <button
             type="button"
             onClick={() => setShowCreateForm((v) => !v)}
@@ -275,7 +282,7 @@ function CreateOrgPane({
           </button>
         )}
 
-        {showCreateForm && (
+        {allowCreateOrg && showCreateForm && (
           <form
             onSubmit={async (e) => {
               e.preventDefault();

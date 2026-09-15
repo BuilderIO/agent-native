@@ -35,20 +35,44 @@ describe("delete-event", () => {
     removeEventFromCalendarMock.mockResolvedValue(undefined);
   });
 
-  it("returns a terminal already-absent result for a Google 404", async () => {
-    deleteEventMock.mockRejectedValue(
-      new Error("Google API error (404): Not Found"),
+  it.each([404, 410])(
+    "returns a terminal already-absent result for a Google %s",
+    async (status) => {
+      deleteEventMock.mockRejectedValue(
+        new Error(`Google API error (${status}): Gone`),
+      );
+
+      await expect(
+        action.run({ id: "google-gone", scope: "single" }),
+      ).resolves.toEqual({
+        success: true,
+        alreadyAbsent: true,
+        id: "google-gone",
+        accountEmail: "owner@example.com",
+        scope: "single",
+        removedOnly: false,
+      });
+    },
+  );
+
+  it("treats a removed calendar copy as already absent", async () => {
+    removeEventFromCalendarMock.mockRejectedValue(
+      new Error("Google API error (410): Resource has been deleted"),
     );
 
     await expect(
-      action.run({ id: "google-gone", scope: "single" }),
+      action.run({
+        id: "google-gone",
+        accountEmail: "owner@example.com",
+        removeOnly: true,
+      }),
     ).resolves.toEqual({
       success: true,
       alreadyAbsent: true,
       id: "google-gone",
       accountEmail: "owner@example.com",
       scope: "single",
-      removedOnly: false,
+      removedOnly: true,
     });
   });
 

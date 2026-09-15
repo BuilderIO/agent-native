@@ -10,6 +10,7 @@ import {
   hasWorkspaceProviderOAuthCredentials,
   resolveOAuthRedirectUri,
   encodeOAuthState,
+  wrapNetlifyPreviewGoogleOAuthState,
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
@@ -157,7 +158,13 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
     const method = getMethod(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -216,7 +223,8 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
-    const url = await getAuthUrl(undefined, redirectUri, state, owner);
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
+    const url = await getAuthUrl(undefined, redirectUri, oauthState, owner);
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
     }
@@ -411,7 +419,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
     try {
       const q = getQuery(event);
       const method = getMethod(event);
-      const redirectUri = resolveOAuthRedirectUri(event);
+      const redirectUri = resolveOAuthRedirectUri(
+        event,
+        "/_agent-native/google/add-account/callback",
+        { useNetlifyPreviewGoogleOAuthRelay: true },
+      );
       if (!redirectUri) {
         setResponseStatus(event, 400);
         return {
@@ -460,10 +472,15 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         desktopVerifierHash,
         desktopBrowserBindingHash,
       });
+      const oauthState = wrapNetlifyPreviewGoogleOAuthState(
+        event,
+        state,
+        "/_agent-native/google/add-account/callback",
+      );
       const url = await getAuthUrl(
         undefined,
         redirectUri,
-        state,
+        oauthState,
         session.email,
       );
       if (q.redirect === "1") {

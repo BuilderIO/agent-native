@@ -249,7 +249,9 @@ import {
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
-import type {
+import {
+  normalizeAgentActionScope,
+  type AgentActionScope,
   ActionTool,
   AgentNativeJsonSchema,
   AgentChatAttachment,
@@ -893,6 +895,7 @@ export type AgentExecutionMode = "act" | "plan";
 
 export interface AgentActionSurface {
   allowedActionNames: readonly string[];
+  actionScope?: AgentActionScope;
 }
 
 export interface DefaultAgentActionSurface {
@@ -905,7 +908,11 @@ export type AgentActionSurfaceResolution =
 
 type NormalizedAgentActionSurface =
   | DefaultAgentActionSurface
-  | { mode: "allowlist"; allowedActionNames: string[] };
+  | {
+      mode: "allowlist";
+      allowedActionNames: string[];
+      actionScope?: AgentActionScope;
+    };
 
 export interface AgentActionSurfaceDetails {
   event: any;
@@ -914,6 +921,7 @@ export interface AgentActionSurfaceDetails {
   threadId?: string;
   mode: AgentExecutionMode;
   internalContinuation: boolean;
+  actionScope?: Readonly<AgentActionScope>;
   availableActionNames: readonly string[];
 }
 
@@ -966,6 +974,9 @@ export function normalizeAgentActionSurfaceResolution(
   return {
     mode: "allowlist",
     allowedActionNames: [...new Set(allowedActionNames)],
+    ...(hasOwn(value, "actionScope")
+      ? { actionScope: normalizeAgentActionScope(value.actionScope) }
+      : {}),
   };
 }
 
@@ -973,6 +984,7 @@ export type PersistedActionSurface =
   | {
       orgId: string | null;
       allowedActionNames: string[];
+      actionScope?: AgentActionScope;
     }
   | {
       orgId: string | null;
@@ -1004,7 +1016,18 @@ export function readPersistedActionSurface(
     return { orgId: null, allowedActionNames: [] };
   }
   const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
-  return { orgId, allowedActionNames };
+  if (!hasOwn(surface, "actionScope")) return { orgId, allowedActionNames };
+  try {
+    return {
+      orgId,
+      allowedActionNames,
+      actionScope: normalizeAgentActionScope(
+        (surface as Record<string, unknown>).actionScope,
+      ),
+    };
+  } catch {
+    return { orgId: null, allowedActionNames: [] };
+  }
 }
 
 export function filterActionsByAllowedNames(
@@ -9417,6 +9440,22 @@ export function createProductionAgentHandler(
       delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
       delete body.__resolvedActionSurface;
     }
+    let requestedActionScope: AgentActionScope | undefined;
+    if (hasOwn(body, "actionScope")) {
+      try {
+        requestedActionScope = normalizeAgentActionScope(body.actionScope);
+        body.actionScope = requestedActionScope;
+      } catch (error) {
+        setResponseStatus(event, 400);
+        return {
+          error: error instanceof Error ? error.message : "Invalid actionScope",
+        };
+      }
+    }
+    if (requestedActionScope && !options.resolveActionSurface) {
+      setResponseStatus(event, 400);
+      return { error: "actionScope requires resolveActionSurface" };
+    }
     // DIAGNOSTIC-ONLY: progressive per-stage hang localizer for the bg worker.
     // The worker's runId is available EARLY on the marker (the general `runId`
     // var resolves much later), so capture it now and emit the LAST setup stage
@@ -9601,6 +9640,14 @@ export function createProductionAgentHandler(
       const persistedSurface = isBackgroundWorker
         ? readPersistedActionSurface(body, "__resolvedActionSurface")
         : undefined;
+      if (
+        isBackgroundWorker &&
+        requestedActionScope &&
+        (!persistedSurface || !("actionScope" in persistedSurface))
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "Resolved actionScope is required for continuation" };
+      }
       const surface =
         persistedSurface !== undefined
           ? persistedSurface
@@ -9611,13 +9658,27 @@ export function createProductionAgentHandler(
               threadId,
               mode: requestMode,
               internalContinuation: Boolean(internalContinuation),
+              ...(requestedActionScope
+                ? { actionScope: requestedActionScope }
+                : {}),
               availableActionNames: Object.keys(availableRequestActions),
             });
       const normalizedSurface = normalizeAgentActionSurfaceResolution(surface);
+      if (
+        requestedActionScope &&
+        (normalizedSurface.mode === "default" || !normalizedSurface.actionScope)
+      ) {
+        throw new Error(
+          "resolveActionSurface must return actionScope for a scoped request",
+        );
+      }
       const runCtx = ensureRequestRunContext();
       if (normalizedSurface.mode === "default") {
         useDefaultRequestActionSurface = true;
-        if (runCtx) delete runCtx.allowedActionNames;
+        if (runCtx) {
+          delete runCtx.allowedActionNames;
+          delete runCtx.actionScope;
+        }
         if (!isBackgroundWorker) {
           body.__resolvedActionSurface = {
             orgId: getRequestOrgId() ?? null,
@@ -9636,11 +9697,21 @@ export function createProductionAgentHandler(
           );
         }
         const allowedNames = Object.keys(surfacedRequestActions);
-        if (runCtx) runCtx.allowedActionNames = allowedNames;
+        if (runCtx) {
+          runCtx.allowedActionNames = allowedNames;
+          if (normalizedSurface.actionScope) {
+            runCtx.actionScope = normalizedSurface.actionScope;
+          } else {
+            delete runCtx.actionScope;
+          }
+        }
         if (!isBackgroundWorker) {
           body.__resolvedActionSurface = {
             orgId: getRequestOrgId() ?? null,
             allowedActionNames: allowedNames,
+            ...(normalizedSurface.actionScope
+              ? { actionScope: normalizedSurface.actionScope }
+              : {}),
           };
         }
       }

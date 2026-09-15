@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
+import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { RefObject } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const clipboard = vi.hoisted(() => ({
   getDesignClipboardTrustToken: vi.fn(() => "local-clipboard-token"),
@@ -11,6 +12,7 @@ const clipboard = vi.hoisted(() => ({
 
 vi.mock("@/lib/design-clipboard", () => clipboard);
 
+import type { ElementInfo } from "@/components/design/types";
 import { parseDesignClipboardMarker } from "@/lib/design-import";
 import type { DesignClipboardScreenEntry } from "@/lib/design-import";
 import type {
@@ -29,6 +31,77 @@ function ref<T>(current: T): RefObject<T> {
 }
 
 describe("copying a runtime-projected layer", () => {
+  beforeEach(() => clipboard.writeDesignClipboard.mockClear());
+
+  it("preserves a failed style-capture marker through the OS clipboard payload", async () => {
+    const file: DesignFile = {
+      id: "live",
+      filename: "live.html",
+      fileType: "html",
+      content:
+        '<!doctype html><html><body><div class="class-painted" data-agent-native-node-id="node-1">Copy</div></body></html>',
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const copiedLayerEntriesRef = ref<CanvasLayerClipboardEntry[]>([]);
+    const copiedLayerHtmlRef = ref<string | null>(null);
+    const copiedScreenEntriesRef = ref<
+      DesignClipboardScreenEntry[] | undefined
+    >(undefined);
+    const projection = buildCodeLayerProjection(file.content!, {
+      source: { kind: "design-file", fileId: "live" },
+    });
+    const selectedNode = projection.nodes.find((node) => node.tag === "div")!;
+    const snapshots = runGetSelectedLayerSnapshots({
+      activeFile: file,
+      designSourceType: "inline",
+      files: [file],
+      getFreshActiveContent: () => file.content!,
+      getScreenContent: () => file.content!,
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      runtimeLayerSnapshotsById: {},
+      selectedElement: {
+        styleSnapshotCaptureFailed: true,
+      } as ElementInfo,
+      selectedElementLayerId: selectedNode.id,
+      selectedLayerIdsState: [selectedNode.id],
+    });
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]?.styleSnapshotCaptureFailed).toBe(true);
+
+    await runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef,
+      copiedLayerHtmlRef,
+      copiedScreenEntriesRef,
+      designSourceType: "localhost",
+      files: [file],
+      getScreenContent: () => file.content!,
+      getSelectedLayerSnapshots: () => snapshots,
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: [],
+      pasteCascadeRef: ref(0),
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("single"),
+    });
+
+    expect(copiedLayerEntriesRef.current[0]?.styleSnapshotCaptureFailed).toBe(
+      true,
+    );
+    expect(
+      parseDesignClipboardMarker(
+        copiedLayerHtmlRef.current,
+        "local-clipboard-token",
+      )?.entries[0]?.styleSnapshotCaptureFailed,
+    ).toBe(true);
+  });
+
   it("keeps the source group id in memory and in the system clipboard marker", async () => {
     const liveUrl = "https://example.com/live";
     const file: DesignFile = {

@@ -2,8 +2,10 @@ import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 
+import type { KScaleStyleChangesByFrameId } from "@/components/design/multi-screen/types";
 import {
   cloneCanvasFrameGeometry,
+  frameHeightChangedIds,
   viewportChangedFrameIds,
 } from "@/pages/design-editor/design-data-geometry-utils";
 import type { UndoRedoOrderKind } from "@/pages/design-editor/editor-state";
@@ -13,6 +15,7 @@ import {
   sanitizeCanvasFrameGeometryForPersist,
 } from "@/pages/design-editor/geometry-persistence";
 import type {
+  ContentHistoryChange,
   GeometryHistoryEntry,
   GeometryHistorySelection,
 } from "@/pages/design-editor/history";
@@ -20,12 +23,20 @@ import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
 
 export interface GeometryCommitArgs {
   boardFileId: string | undefined;
+  captureLinkedContentChanges?: (
+    linkedFrameIds: readonly string[],
+    kScaleStyleChangesByFrameId?: KScaleStyleChangesByFrameId,
+  ) => ContentHistoryChange[] | null;
   captureCurrentSelection: () => GeometryHistorySelection;
   clearRedoStacks: () => void;
   designDataJsonRef: RefObject<Record<string, unknown>>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   historyOrderRef: RefObject<UndoRedoOrderKind[]>;
   id: string | undefined;
+  applyLinkedContentChanges?: (
+    changes: readonly ContentHistoryChange[],
+    direction: "commit" | "undo" | "redo",
+  ) => void;
   lastGeometryCommitAtRef: RefObject<number>;
   locallyPinnedHeightIdsRef: RefObject<Set<string>>;
   queryClient: QueryClient;
@@ -40,12 +51,14 @@ export interface GeometryCommitArgs {
 export function runGeometryCommit(
   {
     boardFileId,
+    captureLinkedContentChanges,
     captureCurrentSelection,
     clearRedoStacks,
     designDataJsonRef,
     geometryUndoStackRef,
     historyOrderRef,
     id,
+    applyLinkedContentChanges,
     lastGeometryCommitAtRef,
     locallyPinnedHeightIdsRef,
     queryClient,
@@ -55,22 +68,60 @@ export function runGeometryCommit(
   }: GeometryCommitArgs,
   before: CanvasFrameGeometryById,
   after: CanvasFrameGeometryById,
-  options?: { source?: "pointer" | "keyboard" },
+  options?: {
+    source?: "pointer" | "keyboard";
+    kScaleStyleChangesByFrameId?: KScaleStyleChangesByFrameId;
+  },
 ) {
   const beforeSnapshot = cloneCanvasFrameGeometry(before);
+  // K-scale commits preserve the fractional geometry that produced their
+  // linked style snapshot; ordinary frame gestures retain pixel quantization.
+  const hasKScaleGeometry =
+    Object.keys(options?.kScaleStyleChangesByFrameId ?? {}).length > 0;
   // Geometry-persist guard: refuse absurd committed geometry HERE (not
   // only inside the save functions) so the undo stack and the mid-gesture
   // query-cache write below stay consistent with what actually persists —
   // an insane frame falls back to its own pre-gesture geometry, and a
   // commit whose every change was refused becomes a no-op.
   const { geometryById: afterSnapshot } = sanitizeCanvasFrameGeometryForPersist(
-    quantizeCanvasFrameGeometryForPersist(cloneCanvasFrameGeometry(after)),
+    hasKScaleGeometry
+      ? cloneCanvasFrameGeometry(after)
+      : quantizeCanvasFrameGeometryForPersist(
+          cloneCanvasFrameGeometry(after),
+          beforeSnapshot,
+        ),
     beforeSnapshot,
     boardFileId ? [boardFileId] : [],
   );
   if (geometrySnapshotsEqual(beforeSnapshot, afterSnapshot)) {
-    return;
+    return true;
   }
+  const heightChangedFrameIds = frameHeightChangedIds(
+    beforeSnapshot,
+    afterSnapshot,
+  );
+  const kScaleStyleChangesByFrameId = options?.kScaleStyleChangesByFrameId;
+  const linkedFrameIds = Array.from(
+    new Set([
+      ...heightChangedFrameIds,
+      ...Object.keys(kScaleStyleChangesByFrameId ?? {}),
+    ]),
+  );
+  const linkedContentChangesResult =
+    linkedFrameIds.length > 0
+      ? captureLinkedContentChanges?.(
+          linkedFrameIds,
+          kScaleStyleChangesByFrameId,
+        )
+      : [];
+  if (
+    linkedContentChangesResult === null ||
+    (Object.keys(kScaleStyleChangesByFrameId ?? {}).length > 0 &&
+      !captureLinkedContentChanges)
+  ) {
+    return false;
+  }
+  const linkedContentChanges = linkedContentChangesResult ?? [];
   // U9: keyboard nudge (arrow-key auto-repeat) fires one onGeometryCommit
   // per tick, each previously pushing its own undo entry AND its own
   // immediate (non-debounced) server write — a held arrow key could evict
@@ -115,6 +166,15 @@ export function runGeometryCommit(
         after: afterSnapshot,
         selectionBefore: lastEntry.selectionBefore,
         selectionAfter,
+        ...((lastEntry.linkedContentChanges?.length ?? 0) > 0 ||
+        linkedContentChanges.length > 0
+          ? {
+              linkedContentChanges: [
+                ...(lastEntry.linkedContentChanges ?? []),
+                ...linkedContentChanges,
+              ],
+            }
+          : {}),
       },
     ];
   } else {
@@ -125,6 +185,7 @@ export function runGeometryCommit(
         after: afterSnapshot,
         selectionBefore: selectionAfter,
         selectionAfter,
+        ...(linkedContentChanges.length > 0 ? { linkedContentChanges } : {}),
       },
     ];
   }
@@ -156,15 +217,19 @@ export function runGeometryCommit(
     writeFrameGeometrySnapshot(
       afterSnapshot,
       resizedFrameIds.length > 0
-        ? (resizedFrameIds.forEach((frameId) =>
+        ? (heightChangedFrameIds.forEach((frameId) =>
             locallyPinnedHeightIdsRef.current.add(frameId),
           ),
           {
             syncViewportFrameIds: resizedFrameIds,
-            pinHeightFrameIds: resizedFrameIds,
+            pinHeightFrameIds: heightChangedFrameIds,
           })
         : undefined,
     );
   }
+  if (linkedContentChanges.length > 0) {
+    applyLinkedContentChanges?.(linkedContentChanges, "commit");
+  }
   syncUndoRedoState();
+  return true;
 }

@@ -3,9 +3,10 @@
 This is the running desktop-editor evidence and disposition record for the
 Google Slides interaction-parity effort. It records observed contracts and
 reproduction targets; it does not claim that an area is 1:1 until a focused
-test and a browser/editor check both pass.
+test and a browser/editor check both pass. Visual/UI fidelity is tracked as a
+separate first-class surface; behavior evidence alone does not establish it.
 
-Last audited: 2026-09-13
+Last audited: 2026-09-14
 
 ## Reference contract
 
@@ -32,28 +33,104 @@ behavioral contracts to test, not proof that Slides currently matches them.
 Google-specific language, branding, and cloud-sharing affordances remain out
 of scope where the Slides app intentionally uses Agent-Native equivalents.
 
+## Google Help references
+
+Consulted on 2026-09-13 as authoritative desktop workflow references; they
+define documented commands but do not substitute for direct Google Slides
+observation of undocumented gesture details or parity evidence:
+
+- [Keyboard shortcuts for Google Slides](https://support.google.com/docs/answer/1696717?hl=en-EN) — object nudge, rotation, grouping, z-order, shape traversal, slide navigation, and comments.
+- [Insert and arrange text, shapes, diagrams, and lines](https://support.google.com/docs/answer/1696521?co=GENIE.Platform%3DDesktop&hl=en-GB) — arrange, align/distribute, snap-to-guides/grid, rulers, guides, and size/position.
+- [Use a template or change the theme, background, or layout](https://support.google.com/docs/answer/1705254?hl=en-GB) — theme, per-slide vs presentation background, theme colours, and layouts.
+- [Add, delete, and organize slides](https://support.google.com/docs/answer/1694830?co=GENIE.Platform%3DDesktop&hl=en) — duplicate/delete, multi-slide selection, drag reorder, filmstrip/grid view.
+
+## Visual/UI comparison protocol
+
+Visual fidelity is a separate parity surface from interaction behavior. For
+each comparison, use the same fixture document, slide, browser viewport, browser
+zoom, selected object(s), active tool, and visible panels in both editors.
+Record each app's object IDs separately where imports remap them. Before the
+first replay after the Slides slot is released, identify and freeze the build
+served from this worktree: record its commit SHA, branch, serving URL/port, and
+the server process/build identity. Do not compare a changing or unidentified
+local build.
+
+Capture matched reference/local screenshots before and after each replayed
+interaction. Record the viewport dimensions and UI state with the screenshot
+artifact paths or stable links; keep image files as artifacts rather than
+embedding large binaries in this ledger. Compare:
+
+- Canvas and panel geometry, alignment, density, and spacing.
+- Typography, colors, separators, iconography, and control sizing.
+- Default, hover, keyboard-focus, selected/multi-selected, loading, and empty
+  states; include error or disabled states when both products expose an
+  equivalent state.
+- State transitions after the same pointer, keyboard/modifier, context-menu,
+  and inspector action, including undo/redo and reload where applicable.
+
+For each discrepancy, add the exact document/slide/object state, viewport,
+screenshot references, exact repro steps, expected vs actual, owning code
+boundary, focused regression, and a before/after screenshot pair for the fix.
+Use overlays or pixel diffs at matched dimensions where useful, but describe
+only the screenshots and states actually compared. Preserve intentional
+Agent-Native branding/product boundaries and record them explicitly rather
+than calling them visual matches. If a UI fix changes copy, update the English
+source and configured locale translations together and run both i18n guards.
+
+The first replay set prioritizes the inconclusive selection/modifier and
+keyboard rows, then ungroup geometry, resize, grouping/z-order, duplicate, and
+undo/redo/reload persistence. Capture visual and behavior evidence for each.
+
+## Static source/test map (not execution evidence)
+
+Static inspection only; no test, build, server, or browser run was started for
+this checkpoint. The Shift/platform-primary click candidate remains
+inconclusive, not a confirmed product defect. `SlideEditor.tsx` derives
+additive mode from `shiftKey`/`metaKey`/`ctrlKey` in both
+`handleSlidePointerDown` and the click-selection path; the click path toggles
+the target builder ID and seeds the prior single selection when needed. The
+editor test search found grouped-marquee coverage in
+`SlideEditor.marquee.test.ts` and source-wiring assertions in
+`SlideEditor.render-phase.test.ts`, but no direct modifier-click toggle test.
+Next evidence needed: confirm delivered modifiers, selected IDs, and visual
+selection in both editors from the same two-object fixture; then add a focused
+editor event regression for add/remove membership. Google Help does not
+specify the complete mouse-modifier contract, so observe it directly.
+
+The apparent Shift+Arrow nudge gap is not confirmed: the Slides adapter maps
+plain arrows to 1 px and Shift+Arrow to 10 px, and its focused unit tests cover
+both. Google Help documents one-pixel versus larger nudges but not the larger
+step size; measure it during the matched replay before deciding whether a code
+change is warranted.
+
+**Slot gate:** do not start a dev server, browser automation, or tests until the
+user explicitly releases the Slides slot. The first runtime step after release
+is to identify/freeze the served build above; then replay the priority cases in
+the matrix before changing UI code.
+
 ## Coverage matrix
 
-| Surface                        | Google contract to exercise                                                                  | Current disposition       | Evidence / next action                                                                                                                                                                                                                                                            |
-| ------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Canvas selection               | Click selects; Shift/Cmd/Ctrl toggles; marquee selects; whitespace clears                    | Partial                   | Existing pointer/marquee paths. A Shift/Meta-click attempt did not visibly multi-select, but modifier delivery was inconclusive; rerun toggle, overlap, clear, and reload checks with a live editor                                                                               |
-| Object keyboard                | Duplicate, delete, nudge, Tab/Shift+Tab traversal, select-all                                | Partially implemented     | Browser: Cmd+D creates a third shape; Cmd+Z removes it, Cmd+Shift+Z restores it, and reload keeps it. Tab traversal, select-all, delete focus, and nudge remain open                                                                                                              |
-| Clipboard                      | Copy, cut, paste, duplicate with object and slide focus                                      | Partial                   | Duplicate shortcut verified separately; native copy/cut/paste, external clipboard formats, focus routing, and undo/reload remain open                                                                                                                                             |
-| Resize and rotate              | Eight resize handles; aspect-ratio modifier; circular rotate handle; Shift rotation snapping | Partially implemented     | Browser: southeast-handle drag by 28 px grows the shape by about 28 px per axis with fixed left/top; same-tab reload preserves exact CSS geometry. Translated mixed-selection rotation has focused matrix/translate tests; live rotation, modifiers, and group resize remain open |
-| Snapping and guides            | Object/canvas snapping; rulers, guides, grid toggle, modifier bypass                         | Partial                   | Snapping/bypass paths exist; ruler, guide, grid preferences, and modifier muscle memory remain open                                                                                                                                                                               |
-| Align and distribute           | Align 2+ objects; distribute 3+ objects                                                      | Implemented in code/tests | Geometry and toolbar callback coverage; browser verify dimensions, selection persistence, and undo/redo                                                                                                                                                                           |
-| Grouping                       | Group selected objects; group acts as one object; ungroup restores members                   | Partially verified        | Browser verified for a two-shape group: single-group selection, child click, group reload, ungroup reload, undo, and redo. Multi-object geometry, nested groups, stack-order tie behavior, and rotated ungroup in-browser remain open                                             |
-| Z-order                        | Bring/send front/back and one-step forward/backward                                          | Partially verified        | Browser: toolbar “Send to back” moved the overlapping duplicate to z-index 0 behind the original (1); Cmd+Z cleared the order, Cmd+Shift+Z restored it, and reload retained 0/1/2. Bring/front, one-step, pixels, equal-z peers, and keyboard/context remain open                 |
-| Text editing                   | Single/double click entry, selection formatting, lists, Escape ownership                     | Partial                   | Rich-text and toolbar regression tests exist; browser muscle-memory and persistence pass remains                                                                                                                                                                                  |
-| Images and media               | Select, replace, crop/fit, position, drag/drop, external image paste                         | Partial                   | Image overlay/drop paths exist; crop, masking, external paste, and round trips need representative fixtures                                                                                                                                                                       |
-| Shapes, lines, tables, charts  | Insert, select, edit, style, move, resize, table cell actions                                | Partial                   | Shapes/tables are present; cover line endpoints, cell selection, charts, and advanced media in editor                                                                                                                                                                             |
-| Slide rail                     | Insert, duplicate, multi-select, reorder, delete, skip, grid/list view                       | Partial                   | Rail actions and shortcuts exist; verify multi-slide operations, keyboard focus, and persistence in editor                                                                                                                                                                        |
-| Layouts/themes/master behavior | Layout changes preserve editable objects and linked design-system tokens                     | Partial                   | Layout/design-system paths exist; Google master/theme equivalence versus intentional product behavior needs explicit disposition                                                                                                                                                  |
-| Comments/collaboration         | Comment pins, threads, presence, selection handoff                                           | Partial                   | Comment/presence paths exist; side-by-side two-user editing and conflict behavior remain unverified                                                                                                                                                                               |
-| Undo/redo                      | Object and slide edits undo/redo without clobbering remote/local state                       | Partial                   | Browser verified group and duplicate undo/redo; duplicate redo survives reload. Slide/deck mutation classes and remote-edit interaction remain open                                                                                                                               |
-| Zoom and pan                   | Zoom controls/shortcuts and canvas navigation remain selection-safe                          | Partial                   | Zoom controls exist; keyboard/pointer navigation and selection/scroll preservation remain open                                                                                                                                                                                    |
-| Import/export                  | PPTX/PDF/HTML/Google Slides round trips preserve objects and metadata                        | Partial                   | Existing preservation contract; use stable seeded simple/advanced fixtures and compare before/after render and metadata                                                                                                                                                           |
-| Agent-Native boundaries        | Selection/app-state, shared actions, persistence, reload and collaboration                   | Partial                   | Selection is published to app state; new group/rotation state has unit serialization coverage but not live reload evidence                                                                                                                                                        |
+| Surface                        | Google contract to exercise                                                                                                                                         | Current disposition               | Evidence / next action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Visual/UI fidelity             | Same viewport and document/tool state; canvas/panels, density, spacing, typography, colors, separators, icons, and hover/focus/selected/loading/empty states        | Not yet replayed                  | After explicit slot release, freeze the worktree-served build and capture matched Google Slides/local screenshot pairs. Log exact state/repro, expected vs actual, code boundary, and after-fix screenshot; claim only captured states.                                                                                                                                                                                                                                                                                |
+| Canvas selection               | Click selects; Shift/Cmd/Ctrl toggles; marquee selects; whitespace clears                                                                                           | Partial                           | Existing pointer/marquee paths. A Shift/Meta-click attempt did not visibly multi-select, but modifier delivery was inconclusive; rerun toggle, overlap, clear, and reload checks with a live editor                                                                                                                                                                                                                                                                                                                    |
+| Object keyboard                | Duplicate, delete, nudge, Tab/Shift+Tab traversal, select-all                                                                                                       | Partially implemented             | Browser: Cmd+D creates a third shape; Cmd+Z removes it, Cmd+Shift+Z restores it, and reload keeps it. Tab traversal, select-all, delete focus, and nudge remain open                                                                                                                                                                                                                                                                                                                                                   |
+| Clipboard                      | Copy, cut, paste, duplicate with object and slide focus                                                                                                             | Source fixes + tests added; unrun | Filmstrip Cmd/Ctrl+X/C/V/D now routes to slide cut/copy/paste/duplicate while focused; canvas object keyboard, appearance clipboard, and native-paste paths require canvas focus. See repros 23–24; browser/native clipboard, external formats, undo/reload, and direct Google focus behavior remain open.                                                                                                                                                                                                             |
+| Resize and rotate              | Eight resize handles; aspect-ratio modifier; circular rotate handle; Shift rotation snapping                                                                        | Partially implemented             | Browser: southeast-handle drag by 28 px grows the shape by about 28 px per axis with fixed left/top; same-tab reload preserves exact CSS geometry. Translated mixed-selection rotation has focused matrix/translate tests; live rotation, modifiers, and group resize remain open                                                                                                                                                                                                                                      |
+| Snapping and guides            | Object/canvas snapping; ruler visibility; add, move, delete, and clear manual guides; default Snap to Guides; Snap to Grid toggle; modifier bypass                  | Source-derived capability gap     | `snapSlideObjectMove` snaps to peer/canvas anchors and renders transient `AlignmentGuides`; source search found no ruler, persistent guide, or grid-snap state/control. See repro 19. Direct live UI comparison remains pending the serial slot.                                                                                                                                                                                                                                                                       |
+| Align and distribute           | Align 2+ objects; distribute 3+ objects                                                                                                                             | Implemented in code/tests         | Geometry and toolbar callback coverage; browser verify dimensions, selection persistence, and undo/redo                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Grouping                       | Group selected objects; group acts as one object; ungroup restores members                                                                                          | Partially verified                | Browser verified for a two-shape group: single-group selection, child click, group reload, ungroup reload, undo, and redo. Multi-object geometry, nested groups, stack-order tie behavior, and rotated ungroup in-browser remain open                                                                                                                                                                                                                                                                                  |
+| Z-order                        | Bring/send front/back and one-step forward/backward                                                                                                                 | Partially verified                | Browser: toolbar “Send to back” moved the overlapping duplicate to z-index 0 behind the original (1); Cmd+Z cleared the order, Cmd+Shift+Z restored it, and reload retained 0/1/2. Bring/front, one-step, pixels, equal-z peers, and keyboard/context remain open                                                                                                                                                                                                                                                      |
+| Text editing                   | Single/double click entry, selection formatting, lists, Escape ownership                                                                                            | Partial                           | Rich-text and toolbar regression tests exist; browser muscle-memory and persistence pass remains                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Images and media               | Select, replace, crop/fit, position, drag/drop, external image paste                                                                                                | Partial                           | Image overlay/drop paths exist; crop, masking, external paste, and round trips need representative fixtures                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Shapes, lines, tables, charts  | Insert, select, edit, style, move, resize, table cell actions                                                                                                       | Partial                           | Shapes/tables are present; cover line endpoints, cell selection, charts, and advanced media in editor                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Slide rail                     | Ctrl+M insert after active using current layout; duplicate selected slides; multi-select; keyboard navigation/range selection/reorder; delete, skip, grid/list view | Source fixes + tests added; unrun | Google documents Ctrl+M insertion, arrow and PageUp/PageDown navigation, Home/End first/last focus, Shift range selection, multi-slide duplication, and platform-primary+Arrow reorder. The app keeps the blank-slide button intact and maps Ctrl+M to the active layout. `EditorSidebar` routes navigation/selection through its anchor-aware handler and reorder through the existing undoable mutation; `DeckEditor` duplicates the selected set. Browser/persistence proof is pending. See repros 20–22 and 25–26. |
+| Layouts/themes/master behavior | Layout changes preserve editable objects and linked design-system tokens                                                                                            | Partial                           | Layout/design-system paths exist; Google master/theme equivalence versus intentional product behavior needs explicit disposition                                                                                                                                                                                                                                                                                                                                                                                       |
+| Comments/collaboration         | Comment pins, threads, presence, selection handoff                                                                                                                  | Verified subset; partial overall  | Single-user anchored object/slide comments, replies, edit/resolve/reopen, reactions, scope/audience/search, shortcut, reload, and marker persistence are covered by focused tests and live editor evidence. Two-user presence, mentions/action items, and conflict/selection handoff remain unverified.                                                                                                                                                                                                                |
+| Undo/redo                      | Object and slide edits undo/redo without clobbering remote/local state                                                                                              | Partial                           | Browser verified group and duplicate undo/redo; duplicate redo survives reload. Slide/deck mutation classes and remote-edit interaction remain open                                                                                                                                                                                                                                                                                                                                                                    |
+| Zoom and pan                   | Zoom controls/shortcuts and canvas navigation remain selection-safe                                                                                                 | Partial                           | Zoom controls exist; keyboard/pointer navigation and selection/scroll preservation remain open                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Import/export                  | PPTX/PDF/HTML/Google Slides round trips preserve objects and metadata                                                                                               | Partial                           | Existing preservation contract; use stable seeded simple/advanced fixtures and compare before/after render and metadata                                                                                                                                                                                                                                                                                                                                                                                                |
+| Agent-Native boundaries        | Selection/app-state, shared actions, persistence, reload and collaboration                                                                                          | Partial                           | Selection is published to app state; new group/rotation state has unit serialization coverage but not live reload evidence                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ## Repeatable case matrix
 
@@ -91,6 +168,42 @@ record that boundary instead of treating absence as a geometry or editor bug.
 | Comments and collaboration       | Anchor comments to text, an image, and a slide; reply, mention a collaborator, filter open/resolved, resolve/reopen, and test reactions. Repeat with two editor identities for presence, concurrent edits, and selection handoff.                                                                                | Toolbar/selection comment action, comment panel, comment keyboard shortcuts, pointer and keyboard navigation                                                                   | Compare anchor target, thread/reply order, resolution state, and notifications where available. Verify concurrent writes do not clobber local edits; do not claim presence from a single-user run.                                                               |
 | Viewport, undo/redo, and reload  | Zoom in/out/reset, pan/scroll around a selected object, then apply representative object, text, slide, and theme edits.                                                                                                                                                                                          | Pointer wheel/trackpad, zoom controls, documented zoom shortcuts, keyboard focus movement                                                                                      | Selection and scroll behavior should match the reference capture; undo/redo must be scoped to one edit and not erase another object or remote change. Reload after each operation class and compare render plus action readback.                                 |
 | Import/export and agent boundary | Round-trip each fixture through PPTX; also exercise Slides PDF/HTML export and Google Slides conversion separately. For each UI edit, read the result through the Slides action surface; for each action edit, confirm the editor updates.                                                                       | UI flow, export/import menus, `get-deck`/`view-screen` actions, navigation and application-state reads                                                                         | Compare slide count/order, editable objects, text, images/crops, tables/charts, notes/animation metadata, and known ID remapping. A successful download or upload alone is not a fidelity pass.                                                                  |
+
+## First matched replay batch (after slot release)
+
+Build the local app once from the exact checkout and commit, then serve that
+immutable output without hot reload. Record the commit SHA, artifact/output
+directory, serving URL and port, process command/PID, and verify the process
+root is this worktree. The earlier retry that resolved Nitro from another
+checkout and returned HTTP 500 is an invalid harness run: it is neither a
+Slides product discrepancy nor a passing replay.
+
+For each case, import the same fixture PPTX into both products. Match and record
+the inner viewport dimensions, browser zoom, browser version, slide, visible
+panels, active tool, selected object labels, and UI state. Capture paired
+screenshots before and after each gesture. Record the two apps' object IDs
+separately. Observe undocumented Google behavior directly rather than deriving
+an expected result from a shortcut label or an assumed convention.
+
+| Order                          | Matched start state and flow                                                                                                                                                                                                                                              | Evidence to compare                                                                                                                                                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Selection and keyboard      | Simple slide 1, same canvas viewport, no selection. Click rectangle A; Shift-click B; platform-primary-click B; marquee A+B; click whitespace. Refocus canvas and try `Tab`, `Shift+Tab`, `Cmd/Ctrl+A`, then `Escape`.                                                    | Capture each selection/focus state, delivered modifier keys, selection chrome, and selected labels/IDs. Record Google behavior as oracle; on the app, compare `slides-selection` and verify selection/focus after reload only where persisted. |
+| 2. Group, ungroup, and z-order | Advanced slide 2, three overlapping group candidates with an unselected peer, same initial stacking. Select the non-adjacent pair; group through toolbar, menu, and platform shortcut in separate resets; move one step/front/back; resize and rotate the group; ungroup. | Capture wrapper/member bounds and paint order at each step. Compare equal-z tie behavior, unchanged peer geometry, undo/redo, serialized HTML, and fresh reload.                                                                               |
+| 3. Resize and rotate           | Advanced slide 1, a labeled rotated/transformed object and a fixed peer, same selected object and visible handles. Drag each relevant local-frame handle by recorded viewport-pixel deltas; try aspect/center modifiers; rotate with and without snapping.                | Record pointer-down geometry, handle/frame pixels, pointer deltas, resulting local/world bounds, transform/origin, and peer position. Cancel once, commit once, then undo/redo/reload and compare.                                             |
+| 4. Duplicate and persistence   | Simple slide 1, one labeled object selected with the canvas focused. Duplicate via shortcut, menu/context menu, and modifier-drag in separate resets; then undo, redo, and reload.                                                                                        | Compare new identity, geometry/style/stack position, focus/selection, number of logical undo steps, saved content, and screenshot state. Confirm undo does not resurrect after reload.                                                         |
+| 5. Visual states               | Capture the same empty/blank slide, default editor, selected object, multi-selection, focused control, hovered control, loading, and empty-library states wherever an equivalent state exists in both apps.                                                               | Compare canvas/panel layout and density, spacing, typography, colors, separators, iconography, control dimensions, focus/hover/selection treatments, and loading/empty geometry. Record intentional product-specific differences explicitly.   |
+
+For the high-priority gestures, capture Chrome performance traces in both
+products on the same host and viewport. Measure input event to first visible
+acknowledgement separately from input to persisted/save-complete state; use at
+least ten warmed repetitions per gesture, report sample count and median, and
+report p95 only when the sample count supports it. Preserve console errors,
+failed network requests, and unexpected duplicate requests with each case.
+The interaction evidence chain is: matched starting state + gesture → direct
+Google oracle and expected/actual → owning code boundary → focused regression
+→ fresh immutable-build UI replay → undo/redo/reload persistence. A unit pass,
+preview health check, or failed wrong-worktree run cannot substitute for that
+chain.
 
 The fixture PPTX generator is staged under the ignored `.tmp/` directory but has
 not been run or imported while the Mail-owned local build/test slot is held.
@@ -262,6 +375,103 @@ evidence below are marked verified, and only for the tested cases.
     geometry. Code disposition: rotation members now capture transform and
     origin once and return the planned transform; repeat-preview regression
     and browser drag/reload evidence are pending.
+19. Source-derived capability gap — ruler, manual guides, and grid snap. Google
+    Slides Help documents showing/hiding rulers, adding and dragging guide
+    lines, deleting one guide or clearing all guides, default Snap to Guides,
+    and an optional Snap to Grid setting ([arrange and align objects](https://support.google.com/docs/answer/1696521?co=GENIE.Platform%3DDesktop&hl=en-GB)).
+    Expected local flow: open the editor's view controls, show a ruler, create
+    and move a guide, snap an object to it, delete/clear guides, and toggle
+    grid snapping. Source-derived actual: under `templates/slides/app`, the
+    only guide implementation found is `snapSlideObjectMove` plus the
+    `AlignmentGuides` overlay, driven by nearby object/canvas anchors during
+    a drag and cleared when that gesture stops; no ruler, persistent guide
+    model, guide manipulation handlers, or grid-snap preference/control was
+    found. Root boundary: there is no manual-guide/grid state or view-control
+    path to compare or persist. This is a documented capability gap from source
+    inspection, not a live-browser observation; no UI/code fix is attempted
+    until the local editor slot is released and the product boundary is
+    confirmed.
+20. Filmstrip keyboard reorder. Google documents `⌘+↑/↓` to move the focused
+    slide up/down and `⌘+Shift+↑/↓` to move it to the beginning/end on Mac
+    ([keyboard shortcuts](https://support.google.com/docs/answer/1696717?hl=en-EN));
+    the platform-primary form covers Ctrl-based desktop shortcuts too. Before
+    the fix, `SortableSlideThumb` passed key events to sortable listeners and
+    then routed every Up/Down chord to `navigateToSlide`; it had no keyboard
+    reorder callback, despite `DeckEditor` already exposing the undoable
+    `reorderSlides` mutation for pointer drag. Code disposition: the thumbnail
+    now intercepts primary+Arrow (primary+Shift+Arrow to an edge) and calls
+    that existing mutation, preserving a contiguous selected range as a block.
+    Focused event regressions were added for one-step move and range-to-edge;
+    they have not been run, and live key delivery/order/focus persistence
+    remain unverified until the serial slot is released.
+21. Filmstrip keyboard range selection. Google documents Shift+Up/Down to
+    select the previous/next slide in the filmstrip ([keyboard shortcuts](https://support.google.com/docs/answer/1696717?hl=en-EN)).
+    Before the fix, thumbnail arrow navigation discarded `shiftKey`, and the
+    document-level navigation listener did the same, so both paths changed the
+    active slide without extending the range. Code disposition: both paths now
+    forward Shift to `onSelectSlide`, reusing the existing anchor-aware
+    `getSlideSelection` behavior used for Shift-click. Focused event regressions
+    were added for focused-thumbnail and document-level dispatch; neither has
+    been run, and selection visuals, anchor continuity, undo/reload, and direct
+    Google behavior remain unverified until the serial slot is released.
+22. Filmstrip Home/End and page navigation. Google documents Home/End to move
+    focus to the first/last slide, PageUp/PageDown as previous/next on PC, and
+    Shift+Home/End to select through the first/last slide ([keyboard shortcuts](https://support.google.com/docs/answer/1696717?hl=en-EN)).
+    Source inspection found `getNextSlideId` supported only one-step arrows.
+    Code disposition: focused-thumbnail navigation now handles Home, End,
+    PageUp, and PageDown through the same slide-selection path, preserving
+    Shift for range selection; document-level keys remain narrowly scoped to
+    arrows. Focused event cases are added but unrun, and live focus, selection,
+    reload, and platform-specific behavior remain open until the serial slot
+    is released.
+23. Focus ownership when canvas selection remains visible. Google documents
+    Cmd+D as duplicate and lists filmstrip movement/selection separately in the
+    [keyboard shortcut reference](https://support.google.com/docs/answer/1696717?hl=en-EN).
+    Exact replay candidate: on a slide with one selected freeform shape, focus
+    that same slide's thumbnail and press Cmd+D; then repeat Cmd+C/V. Expected
+    from the focused filmstrip contract: copy/duplicate/paste the slide, not
+    the still-visible canvas object. Static source path before the fix: the
+    DeckEditor rail handler declined whenever any selected-object marker
+    existed, while SlideEditor's window clipboard handler had no canvas-focus
+    guard and could consume Cmd+D/C; its capture-phase native paste handler
+    could claim the rail's paste too. Code disposition: rail focus now owns
+    slide clipboard shortcuts, while object keyboard, style clipboard, and
+    native-paste handlers require canvas focus. Focused source regressions were
+    added. This collision is source-derived, not a live observation; test
+    execution and direct Google/local replay remain pending the serial slot.
+24. Filmstrip keyboard cut. Google documents Cmd/Ctrl+X as Cut in its common
+    shortcut list ([keyboard shortcuts](https://support.google.com/docs/answer/1696717?hl=en-EN)); the slide rail already exposes a Cut context-menu item and
+    `DeckEditor.cutSlides` preserves a local slide clipboard before deletion.
+    Before the fix, the rail keydown handler accepted only C/V/D, so X could
+    not invoke that slide operation. Code disposition: focused Cmd/Ctrl+X now
+    cuts the selected slide set through `cutSlides`, leaves a rendered-text
+    selection to native browser behavior, and retains the existing protections
+    against cutting all slides or mutating source-imported decks. A source
+    regression was added but not run; direct Google behavior and cut/paste
+    undo/reload remain pending the serial slot.
+25. Keyboard duplication of a selected slide set. Google Help says multiple
+    slides can be selected with Shift and duplicated together; the shortcut
+    reference lists Cmd/Ctrl+D for duplicate ([organize slides](https://support.google.com/docs/answer/1694830?co=GENIE.Platform%3DDesktop&hl=en),
+    [keyboard shortcuts](https://support.google.com/docs/answer/1696717?hl=en-EN)).
+    Before the fix, the filmstrip shortcut called `handleDuplicateSlideFromRail`
+    with only `[activeSlideId]`, while the context-menu path passed the whole
+    selected set. Code disposition: the focused rail shortcut now forwards the
+    selected IDs when they contain the active slide and otherwise falls back
+    to that slide alone. A source regression covers selection forwarding but is
+    unrun; directly confirm the keyboard shortcut duplicates all selected
+    slides, then verify order/selection, undo/redo, and reload after the serial
+    slot is released.
+26. New-slide keyboard shortcut and layout. Google documents Ctrl+M to add a
+    slide on both PC and Mac ([keyboard shortcuts](https://support.google.com/docs/answer/1696717?hl=en-EN)).
+    Before the fix, the Slides editor had no Control+M route; its existing
+    toolbar action intentionally inserted a blank slide instead. Code
+    disposition: the shortcut now uses the current slide layout (content when
+    no current slide exists), inserts after the active slide through the
+    existing optimistic add-slide path, and keeps the blank toolbar action
+    unchanged. Editable/read-only/blocking-surface and modifier guards have
+    focused helper tests, and a source regression checks active-layout routing;
+    all are unrun. Live focus, same-layout rendering, save timing, undo/redo,
+    reload, and direct Google comparison remain pending the serial slot.
 
 ## Review findings — 2026-09-13
 
@@ -319,14 +529,32 @@ Automated evidence collected:
   across two files.
 - Review-fix regressions: 128 passed across the inline-edit-session,
   slide-object-interactions, and SlideEditor.marquee test files.
-- The required workspace prep was attempted after the review fixes. The root
+- At an earlier workspace-prep attempt after the review fixes, the root
   formatter completed and Slides typecheck reported Done, but workspace tests,
   unrelated package typechecks, and the MCP registry guard failed on missing
   local dependency links and production-only environment configuration. The
   Core test lane stalled amid unrelated harness errors and was interrupted;
   the focused Slides tests above passed independently.
-- `pnpm --filter slides typecheck` exited successfully; the framework also
+- At that earlier checkpoint, `pnpm --filter slides typecheck` exited
+  successfully; the framework also
   printed its existing production auth/database configuration diagnostics.
+- Current source-prep checkpoint: `EditorSidebar` regressions cover one-step
+  and boundary reorder, Shift+Arrow range selection from both event paths,
+  Home/End, PageUp/PageDown, and Shift+Home/End. Static source regressions in
+  `SlideEditor.render-phase` and `DeckEditor.slide-clipboard` cover canvas vs
+  filmstrip shortcut ownership, safe slide cutting, and selected-set duplicate
+  forwarding. `editor-shortcuts` and `DeckEditor.shortcuts` cover Control+M
+  guards and same-layout insertion. All remain unrun while the serial slot is
+  held. Oxfmt completed on nine changed TypeScript files and `git diff --check`
+  passed. The latest `pnpm --filter slides typecheck` could not complete because
+  Vite failed to write its temporary config with `ENOSPC` (the volume had about
+  266 MiB available). A direct no-emit TypeScript attempt also stopped before
+  checking project sources: the worktree shim resolved TypeScript 7 from the
+  shared checkout, then Node 18.15 rejected its extensionless entrypoint with
+  `ERR_UNKNOWN_FILE_EXTENSION`. No caches or `.tmp` artifacts were removed or
+  modified. No focused test, production build, server, or browser replay has
+  been run for the current source-prep changes; all remain pending explicit
+  serial-slot release.
 - Oxfmt completed on all 24 modified TypeScript files. Both i18n guards and
   `git diff --check` passed.
 - The post-format focused suite passed 178 tests across six changed editor
@@ -445,6 +673,114 @@ Verification`): a rectangle dragged from `[650,260]` to `[790,340]` renders
   serialize/reparse order. No production change is indicated by source
   inspection; remote CI and inline disposition are pending, and browser paint
   verification remains unavailable at the signed-out preview.
+
+## Release-slot verification — 2026-09-14
+
+The Slides slot was explicitly released for this run by the user, who also
+authorized the guarded `/ship` flow. The immutable browser harness was built
+from the working-tree snapshot on branch `steve8708/changes-8070` at base SHA
+`babdc126f44fb45091d98c0e84c12b58d78613d2`; the snapshot was intentionally
+dirty because it contains the parity changes being verified. The build command
+was `./node_modules/.bin/agent-native build` with the bundled dependency paths,
+and it exited 0. The served artifact was `templates/slides/.output` built at
+19:11:15 PDT. The local server ran from this worktree at
+`http://127.0.0.1:4174/` as PID 65402 with a fresh ignored PGlite database at
+`.tmp/slides-qa-db-20260914-r9`; `ps` and `lsof` confirmed the process root and
+port. Expected existing build diagnostics about production credentials and
+database configuration were printed; they are deployment configuration
+requirements, not browser-run failures.
+
+### Direct Google Slides oracle
+
+The comparison deck was the private QA deck `Slides Comment Parity QA` in
+Google Slides, viewed in the same 1280×720 Codex browser viewport as the local
+editor. The tested sequence and observed Google contract were:
+
+1. Select a rendered rectangle. The selection toolbar exposes Add comment.
+   `⌘+Option+M` opens an inline draft immediately; the textbox is labelled
+   `Comment or add others with @`, Post Comment is disabled for an empty draft,
+   and Discard comment cancels it.
+2. Select text inside a text object and invoke the same shortcut. Google opens
+   the draft with the text selection as the comment target. A slide-only click
+   followed by the shortcut opens the same draft without entering a persistent
+   pin-placement mode.
+3. Post an object comment and a slide-position comment. Each appears as an
+   anchored contextual thread with author, timestamp, resolve, more-options,
+   reaction, and reply affordances. Reply uses `Reply or add others with @` and
+   increments the thread reply count.
+4. More options exposes Edit, Delete, emoji-reaction details, and Get link to
+   this comment. Edit uses an `Edit your comment...` draft and Save remains
+   disabled until the content changes. Resolve removes the thread from the
+   contextual open list.
+5. Show all comments opens the full Comments panel with All comments and For
+   you tabs, search, comment-type filtering (open/resolved), and location
+   filtering (this slide/all slides). For you excludes the self-authored QA
+   comments, so the local audience filter was treated as a direct oracle rather
+   than inferred from documentation. The resolved thread remains represented in
+   the full panel as Resolved and can be reopened from its menu.
+6. The Google Help page confirms the documented comment, action-item, and emoji
+   reaction contract; direct editor observation above supplies the focus,
+   draft, filter, and cancellation details that the help page does not fully
+   specify.
+
+### Local editor replay and dispositions
+
+The same worktree build was reloaded into a fresh local QA deck
+`4_TEuP6itI`. A newly created deck mounted with two slides and no React hook
+count error; this is the regression for the loading-to-loaded render boundary
+where hooks had previously sat below an early return.
+
+- On a focused blank slide, `⌘+Option+M` produced the local Comments panel with
+  an empty text entry area, Cancel, and a disabled Comment button. The AX tree
+  did not expose the `Click anywhere to drop a comment pin` hint, matching
+  Google's immediate-draft behavior. The listener now claims the Google chord
+  during capture, accepts the physical `KeyM` code, and does not discard the
+  shortcut merely because an underlying canvas handler already prevented its
+  default action. Plain `C` remains a separate, intentional Agent-Native
+  precision interaction.
+- After cancelling the draft, focused-canvas `C` exposed the pin-placement
+  hint and `Esc` removed it. Clicking a blank point opened Add comment; entering
+  `Final comment parity QA` enabled Comment, and posting created an anchored
+  marker and the corresponding thread in the Comments panel. Reloading the
+  same deck preserved the marker and comment text.
+- In the earlier exact-build replay of the same snapshot, an object comment was
+  created from the selection toolbar, a reply was added, 👍 was added and
+  displayed as `👍 1`, the root comment was edited, the thread was resolved and
+  reopened, search matched and cleared, For you hid a self-only comment, All
+  slides exposed the comment across slide navigation, and a slide-position pin
+  was posted. These paths are covered by the focused comments suite as well as
+  the browser state transitions.
+
+The shared root causes addressed in this release-slot pass are:
+
+- strict, persisted slide/object comment anchors with target text and relative
+  coordinates;
+- object-aware marker repositioning across resize, scroll, and canvas layout
+  changes;
+- deck/slide/thread-scoped action authorization for create, list, edit,
+  resolve/reopen, delete, and reaction toggle;
+- compare-and-swap emoji reaction buckets so two viewers do not silently lose
+  each other's reactions;
+- shared panel/pin composer semantics, keyboard ownership, focus-safe
+  cancellation, thread actions, and localized labels;
+- screen context exposing comment IDs, thread ancestry, target text, anchors,
+  resolution, and reaction summaries to the agent; and
+- the `DeckEditor` hook-order boundary and Google no-selection shortcut
+  boundary found during live browser replay.
+
+### Evidence boundary and remaining gaps
+
+This is not a claim that every Slides interaction is globally 1:1. The
+verified disposition is limited to the named comment subset and the broader
+editor cases explicitly marked as browser-verified above. The following remain
+open and are deliberately not called passed: two-user presence and concurrent
+conflict/selection handoff; collaborator @mentions and action-item assignment;
+advanced imported fixture coverage for tables, charts, media crop/mask, guides
+and grid settings; direct external import/export round trips; and pixel-level
+visual parity for every hover, focus, loading, and resolved-panel state. The
+local Comments panel intentionally keeps Agent-Native styling and labels while
+matching Google's interaction semantics. No deployment or beta health claim is
+made by this ledger; that requires the post-merge monitoring workflow.
 
 ## Disposition rules
 

@@ -1,5 +1,11 @@
 import { parse as parseJavaScript } from "acorn";
 import { type DefaultTreeAdapterTypes, parse, type ParserError } from "parse5";
+import CssSyntaxError from "postcss/lib/css-syntax-error";
+import CssInput from "postcss/lib/input";
+import parseCss from "postcss/lib/parse";
+// This exported PostCSS subpath has no declaration file.
+// @ts-expect-error PostCSS exports its tokenizer without TypeScript declarations.
+import tokenizeCss from "postcss/lib/tokenize";
 
 import { isStandaloneHttpUrl } from "./html-content.js";
 
@@ -28,6 +34,7 @@ export type DesignHtmlIntegrityIssue =
   | "attribute-unterminated"
   | "expression-invalid"
   | "script-invalid"
+  | "style-invalid"
   | "element-unclosed"
   | "close-tag-orphaned"
   | "content-truncated"
@@ -115,6 +122,8 @@ export function describeDesignHtmlIntegrityIssue(
         `the page still renders, so nothing visibly fails — the script simply ` +
         `never runs, and everything it was going to wire up stays dead.`
       );
+    case "style-invalid":
+      return `the inline <style> at ${at} is not valid CSS: ${detail.reason ?? "it does not parse"}. Repair the stylesheet before retrying the edit.`;
     case "attribute-unterminated":
       return (
         `the ${detail.attribute ? `\`${detail.attribute}\`` : "attribute"} value on ` +
@@ -872,7 +881,7 @@ const EXECUTABLE_SCRIPT_TYPES = new Set([
 ]);
 
 /** `null` when the browser treats the element as data rather than code. */
-function scriptGrammar(type: string): "script" | "module" | null {
+export function scriptGrammar(type: string): "script" | "module" | null {
   const normalized = type.trim().toLowerCase();
   if (normalized === "") return "script";
   if (normalized === "module") return "module";
@@ -949,6 +958,133 @@ function collectScriptBodyIssues(
   return issues;
 }
 
+type CssToken = [type: string, value: string, start?: number, end?: number];
+
+interface CssTokenizer {
+  endOfFile(): boolean;
+  nextToken(): CssToken | undefined;
+}
+
+function ignoreTopLevelHtmlCommentTokens(css: string): string {
+  const input = new CssInput(css, { map: false });
+  const scanner = (tokenizeCss as (input: CssInput) => CssTokenizer)(input);
+  const source = input.css;
+  const tokens: CssToken[] = [];
+  while (!scanner.endOfFile()) {
+    const token = scanner.nextToken();
+    if (!token) break;
+    tokens.push(token);
+  }
+
+  const ignored: Array<[start: number, end: number]> = [];
+  let atRule = false;
+  let braces = 0;
+  let brackets = 0;
+  let betweenRules = true;
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token[0] === "space" || token[0] === "comment") continue;
+
+    if (braces === 0 && brackets === 0 && betweenRules) {
+      if (token[0] === "word" && token[2] !== undefined) {
+        let cursor = token[2];
+        while (
+          source.startsWith("<!--", cursor) ||
+          source.startsWith("-->", cursor)
+        ) {
+          const length = source.startsWith("<!--", cursor) ? 4 : 3;
+          ignored.push([cursor, cursor + length]);
+          cursor += length;
+        }
+        if (cursor > token[2]) {
+          let resumeIndex = index;
+          while (resumeIndex + 1 < tokens.length) {
+            const next = tokens[resumeIndex + 1]!;
+            if (next[2] === undefined || next[2] >= cursor) break;
+            resumeIndex += 1;
+          }
+          const resume = tokens[resumeIndex]!;
+          const resumeEnd =
+            resume[2] === undefined
+              ? undefined
+              : (resume[3] ?? resume[2] + resume[1].length - 1);
+          if (
+            resume[2] !== undefined &&
+            resume[2] < cursor &&
+            resumeEnd !== undefined &&
+            resumeEnd >= cursor
+          ) {
+            betweenRules = false;
+            atRule = false;
+          }
+          index = resumeIndex;
+          continue;
+        }
+      }
+      betweenRules = false;
+      atRule = token[0] === "at-word";
+    }
+
+    if (token[0] === "[") brackets += 1;
+    else if (token[0] === "]") brackets = Math.max(0, brackets - 1);
+    else if (token[0] === "{" && brackets === 0) braces += 1;
+    else if (token[0] === "}" && brackets === 0 && braces > 0) {
+      braces -= 1;
+      if (braces === 0) {
+        betweenRules = true;
+        atRule = false;
+      }
+    } else if (token[0] === ";" && braces === 0 && brackets === 0 && atRule) {
+      betweenRules = true;
+      atRule = false;
+    }
+  }
+
+  if (ignored.length === 0) return css;
+  const offset = input.hasBOM ? 1 : 0;
+  const characters = css.split("");
+  for (const [start, end] of ignored) {
+    for (let index = start + offset; index < end + offset; index += 1) {
+      characters[index] = " ";
+    }
+  }
+  return characters.join("");
+}
+
+function collectStyleBodyIssues(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
+  const issues: DesignHtmlIntegrityIssueDetail[] = [];
+  for (const element of parsed.elements) {
+    if (element.tagName !== "style") continue;
+    const type = attributeOf(element, "type")?.trim().toLowerCase();
+    if (type && type !== "text/css" && type !== "text/tailwindcss") continue;
+    const body = element.childNodes.find((node) => node.nodeName === "#text");
+    if (!body) continue;
+    const location = body.sourceCodeLocation;
+    const text = location
+      ? parsed.source.slice(location.startOffset, location.endOffset)
+      : (body as DefaultTreeAdapterTypes.TextNode).value;
+    try {
+      // Syntax only: unknown properties, nested rules and Tailwind directives
+      // must remain editable. Ignore source maps supplied by the document.
+      parseCss(ignoreTopLevelHtmlCommentTokens(text), { map: false });
+    } catch (error) {
+      if (!(error instanceof CssSyntaxError)) throw error;
+      const start = location?.startOffset ?? 0;
+      issues.push({
+        issue: "style-invalid",
+        ...locate(start + (error.input?.offset ?? 0)),
+        tag: "style",
+        reason: error.reason,
+      });
+    }
+  }
+  return issues;
+}
+
 /**
  * Runs on fragments as well as documents — an unterminated quote is as
  * destructive in a `<template>` snippet as in a full page.
@@ -985,6 +1121,7 @@ function collectStructuralIssues(
     ...collectOrphanEndTags(parsed, locate),
     ...collectExpressionIssues(parsed, locate),
     ...collectScriptBodyIssues(parsed, locate),
+    ...collectStyleBodyIssues(parsed, locate),
   ]
     .sort((left, right) =>
       left.line === right.line

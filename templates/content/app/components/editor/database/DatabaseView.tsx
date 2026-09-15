@@ -904,6 +904,7 @@ function DatabaseTable({
     document.id,
     databaseRequestItemLimit,
     tableQuery,
+    { systemRole: document.database?.systemRole },
   );
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
@@ -18689,12 +18690,19 @@ function RowNameCell({
         wrapCells ? "items-start" : "items-center",
       )}
     >
-      <DatabaseItemPageIcon
-        document={item.document}
-        className="size-4 text-sm"
-        fallbackClassName="size-4"
-        fallback={workspaceCatalog ? "folder" : "page"}
-      />
+      <span
+        className={cn(
+          "flex shrink-0 items-center",
+          databaseTitleButtonDensityClass(rowDensity, wrapCells),
+        )}
+      >
+        <DatabaseItemPageIcon
+          document={item.document}
+          className="size-4 text-sm"
+          fallbackClassName="size-4"
+          fallback={workspaceCatalog ? "folder" : "page"}
+        />
+      </span>
       {canEdit && editingTitle ? (
         <input
           ref={rowTitleInputRef}

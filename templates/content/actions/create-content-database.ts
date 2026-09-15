@@ -41,7 +41,12 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
-import { nanoid, seedDefaultBlocksField } from "./_property-utils.js";
+import {
+  defaultDatabaseViewConfig,
+  nanoid,
+  seedDefaultBlocksField,
+  serializeDatabaseViewConfig,
+} from "./_property-utils.js";
 
 const createContentDatabaseSchema = z
   .object({
@@ -530,7 +535,25 @@ export async function createContentDatabaseRecord(
 
   // Every database is seeded with one primary "Content" Blocks field, backed
   // by `documents.content`, so each row's body is a first-class property.
-  await seedDefaultBlocksField({ databaseId, ownerEmail, orgId, now, db });
+  const primaryBlocksPropertyId = await seedDefaultBlocksField({
+    databaseId,
+    ownerEmail,
+    orgId,
+    now,
+    db,
+  });
+  if (primaryBlocksPropertyId) {
+    await db
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: serializeDatabaseViewConfig(
+          defaultDatabaseViewConfig("table", {
+            hiddenPropertyIds: [primaryBlocksPropertyId],
+          }),
+        ),
+      })
+      .where(eq(schema.contentDatabases.id, databaseId));
+  }
   await ensureDocumentFilesMembership(db, documentId, now, {
     userEmail: getRequestUserEmail(),
     orgId: orgId ?? undefined,

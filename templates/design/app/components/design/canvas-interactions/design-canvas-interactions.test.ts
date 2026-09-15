@@ -19,6 +19,17 @@ function shortcutEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
 }
 
 describe("Design canvas interaction adapter", () => {
+  it.each([
+    ["BracketRight", "}", "bring-to-front"],
+    ["BracketLeft", "{", "send-to-back"],
+  ])("resolves Windows Ctrl+Shift+%s", (code, key, command) => {
+    expect(
+      resolveDesignCanvasShortcut({ key, code, ctrlKey: true, shiftKey: true }),
+    ).toBe(command);
+    expect(
+      resolveDesignCanvasShortcut({ key, code, metaKey: true, shiftKey: true }),
+    ).toBeNull();
+  });
   it("resolves Design's standard commands through the shared shortcut registry", () => {
     expect(resolveDesignCanvasShortcut({ key: "d", metaKey: true })).toBe(
       "duplicate",

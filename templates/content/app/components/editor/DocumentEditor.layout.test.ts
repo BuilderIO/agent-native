@@ -1884,7 +1884,25 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl",
     );
-    expect(source).toContain("navigator.clipboard.writeText(copyPageUrl)");
+    expect(source).toContain("writeClipboardText(copyPageUrl)");
+    expect(source).not.toContain("navigator.clipboard.writeText");
+  });
+
+  it("routes Content text-copy controls through the shared clipboard boundary", () => {
+    const sources = [
+      "./DocumentToolbar.tsx",
+      "./extensions/AudioBlock.tsx",
+      "./extensions/ImageBlock.tsx",
+      "./extensions/VideoBlock.tsx",
+      "../sidebar/NotionButton.tsx",
+    ].map((path) =>
+      readFileSync(new URL(path, import.meta.url), { encoding: "utf8" }),
+    );
+
+    for (const source of sources) {
+      expect(source).toContain("writeClipboardText");
+      expect(source).not.toContain("navigator.clipboard.writeText");
+    }
   });
 
   it("builds a Notion-style breadcrumb from parent documents", () => {

@@ -364,6 +364,112 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## Hosted-agent connections {#hosted-agent-connections}
+
+A hosted agent can participate in A2A when it exposes an A2A endpoint. A model
+provider or agent SDK alone is not an A2A peer. Keep the app's UI, actions, and
+database on your normal app host, then connect the agent runtime through an
+adapter or its A2A endpoint.
+
+A hosted connection has endpoint metadata and an auth descriptor. Keep this
+metadata with the remote-agent resource or connection record. Never put a token
+or client secret in the manifest:
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a/agentCard/v1.0",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url` is the invocation endpoint or base URL. `cardUrl` is optional when
+discovery uses `/.well-known/agent-card.json`. Use it when the provider
+publishes its card elsewhere. The client reads the protocol version from the
+agent card. When a provider's card omits it, pass `protocolVersion` directly to
+`A2AClient`. `auth` names how server-side code obtains a bearer token. Supported
+descriptors are `bearer` with a vault-backed
+`credentialRef`, or `oauth-client-credentials` with `tokenUrl`, `clientId`,
+`clientSecretRef`, and `scope`. `credentialRef` and `clientSecretRef` refer to
+secrets, not secret values.
+
+### Generic bearer A2A {#generic-bearer-a2a}
+
+Use the standard client when the peer accepts `Authorization: Bearer ...`,
+serves a compatible card, and accepts Agent-Native JSON-RPC:
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+Resolve `token` server-side from the workspace connection or vault. Do not
+send it from browser code, write it to a manifest, or include it in a prompt.
+A static API key is only a transport credential for the remote service. It does
+not establish Agent-Native caller identity or carry `approvedActions`.
+
+### Microsoft Foundry {#microsoft-foundry}
+
+[Azure AI Foundry hosted agents](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+run your agent code or container behind a managed endpoint, identity, scaling,
+session state, and observability. This hosting model is for the agent runtime.
+Keep your Agent-Native UI, actions, and PostgreSQL deployment on the app host
+and call the Foundry endpoint from server-side code.
+
+Foundry can expose an A2A endpoint through [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
+It requires Microsoft Entra authentication, and the caller needs Foundry Agent
+Consumer permission. Version 1.0 is the GA JSON-RPC endpoint; use its
+`.../agents/{agent}/endpoint/protocols/a2a/agentCard/v1.0` card URL when available. Version 0.3 is the preview
+endpoint returned when no version is selected. Pass `protocolVersion` to
+`A2AClient` only when the card omits it. Foundry v1 does not provide SSE
+streaming, so the client uses `message/send`. The token provider must obtain
+and refresh an Entra access token. `A2A_SECRET` and a static API key do not
+satisfy Foundry authentication.
+
+For service-principal client credentials, request the Entra scope
+`https://ai.azure.com/.default` and grant the caller the **Foundry Agent
+Consumer** role at the project or agent scope. Store the client secret in the
+vault and reference it from the manifest:
+
+```json
+{
+  "auth": {
+    "type": "oauth-client-credentials",
+    "tokenUrl": "https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token",
+    "clientId": "<application-id>",
+    "clientSecretRef": "FOUNDRY_CLIENT_SECRET",
+    "scope": "https://ai.azure.com/.default"
+  }
+}
+```
+
+### Gemini Enterprise {#gemini-enterprise}
+
+[Gemini Enterprise can register external A2A agents](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
+and its managed assistants expose a standard A2A JSON-RPC endpoint. The
+endpoint is under the assistant resource, for example
+`.../assistants/default_assistant/agents/{id}/a2a`, while the agent card can be
+published at a custom URL. Use the generic bearer client and pass that card URL:
+
+```ts
+const client = new A2AClient(geminiEndpoint, googleBearerToken, {
+  cardUrl: geminiCardUrl,
+});
+```
+
+The caller needs a Google OAuth bearer with the `discoveryengine.assist`
+permission. Custom A2A-agent registration is Pre-GA, so confirm availability in
+the target project before exposing it in a workspace picker. See [invoke a
+Gemini Enterprise agent](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+for the resource URL and IAM requirements.
+
 ## Programmatic workspace invoke {#programmatic-invoke}
 
 For agent-native workspaces, prefer the `agentNative` helper when code or a

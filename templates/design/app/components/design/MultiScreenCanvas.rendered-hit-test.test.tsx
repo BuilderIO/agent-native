@@ -69,6 +69,7 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
 
   it("does not select a screen via a marquee that only encloses its stale, pre-measurement geometry", async () => {
     const onSelectionChange = vi.fn();
+    const onPrimaryContentHeightChange = vi.fn();
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -96,6 +97,7 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
           }}
           onPick={() => {}}
           onSelectionChange={onSelectionChange}
+          onPrimaryContentHeightChange={onPrimaryContentHeightChange}
         />,
       );
     });
@@ -170,5 +172,6 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
     });
 
     expect(onSelectionChange).not.toHaveBeenCalledWith(["b"]);
+    expect(onPrimaryContentHeightChange).toHaveBeenCalledWith("b", 950);
   });
 });

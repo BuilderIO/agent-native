@@ -261,6 +261,13 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   }),
 
   shortcut({
+    id: "boolean-subtract",
+    category: "shape",
+    bindings: ["alt+shift+s"],
+    labelKey: "designEditor.keyboardShortcuts.commands.booleanSubtract",
+    handler: "onBooleanSubtract",
+  }),
+  shortcut({
     id: "select-all",
     category: "selection",
     bindings: ["$mod+a"],

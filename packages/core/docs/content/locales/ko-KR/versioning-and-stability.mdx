@@ -1,0 +1,32 @@
+---
+title: 버전 관리 및 안정성
+description: nightly 및 안정 릴리스, 1.0 이전 호환성, 마이그레이션과 템플릿 고정 버전을 설명합니다.
+---
+
+# 버전 관리 및 안정성
+
+Agent-Native 패키지는 1.0 이전입니다. 릴리스 절차는 nightly 스냅샷, 안정 릴리스, 마이그레이션 도구와 doctor 검사를 제공합니다. Alpha 또는 beta는 프로덕션 지원 보장이 아닙니다.
+
+## 릴리스 채널
+
+`main`에 병합되면 npm `nightly` 태그로 스냅샷이 게시됩니다. `latest` 태그는 이동하지 않습니다. 안정 릴리스는 Changesets로 조정합니다. 예약 작업은 태평양 시간 월요일부터 목요일 정오에 patch 릴리스를 준비합니다. 실행할 때마다 릴리스되는 것은 아닙니다.
+
+## 1.0 이전 호환성
+
+Patch 릴리스는 버그 수정과 호환 가능한 개선을 목표로 합니다. Minor 릴리스는 기능을 추가하거나 아직 alpha 또는 beta인 API와 동작을 변경할 수 있습니다. Major 릴리스는 광범위한 호환성 변경에 사용합니다. 업그레이드 전에 릴리스 노트와 마이그레이션 절차를 확인하세요.
+
+지원되는 마이그레이션이 있으면 `migration-manifest.json`에 이동된 import와 이름 변경이 기록됩니다. codemod를 미리 보고 diff를 확인한 후 적용하세요.
+
+```bash
+npx @agent-native/core@latest upgrade --codemods
+npx @agent-native/core@latest upgrade --codemods --yes
+agent-native doctor --only migration-manifest
+```
+
+삭제된 경로는 마이그레이션 안내가 포함된 tombstone 모듈로 한동안 남을 수 있습니다. 고정된 유지 기간은 없습니다.
+
+## 템플릿 버전 및 목표
+
+CLI는 템플릿을 제공한 `@agent-native/core`의 정확한 버전을 고정합니다. `latest`를 수동으로 설정하는 대신 마이그레이션 도구로 업그레이드하세요.
+
+현재 목표는 2026년 10월 중순 beta, 2026년 말 1.0입니다. 이는 약속이 아닌 목표입니다. 재현 가능한 문제를 패키지 버전, DB 공급자, 마이그레이션 출력과 함께 보고하세요.

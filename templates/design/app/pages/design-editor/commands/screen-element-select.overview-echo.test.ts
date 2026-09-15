@@ -18,6 +18,7 @@ function makeArgs(overrides: {
     getScreenContent: () => "",
     handleBreakpointBarSelect: vi.fn(),
     id: "design-1",
+    createdOverviewLayerSelection: null,
     pendingOverviewLayerSelectionRef: { current: null },
     pendingOverviewScreenSelectionRef: { current: null },
     selectedLayerIdsState: [],

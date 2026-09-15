@@ -793,6 +793,39 @@ export const parityMatrix: ParityRow[] = [
     routePatterns: ["/api/notion/auth-url", "/api/notion/callback"],
   },
   {
+    id: "comments.ai-intents",
+    surface: "comments",
+    label:
+      "Ask AI to reply, propose a suggestion, or apply an edit and resolve feedback",
+    uiEntrypoints: [
+      "app/components/editor/CommentsSidebar.tsx",
+      "app/components/editor/comment-ai.tsx",
+    ],
+    durableEffect:
+      "Intent-bound requests retain their feedback and document revisions, dispatch one scoped agent run, and persist the resulting reply, suggestion, or verified edit receipt.",
+    uiImplementation:
+      "Comment thread controls start a request through the shared action surface; the scoped agent can call only the context action and the operation bound to the selected intent.",
+    status: "action-backed",
+    actions: [
+      "apply-comment-ai-request",
+      "create-comment-ai-suggestion",
+      "get-comment-ai-context",
+      "list-comment-ai-requests",
+      "reply-to-comment-ai-request",
+      "start-comment-ai-request",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/comment-ai-flow.test.ts",
+      "app/components/editor/comment-ai.test.tsx",
+      "server/lib/comment-ai-progress.test.ts",
+    ],
+  },
+  {
     id: "comments.threads",
     surface: "comments",
     label: "List, add, reply, resolve, reopen, and delete comment threads",

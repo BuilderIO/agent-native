@@ -165,7 +165,15 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       { x: 310, y: 135 },
       null,
     );
-    expect(anchor).toEqual({ anchorNodeId: "first", placement: "before" });
+    const firstProjectionNodeId = primitives.find(
+      (primitive) => primitive.nodeId === "first",
+    )?.projectionIdentity?.nodeId;
+    expect(firstProjectionNodeId).toMatch(/\S/);
+    expect(anchor).toEqual({
+      anchorNodeId: "first",
+      anchorProjectionNodeId: firstProjectionNodeId,
+      placement: "before",
+    });
   });
 
   it("findAutoLayoutInsertionAnchor resolves 'after' the nearest child when the point sits in the gap between children", () => {
@@ -179,7 +187,15 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       { x: 375, y: 135 },
       null,
     );
-    expect(anchor).toEqual({ anchorNodeId: "first", placement: "after" });
+    const firstProjectionNodeId = primitives.find(
+      (primitive) => primitive.nodeId === "first",
+    )?.projectionIdentity?.nodeId;
+    expect(firstProjectionNodeId).toMatch(/\S/);
+    expect(anchor).toEqual({
+      anchorNodeId: "first",
+      anchorProjectionNodeId: firstProjectionNodeId,
+      placement: "after",
+    });
   });
 
   it("findAutoLayoutInsertionAnchor excludes the dragged node itself (reordering within its own container)", () => {
@@ -193,7 +209,15 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       { x: 310, y: 135 },
       "first",
     );
-    expect(anchor).toEqual({ anchorNodeId: "second", placement: "before" });
+    const secondProjectionNodeId = primitives.find(
+      (primitive) => primitive.nodeId === "second",
+    )?.projectionIdentity?.nodeId;
+    expect(secondProjectionNodeId).toMatch(/\S/);
+    expect(anchor).toEqual({
+      anchorNodeId: "second",
+      anchorProjectionNodeId: secondProjectionNodeId,
+      placement: "before",
+    });
   });
 
   it("findAutoLayoutInsertionAnchor returns null for a non-auto-layout container", () => {

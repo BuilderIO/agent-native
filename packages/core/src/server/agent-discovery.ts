@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
+import type { RemoteAgentAuth } from "../resources/metadata.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
@@ -22,6 +23,8 @@ export interface DiscoveredAgent {
   description: string;
   url: string;
   color: string;
+  cardUrl?: string;
+  auth?: RemoteAgentAuth;
 }
 
 export type OrgDirectoryDiscoveryResult =
@@ -458,6 +461,8 @@ export async function discoverAgents(
           description: manifest.description || "",
           url,
           color: manifest.color || builtin?.color || "#6B7280",
+          ...(manifest.cardUrl ? { cardUrl: manifest.cardUrl } : {}),
+          ...(manifest.auth ? { auth: manifest.auth } : {}),
         });
       } catch {
         // Skip unreadable resources
@@ -621,6 +626,8 @@ async function overlayRemoteAgentResources(
       url,
       // guard:allow-raw-color — agent manifests require a portable color value, not a UI theme token.
       color: manifest.color || builtin?.color || "#6B7280",
+      ...(manifest.cardUrl ? { cardUrl: manifest.cardUrl } : {}),
+      ...(manifest.auth ? { auth: manifest.auth } : {}),
     });
   }
 }

@@ -1,5 +1,23 @@
-import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
 import {
+  applyVisualEdit,
+  buildCodeLayerProjection,
+  type CodeLayerSource,
+} from "@shared/code-layer";
+import {
+  analyzeComponentLinks,
+  componentSubtreeForProjection,
+  isValidComponentReferenceSubtree,
+  materializeComponentLink,
+  type ComponentSourceDocument,
+} from "@shared/component-links";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_REF_ATTR,
+  linkedComponentRootForNode,
+} from "@shared/component-model";
+import {
+  createCornerNode,
+  createSmoothNode,
   getPenPathGeometry,
   serializePenNodes,
   serializePenPath,
@@ -76,28 +94,34 @@ export function setPenNodesAttributeOnElement(
  * space — same coordinate system the path's own nodes are already in, see
  * parsePenPathFromSerializedD's doc comment for that finding).
  *
- * Returns `content` unchanged (never null/throws) if the element can't be
- * found, isn't an SVG pen-path root, or has no `<path>` child — the caller
- * treats that as a no-op commit rather than losing the user's edit.
+ * Returns `null` when the source cannot be parsed or updated so the caller can
+ * report a failed commit instead of treating it as a successful no-op.
  */
 export function writeBackVectorEditedPenPath(
   content: string,
   nodeId: string,
   penPath: PenPath,
-): string {
-  if (typeof window === "undefined") return content;
+): string | null {
+  if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
-    const svg = doc.querySelector(
+    const svgElement = doc.querySelector(
       `[data-agent-native-node-id="${safeNodeId}"]`,
     );
-    const path = svg?.querySelector("path");
-    if (!svg || !path) return content;
+    if (svgElement?.tagName.toLowerCase() !== "svg") return null;
+    const svg = svgElement as SVGSVGElement;
+    const path = svg.querySelector("path");
+    if (!path) return null;
 
     const d = serializePenPath(penPath);
     const geometry = getPenPathGeometry(penPath);
     const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
+    const oldViewBox = parseViewBox(svg.getAttribute("viewBox"));
+    const oldLeft = parsePixelValue(svg.style.left);
+    const oldTop = parsePixelValue(svg.style.top);
+    if (!oldViewBox || oldLeft === null || oldTop === null) return null;
+
     const strokeOverlay = svg.querySelector<SVGUseElement>(
       ":scope > use[data-an-vector-stroke-overlay]",
     );
@@ -163,24 +187,13 @@ export function writeBackVectorEditedPenPath(
       "viewBox",
       `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
     );
-    const existingStyle = svg.getAttribute("style") ?? "";
-    const rotationMatch = existingStyle.match(/transform:[^;]+/);
-    svg.setAttribute(
-      "style",
-      [
-        "position:absolute",
-        `left:${Math.round(geometry.x)}px`,
-        `top:${Math.round(geometry.y)}px`,
-        `width:${Math.max(1, Math.round(geometry.width))}px`,
-        `height:${Math.max(1, Math.round(geometry.height))}px`,
-        "overflow:visible",
-        rotationMatch?.[0] ?? "",
-      ]
-        .filter(Boolean)
-        .join(";"),
-    );
+    svg.style.left = `${oldLeft + geometry.x - oldViewBox.x}px`;
+    svg.style.top = `${oldTop + geometry.y - oldViewBox.y}px`;
+    svg.style.width = `${Math.max(1, geometry.width)}px`;
+    svg.style.height = `${Math.max(1, geometry.height)}px`;
+    if (strokeOverlay) svg.style.overflow = "visible";
     if (!isClosed && strokeOverlay && originalOverflow !== null) {
-      const svgStyle = (svg as SVGElement).style;
+      const svgStyle = svg.style;
       if (originalOverflow) {
         svgStyle.setProperty(
           "overflow",
@@ -201,11 +214,304 @@ export function writeBackVectorEditedPenPath(
         value: strokePosition,
       });
       if (rebuilt.result.status === "applied") return rebuilt.content;
+      return null;
     }
     return updatedHtml;
+    // coercion-ok: null refuses the commit and the caller shows the vector-edit error.
   } catch {
-    return content;
+    return null;
   }
+}
+
+/**
+ * Returns the translation between an SVG PenPath's authored coordinates and
+ * its current screen-content position. Vector edit handles use screen-content
+ * coordinates; CSS moves and reparenting change the SVG CTM without rewriting
+ * the path data or its viewBox.
+ */
+export function penPathScreenContentOffset(svg: SVGSVGElement): {
+  x: number;
+  y: number;
+} | null {
+  const viewBox = parseViewBox(svg.getAttribute("viewBox"));
+  const matrix = svg.getScreenCTM();
+  if (!viewBox || !matrix) return null;
+  if (
+    Math.abs(matrix.a - 1) > 0.001 ||
+    Math.abs(matrix.b) > 0.001 ||
+    Math.abs(matrix.c) > 0.001 ||
+    Math.abs(matrix.d - 1) > 0.001
+  ) {
+    return null;
+  }
+  const view = svg.ownerDocument.defaultView;
+  const x = matrix.a * viewBox.x + matrix.c * viewBox.y + matrix.e;
+  const y = matrix.b * viewBox.x + matrix.d * viewBox.y + matrix.f;
+  const offset = {
+    x: x + (view?.scrollX ?? 0) - viewBox.x,
+    y: y + (view?.scrollY ?? 0) - viewBox.y,
+  };
+  return Number.isFinite(offset.x) && Number.isFinite(offset.y) ? offset : null;
+}
+
+export function penPathForPrimitive(
+  kind: "ellipse" | "rectangle",
+  geometry: { x: number; y: number; width: number; height: number },
+): PenPath {
+  const { x, y, width, height } = geometry;
+  if (kind === "rectangle") {
+    return {
+      closed: true,
+      nodes: [
+        createCornerNode({ x, y }),
+        createCornerNode({ x: x + width, y }),
+        createCornerNode({ x: x + width, y: y + height }),
+        createCornerNode({ x, y: y + height }),
+      ],
+    };
+  }
+
+  const radiusX = width / 2;
+  const radiusY = height / 2;
+  const control = 0.5522847498307936;
+  const centerX = x + radiusX;
+  const centerY = y + radiusY;
+  return {
+    closed: true,
+    nodes: [
+      createSmoothNode(
+        { x: centerX, y },
+        { x: centerX + control * radiusX, y },
+      ),
+      createSmoothNode(
+        { x: x + width, y: centerY },
+        { x: x + width, y: centerY + control * radiusY },
+      ),
+      createSmoothNode(
+        { x: centerX, y: y + height },
+        { x: centerX - control * radiusX, y: y + height },
+      ),
+      createSmoothNode(
+        { x, y: centerY },
+        { x, y: centerY - control * radiusY },
+      ),
+    ],
+  };
+}
+
+export interface PrimitiveVectorEditSource {
+  geometry: { x: number; y: number; width: number; height: number };
+  kind: "ellipse" | "rectangle";
+  fill: string;
+  path: PenPath;
+}
+
+export function primitiveVectorEditSource(
+  element: HTMLElement,
+): PrimitiveVectorEditSource | null {
+  const primitive = element.getAttribute("data-an-primitive");
+  if (
+    primitive !== "ellipse" &&
+    primitive !== "rectangle" &&
+    primitive !== "rect"
+  ) {
+    return null;
+  }
+  if (element.children.length > 0) return null;
+  const view = element.ownerDocument.defaultView;
+  if (!view || !hasOnlyTranslationTransforms(element)) return null;
+  const style = view.getComputedStyle(element);
+  if (
+    style.position !== "absolute" ||
+    parsePixelValue(element.style.left) === null ||
+    parsePixelValue(element.style.top) === null
+  ) {
+    return null;
+  }
+  if (style.backgroundImage && style.backgroundImage !== "none") return null;
+  if (
+    [
+      style.borderTopWidth,
+      style.borderRightWidth,
+      style.borderBottomWidth,
+      style.borderLeftWidth,
+    ].some((width) => (Number.parseFloat(width) || 0) > 0)
+  ) {
+    return null;
+  }
+  if (
+    primitive !== "ellipse" &&
+    [
+      style.borderTopLeftRadius,
+      style.borderTopRightRadius,
+      style.borderBottomRightRadius,
+      style.borderBottomLeftRadius,
+    ].some((radius) => (Number.parseFloat(radius) || 0) > 0)
+  ) {
+    return null;
+  }
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  const geometry = {
+    x: rect.left + view.scrollX,
+    y: rect.top + view.scrollY,
+    width: rect.width,
+    height: rect.height,
+  };
+  return {
+    geometry,
+    kind: primitive === "ellipse" ? "ellipse" : "rectangle",
+    fill: style.backgroundColor || "none",
+    path: penPathForPrimitive(
+      primitive === "ellipse" ? "ellipse" : "rectangle",
+      geometry,
+    ),
+  };
+}
+
+function hasOnlyTranslationTransforms(element: Element): boolean {
+  const view = element.ownerDocument.defaultView;
+  if (!view) return false;
+  for (
+    let current: Element | null = element;
+    current;
+    current = current.parentElement
+  ) {
+    const style = view.getComputedStyle(current);
+    if (
+      (style.perspective && style.perspective !== "none") ||
+      (style.zoom && style.zoom !== "1" && style.zoom !== "normal")
+    ) {
+      return false;
+    }
+    const scale = (style.scale ?? "").trim().split(/\s+/);
+    if (
+      scale[0] &&
+      scale[0] !== "none" &&
+      (Number(scale[0]) !== 1 || (scale[1] && Number(scale[1]) !== 1))
+    ) {
+      return false;
+    }
+    if (style.rotate && style.rotate !== "none" && style.rotate !== "0deg") {
+      return false;
+    }
+    if (!style.transform || style.transform === "none") continue;
+    try {
+      const matrix = new DOMMatrixReadOnly(style.transform);
+      if (
+        !matrix.is2D ||
+        Math.abs(matrix.a - 1) > 0.001 ||
+        Math.abs(matrix.b) > 0.001 ||
+        Math.abs(matrix.c) > 0.001 ||
+        Math.abs(matrix.d - 1) > 0.001
+      ) {
+        return false;
+      }
+      // coercion-ok: false rejects vector editing when the transform cannot be verified.
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function writeBackPrimitiveAsVector(
+  content: string,
+  nodeId: string,
+  penPath: PenPath,
+  originalGeometry: { x: number; y: number; width: number; height: number },
+  fill: string,
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
+    const source = doc.querySelector(
+      `[data-agent-native-node-id="${safeNodeId}"]`,
+    );
+    const kind = source?.getAttribute("data-an-primitive");
+    if (
+      !source ||
+      source.children.length > 0 ||
+      !["ellipse", "rect", "rectangle"].includes(kind ?? "")
+    ) {
+      return null;
+    }
+
+    const sourceStyle = (source as HTMLElement).style;
+    const left = parsePixelValue(sourceStyle.left);
+    const top = parsePixelValue(sourceStyle.top);
+    if (left === null || top === null) return null;
+    const geometry = getPenPathGeometry(penPath);
+    const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const attribute of Array.from(source.attributes)) {
+      svg.setAttribute(attribute.name, attribute.value);
+    }
+    svg.setAttribute("data-an-primitive", "path");
+    svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
+    svg.setAttribute(
+      "viewBox",
+      `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
+    );
+    svg.setAttribute("preserveAspectRatio", "none");
+
+    const style = svg.style;
+    for (const property of [
+      "background",
+      "background-color",
+      "background-image",
+      "border",
+      "border-radius",
+    ]) {
+      style.removeProperty(property);
+    }
+    style.background = "none";
+    style.border = "none";
+    style.borderRadius = "0";
+    style.left = `${left + geometry.x - originalGeometry.x}px`;
+    style.top = `${top + geometry.y - originalGeometry.y}px`;
+    style.width = `${Math.max(1, geometry.width)}px`;
+    style.height = `${Math.max(1, geometry.height)}px`;
+    const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", serializePenPath(penPath));
+    path.setAttribute("fill", fill);
+    path.setAttribute("stroke", "none");
+    svg.appendChild(path);
+    source.replaceWith(svg);
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    // coercion-ok: null refuses the commit and the caller shows the vector-edit error.
+  } catch {
+    return null;
+  }
+}
+
+function parseViewBox(value: string | null): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} | null {
+  const parts = value
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (
+    !parts ||
+    parts.length !== 4 ||
+    parts.some((part) => !Number.isFinite(part)) ||
+    parts[2]! <= 0 ||
+    parts[3]! <= 0
+  ) {
+    return null;
+  }
+  return { x: parts[0]!, y: parts[1]!, width: parts[2]!, height: parts[3]! };
+}
+
+function parsePixelValue(value: string): number | null {
+  const match = value.trim().match(/^(-?(?:\d+\.?\d*|\.\d+))px$/i);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function cloneHtmlLayerAtPosition(
@@ -371,11 +677,373 @@ function claimClonedNodeId(
   return previousId;
 }
 
+const DURABLE_NODE_ID_ATTR = "data-agent-native-node-id";
+
+interface ComponentCloneContext {
+  sourceFileId: string;
+  sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
+  targetSource: CodeLayerSource;
+  documents: readonly ComponentSourceDocument[];
+}
+
+export interface ComponentCloneBatchContext {
+  sourceFileIds: readonly (string | undefined)[];
+  sourceNodeIdMaps?: readonly (
+    | readonly (readonly [string, string])[]
+    | null
+    | undefined
+  )[];
+  targetSource: CodeLayerSource;
+  documents: readonly ComponentSourceDocument[];
+}
+
+function componentContextForLayer(
+  content: string,
+  batch: ComponentCloneBatchContext | undefined,
+  index: number,
+): ComponentCloneContext | undefined {
+  const sourceFileId = batch?.sourceFileIds[index];
+  const targetFileId = batch?.targetSource.fileId;
+  if (!batch || !sourceFileId || !targetFileId) return undefined;
+  const targetMatches = batch.documents.filter(
+    (document) => document.source.fileId === targetFileId,
+  );
+  if (targetMatches.length > 1) return undefined;
+  const documents = batch.documents.map((document) =>
+    document.source.fileId === targetFileId
+      ? { ...document, content }
+      : document,
+  );
+  if (targetMatches.length === 0) {
+    documents.push({ source: batch.targetSource, content });
+  }
+  return {
+    sourceFileId,
+    sourceNodeIdMap: batch.sourceNodeIdMaps?.[index],
+    targetSource: batch.targetSource,
+    documents,
+  };
+}
+
+function sourceNodeIdForCloneId(
+  sourceNodeIdMap: readonly (readonly [string, string])[] | null | undefined,
+  cloneNodeId: string | null | undefined,
+): string | undefined {
+  if (sourceNodeIdMap === null) return undefined;
+  if (!sourceNodeIdMap) return cloneNodeId?.trim() || undefined;
+  if (!cloneNodeId) return undefined;
+  const matches = sourceNodeIdMap.filter(
+    ([, mappedCloneId]) => mappedCloneId === cloneNodeId,
+  );
+  return matches.length === 1 ? matches[0]?.[0] : undefined;
+}
+
+function componentNodeIdMapForPreparedClone(
+  nodeIdMap: ReadonlyMap<string, string>,
+  context: ComponentCloneContext | undefined,
+): ReadonlyMap<string, string> | null {
+  if (context?.sourceNodeIdMap === null) return null;
+  if (!context?.sourceNodeIdMap) return nodeIdMap;
+  const sourceToClone = new Map<string, string>();
+  const cloneIds = new Set<string>();
+  for (const [sourceId, incomingCloneId] of context.sourceNodeIdMap) {
+    const preparedCloneId = nodeIdMap.get(incomingCloneId);
+    if (
+      !sourceId.trim() ||
+      !incomingCloneId.trim() ||
+      !preparedCloneId ||
+      sourceToClone.has(sourceId) ||
+      cloneIds.has(incomingCloneId)
+    ) {
+      return null;
+    }
+    sourceToClone.set(sourceId, preparedCloneId);
+    cloneIds.add(incomingCloneId);
+  }
+  return sourceToClone;
+}
+
+function linkedCloneElement(
+  sourceRoot: Element,
+  clone: Element,
+  nodeIdMap: ReadonlyMap<string, string>,
+  context: ComponentCloneContext | undefined,
+  sourceNodeIdOverride?: string,
+): Element | null {
+  const componentId = sourceRoot.getAttribute(COMPONENT_ID_ATTR);
+  const componentRef = sourceRoot.getAttribute(COMPONENT_REF_ATTR);
+  if (componentId === null && componentRef === null) return clone;
+  if (
+    context === undefined ||
+    (componentId !== null && componentRef !== null) ||
+    context.targetSource.kind !== "design-file" ||
+    context.targetSource.designId !==
+      context.documents.find(
+        (document) => document.source.fileId === context.sourceFileId,
+      )?.source.designId ||
+    !context.targetSource.designId ||
+    !context.targetSource.fileId
+  ) {
+    return null;
+  }
+  const sourceDocumentMatches = context.documents.filter(
+    (document) => document.source.fileId === context.sourceFileId,
+  );
+  if (sourceDocumentMatches.length !== 1) return null;
+  const sourceDocument = sourceDocumentMatches[0]!;
+  if (
+    sourceDocument.source.kind !== "design-file" ||
+    sourceDocument.source.designId !== context.targetSource.designId
+  ) {
+    return null;
+  }
+  const projections = context.documents.map((document) =>
+    buildCodeLayerProjection(document.content, { source: document.source }),
+  );
+  if (
+    projections.some(
+      (projection, index) =>
+        context.documents.filter(
+          (document) =>
+            document.source.fileId === context.documents[index]?.source.fileId,
+        ).length !== 1 ||
+        projection.source.designId !== context.targetSource.designId,
+    )
+  ) {
+    return null;
+  }
+  const sourceProjectionIndex = context.documents.findIndex(
+    (document) => document.source.fileId === context.sourceFileId,
+  );
+  const sourceProjection = projections[sourceProjectionIndex];
+  if (!sourceProjection) return null;
+  const sourceNodeId =
+    sourceNodeIdOverride ??
+    sourceRoot.getAttribute(DURABLE_NODE_ID_ATTR)?.trim();
+  if (!sourceNodeId) return null;
+  const sourceNodeMatches = sourceProjection.nodes.filter(
+    (node) =>
+      node.dataAttributes[DURABLE_NODE_ID_ATTR]?.trim() === sourceNodeId,
+  );
+  if (sourceNodeMatches.length !== 1) return null;
+  const sourceNode = sourceNodeMatches[0]!;
+  const identity = componentId ?? componentRef;
+  if (!identity || !identity.trim()) return null;
+  const analysis = analyzeComponentLinks(projections);
+  if (
+    analysis.invalidNodes.some(
+      ({ node }) =>
+        node.id === sourceNode.id && node.source === sourceNode.source,
+    )
+  ) {
+    return null;
+  }
+  const resolution = analysis.components.find(
+    (entry) => entry.componentId === identity,
+  );
+  if (!resolution || resolution.status !== "resolved") return null;
+
+  if (componentId !== null) {
+    if (
+      resolution.main.id !== sourceNode.id ||
+      resolution.source.fileId !== context.sourceFileId
+    ) {
+      return null;
+    }
+    const materialized = materializeComponentLink({
+      mainProjection: sourceProjection,
+      projections,
+      mainNode: sourceNode,
+      targetSource: context.targetSource,
+      cloneHtml: clone.outerHTML,
+      nodeIdMap,
+    });
+    if (materialized.status !== "materialized") return null;
+    const resultDoc = new DOMParser().parseFromString(
+      `<template>${materialized.content}</template>`,
+      "text/html",
+    );
+    const resultRoot =
+      resultDoc.querySelector("template")?.content.firstElementChild;
+    return resultRoot ? clone.ownerDocument.importNode(resultRoot, true) : null;
+  }
+
+  if (
+    !isValidComponentReferenceSubtree({
+      documents: context.documents,
+      componentId: identity,
+      referenceFileId: context.sourceFileId,
+      referenceNodeId: sourceNodeId,
+    })
+  ) {
+    return null;
+  }
+  const sourceSubtree = componentSubtreeForProjection(
+    sourceNode,
+    sourceProjection,
+  );
+  if (!sourceSubtree) return null;
+  for (const node of sourceSubtree) {
+    const sourceId = node.dataAttributes[DURABLE_NODE_ID_ATTR]?.trim();
+    if (!sourceId || !nodeIdMap.get(sourceId)) return null;
+  }
+  return clone;
+}
+
+function linkedCloneSubtree(
+  sourceRoot: Element,
+  clone: Element,
+  nodeIdMap: ReadonlyMap<string, string>,
+  context: ComponentCloneContext | undefined,
+): Element | null {
+  const hasIdentity = (element: Element) =>
+    element.hasAttribute(COMPONENT_ID_ATTR) ||
+    element.hasAttribute(COMPONENT_REF_ATTR);
+  const sourceElements = [sourceRoot, ...sourceRoot.querySelectorAll("*")];
+  const identityElements = sourceElements.filter(hasIdentity);
+  if (!identityElements.length) return clone;
+  const componentNodeIdMap = componentNodeIdMapForPreparedClone(
+    nodeIdMap,
+    context,
+  );
+  if (!componentNodeIdMap) return null;
+  if (hasIdentity(sourceRoot)) {
+    const sourceNodeId = sourceNodeIdForCloneId(
+      context?.sourceNodeIdMap,
+      sourceRoot.getAttribute(DURABLE_NODE_ID_ATTR),
+    );
+    if (!sourceNodeId) return null;
+    return linkedCloneElement(
+      sourceRoot,
+      clone,
+      componentNodeIdMap,
+      context,
+      sourceNodeId,
+    );
+  }
+  if (!context || !context.targetSource.designId || !context.sourceFileId) {
+    return null;
+  }
+  const sourceDocuments = context.documents.filter(
+    ({ source }) => source.fileId === context.sourceFileId,
+  );
+  if (
+    sourceDocuments.length !== 1 ||
+    sourceDocuments[0]?.source.kind !== "design-file" ||
+    sourceDocuments[0].source.designId !== context.targetSource.designId ||
+    context.targetSource.kind !== "design-file"
+  ) {
+    return null;
+  }
+  const sourceProjection = buildCodeLayerProjection(
+    sourceDocuments[0].content,
+    { source: sourceDocuments[0].source },
+  );
+  const sourceRootId = sourceNodeIdForCloneId(
+    context.sourceNodeIdMap,
+    sourceRoot.getAttribute(DURABLE_NODE_ID_ATTR),
+  );
+  if (!sourceRootId) return null;
+  const sourceRoots = sourceProjection.nodes.filter(
+    (node) =>
+      node.dataAttributes[DURABLE_NODE_ID_ATTR]?.trim() === sourceRootId,
+  );
+  if (sourceRoots.length !== 1 || !sourceRoots[0]) return null;
+  const sourceSubtree = componentSubtreeForProjection(
+    sourceRoots[0],
+    sourceProjection,
+  );
+  if (!sourceSubtree) return null;
+  const subtreeIds = new Set(sourceSubtree.map((node) => node.id));
+  const identityNodes = sourceSubtree.filter(
+    (node) =>
+      Object.prototype.hasOwnProperty.call(
+        node.dataAttributes,
+        COMPONENT_ID_ATTR,
+      ) ||
+      Object.prototype.hasOwnProperty.call(
+        node.dataAttributes,
+        COMPONENT_REF_ATTR,
+      ),
+  );
+  const identityNodeIds = new Set(identityNodes.map((node) => node.id));
+  const nodesById = new Map(
+    sourceProjection.nodes.map((node) => [node.id, node]),
+  );
+  const topLevelIdentityNodes = identityNodes.filter((node) => {
+    let parentId = node.parentId;
+    const seen = new Set<string>();
+    while (parentId && subtreeIds.has(parentId) && !seen.has(parentId)) {
+      if (parentId !== node.id && identityNodeIds.has(parentId)) return false;
+      seen.add(parentId);
+      parentId = nodesById.get(parentId)?.parentId ?? undefined;
+    }
+    return true;
+  });
+
+  let result = clone;
+  for (const sourceNode of topLevelIdentityNodes) {
+    const sourceNodeId =
+      sourceNode.dataAttributes[DURABLE_NODE_ID_ATTR]?.trim();
+    const cloneInputId = context.sourceNodeIdMap
+      ? context.sourceNodeIdMap.find(
+          ([mappedSourceId]) => mappedSourceId === sourceNodeId,
+        )?.[1]
+      : sourceNodeId;
+    const cloneNodeId = cloneInputId ? nodeIdMap.get(cloneInputId) : undefined;
+    if (!sourceNodeId || !cloneNodeId) return null;
+    const sourceMatches = sourceElements.filter(
+      (element) =>
+        element.getAttribute(DURABLE_NODE_ID_ATTR)?.trim() === cloneInputId,
+    );
+    const cloneElements = [result, ...result.querySelectorAll("*")].filter(
+      (element) =>
+        element.getAttribute(DURABLE_NODE_ID_ATTR)?.trim() === cloneNodeId,
+    );
+    if (sourceMatches.length !== 1 || cloneElements.length !== 1) return null;
+    const sourceElement = sourceMatches[0];
+    const cloneElement = cloneElements[0];
+    if (!sourceElement || !cloneElement) return null;
+    const linked = linkedCloneElement(
+      sourceElement,
+      cloneElement,
+      componentNodeIdMap,
+      context,
+      sourceNodeId,
+    );
+    if (!linked) return null;
+    if (linked === cloneElement) continue;
+    if (cloneElement === result) {
+      result = linked;
+    } else {
+      cloneElement.replaceWith(linked);
+    }
+  }
+  return result;
+}
+
+export function portableStyleSnapshotForPasteTarget(
+  entry: {
+    sourceFileId?: string;
+    styleSnapshotCaptureFailed?: boolean;
+    portableStyleSnapshot?: PortableStyleSnapshot;
+  },
+  targetFileId: string | null | undefined,
+): PortableStyleSnapshot | null | undefined {
+  if (!entry.styleSnapshotCaptureFailed) return entry.portableStyleSnapshot;
+  return entry.sourceFileId &&
+    targetFileId &&
+    entry.sourceFileId === targetFileId
+    ? undefined
+    : null;
+}
+
 export function prepareClonedHtmlLayer(
   doc: Document,
   layerHtml: string,
-  styleSnapshot?: PortableStyleSnapshot,
+  styleSnapshot?: PortableStyleSnapshot | null,
   reservedNodeIds: Set<string> | null = null,
+  componentContext?: ComponentCloneContext,
 ): {
   element: Element;
   rootNodeId: string;
@@ -385,6 +1053,7 @@ export function prepareClonedHtmlLayer(
   // animated layer keeps its animation instead of silently losing it.
   nodeIdMap: Map<string, string>;
 } | null {
+  if (styleSnapshot === null) return null;
   const layerDoc = new DOMParser().parseFromString(
     `<template>${layerHtml}</template>`,
     "text/html",
@@ -393,7 +1062,7 @@ export function prepareClonedHtmlLayer(
     layerDoc.querySelector("template")?.content.firstElementChild ??
     layerDoc.body.firstElementChild;
   if (!source) return null;
-  const clone = doc.importNode(source, true) as Element;
+  let clone = doc.importNode(source, true) as Element;
   const sourceLayerName =
     source.getAttribute("data-agent-native-layer-name") ||
     source.getAttribute("data-layer-name") ||
@@ -424,13 +1093,10 @@ export function prepareClonedHtmlLayer(
     )
   ) {
     const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
-    // A "tag" source means the name was never authored — it's derived from
-    // the element's tag/paint (layerNameFor's fallback). The clone carries
-    // the same tag and styles, so leaving it unstamped re-derives the
-    // IDENTICAL name (Figma parity: a duplicate/paste never gets a literal
-    // "Copy" suffix). Only names sourced from an attribute that clone id
-    // reassignment below is about to change (id/class -> "selector") need
-    // stamping so the derivation survives that rewrite.
+    // A "tag" source means the name was never authored — it is derived from
+    // the element's tag/paint. Leave it derived so duplicate/paste keeps the
+    // same displayed name. Stamp names sourced from an attribute that clone
+    // id reassignment below changes (id/class -> "selector").
     if (sourceNode && sourceNode.layerNameSource !== "tag") {
       clone.setAttribute("data-agent-native-layer-name", sourceNode.layerName);
     }
@@ -465,6 +1131,14 @@ export function prepareClonedHtmlLayer(
   // silently misapplying edits meant for the duplicate.
   reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
   reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
+  const linkedClone = linkedCloneSubtree(
+    source,
+    clone,
+    nodeIdMap,
+    componentContext,
+  );
+  if (!linkedClone) return null;
+  clone = linkedClone;
   return { element: clone, rootNodeId, nodeIdMap };
 }
 
@@ -524,6 +1198,7 @@ export function prepareClonedHtmlLayersForLiveInsert(
   if (
     typeof window === "undefined" ||
     layerHtmls.length === 0 ||
+    options.styleSnapshots?.some((snapshot) => snapshot === null) ||
     !isStandaloneHttpUrl(destinationContent)
   ) {
     return null;
@@ -537,7 +1212,7 @@ export function prepareClonedHtmlLayersForLiveInsert(
       const prepared = prepareClonedHtmlLayer(
         doc,
         layerHtml,
-        options.styleSnapshots?.[index] ?? undefined,
+        options.styleSnapshots?.[index],
       );
       if (!prepared) return;
       const position = options.positions?.[index];
@@ -567,6 +1242,7 @@ export function insertClonedHtmlLayers(
   content: string,
   layerHtmls: string[],
   options: {
+    onUnsupportedStructure?: () => void;
     targetSelectors?: string[];
     anchorSelectors?: string[];
     placement?: "before" | "after" | "inside";
@@ -595,6 +1271,8 @@ export function insertClonedHtmlLayers(
      * nudge, the cross-file code-layer owner map) can resolve to either one.
      */
     additionalReservedNodeIds?: Iterable<string>;
+    /** Current source projections required to keep linked clones in-design. */
+    componentLinks?: ComponentCloneBatchContext;
   } = {},
 ): {
   content: string;
@@ -603,7 +1281,13 @@ export function insertClonedHtmlLayers(
   // remapping motion tracks onto the copies.
   nodeIdMap: Map<string, string>;
 } | null {
-  if (typeof window === "undefined" || layerHtmls.length === 0) return null;
+  if (
+    typeof window === "undefined" ||
+    layerHtmls.length === 0 ||
+    options.styleSnapshots?.some((snapshot) => snapshot === null)
+  ) {
+    return null;
+  }
   // Same hazard appendCanvasPrimitiveToHtml guards: a live screen's stored
   // content is its route URL, and returning an "edited document" for it means
   // the caller persists HTML over the URL. Paste, duplicate, and image-drop
@@ -627,8 +1311,9 @@ export function insertClonedHtmlLayers(
       const prepared = prepareClonedHtmlLayer(
         doc,
         layerHtml,
-        options.styleSnapshots?.[index] ?? undefined,
+        options.styleSnapshots?.[index],
         reservedNodeIds,
+        componentContextForLayer(content, options.componentLinks, index),
       );
       if (!prepared) return;
       const position = options.positions?.[index];
@@ -641,12 +1326,32 @@ export function insertClonedHtmlLayers(
       prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
       fragment.appendChild(prepared.element);
     });
-    if (rootNodeIds.length === 0) return null;
+    if (rootNodeIds.length !== layerHtmls.length) return null;
 
     const target = queryFirstSelector(doc, options.targetSelectors ?? []);
     const anchor =
       queryFirstSelector(doc, options.anchorSelectors ?? []) ?? target;
     const placement = options.placement ?? "after";
+    const parent = anchor
+      ? placement === "inside"
+        ? anchor
+        : anchor.parentElement
+      : null;
+    if (parent) {
+      const projection = buildCodeLayerProjection(content);
+      const parentId = parent.getAttribute("data-agent-native-node-id");
+      const parentNode = projection.nodes.find((node) =>
+        parentId
+          ? node.dataAttributes["data-agent-native-node-id"] === parentId
+          : node.selectors.some(
+              (selector) => queryFirstSelector(doc, [selector]) === parent,
+            ),
+      );
+      if (parentNode && linkedComponentRootForNode(parentNode, projection)) {
+        options.onUnsupportedStructure?.();
+        return null;
+      }
+    }
     if (!anchor) {
       doc.body.appendChild(fragment);
     } else if (placement === "inside") {
@@ -703,18 +1408,22 @@ export function insertClonedHtmlLayer(
   content: string,
   cloneHtml: string,
   options: {
+    onUnsupportedStructure?: () => void;
     targetSelectors: string[];
     anchorSelectors?: string[];
     placement?: "before" | "after" | "inside";
     preserveIncomingNodeIds?: boolean;
+    componentLinks?: ComponentCloneBatchContext;
   },
 ): string | null {
   return (
     insertClonedHtmlLayers(content, [cloneHtml], {
+      onUnsupportedStructure: options.onUnsupportedStructure,
       targetSelectors: options.targetSelectors,
       anchorSelectors: options.anchorSelectors,
       placement: options.placement,
       preserveIncomingNodeIds: options.preserveIncomingNodeIds,
+      componentLinks: options.componentLinks,
     })?.content ?? null
   );
 }
