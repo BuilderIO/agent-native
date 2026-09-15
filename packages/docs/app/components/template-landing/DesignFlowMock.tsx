@@ -40,7 +40,6 @@ const SCREEN_ROWS = [
   { id: "plan", label: "Choose pass", active: true },
   { id: "payment", label: "Payment" },
   { id: "confirm", label: "Confirmed" },
-  { id: "wallet", label: "Wallet" },
 ];
 
 const PASSES = [
@@ -102,6 +101,17 @@ function PaymentScreen() {
         <span className="at-title">How are you paying?</span>
       </div>
       <div className="at-list">
+        <div className="at-card">
+          <span className="at-card-top">
+            <span className="at-card-chip" />
+            <span className="at-card-brand">atlas</span>
+          </span>
+          <span className="at-card-number">4242 •••• •••• 4242</span>
+          <span className="at-card-foot">
+            <span className="at-card-name">A. Rivera</span>
+            <span className="at-card-expiry">04 / 29</span>
+          </span>
+        </div>
         <div className="at-field">
           <span className="at-field-label">Card number</span>
           <span className="at-field-value">4242 4242 4242 4242</span>
@@ -252,6 +262,14 @@ const DESIGN_FLOW_MOCK_CSS = [
   ".design-flow-mock .at-option-meta { color: var(--at-fg-soft); font-size: 15px; }",
   ".design-flow-mock .at-option-price { flex-shrink: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.03em; }",
 
+  ".design-flow-mock .at-card { display: flex; flex-direction: column; justify-content: space-between; height: 150px; padding: 20px; border-radius: 22px; background: linear-gradient(135deg, var(--at-accent) 0%, var(--at-fg) 100%); color: var(--at-accent-on); }",
+  ".design-flow-mock .at-card-top { display: flex; align-items: center; justify-content: space-between; }",
+  // The chip is drawn for the same reason as the barcode: a card image would be
+  // the only photographic thing in the flow.
+  ".design-flow-mock .at-card-chip { width: 42px; height: 32px; border-radius: 6px; background: linear-gradient(180deg, rgba(12, 12, 14, 0.16) 0 30%, rgba(12, 12, 14, 0.34) 30% 36%, rgba(12, 12, 14, 0.16) 36% 62%, rgba(12, 12, 14, 0.34) 62% 68%, rgba(12, 12, 14, 0.16) 68% 100%); }",
+  ".design-flow-mock .at-card-brand { font-size: 18px; font-weight: 700; letter-spacing: -0.03em; opacity: 0.8; }",
+  ".design-flow-mock .at-card-number { font-size: 24px; font-weight: 600; letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }",
+  ".design-flow-mock .at-card-foot { display: flex; align-items: center; justify-content: space-between; font-size: 15px; font-weight: 600; opacity: 0.78; }",
   ".design-flow-mock .at-field { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 6px; padding: 14px 18px; border: 2px solid var(--at-line); border-radius: 18px; background: var(--at-elevated); }",
   ".design-flow-mock .at-field-row { display: flex; gap: 14px; }",
   ".design-flow-mock .at-field-label { color: var(--at-fg-soft); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }",
