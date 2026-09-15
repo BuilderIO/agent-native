@@ -4162,7 +4162,10 @@ function createAgentNativeConfig(
           },
         }
       : appConfig;
-  const buildId = resolveAgentNativeBuildId(process.env, "development");
+  // `runtimeEnv`, not `process.env`: the Sentry upload names its release from
+  // the merged env, so reading only the exported shell here would attach every
+  // uploaded map to a release the browser never reports.
+  const buildId = resolveAgentNativeBuildId(runtimeEnv, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
 
   // Preload workspace-root .env into process.env so Nitro server code sees

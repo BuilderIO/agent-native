@@ -982,6 +982,40 @@ describe("route warmup config", () => {
     }
   });
 
+  it("reads the build id from env files so it matches the uploaded Sentry release", () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-build-id-"),
+    );
+    fs.writeFileSync(
+      path.join(directory, "package.json"),
+      JSON.stringify({ name: "build-id-probe" }),
+    );
+    fs.writeFileSync(
+      path.join(directory, ".env"),
+      "AGENT_NATIVE_BUILD_ID=sha-from-env-file\n",
+    );
+    const previousCwd = process.cwd();
+    const cleared: Record<string, string | undefined> = {};
+    for (const key of ["DEPLOY_ID", "AGENT_NATIVE_BUILD_ID", "COMMIT_REF"]) {
+      cleared[key] = process.env[key];
+      delete process.env[key];
+    }
+    process.chdir(directory);
+    try {
+      const config = defineConfig();
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("sha-from-env-file"),
+      );
+    } finally {
+      process.chdir(previousCwd);
+      for (const [key, value] of Object.entries(cleared)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      fs.rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
   it("enables viewport React Router route warmup by default", () => {
     const config = defineConfig();
     const routeWarmup = JSON.parse(
@@ -1733,6 +1767,7 @@ describe("agentNative Vite plugin preset", () => {
       process.env.SENTRY_AUTH_TOKEN = "test-token";
       process.env.SENTRY_ORG = "acme";
       process.env.SENTRY_PROJECT = "web";
+      process.env.AGENT_NATIVE_BUILD_ID = "deploy-42";
 
       const plugins = flatPlugins(agentNative());
       const configPlugin = plugins.find(
@@ -1746,6 +1781,41 @@ describe("agentNative Vite plugin preset", () => {
       expect(config.build.sourcemap).toBe("hidden");
       expect(plugins.map((p) => p?.name)).toContain("sentry-vite-plugin");
     } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it("writes no source maps when Sentry is configured without a build id", async () => {
+    const previous = {
+      SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+      SENTRY_ORG: process.env.SENTRY_ORG,
+      SENTRY_PROJECT: process.env.SENTRY_PROJECT,
+      AGENT_NATIVE_BUILD_ID: process.env.AGENT_NATIVE_BUILD_ID,
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      process.env.SENTRY_AUTH_TOKEN = "test-token";
+      process.env.SENTRY_ORG = "acme";
+      process.env.SENTRY_PROJECT = "web";
+      delete process.env.AGENT_NATIVE_BUILD_ID;
+
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (p) => p?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      )) as any;
+
+      // "hidden" without the cleanup plugin would publish the maps.
+      expect(config.build.sourcemap).toBe(false);
+      expect(plugins.map((p) => p?.name)).not.toContain("sentry-vite-plugin");
+    } finally {
+      warn.mockRestore();
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;

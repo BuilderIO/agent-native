@@ -1039,7 +1039,10 @@ function resolveClientDeploymentEnvironment(): string {
 /**
  * Must match `resolveSentryClientRelease()` in `vite/sentry-source-maps.ts`
  * exactly — that's the release name uploaded source maps are attached to, so
- * a mismatch here means captured events never resolve against them.
+ * a mismatch here means captured events never resolve against them. The
+ * `development` fallback has no counterpart there on purpose: a build with no
+ * deployment identifier uploads nothing, so this name can only label events
+ * from a build whose maps were never published.
  */
 function resolveClientRelease(): string {
   return `agent-native-client@${clientBuildId() || "development"}`;

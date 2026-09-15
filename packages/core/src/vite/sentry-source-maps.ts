@@ -22,10 +22,15 @@ function firstNonEmpty(
   return undefined;
 }
 
+// Null when the build carries no deployment identifier. Every such build would
+// otherwise upload to one shared `agent-native-client@development` release, so
+// the newest local or unidentified build silently replaces the artifacts a real
+// deploy depends on.
 export function resolveSentryClientRelease(
   env: Record<string, string | undefined>,
-): string {
-  return `agent-native-client@${resolveAgentNativeBuildId(env, "development")}`;
+): string | null {
+  const buildId = resolveAgentNativeBuildId(env, "");
+  return buildId ? `agent-native-client@${buildId}` : null;
 }
 
 export interface SentrySourceMapUploadConfig {
@@ -50,13 +55,30 @@ export function resolveSentrySourceMapUploadConfig(
   // silently target the wrong project instead of cleanly no-oping.
   const project = firstNonEmpty(env.SENTRY_PROJECT, env.SENTRY_CLIENT_PROJECT);
   if (!org || !project) return null;
+  const release = resolveSentryClientRelease(env);
+  if (!release) {
+    warnAboutMissingBuildId();
+    return null;
+  }
   return {
     authToken,
     org,
     project,
     url: firstNonEmpty(env.SENTRY_URL),
-    release: resolveSentryClientRelease(env),
+    release,
   };
+}
+
+let warnedAboutMissingBuildId = false;
+
+// `isSentrySourceMapUploadEnabled` resolves the same config, so an unguarded
+// warn prints twice for every build.
+function warnAboutMissingBuildId(): void {
+  if (warnedAboutMissingBuildId) return;
+  warnedAboutMissingBuildId = true;
+  console.warn(
+    "Sentry is configured but this build has no deployment identifier, so source maps will not be uploaded. Set DEPLOY_ID, AGENT_NATIVE_BUILD_ID, or COMMIT_REF to upload them.",
+  );
 }
 
 export function isSentrySourceMapUploadEnabled(

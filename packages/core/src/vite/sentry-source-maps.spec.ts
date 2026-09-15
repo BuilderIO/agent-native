@@ -78,6 +78,7 @@ vi.mock("@sentry/vite-plugin", () => ({
 
 import {
   createSentrySourceMapUploadPlugin,
+  resolveSentryClientRelease,
   resolveSentrySourceMapUploadConfig,
 } from "./sentry-source-maps.js";
 
@@ -135,6 +136,29 @@ describe("vite/sentry-source-maps", () => {
         release: "agent-native-client@deploy-42",
       });
     });
+
+    it("returns null when Sentry is configured but no build id resolves", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(
+          resolveSentrySourceMapUploadConfig({
+            SENTRY_AUTH_TOKEN: "tok",
+            SENTRY_ORG: "acme",
+            SENTRY_PROJECT: "web",
+          }),
+        ).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("never names a release after the development build-id fallback", () => {
+      expect(resolveSentryClientRelease({})).toBeNull();
+      expect(resolveSentryClientRelease({ DEPLOY_ID: "0" })).toBeNull();
+      expect(resolveSentryClientRelease({ COMMIT_REF: "sha-9" })).toBe(
+        "agent-native-client@sha-9",
+      );
+    });
   });
 
   describe("createSentrySourceMapUploadPlugin", () => {
@@ -173,6 +197,7 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
+        AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
 
       await runViteBuild(entryPath, publishDirectory, plugins);
@@ -195,6 +220,7 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
+        AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
 
       try {
