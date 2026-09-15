@@ -528,11 +528,7 @@ export function normalizeChatError(
   // — keeps its own copy. What is left is a payload the provider refused to
   // parse, and its raw sentence names provider wire fields (`input[0]
   // .content[1].file_url`) that no reader can act on.
-  if (
-    MALFORMED_REQUEST_CODES.has(code) &&
-    !isContextOverflowMessage(text) &&
-    !isServerChosenVisitorMessage(text)
-  ) {
+  if (MALFORMED_REQUEST_CODES.has(code) && !isContextOverflowMessage(text)) {
     return {
       message: ATTACHMENT_REJECTION_PATTERN.test(text)
         ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE
