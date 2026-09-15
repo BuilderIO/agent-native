@@ -1033,15 +1033,40 @@ describe("MCP OAuth start failures that no retry can fix", () => {
     await expect(start()).rejects.toBe(cause);
   });
 
-  it("leaves a CIMD-capable server's failure untouched", async () => {
+  // The SDK needs a provider clientMetadataUrl as well as the server flag to
+  // skip registration, and this provider supplies none, so the flag alone is
+  // not an escape from dynamic registration.
+  it("still refuses when only the server advertises CIMD", async () => {
+    authMock.mockImplementation(
+      authSavingDiscovery({
+        ...githubMetadata,
+        client_id_metadata_document_supported: true,
+      }),
+    );
+
+    await expect(start()).rejects.toBeInstanceOf(
+      McpOAuthRegistrationUnsupportedError,
+    );
+  });
+
+  it("allows CIMD when the provider does supply a client metadata URL", async () => {
     const cause = new Error("authorization endpoint unreachable");
     authMock.mockImplementation(
-      authSavingDiscovery(
-        { ...githubMetadata, client_id_metadata_document_supported: true },
-        () => {
-          throw cause;
-        },
-      ),
+      async (provider: {
+        saveDiscoveryState?: (state: Record<string, unknown>) => void;
+      }) => {
+        Object.assign(provider, {
+          clientMetadataUrl: "https://app.example.com/client-metadata.json",
+        });
+        provider.saveDiscoveryState?.({
+          authorizationServerUrl: "https://github.com/login/oauth",
+          authorizationServerMetadata: {
+            ...githubMetadata,
+            client_id_metadata_document_supported: true,
+          },
+        });
+        throw cause;
+      },
     );
 
     await expect(start()).rejects.toBe(cause);

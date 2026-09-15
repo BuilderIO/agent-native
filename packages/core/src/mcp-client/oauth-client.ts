@@ -492,8 +492,13 @@ export interface McpOAuthProviderOptions {
    * Runs the moment the SDK persists discovery, which is before it selects a
    * resource, resolves scope, or registers a client. Throwing here is how a
    * caller refuses a flow that discovery has already proven cannot finish.
+   * Receives this provider's `clientMetadataUrl` because whether the SDK can
+   * skip registration depends on it as well as on the server's metadata.
    */
-  onDiscoveryState?: (state: McpOAuthDiscoveryState) => void;
+  onDiscoveryState?: (
+    state: McpOAuthDiscoveryState,
+    clientMetadataUrl: string | undefined,
+  ) => void;
 }
 
 function issuerForDiscovery(
@@ -563,7 +568,10 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   private savedCodeVerifier?: string;
   private savedDiscovery?: McpOAuthDiscoveryState;
   private authorizationUrl?: URL;
-  private readonly onDiscoveryState?: (state: McpOAuthDiscoveryState) => void;
+  private readonly onDiscoveryState?: (
+    state: McpOAuthDiscoveryState,
+    clientMetadataUrl: string | undefined,
+  ) => void;
 
   constructor(options: McpOAuthProviderOptions) {
     this.redirectUrlValue = options.redirectUrl;
@@ -662,7 +670,10 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }): void {
     validateDiscoveryUrls(state);
     this.savedDiscovery = state;
-    this.onDiscoveryState?.(state);
+    this.onDiscoveryState?.(
+      state,
+      (this as OAuthClientProvider).clientMetadataUrl,
+    );
   }
 
   discoveryState(): McpOAuthDiscoveryState | undefined {
@@ -732,7 +743,10 @@ export class McpOAuthRegistrationUnsupportedError extends Error {
  * known to be the missing registration path; anything thrown afterwards is a
  * different problem and keeps its own error.
  */
-function assertRegisterableClient(state: McpOAuthDiscoveryState): void {
+function assertRegisterableClient(
+  state: McpOAuthDiscoveryState,
+  clientMetadataUrl: string | undefined,
+): void {
   const metadata = state.authorizationServerMetadata as
     | (AuthorizationServerMetadata & {
         client_id_metadata_document_supported?: boolean;
@@ -740,7 +754,15 @@ function assertRegisterableClient(state: McpOAuthDiscoveryState): void {
     | undefined;
   if (!metadata) return;
   if (metadata.registration_endpoint) return;
-  if (metadata.client_id_metadata_document_supported === true) return;
+  // The SDK takes its registration-free CIMD path only when the server
+  // advertises it AND the provider supplies a client metadata URL. The flag
+  // alone still falls through to dynamic registration.
+  if (
+    metadata.client_id_metadata_document_supported === true &&
+    clientMetadataUrl
+  ) {
+    return;
+  }
   throw new McpOAuthRegistrationUnsupportedError({
     issuer: typeof metadata.issuer === "string" ? metadata.issuer : undefined,
     authorizationServerUrl: state.authorizationServerUrl,
@@ -767,7 +789,7 @@ export async function startMcpOAuthAuthorization(
   // A caller-supplied client never reaches registration, so only a start
   // without one can be blocked by a missing registration path.
   if (!options.clientInformation && options.discoveryState) {
-    assertRegisterableClient(options.discoveryState);
+    assertRegisterableClient(options.discoveryState, undefined);
   }
   const provider = new McpOAuthClientProvider({
     ...options,
