@@ -145,7 +145,7 @@ jobs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       apps: ${{ steps.matrix.outputs.apps }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           sparse-checkout: scripts/netlify-beta-sites.json
@@ -216,7 +216,7 @@ jobs:
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: public-${{ matrix.app }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/beta-e2e-setup
         # A composite action rather than repeated steps: the same seven-step
         # preamble now runs in four places.
@@ -249,7 +249,7 @@ jobs:
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: fleet
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Cross-host checks
         run: |
@@ -302,7 +302,7 @@ jobs:
       BETA_E2E_SHARED_OPENAI_API_KEY: ${{ inputs.key_source == 'shared' && secrets.OPENAI_API_KEY || '' }}
       BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Authenticated ${{ matrix.cluster }}
         # Global setup fails loudly if a credential is missing rather than
@@ -362,7 +362,7 @@ jobs:
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: advisory
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Advisory findings
         continue-on-error: true
@@ -398,7 +398,7 @@ jobs:
       MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
       PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Test signup email provider contracts
         run: pnpm exec tsx --test e2e/signup/lib/mailosaur.spec.ts
