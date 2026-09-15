@@ -53,6 +53,7 @@ interface RecipientInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  ariaLabel?: string;
   autoFocus?: boolean;
   /** Field identity; enables dragging chips between To/Cc/Bcc when paired with onMoveRecipient. */
   field?: RecipientField;
@@ -324,6 +325,7 @@ export function RecipientInput({
   value,
   onChange,
   placeholder,
+  ariaLabel,
   autoFocus,
   field,
   onMoveRecipient,
@@ -759,6 +761,9 @@ export function RecipientInput({
                 </button>
                 <button
                   type="button"
+                  aria-label={t("mail.recipients.removeRecipient", {
+                    recipient: displayName,
+                  })}
                   onClick={() => removeRecipient(i)}
                   className="ml-0.5 rounded-sm p-0.5 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
                 >
@@ -783,6 +788,9 @@ export function RecipientInput({
               <span className="max-w-[180px] truncate">{r}</span>
               <button
                 type="button"
+                aria-label={t("mail.recipients.removeRecipient", {
+                  recipient: r,
+                })}
                 onClick={() => removeRecipient(i)}
                 className="ml-0.5 rounded-sm p-0.5 hover:bg-foreground/10 transition-colors"
               >
@@ -798,6 +806,7 @@ export function RecipientInput({
           data-recipient-field={field}
           role="combobox"
           aria-autocomplete="list"
+          aria-label={ariaLabel ?? placeholder}
           aria-controls={
             showSuggestions && hasSuggestions ? suggestionListId : undefined
           }

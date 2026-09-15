@@ -7,6 +7,7 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   appendPendingVisualStyleUndoEntry,
+  formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
   pendingVisualStyleGestureIdForPhase,
 } from "./pending-edits";
@@ -164,5 +165,17 @@ describe("formatVisualEditClipboardPrompt", () => {
     expect(formatVisualEditClipboardPrompt("Apply these edits.", null)).toBe(
       "Apply these edits.",
     );
+  });
+});
+
+describe("formatPendingVisualStylePrompt", () => {
+  it("returns an empty WebMCP prompt when the canvas has no pending edits", () => {
+    expect(
+      formatPendingVisualStylePrompt({
+        designId: "design-1",
+        edits: [],
+        liveEdits: [],
+      }),
+    ).toBe("");
   });
 });

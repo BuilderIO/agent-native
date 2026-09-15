@@ -15,7 +15,9 @@ import {
   cloneSlideObject,
   collectMovableSlideObjects,
   computeSlideObjectZOrder,
+  clampSlideObjectPlacementPosition,
   computeSlideObjectZOrderForSelection,
+  createSlideLinePlacementGeometry,
   createSlideObjectPlacementGeometry,
   copySlideObjects,
   readSlideObjectClipboardId,
@@ -686,6 +688,92 @@ describe("slide object interactions", () => {
     expect(
       createSlideObjectPlacementGeometry({ x: 10, y: 20 }, { x: 10, y: 20 }),
     ).toEqual({ x: 10, y: 20, width: 24, height: 24 });
+  });
+
+  it("builds a rotated bar spanning the drag start and end points for a line", () => {
+    const geometry = createSlideLinePlacementGeometry(
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+    );
+    expect(geometry).toEqual({
+      x: 0,
+      y: -2,
+      width: 100,
+      height: 4,
+      rotation: 0,
+    });
+  });
+
+  it("computes the drag angle so a diagonal line is not axis-aligned", () => {
+    const start = { x: 100, y: 100 };
+    const end = { x: 300, y: 250 };
+    const geometry = createSlideLinePlacementGeometry(start, end);
+
+    // The bar is drawn at its true length between the two points, not the
+    // axis-aligned bounding box `createSlideObjectPlacementGeometry` returns.
+    expect(geometry.width).toBeCloseTo(Math.hypot(200, 150), 5);
+    expect(geometry.height).toBe(4);
+    expect(geometry.rotation).toBeCloseTo(
+      (Math.atan2(150, 200) * 180) / Math.PI,
+      5,
+    );
+
+    // Reversing the drag direction should draw the same line segment, just
+    // rotated 180 degrees, not an unrelated rectangle.
+    const reversed = createSlideLinePlacementGeometry(end, start);
+    expect(reversed.width).toBeCloseTo(geometry.width, 5);
+    const angleDelta =
+      ((reversed.rotation - geometry.rotation + 540) % 360) - 180;
+    expect(Math.abs(angleDelta)).toBeCloseTo(180, 5);
+  });
+
+  it("keeps a minimum thickness even for a zero-length drag", () => {
+    const geometry = createSlideLinePlacementGeometry(
+      { x: 10, y: 10 },
+      { x: 10, y: 10 },
+      6,
+    );
+    expect(geometry.width).toBe(6);
+    expect(geometry.height).toBe(6);
+  });
+
+  it("clamps an unrotated shape identically to the old plain bounding-box clamp", () => {
+    expect(
+      clampSlideObjectPlacementPosition(
+        { x: -50, y: 10, width: 80, height: 40 },
+        300,
+        200,
+      ),
+    ).toEqual({ x: 0, y: 10 });
+    expect(
+      clampSlideObjectPlacementPosition(
+        { x: 250, y: 10, width: 80, height: 40 },
+        300,
+        200,
+      ),
+    ).toEqual({ x: 220, y: 10 });
+  });
+
+  it("clamps a rotated line by its rendered footprint, not its unrotated bar length", () => {
+    // A near-vertical line dragged from the left edge: the unrotated bar is
+    // 251px long (the full drag distance) but its rendered footprint is only
+    // ~20px wide, so it must not be pushed away from the drag position as if
+    // it were a 251px-wide box.
+    const start = { x: 10, y: 0 };
+    const end = { x: 30, y: 250 };
+    const geometry = createSlideLinePlacementGeometry(start, end);
+
+    const clamped = clampSlideObjectPlacementPosition(
+      geometry,
+      300,
+      300,
+      geometry.rotation,
+    );
+
+    // The line's rendered center must stay at the drag midpoint; only an
+    // unrotated-box clamp would have shifted it.
+    const renderedCenterX = clamped.x + geometry.width / 2;
+    expect(renderedCenterX).toBeCloseTo((start.x + end.x) / 2, 5);
   });
 
   it("promotes a Markdown-rendered canvas so a new text box can persist as a freeform object", () => {

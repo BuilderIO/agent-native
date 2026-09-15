@@ -31,6 +31,14 @@ describe("EnvironmentBadge", () => {
       betaHost: "beta.chat.agent-native.com",
       productionHost: "chat.agent-native.com",
     });
+    // Regression pin for the Design template's reported broken beta
+    // Google sign-in: the automatic lane redirect only fires for a host
+    // resolved here, so Design falling out of this map would silently
+    // disable the fix that returns a signed-out beta arrival to production.
+    expect(resolveEnvironmentTargets("design.agent-native.com")).toEqual({
+      betaHost: "beta.design.agent-native.com",
+      productionHost: "design.agent-native.com",
+    });
     expect(resolveEnvironmentTargets("starter.agent-native.com")).toBeNull();
     expect(resolveEnvironmentTargets("www.agent-native.com")).toBeNull();
     expect(resolveEnvironmentTargets("example.com")).toBeNull();

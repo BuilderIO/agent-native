@@ -24,6 +24,41 @@ export interface EligibleHostAvailability {
   timezone?: string;
 }
 
+/**
+ * Resolves a peer's saved working-hours schedule and time zone, shared by
+ * `getEligibleHostAvailability` and `getHostOverlayStatuses` so the
+ * timezone-fallback order (calendar-availability, then calendar-settings,
+ * then the peer's connected Google account) lives in one place.
+ */
+async function resolvePeerScheduleAndTimezone(email: string): Promise<{
+  weeklySchedule?: AvailabilityConfig["weeklySchedule"];
+  timezone?: string;
+}> {
+  const [config, calendarSettings] = await Promise.all([
+    getUserSetting(
+      email,
+      "calendar-availability",
+    ) as Promise<AvailabilityConfig | null>,
+    getUserSetting(email, "calendar-settings") as Promise<{
+      timezone?: string;
+    } | null>,
+  ]);
+  const timezone =
+    safeBookingTimeZone(config?.timezone) ||
+    safeBookingTimeZone(calendarSettings?.timezone) ||
+    (await getGoogleAccountTimezone(email)) ||
+    undefined;
+
+  // Without a resolvable time zone there's no correct zone to interpret the
+  // schedule in — attaching it anyway would silently hard-filter using the
+  // owner's zone instead of the peer's. Fall back to free/busy-only
+  // (schedule omitted) rather than guess.
+  if (!config?.weeklySchedule || !timezone) {
+    return { timezone };
+  }
+  return { weeklySchedule: config.weeklySchedule, timezone };
+}
+
 async function overlaysBack(
   candidateEmail: string,
   ownerEmail: string,
@@ -83,36 +118,160 @@ export async function getEligibleHostAvailability(
 
   return Promise.all(
     eligibleEmails.map(async (email) => {
-      const [config, calendarSettings] = await Promise.all([
-        getUserSetting(
-          email,
-          "calendar-availability",
-        ) as Promise<AvailabilityConfig | null>,
-        getUserSetting(email, "calendar-settings") as Promise<{
-          timezone?: string;
-        } | null>,
-      ]);
-      const timezone =
-        safeBookingTimeZone(config?.timezone) ||
-        safeBookingTimeZone(calendarSettings?.timezone) ||
-        (await getGoogleAccountTimezone(email)) ||
-        undefined;
+      const { weeklySchedule, timezone } =
+        await resolvePeerScheduleAndTimezone(email);
+      return weeklySchedule
+        ? { email, weeklySchedule, timezone }
+        : { email, timezone };
+    }),
+  );
+}
+/**
+ * Per-host report of *why* a booking-link host's real working hours are or
+ * aren't being applied, for the booking-link editor.
+ *
+ * `reciprocal` and `hasWorkingHours` are deliberately separate booleans rather
+ * than one "working hours applied" flag. "The peer hasn't added you back" and
+ * "the peer added you back but never saved a schedule" look identical in the
+ * final availability result, but only the first is something the owner can act
+ * on — the second is the peer's own to fix. Collapsing them would leave the UI
+ * unable to tell the owner which one they're looking at.
+ */
+export interface HostOverlayStatus {
+  email: string;
+  isOverlaidByOwner: boolean;
+  reciprocal: boolean;
+  hasWorkingHours: boolean;
+  timezone?: string;
+  displayName?: string;
+}
 
-      // Without a resolvable time zone there's no correct zone to interpret
-      // the schedule in — attaching it anyway would silently hard-filter
-      // using the owner's zone instead of the peer's. Fall back to
-      // free/busy-only for this host rather than guess.
-      if (!config?.weeklySchedule || !timezone) {
-        return { email, timezone };
+/**
+ * Whether each overlaid peer has added the owner back, with no claim about
+ * their saved schedule.
+ *
+ * Separate from `HostOverlayStatus` on purpose: it costs one settings read per
+ * peer and no network calls, which is what makes it usable on a surface that
+ * renders on every page. Because the shape omits `hasWorkingHours` entirely,
+ * "not evaluated" can't be mistaken for "evaluated and false".
+ */
+export interface OverlayReciprocity {
+  email: string;
+  reciprocal: boolean;
+  displayName?: string;
+}
+
+/**
+ * Resolves the owner's overlay list and narrows `emails` to the members of it.
+ * Shared by both status readers so the overlay-list-only contract — the thing
+ * that stops either of them becoming a probe for arbitrary addresses — is
+ * enforced in exactly one place.
+ */
+async function resolveOverlayCandidates(
+  ownerEmail: string | undefined,
+  emails: string[],
+): Promise<{
+  candidates: string[];
+  overlayByEmail: Map<string, OverlayPerson>;
+}> {
+  const empty = { candidates: [], overlayByEmail: new Map() };
+  if (!ownerEmail || emails.length === 0) return empty;
+
+  const overlayData = (await getUserSetting(
+    ownerEmail,
+    "calendar-overlay-people",
+  )) as { people: OverlayPerson[] } | null;
+  const overlayByEmail = new Map(
+    (overlayData?.people ?? []).map((person) => [
+      person.email.toLowerCase(),
+      person,
+    ]),
+  );
+  if (overlayByEmail.size === 0) return empty;
+
+  const owner = ownerEmail.toLowerCase();
+  const candidates = Array.from(
+    new Set(
+      emails
+        .map((email) => email.toLowerCase())
+        .filter((email) => email !== owner && overlayByEmail.has(email)),
+    ),
+  );
+  return { candidates, overlayByEmail };
+}
+
+export async function getOverlayReciprocity(
+  ownerEmail: string | undefined,
+  emails: string[],
+): Promise<OverlayReciprocity[]> {
+  const { candidates, overlayByEmail } = await resolveOverlayCandidates(
+    ownerEmail,
+    emails,
+  );
+  if (candidates.length === 0) return [];
+
+  const owner = (ownerEmail as string).toLowerCase();
+  const reciprocity = await Promise.all(
+    candidates.map((email) => overlaysBack(email, owner)),
+  );
+  return candidates.map((email, index) => ({
+    email,
+    reciprocal: reciprocity[index],
+    displayName: overlayByEmail.get(email)?.name,
+  }));
+}
+
+/**
+ * Reports overlay status for booking-link hosts, mirroring the eligibility
+ * rules `getEligibleHostAvailability` applies.
+ *
+ * Only ever returns rows for emails already in the owner's own
+ * `calendar-overlay-people`. That filter is the function's contract, not an
+ * optimization: widening it would turn this into an oracle for probing whether
+ * arbitrary addresses have a Calendar account and a saved schedule.
+ */
+export async function getHostOverlayStatuses(
+  ownerEmail: string | undefined,
+  hostEmails: string[],
+): Promise<HostOverlayStatus[]> {
+  const { candidates: candidateEmails, overlayByEmail } =
+    await resolveOverlayCandidates(ownerEmail, hostEmails);
+  if (candidateEmails.length === 0) return [];
+
+  const owner = (ownerEmail as string).toLowerCase();
+  const reciprocity = await Promise.all(
+    candidateEmails.map((email) => overlaysBack(email, owner)),
+  );
+
+  return Promise.all(
+    candidateEmails.map(async (email, index) => {
+      const displayName = overlayByEmail.get(email)?.name;
+      // A non-reciprocal peer's schedule can never be applied, so reading it
+      // would cost two settings reads and a possible Google round-trip to
+      // produce a value nothing can use.
+      if (!reciprocity[index]) {
+        return {
+          email,
+          isOverlaidByOwner: true,
+          reciprocal: false,
+          hasWorkingHours: false,
+          displayName,
+        };
       }
+      const { weeklySchedule, timezone } =
+        await resolvePeerScheduleAndTimezone(email);
       return {
         email,
-        weeklySchedule: config.weeklySchedule,
+        isOverlaidByOwner: true,
+        reciprocal: true,
+        hasWorkingHours: Boolean(weeklySchedule && timezone),
         timezone,
+        displayName,
       };
     }),
   );
 }
+
 /**
  * Attaches the owner's time zone and builds the sanitized `publicHosts` list
  * for the public read response. Never attaches schedule windows — only the

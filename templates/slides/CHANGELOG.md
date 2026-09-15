@@ -3,6 +3,38 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-14
+
+### Improved
+
+- Deck filter button now shows when the list is limited to your own decks.
+- Slides comments can now target slide objects and positions with full thread actions, reactions, and Google-style shortcut behavior.
+
+### Fixed
+
+- An attached PDF, PowerPoint, or Word reference is now read before a new deck is generated, and its typography, palette, and page proportions steer the design instead of being silently dropped
+- Creating a design system no longer fails silently when Builder indexing is unavailable.
+- Design system creation from onboarding now opens inline instead of a new tab, so onboarding progress is no longer lost
+- Every icon in the collapsed left sidebar now shows its name on hover
+- Sending a selection, drawing, or pending update to the agent now opens the agent panel instead of appearing to do nothing.
+- Style requests like matching one slide's background across the deck now succeed instead of failing after repeated rejected edits.
+- Switching organizations now shows only decks from the current organization
+
+### Changed
+
+- Creative Context is now in Labs and off by default
+
+## 2026-09-13
+
+### Improved
+
+- Control+M adds a slide with the current slide's layout.
+
+### Fixed
+
+- Slides support keyboard navigation, selection, and reordering in the slide rail.
+- Slides route navigation, selection, clipboard, and reorder shortcuts through the focused editor surface.
+
 ## 2026-09-12
 
 ### Fixed

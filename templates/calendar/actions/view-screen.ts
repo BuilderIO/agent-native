@@ -11,6 +11,7 @@ import { listGoogleCalendars } from "../server/lib/google-calendar.js";
 import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
+  isEventVisibleForDeclinedPreference,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
 import { getWeekStartsOn } from "../shared/calendar-week.js";
@@ -100,6 +101,7 @@ export default defineAction({
         viewDay,
         timezone,
         getWeekStartsOn(settings.weekStart),
+        visualPreferences.numberOfDays,
       );
 
       const calendarSourceResult = await listGoogleCalendars(email);
@@ -137,8 +139,14 @@ export default defineAction({
         visibleCalendarSources.map((source) => source.sourceKey),
       );
       const { events } = eventResult;
+      const visibleEvents = events.filter((event) =>
+        isEventVisibleForDeclinedPreference(
+          event.responseStatus,
+          visualPreferences.showDeclinedEvents,
+        ),
+      );
 
-      const compact = events.slice(0, 50).map((e: CalendarEvent) => {
+      const compact = visibleEvents.slice(0, 50).map((e: CalendarEvent) => {
         return {
           id: e.id,
           title: e.title,
@@ -185,7 +193,7 @@ export default defineAction({
       }
 
       if (nav?.eventId) {
-        const match = events.find((e: any) => e.id === nav.eventId);
+        const match = visibleEvents.find((e: any) => e.id === nav.eventId);
         if (match) screen.selectedEvent = match;
       }
 
