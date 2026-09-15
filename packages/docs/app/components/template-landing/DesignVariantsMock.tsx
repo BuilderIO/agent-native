@@ -61,6 +61,26 @@ const canvasHeight = (topPad: number) =>
 const HERO_ILLUSTRATION_SRC =
   "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0daad3243582418486e48030d8edb0ab?format=webp&width=440";
 
+/**
+ * The roast cards. Same illustration set as the hero, so they need the same
+ * light plate: the art is transparent line work that would disappear against
+ * the dark card. Each src asks the CDN for roughly 2x the rendered slot.
+ */
+const PRODUCT_CARDS = [
+  {
+    title: "Single origin",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fecc0185836ac40f9a2445196ba6232a4?format=webp&width=340",
+  },
+  {
+    title: "House blend",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd47d098c90064b12a6bd2409fc8f8365?format=webp&width=340",
+  },
+  {
+    title: "Decaf",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdcf0d03a1eb9491684ffdc407561d7f6?format=webp&width=340",
+  },
+];
+
 const NAV_LINKS = ["Roasts", "Subscriptions", "Story"];
 
 function Wordmark() {
@@ -96,7 +116,7 @@ function VariantABoard() {
           <span className="kt-headline">
             Coffee that
             <br />
-            shows up on time.
+            shows up.
           </span>
           <span className="kt-subhead">
             Roasted to order, ground how you brew it, delivered the week it
@@ -119,10 +139,19 @@ function VariantABoard() {
         </div>
       </div>
       <div className="kt-card-row">
-        {["Single origin", "House blend", "Decaf"].map((title) => (
-          <div key={title} className="kt-card">
-            <div className="kt-card-art" />
-            <span className="kt-card-title">{title}</span>
+        {PRODUCT_CARDS.map((card) => (
+          <div key={card.title} className="kt-card">
+            <div className="kt-card-art">
+              <img
+                className="kt-card-art-img"
+                src={card.src}
+                alt=""
+                crossOrigin="anonymous"
+                decoding="async"
+                loading="lazy"
+              />
+            </div>
+            <span className="kt-card-title">{card.title}</span>
             <span className="kt-card-meta">From $16 · 250g</span>
           </div>
         ))}
@@ -248,7 +277,8 @@ const DESIGN_VARIANTS_MOCK_CSS = [
 
   ".design-variants-mock .kt-card-row { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 30px 34px 0; }",
   ".design-variants-mock .kt-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 2px solid var(--kt-line); border-radius: 22px; background: var(--kt-elevated); }",
-  ".design-variants-mock .kt-card-art { height: 92px; border-radius: 16px; background: linear-gradient(160deg, var(--kt-line), transparent); }",
+  ".design-variants-mock .kt-card-art { display: flex; height: 92px; align-items: center; justify-content: center; overflow: hidden; border-radius: 16px; background: var(--kt-plate); }",
+  ".design-variants-mock .kt-card-art-img { width: 100%; height: 100%; object-fit: contain; padding: 6px; }",
   ".design-variants-mock .kt-card-title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }",
   ".design-variants-mock .kt-card-meta { color: var(--kt-fg-soft); font-size: 14px; font-weight: 500; }",
 
