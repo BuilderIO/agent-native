@@ -36,4 +36,24 @@ describe("browser diagnostics capture", () => {
     expect(snapshot.timeline?.map((event) => event.kind)).toContain("click");
     capture.dispose();
   });
+
+  it("does not remove a newer history wrapper during cleanup", () => {
+    const originalPushState = window.history.pushState;
+    const capture = createBrowserDiagnosticsCapture();
+    const newerPushState = function newerPushState(
+      this: History,
+      state: unknown,
+      unused: string,
+      url?: string | URL | null,
+    ) {
+      return originalPushState.call(this, state, unused, url);
+    };
+    window.history.pushState = newerPushState;
+
+    capture.stop();
+    expect(window.history.pushState).toBe(newerPushState);
+
+    window.history.pushState = originalPushState;
+    capture.dispose();
+  });
 });

@@ -59,11 +59,26 @@
         },
         () => void chrome.runtime.lastError,
       );
-    // coercion-ok: the extension context can disappear after page unload; capture is best-effort
+      // coercion-ok: the extension context can disappear after page unload; capture is best-effort
     } catch {
       /* background unavailable */
     }
   }
+
+  window.addEventListener("message", (event) => {
+    if (!recordingActive || event.source !== window) return;
+    const data = event.data as
+      | { source?: unknown; kind?: unknown; url?: unknown }
+      | undefined;
+    if (
+      data?.source !== "clips-diagnostic-history" ||
+      data.kind !== "navigation" ||
+      typeof data.url !== "string"
+    ) {
+      return;
+    }
+    sendDiagnosticInteraction("navigation", null, data.url);
+  });
 
   let lastScrollAt = 0;
   const onClick = (event: MouseEvent) =>
@@ -78,28 +93,6 @@
   };
   const onNavigation = () =>
     sendDiagnosticInteraction("navigation", null, window.location.href);
-  const originalPushState = history.pushState;
-  const originalReplaceState = history.replaceState;
-  history.pushState = function patchedPushState(
-    this: History,
-    state: unknown,
-    unused: string,
-    url?: string | URL | null,
-  ) {
-    const result = originalPushState.call(this, state, unused, url);
-    onNavigation();
-    return result;
-  };
-  history.replaceState = function patchedReplaceState(
-    this: History,
-    state: unknown,
-    unused: string,
-    url?: string | URL | null,
-  ) {
-    const result = originalReplaceState.call(this, state, unused, url);
-    onNavigation();
-    return result;
-  };
   document.addEventListener("click", onClick, true);
   document.addEventListener("input", onInput, true);
   document.addEventListener("scroll", onScroll, true);

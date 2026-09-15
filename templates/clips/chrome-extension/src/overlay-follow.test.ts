@@ -37,6 +37,7 @@ describe("Clips overlay follow permissions", () => {
         matches?: string[];
         js?: string[];
         run_at?: string;
+        world?: string;
         all_frames?: boolean;
       }>;
     };
@@ -57,7 +58,21 @@ describe("Clips overlay follow permissions", () => {
       }),
     );
 
+    const historyBridge = manifest.content_scripts?.find((entry) =>
+      entry.js?.includes("assets/content-history-bridge.js"),
+    );
+    expect(historyBridge).toEqual(
+      expect.objectContaining({
+        matches: ["<all_urls>"],
+        js: ["assets/content-history-bridge.js"],
+        run_at: "document_start",
+        world: "MAIN",
+        all_frames: false,
+      }),
+    );
+
     expect(backgroundSource).toContain("sendWithInjectionFallback");
     expect(backgroundSource).toContain("shouldFollowOverlay");
+    expect(backgroundSource).toContain("assets/content-history-bridge.js");
   });
 });

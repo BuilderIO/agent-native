@@ -371,7 +371,7 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
     pushInteraction("navigation", null, window.location.href);
   const originalPushState = history.pushState;
   const originalReplaceState = history.replaceState;
-  history.pushState = function patchedPushState(
+  const patchedPushState = function patchedPushState(
     this: History,
     state: unknown,
     unused: string,
@@ -381,7 +381,7 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
     onNavigation();
     return result;
   };
-  history.replaceState = function patchedReplaceState(
+  const patchedReplaceState = function patchedReplaceState(
     this: History,
     state: unknown,
     unused: string,
@@ -391,6 +391,8 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
     onNavigation();
     return result;
   };
+  history.pushState = patchedPushState;
+  history.replaceState = patchedReplaceState;
   document.addEventListener("click", onClick, true);
   document.addEventListener("input", onInput, true);
   document.addEventListener("scroll", onScroll, true);
@@ -412,8 +414,12 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
     document.removeEventListener("scroll", onScroll, true);
     window.removeEventListener("popstate", onNavigation);
     window.removeEventListener("hashchange", onNavigation);
-    history.pushState = originalPushState;
-    history.replaceState = originalReplaceState;
+    if (history.pushState === patchedPushState) {
+      history.pushState = originalPushState;
+    }
+    if (history.replaceState === patchedReplaceState) {
+      history.replaceState = originalReplaceState;
+    }
   };
 
   const stop = () => {

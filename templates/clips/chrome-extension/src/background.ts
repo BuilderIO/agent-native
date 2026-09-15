@@ -561,11 +561,23 @@ async function injectContentScript(tabId: number): Promise<boolean> {
         executeScript: (args: {
           target: { tabId: number };
           files: string[];
+          world?: "ISOLATED" | "MAIN";
         }) => Promise<unknown>;
       };
     }
   ).scripting;
   if (!scripting) return false;
+  try {
+    await scripting.executeScript({
+      target: { tabId },
+      files: ["assets/content-history-bridge.js"],
+      world: "MAIN",
+    });
+    // coercion-ok: MAIN-world injection is optional; the isolated script still records.
+  } catch {
+    // Some restricted pages reject MAIN-world injection but still accept the
+    // isolated overlay/content script.
+  }
   try {
     await scripting.executeScript({
       target: { tabId },
@@ -3073,7 +3085,6 @@ chrome.debugger.onDetach.addListener((source) => {
   if (!sessionId) return;
   const session = sessions.get(sessionId);
   if (session) session.attached = false;
-  tabToSession.delete(tabId);
 });
 
 // ---- Dev auto-reload (unpacked installs only) ------------------------------
