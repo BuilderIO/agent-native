@@ -189,7 +189,13 @@ traffic to any one path.
   it, restored Search focus, and preserved `/all?q=abc`. A regression in
   `SearchBar.interaction.test.tsx` now covers the two-stage dismissal, active
   Search query preservation, focus restoration, and absence of navigation.
-  Paired Superhuman behavior remains unverified.
+  Paired Superhuman behavior remains unverified. A 390px local browser replay
+  on 2026-09-14 had an existing full-screen compose draft layered above the
+  header, so the clear control's pointer hit area was occluded. The same flow
+  in an isolated local QA tab with the compose surface minimized restored
+  `/all` and removed the clear control; keyboard activation also cleared the
+  query. Mail preserves pointer focus on mousedown and covers both pointer and
+  keyboard activation with regression tests.
 - SEARCH-007 — Save a search as a tab. Test empty name, whitespace, duplicate
   name, max-count limit, success, slow response, failure, retry, cancel, and
   reopened tab.

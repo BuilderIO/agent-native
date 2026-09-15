@@ -395,6 +395,11 @@ export function SearchBar({
                   e.preventDefault();
                   handleClear();
                 }}
+                onClick={(e) => {
+                  // Pointer activation is handled on mousedown so the input
+                  // keeps focus; detail=0 covers keyboard activation.
+                  if (e.detail === 0) handleClear();
+                }}
                 className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
               >
                 <IconX className="h-3.5 w-3.5" />

@@ -180,6 +180,42 @@ describe("SearchBar suggestion selection", () => {
     ).toBeTruthy();
   });
 
+  it("clears an active query when the visible clear control is clicked", () => {
+    const onClose = vi.fn();
+    render(
+      <SearchBar
+        hasActiveSearch
+        initialQuery="synthetic active search"
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.mouseDown(
+      screen.getByRole("button", { name: "mail.search.clear" }),
+    );
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("");
+  });
+
+  it("clears an active query through keyboard button activation", () => {
+    const onClose = vi.fn();
+    render(
+      <SearchBar
+        hasActiveSearch
+        initialQuery="synthetic keyboard search"
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "mail.search.clear" }), {
+      detail: 0,
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("");
+  });
+
   it("keeps Enter aligned with the visible selection after same-size results change", () => {
     render(<SearchBar onClose={vi.fn()} />);
     const input = screen.getByRole("combobox");
