@@ -173,6 +173,7 @@ import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
   resolveFontFamilySelectValue,
+  sortFontFamilyOptions,
 } from "./edit-panel/typography-helpers";
 import { TypographyProperties } from "./edit-panel/typography-properties";
 import {
@@ -1818,10 +1819,12 @@ function PageProperties({
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
-  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`editPanel.fontFamilies.${option.key}`),
-  }));
+  const baseFontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(`editPanel.fontFamilies.${option.key}`),
+    })),
+  );
   const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
   const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
     (option) => option.value === fontFamily,

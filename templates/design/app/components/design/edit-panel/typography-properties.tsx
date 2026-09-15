@@ -78,6 +78,7 @@ import {
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
   resolveLineHeightFieldValue,
+  sortFontFamilyOptions,
   textTruncationLineCount,
   textTruncationStyleChanges,
   TEXT_CASE_OPTIONS,
@@ -389,13 +390,13 @@ export function TypographyProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const baseFontFamilyOptions = [
+  const baseFontFamilyOptions = sortFontFamilyOptions([
     ...FONT_FAMILY_OPTIONS.map((option) => ({
       value: option.value,
       label: t(`editPanel.fontFamilies.${option.key}`),
     })),
     LATO_FONT_FAMILY_OPTION,
-  ];
+  ]);
   // Mixed-selection guards: a multi-selection with differing values injects
   // the MIXED_VALUE sentinel string into these computedStyles fields (see
   // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with

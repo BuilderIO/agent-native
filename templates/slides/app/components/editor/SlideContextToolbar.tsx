@@ -8,6 +8,7 @@ import {
   VisualSegmentedControl,
   displayFontFamilyName,
   resolveFontFamilySelectValue,
+  sortFontFamilyOptions,
 } from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
 import {
@@ -210,10 +211,12 @@ export function SlideContextToolbar({
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
   );
-  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`styleInspector.fontFamilies.${option.key}`),
-  }));
+  const baseFontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(`styleInspector.fontFamilies.${option.key}`),
+    })),
+  );
   const inlineEditSurfaceProps = {
     "data-slide-inline-edit-surface": "true",
   };
