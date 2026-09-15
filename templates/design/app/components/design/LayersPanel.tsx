@@ -166,6 +166,7 @@ export interface LayersPanelMoveIntent {
 export interface LayersPanelLabels {
   title: string;
   screens: string;
+  resizeScreens: string;
   allScreens: string;
   screenOverview: string;
   addScreen: string;
@@ -369,6 +370,7 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
     screens: t("layersPanel.screens"),
+    resizeScreens: t("layersPanel.resizeScreens"),
     allScreens: t("layersPanel.allScreens"),
     screenOverview: t("designEditor.screenOverview"),
     addScreen: t("layersPanel.addScreen"),
@@ -1066,6 +1068,12 @@ function LayersPanelImpl(
     null,
   );
   const rowElementRefs = useRef(new Map<string, HTMLDivElement>());
+  const screenRowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [screenResizeMetrics, setScreenResizeMetrics] = useState({
+    min: 0,
+    max: 0,
+    now: 0,
+  });
   // L20: edge auto-scroll during a row drag. scrollContainerRef is the
   // scrollable rows list; autoScrollFrameRef holds the active rAF handle (or
   // null when idle); autoScrollDirectionRef holds the current scroll
@@ -1359,6 +1367,46 @@ function LayersPanelImpl(
   const hasAnyRows = roots.length > 0;
   const screenRows = screens ?? files ?? [];
   const shouldShowSearch = searchOpen || Boolean(searchQuery.trim());
+
+  const refreshScreenResizeMetrics = useCallback(() => {
+    const panelHeight = layersPanelRef.current?.getBoundingClientRect().height;
+    const sectionHeight =
+      screenSectionRef.current?.getBoundingClientRect().height;
+    if (!panelHeight || !sectionHeight) return;
+    const max = panelHeight * 0.3;
+    const min = Math.min(96, max);
+    const next = {
+      min: Math.round(min),
+      max: Math.round(max),
+      now: Math.round(Math.min(max, Math.max(min, sectionHeight))),
+    };
+    setScreenResizeMetrics((current) =>
+      current.min === next.min &&
+      current.max === next.max &&
+      current.now === next.now
+        ? current
+        : next,
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    refreshScreenResizeMetrics();
+    const panel = layersPanelRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(refreshScreenResizeMetrics);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [refreshScreenResizeMetrics, screenRows.length, screenSectionHeight]);
+
+  useEffect(() => {
+    if (!activeScreenId || screenOverviewActive) return;
+    const frame = window.requestAnimationFrame(() => {
+      screenRowRefs.current.get(activeScreenId)?.scrollIntoView({
+        block: "nearest",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeScreenId, screenOverviewActive, screenRows]);
   const collapseTargetId = useMemo(() => {
     for (let index = selectedIds.length - 1; index >= 0; index -= 1) {
       const selectedRow = visibleRows.find(
@@ -1580,6 +1628,11 @@ function LayersPanelImpl(
                     <button
                       key={screen.id}
                       type="button"
+                      ref={(element) => {
+                        if (element)
+                          screenRowRefs.current.set(screen.id, element);
+                        else screenRowRefs.current.delete(screen.id);
+                      }}
                       className={cn(
                         "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[4px] px-[var(--design-baseline-unit)] text-left text-[11px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                         isActive
@@ -1611,8 +1664,11 @@ function LayersPanelImpl(
           <div
             data-screen-section-resizer
             role="separator"
-            aria-label={labels.title}
+            aria-label={labels.resizeScreens}
             aria-orientation="horizontal"
+            aria-valuemin={screenResizeMetrics.min}
+            aria-valuemax={screenResizeMetrics.max}
+            aria-valuenow={screenResizeMetrics.now}
             tabIndex={0}
             className="group relative z-10 h-2 shrink-0 cursor-row-resize touch-none bg-transparent outline-none focus-visible:bg-[var(--design-editor-selection-color)]"
             onKeyDown={handleScreenResizeKeyDown}
