@@ -900,10 +900,15 @@ export default function RecordingPage() {
     recordingStatus: recording?.status,
     frameAvailable: !isLoomEmbedBackedRecording(recording),
   });
-  const comments =
-    recordingId === VIEWER_REDESIGN_PREVIEW_ID
+  const comments = useMemo(() => {
+    const loadedComments: PlayerComment[] = playerDataQ.data?.comments ?? [];
+    // The redesign route is a read-only fixture rather than a persisted
+    // recording. Keep it deterministic instead of sending writes that cannot
+    // satisfy the normal recording access and persistence contract.
+    return recordingId === VIEWER_REDESIGN_PREVIEW_ID
       ? VIEWER_PREVIEW_COMMENTS
-      : (playerDataQ.data?.comments ?? []);
+      : loadedComments;
+  }, [playerDataQ.data?.comments, recordingId]);
   const reactions = useMemo(
     () =>
       mergeRecordingReactions(
@@ -988,7 +993,7 @@ export default function RecordingPage() {
   // Reaching this page already requires a signed-in session with at least
   // viewer access to the recording, so any resolved role qualifies to
   // comment/react — no separate "commenter" tier.
-  const canComment = role != null;
+  const canComment = role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
@@ -1984,7 +1989,7 @@ export default function RecordingPage() {
   }
 
   const renderPanelTabs = () => (
-    <ViewerTabsList className="min-w-0 shrink-0 bg-sidebar">
+    <ViewerTabsList className="min-w-0 shrink-0 bg-background">
       {recording.enableComments ? (
         <ViewerTabsTrigger
           value="comments"

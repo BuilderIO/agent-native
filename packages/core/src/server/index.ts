@@ -155,6 +155,7 @@ export {
   type AgentLoopToolCallSummary,
   type AgentLoopToolResultSummary,
 } from "../agent/index.js";
+export type { AgentActionScope } from "../agent/types.js";
 export {
   actionsToEngineTools,
   executeAgentToolCall,
@@ -166,6 +167,8 @@ export {
   type ExecuteAgentToolCallOptions,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+export { getRunStatus, getRunTurnRef } from "../agent/run-store.js";
+export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
 export {
   mountRealtimeVoiceRoutes,
   realtimeVoiceSafetyIdentifier,

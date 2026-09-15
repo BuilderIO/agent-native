@@ -106,11 +106,21 @@ describe("shiftEndForStartChange", () => {
     expect(shiftEndForStartChange(twoHours, "16:00").endTime).toBe("18:00");
   });
 
-  it("leaves a still-valid end untouched", () => {
+  it("shifts a still-valid end by the same delta to preserve duration", () => {
     const wide = { ...range, endTime: "17:00" };
     expect(shiftEndForStartChange(wide, "10:00")).toEqual({
       ...wide,
       startTime: "10:00",
+      endTime: "18:00",
+    });
+  });
+
+  it("shifts the end earlier by the same delta when the start moves earlier", () => {
+    expect(shiftEndForStartChange(range, "08:00")).toEqual({
+      date: "2026-03-10",
+      startTime: "08:00",
+      endDate: "2026-03-10",
+      endTime: "08:30",
     });
   });
 
@@ -133,6 +143,25 @@ describe("shiftEndForStartChange", () => {
     }
   });
 
+  it("repairs an already-invalid stored range instead of preserving it", () => {
+    // A corrupt/legacy record with end <= start: an equal shift would keep
+    // that gap non-positive forever, and save validation rejects end <= start
+    // with no way to fix it from the start-time field. Repair to the minimum
+    // slot duration instead.
+    const corrupt = {
+      date: "2026-03-10",
+      startTime: "09:00",
+      endDate: "2026-03-10",
+      endTime: "09:00",
+    };
+    expect(shiftEndForStartChange(corrupt, "08:00")).toEqual({
+      date: "2026-03-10",
+      startTime: "08:00",
+      endDate: "2026-03-10",
+      endTime: "08:15",
+    });
+  });
+
   it("preserves wall-clock duration across a DST boundary, by design", () => {
     // America/New_York springs forward on 2026-03-08. These are picker values,
     // so a 1h block stays a 1h block on the face of the clock; the timezone is
@@ -152,11 +181,12 @@ describe("shiftEndForStartChange", () => {
     });
   });
 
-  it("keeps a multi-day end when it is already after the new start", () => {
+  it("shifts a multi-day end by the same delta, preserving the span", () => {
     const multiDay = { ...range, endDate: "2026-03-12", endTime: "09:00" };
     expect(shiftEndForStartChange(multiDay, "23:45")).toEqual({
       ...multiDay,
       startTime: "23:45",
+      endTime: "23:45",
     });
   });
 });

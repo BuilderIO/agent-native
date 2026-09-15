@@ -1146,7 +1146,18 @@ const enUS = {
     useDiskVersion: "Use disk version",
     keepLocalDraft: "Keep my version",
     previewDraftRecovery: "Unsaved page draft",
+    previewDraftCompare: "Choose which version to keep",
+    previewDraftYourEdits: "Your edits",
+    previewDraftSavedVersion: "Saved version",
+    previewDraftKeepMine: "Keep my version",
+    previewDraftUseSaved: "Use saved version",
+    previewDraftSaveSeparately: "Save mine as a separate page",
+    previewDraftSavedToHistory: "Your edits were saved to Version History",
+    previewDraftSavedSeparately: "Your edits were saved as a separate page",
+    previewDraftOpenSavedPage: "Open page",
     restorePreviewDraft: "Restore draft",
+    previewDraftConflict:
+      "This draft conflicts with a newer page version. It was not restored.",
     pageSaveBeforeNavigationFailed:
       "Your latest page edits could not be saved. Try again before leaving this page.",
     discardPreviewDraft: "Discard draft",
@@ -1218,6 +1229,7 @@ const enUS = {
     historyCheckpointAfter: "After",
     historyCheckpointBefore: "Before",
     historyCheckpointLegacy: "Saved",
+    historyCheckpointRecovery: "Recovered draft",
     historyCheckpointLoadError: "Could not load checkpoints.",
     historyDetailLoadError: "Could not load this checkpoint.",
     historyGroupAgent: "Agent run",
@@ -1302,6 +1314,22 @@ const enUS = {
     cancel: "Cancel",
     submit: "Comment",
     askAi: "Ask AI",
+    aiBadge: "AI",
+    aiSuggestChanges: "Suggest changes",
+    aiUnavailable: "Unavailable",
+    aiReplyInThread: "Reply in thread",
+    aiApplyAndResolve: "Apply changes and resolve",
+    aiPromptSuggest: "Suggest changes for this comment.",
+    aiPromptReply: "Reply to this comment.",
+    aiPromptApplyResolve: "Apply changes for this comment and resolve it.",
+    aiWorking: "AI is working…",
+    aiReplied: "AI replied",
+    aiSuggestionReady: "Review suggestion",
+    aiChangesApplied: "Changes applied",
+    aiNeedsReview: "Needs review",
+    aiFailed: "AI request failed",
+    retry: "Retry",
+    sourceComment: "Source comment",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",
@@ -1618,7 +1646,6 @@ const removeLinkMessagesByLocale = {
   "hi-IN": "लिंक हटाएँ",
   "ar-SA": "إزالة الرابط",
 };
-
 export interface ContentLocaleBundle {
   rawLiterals: PartialMessages;
   comments: PartialMessages["comments"];

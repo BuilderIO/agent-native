@@ -45,6 +45,12 @@ import { Link, useNavigate } from "react-router";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { signOut } from "../sign-out.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
@@ -432,17 +438,28 @@ export function OrgSwitcher({
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      <PopoverPrimitive.Trigger asChild>
-        {compact ? (
-          <button
-            type="button"
-            title={triggerLabel}
-            aria-label={triggerLabel}
-            className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-          >
-            <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
-          </button>
-        ) : (
+      {compact ? (
+        // The popover trigger has to sit directly on the button: both Radix
+        // slots merge their props into the same DOM node, and a provider
+        // between them would swallow the click that opens the switcher.
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverPrimitive.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label={triggerLabel}
+                  className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+                >
+                  <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+                </button>
+              </PopoverPrimitive.Trigger>
+            </TooltipTrigger>
+            <TooltipContent side="right">{triggerLabel}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <PopoverPrimitive.Trigger asChild>
           <button
             type="button"
             aria-label={triggerLabel}
@@ -458,8 +475,8 @@ export function OrgSwitcher({
             )}
             <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
           </button>
-        )}
-      </PopoverPrimitive.Trigger>
+        </PopoverPrimitive.Trigger>
+      )}
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           side="top"

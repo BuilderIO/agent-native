@@ -95,6 +95,13 @@ export default defineAction({
         "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
           'shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
       ),
+    preserveLeadingTitleHeading: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Preserve a leading H1 that matches the title when reproducing an exact saved body.",
+      ),
     description: z
       .string()
       .optional()
@@ -176,7 +183,7 @@ export default defineAction({
     let content = args.content || "";
     const description = args.description?.trim() ?? "";
     // Strip leading H1 that duplicates the title
-    if (title && content) {
+    if (title && content && !args.preserveLeadingTitleHeading) {
       const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
       if (
         h1Match &&

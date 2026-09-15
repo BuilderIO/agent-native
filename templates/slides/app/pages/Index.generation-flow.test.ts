@@ -15,6 +15,13 @@ const onboardingSource = readFileSync(
   ),
   "utf8",
 );
+const generationLibSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../lib/create-deck-generation.ts",
+  ),
+  "utf8",
+);
 const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
   source.indexOf("const handlePromptSubmit"),
@@ -142,7 +149,7 @@ describe("new deck generation flow", () => {
     expect(flow).toContain(
       "attached reference files must not seed it with imported slides",
     );
-    expect(source).toContain(
+    expect(generationLibSource).toContain(
       "Attachments are context for the agent by default",
     );
     expect(flow).toContain("isSourceImprovementRequest");
@@ -150,6 +157,30 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("Source-preserving improvement mode");
     expect(flow).toContain(
       "attached reference files must not seed it with imported slides",
+    );
+  });
+
+  it("blocks generation when an attached reference cannot be read", () => {
+    const hydrateIndex = flow.indexOf("await hydrateReferenceDocuments(");
+    const submitIndex = flow.indexOf(
+      "agentSubmit(createDeckAgentMessage(prompt)",
+    );
+
+    expect(hydrateIndex).toBeGreaterThan(-1);
+    expect(hydrateIndex).toBeLessThan(submitIndex);
+    expect(flow).toContain('referenceHydration.status === "unreadable"');
+    expect(flow).toContain(
+      "recoverFromGenerationSetupFailure(referenceHydration.message)",
+    );
+    expect(flow).toContain("referenceDocumentContext,");
+    // The agent must not be told to fetch a reference it was already handed:
+    // that instruction is what let a failed read surface only after the deck
+    // had been generated from nothing.
+    expect(generationLibSource).toContain(
+      "PDF, PPTX, and DOCX files were already read before this run",
+    );
+    expect(generationLibSource).not.toContain(
+      "when you need their text or structure",
     );
   });
 
