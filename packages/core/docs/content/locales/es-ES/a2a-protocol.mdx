@@ -358,6 +358,113 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## Conexiones de agentes alojados {#hosted-agent-connections}
+
+Un agente alojado puede participar en A2A cuando expone un punto de conexión A2A
+compatible. Un proveedor de modelos o un SDK de agentes por sí solo no es un
+par A2A. Mantenga la interfaz, las acciones y la base de datos de la aplicación
+en su host habitual y conecte el entorno del agente mediante un adaptador o su
+punto de conexión A2A.
+
+Una conexión alojada tiene metadatos del punto de conexión y un descriptor de
+autenticación. Guarde estos metadatos con el recurso del agente remoto o el
+registro de conexión. Nunca incluya un token ni un secreto de cliente en el
+manifiesto:
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url` es el punto de conexión de invocación o la URL base. `cardUrl` es opcional
+cuando el descubrimiento usa `/.well-known/agent-card.json`. Úselo cuando el
+proveedor publique su tarjeta en otra ruta. El cliente lee la versión del
+protocolo en la tarjeta del agente. Si la tarjeta del proveedor no la incluye,
+pase `protocolVersion` directamente a `A2AClient`. `auth` describe cómo el
+código del servidor obtiene un token de portador. Los descriptores admitidos son `bearer`
+con un `credentialRef` almacenado en la bóveda, o `oauth-client-credentials`
+con `tokenUrl`, `clientId`, `clientSecretRef` y `scope`. `credentialRef` y
+`clientSecretRef` son referencias a secretos, nunca los valores de los secretos.
+
+### A2A con portador genérico {#generic-bearer-a2a}
+
+Use el cliente estándar cuando el par acepte `Authorization: Bearer ...`,
+sirva una tarjeta compatible y acepte JSON-RPC de Agent-Native:
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+Resuelva `token` en el servidor mediante la conexión del espacio de trabajo o
+la bóveda. No lo envíe desde código del navegador, no lo escriba en un
+manifiesto ni lo incluya en un prompt. Una clave API estática solo es una
+credencial de transporte para el servicio remoto. No establece la identidad del
+llamador de Agent-Native ni transporta `approvedActions`.
+
+### Microsoft Foundry {#microsoft-foundry}
+
+[Los agentes alojados de Azure AI Foundry](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+ejecutan su código o contenedor de agente detrás de un punto de conexión, una
+identidad, escalado, estado de sesión y observabilidad administrados. Este
+modelo aloja el entorno de ejecución del agente. Mantenga la interfaz, las
+acciones y el despliegue PostgreSQL de Agent-Native en el host de la aplicación
+y llame al punto de conexión de Foundry desde código del servidor.
+
+Foundry puede exponer un punto de conexión A2A mediante [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
+Requiere autenticación de Microsoft Entra y el llamador necesita permiso
+Foundry Agent Consumer. Use la tarjeta y el punto de conexión v0.3 del proveedor
+con `cardUrl` y `protocolVersion` cuando el punto de conexión hable JSON-RPC de
+Agent-Native. El proveedor de tokens debe obtener y renovar un token de acceso
+de Entra. `A2A_SECRET` y una clave API estática no satisfacen la autenticación de
+Foundry.
+
+Para las credenciales de cliente de una entidad de servicio, solicita un token
+de Entra con el ámbito `https://ai.azure.com/.default` y asigna al llamador el
+rol **Foundry Agent Consumer** en el ámbito del proyecto o del agente. Guarda el
+secreto de cliente en el vault y haz referencia a él en el manifiesto:
+
+```json
+{
+  "auth": {
+    "type": "oauth-client-credentials",
+    "tokenUrl": "https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token",
+    "clientId": "<application-id>",
+    "clientSecretRef": "FOUNDRY_CLIENT_SECRET",
+    "scope": "https://ai.azure.com/.default"
+  }
+}
+```
+
+### Gemini Enterprise {#gemini-enterprise}
+
+[Gemini Enterprise puede registrar agentes A2A externos](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
+y Agent Registry puede publicar un punto de conexión proxy. Su enlace HTTP+JSON
+usa rutas específicas del proveedor: el descubrimiento usa `GET {url}/v1/card`,
+la invocación usa `POST {url}/v1/message:send` y la transmisión usa
+`POST {url}/v1/message:stream`. Las solicitudes usan tokens de portador de
+Google OAuth o ADC y permisos de Google Cloud IAM. Consulte [Llamar a un agente mediante su punto de conexión A2A de registro](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+para conocer los requisitos del punto de conexión y los permisos.
+
+Estas rutas son distintas de las rutas JSON-RPC de Agent-Native
+(`/.well-known/agent-card.json` y `/_agent-native/a2a`). Registre el punto de
+conexión solo después de añadir un adaptador que traduzca el formato del cable y
+obtenga y renueve las credenciales de Google. Si el destino expone por separado
+un punto de conexión A2A estándar, úselo con la guía de portador genérico. El
+tráfico de registro de Gemini Enterprise no pasa por las políticas de Agent
+Gateway, así que aplique la política de autenticación y autorización propia del
+destino.
+
 ## Invocación programática del espacio de trabajo {#programmatic-invoke}
 
 Para espacios de trabajo nativos del agente, prefiera el asistente `agentNative` cuando utilice código o

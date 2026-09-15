@@ -8,12 +8,14 @@ vi.mock("../a2a/client.js", () => ({
   A2AClient: class {
     constructor(readonly url: string) {}
     getAgentCard = getAgentCard;
+    resolveEndpointUrl = vi.fn(async () => `${this.url}/a2a`);
   },
   signA2AToken,
 }));
 
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => getRequestUserEmail(),
+  getRequestOrgId: () => undefined,
 }));
 
 const { loadAllCapabilities, loadCapabilities, _resetCapabilityCacheForTests } =

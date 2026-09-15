@@ -1,4 +1,8 @@
-import { Skeleton } from "@agent-native/toolkit/design-system";
+import {
+  Picker,
+  Skeleton,
+  TextField,
+} from "@agent-native/toolkit/design-system";
 import { ButtonBase as ToolkitButtonBase } from "@agent-native/toolkit/ui/button";
 import {
   IconPlus,
@@ -31,7 +35,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { useOrg, useSyncA2ASecret } from "../org/hooks.js";
+import { NewKeyMenu, type NewKeyOption } from "./NewKeyMenu.js";
 
 interface AgentInfo {
   id: string;
@@ -39,12 +45,34 @@ interface AgentInfo {
   name: string;
   url: string;
   description?: string;
+  cardUrl?: string;
+  auth?: HostedAgentAuth;
+}
+
+type HostedAgentAuth =
+  | { type: "bearer"; credentialRef: string }
+  | {
+      type: "oauth-client-credentials";
+      tokenUrl: string;
+      clientId: string;
+      clientSecretRef: string;
+      scope?: string;
+    };
+
+type HostedAgentAuthType = "none" | HostedAgentAuth["type"];
+
+interface SecretStatusOption {
+  key: string;
+  label: string;
+  status?: string;
+  source?: string;
 }
 
 /** Wire shape of `GET /_agent-native/agents/probe` (single or batched result). */
 interface AgentProbeResult {
   url: string;
   reachable: boolean;
+  cardStatus?: "reachable" | "auth-rejected" | "no-json-rpc";
   name?: string;
   description?: string;
   securitySchemes?: string[];
@@ -53,6 +81,16 @@ interface AgentProbeResult {
   authError?: string;
   publicSkills?: number;
   error?: string;
+}
+
+function probeStatus(
+  result: AgentProbeResult | undefined,
+): "reachable" | "auth-rejected" | "no-json-rpc" | null {
+  if (!result) return null;
+  if (result.cardStatus) return result.cardStatus;
+  if (/json.?rpc/i.test(result.error ?? "")) return "no-json-rpc";
+  if (result.authorized === false) return "auth-rejected";
+  return result.reachable ? "reachable" : null;
 }
 
 function describeSkills(publicSkills: number | undefined): string | null {
@@ -96,20 +134,219 @@ function describeCheckResult(result: AgentProbeResult): string {
   return [`Live · ${scheme}`, authText, skills].filter(Boolean).join(" · ");
 }
 
+function normalizeHostedAuth(
+  auth: HostedAgentAuth | undefined,
+): HostedAgentAuth | undefined {
+  if (!auth) return undefined;
+  if (auth.type === "bearer") {
+    const credentialRef = auth.credentialRef.trim();
+    return credentialRef ? { type: "bearer", credentialRef } : undefined;
+  }
+  const tokenUrl = auth.tokenUrl.trim();
+  const clientId = auth.clientId.trim();
+  const clientSecretRef = auth.clientSecretRef.trim();
+  const scope = auth.scope?.trim();
+  if (!tokenUrl || !clientId || !clientSecretRef) return undefined;
+  return {
+    type: auth.type,
+    tokenUrl,
+    clientId,
+    clientSecretRef,
+    ...(scope ? { scope } : {}),
+  };
+}
+
+function parseHostedAuth(value: unknown): HostedAgentAuth | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.type === "bearer" &&
+    typeof candidate.credentialRef === "string"
+  ) {
+    return { type: "bearer", credentialRef: candidate.credentialRef };
+  }
+  if (
+    candidate.type === "oauth-client-credentials" &&
+    typeof candidate.tokenUrl === "string" &&
+    typeof candidate.clientId === "string" &&
+    typeof candidate.clientSecretRef === "string" &&
+    (candidate.scope === undefined || typeof candidate.scope === "string")
+  ) {
+    return {
+      type: candidate.type,
+      tokenUrl: candidate.tokenUrl,
+      clientId: candidate.clientId,
+      clientSecretRef: candidate.clientSecretRef,
+      ...(typeof candidate.scope === "string"
+        ? { scope: candidate.scope }
+        : {}),
+    };
+  }
+  return undefined;
+}
+
+function HostedAgentFields({
+  cardUrl,
+  onCardUrlChange,
+  auth,
+  onAuthChange,
+  credentialOptions,
+}: {
+  cardUrl: string;
+  onCardUrlChange: (value: string) => void;
+  auth?: HostedAgentAuth;
+  onAuthChange: (value?: HostedAgentAuth) => void;
+  credentialOptions: NewKeyOption[];
+}) {
+  const t = useT();
+  const authType: HostedAgentAuthType = auth?.type ?? "none";
+  const oauthAuth =
+    auth?.type === "oauth-client-credentials" ? auth : undefined;
+  const selectedCredentialRef =
+    auth?.type === "bearer"
+      ? auth.credentialRef
+      : auth?.type === "oauth-client-credentials"
+        ? auth.clientSecretRef
+        : "";
+
+  const updateAuthType = (value: string) => {
+    if (value === "none") {
+      onAuthChange(undefined);
+    } else if (value === "bearer") {
+      onAuthChange({
+        type: "bearer",
+        credentialRef: auth?.type === "bearer" ? auth.credentialRef : "",
+      });
+    } else if (value === "oauth-client-credentials") {
+      onAuthChange({
+        type: "oauth-client-credentials",
+        tokenUrl:
+          auth?.type === "oauth-client-credentials" ? auth.tokenUrl : "",
+        clientId:
+          auth?.type === "oauth-client-credentials" ? auth.clientId : "",
+        clientSecretRef:
+          auth?.type === "oauth-client-credentials" ? auth.clientSecretRef : "",
+        scope:
+          auth?.type === "oauth-client-credentials" ? (auth.scope ?? "") : "",
+      });
+    }
+  };
+
+  const updateCredentialRef = (value: string) => {
+    if (auth?.type === "bearer") {
+      onAuthChange({ ...auth, credentialRef: value });
+    } else if (auth?.type === "oauth-client-credentials") {
+      onAuthChange({ ...auth, clientSecretRef: value });
+    }
+  };
+
+  const credentialLabel = selectedCredentialRef
+    ? (credentialOptions.find((option) => option.key === selectedCredentialRef)
+        ?.label ?? selectedCredentialRef)
+    : t("agents.chooseCredential");
+
+  return (
+    <details
+      open={Boolean(cardUrl.trim() || auth)}
+      className="mt-1 rounded border border-border/70 bg-accent/20 px-2 py-1.5"
+    >
+      <summary className="cursor-pointer text-[10px] font-medium text-foreground">
+        {t("agents.hostedAgent")}
+      </summary>
+      <div className="mt-2 flex flex-col gap-1.5">
+        <TextField
+          value={cardUrl}
+          onChange={onCardUrlChange}
+          aria-label={t("agents.cardUrl")}
+          placeholder={t("agents.cardUrlPlaceholder")}
+          className="w-full text-[11px]"
+        />
+        <Picker
+          mode="select"
+          value={authType}
+          onChange={(value) => updateAuthType(String(value))}
+          aria-label={t("agents.authType")}
+          options={[
+            { value: "none", label: t("agents.authNone") },
+            { value: "bearer", label: t("agents.authBearer") },
+            {
+              value: "oauth-client-credentials",
+              label: t("agents.authClientCredentials"),
+            },
+          ]}
+          className="text-[11px]"
+        />
+        {authType !== "none" && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+              {credentialLabel}
+            </span>
+            <NewKeyMenu
+              options={credentialOptions}
+              label={t("agents.chooseCredential")}
+              onPick={(option) => updateCredentialRef(option.key)}
+              onCustom={(name) => {
+                if (name) updateCredentialRef(name);
+              }}
+              triggerClassName="shrink-0"
+            />
+          </div>
+        )}
+        {oauthAuth && (
+          <>
+            <TextField
+              value={oauthAuth.tokenUrl}
+              onChange={(value) =>
+                onAuthChange({ ...oauthAuth, tokenUrl: value })
+              }
+              aria-label={t("agents.tokenUrl")}
+              placeholder={t("agents.tokenUrl")}
+              className="w-full text-[11px]"
+            />
+            <TextField
+              value={oauthAuth.clientId}
+              onChange={(value) =>
+                onAuthChange({ ...oauthAuth, clientId: value })
+              }
+              aria-label={t("agents.clientId")}
+              placeholder={t("agents.clientId")}
+              className="w-full text-[11px]"
+            />
+            <TextField
+              value={oauthAuth.scope ?? ""}
+              onChange={(value) => onAuthChange({ ...oauthAuth, scope: value })}
+              aria-label={t("agents.scope")}
+              placeholder={t("agents.scope")}
+              className="w-full text-[11px]"
+            />
+          </>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function AgentEditPopover({
   agent,
+  credentialOptions,
   onSave,
   onDelete,
   onClose,
 }: {
   agent: AgentInfo;
-  onSave: (agent: AgentInfo) => void;
+  credentialOptions: NewKeyOption[];
+  onSave: (agent: AgentInfo) => Promise<void> | void;
   onDelete: (id: string) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(agent.name);
   const [url, setUrl] = useState(agent.url);
   const [description, setDescription] = useState(agent.description ?? "");
+  const [cardUrl, setCardUrl] = useState(agent.cardUrl ?? "");
+  const [auth, setAuth] = useState<HostedAgentAuth | undefined>(agent.auth);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -125,14 +362,23 @@ function AgentEditPopover({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [onClose]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim() || !url.trim()) return;
-    onSave({
-      ...agent,
-      name: name.trim(),
-      url: url.trim(),
-      description: description.trim() || undefined,
-    });
+    try {
+      await onSave({
+        ...agent,
+        name: name.trim(),
+        url: url.trim(),
+        description: description.trim() || undefined,
+        cardUrl: cardUrl.trim() || undefined,
+        auth: normalizeHostedAuth(auth),
+      });
+      setSaveError(null);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Could not save agent",
+      );
+    }
   };
 
   return (
@@ -145,7 +391,7 @@ function AgentEditPopover({
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
+            if (e.key === "Enter") void handleSave();
             if (e.key === "Escape") onClose();
           }}
           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
@@ -155,7 +401,7 @@ function AgentEditPopover({
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
+            if (e.key === "Enter") void handleSave();
             if (e.key === "Escape") onClose();
           }}
           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
@@ -165,12 +411,22 @@ function AgentEditPopover({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
+            if (e.key === "Enter") void handleSave();
             if (e.key === "Escape") onClose();
           }}
           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
           placeholder="Description (optional)"
         />
+        <HostedAgentFields
+          cardUrl={cardUrl}
+          onCardUrlChange={setCardUrl}
+          auth={auth}
+          onAuthChange={setAuth}
+          credentialOptions={credentialOptions}
+        />
+        {saveError && (
+          <p className="text-[10px] text-destructive">{saveError}</p>
+        )}
         <div className="flex items-center justify-between pt-0.5">
           <button
             onClick={() => onDelete(agent.id)}
@@ -187,7 +443,7 @@ function AgentEditPopover({
               Cancel
             </button>
             <button
-              onClick={handleSave}
+              onClick={() => void handleSave()}
               disabled={!name.trim() || !url.trim()}
               className="rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
             >
@@ -235,6 +491,7 @@ function AgentAddPopover({
   initialName = "",
   initialUrl = "",
   initialDescription = "",
+  credentialOptions,
   secretSet,
   syncSecret,
   onAdd,
@@ -243,14 +500,23 @@ function AgentAddPopover({
   initialName?: string;
   initialUrl?: string;
   initialDescription?: string;
+  credentialOptions: NewKeyOption[];
   secretSet: boolean | undefined;
   syncSecret: ReturnType<typeof useSyncA2ASecret>;
-  onAdd: (name: string, url: string, description: string) => Promise<boolean>;
+  onAdd: (
+    name: string,
+    url: string,
+    description: string,
+    cardUrl: string,
+    auth?: HostedAgentAuth,
+  ) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [name, setName] = useState(initialName);
   const [url, setUrl] = useState(initialUrl);
   const [description, setDescription] = useState(initialDescription);
+  const [cardUrl, setCardUrl] = useState("");
+  const [auth, setAuth] = useState<HostedAgentAuth | undefined>();
   const [check, setCheck] = useState<CheckState>({ status: "idle" });
   const [added, setAdded] = useState<AddedAgentInfo | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -283,9 +549,16 @@ function AgentAddPopover({
     if (!trimmedUrl) return;
     setCheck({ status: "checking" });
     try {
+      const cardQuery = cardUrl.trim()
+        ? `&cardUrl=${encodeURIComponent(cardUrl.trim())}`
+        : "";
+      const normalizedAuth = normalizeHostedAuth(auth);
+      const authQuery = normalizedAuth
+        ? `&auth=${encodeURIComponent(JSON.stringify(normalizedAuth))}`
+        : "";
       const res = await fetch(
         agentNativePath(
-          `/_agent-native/agents/probe?url=${encodeURIComponent(trimmedUrl)}`,
+          `/_agent-native/agents/probe?url=${encodeURIComponent(trimmedUrl)}${cardQuery}${authQuery}`,
         ),
       );
       const body = await res.json().catch(() => null);
@@ -307,7 +580,7 @@ function AgentAddPopover({
     } catch (err: any) {
       setCheck({ status: "error", message: err?.message ?? "Check failed" });
     }
-  }, [url, name, description]);
+  }, [url, cardUrl, auth, name, description]);
 
   const handleAdd = async () => {
     const trimmedName = name.trim();
@@ -315,7 +588,13 @@ function AgentAddPopover({
     if (!trimmedName || !trimmedUrl) return;
     const trimmedDescription = description.trim();
     try {
-      const ok = await onAdd(trimmedName, trimmedUrl, trimmedDescription);
+      const ok = await onAdd(
+        trimmedName,
+        trimmedUrl,
+        trimmedDescription,
+        cardUrl.trim(),
+        normalizeHostedAuth(auth),
+      );
       if (ok) {
         setAdded({
           name: trimmedName,
@@ -403,7 +682,7 @@ function AgentAddPopover({
         </div>
 
         {check.status === "error" && (
-          <p className="flex items-start gap-1 text-[10px] text-red-500">
+          <p className="flex items-start gap-1 text-[10px] text-destructive">
             <IconAlertTriangle size={11} className="mt-px shrink-0" />
             {check.message}
           </p>
@@ -413,7 +692,7 @@ function AgentAddPopover({
             className={`flex items-start gap-1 text-[10px] ${
               unreachable || unauthorized
                 ? "text-amber-600 dark:text-amber-400"
-                : "text-green-600 dark:text-green-500"
+                : "text-primary"
             }`}
           >
             {unreachable || unauthorized ? (
@@ -484,6 +763,16 @@ function AgentAddPopover({
           }}
           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
           placeholder="Description (optional)"
+        />
+        <HostedAgentFields
+          cardUrl={cardUrl}
+          onCardUrlChange={(value) => {
+            setCardUrl(value);
+            setCheck({ status: "idle" });
+          }}
+          auth={auth}
+          onAuthChange={setAuth}
+          credentialOptions={credentialOptions}
         />
         <div className="flex justify-end gap-1 pt-0.5">
           <button
@@ -616,6 +905,7 @@ const PREFILL_PARAMS = [
 ] as const;
 
 export function AgentsSection() {
+  const t = useT();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingAgent, setEditingAgent] = useState<string | null>(null);
@@ -629,6 +919,9 @@ export function AgentsSection() {
     string,
     AgentProbeResult
   > | null>(null);
+  const [credentialOptions, setCredentialOptions] = useState<NewKeyOption[]>(
+    [],
+  );
 
   const orgQuery = useOrg();
   const { data: org } = orgQuery;
@@ -637,6 +930,35 @@ export function AgentsSection() {
     !orgQuery.isLoading &&
     !orgQuery.isError &&
     (!org?.orgId || org.role === "owner" || org.role === "admin");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(agentNativePath("/_agent-native/secrets"))
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (cancelled || !Array.isArray(data)) return;
+        const options = (data as SecretStatusOption[])
+          .filter(
+            (secret) =>
+              secret.status === "set" &&
+              secret.source !== "env" &&
+              typeof secret.key === "string" &&
+              typeof secret.label === "string",
+          )
+          .map((secret) => ({
+            key: secret.key,
+            label: secret.label,
+            hint: secret.source === "vault" ? t("agents.vault") : undefined,
+          }));
+        setCredentialOptions(options);
+      })
+      .catch(() => {
+        if (!cancelled) setCredentialOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
 
   // Landing from a peer's "register back" deep link (see
   // buildPeerRegisterBackLink): the open route only echoes `f_*` params onto
@@ -723,6 +1045,9 @@ export function AgentsSection() {
               name: config.name,
               url: config.url,
               description: config.description,
+              cardUrl:
+                typeof config.cardUrl === "string" ? config.cardUrl : undefined,
+              auth: parseHostedAuth(config.auth),
             };
           } catch {
             return null;
@@ -743,42 +1068,67 @@ export function AgentsSection() {
     name: string,
     url: string,
     description: string,
+    cardUrl: string,
+    auth?: HostedAgentAuth,
   ): Promise<boolean> => {
     const id = name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    const normalizedAuth = normalizeHostedAuth(auth);
+    if (auth && !normalizedAuth) {
+      throw new Error(t("agents.authIncomplete"));
+    }
+    const normalizedCardUrl = cardUrl.trim() || undefined;
+    const optimisticAgent: AgentInfo = {
+      id: `optimistic-${id}`,
+      path: remoteAgentResourcePath(id),
+      name,
+      url,
+      description: description || undefined,
+      cardUrl: normalizedCardUrl,
+      auth: normalizedAuth,
+    };
+    const previousAgents = agents;
+    setAgents((current) => [...current, optimisticAgent]);
     const agentJson = JSON.stringify(
       {
         id,
         name,
         description: description || undefined,
         url,
+        cardUrl: normalizedCardUrl,
+        auth: normalizedAuth,
         color: "#6B7280",
       },
       null,
       2,
     );
 
-    const res = await fetch(agentNativePath("/_agent-native/resources"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        path: remoteAgentResourcePath(id),
-        content: agentJson,
-        shared: true,
-      }),
-    });
-    if (!res.ok) {
-      let body: { error?: string; message?: string } | null;
-      try {
-        body = (await res.json()) as {
-          error?: string;
-          message?: string;
-        };
-      } catch {
-        throw new Error(`Add failed (${res.status})`);
+    try {
+      const res = await fetch(agentNativePath("/_agent-native/resources"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: remoteAgentResourcePath(id),
+          content: agentJson,
+          shared: true,
+        }),
+      });
+      if (!res.ok) {
+        let body: { error?: string; message?: string } | null;
+        try {
+          body = (await res.json()) as {
+            error?: string;
+            message?: string;
+          };
+        } catch {
+          throw new Error(`Add failed (${res.status})`);
+        }
+        throw new Error(
+          body?.error ?? body?.message ?? `Add failed (${res.status})`,
+        );
       }
-      throw new Error(
-        body?.error ?? body?.message ?? `Add failed (${res.status})`,
-      );
+    } catch (error) {
+      setAgents(previousAgents);
+      throw error;
     }
     // Deliberately don't close the popover here — a successful add shows a
     // follow-up state (registration is one-way; the peer doesn't know
@@ -788,12 +1138,26 @@ export function AgentsSection() {
   };
 
   const handleSave = async (agent: AgentInfo) => {
+    const normalizedAuth = normalizeHostedAuth(agent.auth);
+    if (agent.auth && !normalizedAuth) {
+      throw new Error(t("agents.authIncomplete"));
+    }
+    const previousAgents = agents;
+    setAgents((current) =>
+      current.map((currentAgent) =>
+        currentAgent.id === agent.id
+          ? { ...agent, auth: normalizedAuth }
+          : currentAgent,
+      ),
+    );
     const agentJson = JSON.stringify(
       {
         id: getRemoteAgentIdFromPath(agent.path),
         name: agent.name,
         description: agent.description || undefined,
         url: agent.url,
+        cardUrl: agent.cardUrl?.trim() || undefined,
+        auth: normalizedAuth,
         color: "#6B7280",
       },
       null,
@@ -809,14 +1173,31 @@ export function AgentsSection() {
           body: JSON.stringify({ content: agentJson }),
         },
       );
-      if (res.ok) {
-        setEditingAgent(null);
-        void fetchAgents();
+      if (!res.ok) {
+        let body: { error?: string; message?: string } | null;
+        try {
+          body = (await res.json()) as {
+            error?: string;
+            message?: string;
+          };
+        } catch {
+          body = null;
+        }
+        throw new Error(
+          body?.error ?? body?.message ?? `Save failed (${res.status})`,
+        );
       }
-    } catch {}
+      setEditingAgent(null);
+      void fetchAgents();
+    } catch (error) {
+      setAgents(previousAgents);
+      throw error;
+    }
   };
 
   const handleDelete = async (agentId: string) => {
+    const previousAgents = agents;
+    setAgents((current) => current.filter((agent) => agent.id !== agentId));
     try {
       const res = await fetch(
         agentNativePath(`/_agent-native/resources/${agentId}`),
@@ -828,8 +1209,12 @@ export function AgentsSection() {
       if (res.ok) {
         setEditingAgent(null);
         void fetchAgents();
+      } else {
+        setAgents(previousAgents);
       }
-    } catch {}
+    } catch {
+      setAgents(previousAgents);
+    }
   };
 
   return (
@@ -852,6 +1237,7 @@ export function AgentsSection() {
                 initialName={prefill?.name}
                 initialUrl={prefill?.url}
                 initialDescription={prefill?.description}
+                credentialOptions={credentialOptions}
                 secretSet={org?.a2aSecretSet}
                 syncSecret={syncSecret}
                 onAdd={handleAdd}
@@ -948,9 +1334,30 @@ export function AgentsSection() {
                         {agent.name}
                       </span>
                       <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                        {agent.url}
+                        {agent.cardUrl || agent.url}
                       </span>
                     </div>
+                    {(() => {
+                      const status = probeStatus(probe);
+                      if (!status) return null;
+                      const label =
+                        status === "reachable"
+                          ? t("agents.statusReachable")
+                          : status === "auth-rejected"
+                            ? t("agents.statusAuthRejected")
+                            : t("agents.statusNoJsonRpc");
+                      return (
+                        <span
+                          className={`shrink-0 text-[10px] ${
+                            status === "reachable"
+                              ? "text-primary"
+                              : "text-amber-600 dark:text-amber-400"
+                          }`}
+                        >
+                          {label}
+                        </span>
+                      );
+                    })()}
                     {canManageSharedAgents ? (
                       <button
                         onClick={() => {
@@ -968,6 +1375,7 @@ export function AgentsSection() {
                   {canManageSharedAgents && editingAgent === agent.id && (
                     <AgentEditPopover
                       agent={agent}
+                      credentialOptions={credentialOptions}
                       onSave={handleSave}
                       onDelete={handleDelete}
                       onClose={() => setEditingAgent(null)}

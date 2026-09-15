@@ -87,6 +87,10 @@ import {
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { getOrgContext } from "../org/context.js";
 import { createProgressHandler } from "../progress/routes.js";
+import {
+  parseRemoteAgentAuth,
+  parseRemoteAgentUrl,
+} from "../resources/metadata.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import {
@@ -1702,6 +1706,14 @@ export function shouldRunCoreRouteBootDatabaseWork(
   return !isProductionServerlessFunctionRuntime(env);
 }
 
+/** Public discovery is a picker, not a credential registry. */
+export function stripRemoteAgentAuth<T extends { auth?: unknown }>(
+  agent: T,
+): Omit<T, "auth"> {
+  const { auth: _auth, ...publicAgent } = agent;
+  return publicAgent;
+}
+
 export function getBuilderConnectErrorDisposition(
   error: unknown,
   connectAttemptId: string | null,
@@ -2550,12 +2562,40 @@ export function createCoreRoutesPlugin(
                 return { error: "url is required" };
               }
 
+              const cardUrlParam = query.get("cardUrl");
+              const cardUrl =
+                cardUrlParam === null
+                  ? undefined
+                  : parseRemoteAgentUrl(cardUrlParam);
+              if (cardUrlParam !== null && !cardUrl) {
+                setResponseStatus(event, 400);
+                return { error: "cardUrl must be an http or https URL" };
+              }
+
+              const authParam = query.get("auth");
+              let auth;
+              if (authParam !== null) {
+                try {
+                  auth = parseRemoteAgentAuth(JSON.parse(authParam));
+                } catch {
+                  auth = undefined;
+                }
+                if (!auth) {
+                  setResponseStatus(event, 400);
+                  return {
+                    error: "auth must be a valid hosted-agent reference",
+                  };
+                }
+              }
+
               const result = await probePeerAgent({
                 id: "probe",
                 name: urlParam,
                 description: "",
                 url: urlParam,
                 color: "",
+                ...(cardUrl ? { cardUrl } : {}),
+                ...(auth ? { auth } : {}),
               });
 
               // Reachability and auth are independent, but a malformed/SSRF-blocked
@@ -2588,7 +2628,7 @@ export function createCoreRoutesPlugin(
           const selfAppId = query.get("selfAppId") ?? undefined;
           const { discoverAgents } = await import("./agent-discovery.js");
           const agents = await discoverAgents(selfAppId);
-          return { agents };
+          return { agents: agents.map(stripRemoteAgentAuth) };
         }),
       );
 

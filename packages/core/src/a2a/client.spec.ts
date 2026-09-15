@@ -8,10 +8,12 @@ import {
 } from "../shared/test-traffic.js";
 import {
   A2AClient,
+  A2AMissingJsonRpcResponseError,
   A2ATaskTerminalError,
   A2ATaskTimeoutError,
   callAction,
   callAgent,
+  clearA2ACardCache,
   signA2AToken,
 } from "./client.js";
 
@@ -54,6 +56,7 @@ describe("A2AClient", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    clearA2ACardCache();
     process.env = originalEnv;
   });
 
@@ -1232,7 +1235,6 @@ describe("A2AClient", () => {
         expect(url).toBe(
           "https://agent.example/workspace/.well-known/agent-card.json",
         );
-        expect(authorization).toBeNull();
         return new Response(
           JSON.stringify({
             name: "Custom Agent",
@@ -1864,6 +1866,103 @@ describe("A2AClient", () => {
 
     await expect(client.getAgentCard()).rejects.toThrow(/SSRF blocked/i);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses an explicit card URL and the card's v1 JSON-RPC interface", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        expect(url).toBe("https://agent.test/discovery/card.json");
+        return new Response(
+          JSON.stringify({
+            name: "Foundry Agent",
+            description: "A v1 agent",
+            version: "2026.09",
+            capabilities: {},
+            skills: [],
+            supportedInterfaces: [
+              {
+                url: "https://agent.test/foundry/jsonrpc",
+                protocolBinding: "JSONRPC",
+                protocolVersion: "1.0",
+              },
+            ],
+          }),
+        );
+      }
+
+      expect(url).toBe("https://agent.test/foundry/jsonrpc");
+      expect(new Headers(init.headers).get("A2A-Version")).toBe("1.0");
+      const body = JSON.parse(String(init.body));
+      expect(body.method).toBe("SendMessage");
+      return completedResponse(body, "v1 response");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new A2AClient("https://agent.test", undefined, {
+        cardUrl: "https://agent.test/discovery/card.json",
+      }).send({
+        role: "user",
+        parts: [{ type: "text", text: "hello" }],
+      }),
+    ).resolves.toMatchObject({
+      status: { message: { parts: [{ text: "v1 response" }] } },
+    });
+  });
+
+  it("falls back to message/send when the card does not advertise streaming", async () => {
+    const methods: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response(
+            JSON.stringify({
+              name: "Non-streaming Agent",
+              description: "A synchronous agent",
+              url: "https://agent.test/a2a",
+              version: "1.0.0",
+              protocolVersion: "0.3",
+              capabilities: { streaming: false },
+              skills: [],
+            }),
+          );
+        }
+        const body = JSON.parse(String(init.body));
+        methods.push(body.method);
+        return completedResponse(body, "fallback response");
+      }),
+    );
+
+    const tasks = [];
+    for await (const task of new A2AClient("https://agent.test").stream({
+      role: "user",
+      parts: [{ type: "text", text: "hello" }],
+    })) {
+      tasks.push(task);
+    }
+
+    expect(methods).toEqual(["message/send"]);
+    expect(tasks[0]).toMatchObject({
+      status: { message: { parts: [{ text: "fallback response" }] } },
+    });
+  });
+
+  it("raises a typed error when a successful response is missing JSON-RPC", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({ id: body.id, result: {} }));
+      }),
+    );
+
+    await expect(
+      new A2AClient("https://agent.test/a2a").send({
+        role: "user",
+        parts: [{ type: "text", text: "hello" }],
+      }),
+    ).rejects.toBeInstanceOf(A2AMissingJsonRpcResponseError);
   });
 });
 

@@ -39,6 +39,65 @@ describe("resource metadata", () => {
     });
   });
 
+  it("preserves custom card URLs and vault-backed auth references", () => {
+    const manifest = parseRemoteAgentManifest(
+      JSON.stringify({
+        id: "foundry-qa",
+        name: "Foundry QA",
+        url: "https://foundry.example.com",
+        cardUrl:
+          "https://foundry.example.com/agents/qa/endpoint/protocols/a2a/agentCard/v1.0",
+        auth: {
+          type: "oauth-client-credentials",
+          tokenUrl: "https://login.example.com/oauth2/token",
+          clientId: "client-id",
+          clientSecretRef: "FOUNDRY_CLIENT_SECRET",
+          scope: "https://ai.azure.com/.default",
+        },
+      }),
+      "remote-agents/foundry-qa.json",
+    );
+
+    expect(manifest).toMatchObject({
+      id: "foundry-qa",
+      cardUrl:
+        "https://foundry.example.com/agents/qa/endpoint/protocols/a2a/agentCard/v1.0",
+      auth: {
+        type: "oauth-client-credentials",
+        tokenUrl: "https://login.example.com/oauth2/token",
+        clientId: "client-id",
+        clientSecretRef: "FOUNDRY_CLIENT_SECRET",
+        scope: "https://ai.azure.com/.default",
+      },
+    });
+  });
+
+  it("rejects auth entries that contain values instead of references", () => {
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "https://agent.example.com",
+          auth: { type: "bearer", credentialRef: "" },
+        }),
+        "remote-agents/invalid-auth.json",
+      ),
+    ).toBeNull();
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "https://agent.example.com",
+          auth: {
+            type: "oauth-client-credentials",
+            tokenUrl: "https://login.example.com/token",
+            clientId: "client-id",
+            clientSecretRef: "",
+          },
+        }),
+        "remote-agents/invalid-oauth.json",
+      ),
+    ).toBeNull();
+  });
+
   it("keeps markdown agents classified as local custom agents", () => {
     expect(isRemoteAgentPath("agents/researcher.md")).toBe(false);
     expect(getResourceKind("agents/researcher.md")).toBe("agent");

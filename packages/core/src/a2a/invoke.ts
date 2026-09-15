@@ -46,6 +46,7 @@ export interface ResolvedAgentInvocationTarget {
   description?: string;
   url: string;
   color?: string;
+  cardUrl?: string;
 }
 
 export interface AgentInvocationResult {
@@ -87,6 +88,7 @@ export interface InvokeAgentOptions extends ResolveAgentInvocationTargetOptions 
   includeInvocationHint?: boolean;
   correlation?: A2ACorrelationMetadata;
   idempotencyKey?: string;
+  cardUrl?: string;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
@@ -100,6 +102,7 @@ export interface InvokeAgentActionOptions extends ResolveAgentInvocationTargetOp
   orgSecret?: string;
   requestTimeoutMs?: number;
   correlation?: A2ACorrelationMetadata;
+  cardUrl?: string;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
@@ -163,6 +166,7 @@ export async function resolveAgentInvocationTarget(
     description: agent.description,
     url: agent.url,
     color: agent.color,
+    ...(agent.cardUrl ? { cardUrl: agent.cardUrl } : {}),
   };
 }
 
@@ -205,6 +209,9 @@ export async function invokeAgent(
     pollIntervalMs: options.pollIntervalMs,
     correlation: options.correlation,
     idempotencyKey: options.idempotencyKey,
+    ...((options.cardUrl ?? target.cardUrl)
+      ? { cardUrl: options.cardUrl ?? target.cardUrl }
+      : {}),
   });
 
   return {
@@ -252,6 +259,9 @@ export async function invokeAgentAction(
     orgSecret: options.orgSecret,
     requestTimeoutMs: options.requestTimeoutMs,
     correlation: options.correlation,
+    ...((options.cardUrl ?? target.cardUrl)
+      ? { cardUrl: options.cardUrl ?? target.cardUrl }
+      : {}),
   });
 
   return { target, action, result };
