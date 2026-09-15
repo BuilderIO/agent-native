@@ -549,6 +549,7 @@ export {
   getNetlifyPreviewGoogleOAuthCallbackUrl,
   isNetlifyPreviewGoogleOAuthCallbackUrl,
   isNetlifyPreviewGoogleOAuthRelayState,
+  AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
   NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
   logOAuthStateDecodeFailure,
   resolveOAuthOwner,

@@ -1,12 +1,13 @@
 import crypto from "node:crypto";
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   decodeOAuthState,
   decodeNetlifyPreviewGoogleOAuthRelayState,
   encodeOAuthState,
   encodeNetlifyPreviewGoogleOAuthRelayState,
+  AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
   getOAuthStateSigningKey,
   isNetlifyPreviewGoogleOAuthCallbackUrl,
   NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX,
@@ -186,6 +187,13 @@ describe("Netlify preview Google OAuth relay state", () => {
   const callbackUri =
     "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
 
+  beforeEach(() => {
+    vi.stubEnv(
+      AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+      "shared-netlify-google-oauth-relay-secret-32",
+    );
+  });
+
   it("wraps a signed app state for the fixed beta callback", () => {
     const state = encodeNetlifyPreviewGoogleOAuthRelayState(
       "signed-preview-state",
@@ -249,6 +257,33 @@ describe("Netlify preview Google OAuth relay state", () => {
         601_001,
       ),
     ).toBeNull();
+  });
+
+  it("uses the shared relay key when deployment auth secrets differ", () => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "preview-auth-secret");
+    const state = encodeNetlifyPreviewGoogleOAuthRelayState(
+      "signed-preview-state",
+      callbackUri,
+      1_000,
+    );
+
+    vi.stubEnv("BETTER_AUTH_SECRET", "beta-auth-secret");
+
+    expect(decodeNetlifyPreviewGoogleOAuthRelayState(state, 1_000)).toEqual({
+      callbackUri,
+      state: "signed-preview-state",
+    });
+  });
+
+  it("fails closed when the shared relay key is not provisioned", () => {
+    delete process.env[AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV];
+
+    expect(() =>
+      encodeNetlifyPreviewGoogleOAuthRelayState(
+        "signed-preview-state",
+        callbackUri,
+      ),
+    ).toThrow(`${AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV} is required`);
   });
 });
 

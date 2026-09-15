@@ -2555,8 +2555,15 @@ describe("server/auth", () => {
       vi.stubEnv("APP_NAME", "dispatch");
       vi.stubEnv("BETTER_AUTH_SECRET", "preview-relay-state-secret");
       const { autoMountAuth } = await import("./auth.js");
-      const { encodeOAuthState, encodeNetlifyPreviewGoogleOAuthRelayState } =
-        await import("./google-oauth.js");
+      const {
+        AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+        encodeOAuthState,
+        encodeNetlifyPreviewGoogleOAuthRelayState,
+      } = await import("./google-oauth.js");
+      vi.stubEnv(
+        AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+        "shared-netlify-google-oauth-relay-secret-32",
+      );
       const callbackUri =
         "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
       const innerState = encodeOAuthState({
@@ -8787,6 +8794,51 @@ describe("server/auth", () => {
       expect(resolveOAuthRedirectUri(event)).toBe(
         `https://${"a".repeat(24)}--agent-native-mail.netlify.app/_agent-native/google/callback`,
       );
+    });
+
+    it("accepts the fixed beta callback only for immutable preview completion", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("SITE_NAME", "agent-native-mail");
+      const {
+        isAllowedOAuthRedirectUri,
+        NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
+      } = await import("./google-oauth.js");
+      const previewEvent = createMockEvent({
+        path: "/_agent-native/google/callback",
+        headers: {
+          host: `${"a".repeat(24)}--agent-native-mail.netlify.app`,
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(
+        isAllowedOAuthRedirectUri(
+          NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
+          previewEvent,
+          undefined,
+          { useNetlifyPreviewGoogleOAuthRelay: true },
+        ),
+      ).toBe(true);
+      expect(
+        isAllowedOAuthRedirectUri(
+          NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
+          previewEvent,
+        ),
+      ).toBe(false);
+      expect(
+        isAllowedOAuthRedirectUri(
+          NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
+          createMockEvent({
+            path: "/_agent-native/google/callback",
+            headers: {
+              host: "deploy-preview-42--agent-native-mail.netlify.app",
+              "x-forwarded-proto": "https",
+            },
+          }),
+          undefined,
+          { useNetlifyPreviewGoogleOAuthRelay: true },
+        ),
+      ).toBe(false);
     });
 
     it("defaults root workspace framework-route requests to the root callback", async () => {

@@ -230,6 +230,8 @@ export function getAppUrl(event: H3Event, path = "/"): string {
 
 export const NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL =
   "https://beta.dispatch.agent-native.com/_agent-native/google/callback";
+export const AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV =
+  "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET";
 export const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX =
   "agent-native-preview-google-relay.";
 const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_TTL_MS = 10 * 60 * 1000;
@@ -289,6 +291,22 @@ export function isNetlifyPreviewGoogleOAuthRelayState(
   );
 }
 
+function getNetlifyPreviewGoogleOAuthRelaySigningKey(): string {
+  const secret =
+    process.env[AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV]?.trim();
+  if (!secret) {
+    throw new Error(
+      `${AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV} is required for the Netlify preview Google OAuth relay.`,
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      `${AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV} must be at least 32 characters long.`,
+    );
+  }
+  return secret;
+}
+
 /**
  * Wrap a signed app OAuth state for the fixed Google callback registered on
  * the beta Dispatch site. The inner state remains authoritative and is
@@ -317,7 +335,7 @@ export function encodeNetlifyPreviewGoogleOAuthRelayState(
     "base64url",
   );
   const signature = crypto
-    .createHmac("sha256", getOAuthStateSigningKey())
+    .createHmac("sha256", getNetlifyPreviewGoogleOAuthRelaySigningKey())
     .update(encodedPayload)
     .digest("base64url");
   return `${NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX}${encodedPayload}.${signature}`;
@@ -337,7 +355,7 @@ export function decodeNetlifyPreviewGoogleOAuthRelayState(
     const encodedPayload = encodedEnvelope.slice(0, delimiter);
     const signature = encodedEnvelope.slice(delimiter + 1);
     const expectedSignature = crypto
-      .createHmac("sha256", getOAuthStateSigningKey())
+      .createHmac("sha256", getNetlifyPreviewGoogleOAuthRelaySigningKey())
       .update(encodedPayload)
       .digest("base64url");
     if (
@@ -503,6 +521,15 @@ export function isAllowedOAuthRedirectUri(
     expectedUrl = new URL(expectedOrigin);
   } catch {
     return false;
+  }
+  if (
+    options.useNetlifyPreviewGoogleOAuthRelay &&
+    candidate === NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL &&
+    getNetlifyPreviewGoogleOAuthCallbackUrl(event) !== undefined
+  ) {
+    // The Beta relay has already authenticated this exact callback target;
+    // keep the signed inner state usable after it lands on the preview host.
+    return true;
   }
   if (url.protocol !== expectedUrl.protocol) return false;
   if (url.host !== expectedUrl.host) return false;

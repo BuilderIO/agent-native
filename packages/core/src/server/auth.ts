@@ -5052,7 +5052,11 @@ async function mountBetterAuthRoutes(
           // redirect_uri. Re-validate against the same allowlist used at
           // auth-url time so the token exchange is always sent to a URI we
           // own.
-          if (!isAllowedOAuthRedirectUri(redirectUri, event)) {
+          if (
+            !isAllowedOAuthRedirectUri(redirectUri, event, getOrigin(event), {
+              useNetlifyPreviewGoogleOAuthRelay: true,
+            })
+          ) {
             const msg = AUTH_GOOGLE_START_FALLBACK;
             if (flowId) {
               setDesktopExchangeError(flowId, {
