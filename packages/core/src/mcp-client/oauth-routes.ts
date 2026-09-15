@@ -29,7 +29,6 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
 import { MCP_OAUTH_FLOW_TTL_SECONDS } from "../shared/mcp-oauth-flow-ttl.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
-import { track } from "../tracking/registry.js";
 import {
   finishMcpOAuthAuthorization,
   isGoogleWorkspaceMcpServer,
@@ -275,12 +274,12 @@ async function handleMcpOAuthStart(
   const trackingName =
     normalizeServerName(rawName ?? "") || trackingIntegrationId || "unknown";
   const trackingScope: RemoteMcpScope = query.scope === "org" ? "org" : "user";
-  const trackStartFailure = (
+  const trackStartFailure = async (
     errorType: string,
     scope: RemoteMcpScope = trackingScope,
-  ): void => {
+  ): Promise<void> => {
     if (!trackingFlow) return;
-    trackFirstRunMcpOAuthEvent(
+    await trackFirstRunMcpOAuthEvent(
       {
         trackingFlow,
         ...(trackingIntegrationId ? { trackingIntegrationId } : {}),
@@ -293,19 +292,19 @@ async function handleMcpOAuthStart(
     );
   };
   if (!rawUrl || !rawName) {
-    trackStartFailure("invalid_request");
+    await trackStartFailure("invalid_request");
     setResponseStatus(event, 400);
     return { error: "MCP OAuth requires a server name and URL." };
   }
   const urlCheck = validateRemoteUrl(rawUrl);
   if (!urlCheck.ok) {
-    trackStartFailure("url_not_allowed");
+    await trackStartFailure("url_not_allowed");
     setResponseStatus(event, 400);
     return { error: urlCheck.error ?? "MCP server URL is not allowed." };
   }
   const name = normalizeServerName(rawName);
   if (!name) {
-    trackStartFailure("invalid_name");
+    await trackStartFailure("invalid_name");
     setResponseStatus(event, 400);
     return { error: "MCP server name is invalid." };
   }
@@ -315,7 +314,7 @@ async function handleMcpOAuthStart(
       reconnectScope === "org" && Boolean(reconnectServer),
   });
   if (!resolvedScope.ok) {
-    trackStartFailure("invalid_scope");
+    await trackStartFailure("invalid_scope");
     setResponseStatus(event, 400);
     return { error: describeMcpOAuthScopeViolation(resolvedScope.violation) };
   }
@@ -328,14 +327,14 @@ async function handleMcpOAuthStart(
   const scope: RemoteMcpScope = requestedScope;
   const scopeId = scope === "user" ? session.email : (org?.orgId ?? "");
   if (scope === "org" && requestedOrgId && requestedOrgId !== scopeId) {
-    trackStartFailure("organization_mismatch", scope);
+    await trackStartFailure("organization_mismatch", scope);
     setResponseStatus(event, 403);
     return {
       error: "The selected organization is not the active organization.",
     };
   }
   if (scope === "org" && (!scopeId || !isOrgAdmin(org?.role))) {
-    trackStartFailure("authorization_denied", scope);
+    await trackStartFailure("authorization_denied", scope);
     setResponseStatus(event, scopeId ? 403 : 400);
     return {
       error: scopeId
@@ -351,7 +350,7 @@ async function handleMcpOAuthStart(
     ? getWorkspaceOAuthAppId()
     : undefined;
   if (useRootGoogleCallback && !workspaceAppId) {
-    trackStartFailure("invalid_callback", scope);
+    await trackStartFailure("invalid_callback", scope);
     setResponseStatus(event, 400);
     return { error: "Workspace MCP OAuth is missing its app callback id." };
   }
@@ -362,12 +361,12 @@ async function handleMcpOAuthStart(
       : "/_agent-native/mcp/servers/oauth/callback",
   );
   if (!redirectUri) {
-    trackStartFailure("invalid_callback", scope);
+    await trackStartFailure("invalid_callback", scope);
     setResponseStatus(event, 400);
     return { error: "Invalid MCP OAuth redirect URI." };
   }
   if (useRootGoogleCallback && !isRootGoogleCallback(redirectUri)) {
-    trackStartFailure("invalid_callback", scope);
+    await trackStartFailure("invalid_callback", scope);
     setResponseStatus(event, 400);
     return {
       error: "Google Workspace MCP OAuth must use the shared callback.",
@@ -406,7 +405,7 @@ async function handleMcpOAuthStart(
       });
     });
     if (!started) {
-      trackStartFailure("managed_client_unconfigured", scope);
+      await trackStartFailure("managed_client_unconfigured", scope);
       setResponseStatus(event, 400);
       return {
         error:
@@ -445,7 +444,7 @@ async function handleMcpOAuthStart(
     return redirectWithStagedCookies(event, started.authorizationUrl.href);
   } catch (error) {
     const failure = resolveMcpOAuthStartError(error);
-    trackStartFailure(
+    await trackStartFailure(
       failure.body.errorCode === "credential_store_unavailable"
         ? "credential_store_unavailable"
         : "oauth_start_failed",
@@ -569,9 +568,9 @@ async function handleMcpOAuthCallback(
     flow?.scope === "org" ? await getOrgContext(event).catch(() => null) : null;
   const canTrackFirstRunFailure =
     flow?.trackingFlow === "first_run" && flow.owner === session.email;
-  const trackCallbackFailure = (errorType: string): void => {
+  const trackCallbackFailure = async (errorType: string): Promise<void> => {
     if (!canTrackFirstRunFailure || !flow) return;
-    trackFirstRunMcpOAuthEvent(
+    await trackFirstRunMcpOAuthEvent(
       flow,
       "integration_connect_failed",
       { error_type: errorType },
@@ -583,24 +582,24 @@ async function handleMcpOAuthCallback(
     !flow ||
     !isValidMcpOAuthFlow(flow, session.email, org?.orgId ?? undefined, state)
   ) {
-    trackCallbackFailure("state_invalid");
+    await trackCallbackFailure("state_invalid");
     setResponseStatus(event, 400);
     return { error: "MCP OAuth state is invalid or expired." };
   }
   try {
     validateMcpOAuthCallbackIssuer(flow.discoveryState, iss);
   } catch {
-    trackCallbackFailure("issuer_invalid");
+    await trackCallbackFailure("issuer_invalid");
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization response issuer is invalid." };
   }
   if (providerError || !code) {
-    trackCallbackFailure("authorization_denied");
+    await trackCallbackFailure("authorization_denied");
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization was not completed." };
   }
   if (flow.scope === "org" && !isOrgAdmin(org?.role)) {
-    trackCallbackFailure("authorization_denied");
+    await trackCallbackFailure("authorization_denied");
     setResponseStatus(event, 403);
     return {
       error:
@@ -642,13 +641,13 @@ async function handleMcpOAuthCallback(
           credentials,
         });
     if (!result.ok) {
-      trackCallbackFailure("connection_rejected");
+      await trackCallbackFailure("connection_rejected");
       setResponseStatus(event, 400);
       return { error: result.error };
     }
     persistedServer = result.server;
   } catch {
-    trackCallbackFailure("oauth_callback_error");
+    await trackCallbackFailure("oauth_callback_error");
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization could not be completed." };
   }
@@ -663,7 +662,7 @@ async function handleMcpOAuthCallback(
   } catch {
     // coercion-ok: the persisted remote is durable; false records reload failure.
   }
-  trackFirstRunMcpOAuthEvent(
+  await trackFirstRunMcpOAuthEvent(
     flow,
     "integration_connect_completed",
     { reconfigured: connected },
@@ -676,7 +675,7 @@ async function handleMcpOAuthCallback(
   );
 }
 
-export function trackFirstRunMcpOAuthEvent(
+export async function trackFirstRunMcpOAuthEvent(
   flow: Pick<
     McpOAuthFlow,
     "trackingFlow" | "trackingIntegrationId" | "name" | "scope"
@@ -684,8 +683,9 @@ export function trackFirstRunMcpOAuthEvent(
   eventName: "integration_connect_completed" | "integration_connect_failed",
   properties: Record<string, unknown>,
   userId: string,
-): void {
+): Promise<void> {
   if (flow.trackingFlow !== "first_run") return;
+  const { track } = await import("../tracking/registry.js");
   track(
     eventName,
     {

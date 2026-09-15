@@ -30,6 +30,7 @@ import {
   getSessionMaxAge,
   hasLegacySessionForEmail,
   safeReturnPath,
+  setFirstRunOnboardingCookie,
   setFrameworkSessionCookie,
 } from "./auth.js";
 import {
@@ -1003,6 +1004,9 @@ export async function createOAuthSession(
     setFrameworkSessionCookie(event, sessionToken);
     if (opts.authProvider !== null) {
       setIdentityGoogleAuthCookie(event, email);
+    }
+    if (opts.trackSignup?.isNewUser !== false) {
+      setFirstRunOnboardingCookie(event);
     }
     if (shouldTrackSignup && opts.trackSignup) {
       const attribution =

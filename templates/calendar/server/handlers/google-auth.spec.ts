@@ -27,7 +27,6 @@ const mocks = vi.hoisted(() => ({
   safeReturnPath: vi.fn(),
   setDesktopExchange: vi.fn(),
   setDesktopExchangeError: vi.fn(),
-  setFirstRunOnboardingCookie: vi.fn(),
   setResponseStatus: vi.fn(),
   wrapNetlifyPreviewGoogleOAuthState: vi.fn(),
 }));
@@ -96,7 +95,6 @@ vi.mock("@agent-native/core/server", () => ({
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
-  setFirstRunOnboardingCookie: mocks.setFirstRunOnboardingCookie,
   wrapNetlifyPreviewGoogleOAuthState: mocks.wrapNetlifyPreviewGoogleOAuthState,
 }));
 
@@ -505,6 +503,5 @@ describe("Calendar Google auth-url handler", () => {
         trackSignup: expect.objectContaining({ isNewUser: true }),
       }),
     );
-    expect(mocks.setFirstRunOnboardingCookie).toHaveBeenCalledWith(event);
   });
 });

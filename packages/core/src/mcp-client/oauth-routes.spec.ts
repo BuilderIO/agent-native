@@ -215,8 +215,8 @@ describe("MCP OAuth callback flow validation", () => {
     vi.unstubAllEnvs();
   });
 
-  it("records first-run OAuth completion once with safe metadata", () => {
-    trackFirstRunMcpOAuthEvent(
+  it("records first-run OAuth completion once with safe metadata", async () => {
+    await trackFirstRunMcpOAuthEvent(
       {
         ...baseFlow,
         trackingFlow: "first_run",

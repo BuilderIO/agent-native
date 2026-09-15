@@ -5269,9 +5269,6 @@ async function mountBetterAuthRoutes(
             name: typeof user.name === "string" ? user.name : undefined,
             image: typeof user.picture === "string" ? user.picture : undefined,
           });
-          if (isNewGoogleUser === true) {
-            setFirstRunOnboardingCookie(event);
-          }
           if (isGoogleProfileImageUrl(user.picture)) {
             await putSetting(`avatar:${email}`, {
               image: user.picture.trim(),

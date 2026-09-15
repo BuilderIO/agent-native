@@ -31,7 +31,6 @@ const mocks = vi.hoisted(() => ({
   setAccountDisplayName: vi.fn(),
   setDesktopExchange: vi.fn(),
   setDesktopExchangeError: vi.fn(),
-  setFirstRunOnboardingCookie: vi.fn(),
   setOAuthDisplayName: vi.fn(),
   setResponseStatus: vi.fn(),
   wrapNetlifyPreviewGoogleOAuthState: vi.fn(),
@@ -66,7 +65,6 @@ vi.mock("@agent-native/core/server", () => ({
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
-  setFirstRunOnboardingCookie: mocks.setFirstRunOnboardingCookie,
   wrapNetlifyPreviewGoogleOAuthState: mocks.wrapNetlifyPreviewGoogleOAuthState,
 }));
 
@@ -222,8 +220,12 @@ describe("Mail Google auth-url handlers", () => {
     );
     expect(mocks.createOAuthSession).toHaveBeenCalled();
     expect(mocks.getClient).toHaveBeenCalledWith("owner@example.com");
-    expect(mocks.setFirstRunOnboardingCookie).toHaveBeenCalledWith(
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
       expect.anything(),
+      "owner@example.com",
+      expect.objectContaining({
+        trackSignup: expect.objectContaining({ isNewUser: true }),
+      }),
     );
   });
 
@@ -250,8 +252,12 @@ describe("Mail Google auth-url handlers", () => {
       ),
     ).resolves.toBe("signed-in");
 
-    expect(mocks.setFirstRunOnboardingCookie).toHaveBeenCalledWith(
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
       expect.anything(),
+      "new-user@example.com",
+      expect.objectContaining({
+        trackSignup: { authProvider: "google", isNewUser: undefined },
+      }),
     );
     expect(mocks.ensureGoogleAuthIdentity).not.toHaveBeenCalled();
   });
