@@ -179,6 +179,7 @@ async function ensureMembership(
   userId: string,
   email: string,
 ): Promise<void> {
+  email = normalizeEmail(email);
   const org = await findFrameworkOrg(database, orgId);
   // A provisioning domain is an exact framework org id. Never create a
   // membership for a user-controlled or deleted domain value.
@@ -186,6 +187,33 @@ async function ensureMembership(
 
   const member = await findMember(database, orgId, email);
   const mapping = await findMapping(database, orgId, userId);
+  if (mapping?.memberId) {
+    const mappedMember = await database.findOne<MemberRow>({
+      model: "orgMember",
+      where: [{ field: "id", value: mapping.memberId }],
+    });
+    if (mappedMember && normalizeEmail(mappedMember.email) !== email) {
+      const previousEmail = normalizeEmail(mappedMember.email);
+      await database.update({
+        model: "orgMember",
+        where: [{ field: "id", value: mappedMember.id }],
+        update: { email },
+      });
+      await database.updateMany({
+        model: "appMemberRole",
+        where: [
+          { field: "orgId", value: orgId },
+          {
+            field: "email",
+            value: previousEmail,
+            mode: "insensitive",
+          },
+        ],
+        update: { email },
+      });
+    }
+    if (mappedMember) return;
+  }
   if (member) {
     if (mapping) return;
     await database.create({
@@ -246,7 +274,7 @@ async function removeMembershipIfOwned(
         where: [{ field: "id", value: mapping.memberId }],
       })
     : null;
-  if (!member) {
+  if (!member && !mapping.memberId) {
     const members = await database.findMany<MemberRow>({
       model: "orgMember",
       where: [{ field: "orgId", value: mapping.orgId }],

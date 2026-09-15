@@ -36,6 +36,17 @@ function adapterFor(rows: Record<string, Row[]>): any {
       table(model).push(row);
       return row;
     }),
+    update: vi.fn(async ({ model, where, update }: any) => {
+      const row = table(model).find((candidate) => matches(candidate, where));
+      if (!row) return null;
+      Object.assign(row, update);
+      return row;
+    }),
+    updateMany: vi.fn(async ({ model, where, update }: any) => {
+      const matched = table(model).filter((row) => matches(row, where));
+      for (const row of matched) Object.assign(row, update);
+      return matched.length;
+    }),
     delete: vi.fn(async ({ model, where }: any) => {
       const modelRows = table(model);
       const index = modelRows.findIndex((row) => matches(row, where));
@@ -174,5 +185,85 @@ describe("framework SCIM identity bridge", () => {
     expect(rows.orgMember).toHaveLength(1);
     expect(rows.orgMember[0].id).toBe("manual-member");
     expect(rows.user).toHaveLength(1);
+  });
+
+  it("rekeys a mapped membership when the IdP changes the primary email", async () => {
+    const rows: Record<string, Row[]> = {
+      user: [{ id: "user-1", email: "jane@example.com" }],
+      frameworkOrganization: [{ id: "org-1", name: "Example" }],
+      orgMember: [],
+      orgScimMembership: [],
+      appMemberRole: [],
+    };
+    const database = adapterFor(rows);
+    const identity = createFrameworkSCIMIdentity();
+    const state = {
+      userId: "user-1",
+      active: true,
+      sources: [
+        {
+          id: "source-1",
+          connectionId: "connection-1",
+          provisioningDomainId: "org-1",
+          active: true,
+        },
+      ],
+    } as any;
+
+    await identity.reconcileUser!(state, { database });
+    const memberId = rows.orgMember[0].id;
+    rows.appMemberRole.push({
+      id: "role-1",
+      orgId: "org-1",
+      appId: "app-1",
+      email: "jane@example.com",
+      role: "member",
+    });
+    rows.user[0].email = "jane.new@example.com";
+
+    await identity.reconcileUser!(state, { database });
+
+    expect(rows.orgMember).toEqual([
+      expect.objectContaining({ id: memberId, email: "jane.new@example.com" }),
+    ]);
+    expect(rows.orgScimMembership).toHaveLength(1);
+    expect(database.updateMany).toHaveBeenCalled();
+    expect(rows.appMemberRole[0].email).toBe("jane.new@example.com");
+  });
+
+  it("does not delete a manually re-added member when a mapped id is stale", async () => {
+    const rows: Record<string, Row[]> = {
+      user: [{ id: "user-1", email: "jane@example.com" }],
+      frameworkOrganization: [{ id: "org-1", name: "Example" }],
+      orgMember: [
+        {
+          id: "manual-member",
+          orgId: "org-1",
+          email: "jane@example.com",
+          role: "member",
+        },
+      ],
+      orgScimMembership: [
+        {
+          id: "mapping-1",
+          orgId: "org-1",
+          userId: "user-1",
+          memberId: "deleted-scim-member",
+          createdMembership: true,
+        },
+      ],
+      appMemberRole: [],
+    };
+    const database = adapterFor(rows);
+    const identity = createFrameworkSCIMIdentity();
+
+    await identity.reconcileUser!(
+      { userId: "user-1", active: false, sources: [] } as any,
+      { database },
+    );
+
+    expect(rows.orgMember).toHaveLength(1);
+    expect(rows.orgMember[0].id).toBe("manual-member");
+    expect(rows.orgScimMembership).toHaveLength(0);
   });
 });

@@ -88,6 +88,7 @@ import {
   getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
+import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../shared/auth-copy.js";
@@ -1461,7 +1462,7 @@ function normalizeAuthEmail(value: unknown): string | null {
  */
 async function requiredAuthProviderForEmail(
   email: string,
-): Promise<"google" | `sso:${string}` | null> {
+): Promise<ResolvedRequiredAuthProvider> {
   const provider = await getRequiredAuthProviderForEmail(email);
   if (provider) return provider;
   return (await isGoogleSignInRequiredForEmail(email)) ? "google" : null;

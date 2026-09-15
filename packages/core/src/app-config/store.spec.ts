@@ -88,6 +88,18 @@ describe("app config store", () => {
     );
   });
 
+  it("reads the password signup verification policy from its declared alias", () => {
+    expect(getAppConfig().auth.requireEmailVerification).toBeUndefined();
+
+    process.env.AUTH_REQUIRE_EMAIL_VERIFICATION = "0";
+    resetAppConfigForTests();
+    expect(getAppConfig().auth.requireEmailVerification).toBe(false);
+
+    process.env.AUTH_REQUIRE_EMAIL_VERIFICATION = "1";
+    resetAppConfigForTests();
+    expect(getAppConfig().auth.requireEmailVerification).toBe(true);
+  });
+
   it("lets an explicit value win over the environment alias", () => {
     process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
     defineAppConfig({ privateBlob: { publicUploadFallback: true } });

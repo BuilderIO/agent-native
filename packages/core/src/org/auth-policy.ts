@@ -3,6 +3,7 @@ import { getDbExec } from "../db/client.js";
 import { invalidateSessionEmailCache } from "../server/session-email-cache.js";
 
 export type RequiredAuthProvider = "google" | `sso:${string}` | null;
+export type ResolvedRequiredAuthProvider = RequiredAuthProvider | "conflict";
 
 export const GOOGLE_AUTH_REQUIRED_MESSAGE =
   "This organization requires Google sign-in.";
@@ -11,8 +12,11 @@ export const SSO_AUTH_REQUIRED_MESSAGE =
   "This organization requires single sign-on.";
 
 export function authProviderRequiredMessage(
-  provider: RequiredAuthProvider,
+  provider: ResolvedRequiredAuthProvider,
 ): string {
+  if (provider === "conflict") {
+    return "Your organizations require conflicting sign-in providers. Contact an administrator.";
+  }
   return provider?.startsWith("sso:")
     ? SSO_AUTH_REQUIRED_MESSAGE
     : GOOGLE_AUTH_REQUIRED_MESSAGE;
@@ -74,7 +78,7 @@ export async function getRequiredAuthProviderForOrg(
  */
 export async function getRequiredAuthProviderForEmail(
   email: string,
-): Promise<RequiredAuthProvider> {
+): Promise<ResolvedRequiredAuthProvider> {
   const normalizedEmail = normalizeEmail(email);
   const domain = normalizedEmail.split("@")[1] ?? "";
   if (!normalizedEmail || !domain) return null;
@@ -102,7 +106,7 @@ export async function getRequiredAuthProviderForEmail(
                 )
                 OR LOWER(o.allowed_domain) = ?
               )
-            LIMIT 1`,
+            ORDER BY o.id`,
       args: [normalizedEmail, normalizedEmail, domain],
     });
   } catch (error) {
@@ -113,7 +117,14 @@ export async function getRequiredAuthProviderForEmail(
   }
 
   if (result.rows.length === 0) return null;
-  return providerFromRow(result.rows[0] as Record<string, unknown>);
+
+  const providers = new Set(
+    result.rows.map((row) => providerFromRow(row as Record<string, unknown>)),
+  );
+  providers.delete(null);
+  if (providers.size === 0) return null;
+  if (providers.size > 1) return "conflict";
+  return [...providers][0] ?? null;
 }
 
 export async function isGoogleSignInRequiredForEmail(
