@@ -15,6 +15,15 @@ export const DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS = 150;
  *  not caught up with the insert yet — see removeEmptyTextNodeWithRetry. */
 export const EMPTY_TEXT_CLEANUP_RETRY_MS = 400;
 
+/**
+ * How many times the empty-text cleanup re-asks for the screen's content before
+ * giving up. A board's very first primitive is the reason this is not 1: the
+ * board file's content has not reached the client map yet at that moment, and a
+ * cleanup that gave up there left the node on the canvas forever with nothing
+ * left to remove it.
+ */
+export const EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS = 8;
+
 /** Floor for an inspector-typed frame size, matching the frame tool's own
  *  drawing minimum (see getDraftGeometryForTool). */
 export const MIN_FRAME_SIZE_PX = 24;

@@ -103,12 +103,27 @@ export function justifyContentForGapMode(
 export function autoLayoutStylesForFlow(
   flow: AutoLayoutFlow,
   currentStyles: Record<string, string> = {},
+  // True when the element is already a grid (see elementIsGrid). Nothing
+  // about `currentStyles` is trustworthy to write back in that case: the
+  // caller merges computed styles under inline ones, so an unauthored (or
+  // stylesheet/class-authored) template reads as its computed, browser-
+  // resolved px list, and a multi-selection's differing values read as the
+  // MIXED_VALUE sentinel — either would serialize a fabricated or literally
+  // invalid value into an inline style. Re-committing Grid on an existing
+  // grid is therefore a pure no-op (see the `isExistingGrid` branch below);
+  // only a genuine conversion needs the full defaults.
+  isExistingGrid = false,
 ): Record<string, string> {
   if (flow === "normal") return { display: "block" };
   if (flow === "vertical") {
     return { display: "flex", flexDirection: "column", flexWrap: "nowrap" };
   }
   if (flow === "grid") {
+    // isExistingGrid (see above) is already true for an inline-grid
+    // element — the call site's isGrid check treats display:inline-grid as
+    // "already a grid" — so this branch is only ever reached converting a
+    // non-grid element, where display is always "grid" (never inline-grid).
+    if (isExistingGrid) return {};
     const authoredColumns = currentStyles.gridTemplateColumns;
     const authoredRows = currentStyles.gridTemplateRows;
     return {
@@ -121,7 +136,7 @@ export function autoLayoutStylesForFlow(
         authoredRows && authoredRows !== "none"
           ? authoredRows
           : "repeat(1, max-content)",
-      gridAutoFlow: currentStyles.gridAutoFlow || "row",
+      gridAutoFlow: "row",
     };
   }
   return { display: "flex", flexDirection: "row", flexWrap: "nowrap" };
@@ -207,7 +222,31 @@ export function gridTemplatePatchForChange(
       next[axis === "column" ? "columns" : "rows"] ||
     previous[`${axis}Sizing`] !== next[`${axis}Sizing`] ||
     previous[`${axis}Size`] !== next[`${axis}Size`];
-  if (changed("column")) {
+  // A *mixed* axis (differing templates across a multi-selection — see
+  // gridAxisValue's `mixed`) is refused unconditionally, even with an
+  // explicit sizing pick: the track count is unknowable per element, so any
+  // write would fabricate one repeat(N, …) template over every selected
+  // element regardless of what each already has.
+  //
+  // A "custom" axis staying "custom" — whether unknown (stylesheet/class
+  // authored, no inline template to read) or a KNOWN non-uniform inline
+  // template ("96px 1fr minmax(0, 200px)") — has no formula to regenerate a
+  // new track count from: gridTemplateForTracks falls back to a fabricated
+  // repeat(N, minmax(0, 1fr)) default, discarding whatever tracks are
+  // really authored. Refuse a bare count edit on it. Picking a sizing
+  // (fill/hug/fixed) is explicit user intent and writes as usual.
+  const skipAxis = (axis: "column" | "row") => {
+    if (previous?.[axis === "column" ? "columnsMixed" : "rowsMixed"]) {
+      return true;
+    }
+    const countKey = axis === "column" ? "columns" : "rows";
+    return (
+      previous?.[`${axis}Sizing`] === "custom" &&
+      next[`${axis}Sizing`] === "custom" &&
+      previous?.[countKey] !== next[countKey]
+    );
+  };
+  if (changed("column") && !skipAxis("column")) {
     patch.gridTemplateColumns = gridTemplateForTracks(
       next.columns,
       next.columnSizing,
@@ -217,7 +256,7 @@ export function gridTemplatePatchForChange(
         : undefined,
     );
   }
-  if (changed("row")) {
+  if (changed("row") && !skipAxis("row")) {
     patch.gridTemplateRows = gridTemplateForTracks(
       next.rows,
       next.rowSizing,
@@ -230,22 +269,79 @@ export function gridTemplatePatchForChange(
   return patch;
 }
 
+// The bridge sets `isGridContainer` off the element's own computed display,
+// which stays trustworthy even where `computedStyles.display` itself is
+// absent or the MIXED_VALUE sentinel (a multi-selection where display
+// differs per element) — so it's checked first, ahead of the string.
+function elementIsGrid(element: ElementInfo): boolean {
+  const display = (element.computedStyles.display || "").toLowerCase();
+  return (
+    element.isGridContainer === true ||
+    display === "grid" ||
+    display === "inline-grid"
+  );
+}
+
 // A computed grid template is the browser's resolved px list ("50px 50px"),
 // so it can only say how many tracks exist, never how they were sized.
 // Treating it as authored turned fill/hug tracks into fixed px the moment a
-// matrix or sizing change committed against a stale inline snapshot.
+// matrix or sizing change committed against a stale inline snapshot. When
+// nothing is inline but the element already renders as a grid, tracks are
+// authored somewhere this inspector cannot read (a stylesheet rule, a
+// class) — only the computed track COUNT is browser-resolved fact, so the
+// sizing is reported "custom" + `unknown` rather than guessed as "fill".
 function gridAxisValue(
   element: ElementInfo,
   property: "gridTemplateColumns" | "gridTemplateRows",
-): ReturnType<typeof parseGridTemplate> & { template: string } {
+): ReturnType<typeof parseGridTemplate> & {
+  template: string;
+  unknown?: boolean;
+  mixed?: boolean;
+} {
   const authored = element.inlineStyles?.[property] || "";
-  if (authored) return { ...parseGridTemplate(authored), template: authored };
   const computed = element.computedStyles[property] || "";
-  return {
-    count: computed ? parseGridTemplate(computed).count : 1,
-    sizing: "fill",
-    template: "",
-  };
+  // mixedElementFromSelection puts the MIXED_VALUE sentinel ("Mixed") in
+  // inlineStyles when a multi-selection's AUTHORED templates differ.
+  // Parsing that string as a template would fabricate a bogus single-track
+  // custom grid, so it's reported unknown+mixed instead — the count is
+  // unknowable per element too, so it falls back to 1 unless the computed
+  // template alone (not itself mixed) still gives a real count.
+  if (isMixedValue(authored)) {
+    const count =
+      !isMixedValue(computed) && computed
+        ? parseGridTemplate(computed).count
+        : 1;
+    return {
+      count,
+      sizing: "custom",
+      template: "",
+      unknown: true,
+      mixed: true,
+    };
+  }
+  // A shared, non-Mixed inline template is trusted first — even across a
+  // multi-selection whose COMPUTED templates differ (the same authored
+  // "repeat(2, minmax(0, 1fr))" resolves to a different px list at a
+  // different width). That per-element resolved difference doesn't make the
+  // AUTHORED template mixed, so computed is only consulted once there is no
+  // inline template to trust.
+  if (authored) return { ...parseGridTemplate(authored), template: authored };
+  if (isMixedValue(computed)) {
+    return {
+      count: 1,
+      sizing: "custom",
+      template: "",
+      unknown: true,
+      mixed: true,
+    };
+  }
+  const count = computed ? parseGridTemplate(computed).count : 1;
+  if (elementIsGrid(element)) {
+    return { count, sizing: "custom", template: "", unknown: true };
+  }
+  // Not yet a grid — nothing authored exists to preserve, and "fill" is the
+  // same default autoLayoutStylesForFlow writes for a brand-new grid.
+  return { count, sizing: "fill", template: "" };
 }
 
 export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
@@ -258,20 +354,38 @@ export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
     rowSizing: rows.sizing,
     columnSize: columns.fixedSize,
     rowSize: rows.fixedSize,
+    columnSizingUnknown: columns.unknown,
+    rowSizingUnknown: rows.unknown,
     columnTemplate: columns.template,
     rowTemplate: rows.template,
     columnGap: parseNumericValue(element.computedStyles.columnGap || "0"),
     rowGap: parseNumericValue(element.computedStyles.rowGap || "0"),
-    columnsMixed: isMixedValue(
-      element.inlineStyles?.gridTemplateColumns ||
-        element.computedStyles.gridTemplateColumns,
-    ),
-    rowsMixed: isMixedValue(
-      element.inlineStyles?.gridTemplateRows ||
-        element.computedStyles.gridTemplateRows,
-    ),
+    columnsMixed: columns.mixed,
+    rowsMixed: rows.mixed,
     columnGapMixed: isMixedValue(element.computedStyles.columnGap),
     rowGapMixed: isMixedValue(element.computedStyles.rowGap),
+  };
+}
+
+/**
+ * Style patch for a Grid-control change: template writes plus gap, with
+ * `gridAutoFlow: "row"` included only when converting a non-grid element
+ * into a grid for the first time. An element that is already a grid may
+ * have an authored gridAutoFlow (e.g. "dense") that a track/gap edit must
+ * not clobber.
+ */
+export function gridChangePatch(
+  element: ElementInfo,
+  previous: AutoLayoutGridValue | undefined,
+  next: AutoLayoutGridValue,
+): Record<string, string> {
+  const isGrid = elementIsGrid(element);
+  return {
+    ...(isGrid ? {} : { display: "grid" }),
+    ...gridTemplatePatchForChange(previous, next),
+    ...(isGrid ? {} : { gridAutoFlow: "row" }),
+    columnGap: `${next.columnGap}px`,
+    rowGap: `${next.rowGap}px`,
   };
 }
 
@@ -305,13 +419,26 @@ function FlexContainerControls({
     : isFlex
       ? "flex"
       : "block";
-  const flowMixed = [
-    styles.display,
-    styles.flexDirection,
-    styles.flexWrap,
-    styles.gridTemplateColumns,
-    styles.gridTemplateRows,
-  ].some(isMixedValue);
+  // Grid-track and gap mixedness are tracked per-axis on
+  // gridValueForElement's own columnsMixed/rowsMixed/*GapMixed — they must
+  // not also gate the FLOW bucket itself. Two multi-selected grids with the
+  // SAME authored template at different widths resolve to different
+  // computed px lists (sameOrMixed collapses that to the MIXED_VALUE
+  // sentinel), which is not a flow mismatch, so gridTemplateColumns/Rows are
+  // never compared here.
+  //
+  // `isGrid` above already trusts the selection's aggregated
+  // isGridContainer (mixedElementFromSelection: true only when EVERY
+  // selected element is a grid container) over the raw `display` string.
+  // Once isGrid says every element is a grid, flow IS "grid" — full stop.
+  // An unrelated property that happens to differ per element (a leftover
+  // inline flexDirection/flexWrap from before conversion, or `display`
+  // itself reading Mixed for a reason that has nothing to do with layout)
+  // must not fall through to a "mixed" flow bucket once grid-ness is
+  // already settled; only consult those when isGrid could NOT resolve it.
+  const flowMixed =
+    !isGrid &&
+    [styles.display, styles.flexDirection, styles.flexWrap].some(isMixedValue);
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
   // `justifyContent` is always the main-axis property in flexbox regardless
@@ -451,10 +578,20 @@ function FlexContainerControls({
             onDisableAutoLayout(nodeId);
             return;
           }
-          const patch = autoLayoutStylesForFlow(flow, {
-            ...styles,
-            ...element.inlineStyles,
-          });
+          // Re-selecting Grid on an element that's already a grid is a
+          // no-op at the style level (autoLayoutStylesForFlow returns {}
+          // for isExistingGrid — see its comment), but an EMPTY patch is
+          // not itself a safe no-op to hand to a command: apply-layout-flow
+          // forwards it to applyVisualEdit, and the code-layer patcher
+          // treats an empty style declaration as unresolvable
+          // ("needsAgent"), surfacing an error toast for what should be a
+          // silent click. Stop before invoking any command at all.
+          if (flow === "grid" && isGrid) return;
+          const patch = autoLayoutStylesForFlow(
+            flow,
+            { ...styles, ...element.inlineStyles },
+            isGrid,
+          );
           // Children drawn on canvas are absolutely positioned, so the
           // container styles alone would render no layout at all — only a
           // selection this editor cannot rewrite falls through to them.
@@ -485,13 +622,11 @@ function FlexContainerControls({
           onStyleChange("flexWrap", wrap);
         }}
         onGridChange={(nextGrid, meta) => {
-          const patch = {
-            display: "grid",
-            ...gridTemplatePatchForChange(autoLayoutValue.grid, nextGrid),
-            gridAutoFlow: "row",
-            columnGap: `${nextGrid.columnGap}px`,
-            rowGap: `${nextGrid.rowGap}px`,
-          };
+          const patch = gridChangePatch(
+            element,
+            autoLayoutValue.grid,
+            nextGrid,
+          );
           if (onStylesChange) {
             onStylesChange(patch, meta);
             return;

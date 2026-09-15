@@ -218,6 +218,29 @@ export function resolveLineHeightFieldValue(
   };
 }
 
+/**
+ * Finds the unit token (one of `units`) in `raw`, validated to appear at
+ * most once. Both callers below funnel into parseScrubExpression, which
+ * strips every occurrence of the unit it's told to use (global regex) — so
+ * a second, unstripped occurrence, a doubled suffix ("2pxpx"/"2px px") or a
+ * mismatched pair ("2%%", "2em%"), would otherwise silently vanish instead
+ * of failing to parse. Returns null for that malformed case.
+ *
+ * Matches anywhere in the input, not only at the end: a letter-spacing
+ * expression like "(x+0.005em)*2" carries its one unit token
+ * mid-expression, so this is deliberately looser than "exactly one
+ * TRAILING token" — it only guards against a SECOND token appearing
+ * anywhere, not against where the single token sits.
+ */
+function singleUnitToken(
+  raw: string,
+  units: readonly string[],
+): { unit: string | undefined } | null {
+  const matches = raw.match(new RegExp(units.join("|"), "gi"));
+  if (matches && matches.length > 1) return null;
+  return { unit: matches?.[0]?.toLowerCase() };
+}
+
 /** Parse Figma-style px / percent / Auto input; bare values are pixels. */
 export function parseLineHeightInput(
   input: string,
@@ -233,10 +256,9 @@ export function parseLineHeightInput(
     };
   }
 
-  const explicitUnit = raw
-    .match(/(?:px|%)\s*$/i)?.[0]
-    ?.trim()
-    .toLowerCase();
+  const token = singleUnitToken(raw, ["px", "%"]);
+  if (!token) return null;
+  const explicitUnit = token.unit;
   const unit: LineHeightUnit = explicitUnit
     ? (explicitUnit as LineHeightUnit)
     : "px";
@@ -263,7 +285,9 @@ export interface ParsedLetterSpacingInput extends LetterSpacingFieldValue {
   cssValue: string;
 }
 
-const LETTER_SPACING_EM_PRECISION = 3;
+// The field accepts 2 decimal places of percent; a percent that small needs 4
+// em decimals to round-trip instead of collapsing to "0em" (e.g. 0.01% -> 0.0001em).
+const LETTER_SPACING_EM_PRECISION = 4;
 
 function letterSpacingCssValue(value: number, unit: LetterSpacingUnit): string {
   return unit === "%"
@@ -312,18 +336,41 @@ export function parseLetterSpacingInput(
   current: Pick<LetterSpacingFieldValue, "value" | "unit">,
 ): ParsedLetterSpacingInput | null {
   const raw = input.trim();
-  const explicitUnit = raw
-    .match(/(?:px|em|%)\s*$/i)?.[0]
-    ?.trim()
-    .toLowerCase();
+  const token = singleUnitToken(raw, ["px", "em", "%"]);
+  if (!token) return null;
+  const explicitUnit = token.unit;
   const unit: LetterSpacingUnit =
     explicitUnit === "px" ? "px" : explicitUnit ? "%" : current.unit;
-  const parsed = parseScrubExpression(raw, current.value, {
-    unit: explicitUnit ?? (unit === "%" ? "%" : "px"),
-    precision: 2,
-  });
+  // "em" input is parsed in em (current value converted from % to em, so
+  // relative expressions like "+0.01em" stay in the right space) at 4 decimals
+  // to match LETTER_SPACING_EM_PRECISION, then converted to percent and
+  // rounded to the field's 2 decimals.
+  //
+  // The `x` token has no defined base across dimensions: it's only meaningful
+  // when the explicit unit's dimension matches the field's current unit (px
+  // input against a px field, em/% input against a % field). A bare number
+  // always matches since it keeps the field's unit. When the dimensions
+  // differ, pass NaN so an `x` expression is refused; absolute input (no `x`)
+  // still parses fine against NaN.
+  const nonEmUnit = explicitUnit ?? (unit === "%" ? "%" : "px");
+  const nonEmBase =
+    !explicitUnit || nonEmUnit === current.unit ? current.value : Number.NaN;
+  const parsed =
+    explicitUnit === "em"
+      ? parseScrubExpression(
+          raw,
+          current.unit === "%" ? current.value / 100 : Number.NaN,
+          { unit: "em", precision: LETTER_SPACING_EM_PRECISION },
+        )
+      : parseScrubExpression(raw, nonEmBase, {
+          unit: nonEmUnit,
+          precision: 2,
+        });
   if (!parsed) return null;
-  const value = explicitUnit === "em" ? parsed.value * 100 : parsed.value;
+  const value =
+    explicitUnit === "em"
+      ? Number((parsed.value * 100).toFixed(2))
+      : parsed.value;
   const text = formatScrubValue(value, { unit, precision: 2 });
   return { text, value, unit, cssValue: letterSpacingCssValue(value, unit) };
 }

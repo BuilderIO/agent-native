@@ -20,6 +20,7 @@ import {
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
@@ -58,11 +59,14 @@ export interface TextContentChangeArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
-  finalizePendingTextCreation: (
+  /** Decides whether this write is the creation's first commit BEFORE the
+   *  content is applied, and hands back a `confirm` the caller runs only once
+   *  that publication is accepted. */
+  prepareTextCreationFinalization: (
     fileId: string,
     nodeIds: readonly (string | null | undefined)[],
     finalContent: string,
-  ) => boolean;
+  ) => PendingTextCreationFinalization;
   getFreshActiveContent: () => string;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   recordPendingLiveTextEdit: (
@@ -91,9 +95,9 @@ export function runTextContentChange(
     applyLinkedComponentEdit,
     applyLocalContentUpdate,
     canEditDesign,
-    finalizePendingTextCreation,
     getFreshActiveContent,
     liveScreenSnapshotsById,
+    prepareTextCreationFinalization,
     recordPendingLiveTextEdit,
     setActiveTool,
     setMode,
@@ -255,7 +259,7 @@ export function runTextContentChange(
         defaultTextLayerName(value),
       ) ?? nextContent)
     : nextContent;
-  const finalizedCreation = finalizePendingTextCreation(
+  const finalizedCreation = prepareTextCreationFinalization(
     activeFile.id,
     [
       elementInfo?.sourceId,
@@ -264,19 +268,25 @@ export function runTextContentChange(
     ],
     namedContent,
   );
-  const contentToApply = finalizedCreation ? namedContent : nextContent;
+  const contentToApply = finalizedCreation.isCreationCommit
+    ? namedContent
+    : nextContent;
   let publication: ApplyLocalContentUpdateResult | null = null;
   if (activeLiveSnapshot) {
     updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
-      recordHistory: !finalizedCreation,
+      recordHistory: !finalizedCreation.historyHandled,
     });
   } else {
     publication = applyLocalContentUpdate(contentToApply, {
       skipPreview: true,
-      recordHistory: !finalizedCreation,
+      recordHistory: !finalizedCreation.historyHandled,
     });
+    // A refused publication never wrote this text. Finalizing before it landed
+    // consumed the creation's pending history and left the typed text nowhere:
+    // keep the record so the retry still coalesces into one undo step.
     if (publication.status !== "accepted") return;
   }
+  finalizedCreation.confirm();
   // T8: committing text editing should return to the move tool (matches
   // the creation path, which already does this), not re-arm the text
   // tool — re-arming it meant every subsequent click anywhere on the

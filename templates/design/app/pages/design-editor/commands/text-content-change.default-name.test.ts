@@ -50,10 +50,16 @@ function buildArgs(
       return { status: "accepted", ...publication };
     },
     canEditDesign: true,
-    // Mirrors finalizePendingTextCreation's own contract: true only when
-    // this exact node is the one whose creation is being finalized.
-    finalizePendingTextCreation: (_fileId, nodeIds) =>
-      isPendingCreation && nodeIds.some((id) => id === nodeId),
+    // Mirrors prepareTextCreationFinalization's own contract: only this exact
+    // node's creation commit names the layer. historyHandled is deliberately
+    // false — an unrelated write can leave the undo stack stale without making
+    // this any less the creation's first commit, and the name must still land.
+    prepareTextCreationFinalization: (_fileId, nodeIds) => ({
+      isCreationCommit:
+        isPendingCreation && nodeIds.some((id) => id === nodeId),
+      historyHandled: false,
+      confirm: () => {},
+    }),
     getFreshActiveContent: () => stored,
     liveScreenSnapshotsById: {},
     recordPendingLiveTextEdit: () => {},

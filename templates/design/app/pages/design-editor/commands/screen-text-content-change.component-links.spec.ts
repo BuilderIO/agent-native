@@ -19,7 +19,11 @@ function args(overrides: Record<string, unknown> = {}) {
     applyLinkedComponentEdit: vi.fn(),
     canEditDesign: true,
     designSourceType: "inline" as const,
-    finalizePendingTextCreation: vi.fn(() => false),
+    prepareTextCreationFinalization: vi.fn(() => ({
+      isCreationCommit: false,
+      historyHandled: false,
+      confirm: () => {},
+    })),
     getScreenContent: vi.fn(() => html),
     handleTextContentChange: vi.fn(),
     liveScreenSnapshotsById: {},

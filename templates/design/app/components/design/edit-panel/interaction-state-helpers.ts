@@ -15,6 +15,7 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "letterSpacing",
   "gridTemplateColumns",
   "gridTemplateRows",
+  "gridAutoFlow",
   "display",
   "overflow",
   "webkitBoxOrient",
