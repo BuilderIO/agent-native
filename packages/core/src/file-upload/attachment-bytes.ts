@@ -154,12 +154,15 @@ export function sniffAttachmentMediaType(
  */
 function isTruncated(base64: string, mediaType: SniffedMediaType): boolean {
   if (mediaType === "image/webp") {
-    // RIFF declares its own payload size in bytes 4..7, excluding the 8-byte
-    // header. A short upload leaves that promise unmet.
+    // RIFF declares its own payload size in bytes 4..7, little-endian,
+    // excluding the 8-byte header. A short upload leaves that promise unmet.
+    // Read it unsigned: `<< 24` yields a signed int32, so a header claiming
+    // 0xffffffff would come back as -1 and read as comfortably within the
+    // payload instead of four gigabytes past it.
     const head = decodeHead(base64);
     if (head.length < 8) return true;
     const declared =
-      head[4]! | (head[5]! << 8) | (head[6]! << 16) | (head[7]! << 24);
+      (head[4]! | (head[5]! << 8) | (head[6]! << 16) | (head[7]! << 24)) >>> 0;
     return declared + 8 > decodedByteLength(base64);
   }
 

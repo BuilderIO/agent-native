@@ -185,6 +185,20 @@ describe("payloads that satisfy a magic number but still fail the provider", () 
     ).toEqual({ kind: "truncated", mediaType: "image/webp" });
   });
 
+  // `<< 24` produces a signed int32, so a header claiming 0xffffffff read back
+  // as -1 and looked like it fit comfortably inside the payload.
+  it("rejects a WebP declaring a size with the high bit set", () => {
+    const highBit = Buffer.concat([
+      Buffer.from("RIFF", "ascii"),
+      Buffer.from([0xff, 0xff, 0xff, 0xff]),
+      Buffer.from("WEBPVP8L", "ascii"),
+      Buffer.from([1, 2, 3, 4]),
+    ]).toString("base64");
+    expect(
+      reconcileImageBytes({ base64: highBit, declared: "image/webp" }),
+    ).toEqual({ kind: "truncated", mediaType: "image/webp" });
+  });
+
   it("accepts a WebP whose declared size matches what arrived", () => {
     expect(
       reconcileImageBytes({ base64: WEBP_BASE64, declared: "image/webp" }),
