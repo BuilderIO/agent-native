@@ -15,7 +15,7 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
-import { CONNECT_APPS_FLAG } from "@agent-native/core/feature-flags";
+import { CONNECT_APPS_FLAG } from "@agent-native/core/feature-flags/registry";
 import { Button } from "@agent-native/dispatch/components/ui/button";
 import { Switch } from "@agent-native/dispatch/components/ui/switch";
 import { IconShield } from "@tabler/icons-react";
