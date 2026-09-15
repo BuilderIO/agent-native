@@ -446,7 +446,7 @@ async function handleMcpOAuthStart(
   } catch (error) {
     const failure = resolveMcpOAuthStartError(error);
     trackStartFailure(
-      failure.errorCode === "credential_store_unavailable"
+      failure.body.errorCode === "credential_store_unavailable"
         ? "credential_store_unavailable"
         : "oauth_start_failed",
       scope,
