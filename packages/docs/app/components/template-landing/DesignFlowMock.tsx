@@ -266,9 +266,11 @@ const DESIGN_FLOW_MOCK_CSS = [
   ".design-flow-mock .at-check-mark { width: 30px; height: 16px; margin-bottom: 8px; border-left: 5px solid var(--at-accent-on); border-bottom: 5px solid var(--at-accent-on); transform: rotate(-45deg); }",
   ".design-flow-mock .at-confirm-meta { max-width: 260px; color: var(--at-fg-soft); font-size: 16px; line-height: 1.45; }",
   ".design-flow-mock .at-ticket { display: flex; width: 100%; flex-direction: column; align-items: center; gap: 12px; margin-top: 8px; padding: 22px; border: 2px solid var(--at-line); border-radius: 22px; background: var(--at-elevated); }",
-  // Repeating stripes stand in for a scannable code: a real barcode image would
-  // be the only photographic thing in an otherwise drawn design.
-  ".design-flow-mock .at-ticket-code { width: 100%; height: 56px; border-radius: 8px; background: repeating-linear-gradient(90deg, var(--at-fg) 0 4px, transparent 4px 7px, var(--at-fg) 7px 9px, transparent 9px 15px); opacity: 0.55; }",
+  // Stripes stand in for a scannable code: a real barcode image would be the
+  // only photographic thing in an otherwise drawn design. The repeat is long and
+  // the bar widths uneven, because an even comb reads as a texture rather than
+  // as something a scanner could parse.
+  ".design-flow-mock .at-ticket-code { width: 100%; height: 56px; background: repeating-linear-gradient(90deg, var(--at-fg) 0 3px, transparent 3px 5px, var(--at-fg) 5px 6px, transparent 6px 9px, var(--at-fg) 9px 13px, transparent 13px 15px, var(--at-fg) 15px 16px, transparent 16px 18px, var(--at-fg) 18px 19px, transparent 19px 23px, var(--at-fg) 23px 27px, transparent 27px 28px, var(--at-fg) 28px 30px, transparent 30px 34px, var(--at-fg) 34px 35px, transparent 35px 37px, var(--at-fg) 37px 41px, transparent 41px 43px, var(--at-fg) 43px 44px, transparent 44px 46px, var(--at-fg) 46px 49px, transparent 49px 53px, var(--at-fg) 53px 54px, transparent 54px 56px, var(--at-fg) 56px 60px, transparent 60px 63px); opacity: 0.85; }",
   ".design-flow-mock .at-ticket-label { color: var(--at-fg-soft); font-size: 14px; font-weight: 600; }",
 
   ".design-flow-mock .at-detail { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 12px 4px; border-bottom: 2px solid var(--at-line); font-size: 16px; }",
