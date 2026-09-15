@@ -14,6 +14,7 @@ import {
   IconEdit,
   IconFileImport,
   IconFolder,
+  IconInfoCircle,
   IconLayoutGrid,
   IconMessageCircle,
   IconPlugConnected,
@@ -171,7 +172,7 @@ export function summarizeSkippedPackFiles(
       ? `${listed.join(", ")}, and ${remaining} more`
       : listed.join(", ");
   return [
-    `Skipped ${skipped.length} non-text ${skipped.length === 1 ? "file" : "files"}: ${names}.`,
+    `Skipped ${skipped.length} non-text ${skipped.length === 1 ? "file" : "files"}: ${names}. The rest of the folder will still be imported.`,
   ];
 }
 
@@ -1002,8 +1003,16 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
               </span>
             </div>
             {packWarnings.length > 0 ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                {packWarnings.join(" ")}
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+              >
+                <IconInfoCircle
+                  size={16}
+                  className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+                />
+                <span>{packWarnings.join(" ")}</span>
               </div>
             ) : null}
             <div className="flex flex-col gap-2">

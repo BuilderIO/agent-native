@@ -147,7 +147,15 @@ type Options = {
 
 type GoogleHealthClient = "managed" | "sign_in";
 
-type Target = { lane: string; host: string };
+const GOOGLE_CANONICAL_HOST_ALIASES = new Map([
+  ["starter.agent-native.com", "chat.agent-native.com"],
+]);
+
+export function googleCanonicalHost(host: string): string {
+  return GOOGLE_CANONICAL_HOST_ALIASES.get(host) ?? host;
+}
+
+type Target = { lane: string; host: string; googleHost: string };
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -806,10 +814,22 @@ function allManifestHosts(manifest: Manifest): Set<string> {
 }
 
 function selectedTargets(manifest: Manifest, options: Options): Target[] {
-  if (options.host) return [{ lane: "explicit", host: options.host }];
+  if (options.host) {
+    return [
+      {
+        lane: "explicit",
+        host: options.host,
+        googleHost: googleCanonicalHost(options.host),
+      },
+    ];
+  }
   return Object.entries(manifest).flatMap(([lane, hosts]) =>
     options.env === "all" || options.env === lane
-      ? hosts.map((host) => ({ lane, host }))
+      ? hosts.map((host) => ({
+          lane,
+          host,
+          googleHost: googleCanonicalHost(host),
+        }))
       : [],
   );
 }
@@ -913,7 +933,7 @@ async function run(argv: string[]): Promise<number> {
             : (health.callbackPaths ?? []);
         return health.status === "valid" && health.clientId
           ? mapWithLimit(callbackPaths, 3, async (callbackPath) => {
-              const redirectUri = `https://${target.host}${callbackPath}`;
+              const redirectUri = `https://${target.googleHost}${callbackPath}`;
               return {
                 client,
                 callbackPath,
@@ -1019,7 +1039,7 @@ async function run(argv: string[]): Promise<number> {
       }
       const redirectUriMismatch = googleHealthRedirectUriMismatch(
         health,
-        row.host,
+        row.googleHost,
         client,
       );
       if (redirectUriMismatch) {
