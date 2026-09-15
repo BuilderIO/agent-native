@@ -491,7 +491,14 @@ export function applyOperation(
       }
       if (layoutChanged) {
         slide.layoutFitRevision = createLayoutFitRevision();
-        if (options?.clearLayoutWarningDismissal) {
+        // Re-arm the overflow warning, because new geometry may overflow
+        // differently than whatever the user dismissed. A dismissal sent in
+        // this same patch is the current request, not the stale one being
+        // discarded, so it survives.
+        if (
+          options?.clearLayoutWarningDismissal &&
+          fields.layoutWarningDismissed === undefined
+        ) {
           delete slide.layoutWarningDismissed;
         }
       }

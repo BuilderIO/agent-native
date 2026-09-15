@@ -2403,3 +2403,84 @@ describe("run() — fit state follows the net change, not the replay", () => {
     expect(slide1.layoutWarningDismissed).toBe(true);
   });
 });
+
+describe("run() — explicit dismissal survives a content change", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+  });
+
+  it("keeps a dismissal requested in the same patch as new content", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: "<div>One restyled</div>",
+              layoutWarningDismissed: true,
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const slide1 = JSON.parse(lastUpdatedDeckData!).slides[0];
+    expect(slide1.layoutWarningDismissed).toBe(true);
+    expect(slide1.content).toBe("<div>One restyled</div>");
+  });
+
+  it("still re-arms a stale dismissal when the agent only changes content", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutWarningDismissed: true,
+          },
+        ],
+      }),
+    };
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(
+      JSON.parse(lastUpdatedDeckData!).slides[0].layoutWarningDismissed,
+    ).toBeUndefined();
+  });
+});
