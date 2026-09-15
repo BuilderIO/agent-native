@@ -5581,11 +5581,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         var pos = handle.getAttribute("data-agent-native-radius-handle") || "";
         var size = 9 * line;
         var maxInset = Math.min(elWidth, elHeight) / 2 - size;
-        var inset = Math.max(4 * line, Math.min(16 * line, maxInset));
-        if (inset < 4 * line) {
+        if (maxInset < 4 * line) {
           handle.style.display = "none";
           return;
         }
+        var inset = Math.max(4 * line, Math.min(16 * line, maxInset));
         handle.style.display = "block";
         handle.style.width = size + "px";
         handle.style.height = size + "px";
@@ -12271,8 +12271,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
       var startX = e.clientX;
       var startY = e.clientY;
-      var sx = chromeScaleX();
-      var sy = chromeScaleY();
       var theta = currentRotation(radiusEl) * Math.PI / 180;
       var cos = Math.cos(theta);
       var sin = Math.sin(theta);
@@ -12292,7 +12290,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var screenDy = ev.clientY - startY;
         var localDx = screenDx * cos + screenDy * sin;
         var localDy = -screenDx * sin + screenDy * cos;
-        var delta = (localDx / sx * signX + localDy / sy * signY) / 2;
+        var delta = (localDx * signX + localDy * signY) / 2;
         applyRadius(originRadius + delta);
         applySelectionHandleHitGeometry(radiusEl);
         refreshOverlays();
