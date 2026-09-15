@@ -7650,6 +7650,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return ((transform && transform !== "none" ? transform + " " : "") + "rotate(" + degrees + "deg)").trim();
     }
+    function flipFromTransform(transform) {
+      var value = transform || "";
+      return {
+        x: /scaleX\\(\\s*-1\\s*\\)/i.test(value),
+        y: /scaleY\\(\\s*-1\\s*\\)/i.test(value)
+      };
+    }
+    function mergeFlipIntoTransform(transform, flipX, flipY) {
+      var base = transform && transform !== "none" ? transform : "";
+      if (/^matrix(?:3d)?\\(/i.test(base.trim())) base = "";
+      base = base.replace(/\\s*scaleX\\(\\s*-?1\\s*\\)/gi, "").replace(/\\s*scaleY\\(\\s*-?1\\s*\\)/gi, "").trim();
+      var suffix = (flipX ? " scaleX(-1)" : "") + (flipY ? " scaleY(-1)" : "");
+      return (base + suffix).trim();
+    }
     function ensurePositionable(el) {
       var cs = window.getComputedStyle(el);
       if (cs.position === "static") {
@@ -11505,8 +11519,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalInlineWidth = resizeEl.style.width;
       var originalInlineHeight = resizeEl.style.height;
       var originalInlineFontSize = resizeEl.style.fontSize;
+      var originalInlineTransform = resizeEl.style.transform;
       ensurePositionable(resizeEl);
       var cs = window.getComputedStyle(resizeEl);
+      var flipTransformBase = originalInlineTransform && originalInlineTransform !== "none" ? originalInlineTransform : cs.transform;
+      var originFlip = flipFromTransform(flipTransformBase);
       var originW = readPx(cs.width);
       var originH = readPx(cs.height);
       var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
@@ -11606,21 +11623,18 @@ export const editorChromeBridgeScript: string = `"use strict";
             else width = height * origin.ratio;
           }
         }
-        var clampedW = Math.max(8, width);
-        var clampedH = Math.max(8, height);
-        if (ev.shiftKey || scaleToolEnabled) {
-          if (clampedW !== width) {
-            clampedH = Math.max(8, clampedW / origin.ratio);
-          } else if (clampedH !== height) {
-            clampedW = Math.max(8, clampedH * origin.ratio);
-          }
-        }
-        width = clampedW;
-        height = clampedH;
-        if (handle.indexOf("w") !== -1)
-          left = origin.left + (origin.width - width);
-        if (handle.indexOf("n") !== -1)
-          top = origin.top + (origin.height - height);
+        var anchorLeft = handle.indexOf("w") !== -1 ? origin.left + origin.width : origin.left;
+        var anchorTop = handle.indexOf("n") !== -1 ? origin.top + origin.height : origin.top;
+        var movingLeft = handle.indexOf("w") !== -1 ? anchorLeft - width : anchorLeft + width;
+        var movingTop = handle.indexOf("n") !== -1 ? anchorTop - height : anchorTop + height;
+        var widthCrossed = width < 0;
+        var heightCrossed = height < 0;
+        var flipX = originFlip.x !== widthCrossed;
+        var flipY = originFlip.y !== heightCrossed;
+        left = Math.min(anchorLeft, movingLeft);
+        width = Math.max(1, Math.abs(movingLeft - anchorLeft));
+        top = Math.min(anchorTop, movingTop);
+        height = Math.max(1, Math.abs(movingTop - anchorTop));
         if (ev.altKey) {
           if (handle.indexOf("w") !== -1 || handle.indexOf("e") !== -1)
             left = origin.left - (width - origin.width) / 2;
@@ -11638,7 +11652,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           width,
           height,
           touchesWidth,
-          touchesHeight
+          touchesHeight,
+          flipX,
+          flipY
         };
       }
       function onMove(ev) {
@@ -11657,6 +11673,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
         if (heightTouched)
           resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
+        resizeEl.style.transform = mergeFlipIntoTransform(flipTransformBase, rect.flipX, rect.flipY);
         if (scaleToolEnabled) {
           var kScaleFactor = rect.width / Math.max(1, origin.width);
           if (originFontSize > 0 && !svgViewBoxScalesFont) {
@@ -11676,6 +11693,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
         if (widthTouched) previewStyles.width = resizeEl.style.width;
         if (heightTouched) previewStyles.height = resizeEl.style.height;
+        if (resizeEl.style.transform) previewStyles.transform = resizeEl.style.transform;
         if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
           previewStyles.fontSize = resizeEl.style.fontSize;
         }
@@ -11708,6 +11726,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.width = originalInlineWidth;
           resizeEl.style.height = originalInlineHeight;
           resizeEl.style.fontSize = originalInlineFontSize;
+          resizeEl.style.transform = originalInlineTransform;
           restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
@@ -11724,7 +11743,8 @@ export const editorChromeBridgeScript: string = `"use strict";
                 width: restoredComputed.width,
                 height: restoredComputed.height,
                 borderWidth: restoredComputed.borderWidth,
-                fontSize: restoredComputed.fontSize
+                fontSize: restoredComputed.fontSize,
+                transform: restoredComputed.transform
               },
               payload: getElementInfo(resizeEl)
             },
@@ -11758,6 +11778,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (resizeEl.style.top) styles.top = resizeEl.style.top;
         if (widthTouched) styles.width = resizeEl.style.width;
         if (heightTouched) styles.height = resizeEl.style.height;
+        if (resizeEl.style.transform !== originalInlineTransform) {
+          styles.transform = resizeEl.style.transform;
+        }
         if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
           styles.fontSize = resizeEl.style.fontSize;
         }
