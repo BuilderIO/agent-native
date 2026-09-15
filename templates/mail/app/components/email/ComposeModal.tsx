@@ -328,9 +328,11 @@ export function ComposeModal({
 
   useEffect(() => {
     const currentDraftIds = new Set(drafts.map((draft) => draft.id));
-    for (const id of currentDraftIds) {
-      if (!knownDraftIdsRef.current.has(id)) {
-        pendingNewDraftIdsRef.current.add(id);
+    for (const draft of drafts) {
+      const isNewCompose =
+        draft.mode === "compose" && !draft.savedDraftId && !draft.queuedDraftId;
+      if (isNewCompose && !knownDraftIdsRef.current.has(draft.id)) {
+        pendingNewDraftIdsRef.current.add(draft.id);
       }
     }
     for (const id of pendingNewDraftIdsRef.current) {
