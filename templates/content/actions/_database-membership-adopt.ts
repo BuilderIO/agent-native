@@ -1,4 +1,4 @@
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -82,6 +82,42 @@ async function assertNotAncestorOfDatabase(
       );
     currentId = parent?.parentId ?? null;
   }
+}
+
+/**
+ * Claim the page's row for the rest of the transaction. Mirrors
+ * `lockDatabaseMemberships`: a no-op write is the row lock, and a row count of
+ * zero means the page went away under us.
+ */
+async function lockDocumentRow(tx: Db, documentId: string, ownerEmail: string) {
+  const locked = await tx
+    .update(schema.documents)
+    .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+    .where(
+      and(
+        eq(schema.documents.id, documentId),
+        eq(schema.documents.ownerEmail, ownerEmail),
+      ),
+    )
+    .returning({ id: schema.documents.id });
+  if (locked.length !== 1) throw new Error("Page not found.");
+}
+
+/**
+ * Naming the blocking collection is what lets the caller go and fix it, but the
+ * caller was only authorized against the target collection and the page. A page
+ * shared on its own can sit in a collection its editor cannot read, so the title
+ * is only included when the caller could have read it anyway.
+ */
+async function describeBlockingCollection(blocking: {
+  databaseId: string;
+  documentId: string;
+  title: string;
+}) {
+  const access = await resolveAccess("document", blocking.documentId);
+  return access
+    ? `The page is already a row of the collection "${blocking.title}" (${blocking.databaseId}). Remove it from that collection first with remove-database-items.`
+    : "The page is already a row of another collection you cannot read. Ask its owner to remove the page from that collection first.";
 }
 
 /**
@@ -187,12 +223,19 @@ export async function adoptDocumentIntoDatabase(
       withPositionLock(databaseItemsPositionScope(database.id), () =>
         db.transaction(async (tx: Db) => {
           await lockContentDatabaseMutation(tx, database.id);
+          // The collection lock alone only serializes adopts into the SAME
+          // collection. The single-ordinary-collection invariant below is
+          // about the page, so it needs the page's own row lock: without it
+          // two adopts of one page into different collections each see no
+          // other membership, both insert, and the page ends up a row of two
+          // collections.
+          await lockDocumentRow(tx, documentId, database.ownerEmail);
 
-          // Membership and parent are re-read under the collection's write
-          // lock. Reading them before the lock lets two concurrent adopts of
-          // one page both see "not a member", so the loser hits the unique
-          // (databaseId, documentId) constraint instead of returning the
-          // receipt the winner already made true.
+          // Membership and parent are re-read under those locks. Reading them
+          // earlier lets two concurrent adopts of one page both see "not a
+          // member", so the loser hits the unique (databaseId, documentId)
+          // constraint instead of returning the receipt the winner already
+          // made true.
           const [existingMembership] = await tx
             .select()
             .from(schema.contentDatabaseItems)
@@ -225,6 +268,7 @@ export async function adoptDocumentIntoDatabase(
           const otherMemberships = await tx
             .select({
               databaseId: schema.contentDatabases.id,
+              documentId: schema.contentDatabases.documentId,
               title: schema.contentDatabases.title,
             })
             .from(schema.contentDatabaseItems)
@@ -246,7 +290,7 @@ export async function adoptDocumentIntoDatabase(
             .limit(1);
           if (otherMemberships.length > 0) {
             throw new Error(
-              `The page is already a row of the collection "${otherMemberships[0].title}". Remove it from that collection first with remove-database-items.`,
+              await describeBlockingCollection(otherMemberships[0]),
             );
           }
 
