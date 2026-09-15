@@ -72,6 +72,7 @@ export interface UseCollabReconcileOptions {
     value: string;
     revision: string;
     updatedAt: string;
+    sequence: number;
   } | null;
   /** This exact body revision is already represented in durable Yjs state. */
   collabContentRevision?: string | null;
@@ -317,6 +318,7 @@ export function useCollabReconcile({
     value: string;
     revision: string;
     updatedAt: string;
+    sequence: number;
   } | null>(null);
   const latestObservedUpdatedAtRef = useRef<string | null>(
     contentUpdatedAt ?? null,
@@ -625,8 +627,7 @@ export function useCollabReconcile({
         const acceptedAcknowledgement = acknowledgedLocalSnapshotRef.current;
         const acknowledgementIsNewestAccepted =
           !acceptedAcknowledgement ||
-          acknowledgedLocalSnapshot.updatedAt >
-            acceptedAcknowledgement.updatedAt;
+          acknowledgedLocalSnapshot.sequence > acceptedAcknowledgement.sequence;
         const acknowledgementIsNotSuperseded =
           !latestObservedUpdatedAtRef.current ||
           acknowledgedLocalSnapshot.updatedAt >=

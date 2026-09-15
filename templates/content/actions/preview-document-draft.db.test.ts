@@ -85,6 +85,53 @@ function asUser<T>(userEmail: string, fn: () => Promise<T>, orgId?: string) {
 }
 
 describe("private preview document drafts", () => {
+  it("allows only one request to apply a claimed recovery choice", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    let release!: () => void;
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => (started = resolve));
+    const releasePromise = new Promise<void>((resolve) => (release = resolve));
+    const originalRun = updateDocument.run.bind(updateDocument);
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockImplementationOnce(async (...callArgs) => {
+        started();
+        await releasePromise;
+        return originalRun(...callArgs);
+      });
+    const request = {
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Local recovery",
+      expectedDocumentUpdatedAt: before.updatedAt,
+    };
+    const first = asUser(OWNER, () => resolveDraft.run(request));
+    await startedPromise;
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).rejects.toThrow("already being applied");
+    release();
+    await expect(first).resolves.toMatchObject({
+      status: "resolved",
+      choice: "keep_mine",
+    });
+    updateSpy.mockRestore();
+  });
+
   it("keeps the local version against the exact displayed page and preserves history", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()

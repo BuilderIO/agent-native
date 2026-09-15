@@ -7,7 +7,7 @@ import {
 } from "react";
 
 export interface ReconcileSaveBase {
-  title?: string;
+  title: string;
   content: string;
   updatedAt: string | null;
   revision?: string;
@@ -27,12 +27,17 @@ export interface ReconcileRecoveryDraft {
 
 export function useDocumentReconcileRecovery({
   save,
+  retain,
   getDraft,
   getTitle,
   getSaveIdentity = getDraft,
   stateRef,
 }: {
-  save: (content: string, base?: ReconcileSaveBase) => Promise<boolean>;
+  save: (
+    draft: ReconcileRecoveryDraft,
+    base?: ReconcileSaveBase,
+  ) => Promise<boolean>;
+  retain?: (draft: ReconcileRecoveryDraft) => Promise<void>;
   getDraft: () => string;
   getTitle?: () => string;
   getSaveIdentity?: () => string;
@@ -45,8 +50,26 @@ export function useDocumentReconcileRecovery({
   const current = stateRef ?? internalStateRef;
   const generation = useRef(0);
   const inFlight = useRef(false);
-  const callbacks = useRef({ save, getDraft, getTitle, getSaveIdentity });
-  callbacks.current = { save, getDraft, getTitle, getSaveIdentity };
+  const callbacks = useRef({
+    save,
+    retain,
+    getDraft,
+    getTitle,
+    getSaveIdentity,
+  });
+  callbacks.current = { save, retain, getDraft, getTitle, getSaveIdentity };
+
+  const latestDraft = useCallback(
+    (): ReconcileRecoveryDraft => ({
+      localDraft: callbacks.current.getDraft(),
+      localTitle: callbacks.current.getTitle?.() ?? "",
+    }),
+    [],
+  );
+
+  const retainLatest = useCallback(async () => {
+    if (callbacks.current.retain) await callbacks.current.retain(latestDraft());
+  }, [latestDraft]);
 
   useEffect(
     () => () => {
@@ -96,10 +119,14 @@ export function useDocumentReconcileRecovery({
       try {
         while (generation.current === started) {
           const identity = callbacks.current.getSaveIdentity();
-          const draft = callbacks.current.getDraft();
+          const draft = latestDraft();
           const persisted = await callbacks.current.save(draft, saveBase);
-          if (generation.current !== started) return false;
+          if (generation.current !== started) {
+            await retainLatest();
+            return false;
+          }
           if (!persisted) {
+            await retainLatest();
             publish({
               reason: "conflict",
               localDraft: callbacks.current.getDraft(),
@@ -114,9 +141,15 @@ export function useDocumentReconcileRecovery({
           }
           saveBase = undefined;
         }
+        await retainLatest();
         return false;
       } catch {
         if (generation.current === started) {
+          try {
+            await retainLatest();
+          } catch {
+            // The visible recovery state remains the final fallback.
+          }
           publish({
             reason: "save-failed",
             localDraft: callbacks.current.getDraft(),
@@ -131,7 +164,7 @@ export function useDocumentReconcileRecovery({
           publish({ ...current.current, saving: false });
       }
     },
-    [current, publish],
+    [current, latestDraft, publish, retainLatest],
   );
 
   const resolveChoice = useCallback(
@@ -155,19 +188,28 @@ export function useDocumentReconcileRecovery({
           },
           base,
         );
-        if (!resolved || generation.current !== started) return false;
+        if (!resolved || generation.current !== started) {
+          await retainLatest();
+          return false;
+        }
         const latest = current.current;
         if (
           !latest ||
           latest.localDraft !== snapshot.localDraft ||
           latest.localTitle !== snapshot.localTitle
         ) {
+          await retainLatest();
           return false;
         }
         publish(null);
         return true;
       } catch {
         if (generation.current === started) {
+          try {
+            await retainLatest();
+          } catch {
+            // The visible recovery state remains the final fallback.
+          }
           const latest = current.current;
           if (latest)
             publish({ ...latest, reason: "save-failed", saving: false });
@@ -179,7 +221,7 @@ export function useDocumentReconcileRecovery({
           publish({ ...current.current, saving: false });
       }
     },
-    [current, publish],
+    [current, publish, retainLatest],
   );
 
   const release = useCallback(() => {

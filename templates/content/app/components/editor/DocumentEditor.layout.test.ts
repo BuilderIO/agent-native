@@ -513,7 +513,11 @@ describe("document editor layout", () => {
       source.indexOf("const handleContentChange"),
       source.indexOf("const handleImmediateContentChange"),
     );
-    expect(handler).toContain("if (updateReconcileDraft(newContent)) return;");
+    expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
+    expect(handler).toContain("void reconcileRetainRef.current({");
+    expect(handler.indexOf("return;")).toBeLessThan(
+      handler.indexOf("debouncedSave("),
+    );
     expect(handler.indexOf("updateReconcileDraft(newContent)")).toBeLessThan(
       handler.indexOf("debouncedSave("),
     );

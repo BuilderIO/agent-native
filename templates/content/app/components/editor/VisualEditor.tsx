@@ -1125,6 +1125,7 @@ interface VisualEditorProps {
     value: string;
     revision: string;
     updatedAt: string;
+    sequence: number;
   } | null;
   collabContentRevision?: string | null;
   requestCollabSync?: () => Promise<{

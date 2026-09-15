@@ -206,6 +206,7 @@ import {
 import {
   useDocumentReconcileRecovery,
   type DocumentReconcileRecoveryState,
+  type ReconcileRecoveryDraft,
   type ReconcileSaveBase,
 } from "./useDocumentReconcileRecovery";
 import { VisualEditor } from "./VisualEditor";
@@ -1052,6 +1053,7 @@ type DocumentSaveOptions = {
   allowQueuedSave?: boolean;
   expectedLocalSourceRevision?: string | null;
   contentBase?: DocumentContentBase;
+  titleBase?: string;
   contentEditVersion?: number;
 };
 
@@ -1712,8 +1714,14 @@ function PageEditorSessionBody({
   const reconcileRecoveryStateRef =
     useRef<DocumentReconcileRecoveryState | null>(null);
   const reconcileSaveRef = useRef<
-    (content: string, base?: ReconcileSaveBase) => Promise<boolean>
+    (
+      draft: ReconcileRecoveryDraft,
+      base?: ReconcileSaveBase,
+    ) => Promise<boolean>
   >(async () => false);
+  const reconcileRetainRef = useRef<
+    (draft: ReconcileRecoveryDraft) => Promise<void>
+  >(async () => undefined);
   const reportReconcileRef = useRef<
     (reason: "conflict" | "failed", localDraft: string) => void
   >(() => undefined);
@@ -1835,7 +1843,8 @@ function PageEditorSessionBody({
   const contentEditVersionRef = useRef(0);
   localContentRef.current = localContent;
   const reconcileRecovery = useDocumentReconcileRecovery({
-    save: (content, base) => reconcileSaveRef.current(content, base),
+    save: (draft, base) => reconcileSaveRef.current(draft, base),
+    retain: (draft) => reconcileRetainRef.current(draft),
     getDraft: () => localContentRef.current,
     getTitle: () => localTitleRef.current,
     getSaveIdentity: () =>
@@ -1853,7 +1862,9 @@ function PageEditorSessionBody({
     value: string;
     revision: string;
     updatedAt: string;
+    sequence: number;
   } | null>(null);
+  const acknowledgedLocalSnapshotSequenceRef = useRef(0);
   const getLinkedLocalEditorSnapshot = useCallback(
     () => ({
       title: localTitleRef.current,
@@ -1868,6 +1879,8 @@ function PageEditorSessionBody({
   documentUpdatedAtRef.current = document.updatedAt ?? null;
   const documentContentRef = useRef(document.content);
   documentContentRef.current = document.content;
+  const documentTitleRef = useRef(document.title);
+  documentTitleRef.current = document.title;
   const documentRevisionRef = useRef(document.revision);
   documentRevisionRef.current = document.revision;
   const handleBackgroundSaveError = useCallback(
@@ -2448,9 +2461,10 @@ function PageEditorSessionBody({
                 value: result.content,
                 revision: result.revision,
                 updatedAt: result.updatedAt,
+                sequence: ++acknowledgedLocalSnapshotSequenceRef.current,
               };
               setAcknowledgedLocalSnapshot((current) =>
-                !current || snapshot.updatedAt >= current.updatedAt
+                !current || snapshot.sequence > current.sequence
                   ? snapshot
                   : current,
               );
@@ -2651,10 +2665,17 @@ function PageEditorSessionBody({
       // stale — content. Guard per-field using the field's own watermark.
       const titleIsStale =
         !isLinkedLocalSourceDocument &&
+        options.titleBase === undefined &&
         documentUpdatedAtRef.current &&
         lastSavedTitleRef.current.updatedAt &&
         documentUpdatedAtRef.current > lastSavedTitleRef.current.updatedAt;
       const contentBase = options.contentBase ?? lastSavedContentRef.current;
+      if (
+        options.titleBase !== undefined &&
+        documentTitleRef.current !== options.titleBase
+      ) {
+        return { contentPersisted: false };
+      }
       if (
         options.contentBase &&
         (documentContentRef.current !== options.contentBase.content ||
@@ -2833,6 +2854,21 @@ function PageEditorSessionBody({
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     },
     [documentId, t],
+  );
+  const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
+  const queueRecoveryDraftRetention = useCallback(
+    (title: string, content: string, deferredReason: "conflict" | null) => {
+      const retain = () => retainRecoveryDraft(title, content, deferredReason);
+      const queued = recoveryDraftRetentionQueueRef.current.then(
+        retain,
+        retain,
+      );
+      recoveryDraftRetentionQueueRef.current = queued.catch(() => undefined);
+      return queued;
+    },
+    [retainRecoveryDraft],
   );
   const clearRecoveryDraft = useCallback(
     async (persistedTitle: string, persistedContent: string) => {
@@ -3357,9 +3393,14 @@ function PageEditorSessionBody({
         return;
       localTitleRef.current = newTitle;
       setLocalTitle(newTitle);
-      updateReconcileDraft(localContentRef.current, newTitle);
-      if (!reconcileRecoveryStateRef.current)
-        patchDocumentCaches(queryClient, documentId, { title: newTitle });
+      if (updateReconcileDraft(localContentRef.current, newTitle)) {
+        void reconcileRetainRef.current({
+          localTitle: newTitle,
+          localDraft: localContentRef.current,
+        });
+        return;
+      }
+      patchDocumentCaches(queryClient, documentId, { title: newTitle });
       // Renames must not leave a stale optimistic title for the next landing.
       refreshLandingTitleHintCache(queryClient, documentId, newTitle);
       // The in-memory refresh dies with a reload; the persisted last-location
@@ -3794,7 +3835,10 @@ function PageEditorSessionBody({
   ]);
 
   const handleContentSaveNow = useCallback(
-    async (newContent: string, reconcileBase?: ReconcileSaveBase) => {
+    async (
+      recovery: ReconcileRecoveryDraft,
+      reconcileBase?: ReconcileSaveBase,
+    ) => {
       if (!editorCanEdit) return false;
       contentEditVersionRef.current += 1;
       if (saveTimeoutRef.current) {
@@ -3802,11 +3846,13 @@ function PageEditorSessionBody({
         saveTimeoutRef.current = null;
         pendingDocumentSaveRef.current = null;
       }
-      localContentRef.current = newContent;
-      setLocalContent(newContent);
+      localTitleRef.current = recovery.localTitle;
+      localContentRef.current = recovery.localDraft;
+      setLocalTitle(recovery.localTitle);
+      setLocalContent(recovery.localDraft);
       const result = await queueDocumentSave(
-        localTitleRef.current,
-        newContent,
+        recovery.localTitle,
+        recovery.localDraft,
         {
           contentBase: reconcileBase
             ? {
@@ -3815,6 +3861,7 @@ function PageEditorSessionBody({
                 revision: reconcileBase.revision,
               }
             : undefined,
+          titleBase: reconcileBase?.title,
         },
       );
       return result.contentPersisted;
@@ -3822,6 +3869,14 @@ function PageEditorSessionBody({
     [editorCanEdit, queueDocumentSave],
   );
   reconcileSaveRef.current = handleContentSaveNow;
+  reconcileRetainRef.current = ({ localTitle, localDraft }) =>
+    queueRecoveryDraftRetention(
+      localTitle,
+      localDraft,
+      reconcileRecoveryStateRef.current?.reason === "conflict"
+        ? "conflict"
+        : null,
+    );
   reportReconcileRef.current = reportReconcile;
 
   const handleContentChange = useCallback(
@@ -3830,7 +3885,13 @@ function PageEditorSessionBody({
       contentEditVersionRef.current += 1;
       localContentRef.current = newContent;
       setLocalContent(newContent);
-      if (updateReconcileDraft(newContent)) return;
+      if (updateReconcileDraft(newContent)) {
+        void reconcileRetainRef.current({
+          localTitle: localTitleRef.current,
+          localDraft: newContent,
+        });
+        return;
+      }
       debouncedSave(localTitleRef.current, newContent);
     },
     [debouncedSave, editorCanEdit, updateReconcileDraft],
@@ -3843,7 +3904,12 @@ function PageEditorSessionBody({
         handleContentChange(newContent);
         return "retained";
       }
-      return (await handleContentSaveNow(newContent)) ? "persisted" : "failed";
+      return (await handleContentSaveNow({
+        localTitle: localTitleRef.current,
+        localDraft: newContent,
+      }))
+        ? "persisted"
+        : "failed";
     },
     [editorCanEdit, handleContentChange, handleContentSaveNow],
   );
@@ -3869,6 +3935,7 @@ function PageEditorSessionBody({
       if (result.status === "merged") {
         if (documentContentRef.current === result.serverContent) {
           void resolveReconcile({
+            title: document.title,
             content: result.serverContent,
             updatedAt: documentUpdatedAtRef.current,
             revision: result.serverRevision,

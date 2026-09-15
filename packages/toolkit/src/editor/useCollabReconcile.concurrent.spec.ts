@@ -53,6 +53,7 @@ interface HarnessProps {
     value: string;
     revision: string;
     updatedAt: string;
+    sequence: number;
   } | null;
   editorOwnedFocus?: boolean;
   isEditorFocused?: () => boolean;
@@ -1027,6 +1028,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         value: "Alpha partial",
         revision: "revision-2",
         updatedAt: "2024-01-01T00:00:02.000Z",
+        sequence: 1,
       },
       editorOwnedFocus: true,
     });
@@ -1057,6 +1059,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         value: "Saved local base",
         revision: "revision-2",
         updatedAt: "2024-01-01T00:00:02.000Z",
+        sequence: 1,
       },
       editorOwnedFocus: true,
     });
@@ -1070,6 +1073,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         value: "Saved local base",
         revision: "revision-2",
         updatedAt: "2024-01-01T00:00:02.000Z",
+        sequence: 1,
       },
       editorOwnedFocus: true,
     });
@@ -1103,6 +1107,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         value: "Alpha saved\n\nBravo\n\nCharlie",
         revision: "revision-2",
         updatedAt: "2024-01-01T00:00:02.000Z",
+        sequence: 1,
       },
     });
     await act(async () => vi.advanceTimersByTimeAsync(0));
@@ -1118,6 +1123,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         value: "Alpha saved\n\nBravo\n\nCharlie",
         revision: "revision-2",
         updatedAt: "2024-01-01T00:00:02.000Z",
+        sequence: 1,
       },
     });
     await act(async () => vi.advanceTimersByTimeAsync(0));
@@ -1140,6 +1146,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         value: "Alpha saved\n\nBravo\n\nCharlie",
         revision: "revision-2",
         updatedAt: "2024-01-01T00:00:02.000Z",
+        sequence: 1,
       },
     });
     await act(async () => vi.advanceTimersByTimeAsync(0));
@@ -1155,6 +1162,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         value: "Alpha saved\n\nBravo\n\nCharlie",
         revision: "revision-2",
         updatedAt: "2024-01-01T00:00:02.000Z",
+        sequence: 1,
       },
     });
     await act(async () => vi.advanceTimersByTimeAsync(0));
@@ -1178,6 +1186,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       value: "Alpha saved",
       revision: "revision-2",
       updatedAt: "2024-01-01T00:00:02.000Z",
+      sequence: 1,
     };
     render(root, Harness, {
       value: acknowledgedLocalSnapshot.value,

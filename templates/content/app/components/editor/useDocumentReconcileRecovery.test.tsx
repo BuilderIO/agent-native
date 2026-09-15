@@ -13,6 +13,7 @@ let container: HTMLDivElement;
 let recovery: ReturnType<typeof useDocumentReconcileRecovery>;
 let draft: string;
 const base = {
+  title: "Saved title",
   content: "saved remotely",
   updatedAt: "2026-09-10T12:00:00.000Z",
 };
@@ -32,14 +33,19 @@ afterEach(() => {
 });
 
 function mount(
-  save: (content: string, snapshot?: ReconcileSaveBase) => Promise<boolean>,
+  save: (
+    draft: { localDraft: string; localTitle: string },
+    snapshot?: ReconcileSaveBase,
+  ) => Promise<boolean>,
   getSaveIdentity?: () => string,
+  retain?: (draft: { localDraft: string; localTitle: string }) => Promise<void>,
 ) {
   function Harness() {
     recovery = useDocumentReconcileRecovery({
       save,
       getDraft: () => draft,
       getSaveIdentity,
+      retain,
     });
     return null;
   }
@@ -77,8 +83,8 @@ describe("document reconcile recovery", () => {
     expect(recovery.state?.localDraft).toBe(draft);
     expect(recovery.state?.saving).toBe(true);
     expect(save.mock.calls).toEqual([
-      ["my edits", base],
-      [draft, undefined],
+      [{ localDraft: "my edits", localTitle: "" }, base],
+      [{ localDraft: draft, localTitle: "" }, undefined],
     ]);
     await act(async () => second.resolve(true));
     expect(await result).toBe(true);
@@ -223,6 +229,26 @@ describe("document reconcile recovery", () => {
       localDraft: draft,
       localTitle: "",
       saving: false,
+    });
+  });
+
+  it("durably retains typing added while a secondary choice resolves", async () => {
+    const choice = deferred();
+    const retain = vi.fn(async () => undefined);
+    mount(async () => true, undefined, retain);
+    let result!: Promise<boolean>;
+    act(() => {
+      result = recovery.resolveChoice(base, () => choice.promise);
+    });
+    act(() => {
+      draft = "typing after the request started";
+      recovery.updateDraft(draft);
+    });
+    await act(async () => choice.resolve(true));
+    expect(await result).toBe(false);
+    expect(retain).toHaveBeenCalledWith({
+      localDraft: draft,
+      localTitle: "",
     });
   });
 
