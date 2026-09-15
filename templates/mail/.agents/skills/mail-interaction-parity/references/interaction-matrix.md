@@ -458,10 +458,18 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   pane; Mail's prior card was fixed bottom-right, 540px wide, and 520px tall.
   The follow-up source change now uses a 490px-wide, 300px-tall desktop card
   positioned near the top while preserving the full-height mobile layout and
-  explicit fullscreen branch. A local visual replay after this change is
-  pending because the Mail browser tab is currently at its sign-in gate; no
-  login or live provider action was performed, so no global parity claim is
-  made.
+  explicit fullscreen branch. A follow-up local CUA replay on 2026-09-15 at
+  1280x720 confirmed the compact inbox, thread, and compose states after the
+  change, including the named account filter, recipient removal control, and
+  To combobox. The same replay opened and dismissed no-results Search and the
+  Command palette, found no unlabeled buttons, and reported no browser console
+  errors. Search open measured n=30, p50=273.9ms, empirical p95=281.2ms;
+  Command palette open measured n=30, p50=63.3ms, empirical p95=102.1ms.
+  These are local UI/harness observations, not provider or global performance
+  proof. Captures were shown inline in the task; CUA returned no stable image
+  artifact path. The only connected account was steve@builder.io, so the
+  separate sewell.steve@gmail.com provider round trip and all send/reply
+  mutation cases remain unverified; no email was sent.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation. On 2026-09-14,
