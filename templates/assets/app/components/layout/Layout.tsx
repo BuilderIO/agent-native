@@ -14,7 +14,10 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
@@ -57,6 +60,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const imageModelMenu = useImageModelMenu();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isCreateRoute =
@@ -176,7 +180,9 @@ export function Layout({ children }: LayoutProps) {
           <GenerationResults threadId={threadId} />
         )}
         imageModelMenu={imageModelMenu}
-        composerSlot={<CreativeContextComposerChip />}
+        composerSlot={
+          creativeContextEnabled ? <CreativeContextComposerChip /> : undefined
+        }
       >
         {appFrame}
       </AgentSidebar>

@@ -520,7 +520,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Dieser Browser unterstützt keine Echtzeit-Sprachgespräche.",
   "voiceMode.hideChat": "Chat ausblenden",
-  "voiceMode.keepDictating": "Diktieren",
+  "voiceMode.keepDictating": "Nachricht diktieren",
   "voiceMode.promptDescription":
     "Der Sprachmodus hört weiter zu, während der Agent navigiert und Aktionen ausführt.",
   "voiceMode.promptTitle": "Benutze deine Stimme",
@@ -562,7 +562,7 @@ const messages: AgentChatTranslation = {
     "Verbinde Builder.io, um den verwalteten Sprachmodus mit kostenlosen Credits zu nutzen, oder füge eigene Schlüssel hinzu.",
   "voiceMode.setupTitle": "Sprachmodus einrichten",
   "voiceMode.showChat": "Chat anzeigen",
-  "voiceMode.start": "Echtzeit-Sprache",
+  "voiceMode.start": "Sprachchat starten",
   "voiceMode.startWithOpenAiKey": "Mit OpenAI-Schlüssel starten",
   "voiceMode.status.connecting": "Verbindung wird hergestellt",
   "voiceMode.status.ending": "Sprachmodus beenden",
@@ -599,6 +599,7 @@ const messages: AgentChatTranslation = {
     "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",
   "errorMessages.gatewayNoDetails":
     "Das Modell-Gateway hat keine Fehlerdetails zurückgegeben und der Chat konnte nicht fortgesetzt werden. Warte einen Moment und versuche es erneut. Falls das Problem bestehen bleibt, starte einen neuen Chat.",
+  "errorMessages.creditsLimitReached": "Du hast dein KI-Credit-Limit erreicht.",
   "errorMessages.inactivityTimeout":
     "Die Verbindung zum Agenten wurde wegen Zeitüberschreitung beendet, bevor er fertig war. Du kannst mit dem Teilergebnis fortfahren oder es erneut versuchen.",
   "errorMessages.invalidToolSchema":
@@ -626,6 +627,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Nicht hilfreich",
   "feedback.placeholder": "Sag uns, was schiefgelaufen ist...",
   "feedback.submit": "Senden",
+  "feedback.submitted": "Feedback gesendet",
   "feedback.thumbsDown": "Daumen runter",
   "feedback.thumbsUp": "Daumen hoch",
   "feedback.tooSlow": "Zu langsam",

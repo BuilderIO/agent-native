@@ -23,7 +23,6 @@ export interface PlaybackComment {
   authorEmail?: string | null;
   authorName?: string | null;
   parentId?: string | null;
-  resolved?: boolean;
 }
 
 export type CommentPreviewData = Pick<
@@ -47,7 +46,6 @@ export function getActivePlaybackComments(
       const timestamp = comment.videoTimestampMs;
       return (
         comment.parentId == null &&
-        comment.resolved !== true &&
         comment.content.trim().length > 0 &&
         Number.isFinite(timestamp) &&
         timestamp >= 0 &&

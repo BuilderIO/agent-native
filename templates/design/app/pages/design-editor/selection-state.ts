@@ -456,6 +456,21 @@ export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
   return args.resolvedCount === 0 && !args.additive;
 }
 
+/**
+ * Figma spec §1 (see screen-element-select.ts's click-path
+ * `additiveSelection`): Shift is the only additive (union) gesture. Cmd/Ctrl
+ * deep-selects and REPLACES, same as a plain click. The marquee path must
+ * resolve this the same way the click path does, or a Cmd-marquee unions
+ * onto the existing selection instead of replacing it.
+ *
+ * Exported for unit testing.
+ */
+export function resolveMarqueeAdditive(
+  intent: ElementSelectionIntent | undefined,
+): boolean {
+  return Boolean(intent?.additive || intent?.range || intent?.shiftKey);
+}
+
 /** Clear element context only when a selected review thread changes screens. */
 export function shouldClearSelectionForReviewThreadTarget(args: {
   activeFileId?: string | null;
@@ -576,4 +591,25 @@ export function elementInfoForSelectionSnapshot(
   if (selection.selectedLayerIds.length !== 1) return null;
   const owner = codeLayerOwnerByNodeId.get(selection.selectedLayerIds[0]!);
   return owner ? elementInfoFromCodeLayerNode(owner.node) : null;
+}
+
+/**
+ * Tail of DesignEditor.tsx's `selectedLayerIds` memo: the primary pick
+ * (`selectedElementLayerId`, from `selectedElement`) is re-added when a
+ * stale re-anchoring echo left it out of the otherwise-filtered array.
+ * `selectedElement` is the thing a Shift+click toggle-off must move FIRST
+ * (see runScreenElementSelect) — as long as it does, this never resurrects a
+ * member the user just removed, since the filtered array and the primary
+ * agree on which id fell out.
+ */
+export function resolveEffectiveSelectedLayerIds(
+  filtered: string[],
+  selectedElementLayerId: string | null,
+): string[] {
+  if (selectedElementLayerId && !filtered.includes(selectedElementLayerId)) {
+    return filtered.length > 1
+      ? [...filtered, selectedElementLayerId]
+      : [selectedElementLayerId];
+  }
+  return filtered;
 }

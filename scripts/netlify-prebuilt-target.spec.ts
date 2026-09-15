@@ -28,7 +28,7 @@ test("maps the production chat alias to the starter site", () => {
   assert.equal(target.sourceTemplate, "chat");
   assert.equal(target.sourceRef, "main");
   assert.equal(target.publishDirectory, "templates/chat/dist");
-  assert.match(target.host, /^starter\./);
+  assert.equal(target.host, "chat.agent-native.com");
 });
 
 test("maps PR previews to canonical production sites with a preview ref", () => {

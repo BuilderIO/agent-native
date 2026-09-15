@@ -1,7 +1,15 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { canvasZoom, expandAllLayers, gotoEditor } from "./helpers";
+import {
+  canvasZoom,
+  designFrame,
+  enterDirectMode,
+  expandAllLayers,
+  gotoEditor,
+  installBridge,
+  waitForBridge,
+} from "./helpers";
 
 /**
  * Figma parity — Selection (spec §1 + Part 3 resolutions).
@@ -88,7 +96,10 @@ async function newDesign(page: Page): Promise<string> {
   return id;
 }
 
-async function newBoardDesign(page: Page): Promise<string> {
+async function newBoardDesign(
+  page: Page,
+  content: string = BOARD_FIXTURE,
+): Promise<string> {
   const created = await postAction(page, "create-design", {
     title: "selection parity board",
     projectType: "prototype",
@@ -98,7 +109,7 @@ async function newBoardDesign(page: Page): Promise<string> {
   const board = await postAction(page, "create-file", {
     designId: id,
     filename: "__board__.html",
-    content: BOARD_FIXTURE,
+    content,
     fileType: "html",
   });
   const boardFileId = board?.id ?? board?.data?.id;
@@ -250,6 +261,36 @@ test.describe("click selects the container, not the deep child", () => {
           'directly under the cursor ... skipping the select-container step."',
       })
       .toContain("Kid B");
+  });
+
+  test("cmd+click a child of an already-selected Card replaces the selection with the child, not the Card", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditorAndExpandLayers(page, id);
+    const card = (await node(page, "card").boundingBox())!;
+    // Card's own padding, below both children: a plain click here selects
+    // the container directly (it is already top-level).
+    await page.mouse.click(card.x + card.width / 2, card.y + card.height - 20);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: the plain click must select Card",
+      })
+      .toContain("Card");
+
+    const kidA = (await node(page, "kid-a").boundingBox())!;
+    await click(page, kidA, ["Meta"]);
+
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message:
+          "cmd/ctrl+click always REPLACES the selection (spec Part 3) even " +
+          "when it deep-selects a child of the currently-selected container — " +
+          "it must not union the child onto the container's selection.",
+      })
+      .toBe("Kid A");
   });
 });
 
@@ -546,5 +587,281 @@ test.describe("board objects on the overview canvas", () => {
           expect.stringContaining("Board B"),
         ]),
       );
+  });
+
+  test("cmd+click a child of an already-selected Card on the board surface replaces the selection with the child", async ({
+    page,
+  }) => {
+    // Reuses the nested Card/Kid A/Kid B fixture as the board file's content
+    // — the bug this guards is generic to the shared bridge/host round trip
+    // both the board surface and screen iframes funnel through, not specific
+    // to either one.
+    const id = await newBoardDesign(page, FIXTURE);
+    await openEditorAndExpandLayers(page, id);
+    const card = (await node(page, "card").boundingBox())!;
+    await page.mouse.click(card.x + card.width / 2, card.y + card.height - 20);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: the plain click must select Card",
+      })
+      .toContain("Card");
+
+    const kidA = (await node(page, "kid-a").boundingBox())!;
+    await click(page, kidA, ["Meta"]);
+
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message:
+          "cmd/ctrl+click on a board object's child must REPLACE the " +
+          "selection with the child, not leave the container selected.",
+      })
+      .toBe("Kid A");
+  });
+});
+
+/**
+ * Figma parity — overview screen selection must be the single source of
+ * truth for what Cmd+A treats as "the current selection".
+ *
+ * Repro (from the Cmd+A scope work): select a nested element inside Screen 1
+ * (leaves `selectedLayerIdsState` holding a real layer id), then — WITHOUT
+ * deselecting — select Screen 2's card on the overview canvas. Figma ground
+ * truth: once a Screen card is the selection, Cmd+A must select all Screens,
+ * never the stale element's siblings from a different screen.
+ *
+ * Fixture: "index.html" (Screen 1) nests Alpha/Beta buttons two levels deep
+ * (main > row > button), matching FIXTURE_HTML's shape so a real double-click
+ * descends to the leaf. "page-two.html" (Screen 2) is a plain second screen.
+ */
+
+const SCREEN_ONE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Screen One</title></head>
+  <body style="margin:0;min-height:600px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <main data-agent-native-node-id="s1-main" data-agent-native-layer-name="Main"
+          style="padding:40px;display:flex;flex-direction:column;gap:16px">
+      <div data-agent-native-node-id="s1-row" data-agent-native-layer-name="Row"
+           style="display:flex;flex-direction:row;gap:16px">
+        <button data-agent-native-node-id="s1-alpha" data-agent-native-layer-name="Alpha Button"
+                style="padding:14px 28px;border-radius:10px;border:0;background:#6366f1;color:#fff">Alpha Button</button>
+        <button data-agent-native-node-id="s1-beta" data-agent-native-layer-name="Beta Button"
+                style="padding:14px 28px;border-radius:10px;border:0;background:#22c55e;color:#06240f">Beta Button</button>
+      </div>
+    </main>
+  </body>
+</html>`;
+
+const SCREEN_TWO = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Screen Two</title></head>
+  <body style="margin:0;min-height:400px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <section data-agent-native-node-id="s2-target" data-agent-native-layer-name="Page2Target"
+             style="margin:40px;width:300px;height:200px;background:#312e81"></section>
+  </body>
+</html>`;
+
+async function newTwoScreenDesign(page: Page): Promise<string> {
+  const created = await postAction(page, "create-design", {
+    title: "parity selection cmd+a",
+    projectType: "prototype",
+  });
+  const id = created?.id ?? created?.data?.id;
+  if (!id) throw new Error("create-design returned no id");
+  await postAction(page, "create-file", {
+    designId: id,
+    filename: "index.html",
+    content: SCREEN_ONE,
+    fileType: "html",
+  });
+  await postAction(page, "create-file", {
+    designId: id,
+    filename: "page-two.html",
+    content: SCREEN_TWO,
+    fileType: "html",
+  });
+  return id;
+}
+
+async function fileIdFor(
+  page: Page,
+  id: string,
+  filename: string,
+): Promise<string> {
+  const record = await page.request
+    .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
+    .then((r) => r.json());
+  const file = (record.files ?? []).find((f: any) => f.filename === filename);
+  if (!file) throw new Error(`no file ${filename} in design ${id}`);
+  return file.id;
+}
+
+function screenCard(page: Page, index: number): Locator {
+  return page.locator("[data-screen-card]").nth(index);
+}
+
+/**
+ * Double-click a named leaf inside a specific screen's iframe (overview
+ * mode). A plain single click always selects the outer content frame under
+ * the pointer (see e2e/helpers.ts's selectableNodeByText); only a real
+ * double-click descends to the exact leaf, which is what "a nested element
+ * is selected" needs here.
+ */
+async function selectByTextDeepInScreen(
+  page: Page,
+  screenId: string,
+  text: string,
+): Promise<void> {
+  await enterDirectMode(page);
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
+  const frame = designFrame(page, screenId);
+  const candidates = frame.locator("[data-agent-native-node-id]", {
+    hasText: text,
+  });
+  const count = await candidates.count();
+  let bestIndex = 0;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < count; index += 1) {
+    const candidate = candidates.nth(index);
+    const box = await candidate.boundingBox().catch(() => null);
+    if (!box || box.width <= 0 || box.height <= 0) continue;
+    const tag = await candidate.evaluate((el) => el.tagName);
+    if (tag === "SPAN") continue;
+    const area = box.width * box.height;
+    if (area < bestArea) {
+      bestArea = area;
+      bestIndex = index;
+    }
+  }
+  if (count === 0) {
+    throw new Error(`no element found matching text ${JSON.stringify(text)}`);
+  }
+  const targetNode = candidates.nth(bestIndex);
+  await targetNode.scrollIntoViewIfNeeded();
+  const box = (await targetNode.boundingBox())!;
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+  const message = await waitForBridge(page, "element-select");
+  expect(String(message?.payload?.componentName ?? "")).toBe(text);
+  // A double-click on a text-bearing leaf also enters text editing, moving
+  // DOM focus inside the iframe — Escape exits editing without losing the
+  // shape selection, restoring the outer window as the hotkey listener's
+  // keydown target.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(100);
+}
+
+test.describe
+  .serial("overview screen selection vs stale layer selection (Cmd+A)", () => {
+  let designId: string;
+  let screen1Id: string;
+
+  test.beforeEach(async ({ page }) => {
+    designId = await newTwoScreenDesign(page);
+    screen1Id = await fileIdFor(page, designId, "index.html");
+    await gotoEditor(page, designId);
+    await expect(page.locator("[data-screen-card]").first()).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
+  test("click-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens", async ({
+    page,
+  }) => {
+    await selectByTextDeepInScreen(page, screen1Id, "Alpha Button");
+    await expandAllLayers(page);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).length, {
+        message: "precondition: the button click must select one layer row",
+      })
+      .toBe(1);
+
+    // Click Screen 2's name label (chrome above the card, never overlapping
+    // its content) WITHOUT deselecting the nested element first — clicking
+    // inside the card's rendered content selects the content element under
+    // the pointer instead, same as any other overview element click.
+    await page
+      .locator('[data-frame-title][title="page-two.html"]')
+      .click({ force: true });
+    await page.waitForTimeout(200);
+
+    await page.keyboard.press(`${MOD}+a`);
+    await page.waitForTimeout(300);
+
+    const names = (await selectedLayerNames(page)).slice().sort();
+    expect(
+      names,
+      "Cmd+A after clicking a Screen card must select exactly the two " +
+        `Screens ("Home" and "Two"), not the previously-selected element's ` +
+        `siblings from a different screen; got ${JSON.stringify(names)}`,
+    ).toEqual(["Home", "Two"]);
+
+    await expect(
+      page.locator("[data-frame-selection-box]"),
+      "Cmd+A after clicking a Screen card must produce a screen-level selection box",
+    ).not.toHaveCount(0);
+  });
+
+  test("marquee-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens", async ({
+    page,
+  }) => {
+    // The two screens stack with only a few px of gap between Screen 1's
+    // card and Screen 2's full frame (label included), so a marquee that
+    // fully encloses Screen 2's frame unavoidably clips into Screen 1's
+    // card too. Drag Screen 2 far away first — a real, independent gesture
+    // — so the marquee below can fully enclose it with generous padding on
+    // every side and unambiguously test screen-marquee selection alone.
+    const label = page.locator('[data-frame-title][title="page-two.html"]');
+    const labelBox = (await label.boundingBox())!;
+    await page.mouse.move(
+      labelBox.x + labelBox.width / 2,
+      labelBox.y + labelBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      labelBox.x + labelBox.width / 2 + 500,
+      labelBox.y + labelBox.height / 2 + 50,
+      { steps: 12 },
+    );
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+
+    // Re-establish the repro precondition after the reposition above (which
+    // itself selects Screen 2 as a side effect of the drag).
+    await selectByTextDeepInScreen(page, screen1Id, "Alpha Button");
+    await expandAllLayers(page);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).length, {
+        message: "precondition: the button click must select one layer row",
+      })
+      .toBe(1);
+
+    const card2 = (await screenCard(page, 1).boundingBox())!;
+    await page.mouse.move(card2.x - 60, card2.y - 60);
+    await page.mouse.down();
+    await page.mouse.move(
+      card2.x + card2.width + 60,
+      card2.y + card2.height + 60,
+      { steps: 8 },
+    );
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+
+    await page.keyboard.press(`${MOD}+a`);
+    await page.waitForTimeout(300);
+
+    const names = (await selectedLayerNames(page)).slice().sort();
+    expect(
+      names,
+      "Cmd+A after marquee-selecting a Screen card must select exactly " +
+        `the two Screens ("Home" and "Two"), not the previously-selected ` +
+        `element's siblings from a different screen; got ${JSON.stringify(names)}`,
+    ).toEqual(["Home", "Two"]);
+
+    await expect(
+      page.locator("[data-frame-selection-box]"),
+      "Cmd+A after marquee-selecting a Screen card must produce a screen-level selection box",
+    ).not.toHaveCount(0);
   });
 });

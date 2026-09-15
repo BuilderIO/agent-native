@@ -510,7 +510,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Este navegador não oferece suporte a conversas de voz em tempo real.",
   "voiceMode.hideChat": "Ocultar bate-papo",
-  "voiceMode.keepDictating": "Ditar",
+  "voiceMode.keepDictating": "Ditar uma mensagem",
   "voiceMode.promptDescription":
     "O modo de voz continua ouvindo enquanto o agente navega e executa ações.",
   "voiceMode.promptTitle": "Use sua voz",
@@ -552,7 +552,7 @@ const messages: AgentChatTranslation = {
     "Conecte Builder.io para usar voz gerenciada com créditos gratuitos ou adicione suas próprias chaves.",
   "voiceMode.setupTitle": "Configurar o modo de voz",
   "voiceMode.showChat": "Mostrar bate-papo",
-  "voiceMode.start": "Voz em tempo real",
+  "voiceMode.start": "Iniciar conversa por voz",
   "voiceMode.startWithOpenAiKey": "Iniciar com uma chave da OpenAI",
   "voiceMode.status.connecting": "Conectando",
   "voiceMode.status.ending": "Encerrando o modo de voz",
@@ -596,6 +596,8 @@ const messages: AgentChatTranslation = {
     "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
   "errorMessages.gatewayNoDetails":
     "O gateway do modelo não retornou detalhes do erro, e o chat não pôde ser recuperado. Aguarde um momento e tente novamente. Se o problema persistir, inicie um novo chat.",
+  "errorMessages.creditsLimitReached":
+    "Você atingiu o limite de créditos de IA.",
   "errorMessages.inactivityTimeout":
     "A conexão com o agente expirou antes da conclusão. Você pode continuar a partir do trabalho parcial ou tentar novamente.",
   "errorMessages.invalidToolSchema":
@@ -622,6 +624,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Pouco útil",
   "feedback.placeholder": "Conte-nos o que deu errado...",
   "feedback.submit": "Enviar",
+  "feedback.submitted": "Feedback enviado",
   "feedback.thumbsDown": "Não gostei",
   "feedback.thumbsUp": "Gostei",
   "feedback.tooSlow": "Muito lento",

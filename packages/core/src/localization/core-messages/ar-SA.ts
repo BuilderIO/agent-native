@@ -301,7 +301,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "هذا المتصفح لا يدعم المحادثات الصوتية في الوقت الفعلي.",
   "voiceMode.hideChat": "إخفاء المحادثة",
-  "voiceMode.keepDictating": "إملاء",
+  "voiceMode.keepDictating": "إملاء رسالة",
   "voiceMode.promptDescription":
     "يستمر الوضع الصوتي في الاستماع أثناء تنقّل الوكيل وتنفيذه للإجراءات.",
   "voiceMode.promptTitle": "استخدم صوتك",
@@ -343,7 +343,7 @@ const messages: AgentChatTranslation = {
     "اتصل بـ Builder.io لاستخدام الصوت المُدار بأرصدة مجانية، أو أضف مفاتيحك الخاصة.",
   "voiceMode.setupTitle": "إعداد الوضع الصوتي",
   "voiceMode.showChat": "إظهار المحادثة",
-  "voiceMode.start": "صوت في الوقت الفعلي",
+  "voiceMode.start": "بدء محادثة صوتية",
   "voiceMode.startWithOpenAiKey": "البدء باستخدام مفتاح OpenAI",
   "voiceMode.status.connecting": "جارٍ الاتصال",
   "voiceMode.status.ending": "جارٍ إنهاء الوضع الصوتي",
@@ -372,6 +372,8 @@ const messages: AgentChatTranslation = {
     "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
   "errorMessages.gatewayNoDetails":
     "لم تُرجع بوابة النموذج أي تفاصيل عن الخطأ وتعذّر على المحادثة الاسترداد. انتظر قليلًا ثم أعد المحاولة، أو ابدأ محادثة جديدة إذا استمرت المشكلة.",
+  "errorMessages.creditsLimitReached":
+    "لقد وصلت إلى الحد الأقصى لأرصدة الذكاء الاصطناعي.",
   "errorMessages.inactivityTimeout":
     "انتهت مهلة اتصال الوكيل قبل أن يتمكن من الإكمال. يمكنك المتابعة من العمل الجزئي أو إعادة المحاولة.",
   "errorMessages.invalidToolSchema":
@@ -397,6 +399,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "غير مفيد",
   "feedback.placeholder": "أخبرنا بما حدث من خطأ...",
   "feedback.submit": "إرسال",
+  "feedback.submitted": "تم إرسال الملاحظات",
   "feedback.thumbsDown": "عدم إعجاب",
   "feedback.thumbsUp": "إعجاب",
   "feedback.tooSlow": "بطيء جدًا",

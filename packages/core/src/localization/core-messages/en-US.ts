@@ -296,7 +296,7 @@ const messages = {
   "voiceMode.errors.unsupported":
     "This browser does not support realtime voice conversations.",
   "voiceMode.hideChat": "Hide chat",
-  "voiceMode.keepDictating": "Dictate",
+  "voiceMode.keepDictating": "Dictate a message",
   "voiceMode.promptDescription":
     "Voice mode keeps listening while the agent navigates and takes actions.",
   "voiceMode.promptTitle": "Use your voice",
@@ -338,7 +338,7 @@ const messages = {
     "Connect Builder.io to use managed voice with free credits, or add your own keys.",
   "voiceMode.setupTitle": "Set up voice mode",
   "voiceMode.showChat": "Show chat",
-  "voiceMode.start": "Real-time voice",
+  "voiceMode.start": "Start voice chat",
   "voiceMode.startWithOpenAiKey": "Start with OpenAI key",
   "voiceMode.status.connecting": "Connecting",
   "voiceMode.status.ending": "Ending voice mode",
@@ -367,6 +367,7 @@ const messages = {
     "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
+  "errorMessages.creditsLimitReached": "You've reached your AI credits limit.",
   "errorMessages.inactivityTimeout":
     "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
   "errorMessages.invalidToolSchema":
@@ -392,6 +393,7 @@ const messages = {
   "feedback.notHelpful": "Not helpful",
   "feedback.placeholder": "Tell us what went wrong...",
   "feedback.submit": "Submit",
+  "feedback.submitted": "Feedback submitted",
   "feedback.thumbsDown": "Thumbs down",
   "feedback.thumbsUp": "Thumbs up",
   "feedback.tooSlow": "Too slow",

@@ -304,7 +304,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "このブラウザーはリアルタイム音声会話に対応していません。",
   "voiceMode.hideChat": "チャットを非表示",
-  "voiceMode.keepDictating": "音声入力",
+  "voiceMode.keepDictating": "メッセージを音声入力",
   "voiceMode.promptDescription":
     "音声モードでは、エージェントが画面を移動して操作している間も音声を聞き続けます。",
   "voiceMode.promptTitle": "音声を使用",
@@ -346,7 +346,7 @@ const messages: AgentChatTranslation = {
     "Builder.io に接続して無料クレジット付きの管理音声を使用するか、独自のキーを追加します。",
   "voiceMode.setupTitle": "音声モードを設定",
   "voiceMode.showChat": "チャットを表示",
-  "voiceMode.start": "リアルタイム音声",
+  "voiceMode.start": "音声チャットを開始",
   "voiceMode.startWithOpenAiKey": "OpenAI キーで開始",
   "voiceMode.status.connecting": "接続中",
   "voiceMode.status.ending": "音声モードを終了中",
@@ -375,6 +375,7 @@ const messages: AgentChatTranslation = {
     "エージェントが応答する前にモデルゲートウェイで内部エラーが発生しました。少し待ってから再試行し、繰り返す場合は下のエラー ID を伝えてください。",
   "errorMessages.gatewayNoDetails":
     "モデルゲートウェイからエラーの詳細が返されず、チャットを復旧できませんでした。少し待ってから再試行し、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.creditsLimitReached": "AIクレジットの上限に達しました。",
   "errorMessages.inactivityTimeout":
     "エージェントとの接続が完了前にタイムアウトしました。途中までの作業から続行するか、再試行できます。",
   "errorMessages.invalidToolSchema":
@@ -401,6 +402,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "役に立たない",
   "feedback.placeholder": "問題点を教えてください…",
   "feedback.submit": "送信",
+  "feedback.submitted": "フィードバックを送信しました",
   "feedback.thumbsDown": "低評価",
   "feedback.thumbsUp": "高評価",
   "feedback.tooSlow": "遅すぎる",

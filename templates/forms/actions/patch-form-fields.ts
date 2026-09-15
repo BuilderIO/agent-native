@@ -66,7 +66,12 @@ export function withFormLock<T>(
   return next;
 }
 
-const fieldOpSchema = z.union([
+// Discriminated on `op`, not a plain union. A plain union collapses every
+// branch failure into a bare `ops.0: Invalid input`, which tells a model
+// nothing about which property it got wrong, so it re-sends the same op
+// until the repeated-error breaker ends the turn. Discriminating reports
+// the real path instead, e.g. `ops.0.field.type`.
+const fieldOpSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("upsert"),
     // `id` is optional on create-form (auto-generated from the label) but the
@@ -99,10 +104,15 @@ export default defineAction({
     "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive. Before adding or restyling a field, read the form with `get-form` and follow its theme and the other fields' label, required, and help-text conventions so the new field matches its siblings.",
   schema: z.object({
     id: z.string().describe("Form ID"),
+    // Declared as the real array, never `string | array`. A JSON string still
+    // works (`coerceGatewayStringifiedArgs` parses it because the declared type
+    // is `array`), but the parsed ops are then checked against `fieldOpSchema`.
+    // The old `z.string()` branch skipped that check entirely, so a malformed
+    // op reached `applyFieldOps` and only failed later in `assertValidFields`.
     ops: z
-      .union([z.string(), z.array(fieldOpSchema)])
+      .array(fieldOpSchema)
       .describe(
-        "Array of field ops, or JSON string of the same. Each op is {op:'upsert',field:{...}} | {op:'remove',id:string} | {op:'reorder',ids:string[]}",
+        "Array of field ops (a JSON string of the same array is also accepted). Each op is {op:'upsert',field:{...}} | {op:'remove',id:string} | {op:'reorder',ids:string[]}",
       ),
   }),
   run: async (args, ctx) => {
@@ -110,20 +120,7 @@ export default defineAction({
 
     return withFormLock(args.id, async () => {
       const db = getDb();
-      let ops: Array<{ op: string; [k: string]: unknown }>;
-      if (typeof args.ops === "string") {
-        try {
-          ops = JSON.parse(args.ops);
-        } catch {
-          fail("--ops must be valid JSON", { errorCode: "invalid_ops" });
-        }
-      } else {
-        ops = args.ops as Array<{ op: string; [k: string]: unknown }>;
-      }
-
-      if (!Array.isArray(ops)) {
-        fail("ops must be an array", { errorCode: "invalid_ops" });
-      }
+      const ops = args.ops as Array<{ op: string; [k: string]: unknown }>;
 
       // ponytail: three CAS attempts; move to a shared retry policy if hot-form
       // contention needs tuning.

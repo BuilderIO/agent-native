@@ -49,6 +49,7 @@ import type { Doc as YDoc } from "yjs";
 
 import { createCodeBlockNode } from "./CodeBlockNode.js";
 import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
+import { TaskListPasteNormalization } from "./TaskListPaste.js";
 
 interface YSyncBindingWithInitialRender {
   beforeTransactionSelection: unknown;
@@ -396,6 +397,7 @@ export function createSharedEditorExtensions({
         HTMLAttributes: { class: "an-rich-md-task-list" },
       }),
       TaskItem.configure({ nested: true }),
+      TaskListPasteNormalization,
     );
   }
 

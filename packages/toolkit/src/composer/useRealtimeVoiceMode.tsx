@@ -1371,10 +1371,10 @@ function voiceCopy(t: ComposerTranslate): RealtimeVoiceModeCopy {
       defaultValue: "Start with OpenAI key",
     }),
     startVoiceMode: t("agentChat.voiceMode.start", {
-      defaultValue: "Real-time voice",
+      defaultValue: "Start voice chat",
     }),
     keepDictating: t("agentChat.voiceMode.keepDictating", {
-      defaultValue: "Dictate",
+      defaultValue: "Dictate a message",
     }),
     rememberPreference: t("agentChat.voiceMode.rememberPreference", {
       defaultValue: "Remember my preference",

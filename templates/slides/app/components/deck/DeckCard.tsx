@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareSheet,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconBuildingCommunity,
@@ -50,6 +53,7 @@ export default function DeckCard({
   onSetWorkspaceDefault,
 }: DeckCardProps) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const firstSlide = deck.previewSlide ?? deck.slides?.[0];
   const previewFrameStyle = getDeckListingPreviewFrameStyle(deck.aspectRatio);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -245,16 +249,18 @@ export default function DeckCard({
               <IconShare2 className="w-3.5 h-3.5 me-2" />
               {t("share.title")}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                setMenuOpen(false);
-                setContextOpen(true);
-              }}
-            >
-              <IconPlus className="w-3.5 h-3.5 me-2" />
-              {t("creativeContext.addToContext" /* i18n-key-ignore */)}
-            </DropdownMenuItem>
+            {creativeContextEnabled ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setMenuOpen(false);
+                  setContextOpen(true);
+                }}
+              >
+                <IconPlus className="w-3.5 h-3.5 me-2" />
+                {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+              </DropdownMenuItem>
+            ) : null}
             {canSetWorkspaceDefault && onSetWorkspaceDefault && (
               <DropdownMenuItem
                 onSelect={(event) => {
@@ -284,20 +290,22 @@ export default function DeckCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <CreativeContextShareSheet
-        open={contextOpen}
-        onOpenChange={setContextOpen}
-        resource={{
-          appId: "slides",
-          resourceType: "deck",
-          resourceId: deck.id,
-          title: deck.title,
-          updatedAt: deck.updatedAt,
-          visibility: deck.visibility,
-          preview: { kind: "document", label: "Deck" },
-        }}
-        canManage={deck.createdByMe}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={contextOpen}
+          onOpenChange={setContextOpen}
+          resource={{
+            appId: "slides",
+            resourceType: "deck",
+            resourceId: deck.id,
+            title: deck.title,
+            updatedAt: deck.updatedAt,
+            visibility: deck.visibility,
+            preview: { kind: "document", label: "Deck" },
+          }}
+          canManage={deck.createdByMe}
+        />
+      ) : null}
       <ShareDialog deck={deck} open={shareOpen} onOpenChange={setShareOpen} />
     </div>
   );

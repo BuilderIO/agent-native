@@ -9,7 +9,7 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { eq, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -63,19 +63,44 @@ export default defineAction({
       }
     }
 
-    // Delete this comment and any direct replies.
+    // Gather the complete descendant tree before deleting so nested replies
+    // cannot survive with a missing parent after the root is removed.
+    const deletedIds = new Set([existing.id]);
+    let frontier = [existing.id];
+    while (frontier.length > 0) {
+      const children = await db
+        .select({ id: schema.recordingComments.id })
+        .from(schema.recordingComments)
+        .where(
+          and(
+            inArray(schema.recordingComments.parentId, frontier),
+            eq(schema.recordingComments.recordingId, existing.recordingId),
+            eq(
+              schema.recordingComments.organizationId,
+              existing.organizationId,
+            ),
+          ),
+        );
+      const nextIds = children
+        .map((comment) => comment.id)
+        .filter((id) => !deletedIds.has(id));
+      nextIds.forEach((id) => deletedIds.add(id));
+      frontier = nextIds;
+    }
+
     await db
       .delete(schema.recordingComments)
       .where(
-        or(
-          eq(schema.recordingComments.id, args.id),
-          eq(schema.recordingComments.parentId, args.id),
+        and(
+          inArray(schema.recordingComments.id, Array.from(deletedIds)),
+          eq(schema.recordingComments.recordingId, existing.recordingId),
+          eq(schema.recordingComments.organizationId, existing.organizationId),
         ),
       );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(`Deleted comment ${args.id}`);
-    return { id: args.id };
+    return { id: args.id, deletedCommentIds: Array.from(deletedIds) };
   },
 });

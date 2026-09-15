@@ -108,6 +108,28 @@ Decks the user has starred are their intended reference decks. `list-decks`
 reports `starred` so you can offer them when the user asks for something "like
 our usual deck".
 
+## Attached Reference Documents
+
+A PDF, PPTX, or DOCX attached to a new-deck prompt is read before your run
+starts. Its extracted content and, for a PDF, its measured visual language —
+page proportions, painted backgrounds, the ranked type scale with families,
+sizes, weights and colors, median text margins, paragraph alignment — arrive as
+an `## Attached Reference Documents` block.
+
+That block is the reference. Do not call `import-file` for a file listed there,
+and never generate as if the attachment were missing: if the file could not be
+read, the run would have been stopped before it reached you, so a file you can
+see in that block was read successfully.
+
+When the user attached the file as a visual or style reference, match the
+measured type scale, weights, colors, alignment, and margins. A deck generated
+from a style reference must not come out looking like one generated without it.
+Structure and wording still come from the user's request, not from the
+reference's own page order.
+
+The fallback visual language in this skill applies only when no reference
+document, reference deck, or design system is present.
+
 ## Workspace Defaults
 
 A workspace admin can flag one deck and one design system as the workspace
