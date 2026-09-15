@@ -328,7 +328,7 @@ const messages = {
     summaryRecent_many: "{{count}} recent runs",
     noTrackedWorkYet: "Nenhum trabalho monitorado ainda",
     emptyDescription:
-      "O trabalho do agente em segundo plano aparecerá aqui durante a execução e após a conclusão.",
+      "As rodadas de chat e o trabalho do agente em segundo plano aparecem aqui durante a execução e após a conclusão.",
     open: "Abrir",
     stopRun: "Stop {{title}}",
     hideRun: "Hide {{title}}",

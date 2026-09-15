@@ -305,7 +305,7 @@ const messages = {
     summaryRunningRecent: "{{activeCount}} running · {{terminalCount}} recent",
     summaryRecent_other: "{{count}} recent runs",
     noTrackedWorkYet: "尚未跟踪工作",
-    emptyDescription: "后台代理工作在运行时和完成后将显示在此处。",
+    emptyDescription: "聊天轮次和后台代理工作在运行时和完成后将显示在此处。",
     open: "打开",
     stopRun: "Stop {{title}}",
     hideRun: "Hide {{title}}",

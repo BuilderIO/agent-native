@@ -311,7 +311,7 @@ const messages = {
     summaryRecent_other: "{{count}} recent runs",
     noTrackedWorkYet: "अभी तक कोई ट्रैक किया गया कार्य नहीं",
     emptyDescription:
-      "बैकग्राउंड एजेंट का काम चलने के दौरान और ख़त्म होने के बाद यहां दिखाई देगा।",
+      "चैट टर्न और बैकग्राउंड एजेंट का काम चलने के दौरान और ख़त्म होने के बाद यहां दिखाई देता है।",
     open: "खोलें",
     stopRun: "Stop {{title}}",
     hideRun: "Hide {{title}}",

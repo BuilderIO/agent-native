@@ -329,7 +329,7 @@ const messages = {
     summaryRecent_many: "{{count}} recent runs",
     noTrackedWorkYet: "Pas encore de travaux suivis",
     emptyDescription:
-      "Le travail de l'agent en arrière-plan apparaîtra ici pendant son exécution et une fois terminé.",
+      "Les tours de discussion et le travail de l'agent en arrière-plan apparaissent ici pendant leur exécution et une fois terminés.",
     open: "Ouvrir",
     stopRun: "Stop {{title}}",
     hideRun: "Hide {{title}}",

@@ -312,7 +312,7 @@ const messages = {
     summaryRecent_other: "{{count}} recent runs",
     noTrackedWorkYet: "아직 추적된 작업이 없습니다.",
     emptyDescription:
-      "백그라운드 에이전트 작업이 실행되는 동안과 완료된 후에 여기에 표시됩니다.",
+      "채팅 턴과 백그라운드 에이전트 작업이 실행되는 동안과 완료된 후에 여기에 표시됩니다.",
     open: "열기",
     stopRun: "Stop {{title}}",
     hideRun: "Hide {{title}}",

@@ -13,9 +13,15 @@ import {
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
+import { recordChange } from "../server/poll.js";
+import { getRequestContext } from "../server/request-context.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -33,6 +39,68 @@ let _initPromise: Promise<void> | undefined;
  * reaped and a zombie would keep running, eventually clobbering the new row.
  */
 export const RUN_STALE_MS = 15_000;
+
+/**
+ * Announce a run lifecycle transition on the shared `runs` poll source so the
+ * Agent runs tray refreshes. The tray is mounted with idle polling disabled in
+ * the agent panel, so without this a run that starts or ends between mounts is
+ * never picked up.
+ *
+ * The event carries the acting caller and the thread's shareable identity. An
+ * event with no owner, org, or resource tag is delivered to every
+ * authenticated user (`getChangeVisibilityForUser`), which would both fan every
+ * user's tray out on unrelated private chat activity and put a private thread
+ * id in a globally visible payload. `owner` grants the caller who started or
+ * ended the run immediately; `resourceType` / `resourceId` let the thread owner
+ * and any sharee resolve through the access-aware branch. The owner fast path
+ * matters: that branch returns "pending" on a cold cache and drops the event,
+ * which across a two-event run lifecycle would hide the running state and only
+ * reveal the run once it had already finished.
+ *
+ * The caller is read from the request store only, never from a query and never
+ * from `getRequestUserEmail()`. A query is unsafe because this runs on paths
+ * that hold an open transaction on a shared connection, so a stray read aborts
+ * the caller's transaction when it fails. `getRequestUserEmail()` is unsafe
+ * because it answers with the deployment-wide `AGENT_USER_EMAIL` once the
+ * request context has unwound — a detached worker finalizing a run would then
+ * tag a private thread's event as owned by that ambient identity and hand it to
+ * them through the owner fast path.
+ *
+ * Both identity sources are request-scoped. The agent-chat POST never sets
+ * `userEmail` on the store — it resolves the authenticated owner onto the run
+ * context in `prepareRun` — so reading `userEmail` alone leaves the turn that
+ * this tray exists to show without a caller, and therefore without an event.
+ *
+ * A transition with no request behind it announces nothing. Emitting it
+ * unowned would look harmless — the resource tags still gate delivery — but an
+ * event that misses the owner fast path falls to `scheduleAccessCheck`, which
+ * runs a detached `chat_thread` access query. That is the same fire-and-forget
+ * read against a shared connection that this notifier is careful not to do
+ * itself, only one layer further away. Silence is cheap here: the tray polls
+ * every few seconds while a run reads as active, so it still converges on the
+ * terminal status.
+ *
+ * Best-effort: poll delivery is advisory, the tray still polls while a run
+ * reads as active, and a failure here must never fail the run it reports on.
+ */
+function bumpRunsPoll(threadId: string): void {
+  try {
+    const ctx = getRequestContext();
+    const caller = (ctx?.userEmail ?? ctx?.run?.owner)?.trim();
+    if (!caller) return;
+    recordChange({
+      source: "runs",
+      type: "change",
+      key: threadId,
+      owner: caller,
+      resourceType: "chat_thread",
+      resourceId: threadId,
+    });
+  } catch {
+    // coercion-ok: a dropped poll notification cannot corrupt run state, and
+    // the tray's active-run polling still converges on the terminal status.
+  }
+}
 
 /**
  * Stale window for runs dispatched into a Netlify background function
@@ -588,6 +656,18 @@ export async function ensureRunTables(): Promise<void> {
           `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
         );
       }
+      // `agent_runs` had no index beyond its primary key, so every
+      // thread-scoped read and the Agent runs tray's recent-run query scanned
+      // and sorted the whole retained ledger before applying a small LIMIT.
+      // Both run on a poll cadence, so the cost grew with retention.
+      await ensureIndexExists(
+        "idx_agent_runs_started_at",
+        `CREATE INDEX IF NOT EXISTS idx_agent_runs_started_at ON agent_runs (started_at DESC)`,
+      );
+      await ensureIndexExists(
+        "idx_agent_runs_thread_started_at",
+        `CREATE INDEX IF NOT EXISTS idx_agent_runs_thread_started_at ON agent_runs (thread_id, started_at DESC)`,
+      );
       await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
       await ensureColumnExists(
         "agent_run_events",
@@ -792,6 +872,7 @@ export async function insertRun(
       options?.dispatchPayload ?? null,
     ],
   });
+  bumpRunsPoll(threadId);
 }
 
 /**
@@ -1264,7 +1345,7 @@ export async function tryClaimRunSlot(
   if (!client.transaction) {
     throw new Error("Atomic run-slot claims require transaction support");
   }
-  return client.transaction(async (tx) => {
+  const result = await client.transaction(async (tx) => {
     await tx.execute({
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
@@ -1344,6 +1425,10 @@ export async function tryClaimRunSlot(
     }
     return { claimed: true, activeRunId: null };
   });
+  // Announce only after commit. A subscriber that refreshed inside the
+  // transaction would read no row and then never hear about it again.
+  if (result.claimed) bumpRunsPoll(threadId);
+  return result;
 }
 
 /**
@@ -2409,12 +2494,14 @@ export async function updateRunStatus(
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  await client.execute({
+  const { rows } = await client.execute({
     // Terminal writes also drop the (potentially large) dispatch payload —
     // it only exists to rehydrate a not-yet-claimed background worker.
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ?`,
+    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? RETURNING thread_id`,
     args: [status, Date.now(), runId],
   });
+  const threadId = (rows[0] as { thread_id?: string } | undefined)?.thread_id;
+  if (threadId) bumpRunsPoll(threadId);
 }
 
 /**
@@ -2431,12 +2518,14 @@ export async function updateRunStatusIfRunning(
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
-  const { rowsAffected } = await client.execute({
+  const { rowsAffected, rows } = await client.execute({
     // Terminal writes also drop the (potentially large) dispatch payload —
     // it only exists to rehydrate a not-yet-claimed background worker.
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? AND status = 'running'`,
+    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? AND status = 'running' RETURNING thread_id`,
     args: [status, Date.now(), runId],
   });
+  const threadId = (rows[0] as { thread_id?: string } | undefined)?.thread_id;
+  if (threadId) bumpRunsPoll(threadId);
   return (rowsAffected ?? 0) > 0;
 }
 
@@ -2511,10 +2600,13 @@ export async function markRunAborted(
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'`,
+  const { rowsAffected, rows } = await client.execute({
+    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running' RETURNING thread_id`,
     args: [reason ?? "user", Date.now(), `aborted:${reason ?? "user"}`, runId],
   });
+  const abortedThreadId = (rows[0] as { thread_id?: string } | undefined)
+    ?.thread_id;
+  if (abortedThreadId) bumpRunsPoll(abortedThreadId);
   if ((rowsAffected ?? 0) > 0) {
     await safeAppendTerminalRunEvent(
       runId,
@@ -2619,6 +2711,10 @@ export async function markTurnAborted(
     return "aborted" as const;
   });
   if (outcome === "already_terminal") return outcome;
+  // Post-commit: the turn reached a terminal state, either by cancelling the
+  // running rows or by leaving the abort marker, and the tray should see it.
+  // Nothing changed on the `already_terminal` path above, so it stays quiet.
+  bumpRunsPoll(threadId);
   await Promise.all(
     runIds.map((runId) =>
       safeAppendTerminalRunEvent(

@@ -13,7 +13,7 @@ import {
   IconSubtask,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AgentRun, ProgressStatus } from "../../progress/types.js";
 import { agentNativePath } from "../api-path.js";
@@ -30,7 +30,7 @@ import { cn } from "../utils.js";
 type AgentRunDto = AgentRun;
 type BackgroundAgentRunDto = {
   id: string;
-  kind: "code" | "agent-team" | "harness";
+  kind: "code" | "agent-team" | "harness" | "chat";
   source: string;
   sourceLabel?: string;
   title: string;
@@ -43,6 +43,7 @@ type BackgroundAgentRunDto = {
     | "needs-approval"
     | "completed"
     | "errored"
+    | "cancelled"
     | "unknown";
   phase?: string;
   goalId: string;
@@ -113,6 +114,12 @@ function useRunsTrayState({
   const [runs, setRuns] = useState<AgentRunDto[]>([]);
   const includeRecent = showRecent ?? !hideWhenIdle;
   const runsVersion = useChangeVersion("runs");
+  // Runs hidden in this session. Background and chat rows have no server-side
+  // dismissal, and their listings keep returning finished work, so without this
+  // Hide undoes itself on the next refresh a few seconds later. Only terminal
+  // rows expose Hide and a run id is never reused, so a hidden row cannot come
+  // back as something the user still needs to see.
+  const dismissedRef = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
@@ -153,6 +160,7 @@ function useRunsTrayState({
       }
       setRuns(
         [...merged.values()]
+          .filter((run) => !dismissedRef.current.has(run.id))
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
           .slice(0, limit),
       );
@@ -183,7 +191,14 @@ function useRunsTrayState({
     async (runId: string) => {
       const existing = runs.find((run) => run.id === runId);
       setRuns((current) => current.filter((run) => run.id !== runId));
-      if (existing && isBackgroundRun(existing)) return;
+      if (existing && isBackgroundRun(existing)) {
+        // No server-side dismissal for these, so the session has to remember.
+        // Legacy progress runs are deleted on the server instead, and must not
+        // be recorded here: a failed DELETE re-lists them, and a filtered id
+        // would stay invisible for the rest of the session with no way back.
+        dismissedRef.current.add(runId);
+        return;
+      }
       try {
         const res = await fetch(
           agentNativePath(`/_agent-native/runs/${runId}`),
@@ -202,6 +217,12 @@ function useRunsTrayState({
 
   const stopRun = useCallback(
     async (runId: string) => {
+      // `/stop` only knows durable task-backed runs (Agent Teams, harness). A
+      // chat turn is an in-flight run-manager run, so it stops through
+      // `/abort`; sending it to `/stop` just 404s and leaves it running.
+      const endpoint = runs.some((run) => run.id === runId && isChatRun(run))
+        ? `/_agent-native/agent-chat/runs/${runId}/abort`
+        : `/_agent-native/agent-chat/runs/${runId}/stop`;
       // Optimistic: mark as cancelled immediately so the UI is responsive.
       setRuns((current) =>
         current.map((run) =>
@@ -211,20 +232,17 @@ function useRunsTrayState({
         ),
       );
       try {
-        const res = await fetch(
-          agentNativePath(`/_agent-native/agent-chat/runs/${runId}/stop`),
-          {
-            method: "POST",
-            headers: { "X-Agent-Native-CSRF": "1" },
-          },
-        );
+        const res = await fetch(agentNativePath(endpoint), {
+          method: "POST",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        });
         if (!res.ok) throw new Error(`Stop failed (${res.status})`);
       } catch {
         // Reconcile from server on failure
         void refresh();
       }
     },
-    [refresh],
+    [refresh, runs],
   );
 
   const hasRuns = runs.length > 0;
@@ -590,12 +608,14 @@ function normalizeBackgroundRun(run: BackgroundAgentRunDto): AgentRunDto {
   const status: ProgressStatus =
     run.status === "errored"
       ? "failed"
-      : run.status === "queued" ||
-          run.status === "running" ||
-          run.status === "needs-input" ||
-          run.status === "needs-approval"
-        ? "running"
-        : "succeeded";
+      : run.status === "cancelled"
+        ? "cancelled"
+        : run.status === "queued" ||
+            run.status === "running" ||
+            run.status === "needs-input" ||
+            run.status === "needs-approval"
+          ? "running"
+          : "succeeded";
   return {
     id: run.id,
     owner: "",
@@ -682,6 +702,14 @@ function isAgentTeamRun(run: AgentRunDto): boolean {
   );
 }
 
+function isChatRun(run: AgentRunDto): boolean {
+  return (
+    typeof run.metadata === "object" &&
+    run.metadata !== null &&
+    (run.metadata as Record<string, unknown>).kind === "chat"
+  );
+}
+
 function isBackgroundRun(run: AgentRunDto): boolean {
   return (
     typeof run.metadata === "object" &&
@@ -707,7 +735,13 @@ function RunRow({
   const formatDate = formatters.formatDate.bind(formatters);
   const threadId = getRunThreadId(run);
   const isRunning = run.status === "running";
-  const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));
+  // `canStop: false` means the server knows this caller's abort would 404 (a
+  // shared viewer). Absent means the surface never reported one, which is the
+  // case for every Agent Teams and harness row, so absence must stay stoppable.
+  const canStop =
+    isRunning &&
+    (isAgentTeamRun(run) || isBackgroundRun(run)) &&
+    run.metadata?.canStop !== false;
   const backgroundStatus = getBackgroundStatus(run);
 
   return (
@@ -869,6 +903,7 @@ function isBackgroundStatus(
     value === "needs-approval" ||
     value === "completed" ||
     value === "errored" ||
+    value === "cancelled" ||
     value === "unknown"
   );
 }

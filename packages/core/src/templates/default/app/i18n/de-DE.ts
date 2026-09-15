@@ -325,7 +325,7 @@ const messages = {
     summaryRecent_other: "{{count}} recent runs",
     noTrackedWorkYet: "Noch keine verfolgten Arbeiten",
     emptyDescription:
-      "Die Arbeit des Hintergrundagenten wird hier während der Ausführung und nach Abschluss angezeigt.",
+      "Chat-Durchläufe und die Arbeit des Hintergrundagenten werden hier während der Ausführung und nach Abschluss angezeigt.",
     open: "Öffnen",
     stopRun: "Stop {{title}}",
     hideRun: "Hide {{title}}",

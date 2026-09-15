@@ -318,7 +318,7 @@ const messages = {
     summaryRecent_other: "{{count}} recent runs",
     noTrackedWorkYet: "まだ追跡された作品はありません",
     emptyDescription:
-      "バックグラウンド エージェントの作業は、実行中および終了後にここに表示されます。",
+      "チャットのターンとバックグラウンド エージェントの作業は、実行中および終了後にここに表示されます。",
     open: "開く",
     stopRun: "Stop {{title}}",
     hideRun: "Hide {{title}}",

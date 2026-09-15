@@ -5646,10 +5646,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            const outcome = await abortTurnByRefDurably(
-              threadId,
-              turnId,
-              reason,
+            // Wrapped in the caller's context like the /stop and /abort
+            // branches: the durable abort announces the terminal transition on
+            // the `runs` poll source, and that notifier only trusts a
+            // request-scoped identity.
+            const outcome = await runWithRequestContext(
+              { userEmail: owner, orgId },
+              () => abortTurnByRefDurably(threadId, turnId, reason),
             );
             if (outcome === "already_terminal") {
               setResponseStatus(event, 409);
@@ -5658,35 +5661,78 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { ok: true };
           }
 
-          // Route: GET /runs/list?goalId=agent-team|agent-harness
-          // Returns background agents in the Code hub-compatible run shape.
+          // Route: GET /runs/list?goalId=agent-team|agent-harness|agent-chat
+          // Returns background agents in the Code hub-compatible run shape,
+          // plus ordinary chat turns from the durable `agent_runs` ledger so
+          // the Agent runs tray reflects the work happening in the chat next
+          // to it. Callers that ask for a specific goalId are unaffected.
           const listMatch =
             url.match(/\/runs\/list(?:[/?]|$)/) ||
             url.match(/^\/list(?:[/?]|$)/);
           if (listMatch && method === "GET") {
             const query = getQuery(event);
             const goalId = query.goalId ? String(query.goalId) : undefined;
+            // `limit` is opt-in. MultiTabAssistantChat polls
+            // `?goalId=agent-team` with no limit and drives sub-agent tab state
+            // off the complete list, so a default bound here would silently
+            // drop its tabs.
+            const requestedLimit =
+              query.limit === undefined ? Number.NaN : Number(query.limit);
+            const limit = Number.isFinite(requestedLimit)
+              ? Math.min(Math.max(Math.floor(requestedLimit), 1), 50)
+              : undefined;
             const runs = await runWithRequestContext(
               { userEmail: owner, orgId },
               async () => {
                 const runs: unknown[] = [];
+                const claimedThreadIds = new Set<string>();
+                const claimThread = (run: unknown) => {
+                  const threadId = (
+                    run as { sourceRecord?: { threadId?: string } }
+                  )?.sourceRecord?.threadId;
+                  if (threadId) claimedThreadIds.add(threadId);
+                };
                 if (!goalId || goalId === "agent-team") {
                   const { listAgentTeamBackgroundRuns } =
                     await import("./agent-teams.js");
-                  runs.push(...(await listAgentTeamBackgroundRuns()));
+                  const teamRuns = await listAgentTeamBackgroundRuns();
+                  teamRuns.forEach(claimThread);
+                  runs.push(...teamRuns);
                 }
                 if (!goalId || goalId === "agent-harness") {
                   const { listAgentHarnessBackgroundRuns } =
                     await import("../agent/harness/background.js");
+                  const harnessRuns = await listAgentHarnessBackgroundRuns({
+                    goalId: "agent-harness",
+                    ownerEmail: owner,
+                    orgId,
+                  });
+                  harnessRuns.forEach(claimThread);
+                  runs.push(...harnessRuns);
+                }
+                if (!goalId || goalId === "agent-chat") {
+                  const { listRecentChatRuns } =
+                    await import("../agent/recent-chat-runs.js");
                   runs.push(
-                    ...(await listAgentHarnessBackgroundRuns({
-                      goalId: "agent-harness",
+                    ...(await listRecentChatRuns({
                       ownerEmail: owner,
                       orgId,
+                      limit,
+                      excludeThreadIds: claimedThreadIds,
                     })),
                   );
                 }
-                return runs;
+                // Bound every source, not just the chat read, so an explicit
+                // limit actually caps the response. Order by recency first:
+                // slicing the concatenation would let a long background list
+                // starve the chat runs the tray was asking for, and this
+                // matches how the tray itself merges and truncates.
+                if (limit === undefined) return runs;
+                const updatedAt = (run: unknown) =>
+                  (run as { updatedAt?: string })?.updatedAt ?? "";
+                return [...runs]
+                  .sort((a, b) => updatedAt(b).localeCompare(updatedAt(a)))
+                  .slice(0, limit);
               },
             );
             return { status: "ok", goalId, runs };
@@ -5753,10 +5799,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Recovery starts as soon as this response resolves, so wait for
             // the cross-isolate abort + terminal event to be durable. Returning
             // early lets Retry collide with the still-running row.
-            await abortRunDurably(runId, reason);
-            if (USER_STOP_ABORT_REASONS.has(reason)) {
-              await abortTurnDurably(runId, reason);
-            }
+            //
+            // Wrapped in the caller's context like the /stop branch above: the
+            // durable abort writes announce the transition on the `runs` poll
+            // source, and that notifier only trusts a request-scoped identity.
+            // Without this the tray that pressed Stop waits for its next poll.
+            await runWithRequestContext(
+              { userEmail: owner, orgId },
+              async () => {
+                await abortRunDurably(runId, reason);
+                if (USER_STOP_ABORT_REASONS.has(reason)) {
+                  await abortTurnDurably(runId, reason);
+                }
+              },
+            );
             return { ok: true };
           }
 
