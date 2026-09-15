@@ -30,6 +30,7 @@ import { VisualEditor } from "@/components/editor/VisualEditor";
 import { getDb, schema } from "../../server/db";
 import {
   buildContentDocumentAgentDiscovery,
+  contentDocumentMcpInstructionText,
   buildContentPublicDocumentUrl,
   DOCUMENT_AGENT_RESOURCE_KIND,
 } from "../../shared/agent-readable";
@@ -146,6 +147,17 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
     title,
     content: loaderData?.document?.content,
   });
+  const documentId = loaderData?.document?.id ?? loaderData?.unavailable?.id;
+  const discovery = documentId
+    ? buildContentDocumentAgentDiscovery({
+        document: {
+          id: documentId,
+          title: loaderData?.document?.title,
+        },
+        token: loaderData?.agentAccessToken,
+        basePath: loaderData?.basePath,
+      })
+    : null;
   return [
     { title },
     {
@@ -168,6 +180,17 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
       name: "twitter:description",
       content: description,
     },
+    ...(discovery
+      ? [
+          {
+            tagName: "link" as const,
+            rel: "alternate",
+            type: "application/agent-native+json",
+            href: discovery.contextUrl,
+            title: "Agent-readable Content document", // i18n-ignore -- machine-readable alternate-link metadata, not UI copy.
+          },
+        ]
+      : []),
   ];
 };
 
@@ -263,12 +286,12 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
   );
 }
 
-function AgentReadableDocumentDiscovery({
+export function AgentReadableDocumentDiscovery({
   document,
   token,
   basePath,
 }: {
-  document: { id: string; title: string };
+  document: { id: string; title?: string };
   token?: string | null;
   basePath?: string;
 }) {
@@ -278,10 +301,15 @@ function AgentReadableDocumentDiscovery({
     basePath,
   });
   return (
-    <script
-      type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
-      dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
-    />
+    <>
+      <script
+        type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
+        dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
+      />
+      <div className="hidden" aria-hidden="true">
+        {contentDocumentMcpInstructionText(document.id, { basePath })}
+      </div>
+    </>
   );
 }
 
@@ -306,6 +334,9 @@ function PrivateDocumentNotice({
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      {id ? (
+        <AgentReadableDocumentDiscovery document={{ id }} basePath={basePath} />
+      ) : null}
       <section className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
         <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
           <IconLock size={22} />

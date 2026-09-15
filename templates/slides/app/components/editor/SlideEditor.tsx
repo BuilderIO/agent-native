@@ -3055,6 +3055,15 @@ export default function SlideEditor({
     ],
   );
 
+  // Reconciliation is keyed to the persisted slide content, not to the
+  // selection callback's closure. Keep the latest callback available without
+  // making the content effect interpret a selection-only rerender as a DOM
+  // replacement.
+  const applyMultiSelectionRef = useRef(applyMultiSelection);
+  useEffect(() => {
+    applyMultiSelectionRef.current = applyMultiSelection;
+  }, [applyMultiSelection]);
+
   const clearMultiSelection = useCallback(() => {
     if (multiSelection.size === 0) return;
     applyMultiSelection(new Set());
@@ -3304,7 +3313,7 @@ export default function SlideEditor({
       // Undo/redo, agent reconciliation, and external updates replace the DOM
       // without preserving transient builder ids. Never leave stale ids in a
       // multi-selection that could later target unrelated newly-stamped nodes.
-      applyMultiSelection(new Set());
+      applyMultiSelectionRef.current(new Set());
       return;
     }
     const slideContent = getSlideContent();
@@ -3318,8 +3327,8 @@ export default function SlideEditor({
       const builderId = element?.getAttribute("data-builder-id");
       if (builderId) ids.add(builderId);
     }
-    applyMultiSelection(ids);
-  }, [slide.content, getSlideContent, applyMultiSelection]);
+    applyMultiSelectionRef.current(ids);
+  }, [slide.content, getSlideContent]);
 
   // One Escape owner for the HTML editor. Radix dialogs/popovers and native
   // form controls retain their own Escape behavior before we arbitrate canvas

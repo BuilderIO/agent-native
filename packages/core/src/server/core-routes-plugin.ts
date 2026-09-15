@@ -160,6 +160,7 @@ import {
   appendBuilderConnectToken,
   appendBuilderConnectStateCookie,
   builderConnectTrackingProperties,
+  BUILDER_UPSTREAM_FAILURE_STATUS,
   createBuilderConnectState,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
@@ -180,6 +181,7 @@ import {
   resolveBuilderPreviewRelayParentOrigin,
   removeBuilderConnectStateCookie,
   runBuilderAgent,
+  sendBuilderPopupErrorPage,
   verifyBuilderRelayRequest,
   verifyBuilderPreviewRelayStateForCallback,
   verifyBuilderConnectTokenAndGetOwner,
@@ -3394,13 +3396,7 @@ export function createCoreRoutesPlugin(
                   stage: "provision",
                 },
               );
-              setResponseStatus(event, status);
-              setResponseHeader(
-                event,
-                "Content-Type",
-                "text/html; charset=utf-8",
-              );
-              return createBuilderBrowserCallbackErrorPage(message, {
+              return sendBuilderPopupErrorPage(event, status, message, {
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
                 ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
                 ...(code ? { code } : {}),
@@ -3498,7 +3494,7 @@ export function createCoreRoutesPlugin(
                 );
               }
               return failProvisioning(
-                502,
+                BUILDER_UPSTREAM_FAILURE_STATUS,
                 "Couldn't create your Builder account. Try again or connect an existing account.",
                 "provision_failed",
               );
@@ -3833,7 +3829,7 @@ export function createCoreRoutesPlugin(
                 useCase: waitlistUseCase,
               },
             );
-            setResponseStatus(event, 502);
+            setResponseStatus(event, BUILDER_UPSTREAM_FAILURE_STATUS);
             return {
               error:
                 "Couldn't join the waitlist. Please try again in a moment.",
@@ -4019,18 +4015,17 @@ export function createCoreRoutesPlugin(
                   : "Builder preview relay failed.";
               // Never log the first-hop URL or relay body: both contain
               // credentials. The popup gets a bounded, credential-free error.
-              setResponseStatus(event, 502);
-              setResponseHeader(
+              return sendBuilderPopupErrorPage(
                 event,
-                "Content-Type",
-                "text/html; charset=utf-8",
+                BUILDER_UPSTREAM_FAILURE_STATUS,
+                message,
+                {
+                  parentOrigin: relayParentOrigin,
+                  ...(requestConnectAttemptId
+                    ? { attemptId: requestConnectAttemptId }
+                    : {}),
+                },
               );
-              return createBuilderBrowserCallbackErrorPage(message, {
-                parentOrigin: relayParentOrigin,
-                ...(requestConnectAttemptId
-                  ? { attemptId: requestConnectAttemptId }
-                  : {}),
-              });
             }
 
             setResponseHeader(
@@ -4127,13 +4122,7 @@ export function createCoreRoutesPlugin(
                 },
               );
             }
-            setResponseStatus(event, status);
-            setResponseHeader(
-              event,
-              "Content-Type",
-              "text/html; charset=utf-8",
-            );
-            return createBuilderBrowserCallbackErrorPage(message, {
+            return sendBuilderPopupErrorPage(event, status, message, {
               parentOrigin,
               ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
             });
@@ -4245,7 +4234,7 @@ export function createCoreRoutesPlugin(
             });
           } catch {
             return fail(
-              502,
+              BUILDER_UPSTREAM_FAILURE_STATUS,
               "Builder could not exchange the authorization code. Restart the connection.",
               ownerEmail,
               "code_exchange_failed",

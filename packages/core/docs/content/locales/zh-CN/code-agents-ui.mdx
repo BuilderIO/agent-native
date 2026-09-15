@@ -154,9 +154,8 @@ codex login status
 桌面和 CLI 读取 `codex login status` 并运行 `codex exec`，因此它们
 重用您安装的 Codex CLI 的任何 ChatGPT 订阅或 API 密钥身份验证
 报告。这与使用的 `@ai-sdk/harness-codex` 包是分开的
-[Harness Agents](/docs/harness-agents)；线束适配器可以复制本地
-仅当 `codexCliAuth: true` 为时，Codex CLI 才授权进入可信沙箱
-显式启用。
+[Harness Agents](/docs/harness-agents)；该适配器现在会在主机上解析受支持的原生订阅
+凭据，无需将本地身份验证文件复制到沙箱中。
 
 ## 浏览器主机
 

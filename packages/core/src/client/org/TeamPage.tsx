@@ -505,10 +505,12 @@ interface PendingInviteListItem {
 function WorkspaceGroupEditor({
   open,
   group,
+  initialMemberEmails = [],
   onClose,
 }: {
   open: boolean;
   group: WorkspaceUserGroup | null;
+  initialMemberEmails?: string[];
   onClose: () => void;
 }) {
   const t = useT();
@@ -525,9 +527,9 @@ function WorkspaceGroupEditor({
   useEffect(() => {
     if (!open) return;
     setName(group?.name ?? "");
-    setMembers(group?.memberEmails ?? []);
+    setMembers(group?.memberEmails ?? initialMemberEmails);
     setSearch("");
-  }, [group, open]);
+  }, [group, initialMemberEmails, open]);
 
   const searchMembers = memberSearch.members.map((member) => ({
     email: member.email.toLowerCase(),
@@ -692,19 +694,18 @@ function WorkspaceGroupEditor({
   );
 }
 
-function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
+function WorkspaceGroupsCard({
+  groups,
+  onNewGroup,
+  onEditGroup,
+}: {
+  groups: WorkspaceUserGroup[];
+  onNewGroup: () => void;
+  onEditGroup: (group: WorkspaceUserGroup) => void;
+}) {
   const t = useT();
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editingGroup, setEditingGroup] = useState<WorkspaceUserGroup | null>(
-    null,
-  );
   const [deleteError, setDeleteError] = useState<unknown>(null);
   const deleteGroup = useActionMutation("delete-workspace-user-group");
-
-  function openEditor(group: WorkspaceUserGroup | null) {
-    setEditingGroup(group);
-    setEditorOpen(true);
-  }
 
   return (
     <section className="overflow-hidden rounded-xl bg-card text-card-foreground">
@@ -716,7 +717,7 @@ function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
           type="button"
           intent="primary"
           emphasis="solid"
-          onClick={() => openEditor(null)}
+          onClick={onNewGroup}
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
         >
           <IconPlus size={14} />
@@ -739,7 +740,7 @@ function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
               </span>
               <Button
                 type="button"
-                onClick={() => openEditor(group)}
+                onClick={() => onEditGroup(group)}
                 aria-label={t("org.editGroupAria", {
                   defaultValue: "Edit group {{name}}",
                   name: group.name,
@@ -806,14 +807,6 @@ function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
         )}
         <ErrorText error={deleteError} />
       </div>
-      <WorkspaceGroupEditor
-        open={editorOpen}
-        group={editingGroup}
-        onClose={() => {
-          setEditorOpen(false);
-          setEditingGroup(null);
-        }}
-      />
     </section>
   );
 }
@@ -824,6 +817,11 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const [memberOffset, setMemberOffset] = useState(0);
   const [memberSearchInput, setMemberSearchInput] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
+  const [groupEditorOpen, setGroupEditorOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<WorkspaceUserGroup | null>(
+    null,
+  );
+  const [initialGroupMembers, setInitialGroupMembers] = useState<string[]>([]);
   const {
     data: membersData,
     isLoading: isLoadingMembers,
@@ -887,6 +885,21 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const totalOrganizationMembers = organizationMembersData?.totalCount;
   const pendingInvites = invitationsData?.invitations ?? [];
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
+
+  function openGroupEditor(
+    group: WorkspaceUserGroup | null,
+    memberEmails: string[] = [],
+  ) {
+    setEditingGroup(group);
+    setInitialGroupMembers(memberEmails);
+    setGroupEditorOpen(true);
+  }
+
+  function closeGroupEditor() {
+    setGroupEditorOpen(false);
+    setEditingGroup(null);
+    setInitialGroupMembers([]);
+  }
 
   return (
     <div className="space-y-6">
@@ -974,10 +987,23 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
         nextMemberOffset={membersData?.nextOffset ?? null}
         onMemberPageChange={setMemberOffset}
         onMemberSearchChange={setMemberSearchInput}
+        onCreateGroup={(memberEmails) => openGroupEditor(null, memberEmails)}
       />
 
       {isOwnerOrAdmin && (
-        <WorkspaceGroupsCard groups={groupsQuery.data ?? []} />
+        <>
+          <WorkspaceGroupsCard
+            groups={groupsQuery.data ?? []}
+            onNewGroup={() => openGroupEditor(null)}
+            onEditGroup={(group) => openGroupEditor(group)}
+          />
+          <WorkspaceGroupEditor
+            open={groupEditorOpen}
+            group={editingGroup}
+            initialMemberEmails={initialGroupMembers}
+            onClose={closeGroupEditor}
+          />
+        </>
       )}
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
@@ -1051,6 +1077,7 @@ export function MembersTableCard({
   nextMemberOffset,
   onMemberPageChange,
   onMemberSearchChange,
+  onCreateGroup,
 }: {
   members: MemberListItem[];
   totalMembers: number | undefined;
@@ -1071,6 +1098,7 @@ export function MembersTableCard({
   nextMemberOffset: number | null;
   onMemberPageChange: (offset: number) => void;
   onMemberSearchChange: (value: string) => void;
+  onCreateGroup: (memberEmails: string[]) => void;
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -1271,11 +1299,16 @@ export function MembersTableCard({
             </div>
           ) : null}
           {selectedCount > 0 && groups.length === 0 ? (
-            <span className="text-xs text-muted-foreground">
-              {t("org.createGroupForBulk", {
-                defaultValue: "Create a group below first",
-              })}
-            </span>
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              onClick={() => onCreateGroup(Array.from(selectedEmails))}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <IconPlus size={14} />
+              {t("org.newGroup", { defaultValue: "New group" })}
+            </Button>
           ) : null}
           <ErrorText error={updateGroupMembers.error} />
         </div>

@@ -1,3 +1,4 @@
+import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resultQueue = vi.hoisted(() => ({ current: [] as unknown[][] }));
@@ -53,7 +54,9 @@ vi.mock("../../server/db", () => ({
   },
 }));
 
-import { loader } from "../routes/p.$id";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { AgentReadableDocumentDiscovery, loader, meta } from "../routes/p.$id";
 
 function requestFor(id = "doc-1", token?: string) {
   const url = new URL(`https://content.example.test/p/${id}`);
@@ -82,6 +85,44 @@ describe("public document route", () => {
     configuredBasePath.current = "";
     resultQueue.current = [];
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
+  });
+
+  it("emits hidden MCP guidance without adding an accessible control", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentReadableDocumentDiscovery, {
+        document: { id: "doc-1", title: "Launch notes" },
+        basePath: "/content",
+      }),
+    );
+
+    expect(html).toContain('class="hidden"');
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain("/content/mcp/connect");
+    expect(html).toContain("get-document");
+    expect(html).not.toContain("button");
+  });
+
+  it("advertises the agent context endpoint for private share pages", () => {
+    const descriptors = meta({
+      loaderData: {
+        document: null,
+        agentAccessToken: null,
+        basePath: "/content",
+        unavailable: {
+          reason: "private",
+          id: "doc-1",
+          basePath: "/content",
+        },
+      },
+    } as never);
+
+    expect(descriptors).toContainEqual({
+      tagName: "link",
+      rel: "alternate",
+      type: "application/agent-native+json",
+      href: "/content/api/document-agent-context.json?id=doc-1",
+      title: "Agent-readable Content document",
+    });
   });
 
   it("serves a public document without private loader headers", async () => {

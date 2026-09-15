@@ -1530,6 +1530,66 @@ describe("Builder callback CSRF state", () => {
       });
     });
 
+    // A rejected credential is not a transient outage. Without a typed code,
+    // callers see a plain Error and tell the user to retry something that
+    // cannot succeed until they reconnect.
+    it("raises a reconnectable error when Builder rejects the credential", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "brent@builder.io",
+        }),
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        errorCode: "builder_not_connected",
+        message: "Unauthorized",
+      });
+    });
+
+    // 403 is Space membership, not a bad credential. Reconnect is the wrong
+    // advice, so it must stay an ordinary error.
+    it("keeps a membership rejection as an ordinary error", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "Not a member" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+
+      const error = await runBuilderAgent({
+        prompt: "Create an app",
+        projectId: "project-123",
+        userEmail: "brent@builder.io",
+      }).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toHaveProperty("actionContractError");
+    });
+
     it("attributes the branch to the requesting user, not the connected credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
