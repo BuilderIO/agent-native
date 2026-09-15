@@ -36,6 +36,33 @@ export interface PollEventsHandlerOptions {
   maxDurationMs?: number;
 }
 
+// setTimeout clamps anything above this to 1ms, which would close every stream
+// immediately instead of capping it.
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+/**
+ * Throws on a value that would silently disable (or break) the cap: the option
+ * exists to avoid host timeouts, so a misconfiguration must fail loudly rather
+ * than read as "unset". `undefined` means no cap.
+ */
+export function validateSseMaxDurationMs(
+  value: unknown,
+  name = "maxDurationMs",
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value <= 0 ||
+    value > MAX_TIMER_DELAY_MS
+  ) {
+    throw new RangeError(
+      `${name} must be a positive finite number of milliseconds no greater than ${MAX_TIMER_DELAY_MS}; received ${typeof value === "number" ? value : JSON.stringify(value)}.`,
+    );
+  }
+  return value;
+}
+
 /**
  * Stream in-process poll events over SSE.
  *
@@ -67,12 +94,7 @@ export function createPollEventsHandler(
   state: AppSyncState = getDefaultAppSyncState(),
   options: PollEventsHandlerOptions = {},
 ) {
-  const maxDurationMs =
-    typeof options.maxDurationMs === "number" &&
-    Number.isFinite(options.maxDurationMs) &&
-    options.maxDurationMs > 0
-      ? options.maxDurationMs
-      : undefined;
+  const maxDurationMs = validateSseMaxDurationMs(options.maxDurationMs);
 
   return defineEventHandler(async (event) => {
     const session = await getSession(event).catch(() => null);

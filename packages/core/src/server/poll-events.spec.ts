@@ -130,12 +130,10 @@ describe("poll event SSE handler", () => {
     vi.useFakeTimers();
     try {
       const { createPollEventsHandler } = await import("./poll-events.js");
-      const { getPollEmitter, POLL_CHANGE_EVENT, recordChange } = await import(
-        "./poll.js"
-      );
-      const { getAwarenessEmitter, AWARENESS_CHANGE_EVENT } = await import(
-        "../collab/awareness.js"
-      );
+      const { getPollEmitter, POLL_CHANGE_EVENT, recordChange } =
+        await import("./poll.js");
+      const { getAwarenessEmitter, AWARENESS_CHANGE_EVENT } =
+        await import("../collab/awareness.js");
       const listeners = () => ({
         poll: getPollEmitter().listenerCount(POLL_CHANGE_EVENT),
         awareness: getAwarenessEmitter().listenerCount(AWARENESS_CHANGE_EVENT),
@@ -185,6 +183,30 @@ describe("poll event SSE handler", () => {
       vi.useRealTimers();
     }
   });
+
+  it.each([
+    0,
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    2_147_483_648,
+    "280000",
+  ])(
+    "rejects an invalid max duration (%s) instead of treating it as unset",
+    async (maxDurationMs) => {
+      const { createPollEventsHandler, validateSseMaxDurationMs } =
+        await import("./poll-events.js");
+
+      expect(() =>
+        createPollEventsHandler(undefined, {
+          maxDurationMs: maxDurationMs as number,
+        }),
+      ).toThrow(RangeError);
+      expect(() =>
+        validateSseMaxDurationMs(maxDurationMs, "sseMaxDurationMs"),
+      ).toThrow(/^sseMaxDurationMs must be a positive finite number/);
+    },
+  );
 
   it("rejects unauthenticated streams", async () => {
     mockSession.value = null;

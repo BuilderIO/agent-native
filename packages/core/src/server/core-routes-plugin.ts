@@ -246,7 +246,10 @@ import {
 } from "./h3-helpers.js";
 import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
-import { createPollEventsHandler } from "./poll-events.js";
+import {
+  createPollEventsHandler,
+  validateSseMaxDurationMs,
+} from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
 import {
   isHostedRealtimeTransport,
@@ -1561,6 +1564,7 @@ export interface CoreRoutesPluginOptions {
    * function ceiling (e.g. 280_000 under Vercel's 300s limit): the stream then
    * ends at 200 and the client reconnects, instead of the platform killing the
    * invocation and recording a runtime timeout. Default: unset (no cap).
+   * `createCoreRoutesPlugin` throws on a zero, negative, or non-finite value.
    */
   sseMaxDurationMs?: number;
   /** Disable the /_agent-native/ping health check. */
@@ -1860,6 +1864,10 @@ export function createCoreRoutesPlugin(
 ): NitroPluginDef {
   const googleOAuthCallbackPaths = normalizeGoogleOAuthCallbackPaths(
     options.googleOAuthCallbackPaths,
+  );
+  const sseMaxDurationMs = validateSseMaxDurationMs(
+    options.sseMaxDurationMs,
+    "sseMaxDurationMs",
   );
   const googleOAuthCredentialMode =
     options.googleOAuthCredentialMode ?? "managed";
@@ -2535,7 +2543,7 @@ export function createCoreRoutesPlugin(
           getH3App(nitroApp).use(
             route,
             createPollEventsHandler(undefined, {
-              maxDurationMs: options.sseMaxDurationMs,
+              maxDurationMs: sseMaxDurationMs,
             }),
           );
         }
