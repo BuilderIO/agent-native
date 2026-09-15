@@ -1,4 +1,5 @@
 import {
+  focusAgentChat,
   requestAgentSidebarOpen,
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
@@ -638,7 +639,7 @@ export default function RecordingPage() {
         surface: "recording_page",
       });
     }
-    requestAgentSidebarOpen();
+    focusAgentChat();
   }, [recordingId]);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
