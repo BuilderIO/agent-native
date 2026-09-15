@@ -186,7 +186,7 @@ describe("identity SSO feature switch and request classifiers", () => {
     expect(
       store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
         deployHost,
-        "https",
+        undefined,
       ),
     ).toBe(true);
     expect(
@@ -248,7 +248,7 @@ describe("identity SSO feature switch and request classifiers", () => {
     expect(
       store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
         deployHost,
-        "https",
+        undefined,
       ),
     ).toBe(true);
   });
