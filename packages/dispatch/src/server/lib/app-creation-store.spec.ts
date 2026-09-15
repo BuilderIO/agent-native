@@ -1570,6 +1570,55 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
   });
 
+  it("forwards Builder attachments without putting them in the prompt", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockResolvedValue({
+      branchName: "onboarding1",
+      url: "https://builder.io/app/projects/project-1/onboarding1",
+      status: "processing",
+    });
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        startWorkspaceAppCreation({
+          prompt: "Build an app from the attached notes",
+          appId: "onboarding",
+          attachments: [
+            {
+              type: "upload",
+              contentType: "text/plain",
+              name: "notes.txt",
+              dataUrl: "",
+              text: "Requirements",
+              size: Buffer.byteLength("Requirements", "utf8"),
+              id: "file-notes",
+            },
+          ],
+        }),
+    );
+
+    expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.not.stringContaining("Requirements"),
+        attachments: [
+          expect.objectContaining({
+            name: "notes.txt",
+            text: "Requirements",
+          }),
+        ],
+      }),
+    );
+  });
+
   it("does not let an organization member persist an auto-provisioned project", async () => {
     stubHostedRuntime();
     mocks.state.orgRole = "member";

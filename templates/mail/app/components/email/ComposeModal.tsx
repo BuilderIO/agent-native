@@ -204,6 +204,12 @@ interface ComposeModalProps {
   onInitialExpandedConsumed?: () => void;
 }
 
+function shouldStartComposeExpanded(initialExpanded: boolean) {
+  // Superhuman opens both new and reopened drafts in the workspace card. Keep
+  // fullscreen an explicit request so a draft never changes size by identity.
+  return initialExpanded;
+}
+
 export function ComposeModal({
   drafts,
   activeId,
@@ -226,7 +232,7 @@ export function ComposeModal({
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
   const [isExpanded, setIsExpanded] = useState(
-    initialExpanded || activeDraft?.mode === "compose",
+    shouldStartComposeExpanded(initialExpanded),
   );
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
@@ -239,8 +245,24 @@ export function ComposeModal({
     sendLater: () => {},
     sendAndMarkDone: () => {},
   });
-  const knownDraftIdsRef = useRef(new Set(drafts.map((draft) => draft.id)));
+  const knownDraftIdsRef = useRef(
+    new Set(
+      drafts
+        .filter((draft) => {
+          const isInitialNewCompose =
+            draft.id === activeDraft?.id &&
+            draft.mode === "compose" &&
+            !draft.savedDraftId &&
+            !draft.queuedDraftId;
+          return !isInitialNewCompose;
+        })
+        .map((draft) => draft.id),
+    ),
+  );
   const pendingNewDraftIdsRef = useRef(new Set<string>());
+  const focusNewDraftIdRef = useRef<string | null>(null);
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
 
   // Observe agent sidebar width so compose window stays to its left
   const [sidebarRight, setSidebarRight] = useState(16); // default 16px (right-4)
@@ -306,9 +328,11 @@ export function ComposeModal({
 
   useEffect(() => {
     const currentDraftIds = new Set(drafts.map((draft) => draft.id));
-    for (const id of currentDraftIds) {
-      if (!knownDraftIdsRef.current.has(id)) {
-        pendingNewDraftIdsRef.current.add(id);
+    for (const draft of drafts) {
+      const isNewCompose =
+        draft.mode === "compose" && !draft.savedDraftId && !draft.queuedDraftId;
+      if (isNewCompose && !knownDraftIdsRef.current.has(draft.id)) {
+        pendingNewDraftIdsRef.current.add(draft.id);
       }
     }
     for (const id of pendingNewDraftIdsRef.current) {
@@ -319,8 +343,27 @@ export function ComposeModal({
       return;
     }
     setMinimized(false);
-    setIsExpanded(activeDraft.mode === "compose");
+    focusNewDraftIdRef.current = activeDraft.id;
   }, [activeDraft?.id, drafts]);
+
+  // The opener retains focus after React mounts the new draft. Restore the
+  // keyboard-first compose flow after that click has finished.
+  useEffect(() => {
+    const draftId = focusNewDraftIdRef.current;
+    if (!draftId || draftId !== activeDraft?.id || minimized) return;
+    focusNewDraftIdRef.current = null;
+
+    const focusTimer = setTimeout(() => {
+      if (activeIdRef.current !== draftId) return;
+      composeRef.current
+        ?.querySelector<HTMLInputElement>(
+          '[data-mail-recipient-input][data-recipient-field="to"]',
+        )
+        ?.focus();
+    }, 0);
+
+    return () => clearTimeout(focusTimer);
+  }, [activeDraft?.id, minimized]);
 
   // Focus editor when reply/forward opens
   useEffect(() => {
@@ -798,7 +841,7 @@ export function ComposeModal({
           ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
           : isExpanded
             ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
-            : "bottom-0 h-[100dvh] sm:h-[520px] sm:w-[540px]",
+            : "bottom-0 h-[100dvh] sm:top-14 sm:bottom-auto sm:h-[300px] sm:w-[490px] sm:rounded-xl",
       )}
       data-mail-compose
       style={composeStyle}

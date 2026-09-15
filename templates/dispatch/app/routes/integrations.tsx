@@ -2679,7 +2679,8 @@ export default function WorkspaceIntegrationsRoute() {
   const queryClient = useQueryClient();
   const { canManageOrg } = useOrgRole();
   const { data: dispatchAppRole } = useAppRoles("dispatch");
-  const isDispatchAppAdmin = dispatchAppRole?.myRole === "admin";
+  const isDispatchAppAdmin =
+    dispatchAppRole?.myRoles?.includes("admin") ?? false;
   const canManageConnections = canManageOrg || isDispatchAppAdmin;
   const [form, setForm] = useState<ConnectionFormState | null>(null);
   const [setupWizard, setSetupWizard] = useState<SetupWizardState | null>(null);

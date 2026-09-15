@@ -1,11 +1,17 @@
 import type { CalendarEvent } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
+import { getCalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
+
 import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
+  findCalendarEventById,
+  getRemovedCalendarEvents,
   mergeCalendarEventIntoList,
+  removeCalendarEventsForScope,
   removeOptimisticCalendarEventFromList,
+  restoreMissingCalendarEvents,
 } from "./event-list-cache";
 import {
   findEventByCurrentOrReplacedId,
@@ -109,6 +115,26 @@ describe("calendar event list cache helpers", () => {
     expect(next[1]?.title).toBe("Created");
   });
 
+  it("does not replace a same-ID event from another Google account", () => {
+    const otherAccount = calendarEvent({
+      id: "shared-provider-id",
+      title: "Other account",
+      source: "google",
+      accountEmail: "other@example.com",
+    });
+    const created = calendarEvent({
+      id: otherAccount.id,
+      title: "Created here",
+      source: "google",
+      accountEmail: "me@example.com",
+    });
+
+    expect(mergeCalendarEventIntoList([otherAccount], created)).toEqual([
+      otherAccount,
+      created,
+    ]);
+  });
+
   it("removes a failed optimistic event", () => {
     const optimisticId = "optimistic_event_123";
     const next = removeOptimisticCalendarEventFromList(
@@ -121,6 +147,432 @@ describe("calendar event list cache helpers", () => {
     );
 
     expect(next?.map((event) => event.id)).toEqual(["event-3"]);
+  });
+
+  it("optimistically removes a recurring event at the selected scope", () => {
+    const localFeed = { source: "local" as const, sourceId: "local-feed" };
+    const past = calendarEvent({
+      ...localFeed,
+      id: "past",
+      recurringEventId: "series-1",
+      start: "2026-05-15T16:00:00.000Z",
+    });
+    const target = calendarEvent({
+      ...localFeed,
+      id: "target",
+      recurringEventId: "series-1",
+      start: "2026-05-22T16:00:00.000Z",
+    });
+    const future = calendarEvent({
+      ...localFeed,
+      id: "future",
+      recurringEventId: "series-1",
+      start: "2026-05-29T16:00:00.000Z",
+    });
+    const otherSeries = calendarEvent({
+      ...localFeed,
+      id: "other-series",
+      recurringEventId: "series-2",
+      start: "2026-05-29T16:00:00.000Z",
+    });
+    const otherLocalFeed = calendarEvent({
+      id: "other-local-feed",
+      source: "local",
+      sourceId: "other-local-feed",
+      recurringEventId: "series-1",
+      start: "2026-05-29T16:00:00.000Z",
+    });
+    const missingLocalFeedIdentity = calendarEvent({
+      id: "missing-local-feed-identity",
+      source: "local",
+      recurringEventId: "series-1",
+      start: "2026-05-29T16:00:00.000Z",
+    });
+    const events = [
+      past,
+      target,
+      future,
+      otherSeries,
+      otherLocalFeed,
+      missingLocalFeedIdentity,
+    ];
+
+    expect(
+      removeCalendarEventsForScope(events, target.id, "single")?.map(
+        (event) => event.id,
+      ),
+    ).toEqual([
+      "past",
+      "future",
+      "other-series",
+      "other-local-feed",
+      "missing-local-feed-identity",
+    ]);
+    expect(
+      removeCalendarEventsForScope(events, target.id, "thisAndFollowing")?.map(
+        (event) => event.id,
+      ),
+    ).toEqual([
+      "past",
+      "other-series",
+      "other-local-feed",
+      "missing-local-feed-identity",
+    ]);
+    expect(
+      removeCalendarEventsForScope(events, target.id, "all")?.map(
+        (event) => event.id,
+      ),
+    ).toEqual([
+      "other-series",
+      "other-local-feed",
+      "missing-local-feed-identity",
+    ]);
+  });
+
+  it("uses the selected occurrence to filter other cached ranges without crossing accounts", () => {
+    const past = calendarEvent({
+      id: "past",
+      recurringEventId: "series-1",
+      start: "2026-05-15T16:00:00.000Z",
+      source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+    });
+    const target = calendarEvent({
+      id: "target",
+      recurringEventId: "series-1",
+      start: "2026-05-22T16:00:00.000Z",
+      source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+    });
+    const future = calendarEvent({
+      id: "future",
+      recurringEventId: "series-1",
+      start: "2026-05-29T16:00:00.000Z",
+      source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+    });
+    const otherAccountSeries = calendarEvent({
+      id: "other-account",
+      recurringEventId: "series-1",
+      start: future.start,
+      source: "google",
+      accountEmail: "other@example.com",
+      calendarSourceKey: "calendar-two",
+    });
+    const otherAccountSameId = calendarEvent({
+      id: target.id,
+      recurringEventId: "series-1",
+      source: "google",
+      accountEmail: "other@example.com",
+      calendarSourceKey: "calendar-two",
+    });
+    const cachedRanges = [
+      [past],
+      [target],
+      [future, otherAccountSeries, otherAccountSameId],
+    ];
+    const selected = findEventByCurrentOrReplacedId(
+      cachedRanges.flat(),
+      target,
+    );
+
+    expect(selected).toBe(target);
+    expect(
+      cachedRanges.map((range) =>
+        removeCalendarEventsForScope(range, target.id, "all", selected)?.map(
+          (event) => event.id,
+        ),
+      ),
+    ).toEqual([[], [], ["other-account", "target"]]);
+    expect(
+      cachedRanges.map((range) =>
+        removeCalendarEventsForScope(
+          range,
+          target.id,
+          "thisAndFollowing",
+          selected,
+        )?.map((event) => event.id),
+      ),
+    ).toEqual([["past"], [], ["other-account", "target"]]);
+  });
+
+  it("requires feed and overlay identities when filtering recurring cache ranges", () => {
+    const targetFeedEvent = calendarEvent({
+      id: "feed-target",
+      source: "ical",
+      sourceId: "team-feed",
+      recurringEventId: "shared-series",
+    });
+    const sameFeedEvent = calendarEvent({
+      id: "same-feed",
+      source: "ical",
+      sourceId: "team-feed",
+      recurringEventId: "shared-series",
+    });
+    const otherFeedEvent = calendarEvent({
+      id: "other-feed",
+      source: "ical",
+      sourceId: "personal-feed",
+      recurringEventId: "shared-series",
+    });
+    const missingFeedIdentity = calendarEvent({
+      id: "missing-feed-identity",
+      source: "ical",
+      recurringEventId: "shared-series",
+    });
+    const feedRanges = [
+      [targetFeedEvent],
+      [sameFeedEvent, otherFeedEvent, missingFeedIdentity],
+    ];
+
+    expect(
+      feedRanges.map((range) =>
+        removeCalendarEventsForScope(
+          range,
+          targetFeedEvent.id,
+          "all",
+          targetFeedEvent,
+        )?.map((event) => event.id),
+      ),
+    ).toEqual([[], ["other-feed", "missing-feed-identity"]]);
+
+    const targetOverlay = calendarEvent({
+      id: "overlay-target",
+      source: "google",
+      overlayEmail: "person@example.com",
+      recurringEventId: "overlay-series",
+    });
+    const sameOverlayEvent = calendarEvent({
+      id: "same-overlay",
+      source: "google",
+      overlayEmail: "PERSON@example.com",
+      recurringEventId: "overlay-series",
+    });
+    const otherOverlayEvent = calendarEvent({
+      id: "other-overlay",
+      source: "google",
+      overlayEmail: "other@example.com",
+      recurringEventId: "overlay-series",
+    });
+    const missingOverlayIdentity = calendarEvent({
+      id: "missing-overlay-identity",
+      source: "google",
+      accountEmail: "reader@example.com",
+      calendarSourceKey: "reader-primary",
+      recurringEventId: "overlay-series",
+    });
+    const overlayRanges = [
+      [targetOverlay],
+      [sameOverlayEvent, otherOverlayEvent, missingOverlayIdentity],
+    ];
+
+    expect(
+      overlayRanges.map((range) =>
+        removeCalendarEventsForScope(
+          range,
+          targetOverlay.id,
+          "all",
+          targetOverlay,
+        )?.map((event) => event.id),
+      ),
+    ).toEqual([[], ["other-overlay", "missing-overlay-identity"]]);
+
+    const unscopedLocalTarget = calendarEvent({
+      id: "unscoped-local-target",
+      source: "local",
+      recurringEventId: "unscoped-local-series",
+    });
+    const unscopedLocalOccurrence = calendarEvent({
+      id: "unscoped-local-occurrence",
+      source: "local",
+      recurringEventId: "unscoped-local-series",
+    });
+
+    expect(
+      removeCalendarEventsForScope(
+        [unscopedLocalTarget, unscopedLocalOccurrence],
+        unscopedLocalTarget.id,
+        "all",
+        unscopedLocalTarget,
+      )?.map((event) => event.id),
+    ).toEqual(["unscoped-local-occurrence"]);
+  });
+
+  it("uses normalized account identity for primary Google recurring cache ranges", () => {
+    const target = calendarEvent({
+      id: "primary-target",
+      source: "google",
+      accountEmail: "Me@example.com",
+      recurringEventId: "primary-series",
+      start: "2026-05-22T16:00:00.000Z",
+    });
+    const past = calendarEvent({
+      id: "primary-past",
+      source: "google",
+      accountEmail: " me@example.com ",
+      recurringEventId: "primary-series",
+      start: "2026-05-15T16:00:00.000Z",
+    });
+    const future = calendarEvent({
+      id: "primary-future",
+      source: "google",
+      accountEmail: "ME@example.com",
+      recurringEventId: "primary-series",
+      start: "2026-05-29T16:00:00.000Z",
+    });
+    const otherAccount = calendarEvent({
+      id: "other-account",
+      source: "google",
+      accountEmail: "other@example.com",
+      recurringEventId: "primary-series",
+      start: future.start,
+    });
+    const ranges = [[target], [past, future, otherAccount]];
+
+    expect(
+      ranges.map((range) =>
+        removeCalendarEventsForScope(range, target.id, "all", target)?.map(
+          (event) => event.id,
+        ),
+      ),
+    ).toEqual([[], ["other-account"]]);
+    expect(
+      ranges.map((range) =>
+        removeCalendarEventsForScope(
+          range,
+          target.id,
+          "thisAndFollowing",
+          target,
+        )?.map((event) => event.id),
+      ),
+    ).toEqual([[], ["primary-past", "other-account"]]);
+  });
+
+  it("rolls back only missing deleted events without overwriting newer cache data", () => {
+    const removed = calendarEvent({ id: "target", title: "Original" });
+    const updated = calendarEvent({ id: "target", title: "Updated" });
+    const other = calendarEvent({ id: "other" });
+
+    expect(restoreMissingCalendarEvents([other], [removed])).toEqual([
+      other,
+      removed,
+    ]);
+    expect(restoreMissingCalendarEvents([updated, other], [removed])).toEqual([
+      updated,
+      other,
+    ]);
+    expect(restoreMissingCalendarEvents(undefined, [removed])).toEqual([
+      removed,
+    ]);
+  });
+
+  it("tracks delete rollback by event occurrence when account IDs collide", () => {
+    const target = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      accountEmail: "me@example.com",
+    });
+    const otherAccount = calendarEvent({
+      id: target.id,
+      source: "google",
+      accountEmail: "other@example.com",
+    });
+    const selected = findCalendarEventById(
+      [target, otherAccount],
+      target.id,
+      " ME@example.com ",
+    );
+    const remaining = removeCalendarEventsForScope(
+      [target, otherAccount],
+      target.id,
+      "single",
+      selected,
+      target.accountEmail,
+    );
+    const removed = getRemovedCalendarEvents([target, otherAccount], remaining);
+
+    expect(selected).toBe(target);
+    expect(remaining).toEqual([otherAccount]);
+    expect(removed).toEqual([target]);
+    expect(restoreMissingCalendarEvents(remaining, removed)).toEqual([
+      otherAccount,
+      target,
+    ]);
+  });
+
+  it("targets the selected calendar when one account has duplicate event IDs", () => {
+    const firstCalendar = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      sourceId: "google-connection",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+      calendarId: "calendar-one-id",
+      title: "First calendar",
+      responseStatus: "accepted",
+    });
+    const selected = calendarEvent({
+      id: firstCalendar.id,
+      source: "google",
+      sourceId: "google-connection",
+      accountEmail: "ME@example.com",
+      calendarSourceKey: "calendar-two",
+      calendarId: "calendar-two-id",
+      title: "Selected calendar",
+      responseStatus: "accepted",
+    });
+    const events = [firstCalendar, selected];
+    const identity = getCalendarEventSourceIdentity(selected)!;
+    expect(
+      findCalendarEventById(events, selected.id, selected.accountEmail),
+    ).toBeUndefined();
+    const target = findCalendarEventById(events, selected.id, identity);
+
+    expect(target).toBe(selected);
+    expect(
+      reconcileUpdatedEventList(
+        events,
+        selected.id,
+        { id: selected.id, title: "Updated selected calendar" },
+        selected.accountEmail,
+        identity,
+      ),
+    ).toEqual([
+      firstCalendar,
+      { ...selected, title: "Updated selected calendar" },
+    ]);
+
+    expect(
+      applyCalendarEventRsvp(
+        events,
+        selected.id,
+        "declined",
+        "single",
+        selected.accountEmail,
+        undefined,
+        identity,
+      ),
+    ).toEqual([
+      firstCalendar,
+      {
+        ...selected,
+        responseStatus: "declined",
+        updatedAt: expect.any(String),
+      },
+    ]);
+
+    expect(
+      removeCalendarEventsForScope(
+        events,
+        selected.id,
+        "single",
+        target,
+        selected.accountEmail,
+      ),
+    ).toEqual([firstCalendar]);
   });
 
   it("optimistically updates the event and self attendee RSVP status", () => {
@@ -158,6 +610,51 @@ describe("calendar event list cache helpers", () => {
       comment: "I have a conflict",
     });
     expect(next?.[0]?.attendees?.[0]?.responseStatus).toBe("accepted");
+  });
+
+  it("scopes optimistic RSVP updates to the selected account when IDs collide", () => {
+    const otherAccountTarget = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      accountEmail: "other@example.com",
+      recurringEventId: "shared-series",
+      responseStatus: "accepted",
+    });
+    const otherAccountFuture = calendarEvent({
+      id: "other-future",
+      source: "google",
+      accountEmail: "other@example.com",
+      recurringEventId: "shared-series",
+      responseStatus: "accepted",
+    });
+    const target = calendarEvent({
+      id: otherAccountTarget.id,
+      source: "google",
+      accountEmail: "me@example.com",
+      recurringEventId: "shared-series",
+      responseStatus: "accepted",
+    });
+    const future = calendarEvent({
+      id: "future",
+      source: "google",
+      accountEmail: "me@example.com",
+      recurringEventId: "shared-series",
+      responseStatus: "accepted",
+    });
+    const events = [otherAccountTarget, otherAccountFuture, target, future];
+
+    expect(
+      applyCalendarEventRsvp(
+        events,
+        target.id,
+        "declined",
+        "all",
+        " ME@example.com ",
+      )?.map((event) => event.responseStatus),
+    ).toEqual(["accepted", "accepted", "declined", "declined"]);
+    expect(applyCalendarEventRsvp(events, target.id, "declined", "all")).toBe(
+      events,
+    );
   });
 
   it("optimistically clears a self attendee RSVP note", () => {
@@ -260,7 +757,12 @@ describe("calendar event list cache helpers", () => {
   });
 
   it("optimistically updates this and following recurring RSVP instances", () => {
+    const googleCalendar = {
+      source: "google" as const,
+      accountEmail: "Me@example.com",
+    };
     const past = calendarEvent({
+      ...googleCalendar,
       id: "past",
       recurringEventId: "series-1",
       start: "2026-05-15T16:00:00.000Z",
@@ -268,6 +770,7 @@ describe("calendar event list cache helpers", () => {
       responseStatus: "accepted",
     });
     const target = calendarEvent({
+      ...googleCalendar,
       id: "target",
       recurringEventId: "series-1",
       start: "2026-05-22T16:00:00.000Z",
@@ -275,6 +778,8 @@ describe("calendar event list cache helpers", () => {
       responseStatus: "accepted",
     });
     const future = calendarEvent({
+      ...googleCalendar,
+      accountEmail: " me@example.com ",
       id: "future",
       recurringEventId: "series-1",
       start: "2026-05-29T16:00:00.000Z",
@@ -282,15 +787,25 @@ describe("calendar event list cache helpers", () => {
       responseStatus: "accepted",
     });
     const otherSeries = calendarEvent({
+      ...googleCalendar,
       id: "other-series",
       recurringEventId: "series-2",
       start: "2026-05-29T16:00:00.000Z",
       end: "2026-05-29T17:00:00.000Z",
       responseStatus: "accepted",
     });
+    const otherAccountSeries = calendarEvent({
+      id: "other-account",
+      source: "google",
+      accountEmail: "other@example.com",
+      recurringEventId: "series-1",
+      start: "2026-05-29T16:00:00.000Z",
+      end: "2026-05-29T17:00:00.000Z",
+      responseStatus: "accepted",
+    });
 
     const next = applyCalendarEventRsvp(
-      [past, target, future, otherSeries],
+      [past, target, future, otherSeries, otherAccountSeries],
       target.id,
       "tentative",
       "thisAndFollowing",
@@ -301,6 +816,7 @@ describe("calendar event list cache helpers", () => {
       ["target", "tentative"],
       ["future", "tentative"],
       ["other-series", "accepted"],
+      ["other-account", "accepted"],
     ]);
   });
 });
@@ -408,7 +924,70 @@ describe("reconcileUpdatedEventList", () => {
       }),
     ]);
     expect(
-      findEventByCurrentOrReplacedId(reconciled ?? [], original.id),
+      findEventByCurrentOrReplacedId(reconciled ?? [], original),
     ).toMatchObject({ id: "google-working-location-override" });
+  });
+
+  it("rebinds a selected event by account and calendar when provider IDs collide", () => {
+    const selected = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+      title: "Before update",
+    });
+    const otherAccount = calendarEvent({
+      id: selected.id,
+      source: "google",
+      accountEmail: "other@example.com",
+      calendarSourceKey: "calendar-two",
+      title: "Other account",
+    });
+    const otherCalendar = calendarEvent({
+      id: selected.id,
+      source: "google",
+      accountEmail: selected.accountEmail,
+      calendarSourceKey: "calendar-two",
+      title: "Other calendar",
+    });
+    const refreshed = calendarEvent({
+      id: "replacement-provider-id",
+      _replacedId: selected.id,
+      source: selected.source,
+      accountEmail: selected.accountEmail,
+      calendarSourceKey: selected.calendarSourceKey,
+      title: "After update",
+    });
+
+    expect(
+      findEventByCurrentOrReplacedId(
+        [otherAccount, otherCalendar, refreshed],
+        selected,
+      ),
+    ).toBe(refreshed);
+  });
+
+  it("reconciles only the selected account when provider event IDs collide", () => {
+    const otherAccount = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      accountEmail: "other@example.com",
+      title: "Other account",
+    });
+    const target = calendarEvent({
+      id: otherAccount.id,
+      source: "google",
+      accountEmail: "me@example.com",
+      title: "Before update",
+    });
+
+    expect(
+      reconcileUpdatedEventList(
+        [otherAccount, target],
+        target.id,
+        { id: target.id, title: "After update" },
+        target.accountEmail,
+      ),
+    ).toEqual([otherAccount, { ...target, title: "After update" }]);
   });
 });

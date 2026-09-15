@@ -35,6 +35,8 @@ import {
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
   mountApplicationStateRoutes,
+  matchesSavedHostedAgentProbe,
+  stripRemoteAgentAuth,
 } from "./core-routes-plugin.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 
@@ -54,6 +56,70 @@ describe("mountApplicationStateRoutes", () => {
       "/_agent-native/application-state/compose",
       "/_agent-native/application-state",
     ]);
+  });
+});
+
+describe("public remote-agent discovery", () => {
+  it("does not expose hosted-agent credential wiring", () => {
+    const publicAgent = stripRemoteAgentAuth({
+      id: "foundry",
+      name: "Foundry",
+      url: "https://agent.example.test",
+      color: "#000",
+      cardUrl: "https://agent.example.test/card",
+      auth: {
+        type: "oauth-client-credentials",
+        tokenUrl: "https://login.example.test/token",
+        clientId: "client-id",
+        clientSecretRef: "FOUNDRY_SECRET",
+      },
+    });
+
+    expect(publicAgent).toEqual({
+      id: "foundry",
+      name: "Foundry",
+      url: "https://agent.example.test",
+      color: "#000",
+      cardUrl: "https://agent.example.test/card",
+    });
+    expect("auth" in publicAgent).toBe(false);
+  });
+});
+
+describe("hosted-agent probes", () => {
+  it("only accepts credentials for the matching saved connection", () => {
+    const auth = {
+      type: "bearer" as const,
+      credentialRef: "FOUNDRY_TOKEN",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://attacker.example.test",
+          cardUrl: "https://attacker.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(false);
   });
 });
 

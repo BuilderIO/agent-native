@@ -1,6 +1,7 @@
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { setActiveOrgId } from "./active-org.js";
+import { applyInvitationAppRoles } from "./app-roles.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
@@ -48,11 +49,13 @@ export async function acceptPendingInvitationsForEmail(
     id: string;
     orgId: string;
     role: string | null;
+    invitedBy: string;
+    appRolesJson: string | null;
     federated: boolean;
   }> = [];
   try {
     const res = await db.execute({
-      sql: `SELECT i.id, i.org_id AS "orgId", i.role,
+      sql: `SELECT i.id, i.org_id AS "orgId", i.role, i.invited_by AS "invitedBy", i.app_roles_json AS "appRolesJson",
                    o.identity_authority AS "identityAuthority",
                    o.identity_id AS "identityId"
             FROM org_invitations i
@@ -65,6 +68,8 @@ export async function acceptPendingInvitationsForEmail(
       id: String(r.id),
       orgId: String(r.orgId ?? r.org_id),
       role: r.role == null ? null : String(r.role),
+      invitedBy: String(r.invitedBy ?? r.invited_by ?? ""),
+      appRolesJson: r.appRolesJson == null ? null : String(r.appRolesJson),
       federated: Boolean(
         String(r.identityAuthority ?? r.identity_authority ?? "").trim() &&
         String(r.identityId ?? r.identity_id ?? "").trim(),
@@ -73,7 +78,7 @@ export async function acceptPendingInvitationsForEmail(
   } catch (error) {
     if (isMissingOrganizationTableError(error)) {
       const res = await db.execute({
-        sql: `SELECT i.id, i.org_id AS "orgId", i.role
+        sql: `SELECT i.id, i.org_id AS "orgId", i.role, i.invited_by AS "invitedBy", i.app_roles_json AS "appRolesJson"
               FROM org_invitations i
               WHERE LOWER(i.email) = ? AND i.status = 'pending'
               ORDER BY i.created_at DESC`,
@@ -83,6 +88,8 @@ export async function acceptPendingInvitationsForEmail(
         id: String(r.id),
         orgId: String(r.orgId ?? r.org_id),
         role: r.role == null ? null : String(r.role),
+        invitedBy: String(r.invitedBy ?? r.invited_by ?? ""),
+        appRolesJson: r.appRolesJson == null ? null : String(r.appRolesJson),
         federated: false,
       }));
     } else if (isMissingInvitationTableError(error)) {
@@ -138,6 +145,25 @@ export async function acceptPendingInvitationsForEmail(
         args: [nanoid(), inv.orgId, email, role, Date.now()],
       });
       invalidateMemberOrgCaches();
+    }
+    // Keep the invitation pending when a pre-assigned role cannot be applied.
+    // The auth hook logs the retryable failure while membership remains safe
+    // to reuse on the next reconciliation attempt.
+    try {
+      await applyInvitationAppRoles({
+        appRolesJson: inv.appRolesJson,
+        orgId: inv.orgId,
+        email,
+        updatedBy: inv.invitedBy,
+      });
+    } catch (error) {
+      // Keep this invitation pending so a corrected assignment can be retried
+      // without preventing unrelated invitations from being accepted.
+      console.warn(
+        `[org] Could not apply app roles for invitation ${inv.id}; leaving it pending`,
+        error,
+      );
+      continue;
     }
     await db.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,

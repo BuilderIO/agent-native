@@ -36,6 +36,35 @@ describe("organization auth policy", () => {
     ).resolves.toBe(false);
   });
 
+  it("resolves an organization-specific SSO provider requirement", async () => {
+    execute.mockResolvedValueOnce({ rows: [{ provider: "sso:okta" }] });
+
+    await expect(
+      getRequiredAuthProviderForEmail("person@example.com"),
+    ).resolves.toBe("sso:okta");
+  });
+
+  it("requires the shared provider when multiple organizations agree", async () => {
+    execute.mockResolvedValueOnce({
+      rows: [{ provider: "google" }, { provider: "google" }],
+    });
+
+    await expect(
+      getRequiredAuthProviderForEmail("person@example.com"),
+    ).resolves.toBe("google");
+    expect(execute.mock.calls[0][0].sql).not.toContain("LIMIT 1");
+  });
+
+  it("fails closed when multiple organizations require different providers", async () => {
+    execute.mockResolvedValueOnce({
+      rows: [{ provider: "google" }, { provider: "sso:okta" }],
+    });
+
+    await expect(
+      getRequiredAuthProviderForEmail("person@example.com"),
+    ).resolves.toBe("conflict");
+  });
+
   it("revokes both auth stores when Google sign-in is enabled", async () => {
     execute
       .mockResolvedValueOnce({ rowsAffected: 1 })
