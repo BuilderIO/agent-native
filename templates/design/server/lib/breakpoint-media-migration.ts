@@ -1,3 +1,4 @@
+import { parse as parseHtml } from "parse5";
 import type { AtRule, Container, Root } from "postcss";
 import parseCss from "postcss/lib/parse";
 
@@ -13,10 +14,6 @@ import {
 
 const MEDIA_PARAMS_RE = /^\s*\(\s*max-width\s*:\s*(\d+(?:\.\d+)?)px\s*\)\s*$/i;
 const EXACT_RANGE_ATTR = "data-agent-native-breakpoint-range";
-const EXACT_RANGE_STYLE_OPEN_RE = new RegExp(
-  `<style\\b(?=[^>]*\\b${EXACT_RANGE_ATTR}\\s*=\\s*(?:"([^"]*)"|'([^']*)'))[^>]*>`,
-  "gi",
-);
 const EXACT_RANGE_MAX_WIDTH_RE =
   /(\(\s*max-width\s*:\s*)(\d+(?:\.\d+)?)(\s*px\s*\))/gi;
 const EXACT_RANGE_MIN_WIDTH_RE =
@@ -192,6 +189,96 @@ type ExactRangeStyle = {
   body: string;
 };
 
+type HtmlNode = {
+  nodeName?: string;
+  tagName?: string;
+  attrs?: Array<{ name: string; value: string }>;
+  childNodes?: HtmlNode[];
+  content?: { childNodes?: HtmlNode[] };
+  sourceCodeLocation?: {
+    startTag?: { startOffset: number; endOffset: number };
+    endTag?: { startOffset: number; endOffset: number };
+  } | null;
+};
+
+type ExactRangeStyles = {
+  entries: ExactRangeStyle[];
+  hasMarker: boolean;
+};
+
+function findExactRangeStyles(html: string): ExactRangeStyles {
+  const entries: ExactRangeStyle[] = [];
+  let hasMarker = false;
+  const visit = (node: HtmlNode): void => {
+    if (node.tagName?.toLowerCase() === "style") {
+      const marker = node.attrs?.find(
+        (attribute) => attribute.name.toLowerCase() === EXACT_RANGE_ATTR,
+      )?.value;
+      if (marker !== undefined) {
+        hasMarker = true;
+        const location = node.sourceCodeLocation;
+        const startTag = location?.startTag;
+        const endTag = location?.endTag;
+        if (startTag && endTag) {
+          entries.push({
+            openStart: startTag.startOffset,
+            openEnd: startTag.endOffset,
+            closeStart: endTag.startOffset,
+            marker,
+            body: html.slice(startTag.endOffset, endTag.startOffset),
+          });
+        }
+      }
+    }
+    for (const child of [
+      ...(node.childNodes ?? []),
+      ...(node.content?.childNodes ?? []),
+    ]) {
+      visit(child);
+    }
+  };
+  visit(
+    parseHtml(html, { sourceCodeLocationInfo: true }) as unknown as HtmlNode,
+  );
+  return { entries, hasMarker };
+}
+
+type ExactRangeBoundResolution = {
+  source: number;
+  requested: number | null | undefined;
+  alreadyTarget: boolean;
+};
+
+function resolveExactRangeBound(
+  current: number,
+  map: ReadonlyMap<number, number | null>,
+): ExactRangeBoundResolution {
+  if (map.has(current)) {
+    return {
+      source: current,
+      requested: map.get(current),
+      alreadyTarget: false,
+    };
+  }
+
+  const reverseMatches = [...map.entries()].filter(
+    ([source, target]) =>
+      source !== current &&
+      target !== null &&
+      Number.isFinite(target) &&
+      Math.round(target) === current,
+  );
+  if (reverseMatches.length === 1) {
+    return {
+      source: reverseMatches[0]![0],
+      requested: current,
+      alreadyTarget: true,
+    };
+  }
+
+  return { source: current, requested: undefined, alreadyTarget: false };
+}
+
 function migrateExactBreakpointRanges(
   html: string,
   boundMap: ReadonlyMap<number, number | null>,
@@ -199,27 +286,9 @@ function migrateExactBreakpointRanges(
 ): string | null {
   if (boundMap.size === 0 && widthMap.size === 0) return html;
 
-  const entries: ExactRangeStyle[] = [];
-  EXACT_RANGE_STYLE_OPEN_RE.lastIndex = 0;
-  let openMatch: RegExpExecArray | null;
-  while ((openMatch = EXACT_RANGE_STYLE_OPEN_RE.exec(html)) !== null) {
-    const bodyStart = openMatch.index + openMatch[0].length;
-    const afterOpen = html.slice(bodyStart);
-    const closeMatch = /<\s*\/\s*style\b[^>]*>/i.exec(afterOpen);
-    if (!closeMatch) return null;
-    const closeStart = bodyStart + closeMatch.index;
-    const closeEnd = closeStart + closeMatch[0].length;
-    entries.push({
-      openStart: openMatch.index,
-      openEnd: bodyStart,
-      closeStart,
-      marker: openMatch[1] ?? openMatch[2] ?? "",
-      body: html.slice(bodyStart, closeStart),
-    });
-    EXACT_RANGE_STYLE_OPEN_RE.lastIndex = closeEnd;
-  }
+  const { entries, hasMarker } = findExactRangeStyles(html);
 
-  if (entries.length === 0 && hasManagedStyleMarker(html, EXACT_RANGE_ATTR)) {
+  if (entries.length === 0 && hasMarker) {
     return null;
   }
   if (entries.length === 0) return html;
@@ -232,6 +301,14 @@ function migrateExactBreakpointRanges(
   }> = [];
 
   for (const entry of entries) {
+    try {
+      const parsed = parseCss(entry.body, { map: false });
+      if (parsed.type !== "root") return null;
+    } catch {
+      // coercion-ok: callers treat null as a typed refusal and fail closed on invalid CSS.
+      return null;
+    }
+
     const separator = entry.marker.lastIndexOf("::");
     const bounds =
       separator > 0
@@ -241,17 +318,26 @@ function migrateExactBreakpointRanges(
         : null;
     if (!bounds) return null;
 
-    const oldMin = Math.round(Number.parseFloat(bounds[1]));
-    const oldMax = Math.round(Number.parseFloat(bounds[2]));
-    const minMapped = widthMap.has(oldMin);
-    const maxMapped = boundMap.has(oldMax);
+    const currentMin = Math.round(Number.parseFloat(bounds[1]));
+    const currentMax = Math.round(Number.parseFloat(bounds[2]));
+    const minResolution = resolveExactRangeBound(currentMin, widthMap);
+    const maxResolution = resolveExactRangeBound(currentMax, boundMap);
+    const minMapped = minResolution.requested !== undefined;
+    const maxMapped = maxResolution.requested !== undefined;
     if (minMapped !== maxMapped) return null;
 
-    let nextMin = oldMin;
-    let nextMax = oldMax;
+    const alreadyTarget =
+      minMapped &&
+      maxMapped &&
+      minResolution.requested === currentMin &&
+      maxResolution.requested === currentMax &&
+      (minResolution.alreadyTarget || maxResolution.alreadyTarget);
+
+    let nextMin = currentMin;
+    let nextMax = currentMax;
     if (minMapped && maxMapped) {
-      const requestedMin = widthMap.get(oldMin)!;
-      const requestedMax = boundMap.get(oldMax)!;
+      const requestedMin = minResolution.requested!;
+      const requestedMax = maxResolution.requested!;
       if (
         requestedMin === null ||
         requestedMax === null ||
@@ -262,8 +348,8 @@ function migrateExactBreakpointRanges(
       ) {
         return null;
       }
-      nextMin = Math.round(requestedMin);
-      nextMax = Math.round(requestedMax);
+      nextMin = alreadyTarget ? currentMin : Math.round(requestedMin);
+      nextMax = alreadyTarget ? currentMax : Math.round(requestedMax);
       if (nextMin > nextMax) return null;
     }
 
@@ -277,30 +363,34 @@ function migrateExactBreakpointRanges(
     if (minMapped && maxMapped) {
       const minMatches = [...entry.body.matchAll(EXACT_RANGE_MIN_WIDTH_RE)];
       const maxMatches = [...entry.body.matchAll(EXACT_RANGE_MAX_WIDTH_RE)];
+      const expectedMin = alreadyTarget ? currentMin : minResolution.source;
+      const expectedMax = alreadyTarget ? currentMax : maxResolution.source;
       if (
         maxMatches.length !== 1 ||
-        Math.round(Number.parseFloat(maxMatches[0]![2])) !== oldMax
+        Math.round(Number.parseFloat(maxMatches[0]![2])) !== expectedMax
       ) {
         return null;
       }
       if (
         minMatches.length > 1 ||
         (minMatches.length === 1 &&
-          Math.round(Number.parseFloat(minMatches[0]![2])) !== oldMin)
+          Math.round(Number.parseFloat(minMatches[0]![2])) !== expectedMin)
       ) {
         return null;
       }
-      nextBody = entry.body.replace(
-        EXACT_RANGE_MAX_WIDTH_RE,
-        (_match, prefix: string, _value: string, suffix: string) =>
-          `${prefix}${nextMax}${suffix}`,
-      );
-      if (minMatches.length === 1) {
-        nextBody = nextBody.replace(
-          EXACT_RANGE_MIN_WIDTH_RE,
+      if (!alreadyTarget) {
+        nextBody = entry.body.replace(
+          EXACT_RANGE_MAX_WIDTH_RE,
           (_match, prefix: string, _value: string, suffix: string) =>
-            `${prefix}${nextMin}${suffix}`,
+            `${prefix}${nextMax}${suffix}`,
         );
+        if (minMatches.length === 1) {
+          nextBody = nextBody.replace(
+            EXACT_RANGE_MIN_WIDTH_RE,
+            (_match, prefix: string, _value: string, suffix: string) =>
+              `${prefix}${nextMin}${suffix}`,
+          );
+        }
       }
     }
 
