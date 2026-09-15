@@ -40,4 +40,36 @@ export const a2aConfig = z.object({
       env: ["A2A_ALLOW_UNSIGNED_INTERNAL"],
       doc: "Trust unsigned internal self-dispatch on an unrecognized non-production host. Never grants trust in production.",
     }),
+
+  /**
+   * Hard cap on how long a task may sit in submitted/working without ever
+   * reaching `processing`. The queued bucket has no other terminal state, so a
+   * persistently failing dispatch (missing background function, bad A2A
+   * secret, 404) would otherwise throttle-and-retry forever.
+   */
+  queuedLifetimeMaxMs: z
+    .number()
+    .int()
+    .positive()
+    .default(3 * 60 * 1000)
+    .meta({
+      env: ["A2A_QUEUED_LIFETIME_MAX_MS"],
+      doc: "Milliseconds a task may stay queued before it is failed as undeliverable.",
+    }),
+
+  /**
+   * Hard cap on total time in `processing`, independent of the liveness
+   * heartbeat. Staleness alone only catches a dead process — a hung await
+   * inside a live one keeps the heartbeat fresh forever, and age since
+   * creation is the only bound that catches it.
+   */
+  processingLifetimeMaxMs: z
+    .number()
+    .int()
+    .positive()
+    .default(30 * 60 * 1000)
+    .meta({
+      env: ["A2A_PROCESSING_LIFETIME_MAX_MS"],
+      doc: "Milliseconds a task may stay in processing before it is failed as overrunning.",
+    }),
 });

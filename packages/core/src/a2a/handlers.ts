@@ -24,6 +24,11 @@ import {
 import { callAction } from "./client.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import {
+  A2A_PROCESSING_HEARTBEAT_MS,
+  classifyStuckA2ATask,
+  isA2ABackgroundRecoverable,
+} from "./task-lifetime.js";
+import {
   createTask,
   createOrReuseTask,
   getTask,
@@ -58,9 +63,6 @@ import type {
 // with FRAMEWORK_ROUTE_PREFIX in `server/core-routes-plugin.ts`.
 const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
 const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
-const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
-const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
-const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
 const MAX_A2A_APPROVED_ACTIONS = 10;
 const MAX_A2A_DIRECT_ACTION_NAME_CHARS = 200;
 const MAX_A2A_DIRECT_ACTION_INPUT_BYTES = 64 * 1024;
@@ -253,34 +255,6 @@ function trustedA2AMetadata(
   if (requestOrigin) trusted.requestOrigin = requestOrigin;
   else delete trusted.requestOrigin;
   return trusted;
-}
-
-/**
- * Hard cap on how long a task may sit in submitted/working (never reaching
- * `processing`) before the dispatch-retry loop in
- * `refireStuckAsyncTaskIfNeeded` gives up and fails it. Without this, a
- * persistently failing dispatch (missing background function, bad A2A
- * secret, 404) throttles-and-retries forever — the queued bucket otherwise
- * has no terminal state. Override with A2A_QUEUED_LIFETIME_MAX_MS.
- */
-function a2aQueuedLifetimeMaxMs(): number {
-  const raw = Number(process.env.A2A_QUEUED_LIFETIME_MAX_MS);
-  if (Number.isFinite(raw) && raw > 0) return raw;
-  return 3 * 60 * 1000;
-}
-
-/**
- * Hard cap on total time a task may spend in `processing`, independent of
- * the liveness heartbeat. `A2A_PROCESSING_STUCK_AFTER_MS` alone only catches
- * a dead process — a hung await inside a still-alive process keeps
- * `updated_at` fresh via the heartbeat forever. This bounds that case
- * without cutting off legitimately long runs under it. Override with
- * A2A_PROCESSING_LIFETIME_MAX_MS.
- */
-function a2aProcessingLifetimeMaxMs(): number {
-  const raw = Number(process.env.A2A_PROCESSING_LIFETIME_MAX_MS);
-  if (Number.isFinite(raw) && raw > 0) return raw;
-  return 30 * 60 * 1000;
 }
 
 /**
@@ -1191,57 +1165,42 @@ async function refireStuckAsyncTaskIfNeeded(
 ): Promise<boolean> {
   const state = await getA2ATaskDispatchState(taskId);
   if (!state) return false;
-  if (!state.metadata?.__a2a_processor) return false;
+  if (!isA2ABackgroundRecoverable(state.metadata)) return false;
 
-  const now = Date.now();
+  const verdict = classifyStuckA2ATask(state, Date.now());
 
-  if (state.statusState === "submitted" || state.statusState === "working") {
-    const queuedLifetimeCutoff = now - a2aQueuedLifetimeMaxMs();
-    if (state.createdAt <= queuedLifetimeCutoff) {
-      // Dispatch has kept failing (or was never delivered) long enough that
-      // retrying further would just repeat the same failure forever — stop
-      // refiring and surface a terminal error instead of throttling forever.
-      return failStuckQueuedA2ATask(
-        taskId,
-        queuedLifetimeCutoff,
-        "The async A2A task could not be started because dispatch kept failing. Please retry the request.",
-      );
-    }
-
-    if (state.updatedAt <= now - A2A_QUEUED_DISPATCH_STUCK_AFTER_MS) {
-      if (!(await touchQueuedA2ATaskDispatch(taskId))) return false;
-      try {
-        await fireProcessTaskDispatch(event, taskId, config);
-      } catch (err) {
-        console.error(
-          "[a2a] Failed to refire stuck queued task dispatch:",
-          err,
-        );
-        return false;
-      }
-      return true;
-    }
-    return false;
+  if (verdict.kind === "fail-queued") {
+    // Dispatch has kept failing (or was never delivered) long enough that
+    // retrying further would just repeat the same failure forever — stop
+    // refiring and surface a terminal error instead of throttling forever.
+    return failStuckQueuedA2ATask(
+      taskId,
+      verdict.createdAtCutoff,
+      verdict.reason,
+    );
   }
 
-  if (state.statusState === "processing") {
-    const processingStuckCutoff = now - A2A_PROCESSING_STUCK_AFTER_MS;
-    const processingLifetimeCutoff = now - a2aProcessingLifetimeMaxMs();
-    const isStale = state.updatedAt <= processingStuckCutoff;
-    const isOverLifetime = state.createdAt <= processingLifetimeCutoff;
-    if (isStale || isOverLifetime) {
-      // A processor that died mid-handler may have already performed
-      // side-effectful work. Retrying from the top can duplicate artifacts, so
-      // fail deterministically and let the caller issue an intentional retry.
-      return failStuckA2ATask(
-        taskId,
-        processingStuckCutoff,
-        isStale
-          ? "The async A2A processor timed out before completing. Please retry the request."
-          : "The async A2A processor exceeded its maximum run time. Please retry the request.",
-        processingLifetimeCutoff,
-      );
+  if (verdict.kind === "refire-queued") {
+    if (!(await touchQueuedA2ATaskDispatch(taskId))) return false;
+    try {
+      await fireProcessTaskDispatch(event, taskId, config);
+    } catch (err) {
+      console.error("[a2a] Failed to refire stuck queued task dispatch:", err);
+      return false;
     }
+    return true;
+  }
+
+  if (verdict.kind === "fail-processing") {
+    // A processor that died mid-handler may have already performed
+    // side-effectful work. Retrying from the top can duplicate artifacts, so
+    // fail deterministically and let the caller issue an intentional retry.
+    return failStuckA2ATask(
+      taskId,
+      verdict.processingCutoff,
+      verdict.reason,
+      verdict.createdAtCutoff,
+    );
   }
 
   return false;
