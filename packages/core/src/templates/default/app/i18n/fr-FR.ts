@@ -505,6 +505,15 @@ const messages = {
     noAppRolesFound: "Aucun rôle trouvé",
     notAssigned: "Non attribué",
     appPermissions: "Autorisations de l’application",
+    applications: "Applications",
+    applicationsEmpty:
+      "Aucune application d’espace de travail n’est encore enregistrée.",
+    applicationsLoadFailed:
+      "Impossible de charger les applications de l’espace de travail.",
+    applicationAccess: "Accès pour {{name}}",
+    applicationAccessAll: "Tous les membres",
+    applicationAccessRestricted: "Restreint",
+    applicationAccessDisabled: "Désactivé",
     resetToDefaults: "Rétablir les valeurs par défaut",
     invited: "Invité",
     role: "Rôle",
@@ -521,6 +530,7 @@ const messages = {
     youAreRole: "You are {{role}}",
     changeRole: "Changer de rôle",
     removeMember: "Supprimer un membre",
+    transferTo: "Transférer la propriété à",
     cancel: "Annuler",
     remove: "Retirer",
     save: "Enregistrer",

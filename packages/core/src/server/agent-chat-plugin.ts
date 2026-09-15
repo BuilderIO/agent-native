@@ -1923,6 +1923,7 @@ export function createAgentChatPlugin(
         ),
         publicSkillsOnly: true,
         streaming: true,
+        connect: options?.connectApps,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
           const actions = filterDirectA2AActions(
@@ -3746,6 +3747,7 @@ export function createAgentChatPlugin(
       // content is what the token-saving modes strip.
       const prepareRun = async (event: any) => {
         const owner = await getOwnerFromEvent(event);
+        const orgId = await getOrgIdFromEvent(event);
         const { resolveOwnerEngineApiKey } =
           await import("../agent/production-agent.js");
         const userApiKey = await resolveOwnerEngineApiKey({
@@ -3758,6 +3760,22 @@ export function createAgentChatPlugin(
           runCtx.owner = owner;
           runCtx.userApiKey = userApiKey.apiKey;
           runCtx.userApiKeyEnvVar = userApiKey.apiKeyEnvVar;
+          if (options?.appId && orgId) {
+            try {
+              const { resolveAppAuthorizationContext } =
+                await import("../org/app-roles.js");
+              const authorization = await resolveAppAuthorizationContext(
+                options.appId,
+                { userEmail: owner, orgId },
+              );
+              if (authorization) runCtx.appAuthorization = authorization;
+            } catch (error) {
+              console.warn(
+                "[agent-chat] app authorization context unavailable",
+                error,
+              );
+            }
+          }
         }
         const extra = await resolveExtraContext(event, owner);
         return { owner, extra };
@@ -3893,7 +3911,18 @@ export function createAgentChatPlugin(
         // server-side (`evaluateSubagentDepth`); this only surfaces it to the
         // model. 0 (the top-level chat) emits no delegation line.
         const delegationDepth = getCurrentDelegationDepth();
-        return buildRuntimeContextPrompt({ timezone, delegationDepth });
+        const authorization = getRequestRunContext()?.appAuthorization;
+        const identityLine = authorization
+          ? `\n\n<agent-identity>\nApp roles: ${authorization.roles.join(", ") || "none"}\nApp permissions: ${
+              Object.entries(authorization.permissions)
+                .filter(([, roles]) =>
+                  roles.some((role) => authorization.roles.includes(role)),
+                )
+                .map(([permission]) => permission)
+                .join(", ") || "none"
+            }\n</agent-identity>`
+          : "";
+        return `${buildRuntimeContextPrompt({ timezone, delegationDepth })}${identityLine}`;
       };
 
       // The app-rendered sidebar must never edit the app's source code

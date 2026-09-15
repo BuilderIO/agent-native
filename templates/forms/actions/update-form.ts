@@ -33,6 +33,10 @@ function slugify(text: string): string {
 export default defineAction({
   description:
     "Update an existing form, including settings.completionMode (message, redirect, message_then_refresh, or refresh) and settings.completionRefreshSeconds, or settings.emailOnNewResponses to email the form owner when new responses arrive.",
+  access: {
+    scope: "resource",
+    resource: { type: "form", idFrom: "id", level: "editor" },
+  },
   schema: z.object({
     id: z.string().describe("Form ID (required)"),
     title: z.string().optional().describe("New title"),

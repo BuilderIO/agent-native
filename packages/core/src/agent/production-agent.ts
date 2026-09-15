@@ -763,6 +763,8 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 export interface ActionEntry {
   tool: ActionTool;
   run: (args: any, context?: import("../action.js").ActionRunContext) => any;
+  /** Declarative action access contract, preserved from defineAction. */
+  access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   /** Standard Schema input validator when declared through defineAction. */
   schema?: unknown;
@@ -5059,6 +5061,27 @@ export async function runAgentLoop(opts: {
   );
   const activeToolNames = new Set(tools.map((tool) => tool.name));
   let activeTools = tools;
+  let appAuthorizationPromise:
+    | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
+    | undefined;
+  const resolveTurnAppAuthorization = (
+    userEmail: string | undefined,
+    orgId: string | null,
+  ) => {
+    if (!appAuthorizationPromise) {
+      appAuthorizationPromise =
+        opts.appId && userEmail && orgId
+          ? import("../org/app-roles.js").then(
+              ({ resolveAppAuthorizationContext }) =>
+                resolveAppAuthorizationContext(opts.appId!, {
+                  userEmail,
+                  orgId,
+                }),
+            )
+          : Promise.resolve(null);
+    }
+    return appAuthorizationPromise;
+  };
 
   let expandedToolSchemaBytes = 0;
   let reportedExpandedToolSchemaBytes = false;
@@ -7084,11 +7107,27 @@ export async function runAgentLoop(opts: {
           const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
+          const appAuthorization = await resolveTurnAppAuthorization(
+            actionUserEmail ?? undefined,
+            actionOrgId,
+          );
           const actionContext = {
             send,
             userEmail: actionUserEmail ?? undefined,
             orgId: actionOrgId,
             appId: opts.appId,
+            ...(appAuthorization
+              ? {
+                  appRoles: appAuthorization.roles,
+                  appPermissions: Object.entries(appAuthorization.permissions)
+                    .filter(([, roles]) =>
+                      roles.some((role) =>
+                        appAuthorization.roles.includes(role),
+                      ),
+                    )
+                    .map(([permission]) => permission),
+                }
+              : {}),
             caller: opts.actionCaller ?? "tool",
             automation: opts.automation,
             networkProtocol: opts.networkProtocol,

@@ -13,6 +13,15 @@ export default defineAction({
     email: z.string().email(),
     roles: z.array(z.string()).max(50),
   }),
+  audit: {
+    target: (args, _result, meta) => ({
+      type: "app-member-roles",
+      id: `${args.appId}:${args.email.toLowerCase()}`,
+      ownerEmail: meta.userEmail,
+      visibility: "org",
+    }),
+    summary: (args) => `Updated ${args.appId} roles for ${args.email}`,
+  },
   run: async ({ appId, email, roles }, ctx) => {
     const caller = await requireOrgMember(ctx, true);
     const descriptor = getRegisteredAppRoles(appId);

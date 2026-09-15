@@ -132,4 +132,8 @@ la autenticación local normal.
 - [Seguridad y alcance de datos](/docs/security)
 - [Espacios de trabajo multiaplicación](/docs/multi-app-workspace)
 
-El inicio de sesión empresarial con OIDC o SAML es distinto de la federación de identidad entre aplicaciones. La [guía de despliegues administrados](/docs/administered-deployments) describe el modelo empresarial. El inicio de sesión del navegador con Agent-Native sigue retirado.
+El inicio de sesión empresarial con OIDC o SAML es distinto de la federación de identidad entre aplicaciones. La [guía de despliegues administrados](/docs/administered-deployments) describe el modelo empresarial. Con `browser.identity-sso` habilitado, la app prueba `prompt=none` en silencio y conserva el formulario local como alternativa. Consulta el [diseño de conexión entre apps](/docs/cross-app-connect-design).
+
+## Guía de lanzamiento de SSO de identidad en el navegador
+
+Habilita `browser.identity-sso` primero para un correo de prueba. Inicia sesión en Dispatch, cierra sesión en la app objetivo y comprueba la prueba silenciosa al cargarla. Repite sin sesión del hub y confirma que `login_required` vuelve al formulario local antes de ampliar el grupo. La primera activación puede requerir revocar las sesiones existentes una vez.

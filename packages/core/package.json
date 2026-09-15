@@ -96,6 +96,10 @@
       "types": "./dist/action-ui.d.ts",
       "default": "./dist/action-ui.js"
     },
+    "./authorization": {
+      "types": "./dist/authorization/index.d.ts",
+      "default": "./dist/authorization/index.js"
+    },
     "./agent-native": {
       "types": "./dist/agent-native/index.d.ts",
       "default": "./dist/agent-native/index.js"

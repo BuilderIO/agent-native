@@ -213,6 +213,13 @@ function wrapDefaultExport(
 
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
+  if (
+    entry.access &&
+    typeof entry.access === "object" &&
+    !Array.isArray(entry.access)
+  ) {
+    out.access = entry.access;
+  }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
   if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
   if (typeof entry.deferLoading === "boolean") {
@@ -648,6 +655,15 @@ export async function mergeCoreSharingActions(
       "set-app-permission-roles",
       () => import("../org/actions/set-app-permission-roles.js"),
     ],
+    [
+      "list-workspace-app-access",
+      () => import("../org/actions/list-workspace-app-access.js"),
+    ],
+    [
+      "set-workspace-app-access",
+      () => import("../org/actions/set-workspace-app-access.js"),
+    ],
+    ["explain-access", () => import("../org/actions/explain-access.js")],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "list-workspace-user-groups",

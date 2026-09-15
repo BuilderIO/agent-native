@@ -289,4 +289,10 @@ export const ORG_MIGRATIONS = [
     sql: `ALTER TABLE org_scim_memberships
           ADD COLUMN IF NOT EXISTS member_id TEXT`,
   },
+  {
+    version: 1031,
+    name: "workspace-app-org-enabled",
+    sql: `ALTER TABLE workspace_apps
+          ADD COLUMN IF NOT EXISTS org_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
+  },
 ];

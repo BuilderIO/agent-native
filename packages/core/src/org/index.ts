@@ -61,6 +61,7 @@ export {
   applyInvitationAppRoles,
   getAppPermissionOverrides,
   setAppPermissionRoles,
+  resolveAppAuthorizationContext,
 } from "./app-roles.js";
 export type {
   AppRoles,
@@ -68,6 +69,7 @@ export type {
   AppRoleCaller,
   AppRoleLookup,
   AppMemberRoleRow,
+  AppAuthorizationContext,
 } from "./app-roles.js";
 
 export { ORG_MIGRATIONS } from "./migrations.js";

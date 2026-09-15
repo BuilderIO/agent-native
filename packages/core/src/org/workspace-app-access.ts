@@ -353,12 +353,17 @@ export async function isWorkspaceAppAccessAllowed(
   try {
     const db = getDbExec();
     const appResult = await db.execute({
-      sql: `SELECT owner_email, org_id, visibility
+      sql: `SELECT owner_email, org_id, visibility, org_enabled
             FROM workspace_apps WHERE id = ? LIMIT 1`,
       args: [normalizedAppId],
     });
     const app = appResult.rows[0] as
-      | { owner_email?: unknown; org_id?: unknown; visibility?: unknown }
+      | {
+          owner_email?: unknown;
+          org_id?: unknown;
+          visibility?: unknown;
+          org_enabled?: unknown;
+        }
       | undefined;
     if (!app) return false;
 
@@ -369,11 +374,17 @@ export async function isWorkspaceAppAccessAllowed(
       (typeof app.org_id === "string" ? app.org_id : "").trim() || null;
     const orgId = context.orgId?.trim() || null;
     const sameOrg = !!resourceOrgId && resourceOrgId === orgId;
+    const orgEnabled =
+      app.org_enabled !== false &&
+      app.org_enabled !== 0 &&
+      app.org_enabled !== "false" &&
+      app.org_enabled !== "0";
     const canClaimCallerOrg =
       !resourceOrgId && !ownerEmail && app.visibility === "org" && !!orgId;
 
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
     if ((!sameOrg && !canClaimCallerOrg) || !orgId) return false;
+    if (sameOrg && !orgEnabled) return false;
 
     const member = await loadWorkspaceOrgMember(db, orgId, email);
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
