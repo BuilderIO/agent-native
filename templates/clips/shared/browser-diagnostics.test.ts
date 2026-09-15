@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseBrowserDiagnosticsRow,
   redactBrowserDiagnosticString,
+  sanitizeBrowserDiagnosticNavigationUrl,
   summarizeBrowserDiagnostics,
 } from "./browser-diagnostics";
 
@@ -143,6 +144,12 @@ describe("browser diagnostics helpers", () => {
       ),
     ).toBe(
       "https://api.example.com/items?ms=<redacted>&frame=<redacted>&token=<redacted>",
+    );
+  });
+
+  it("does not retain malformed URL credentials or fragments", () => {
+    expect(sanitizeBrowserDiagnosticNavigationUrl("https://user:pass[")).toBe(
+      "<redacted>",
     );
   });
 });

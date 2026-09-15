@@ -18,11 +18,22 @@ describe("Clips overlay follow permissions", () => {
     expect(contentScriptSource).toContain(
       "if (flags.__clipsOverlayHostReady) return;",
     );
+    expect(contentScriptSource).toContain("data.token !== historyBridgeToken");
+    expect(contentScriptSource).toContain(
+      "MAX_HISTORY_NAVIGATION_MESSAGES_PER_WINDOW",
+    );
+    expect(contentScriptSource).toContain(
+      "sendDiagnosticNavigation(window.location.href)",
+    );
   });
 
   it("keeps cross-tab follow enabled and declares the broad-host manifest path", () => {
     const backgroundSource = readFileSync(
       new URL("./background.ts", import.meta.url),
+      "utf8",
+    );
+    const historyBridgeSource = readFileSync(
+      new URL("./content-history-bridge.ts", import.meta.url),
       "utf8",
     );
     expect(backgroundSource).toContain(
@@ -74,5 +85,7 @@ describe("Clips overlay follow permissions", () => {
     expect(backgroundSource).toContain("sendWithInjectionFallback");
     expect(backgroundSource).toContain("shouldFollowOverlay");
     expect(backgroundSource).toContain("assets/content-history-bridge.js");
+    expect(historyBridgeSource).toContain("crypto.randomUUID()");
+    expect(historyBridgeSource).toContain('data.kind === "request-token"');
   });
 });

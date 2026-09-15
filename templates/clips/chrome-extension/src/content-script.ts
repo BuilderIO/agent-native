@@ -23,6 +23,13 @@
   let recordingActive = false;
 
   type InteractionKind = "navigation" | "click" | "input" | "scroll";
+  const HISTORY_NAVIGATION_DEDUPE_MS = 250;
+  const HISTORY_NAVIGATION_WINDOW_MS = 1000;
+  const MAX_HISTORY_NAVIGATION_MESSAGES_PER_WINDOW = 20;
+  let historyBridgeToken: string | null = null;
+  let historyNavigationWindowStartedAt = 0;
+  let historyNavigationCount = 0;
+  let lastHistoryNavigation: { url: string; sentAtMs: number } | null = null;
   const OVERLAY_ROOT_ID = "clips-recorder-overlay-root";
 
   function targetDescriptor(target: EventTarget | null): string | undefined {
@@ -65,20 +72,58 @@
     }
   }
 
+  function sendDiagnosticNavigation(url: string): void {
+    if (!recordingActive) return;
+    const now = Date.now();
+    if (
+      lastHistoryNavigation?.url === url &&
+      now - lastHistoryNavigation.sentAtMs < HISTORY_NAVIGATION_DEDUPE_MS
+    ) {
+      return;
+    }
+    if (
+      now - historyNavigationWindowStartedAt >=
+      HISTORY_NAVIGATION_WINDOW_MS
+    ) {
+      historyNavigationWindowStartedAt = now;
+      historyNavigationCount = 0;
+    }
+    if (historyNavigationCount >= MAX_HISTORY_NAVIGATION_MESSAGES_PER_WINDOW) {
+      return;
+    }
+    historyNavigationCount += 1;
+    lastHistoryNavigation = { url, sentAtMs: now };
+    sendDiagnosticInteraction("navigation", null, url);
+  }
+
   window.addEventListener("message", (event) => {
-    if (!recordingActive || event.source !== window) return;
+    if (event.source !== window) return;
     const data = event.data as
-      | { source?: unknown; kind?: unknown; url?: unknown }
+      | { source?: unknown; kind?: unknown; token?: unknown; url?: unknown }
       | undefined;
+    if (
+      data?.source === "clips-diagnostic-history" &&
+      data.kind === "token" &&
+      typeof data.token === "string"
+    ) {
+      historyBridgeToken = data.token;
+      return;
+    }
+    if (!recordingActive) return;
     if (
       data?.source !== "clips-diagnostic-history" ||
       data.kind !== "navigation" ||
+      data.token !== historyBridgeToken ||
       typeof data.url !== "string"
     ) {
       return;
     }
-    sendDiagnosticInteraction("navigation", null, data.url);
+    sendDiagnosticNavigation(data.url);
   });
+  window.postMessage(
+    { source: "clips-diagnostic-history", kind: "request-token" },
+    "*",
+  );
 
   let lastScrollAt = 0;
   const onClick = (event: MouseEvent) =>
@@ -91,8 +136,7 @@
     lastScrollAt = now;
     sendDiagnosticInteraction("scroll", event.target);
   };
-  const onNavigation = () =>
-    sendDiagnosticInteraction("navigation", null, window.location.href);
+  const onNavigation = () => sendDiagnosticNavigation(window.location.href);
   document.addEventListener("click", onClick, true);
   document.addEventListener("input", onInput, true);
   document.addEventListener("scroll", onScroll, true);
@@ -432,7 +476,10 @@
       chrome.storage.local.get("clipsRecordingActive", (value) => {
         if (chrome.runtime.lastError) return;
         recordingActive = value?.clipsRecordingActive === true;
-        if (recordingActive) requestState();
+        if (recordingActive) {
+          sendDiagnosticNavigation(window.location.href);
+          requestState();
+        }
       });
     } catch {
       /* ignore */

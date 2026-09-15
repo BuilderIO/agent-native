@@ -65,7 +65,7 @@ export function sanitizeBrowserDiagnosticNavigationUrl(raw: string): string {
       MAX_BROWSER_DIAGNOSTIC_URL_LENGTH,
     );
   } catch {
-    return redacted.slice(0, MAX_BROWSER_DIAGNOSTIC_URL_LENGTH);
+    return "<redacted>";
   }
 }
 

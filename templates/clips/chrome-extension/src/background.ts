@@ -2331,6 +2331,19 @@ function pushInteraction(
   const timestampMs = entry.timestampMs ?? nowMs();
   const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
   if (elapsedMs === null) return;
+  const url = entry.url
+    ? sanitizeBrowserDiagnosticNavigationUrl(entry.url)
+    : undefined;
+  if (entry.kind === "navigation" && url) {
+    const first = session.interactionEvents[0];
+    if (
+      session.interactionEvents.length === 1 &&
+      first?.kind === "navigation" &&
+      first.url === url
+    ) {
+      return;
+    }
+  }
   session.interactionEvents.push({
     timestampMs,
     elapsedMs,
@@ -2338,9 +2351,7 @@ function pushInteraction(
     ...(entry.target
       ? { target: truncate(redactString(entry.target), 200) }
       : {}),
-    ...(entry.url
-      ? { url: sanitizeBrowserDiagnosticNavigationUrl(entry.url) }
-      : {}),
+    ...(url ? { url } : {}),
   });
   if (session.interactionEvents.length > 800) {
     session.interactionEvents.splice(0, session.interactionEvents.length - 800);
