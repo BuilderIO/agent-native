@@ -13,6 +13,8 @@ const guards = [
   "guard:no-empty-migrations",
   "guard:release-schema-complete",
   "guard:no-unscoped-queries",
+  "guard:identity-columns-registered",
+  "guard:no-raw-app-identity-env",
   "guard:no-env-credentials",
   "guard:env-documentation",
   "guard:no-unscoped-credentials",

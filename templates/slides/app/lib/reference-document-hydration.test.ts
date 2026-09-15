@@ -308,4 +308,155 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context.length).toBeLessThan(50_000);
     expect(result.context).toContain("filled the reference budget");
   });
+
+  it("does not count a measured design that the budget dropped", async () => {
+    const long = "x".repeat(20_000);
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(
+        async (_action: string, input: { filePath: string }) =>
+          input.filePath.includes("styled")
+            ? pdfResult
+            : {
+                format: "pdf",
+                pageCount: 1,
+                textPageCount: 1,
+                pages: [{ pageNum: 1, text: long }],
+              },
+      );
+
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("long-0.pdf"),
+        uploaded("long-1.pdf"),
+        uploaded("long-2.pdf"),
+        uploaded("styled.pdf"),
+      ],
+      { callActionImpl },
+    );
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    // The styled PDF was read, but its digest never made it into the prompt,
+    // so the caller must keep its styling fallback rather than tell the agent
+    // to match a design it cannot see.
+    expect(result.context).not.toContain("960x540pt, landscape");
+    expect(result.measuredDesignCount).toBe(0);
+    expect(result.context).toContain("one exception to the no-reread rule");
+  });
+
+  it("does not count a measured design the budget only partly kept", async () => {
+    const filler = "x".repeat(10_000);
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(
+        async (_action: string, input: { filePath: string }) =>
+          input.filePath.includes("styled")
+            ? {
+                ...pdfResult,
+                pages: [{ pageNum: 1, text: "y".repeat(20_000) }],
+              }
+            : {
+                format: "pdf",
+                pageCount: 1,
+                textPageCount: 1,
+                pages: [{ pageNum: 1, text: filler }],
+              },
+      );
+
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("filler-0.pdf"),
+        uploaded("filler-1.pdf"),
+        uploaded("filler-2.pdf"),
+        uploaded("styled.pdf"),
+      ],
+      { callActionImpl },
+    );
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    // Present but clipped by the budget — "(PDF)" distinguishes a truncated
+    // block from the omitted-reference notice.
+    expect(result.context).toContain("### styled.pdf (PDF)");
+    expect(result.context).toContain("[truncated]");
+    // A digest the budget cut is not one the agent can be told to match.
+    expect(result.measuredDesignCount).toBe(0);
+  });
+
+  it("names a reference the budget could only fit a fragment of", async () => {
+    // Leaves a positive remainder too small to carry a usable block.
+    const filler = "x".repeat(11_800);
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(
+        async (_action: string, input: { filePath: string }) =>
+          input.filePath.includes("styled")
+            ? pdfResult
+            : {
+                format: "pdf",
+                pageCount: 1,
+                textPageCount: 1,
+                pages: [{ pageNum: 1, text: filler }],
+              },
+      );
+
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("filler-0.pdf"),
+        uploaded("filler-1.pdf"),
+        uploaded("filler-2.pdf"),
+        uploaded("styled.pdf"),
+      ],
+      { callActionImpl },
+    );
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    // A stub the agent cannot identify is worse than a named omission.
+    expect(result.context).toContain("### styled.pdf");
+    expect(result.context).toContain("filled the reference budget");
+    expect(result.measuredDesignCount).toBe(0);
+  });
+
+  it("keeps a small reference that still fits the remaining budget", async () => {
+    // Leaves a remainder under the partial-block floor but above this
+    // reference's own size.
+    const filler = "x".repeat(11_750);
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(
+        async (_action: string, input: { filePath: string }) =>
+          input.filePath.includes("tiny")
+            ? {
+                format: "docx",
+                sections: [{ heading: "Scope", textPreview: "One line" }],
+                textLength: 40,
+              }
+            : {
+                format: "pdf",
+                pageCount: 1,
+                textPageCount: 1,
+                pages: [{ pageNum: 1, text: filler }],
+              },
+      );
+
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("filler-0.pdf"),
+        uploaded("filler-1.pdf"),
+        uploaded("filler-2.pdf"),
+        uploaded("tiny.docx"),
+      ],
+      { callActionImpl },
+    );
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    // The remainder is under the partial-block floor, but this block needs no
+    // truncation at all, so dropping it would discard content that fit.
+    expect(result.context).toContain("Scope: One line");
+    expect(result.context).not.toContain("### tiny.docx\nRead successfully");
+    expect(result.context).not.toContain("[truncated]");
+  });
 });

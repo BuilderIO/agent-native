@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  assertAny: vi.fn(),
+  assertPermission: vi.fn(),
   deleteDestination: vi.fn(),
   getDestinationById: vi.fn(),
   resolveSecret: vi.fn(),
@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/org", () => ({
-  defineAppRoles: () => ({ assertAny: mocks.assertAny }),
+  defineAppRoles: () => ({ assertPermission: mocks.assertPermission }),
   validateFederatedOrganizationMembershipForCurrentRequest:
     mocks.validateFederatedOrganizationMembershipForCurrentRequest,
 }));
@@ -53,7 +53,7 @@ describe("Dispatch admin authorization", () => {
     mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
       { active: true, role: "member" },
     );
-    mocks.assertAny.mockRejectedValue(
+    mocks.assertPermission.mockRejectedValue(
       new ForbiddenError("Requires dispatch role admin"),
     );
   });

@@ -113,6 +113,16 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Modus",
   "agentPanel.uiMode": "Benutzeroberfläche",
+  "agentPanel.keyScope": "Schlüsselbereich",
+  "agentPanel.personalKeyScope": "Persönlich",
+  "agentPanel.organizationKeyScope": "Organisation",
+  "agentPanel.personalKeyInEffect":
+    "Dein persönlicher Schlüssel wird verwendet.",
+  "agentPanel.organizationKeyInEffect":
+    "Der Organisationsschlüssel wird verwendet.",
+  "agentPanel.sharedKeyInEffect": "Ein gemeinsamer Schlüssel wird verwendet.",
+  "agentPanel.useOrganizationKey": "Organisationsschlüssel verwenden",
+  "agentPanel.keyStatusUnavailable": "Der Schlüsselstatus ist nicht verfügbar.",
   "agentHostNudge.sidebarTitle": "{{agent}}-Chat verwenden",
   "agentHostNudge.sidebarDescription":
     "Du chattest bereits mit {{agent}}. Bitte ihn, direkt mit dieser App zu arbeiten.",
@@ -135,6 +145,25 @@ const messages: AgentChatTranslation = {
   "common.no": "Nein",
   "common.retry": "Erneut versuchen",
   "common.save": "Speichern",
+  "agents.hostedAgent": "Gehosteter Agent",
+  "agents.cardUrl": "URL der Agentenkarte",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Authentifizierung",
+  "agents.authNone": "Keine Authentifizierung",
+  "agents.authBearer": "Bearer-Token",
+  "agents.authClientCredentials": "OAuth-Client-Anmeldedaten",
+  "agents.chooseCredential": "Anmeldedaten auswählen",
+  "agents.vault": "Tresor",
+  "agents.tokenUrl": "Token-URL",
+  "agents.clientId": "Client-ID",
+  "agents.scope": "Bereich",
+  "agents.authIncomplete":
+    "Vervollständige die Authentifizierungsfelder des gehosteten Agenten.",
+  "agents.invalidUrl":
+    "Agent-URLs müssen HTTPS verwenden; für localhost oder Loopback-Entwicklungs-URLs ist HTTP zulässig.",
+  "agents.statusReachable": "Erreichbar",
+  "agents.statusAuthRejected": "Authentifizierung abgelehnt",
+  "agents.statusNoJsonRpc": "Kein JSON-RPC",
   "common.saveFailed": "Speichern fehlgeschlagen",
   "common.saveFailedStatus": "Speichern fehlgeschlagen ({{status}})",
   "common.saving": "Wird gespeichert...",
@@ -752,6 +781,14 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Betrachter",
   "share.viewerDescription": "Kann ansehen",
   "share.userGroup": "Benutzergruppe",
+  "settings.emailTitle": "E-Mail-Adresse",
+  "settings.emailChange": "E-Mail-Adresse ändern",
+  "settings.emailChanging": "Wird gesendet...",
+  "settings.emailChangeSent":
+    "Prüfe deine E-Mails, um diese Änderung zu bestätigen.",
+  "settings.emailChangeError": "Bestätigung konnte nicht gesendet werden.",
+  "settings.emailNewLabel": "Neue E-Mail-Adresse",
+  "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
 };
 
 export default messages;

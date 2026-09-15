@@ -2943,6 +2943,28 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
   };
 }
 
+function enterpriseAuthAdapterStubPlugin(enabled: boolean): Plugin | null {
+  if (enabled) return null;
+
+  const stubbed = new Set(["@better-auth/sso", "@better-auth/scim"]);
+  const stubIdPrefix = "\0agent-native-enterprise-auth-adapter-stub:";
+  return {
+    name: "agent-native-enterprise-auth-adapter-stub",
+    enforce: "pre",
+    resolveId(id) {
+      const packageName = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+      return stubbed.has(packageName) ? `${stubIdPrefix}${packageName}` : null;
+    },
+    load(id) {
+      if (!id.startsWith(stubIdPrefix)) return null;
+      return "export const sso = undefined; export const scim = undefined;";
+    },
+  };
+}
+
 function splitViteRequest(id: string): { file: string; query: string } | null {
   const queryIndex = id.indexOf("?");
   if (queryIndex === -1) return null;
@@ -3967,6 +3989,16 @@ function createAgentNativePlugins(
     process.cwd(),
     process.env.NODE_ENV === "production" ? "production" : "development",
   );
+  const enterpriseAuthAdaptersEnabled = [
+    runtimeEnv.AUTH_SSO,
+    runtimeEnv.AUTH_SCIM,
+  ].some((value) =>
+    ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? ""),
+  );
+  const enterpriseAuthSsrStubs =
+    isBuildCommand(command) && !enterpriseAuthAdaptersEnabled
+      ? ["@better-auth/sso", "@better-auth/scim"]
+      : [];
 
   return [
     presetMarkerPlugin,
@@ -3974,7 +4006,12 @@ function createAgentNativePlugins(
     // don't bloat the edge worker. Opt-in per template — the framework
     // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
     // the server, so we can't blanket-stub it here).
-    ssrStubPlugin([...ALWAYS_SSR_STUBBED, ...(options.ssrStubs ?? [])]),
+    ssrStubPlugin([
+      ...ALWAYS_SSR_STUBBED,
+      ...enterpriseAuthSsrStubs,
+      ...(options.ssrStubs ?? []),
+    ]),
+    enterpriseAuthAdapterStubPlugin(enterpriseAuthAdaptersEnabled),
     ...userPlugins,
     externalStoreShimPlugin(),
     appChangelogRawPlugin(),

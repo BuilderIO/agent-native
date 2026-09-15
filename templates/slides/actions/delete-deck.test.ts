@@ -12,18 +12,24 @@ const { mocks, tables } = vi.hoisted(() => ({
       resourceId: "resourceId",
     },
     deckVersions: { deckId: "deckId", ownerEmail: "ownerEmail" },
+    slideComments: { deckId: "deckId" },
     decks: { id: "id" },
   },
 }));
 
 let shareRows: Array<{ principalType: string; principalId: string }> = [];
 
-function resolvedBuilder<T>(value: T) {
+function selectBuilder() {
+  let value: unknown[] = shareRows;
   const builder = {
-    from: vi.fn(() => builder),
+    from: vi.fn((table: unknown) => {
+      value = table === tables.decks ? [{ id: "deck-1" }] : shareRows;
+      return builder;
+    }),
     where: vi.fn(() => builder),
+    for: vi.fn(() => builder),
     then: (
-      resolve: (value: T) => unknown,
+      resolve: (nextValue: unknown[]) => unknown,
       reject: (error: unknown) => unknown,
     ) => Promise.resolve(value).then(resolve, reject),
   };
@@ -31,7 +37,7 @@ function resolvedBuilder<T>(value: T) {
 }
 
 const mockDb = {
-  select: vi.fn(() => resolvedBuilder(shareRows)),
+  select: vi.fn(() => selectBuilder()),
   delete: vi.fn((table: unknown) => {
     const rows = table === tables.decks ? [{ id: "deck-1" }] : [];
     const builder = {
@@ -44,6 +50,9 @@ const mockDb = {
     };
     return builder;
   }),
+  transaction: vi.fn(async (run: (tx: typeof mockDb) => Promise<unknown>) =>
+    run(mockDb),
+  ),
 };
 
 vi.mock("@agent-native/core/action", () => ({
@@ -81,6 +90,9 @@ describe("deleteDeck", () => {
     shareRows = [];
     mocks.assertAccess.mockReset();
     mocks.notifyClients.mockReset();
+    mockDb.select.mockClear();
+    mockDb.delete.mockClear();
+    mockDb.transaction.mockClear();
     mocks.assertAccess.mockResolvedValue({
       resource: {
         ownerEmail: "Owner@Example.com",
@@ -108,6 +120,7 @@ describe("deleteDeck", () => {
       ["deck-1", { type: "deck-deleted", owner: "sharee@example.com" }],
       ["deck-1", { type: "deck-deleted", orgId: "org-2" }],
     ]);
+    expect(mockDb.transaction).toHaveBeenCalledOnce();
   });
 
   it("includes the resource organization only for org-visible decks", async () => {

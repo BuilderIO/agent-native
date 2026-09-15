@@ -1,14 +1,22 @@
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  useAvatarUrl,
+  useReconciledState,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InlineMarkdown } from "@agent-native/core/client/markdown";
+import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconX,
   IconCheck,
   IconTrash,
+  IconPencil,
   IconMessageCircle,
   IconChevronDown,
   IconAlertTriangle,
   IconRefresh,
+  IconPlus,
+  IconSearch,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 
@@ -17,6 +25,12 @@ import {
   AvatarFallback as UserAvatarFallback,
   AvatarImage as UserAvatarImage,
 } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -27,17 +41,29 @@ import {
   useCreateSlideComment,
   useResolveSlideComment,
   useDeleteSlideComment,
+  useToggleSlideCommentReaction,
+  useUpdateSlideComment,
   emailToColor,
   formatRelativeTime,
   type CommentThread,
   type SlideComment,
 } from "@/hooks/use-slide-comments";
 
+const COMMENT_REACTION_EMOJIS = ["👍", "❤️", "😂", "🎉", "😮", "😢", "🙏"];
+
 interface SlideCommentsPanelProps {
   deckId: string | null;
   slideId: string | null;
   canComment: boolean;
-  pendingComment: { quotedText: string } | null;
+  canEdit: boolean;
+  currentUserEmail: string | null;
+  onBeforeCommentSubmit?: () => Promise<void>;
+  onSelectSlide?: (slideId: string) => void;
+  pendingComment: {
+    slideId: string;
+    quotedText: string;
+    anchor?: SlideCommentAnchor;
+  } | null;
   onPendingDone: () => void;
   onClose: () => void;
 }
@@ -69,52 +95,213 @@ function Avatar({ email, name }: { email: string; name?: string | null }) {
 }
 
 /** Single comment (inside a thread) */
-function CommentItem({
+export function CommentItem({
   comment,
+  deckId,
   onDelete,
-  canDelete,
+  canManage,
+  canReact,
 }: {
   comment: SlideComment;
+  deckId: string;
   onDelete: () => void;
-  canDelete: boolean;
+  canManage: boolean;
+  canReact: boolean;
 }) {
   const t = useT();
-  const [hovered, setHovered] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useReconciledState(comment.content, {
+    active: editing,
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [reactionOpen, setReactionOpen] = useState(false);
+  const updateComment = useUpdateSlideComment();
+  const toggleReaction = useToggleSlideCommentReaction();
+
+  const save = async () => {
+    const content = draft.trim();
+    if (!content || updateComment.isPending) return;
+    setError(null);
+    try {
+      await updateComment.mutateAsync({ id: comment.id, deckId, content });
+      setEditing(false);
+    } catch (caught) {
+      setError(actionErrorMessage(caught) ?? t("comments.saveCommentFailed"));
+    }
+  };
+
+  const reactions = comment.reactions ?? [];
+  const toggleEmoji = (emoji: string) => {
+    setError(null);
+    toggleReaction.mutate(
+      { commentId: comment.id, deckId, emoji },
+      {
+        onError: (caught) =>
+          setError(actionErrorMessage(caught) ?? t("comments.reactionFailed")),
+      },
+    );
+    setReactionOpen(false);
+  };
+
   return (
-    <div
-      className="flex gap-2 group"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
+    <div className="group flex gap-2">
       <Avatar email={comment.author_email} name={comment.author_name} />
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-1">
-          <span className="text-[11px] font-medium text-foreground/80 truncate">
+          <span className="truncate text-[11px] font-medium text-foreground/80">
             {comment.author_name || comment.author_email.split("@")[0]}
           </span>
-          <div className="flex items-center gap-1 flex-shrink-0">
+          <div className="flex shrink-0 items-center gap-1">
             <span className="text-[10px] text-muted-foreground">
               {formatRelativeTime(comment.created_at)}
             </span>
-            {hovered && canDelete && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onDelete}
-                    className="p-0.5 rounded text-muted-foreground hover:text-red-400"
-                  >
-                    <IconTrash size={11} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("comments.deleteComment")}</TooltipContent>
-              </Tooltip>
+            {canManage && !editing && (
+              <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("comments.editComment")}
+                      onClick={() => {
+                        setDraft(comment.content);
+                        setError(null);
+                        setEditing(true);
+                      }}
+                      className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                    >
+                      <IconPencil size={11} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("comments.editComment")}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("comments.deleteComment")}
+                      onClick={onDelete}
+                      className="rounded p-0.5 text-muted-foreground hover:text-destructive"
+                    >
+                      <IconTrash size={11} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("comments.deleteComment")}</TooltipContent>
+                </Tooltip>
+              </div>
             )}
           </div>
         </div>
-        <InlineMarkdown
-          content={comment.content}
-          className="mt-0.5 text-[12px] text-foreground/90 leading-relaxed"
-        />
+        {editing ? (
+          <div className="mt-1 space-y-1.5">
+            <textarea
+              aria-label={t("comments.editComment")}
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                if (error) setError(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void save();
+                }
+                if (event.key === "Escape") setEditing(false);
+              }}
+              rows={3}
+              className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+            {error && <p className="text-[11px] text-destructive">{error}</p>}
+            <div className="flex justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                {t("comments.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={!draft.trim() || updateComment.isPending}
+                className="rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+              >
+                {updateComment.isPending
+                  ? t("comments.saving")
+                  : t("comments.save")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <InlineMarkdown
+            content={comment.content}
+            className="mt-0.5 text-[12px] leading-relaxed text-foreground/90"
+          />
+        )}
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          {reactions.map((reaction) =>
+            canReact ? (
+              <button
+                key={reaction.emoji}
+                type="button"
+                aria-label={t("comments.toggleReaction", {
+                  emoji: reaction.emoji,
+                })}
+                aria-pressed={reaction.reacted}
+                onClick={() => toggleEmoji(reaction.emoji)}
+                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] transition-colors ${reaction.reacted ? "border-primary/60 bg-primary/10" : "border-border bg-background hover:bg-accent"}`}
+              >
+                <span aria-hidden="true">{reaction.emoji}</span>
+                <span>{reaction.count}</span>
+              </button>
+            ) : (
+              <span
+                key={reaction.emoji}
+                aria-label={`${reaction.emoji} ${reaction.count}`}
+                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${reaction.reacted ? "border-primary/60 bg-primary/10" : "border-border bg-background"}`}
+              >
+                <span aria-hidden="true">{reaction.emoji}</span>
+                <span>{reaction.count}</span>
+              </span>
+            ),
+          )}
+          {canReact && (
+            <Popover open={reactionOpen} onOpenChange={setReactionOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t("comments.addReaction")}
+                  className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <IconPlus className="size-3" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="bottom"
+                align="start"
+                className="w-auto p-1.5"
+              >
+                <div className="flex gap-0.5">
+                  {COMMENT_REACTION_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      aria-label={t("comments.reactWith", { emoji })}
+                      onClick={() => toggleEmoji(emoji)}
+                      className="rounded p-1.5 text-base leading-none hover:bg-accent"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+        </div>
+        {error && !editing && (
+          <p role="alert" className="mt-1 text-[11px] text-destructive">
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -123,14 +310,18 @@ function CommentItem({
 /** Pending new comment input */
 function PendingCommentInput({
   quotedText,
+  anchor,
   deckId,
   slideId,
+  onBeforeSubmit,
   onDone,
   onCancel,
 }: {
   quotedText: string;
+  anchor?: SlideCommentAnchor;
   deckId: string;
   slideId: string;
+  onBeforeSubmit?: () => Promise<void>;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -149,18 +340,18 @@ function PendingCommentInput({
     if (!trimmed) return;
     setError(null);
     try {
+      await onBeforeSubmit?.();
       await createComment.mutateAsync({
         deckId,
         slideId,
         content: trimmed,
         quotedText: quotedText || undefined,
+        ...(anchor ? { anchor } : {}),
       });
       setText("");
       onDone();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : t("comments.saveCommentFailed"),
-      );
+      setError(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
     }
   };
 
@@ -213,15 +404,19 @@ function PendingCommentInput({
 }
 
 /** Inline reply input below a thread */
-function ReplyInput({
+export function ReplyInput({
   deckId,
   slideId,
   threadId,
+  parentId,
+  onBeforeSubmit,
   onDone,
 }: {
   deckId: string;
   slideId: string;
   threadId: string;
+  parentId: string;
+  onBeforeSubmit?: () => Promise<void>;
   onDone: () => void;
 }) {
   const t = useT();
@@ -239,18 +434,18 @@ function ReplyInput({
     if (!trimmed) return;
     setError(null);
     try {
+      await onBeforeSubmit?.();
       await createComment.mutateAsync({
         deckId,
         slideId,
         threadId,
+        parentId,
         content: trimmed,
       });
       setText("");
       onDone();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : t("comments.saveReplyFailed"),
-      );
+      setError(actionErrorMessage(err) ?? t("comments.saveReplyFailed"));
     }
   };
 
@@ -300,17 +495,27 @@ function ThreadCard({
   thread,
   deckId,
   slideId,
+  currentSlideId,
   canComment,
+  canEdit,
+  currentUserEmail,
+  onBeforeCommentSubmit,
+  onSelectSlide,
 }: {
   thread: CommentThread;
   deckId: string;
   slideId: string;
+  currentSlideId: string | null;
   canComment: boolean;
+  canEdit: boolean;
+  currentUserEmail: string | null;
+  onBeforeCommentSubmit?: () => Promise<void>;
+  onSelectSlide?: (slideId: string) => void;
 }) {
   const t = useT();
   const [replyOpen, setReplyOpen] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
-  const [hovered, setHovered] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const resolveComment = useResolveSlideComment();
   const deleteComment = useDeleteSlideComment();
 
@@ -319,11 +524,35 @@ function ThreadCard({
 
   if (!rootComment) return null;
 
+  const handleResolve = () => {
+    setError(null);
+    resolveComment.mutate(
+      {
+        id: rootComment.id,
+        deckId,
+        resolved: !thread.resolved,
+      },
+      {
+        onError: (caught) =>
+          setError(actionErrorMessage(caught) ?? t("comments.updateFailed")),
+      },
+    );
+  };
+  const handleDelete = (commentId: string) => {
+    setError(null);
+    deleteComment.mutate(
+      { id: commentId, deckId },
+      {
+        onError: (caught) =>
+          setError(actionErrorMessage(caught) ?? t("comments.deleteFailed")),
+      },
+    );
+  };
+
   return (
     <div
-      className={`border rounded-lg px-3 py-2.5 ${thread.resolved ? "border-border/60 opacity-50" : "border-border bg-card"}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      data-slide-comment-thread={thread.threadId}
+      className={`group border rounded-lg px-3 py-2.5 ${thread.resolved ? "border-border/60 opacity-50" : "border-border bg-card"}`}
     >
       {/* Quoted text */}
       {thread.quotedText && (
@@ -331,72 +560,34 @@ function ThreadCard({
           "{thread.quotedText}"
         </div>
       )}
+      {onSelectSlide && thread.slideId && thread.slideId !== currentSlideId && (
+        <button
+          type="button"
+          data-slide-comment-slide-jump
+          onClick={() => onSelectSlide(thread.slideId!)}
+          className="mb-2 text-[10px] text-primary hover:underline"
+        >
+          {t("comments.goToSlide")}
+        </button>
+      )}
 
-      {/* Root comment */}
-      <div className="flex gap-2">
-        <Avatar
-          email={rootComment.author_email}
-          name={rootComment.author_name}
-        />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-1">
-            <span className="text-[11px] font-medium text-foreground/80 truncate">
-              {rootComment.author_name ||
-                rootComment.author_email.split("@")[0]}
-            </span>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <span className="text-[10px] text-muted-foreground">
-                {formatRelativeTime(rootComment.created_at)}
-              </span>
-              {hovered && !thread.resolved && canComment && (
-                <>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() =>
-                          resolveComment.mutate({
-                            id: rootComment.id,
-                            resolved: true,
-                          })
-                        }
-                        className="p-0.5 rounded text-muted-foreground hover:text-green-400"
-                      >
-                        <IconCheck size={11} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("comments.resolveThread")}
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() =>
-                          deleteComment.mutate({ id: rootComment.id })
-                        }
-                        className="p-0.5 rounded text-muted-foreground hover:text-red-400"
-                      >
-                        <IconTrash size={11} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("comments.deleteComment")}
-                    </TooltipContent>
-                  </Tooltip>
-                </>
-              )}
-            </div>
-          </div>
-          <InlineMarkdown
-            content={rootComment.content}
-            className="mt-0.5 text-[12px] text-foreground/90 leading-relaxed"
-          />
-        </div>
-      </div>
+      <CommentItem
+        comment={rootComment}
+        deckId={deckId}
+        onDelete={() => handleDelete(rootComment.id)}
+        canManage={
+          canEdit ||
+          rootComment.author_email.trim().toLowerCase() ===
+            currentUserEmail?.trim().toLowerCase()
+        }
+        canReact={canComment}
+      />
 
       {/* Replies toggle */}
       {replies.length > 0 && (
         <button
+          type="button"
+          aria-expanded={showReplies}
           onClick={() => setShowReplies(!showReplies)}
           className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground/80 ml-7"
         >
@@ -417,17 +608,23 @@ function ThreadCard({
             <CommentItem
               key={r.id}
               comment={r}
-              onDelete={() => deleteComment.mutate({ id: r.id })}
-              canDelete={canComment}
+              deckId={deckId}
+              onDelete={() => handleDelete(r.id)}
+              canManage={
+                canEdit ||
+                r.author_email.trim().toLowerCase() ===
+                  currentUserEmail?.trim().toLowerCase()
+              }
+              canReact={canComment}
             />
           ))}
         </div>
       )}
 
       {/* Reply & resolve actions */}
-      {!thread.resolved && canComment && (
+      {canComment && (
         <div className="mt-2 ml-7 flex items-center gap-3">
-          {!replyOpen && (
+          {!thread.resolved && !replyOpen && (
             <button
               onClick={() => setReplyOpen(true)}
               className="text-[11px] text-muted-foreground hover:text-foreground/80"
@@ -435,6 +632,33 @@ function ThreadCard({
               {t("comments.reply")}
             </button>
           )}
+          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={
+                    thread.resolved
+                      ? t("comments.reopenThread")
+                      : t("comments.resolveThread")
+                  }
+                  onClick={handleResolve}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  {thread.resolved ? (
+                    <IconRefresh size={12} />
+                  ) : (
+                    <IconCheck size={12} />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {thread.resolved
+                  ? t("comments.reopenThread")
+                  : t("comments.resolveThread")}
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       )}
 
@@ -444,9 +668,16 @@ function ThreadCard({
             deckId={deckId}
             slideId={slideId}
             threadId={thread.threadId}
+            parentId={rootComment.id}
+            onBeforeSubmit={onBeforeCommentSubmit}
             onDone={() => setReplyOpen(false)}
           />
         </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 ml-7 text-[11px] text-destructive">
+          {error}
+        </p>
       )}
     </div>
   );
@@ -456,31 +687,83 @@ export function SlideCommentsPanel({
   deckId,
   slideId,
   canComment,
+  canEdit,
+  currentUserEmail,
+  onBeforeCommentSubmit,
+  onSelectSlide,
   pendingComment,
   onPendingDone,
   onClose,
 }: SlideCommentsPanelProps) {
   const t = useT();
-  const commentsQuery = useSlideComments(deckId, slideId);
+  const [scope, setScope] = useState<"slide" | "deck">("slide");
+  const [audience, setAudience] = useState<"all" | "for-you">("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const commentsQuery = useSlideComments(deckId, slideId, scope);
   const threads = commentsQuery.data ?? [];
   const [showResolved, setShowResolved] = useState(false);
   const [addingComment, setAddingComment] = useState(false);
 
-  const activeThreads = threads.filter((t) => !t.resolved);
-  const resolvedThreads = threads.filter((t) => t.resolved);
-  const visibleThreads = showResolved ? threads : activeThreads;
+  const normalizedCurrentUserEmail = currentUserEmail?.trim().toLowerCase();
+  const audienceThreads = threads.filter((thread) => {
+    if (audience === "for-you") {
+      const hasViewerComment = thread.comments.some(
+        (comment) =>
+          comment.author_email.trim().toLowerCase() ===
+          normalizedCurrentUserEmail,
+      );
+      const hasNonViewerComment = thread.comments.some(
+        (comment) =>
+          comment.author_email.trim().toLowerCase() !==
+          normalizedCurrentUserEmail,
+      );
+      const hasViewerMention = normalizedCurrentUserEmail
+        ? thread.comments.some((comment) =>
+            comment.content
+              .toLowerCase()
+              .includes(`@${normalizedCurrentUserEmail}`),
+          )
+        : false;
+      const hasAttentionItem =
+        hasViewerMention || (hasViewerComment && hasNonViewerComment);
+      if (!hasAttentionItem) return false;
+    }
+
+    const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+    return normalizedSearchTerm.length === 0
+      ? true
+      : thread.comments.some((comment) =>
+          [
+            comment.content,
+            comment.quoted_text ?? "",
+            comment.author_name ?? "",
+            comment.author_email,
+          ].some((value) => value.toLowerCase().includes(normalizedSearchTerm)),
+        );
+  });
+  const visibleThreads = showResolved
+    ? audienceThreads
+    : audienceThreads.filter((t) => !t.resolved);
+  const visibleResolvedThreads = audienceThreads.filter((t) => t.resolved);
   const showLoadError = commentsQuery.isError && threads.length === 0;
+  const currentPendingComment =
+    pendingComment?.slideId === slideId ? pendingComment : null;
 
   // When pending comment arrives, cancel any manual "add comment" mode
   useEffect(() => {
+    if (pendingComment && pendingComment.slideId !== slideId) {
+      onPendingDone();
+      return;
+    }
     if (pendingComment && !canComment) {
       onPendingDone();
       return;
     }
     if (pendingComment) setAddingComment(false);
-  }, [canComment, onPendingDone, pendingComment]);
+  }, [canComment, onPendingDone, pendingComment, slideId]);
 
-  const showInput = canComment && Boolean(pendingComment || addingComment);
+  const showInput =
+    canComment && Boolean(currentPendingComment || addingComment);
 
   return (
     <div className="flex h-full w-[17rem] flex-shrink-0 flex-col bg-[var(--slides-editor-surface)]">
@@ -517,14 +800,67 @@ export function SlideCommentsPanel({
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-1 border-b border-border/70 px-3 pb-2">
+        <div
+          className="inline-flex rounded-md border border-border/70 p-0.5"
+          role="group"
+          aria-label={t("comments.scope")}
+        >
+          {(["slide", "deck"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={scope === value}
+              onClick={() => setScope(value)}
+              className={`rounded px-2 py-1 text-[10px] ${scope === value ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {value === "slide"
+                ? t("comments.thisSlide")
+                : t("comments.allComments")}
+            </button>
+          ))}
+        </div>
+        <div
+          className="inline-flex rounded-md border border-border/70 p-0.5"
+          role="group"
+          aria-label={t("comments.audience")}
+        >
+          {(["all", "for-you"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={audience === value}
+              onClick={() => setAudience(value)}
+              className={`rounded px-2 py-1 text-[10px] ${audience === value ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {value === "all" ? t("comments.all") : t("comments.forYou")}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="border-b border-border/70 px-3 py-2">
+        <div className="relative">
+          <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            aria-label={t("comments.search")}
+            placeholder={t("comments.searchPlaceholder")}
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            className="h-7 pl-7 text-[11px]"
+          />
+        </div>
+      </div>
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {/* Pending / manual new comment input */}
         {showInput && deckId && slideId && (
           <PendingCommentInput
-            quotedText={pendingComment ? pendingComment.quotedText : ""}
+            quotedText={currentPendingComment?.quotedText ?? ""}
+            anchor={currentPendingComment?.anchor}
             deckId={deckId}
             slideId={slideId}
+            onBeforeSubmit={onBeforeCommentSubmit}
             onDone={() => {
               onPendingDone();
               setAddingComment(false);
@@ -560,20 +896,27 @@ export function SlideCommentsPanel({
               key={thread.threadId}
               thread={thread}
               deckId={deckId ?? ""}
-              slideId={slideId ?? ""}
+              slideId={thread.slideId ?? slideId ?? ""}
+              currentSlideId={slideId}
               canComment={canComment}
+              canEdit={canEdit}
+              currentUserEmail={currentUserEmail}
+              onBeforeCommentSubmit={onBeforeCommentSubmit}
+              onSelectSlide={onSelectSlide}
             />
           ))}
 
         {/* Resolved toggle */}
-        {resolvedThreads.length > 0 && (
+        {visibleResolvedThreads.length > 0 && (
           <button
             onClick={() => setShowResolved(!showResolved)}
             className="w-full text-[11px] text-muted-foreground hover:text-foreground/70 py-1"
           >
             {showResolved
               ? t("comments.hideResolved")
-              : t("comments.showResolved", { count: resolvedThreads.length })}
+              : t("comments.showResolved", {
+                  count: visibleResolvedThreads.length,
+                })}
           </button>
         )}
 

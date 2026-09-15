@@ -481,3 +481,7 @@ Le marqueur Canary de l’agent utilisateur est seulement un indice de disponibi
 Les navigateurs ordinaires restent sur la connexion propre à chaque application. Les applications auto-hébergées utilisent `AGENT_NATIVE_IDENTITY_HUB_URL` uniquement pour la voie Desktop explicite ou la fédération côté serveur restante.
 Chaque version de Desktop peut initialiser le courtier lorsque la préférence par appareil `desktopSsoEnabled` est vraie (valeur par défaut) ; une valeur persistée explicitement à `false` reste une désactivation volontaire. Le flag Dispatch `desktop.workspace-sso` doit également être activé. Le marqueur Canary de l’agent utilisateur n’est plus un contrôle d’initialisation ; il identifie uniquement le canal de mise à jour.
 La version Canary n’intercepte pas la navigation de connexion anonyme des applications. L’utilisateur doit choisir explicitement la connexion à l’espace de travail dans les paramètres de Desktop pour l’application enregistrée active ; la connexion normale de l’application reste le parcours par défaut.
+
+## Déploiement administré et invitations
+
+Pour un déploiement administré, définissez `AUTH_SIGNUP=invited`, `ORG_CREATION=closed` et `AUTO_CREATE_DEFAULT_ORG=0`. Le [guide des déploiements administrés](/docs/administered-deployments) décrit les administrateurs d’amorçage, les invitations et les domaines autorisés. Les invitations d’adhésion et l’accès par domaine sont deux règles distinctes.

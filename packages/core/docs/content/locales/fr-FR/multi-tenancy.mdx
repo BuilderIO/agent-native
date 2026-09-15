@@ -122,3 +122,7 @@ Il s'agit du même pipeline que celui utilisé pour la portée par utilisateur. 
 - [**Authentication**](/docs/authentication#organizations) — sessions, fournisseurs sociaux et surface de gestion de l’organisation
 - [**Security — Data Scoping**](/docs/security#data-scoping) — isolation au niveau SQL, contrat `ownableColumns()` et protections d’accès
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — hébergement de plusieurs applications Agent-Native dans un monorepo avec authentification partagée et RBAC
+
+## Modèle d’isolation
+
+Utilisez `accessFilter()` et `assertAccess()` pour les lectures et écritures côté serveur. Le cloisonnement SQL de l’agent crée des vues temporaires filtrées pour les tables détenues. `pnpm guards` inclut le contrôle des requêtes non cloisonnées. RLS ne fait pas actuellement partie des contrôles actifs. Son ajout est prévu après la version 1.0. Consultez [Déploiements administrés](/docs/administered-deployments).

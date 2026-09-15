@@ -140,6 +140,23 @@ describe("RecipientInput autocomplete interaction", () => {
     expect(input.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("resets the active suggestion when the query changes", () => {
+    render(<RecipientHarness />);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "ad" } });
+    const initialOptions = screen.getAllByRole("option");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(initialOptions[1].getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.change(input, { target: { value: "a" } });
+    const updatedOptions = screen.getAllByRole("option");
+    expect(updatedOptions[0].getAttribute("aria-selected")).toBe("true");
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      updatedOptions[0].getAttribute("id"),
+    );
+  });
+
   it("dismisses suggestions with Escape without discarding the query", () => {
     render(<RecipientHarness />);
     const input = screen.getByRole("combobox") as HTMLInputElement;

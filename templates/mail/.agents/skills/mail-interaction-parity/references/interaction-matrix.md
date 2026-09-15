@@ -446,6 +446,22 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   Escape. No email was sent. No screenshot/layout or latency comparison was
   performed, and remaining compose actions and aligned-state replay are still
   open.
+  Follow-up paired visual check on 2026-09-14 (Superhuman 1041.0.54; local Mail
+  working tree; 1280×720) found that both Superhuman's reopened approved draft
+  and a fresh blank compose use a compact card by default. Mail now matches that
+  default for both saved/reopened and fresh drafts; fullscreen remains an
+  explicit, reversible toggle. The local replay opened a fresh blank compose
+  from the Compose email button, confirmed `Full screen compose` was off, then
+  closed it with Escape and verified the approved draft's recipient, subject,
+  and empty body were unchanged. Superhuman's paired reference screenshot
+  shows a roughly 490px-wide, shallow workspace card near the top of the main
+  pane; Mail's prior card was fixed bottom-right, 540px wide, and 520px tall.
+  The follow-up source change now uses a 490px-wide, 300px-tall desktop card
+  positioned near the top while preserving the full-height mobile layout and
+  explicit fullscreen branch. A local visual replay after this change is
+  pending because the Mail browser tab is currently at its sign-in gate; no
+  login or live provider action was performed, so no global parity claim is
+  made.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation. On 2026-09-14,
@@ -465,8 +481,11 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   draft was discarded and the pre-existing draft restored/minimized; the blank
   Superhuman compose was closed with Escape. Neither draft's contents were
   changed and no message was sent.
-  Close/close-all recovery, outside click, browser navigation, and other
-  platform/focus variants remain unverified.
+  A follow-up compact-default replay confirmed Escape closes a fresh blank Mail
+  compose and restores the approved draft without changing it; the fullscreen
+  toggle remains reversible in both directions. Close/close-all recovery,
+  outside click, browser navigation, and other platform/focus variants remain
+  unverified.
 - COMPOSE-003 — Type To/Cc/Bcc recipients by name, full/partial address, aliases,
   commas, semicolons, newline paste, drag between fields, duplicate casing,
   invalid address, display name, whitespace, Backspace, Delete, Enter, Tab,
@@ -481,7 +500,7 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   account was connected and no provider call occurred. `RecipientInput` tests
   also verify that comma commits a typed address, empty commas add no chip, and
   Backspace removes the last chip only when the input is empty. The focused
-  recipient interaction suite passes 15 tests. Superhuman behavior and a
+  recipient interaction suite passes 16 tests. Superhuman behavior and a
   connected-provider round trip remain unverified.
 - COMPOSE-004 — Navigate recipient suggestions with arrows, Enter, Tab, hover,
   click, scroll, and no-match/error/slow contact data. Confirm selected option,
@@ -511,8 +530,11 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   interaction proof, not a confirmed Superhuman discrepancy. Further isolated
   regressions verify that combined alias/contact options keep keyboard indexes
   and `aria-activedescendant` aligned, and Enter accepts an alias and resets the
-  query. The recipient interaction suite passes 15 tests; Superhuman's
-  alias-ranking and selection behavior remains unobserved.
+  query. The recipient interaction suite passes 16 tests; Superhuman's
+  alias-ranking and selection behavior remains unobserved. A follow-up Mail-only
+  regression changes the query after ArrowDown and verifies that the active
+  suggestion resets to the first result with a matching `aria-activedescendant`;
+  this closes a stale-selection discrepancy without claiming Superhuman parity.
 - COMPOSE-005 — Open alias details, edit, expand to individual recipients, save
   a group, cancel/fail/retry, remove one chip, and remove all chips.
 - COMPOSE-006 — Enter subject/body with plain text, rich text, markdown, links,
@@ -746,13 +768,20 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   cleared typed text while keeping the picker open; the second closed it.
   Mail now has a local natural-language parser, those three preset equivalents,
   two-step Escape handling, and a native-picker fallback with the hidden input
-  kept out of tab order. Parser/component regression cases were added for the
-  observed phrases, future-only dates, keyboard commitment, Escape, and picker
-  fallback. They have not been run yet because Mail browser/e2e verification is
-  serialized behind the active Slides QA pass. No Mail parity claim is made
-  until those tests and a same-state browser replay pass. With a mocked
-  provider, verify schedule success/failure and offline behavior without
-  sending real mail.
+  kept out of tab order. On 2026-09-14, the parser and scheduler component
+  regressions passed (38/38 focused tests), and a same-state local browser replay
+  passed through the split-button, Cmd/Ctrl+Shift+L, and Command → Schedule send
+  paths. The replay observed the three presets, `3 days` → Thu, Sep 17 at 8:00
+  AM, `8 am` → Tue, Sep 15 at 8:00 AM, `tomorrow afternoon` → Tue, Sep 15 at
+  1:00 PM, `Monday 9:45am` → Mon, Sep 21 at 9:45 AM, invalid and past input
+  rejection, ArrowUp/ArrowDown selection, and first-Escape clear/second-Escape
+  close. No schedule was committed, no message was sent, and the browser
+  reported no console errors; the pre-existing approved-recipient draft was
+  reopened with its recipient, subject, and empty body unchanged. This is local
+  synthetic-Mail evidence only. Commit/click scheduling, native picker
+  confirmation, provider success/failure, offline behavior, scheduled-list
+  read-back, send-now/cancel/undo, mobile behavior, and timing/DST boundaries
+  remain unverified. No global Mail parity claim is made.
 - SEND-006 — Test Smart Send on an eligible Business/Enterprise desktop account:
   activity-data eligibility, no recommendation, recipient timezone, multiple
   recipients and optimization choice, no-reply reminder mode, scheduled-send

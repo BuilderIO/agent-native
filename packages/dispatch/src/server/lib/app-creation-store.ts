@@ -18,6 +18,7 @@ import {
   resolveAppRuntimeUrl,
   resolveVercelDeploymentProtectionHeaders,
   runBuilderAgent,
+  type BuilderAgentAttachment,
 } from "@agent-native/core/server";
 import { getOrgSetting } from "@agent-native/core/settings";
 import {
@@ -2733,6 +2734,7 @@ export async function startWorkspaceAppCreation(input: {
   template?: string | null;
   secretIds?: string[];
   resourceIds?: string[];
+  attachments?: BuilderAgentAttachment[];
 }): Promise<StartWorkspaceAppCreationResult> {
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
@@ -2854,6 +2856,7 @@ export async function startWorkspaceAppCreation(input: {
     result = normalizeBuilderRunResult(
       await runBuilderAgent({
         prompt,
+        attachments: input.attachments,
         projectId: builderProjectId,
         userEmail: currentOwnerEmail(),
       }),
