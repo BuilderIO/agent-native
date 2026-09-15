@@ -3511,7 +3511,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var handle = document.createElement("span");
       handle.setAttribute("data-agent-native-edit-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : pos === "e" || pos === "w" ? "ew-resize" : pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize";
-      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + cursor + ";";
+      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,0.25);pointer-events:auto;cursor:" + cursor + ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -3524,6 +3524,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         handle.style.top = "50%";
         handle.style.transform = "translateY(-50%)";
       }
+      selectionOverlay.appendChild(handle);
+    });
+    ["nw", "ne", "se", "sw"].forEach(function(pos) {
+      var handle = document.createElement("span");
+      handle.setAttribute("data-agent-native-radius-handle", pos);
+      handle.style.cssText = "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,0.25);pointer-events:auto;cursor:pointer;display:none;";
       selectionOverlay.appendChild(handle);
     });
     (function() {
@@ -5495,6 +5501,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
     }
     var lastHandleGeometryTargetEl = null;
+    var RADIUS_UNSUPPORTED_PRIMITIVES = {
+      line: true,
+      arrow: true,
+      ellipse: true,
+      circle: true,
+      polygon: true,
+      star: true,
+      path: true,
+      pen: true
+    };
+    function supportsCornerRadiusHandles(el) {
+      if (!el || el.nodeType !== 1) return false;
+      var kind = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      return !kind || !RADIUS_UNSUPPORTED_PRIMITIVES[kind];
+    }
     function applySelectionHandleHitGeometry(el) {
       var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
       lastHandleGeometryTargetEl = el || null;
@@ -5550,6 +5571,30 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (pos.indexOf("e") !== -1) {
           handle.style.right = inwardX - sizeX + "px";
         }
+      });
+      var radiusHandlesSupported = supportsCornerRadiusHandles(el);
+      selectionOverlay.querySelectorAll("[data-agent-native-radius-handle]").forEach(function(handle) {
+        if (!radiusHandlesSupported || !(elWidth > 0) || !(elHeight > 0)) {
+          handle.style.display = "none";
+          return;
+        }
+        var pos = handle.getAttribute("data-agent-native-radius-handle") || "";
+        var size = 9 * line;
+        var maxInset = Math.min(elWidth, elHeight) / 2 - size;
+        var inset = Math.max(4 * line, Math.min(16 * line, maxInset));
+        if (inset < 4 * line) {
+          handle.style.display = "none";
+          return;
+        }
+        handle.style.display = "block";
+        handle.style.width = size + "px";
+        handle.style.height = size + "px";
+        handle.style.borderWidth = 1.5 * line + "px";
+        var offset = inset - size / 2 + "px";
+        if (pos.indexOf("n") !== -1) handle.style.top = offset;
+        if (pos.indexOf("s") !== -1) handle.style.bottom = offset;
+        if (pos.indexOf("w") !== -1) handle.style.left = offset;
+        if (pos.indexOf("e") !== -1) handle.style.right = offset;
       });
       if (isNewSelectionTarget) {
         void selectionOverlay.offsetHeight;
@@ -12201,6 +12246,110 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keydown", onRotateKeyDown, true);
       setActiveDragCancel(cancelRotateDrag);
     }
+    function startRadiusDrag(corner, e) {
+      if (readOnly) return;
+      if (!selectedEl) return;
+      if (isLayerInteractionBlocked(selectedEl)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var events = dragEventNames(e);
+      var radiusEl = selectedEl;
+      var cs = window.getComputedStyle(radiusEl);
+      var originRadius = readPx(
+        radiusEl.style.borderTopLeftRadius || cs.borderTopLeftRadius
+      );
+      var maxRadius = Math.max(
+        0,
+        Math.min(readPx(cs.width), readPx(cs.height)) / 2
+      );
+      var originalRadiusStyles = {
+        borderRadius: radiusEl.style.borderRadius,
+        borderTopLeftRadius: radiusEl.style.borderTopLeftRadius,
+        borderTopRightRadius: radiusEl.style.borderTopRightRadius,
+        borderBottomRightRadius: radiusEl.style.borderBottomRightRadius,
+        borderBottomLeftRadius: radiusEl.style.borderBottomLeftRadius
+      };
+      var startX = e.clientX;
+      var startY = e.clientY;
+      var sx = chromeScaleX();
+      var sy = chromeScaleY();
+      var theta = currentRotation(radiusEl) * Math.PI / 180;
+      var cos = Math.cos(theta);
+      var sin = Math.sin(theta);
+      var signX = corner.indexOf("w") !== -1 ? 1 : -1;
+      var signY = corner.indexOf("n") !== -1 ? 1 : -1;
+      function applyRadius(value) {
+        var next = Math.max(0, Math.min(maxRadius, Math.round(value))) + "px";
+        radiusEl.style.borderRadius = next;
+        radiusEl.style.borderTopLeftRadius = next;
+        radiusEl.style.borderTopRightRadius = next;
+        radiusEl.style.borderBottomRightRadius = next;
+        radiusEl.style.borderBottomLeftRadius = next;
+      }
+      function onMove(ev) {
+        if (!radiusEl) return;
+        var screenDx = ev.clientX - startX;
+        var screenDy = ev.clientY - startY;
+        var localDx = screenDx * cos + screenDy * sin;
+        var localDy = -screenDx * sin + screenDy * cos;
+        var delta = (localDx / sx * signX + localDy / sy * signY) / 2;
+        applyRadius(originRadius + delta);
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+      }
+      function cleanupRadiusDrag() {
+        document.removeEventListener(events.move, onMove, true);
+        document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onRadiusKeyDown, true);
+        clearActiveDragCancel(cancelRadiusDrag);
+      }
+      function cancelRadiusDrag() {
+        cleanupRadiusDrag();
+        if (radiusEl && document.documentElement.contains(radiusEl)) {
+          radiusEl.style.borderRadius = originalRadiusStyles.borderRadius;
+          radiusEl.style.borderTopLeftRadius = originalRadiusStyles.borderTopLeftRadius;
+          radiusEl.style.borderTopRightRadius = originalRadiusStyles.borderTopRightRadius;
+          radiusEl.style.borderBottomRightRadius = originalRadiusStyles.borderBottomRightRadius;
+          radiusEl.style.borderBottomLeftRadius = originalRadiusStyles.borderBottomLeftRadius;
+          selectedEl = radiusEl;
+          applySelectionHandleHitGeometry(radiusEl);
+          refreshOverlays();
+        }
+        suppressNextShieldClickBriefly();
+        return true;
+      }
+      function onRadiusKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        cancelRadiusDrag();
+      }
+      function onUp() {
+        cleanupRadiusDrag();
+        if (!radiusEl) return;
+        var styles = {
+          borderRadius: radiusEl.style.borderRadius,
+          borderTopLeftRadius: radiusEl.style.borderTopLeftRadius,
+          borderTopRightRadius: radiusEl.style.borderTopRightRadius,
+          borderBottomRightRadius: radiusEl.style.borderBottomRightRadius,
+          borderBottomLeftRadius: radiusEl.style.borderBottomLeftRadius
+        };
+        window.parent.postMessage(
+          {
+            type: "visual-style-change",
+            selector: getSelector(radiusEl),
+            styles,
+            originalStyles: originalInlineStylesForPatch(radiusEl, styles),
+            payload: getElementInfo(radiusEl)
+          },
+          "*"
+        );
+        recordSourceOwnership(radiusEl);
+      }
+      document.addEventListener(events.move, onMove, true);
+      document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onRadiusKeyDown, true);
+      setActiveDragCancel(cancelRadiusDrag);
+    }
     function clearPendingShieldDrag() {
       if (!pendingShieldDrag) return;
       document.removeEventListener(
@@ -12393,6 +12542,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         var rotateHandle = e.target && e.target.getAttribute && e.target.getAttribute("data-agent-native-rotate-handle");
         if (rotateHandle) {
           startRotate(e);
+          return;
+        }
+        var radiusHandle = e.target && e.target.getAttribute && e.target.getAttribute("data-agent-native-radius-handle");
+        if (radiusHandle) {
+          startRadiusDrag(radiusHandle, e);
           return;
         }
         startMove(e);
