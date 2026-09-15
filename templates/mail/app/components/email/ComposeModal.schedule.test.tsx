@@ -206,12 +206,44 @@ describe("ComposeModal scheduling", () => {
     cleanup();
   });
 
-  it("opens a new-message draft expanded in the main workspace", () => {
+  it("opens a new-message draft in the compact workspace card", () => {
+    const { container, getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    const compose = container.querySelector<HTMLElement>("[data-mail-compose]");
+    expect(compose?.className).toContain("sm:top-14");
+    expect(compose?.className).toContain("sm:bottom-auto");
+    expect(compose?.className).toContain("sm:h-[300px]");
+    expect(compose?.className).toContain("sm:w-[490px]");
+    expect(compose?.className).toContain("sm:rounded-xl");
+    expect(
+      getByRole("button", {
+        name: "mail.compose.fullScreenCompose",
+      }).getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
+  it("honors an explicit fullscreen compose request", () => {
     const { getByRole } = render(
       <ComposeModal
         drafts={[draft]}
         activeId={draft.id}
         activeDraft={draft}
+        initialExpanded
         onSetActiveId={vi.fn()}
         onUpdate={vi.fn()}
         onClose={vi.fn()}
@@ -229,6 +261,35 @@ describe("ComposeModal scheduling", () => {
         name: "mail.compose.restoreComposeSize",
       }).getAttribute("aria-pressed"),
     ).toBe("true");
+  });
+
+  it("reopens a saved new-message draft in compact mode", () => {
+    const savedDraft: ComposeState = {
+      ...draft,
+      savedDraftId: "gmail-draft-1",
+    };
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[savedDraft]}
+        activeId={savedDraft.id}
+        activeDraft={savedDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    expect(
+      getByRole("button", {
+        name: "mail.compose.fullScreenCompose",
+      }).getAttribute("aria-pressed"),
+    ).toBe("false");
   });
 
   it("validates an empty recipient through enabled send and schedule controls", () => {
@@ -566,9 +627,9 @@ describe("ComposeModal scheduling", () => {
     await waitFor(() => {
       expect(
         getByRole("button", {
-          name: "mail.compose.restoreComposeSize",
+          name: "mail.compose.fullScreenCompose",
         }).getAttribute("aria-pressed"),
-      ).toBe("true");
+      ).toBe("false");
       expect(
         container.querySelector<HTMLInputElement>('[data-recipient-field="to"]')
           ?.value,
@@ -591,6 +652,107 @@ describe("ComposeModal scheduling", () => {
       getByRole("button", { name: "mail.compose.restoreCompose" }),
     ).toBeTruthy();
     expect(container.querySelector('[data-recipient-field="to"]')).toBeNull();
+  });
+
+  it("preserves explicit fullscreen mode when switching draft tabs", async () => {
+    const savedDraft: ComposeState = {
+      ...draft,
+      id: "saved-draft",
+      savedDraftId: "gmail-draft-1",
+    };
+    const newDraft: ComposeState = {
+      ...draft,
+      id: "new-draft",
+    };
+    const props = {
+      drafts: [newDraft, savedDraft],
+      activeId: newDraft.id,
+      activeDraft: newDraft,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard: vi.fn(),
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+    };
+    const { getByRole, rerender } = render(<ComposeModal {...props} />);
+
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.fullScreenCompose" }),
+    );
+    expect(
+      getByRole("button", {
+        name: "mail.compose.restoreComposeSize",
+      }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    rerender(
+      <ComposeModal
+        {...props}
+        activeId={savedDraft.id}
+        activeDraft={savedDraft}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        getByRole("button", {
+          name: "mail.compose.restoreComposeSize",
+        }).getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+  });
+
+  it("preserves explicit fullscreen mode when opening a new draft", async () => {
+    const secondDraft: ComposeState = {
+      ...draft,
+      id: "second-draft",
+      to: "second@example.com",
+    };
+    const props = {
+      drafts: [draft],
+      activeId: draft.id,
+      activeDraft: draft,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard: vi.fn(),
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+    };
+    const { getByRole, rerender } = render(<ComposeModal {...props} />);
+
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.fullScreenCompose" }),
+    );
+    expect(
+      getByRole("button", {
+        name: "mail.compose.restoreComposeSize",
+      }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[draft, secondDraft]}
+        activeId={secondDraft.id}
+        activeDraft={secondDraft}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        getByRole("button", {
+          name: "mail.compose.restoreComposeSize",
+        }).getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
   });
 
   it("reveals and focuses Bcc with the compose keyboard shortcut", async () => {

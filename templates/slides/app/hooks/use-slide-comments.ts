@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
+import type { SlideCommentReaction } from "@shared/slide-comment-reactions";
 
 export interface SlideComment {
   id: string;
@@ -14,6 +15,7 @@ export interface SlideComment {
   content: string;
   quoted_text: string | null;
   anchor?: SlideCommentAnchor | null;
+  reactions?: SlideCommentReaction[];
   author_email: string;
   author_name: string | null;
   resolved: number | boolean;
@@ -23,6 +25,7 @@ export interface SlideComment {
 
 export interface CommentThread {
   threadId: string;
+  slideId?: string;
   quotedText: string | null;
   anchor?: SlideCommentAnchor | null;
   resolved: boolean;
@@ -41,6 +44,7 @@ function groupIntoThreads(comments: SlideComment[]): CommentThread[] {
     if (!map.has(c.thread_id)) {
       map.set(c.thread_id, {
         threadId: c.thread_id,
+        slideId: c.slide_id,
         quotedText: c.quoted_text,
         anchor: c.anchor,
         resolved: isResolved(c.resolved),
@@ -55,20 +59,25 @@ function groupIntoThreads(comments: SlideComment[]): CommentThread[] {
 export function useSlideComments(
   deckId: string | null,
   slideId: string | null,
+  scope: "slide" | "deck" = "slide",
 ) {
-  return useActionQuery<CommentThread[]>(
-    "list-slide-comments",
-    deckId && slideId ? { deckId, slideId } : undefined,
-    {
-      enabled: !!(deckId && slideId),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      select: (data: any) => {
-        const raw = data?.comments ?? data;
-        const comments: SlideComment[] = Array.isArray(raw) ? raw : [];
-        return groupIntoThreads(comments);
-      },
+  const enabled = Boolean(deckId && (scope === "deck" || slideId));
+  const queryArgs =
+    deckId && enabled
+      ? {
+          deckId,
+          ...(scope === "slide" && slideId ? { slideId } : {}),
+        }
+      : undefined;
+  return useActionQuery<CommentThread[]>("list-slide-comments", queryArgs, {
+    enabled,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    select: (data: any) => {
+      const raw = data?.comments ?? data;
+      const comments: SlideComment[] = Array.isArray(raw) ? raw : [];
+      return groupIntoThreads(comments);
     },
-  );
+  });
 }
 
 export function useCreateSlideComment() {
@@ -78,14 +87,33 @@ export function useCreateSlideComment() {
 export function useResolveSlideComment() {
   return useActionMutation<
     { ok: boolean; resolved?: boolean },
-    { id: string; resolved?: boolean }
+    { id: string; deckId: string; resolved?: boolean }
+  >("update-slide-comment");
+}
+
+export function useUpdateSlideComment() {
+  return useActionMutation<
+    { ok: boolean },
+    { id: string; deckId: string; content: string }
   >("update-slide-comment");
 }
 
 export function useDeleteSlideComment() {
-  return useActionMutation<{ ok: boolean }, { id: string }>(
+  return useActionMutation<{ ok: boolean }, { id: string; deckId: string }>(
     "delete-slide-comment",
   );
+}
+
+export function useToggleSlideCommentReaction() {
+  return useActionMutation<
+    {
+      id: string;
+      emoji: string;
+      reacted: boolean;
+      reactions: SlideCommentReaction[];
+    },
+    { commentId: string; deckId: string; emoji: string }
+  >("toggle-slide-comment-reaction");
 }
 
 /** Derive a display color for an author email */

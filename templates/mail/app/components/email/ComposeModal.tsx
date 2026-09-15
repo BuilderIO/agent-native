@@ -204,6 +204,12 @@ interface ComposeModalProps {
   onInitialExpandedConsumed?: () => void;
 }
 
+function shouldStartComposeExpanded(initialExpanded: boolean) {
+  // Superhuman opens both new and reopened drafts in the workspace card. Keep
+  // fullscreen an explicit request so a draft never changes size by identity.
+  return initialExpanded;
+}
+
 export function ComposeModal({
   drafts,
   activeId,
@@ -226,7 +232,7 @@ export function ComposeModal({
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
   const [isExpanded, setIsExpanded] = useState(
-    initialExpanded || activeDraft?.mode === "compose",
+    shouldStartComposeExpanded(initialExpanded),
   );
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
@@ -319,7 +325,6 @@ export function ComposeModal({
       return;
     }
     setMinimized(false);
-    setIsExpanded(activeDraft.mode === "compose");
   }, [activeDraft?.id, drafts]);
 
   // Focus editor when reply/forward opens
@@ -798,7 +803,7 @@ export function ComposeModal({
           ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
           : isExpanded
             ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
-            : "bottom-0 h-[100dvh] sm:h-[520px] sm:w-[540px]",
+            : "bottom-0 h-[100dvh] sm:top-14 sm:bottom-auto sm:h-[300px] sm:w-[490px] sm:rounded-xl",
       )}
       data-mail-compose
       style={composeStyle}

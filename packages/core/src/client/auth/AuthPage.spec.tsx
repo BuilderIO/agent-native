@@ -8,6 +8,7 @@ import {
   isConfirmedAnonymousAuthSession,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
+  shouldUseIdentitySsoForGoogle,
   shouldAutoFederateIdentitySso,
   shouldHideAuthSubtitle,
   type AuthPageProps,
@@ -80,6 +81,61 @@ describe("AuthPage", () => {
         currentOrigin: "https://pr-4689--agent-native-design.netlify.app",
       }),
     ).toBe(false);
+  });
+
+  it("uses Identity SSO for Google sign-in on immutable Netlify deploy URLs", () => {
+    const deployOrigin = `https://${"a".repeat(24)}--agent-native-analytics.netlify.app`;
+    expect(
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso: true,
+        currentOrigin: deployOrigin,
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso: true,
+        currentOrigin:
+          "https://deploy-preview-42--agent-native-analytics.netlify.app",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso: false,
+        currentOrigin: deployOrigin,
+      }),
+    ).toBe(false);
+  });
+
+  it("enables preview Google SSO only for the current immutable site deploy", () => {
+    const previousSiteName = process.env.SITE_NAME;
+    process.env.SITE_NAME = "agent-native-analytics";
+    const deployHost = `${"a".repeat(24)}--agent-native-analytics.netlify.app`;
+
+    try {
+      const deployProps = propsFromHtml(
+        getOnboardingHtml({ requestHost: deployHost }),
+      );
+      const aliasProps = propsFromHtml(
+        getOnboardingHtml({
+          requestHost: "deploy-preview-42--agent-native-analytics.netlify.app",
+        }),
+      );
+
+      expect(deployProps.googleViaIdentitySso).toBe(true);
+      expect(aliasProps.googleViaIdentitySso).toBe(false);
+      expect(deployProps.identitySsoEnabled).toBe(false);
+
+      const mailProps = propsFromHtml(
+        getOnboardingHtml({
+          requestHost: deployHost,
+          googleScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+        }),
+      );
+      expect(mailProps.googleViaIdentitySso).toBe(false);
+    } finally {
+      if (previousSiteName === undefined) delete process.env.SITE_NAME;
+      else process.env.SITE_NAME = previousSiteName;
+    }
   });
 
   it("renders the password auth surface on the server without browser globals", () => {

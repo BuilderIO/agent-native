@@ -2084,9 +2084,36 @@ export function createBuilderBrowserCallbackErrorPage(
 </html>`;
 }
 
+export interface BuilderAgentUploadAttachment {
+  type: "upload";
+  contentType:
+    | "image/webp"
+    | "image/png"
+    | "image/jpeg"
+    | "image/gif"
+    | "application/pdf"
+    | "application/json"
+    | "text/plain";
+  name: string;
+  dataUrl: string;
+  text?: string;
+  size: number;
+  id: string;
+}
+
+export interface BuilderAgentUrlAttachment {
+  type: "url";
+  value: string;
+}
+
+export type BuilderAgentAttachment =
+  | BuilderAgentUploadAttachment
+  | BuilderAgentUrlAttachment;
+
 export interface RunBuilderAgentArgs {
   prompt: string;
   context?: string;
+  attachments?: BuilderAgentAttachment[];
   projectId?: string;
   branchName?: string;
   userEmail?: string;
@@ -2094,6 +2121,76 @@ export interface RunBuilderAgentArgs {
 }
 
 export const BUILDER_AGENT_CONTEXT_MAX_CHARS = 32_000;
+
+const BUILDER_AGENT_UPLOAD_CONTENT_TYPES = new Set<
+  BuilderAgentUploadAttachment["contentType"]
+>([
+  "image/webp",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "application/pdf",
+  "application/json",
+  "text/plain",
+]);
+
+export function normalizeBuilderAgentAttachments(
+  attachments: BuilderAgentAttachment[] | undefined,
+): BuilderAgentAttachment[] | undefined {
+  if (!attachments || attachments.length === 0) return undefined;
+
+  const normalized = attachments.map((attachment) => {
+    if (attachment.type === "url") {
+      let url: URL;
+      try {
+        url = new URL(attachment.value);
+      } catch {
+        throw new Error("Builder attachment URL is malformed");
+      }
+      if (url.protocol !== "https:" && url.protocol !== "http:") {
+        throw new Error("Builder attachment URL must use http or https");
+      }
+      return attachment;
+    }
+
+    if (!BUILDER_AGENT_UPLOAD_CONTENT_TYPES.has(attachment.contentType)) {
+      throw new Error(
+        `Unsupported Builder attachment content type: ${attachment.contentType}`,
+      );
+    }
+    if (!attachment.name.trim() || !attachment.id.trim()) {
+      throw new Error("Builder upload attachments require a name and id");
+    }
+    if (!Number.isInteger(attachment.size) || attachment.size < 0) {
+      throw new Error("Builder attachment size must be a non-negative integer");
+    }
+    if (
+      attachment.contentType === "text/plain" ||
+      attachment.contentType === "application/json"
+    ) {
+      if (attachment.text === undefined || attachment.dataUrl !== "") {
+        throw new Error(
+          "Text and JSON Builder attachments require text and an empty dataUrl",
+        );
+      }
+      if (Buffer.byteLength(attachment.text, "utf8") !== attachment.size) {
+        throw new Error(
+          "Builder attachment size does not match its text content",
+        );
+      }
+    } else if (
+      !attachment.dataUrl.startsWith(`data:${attachment.contentType};base64,`)
+    ) {
+      throw new Error(
+        "Image and PDF Builder attachments require a matching base64 dataUrl",
+      );
+    }
+
+    return attachment;
+  });
+
+  return normalized;
+}
 
 export function normalizeBuilderAgentContext(
   value: unknown,
@@ -2630,6 +2727,7 @@ export async function runBuilderAgent(
     throw new Error("userEmail or userId is required");
   }
   const userPrompt = buildBuilderAgentUserPrompt(args.prompt, args.context);
+  const attachments = normalizeBuilderAgentAttachments(args.attachments);
 
   const url = new URL("/agents/run", getBuilderApiHost());
   if (authorization.legacyPublicKey)
@@ -2637,13 +2735,16 @@ export async function runBuilderAgent(
 
   const postRun = async (actor: { userEmail?: string; userId?: string }) => {
     const body: Record<string, unknown> = {
-      userMessage: { userPrompt },
+      userMessage: {
+        userPrompt,
+        ...(attachments ? { attachments } : {}),
+      },
       projectId,
     };
     if (args.branchName) body.branchName = args.branchName;
     if (actor.userEmail) body.userEmail = actor.userEmail;
     if (actor.userId) body.userId = actor.userId;
-
+    const serializedBody = JSON.stringify(body);
     const response = await fetchBuilderApi(
       url,
       {
@@ -2652,7 +2753,7 @@ export async function runBuilderAgent(
           Authorization: authorization.authorization,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(body),
+        body: serializedBody,
       },
       "agent run",
     );

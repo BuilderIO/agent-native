@@ -8,13 +8,15 @@ import {
   loadAgentDesignSystemContext,
 } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
+import { parseSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
+import { summarizeSlideCommentReactions } from "../shared/slide-comment-reactions.js";
 import {
   hashSlideContent,
   slideFitMeasurementMatchesSlide,
@@ -26,6 +28,8 @@ import getDesignSystem from "./get-design-system.js";
 type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
   slideId: string;
 };
+
+const CURRENT_SLIDE_COMMENT_LIMIT = 100;
 
 function getCurrentSlideFitMeasurement(
   value: unknown,
@@ -259,6 +263,70 @@ export default defineAction({
         lines.push("```html");
         lines.push(currentSlide.content);
         lines.push("```");
+      }
+
+      const fetchedCommentRows = currentSlide
+        ? await db
+            .select({
+              id: schema.slideComments.id,
+              slideId: schema.slideComments.slideId,
+              threadId: schema.slideComments.threadId,
+              parentId: schema.slideComments.parentId,
+              content: schema.slideComments.content,
+              quotedText: schema.slideComments.quotedText,
+              anchor: schema.slideComments.anchor,
+              emojiReactionsJson: schema.slideComments.emojiReactionsJson,
+              authorEmail: schema.slideComments.authorEmail,
+              resolved: schema.slideComments.resolved,
+              createdAt: schema.slideComments.createdAt,
+            })
+            .from(schema.slideComments)
+            .where(
+              and(
+                eq(schema.slideComments.deckId, rows[0].id),
+                eq(schema.slideComments.slideId, currentSlide.id),
+              ),
+            )
+            .orderBy(asc(schema.slideComments.createdAt))
+            .limit(CURRENT_SLIDE_COMMENT_LIMIT + 1)
+        : [];
+      const commentsTruncated =
+        fetchedCommentRows.length > CURRENT_SLIDE_COMMENT_LIMIT;
+      const commentRows = commentsTruncated
+        ? fetchedCommentRows.slice(0, CURRENT_SLIDE_COMMENT_LIMIT)
+        : fetchedCommentRows;
+      lines.push(``);
+      lines.push(
+        `### Comments on current slide (${commentRows.length}${commentsTruncated ? "; more available" : ""})`,
+      );
+      if (commentsTruncated) {
+        lines.push(
+          `commentsStatus: truncated; showing the first ${CURRENT_SLIDE_COMMENT_LIMIT}. Use list-slide-comments with { deckId: "${rows[0].id}", slideId: "${currentSlide?.id}", limit: ${CURRENT_SLIDE_COMMENT_LIMIT}, offset: ${CURRENT_SLIDE_COMMENT_LIMIT} } to continue.`,
+        );
+      }
+      if (commentRows.length === 0) {
+        lines.push(`(no comments)`);
+      } else {
+        for (const comment of commentRows) {
+          const anchor = parseSlideCommentAnchor(comment.anchor);
+          const reactions = summarizeSlideCommentReactions(
+            comment.emojiReactionsJson,
+            getRequestUserEmail(),
+          );
+          lines.push(
+            `commentId: ${comment.id}  threadId: ${comment.threadId}  parentId: ${comment.parentId ?? "(root)"}`,
+          );
+          lines.push(
+            `author: ${comment.authorEmail}  resolved: ${comment.resolved ? "true" : "false"}  createdAt: ${comment.createdAt}`,
+          );
+          lines.push(`content: ${comment.content}`);
+          if (comment.quotedText)
+            lines.push(`quotedText: ${comment.quotedText}`);
+          if (anchor) lines.push(`anchor: ${JSON.stringify(anchor)}`);
+          if (reactions.length > 0) {
+            lines.push(`reactions: ${JSON.stringify(reactions)}`);
+          }
+        }
       }
 
       // No global fallback: with a tab id in context, another tab's selection

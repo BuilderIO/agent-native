@@ -2108,6 +2108,51 @@ jobs:
           echo "::error::Beta source freshness could not be verified after publish."
           exit 1
 
+      - name: Verify Netlify Google OAuth relay configuration
+        if: >-
+          inputs.deploy && inputs.migration_only != true &&
+          ((inputs.target == 'preview' &&
+          contains(' analytics assets brain calendar chat clips content crm design dispatch factory forms mail plan slides ',
+          format(' {0} ', steps.target.outputs.source_template))) ||
+          (inputs.target == 'beta' &&
+          steps.target.outputs.source_template == 'dispatch'))
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_ACCOUNT_ID: builder-io
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          if [[ "$BUILD_CONTEXT" != "deploy-preview" && "$BUILD_CONTEXT" != "branch-deploy" ]]; then
+            echo "::error::Google OAuth relay validation requires a preview or branch-deploy context."
+            exit 1
+          fi
+          env_json="$(netlify api getEnvVars --data "{\"account_id\":\"$NETLIFY_ACCOUNT_ID\",\"site_id\":\"$NETLIFY_SITE_ID\"}")"
+          printf '%s' "$env_json" |
+            BUILD_CONTEXT="$BUILD_CONTEXT" node -e '
+              const fs = require("node:fs");
+              const context = process.env.BUILD_CONTEXT;
+              const variables = JSON.parse(fs.readFileSync(0, "utf8"));
+              const relay = variables.find(
+                (variable) => variable.key === "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
+              );
+              const value = relay?.values?.find((entry) => entry.context === context);
+              if (
+                !relay?.is_secret ||
+                !relay.scopes?.includes("runtime") ||
+                typeof value?.value !== "string" ||
+                value.value.length === 0
+              ) {
+                throw new Error(
+                  "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET is not provisioned as a runtime secret for " +
+                    context +
+                    ".",
+                );
+              }
+              console.log("Verified Google OAuth relay secret for " + context + ".");
+            '
+
       - name: Smoke-test the uploaded deploy
         if: >-
           inputs.target != 'preview' && inputs.deploy &&
