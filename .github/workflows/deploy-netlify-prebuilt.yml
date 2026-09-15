@@ -2172,19 +2172,24 @@ jobs:
           DEPLOY_ID: ${{ steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id) }}
           DEPLOY_URL: ${{ steps.beta_first_publish.outputs.deploy_url || steps.beta_first_publish_reconcile.outputs.deploy_url || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_url) }}
           HOST: ${{ steps.target.outputs.host }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
           url="$DEPLOY_URL"
           # A status-only `curl --fail` cannot see a green deploy silently
           # failing on database health or 500ing on Better Auth's jwks route —
           # smoke-check-health.ts asserts the health body, not just the code.
+          smoke_args=(--auth-routes --check-assets)
+          if [[ "$SOURCE_TEMPLATE" == "dispatch" ]]; then
+            smoke_args+=(--asset-path /overview)
+          fi
           if [[ "$DEPLOY_MODE" == "production" ]]; then
             url="https://$HOST"
             node --experimental-strip-types scripts/smoke-check-health.ts \
-              --url "$url" --canonical-host "$HOST" --auth-routes
+              --url "$url" --canonical-host "$HOST" "${smoke_args[@]}"
           else
             node --experimental-strip-types scripts/smoke-check-health.ts \
-              --url "$url" --auth-routes
+              --url "$url" "${smoke_args[@]}"
           fi
 
       - name: Smoke-test the uploaded PR preview
@@ -2202,8 +2207,12 @@ jobs:
             --url "$DEPLOY_URL"
             --canonical-host "$HOST"
             --auth-routes
+            --check-assets
             --preview
           )
+          if [[ "$SOURCE_TEMPLATE" == "dispatch" ]]; then
+            smoke_args+=(--asset-path /overview)
+          fi
           node --experimental-strip-types scripts/smoke-check-health.ts "${smoke_args[@]}"
 
       # The active managed client and its capability are observable only from
