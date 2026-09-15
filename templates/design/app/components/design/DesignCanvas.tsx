@@ -1890,14 +1890,17 @@ export function DesignCanvas({
       const payload = (await response.json().catch(() => null)) as {
         bridgeInstanceId?: string;
       } | null;
+      if (!isCurrent()) return null;
       if (payload && typeof payload.bridgeInstanceId === "string") {
         // Cache the instance id from THIS successful registration so a
         // later suspected-restart probe (see handleSuspectedBridgeRestart)
         // can tell a genuinely restarted bridge process apart from the same
-        // process rejecting a stale key.
+        // process rejecting a stale key. Written only after isCurrent()
+        // passes: an older overlapping request resolving after a newer one
+        // must not overwrite the current attempt's instance id, or the
+        // watchdog misdiagnoses a restart and burns its reload/retry budget.
         bridgeInstanceIdRef.current = payload.bridgeInstanceId;
       }
-      if (!isCurrent()) return null;
       bridgeRegistrationRetryAttemptRef.current = 0;
       if (registrationHandoffKey) {
         liveEditRegistrationHandoff.set(registrationHandoffKey, Date.now());
@@ -1943,6 +1946,13 @@ export function DesignCanvas({
   ]);
   useEffect(() => {
     if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
+      // Invalidate any attempt still in flight from before this branch was
+      // entered (previous bridge key/mode) BEFORE clearing state below —
+      // otherwise that stale attempt's isCurrent() check would still pass
+      // when it resolves and could restore registeredLiveEditBridgeKey,
+      // failure state, or handoff data after we've already left this
+      // localhost/bridge configuration.
+      bridgeRegistrationAttemptGenerationRef.current += 1;
       bridgeRegistrationRetryAttemptRef.current = 0;
       liveEditRestartAttemptRef.current = 0;
       liveEditSameInstanceElapsedMsRef.current = 0;
@@ -2034,8 +2044,16 @@ export function DesignCanvas({
       window.clearTimeout(bridgeRegistrationRetryTimerRef.current);
       bridgeRegistrationRetryTimerRef.current = undefined;
     }
-    void attemptBridgeRegistration();
-  }, [attemptBridgeRegistration]);
+    // A failed manual attempt (still-refused permission, dev server still
+    // down) must not silently stop automatic recovery — schedule the same
+    // backoff retry the automatic path uses. null means a newer attempt
+    // (effect-driven or another click) already superseded this one, which
+    // already has its own outcome to handle; only a definite false schedules
+    // here.
+    void attemptBridgeRegistration().then((result) => {
+      if (result === false) scheduleBridgeRegistrationRetry();
+    });
+  }, [attemptBridgeRegistration, scheduleBridgeRegistrationRetry]);
   const handleDismissLocalNetworkAccessPrompt = useCallback(() => {
     setLocalNetworkAccessDismissedForKey(liveEditBridgeKey);
   }, [liveEditBridgeKey]);
