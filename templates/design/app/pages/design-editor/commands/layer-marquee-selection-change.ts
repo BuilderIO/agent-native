@@ -100,6 +100,7 @@ export function runLayerMarqueeSelectionChange(
       const canonical = canonicalizeElementInfoFromProjection(
         projection,
         item.info,
+        item.screenId,
       );
       const node = resolveCodeLayerNodeFromElementInfo(projection, canonical);
       if (!node || isScreenRootElementInfo(canonical)) return null;

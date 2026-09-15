@@ -6,6 +6,7 @@ import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
 import askAppStatus from "./ask_app_status.js";
+import claimWorkspaceAppOrganization from "./claim-workspace-app-organization.js";
 import connectExternalAgent from "./connect-external-agent.js";
 import createBrowserChatSession from "./create-browser-chat-session.js";
 import createDreamReport from "./create-dream-report.js";
@@ -113,6 +114,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "archive-workspace-app": archiveWorkspaceApp,
   ask_app: askApp,
   ask_app_status: askAppStatus,
+  "claim-workspace-app-organization": claimWorkspaceAppOrganization,
   "connect-external-agent": connectExternalAgent,
   "create-link-token": createLinkToken,
   "create-pylon-ticket": createPylonTicket,

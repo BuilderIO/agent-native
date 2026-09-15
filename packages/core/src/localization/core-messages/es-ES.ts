@@ -615,6 +615,8 @@ const messages: AgentChatTranslation = {
     "La pasarela del modelo tuvo un error interno antes de que el agente pudiera responder. Vuelve a intentarlo en un momento e indica el id de error de abajo si sigue ocurriendo.",
   "errorMessages.gatewayNoDetails":
     "La pasarela del modelo no devolvió detalles del error y el chat no pudo recuperarse. Espera un momento y vuelve a intentarlo. Si el problema continúa, inicia un chat nuevo.",
+  "errorMessages.creditsLimitReached":
+    "Has alcanzado el límite de créditos de IA.",
   "errorMessages.inactivityTimeout":
     "La conexión del agente expiró antes de que pudiera finalizar. Puedes continuar desde el trabajo parcial o volver a intentarlo.",
   "errorMessages.invalidToolSchema":
@@ -642,6 +644,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Poco útil",
   "feedback.placeholder": "Cuéntanos qué salió mal...",
   "feedback.submit": "Enviar",
+  "feedback.submitted": "Comentarios enviados",
   "feedback.thumbsDown": "No me gusta",
   "feedback.thumbsUp": "Me gusta",
   "feedback.tooSlow": "Demasiado lento",

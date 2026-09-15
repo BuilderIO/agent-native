@@ -139,6 +139,7 @@ import {
   newDocumentPageChoiceIsDisabled,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
+import { useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   CommentDraftProvider,
@@ -1597,6 +1598,7 @@ function PageEditorSessionBody({
     useState(false);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const canSuggest = canComment && document.canSuggest === true;
+  const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -4055,6 +4057,7 @@ function PageEditorSessionBody({
     },
     [activateSuggestion, isSuggesting, savedSuggestions, startSuggestionDraft],
   );
+  const handledCommentDeepLinkRef = useRef<string | null>(null);
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
@@ -4112,6 +4115,23 @@ function PageEditorSessionBody({
     replyDrafts.setOpenReply,
     t,
   ]);
+
+  useEffect(() => {
+    const threadId = new URLSearchParams(location.search).get("comment");
+    if (!threadId) {
+      handledCommentDeepLinkRef.current = null;
+      return;
+    }
+    const deepLinkKey = `${documentId}:${threadId}`;
+    if (
+      handledCommentDeepLinkRef.current === deepLinkKey ||
+      !threads?.some((thread) => thread.threadId === threadId)
+    ) {
+      return;
+    }
+    handledCommentDeepLinkRef.current = deepLinkKey;
+    activateCommentThread(threadId, true);
+  }, [activateCommentThread, documentId, location.search, threads]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -4568,6 +4588,8 @@ function PageEditorSessionBody({
           },
         );
       }}
+      canSuggest={canSuggest}
+      commentAi={commentAi}
       visibleThreadId={visibleThreadId}
       presentation={presentation}
     />

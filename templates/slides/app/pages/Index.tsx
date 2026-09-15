@@ -19,7 +19,6 @@ import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
-  IconFilter,
   IconPlus,
   IconRefresh,
   IconSearch,
@@ -31,6 +30,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
+import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import {
   NewDeckReferenceStep,
@@ -56,19 +56,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   describeDeckPersistenceFailure,
   type Deck,
@@ -80,6 +68,7 @@ import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
+  describeUploadedFilesForAgent,
   getUploadedImageAgentOptions,
   isSourceImprovementRequest,
   persistDeckGenerationContext,
@@ -92,7 +81,9 @@ import {
   writeStoredDeckFilter,
   type DeckFilter,
 } from "@/lib/deck-filter";
+import { deckListViewState } from "@/lib/deck-list-loading";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
+import { isDesignSystemSelectable } from "@/lib/design-system-selection";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
@@ -104,6 +95,7 @@ import {
   rememberRecentReference,
   type RecentReference,
 } from "@/lib/recent-references";
+import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
@@ -317,42 +309,6 @@ async function loadReferenceDeckGenerationContext(
   ].join("\n");
 }
 
-function describeUploadedFilesForAgent(
-  files: UploadedFile[],
-  deckId: string,
-  importedSourceDeck: ImportedSourceDeck | null = null,
-): string {
-  if (files.length === 0) return "";
-  const fileList = files
-    .map(
-      (f) =>
-        `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}${f.url ? `; embeddable URL: ${f.url}` : ""}`,
-    )
-    .join("\n");
-  return [
-    "",
-    importedSourceDeck
-      ? `The user uploaded ${files.length} file(s). The ${importedSourceDeck.file.originalName} source deck has already been imported into target deck ${deckId} with ${importedSourceDeck.slideCount} source slide(s); do not import it again.`
-      : `The user attached ${files.length} file(s) as reference material for this new deck. Attachments are context for the agent by default; do not import or append their slides to target deck ${deckId} merely because they were attached.`,
-    fileList,
-    "",
-    "File handling rules:",
-    importedSourceDeck
-      ? "- The imported source deck is canonical. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, use one patch-deck call with requireAllSourceSlides=true; use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
-      : `- PDF, PPTX, and DOCX files: call \`import-file --filePath "<path>" --format auto\` (without \`importIntoDeck\`) when you need their text or structure. Use the returned material as reference while creating new slides with \`add-slide\`.`,
-    importedSourceDeck
-      ? "- For a PDF source, keep the layers the import produced — positioned text boxes and images, or the page image where a page carried nothing else — and add restrained design-system chrome around them without obscuring source content. Never replace an imported slide with a retyped approximation of its text."
-      : "- Do not pass `importIntoDeck: true` for an attached file unless the user explicitly asks to import or preserve the source pages in the current deck. An attached reference is not an instruction to replace or seed the deck.",
-    "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
-    '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
-    '- Image files without a URL are sent as inline visual/reference assets for this run when available; on a follow-up, call `import-file --filePath "<path>" --format image` to reopen a persisted private raster before visual editing, and call `upload-image` if a durable embeddable URL is needed.',
-    "- When converting an attached image into a deck, inspect the complete visual source before adding slides. If it contains distinct source frames, represent them in order; do not repeatedly place the source image itself, stop after an arbitrary subset, or infer a fixed frame count.",
-    importedSourceDeck
-      ? "- Before your final response, verify the same source slide IDs and count with get-deck after the restyle. If source fidelity is partial or images were skipped, report the exact warning instead of claiming success."
-      : "- Before your final response, verify every uploaded file above was either used as reference or placed as explicitly requested. If any file's content or requested placement is missing from the deck, say so explicitly instead of reporting success.",
-  ].join("\n");
-}
-
 export default function Index() {
   const t = useT();
   const {
@@ -445,14 +401,24 @@ export default function Index() {
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
   const workspaceDesignSystemId =
-    workspaceDesignSystem && workspaceDesignSystem.status === "available"
+    workspaceDesignSystem &&
+    workspaceDesignSystem.status === "available" &&
+    designSystems.some(
+      (designSystem) =>
+        designSystem.id === workspaceDesignSystem.id &&
+        isDesignSystemSelectable(designSystem),
+    )
       ? workspaceDesignSystem.id
       : null;
   const lastUsedDesignSystemId =
     recentReferences.find(
       (reference) =>
         reference.kind === "design-system" &&
-        designSystems.some((designSystem) => designSystem.id === reference.id),
+        designSystems.some(
+          (designSystem) =>
+            designSystem.id === reference.id &&
+            isDesignSystemSelectable(designSystem),
+        ),
     )?.id ?? null;
   const lastUsedReferenceDeckId =
     recentReferences.find(
@@ -916,6 +882,40 @@ export default function Index() {
       }
     }
 
+    // Only the document that actually became the reference deck is already
+    // represented; the import controls accept several files but import one, so
+    // excluding all of `referenceFilePaths` would drop the rest entirely while
+    // telling the agent every attachment had been read.
+    const referenceHydration = await hydrateReferenceDocuments(
+      filesForGeneration,
+      {
+        excludePaths: [
+          ...(referenceSelection.importedReferenceFilePath
+            ? [referenceSelection.importedReferenceFilePath]
+            : []),
+          ...(importedSourceDeck ? [importedSourceDeck.file.path] : []),
+        ],
+      },
+    );
+    if (referenceHydration.status === "unreadable") {
+      recoverFromGenerationSetupFailure(referenceHydration.message);
+      return;
+    }
+    const referenceDocumentContext =
+      referenceHydration.status === "hydrated"
+        ? referenceHydration.context
+        : "";
+    // An attached document reference never sets `referenceDeckId`, so without
+    // this the no-design-system branch below prescribed the same generic
+    // fallback look a reference-less prompt gets — which is how a styled PDF
+    // produced a deck indistinguishable from one generated with no reference.
+    // Keyed on a measured design, not merely a successful read: a DOCX, or a
+    // PDF whose digest could not be built, would otherwise suppress both the
+    // workspace default and the fallback and leave no styling guidance at all.
+    const hasHydratedReferenceDesign =
+      referenceHydration.status === "hydrated" &&
+      referenceHydration.measuredDesignCount > 0;
+
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
@@ -968,9 +968,9 @@ export default function Index() {
           "",
           "Design system selection:",
           "- No design system was selected in the picker.",
-          ...(referenceDeckId
+          ...(referenceDeckId || hasHydratedReferenceDesign
             ? [
-                "- A reference deck is selected above. Follow its visual language as the source of truth. Do not call `get-workspace-defaults` or apply a workspace default design system.",
+                "- A reference deck or attached reference document is selected above. Follow its measured visual language — type scale, weights, colors, alignment, margins, page proportions — as the styling source of truth. Do not call `get-workspace-defaults`, apply a workspace default design system, or substitute a generic look.",
               ]
             : [
                 "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
@@ -1029,6 +1029,7 @@ export default function Index() {
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       googleDocContext,
       fileContext,
+      referenceDocumentContext,
       referenceDeckContext,
       designSystemContext,
       referenceSourceContext,
@@ -1042,7 +1043,9 @@ export default function Index() {
       "An explicit theme or brand instruction in the original brief overrides the background, palette, and styling of an uploaded/reference image or source page. Preserve source content and imagery, but do not copy a white wireframe background when the requested theme is dark.",
       "Do not report completion until the persisted generationContext targetSlideCount is reached, or, for source-preserving mode, get-deck compact=true reports sourceCoverage.complete=true for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
       "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 800x412px available inside standard 64px 80px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
-      "When no reference deck or hydrated design system is available, use a restrained, content-first visual language. Do not invent colorful cards, boxes, or decorative rectangles behind or over text; add a colored shape only when it has a clear semantic role and leaves the text unobscured. Prefer typography, spacing, alignment, and one restrained accent.",
+      hasHydratedReferenceDesign
+        ? "The attached reference document's measured visual language above is the styling source of truth for this deck. Match its type scale, weights, colors, alignment, and margins instead of a generic light-card layout — a deck built from a style reference must not be indistinguishable from one built without it."
+        : "When no reference deck or hydrated design system is available, use a restrained, content-first visual language. Do not invent colorful cards, boxes, or decorative rectangles behind or over text; add a colored shape only when it has a clear semantic role and leaves the text unobscured. Prefer typography, spacing, alignment, and one restrained accent.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
@@ -1416,6 +1419,7 @@ export default function Index() {
                 : t("home.importedReferenceDeck"),
             source: "pptx",
             referenceFilePaths,
+            importedFilePath: pptxReference.path,
           };
         } else if (pdfReference || docxReference) {
           const documentReference = pdfReference ?? docxReference;
@@ -1474,6 +1478,7 @@ export default function Index() {
                   : t("home.importedReferenceDeck"),
               source: documentFormat,
               referenceFilePaths,
+              importedFilePath: documentReference.path,
             };
           } catch (error) {
             deleteDeck(referenceDeck.id);
@@ -1743,6 +1748,12 @@ export default function Index() {
     ),
   );
 
+  const viewState = deckListViewState({
+    loading,
+    loadError,
+    deckCount: decks.length,
+  });
+
   if (isStartingNewDeck) {
     return (
       <div
@@ -1756,7 +1767,7 @@ export default function Index() {
 
   return (
     <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-0 sm:px-6 sm:pb-10">
-      {loading ? (
+      {viewState === "loading" ? (
         <>
           <div className="mb-4 flex items-center justify-end">
             <div className="skeleton-shimmer h-3 w-16 rounded bg-muted" />
@@ -1775,7 +1786,7 @@ export default function Index() {
             </div>
           </div>
         </>
-      ) : loadError ? (
+      ) : viewState === "error" ? (
         <div className="flex min-h-[360px] items-center justify-center">
           <div className="flex max-w-sm flex-col items-center gap-3 text-center">
             <IconAlertTriangle className="size-7 text-destructive/70" />
@@ -1795,7 +1806,7 @@ export default function Index() {
             </Button>
           </div>
         </div>
-      ) : decks.length === 0 ? (
+      ) : viewState === "empty" ? (
         <EmptyState onCreateDeck={openNewDeck} />
       ) : (
         <>
@@ -1998,59 +2009,6 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
     </main>
-  );
-}
-
-function DeckFilterMenu({
-  value,
-  onChange,
-}: {
-  value: DeckFilter;
-  onChange: (value: DeckFilter) => void;
-}) {
-  const t = useT();
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-label={
-                value === "mine"
-                  ? t("home.showMineDecks")
-                  : t("home.showAllDecks")
-              }
-              className="size-9 shrink-0 p-0"
-            >
-              <IconFilter className="size-3.5" aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>
-          {value === "mine" ? t("home.showMineDecks") : t("home.showAllDecks")}
-        </TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="start">
-        <DropdownMenuRadioGroup
-          value={value}
-          onValueChange={(nextValue) => {
-            if (nextValue === "mine" || nextValue === "all") {
-              onChange(nextValue);
-            }
-          }}
-        >
-          <DropdownMenuRadioItem value="mine">
-            {t("home.mine")}
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="all">
-            {t("home.all")}
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

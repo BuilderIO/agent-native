@@ -18,12 +18,50 @@ vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: mocks.resolveAccess,
 }));
 
+vi.mock("drizzle-orm", () => ({
+  and: vi.fn(),
+  eq: vi.fn(() => ({})),
+  inArray: vi.fn(),
+  isNull: vi.fn(),
+}));
+
 vi.mock("./db/index.js", () => ({
   getDb: mocks.getDb,
-  schema: {},
+  schema: {
+    designFiles: {
+      id: "designFiles.id",
+      designId: "designFiles.designId",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+      content: "designFiles.content",
+      createdAt: "designFiles.createdAt",
+      updatedAt: "designFiles.updatedAt",
+    },
+  },
 }));
 
 import { resolveSourceWorkspace } from "./source-workspace.js";
+
+const sourceFiles = [
+  {
+    id: "board-file",
+    designId: "design-with-board",
+    filename: "__board__.html",
+    fileType: "html",
+    content: "<html><body><div>Board</div></body></html>",
+    createdAt: null,
+    updatedAt: null,
+  },
+  {
+    id: "screen-file",
+    designId: "design-with-board",
+    filename: "index.html",
+    fileType: "html",
+    content: "<html><body><div>Screen</div></body></html>",
+    createdAt: null,
+    updatedAt: null,
+  },
+];
 
 describe("resolveSourceWorkspace", () => {
   beforeEach(() => {
@@ -46,5 +84,40 @@ describe("resolveSourceWorkspace", () => {
       "missing-design",
     );
     expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it("includes the Board only for callers that opt in", async () => {
+    const query = {
+      from: vi.fn(),
+      where: vi.fn().mockResolvedValue(sourceFiles),
+    };
+    query.from.mockReturnValue(query);
+    mocks.getDb.mockReturnValue({
+      select: vi.fn().mockReturnValue(query),
+    });
+    mocks.resolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        data: JSON.stringify({
+          sourceType: "inline",
+          boardFileId: "board-file",
+        }),
+      },
+    });
+
+    const defaultWorkspace = await resolveSourceWorkspace("design-with-board");
+    const linkedEditWorkspace = await resolveSourceWorkspace(
+      "design-with-board",
+      { includeContent: true, includeBoard: true },
+    );
+
+    expect(defaultWorkspace.files.map((file) => file.id)).toEqual([
+      "screen-file",
+    ]);
+    expect(linkedEditWorkspace.files.map((file) => file.id)).toEqual([
+      "board-file",
+      "screen-file",
+    ]);
+    expect(linkedEditWorkspace.boardFileId).toBe("board-file");
   });
 });

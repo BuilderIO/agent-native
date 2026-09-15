@@ -1,4 +1,3 @@
-import { agentChat } from "@agent-native/core";
 import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
@@ -65,6 +64,11 @@ import {
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
 } from "@/lib/canvas-zoom";
+import {
+  buildDrawingHandoffPrompt,
+  buildSelectionHandoffPrompt,
+  sendEditorPromptToAgent,
+} from "@/lib/editor-agent-handoff";
 import { downloadImage } from "@/lib/image-download";
 import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
@@ -6963,12 +6967,15 @@ export default function SlideEditor({
   /** Send the current selection to the agent chat composer */
   const sendSelectionToAgent = useCallback(() => {
     if (multiSelection.size === 0) return;
-    const list = Array.from(multiSelectionRects.values())
-      .map((v) => v.selector)
-      .join(", ");
-    agentChat.prefill(
-      `[Current selection on slide ${slideIndex + 1} (${slide.id}): ${list}]\n`,
-    );
+    const prompt = buildSelectionHandoffPrompt({
+      slideNumber: slideIndex + 1,
+      slideId: slide.id,
+      selectors: Array.from(multiSelectionRects.values()).map(
+        (v) => v.selector,
+      ),
+    });
+    if (!prompt) return;
+    sendEditorPromptToAgent(prompt);
   }, [multiSelection.size, multiSelectionRects, slide.id, slideIndex]);
 
   const publishImageSelection = useCallback(
@@ -7829,7 +7836,10 @@ export default function SlideEditor({
   }, []);
 
   const handleApplyUpdates = useCallback(() => {
-    agentChat.submit("Apply the pending visual updates");
+    sendEditorPromptToAgent({
+      message: "Apply the pending visual updates", // i18n-ignore agent prompt, not UI copy
+      submit: true,
+    });
   }, []);
 
   const handleSlideDoubleClick = useCallback(
@@ -8497,21 +8507,14 @@ export default function SlideEditor({
         scopeKey={slideId || slide.id}
         onClose={() => onExitDrawMode?.()}
         onSend={(annotations, instruction, canvasSize) => {
-          const summary = annotations
-            .map((a) =>
-              a.type === "path"
-                ? `[stroke ${a.color} w=${a.lineWidth}] ${a.pathData}`
-                : `[label "${a.text}" at ${a.position.x.toFixed(0)},${a.position.y.toFixed(0)}]`,
-            )
-            .join("\n");
-          const lines = [
-            `[Drawing on slide ${slide.id}]`,
-            `Canvas size: ${canvasSize.width.toFixed(0)}x${canvasSize.height.toFixed(0)}`,
-            summary,
-            "",
-            instruction || "Apply these annotations to the slide.",
-          ];
-          agentChat.submit(lines.join("\n"));
+          sendEditorPromptToAgent(
+            buildDrawingHandoffPrompt({
+              slideId: slide.id,
+              annotations,
+              instruction,
+              canvasSize,
+            }),
+          );
           onExitDrawMode?.();
         }}
       />

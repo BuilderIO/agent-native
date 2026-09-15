@@ -1,5 +1,10 @@
 import { computeReparentedChildPosition } from "@shared/board-file";
-import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
+import type {
+  CodeLayerNode,
+  CodeLayerProjection,
+  CodeLayerSource,
+  CodeLayerTreeNode,
+} from "@shared/code-layer";
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
@@ -15,7 +20,10 @@ import type {
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
-import { prepareClonedHtmlLayer } from "@/pages/design-editor/clone-and-pen-edit";
+import {
+  prepareClonedHtmlLayer,
+  type ComponentCloneBatchContext,
+} from "@/pages/design-editor/clone-and-pen-edit";
 import type { EffectiveCodeLayerState } from "@/pages/design-editor/code-layer-state";
 import {
   bridgeSourceIdForCodeLayerNode,
@@ -25,6 +33,7 @@ import {
   findMovedCodeLayerNodeInProjection,
   removeEmptyGeneratedGroupWrappers,
 } from "@/pages/design-editor/code-layer-state";
+import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   getLayerMoveIterationOrder,
   getLayerMoveSourceContent,
@@ -32,15 +41,35 @@ import {
 import type {
   ContentHistoryChange,
   ContentHistoryEntry,
+  ContentHistorySelectionAfterMap,
+} from "@/pages/design-editor/history";
+import {
+  captureContentUndoStackTop,
+  getContentHistoryChanges,
+  stampContentHistorySelectionAfter,
 } from "@/pages/design-editor/history";
 import {
   getAbsolutePositioningForNodeInHtml,
   setAbsolutePositioningForNodeInHtml,
 } from "@/pages/design-editor/html-layer-positioning";
+import {
+  isFlowDisplay,
+  readLiveLayerMoveLayout,
+} from "@/pages/design-editor/live-layer-move-layout";
 import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
+import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import { prepareLayerNodeIdentities } from "./layer-node-identity";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
+
 export interface LayerMoveArgs {
+  activeFileId?: string | null;
+  activeBreakpointWidthState?: number;
   activeFile: DesignFile;
   applyFileContentUpdate: (
     fileId: string,
@@ -51,23 +80,30 @@ export interface LayerMoveArgs {
       forcePreviewFullDocument?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   canEditDesign: boolean;
   canMoveLayer: (intent: LayersPanelMoveIntent) => boolean;
+  boardFileId?: string;
   codeLayerOwnerByNodeId: Map<
     string,
     {
       fileId: string;
       node: CodeLayerNode;
+      sourceProjection: CodeLayerProjection;
       tree: CodeLayerTreeNode[];
       runtimeOnly: boolean;
     }
   >;
   effectiveCodeLayerState: EffectiveCodeLayerState;
   files: DesignFile[];
+  overviewScreens?: readonly OverviewScreen[];
+  overviewSelectedScreenIds?: string[];
+  contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
+  contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
   handleLayerMoveToScreen: (
@@ -122,31 +158,48 @@ export function duplicateNodeForPanelDrop(
   draggedNodeId: string,
   anchorNodeId: string,
   placement: LayersPanelMoveIntent["placement"],
+  projectionSource: CodeLayerSource = { kind: "inline-html" },
+  componentLinks?: ComponentCloneBatchContext,
 ): {
   content: string;
   duplicatedNodeId: string;
   nodeIdMap: Map<string, string>;
 } | null {
   if (typeof document === "undefined") return null;
-  const projection = buildCodeLayerProjection(content);
+  const projection = buildCodeLayerProjection(content, {
+    source: projectionSource,
+  });
   const source = projection.nodes.find((node) => node.id === draggedNodeId);
   if (!source?.source) return null;
   const fragment = content.slice(source.source.start, source.source.end);
   const prepared = prepareClonedHtmlLayer(
     document.implementation.createHTMLDocument(""),
     fragment,
+    undefined,
+    null,
+    componentLinks
+      ? {
+          sourceFileId: componentLinks.sourceFileIds[0] ?? "",
+          targetSource: componentLinks.targetSource,
+          documents: componentLinks.documents,
+        }
+      : undefined,
   );
   if (!prepared) return null;
   const withClone =
     content.slice(0, source.source.end) +
     prepared.element.outerHTML +
     content.slice(source.source.end);
-  const movePatch = applyVisualEdit(withClone, {
-    kind: "moveNode",
-    target: { nodeId: prepared.rootNodeId },
-    anchor: { nodeId: anchorNodeId },
-    placement,
-  });
+  const movePatch = applyVisualEdit(
+    withClone,
+    {
+      kind: "moveNode",
+      target: { nodeId: prepared.rootNodeId },
+      anchor: { nodeId: anchorNodeId },
+      placement,
+    },
+    { source: projectionSource },
+  );
   if (movePatch.result.status !== "applied") return null;
   return {
     content: movePatch.content,
@@ -159,6 +212,34 @@ type CodeLayerOwner = NonNullable<
   ReturnType<LayerMoveArgs["codeLayerOwnerByNodeId"]["get"]>
 >;
 
+function isOutOfFlowNode(node: CodeLayerNode): boolean {
+  const position = node.style.position?.toLowerCase();
+  if (position) return position === "absolute" || position === "fixed";
+  return node.classes.some((token) => {
+    const parts = token.split(":");
+    const utility = parts[parts.length - 1]?.replace(/^!/, "");
+    return utility === "absolute" || utility === "fixed";
+  });
+}
+
+function isFlowContainerNode(node: CodeLayerNode | undefined): boolean {
+  if (!node) return false;
+  const display = node.style.display?.toLowerCase();
+  if (display) return isFlowDisplay(display);
+  return node.layout.isFlexContainer || node.layout.isGridContainer;
+}
+
+function isNodeParentFlow(
+  node: CodeLayerNode,
+  projection: CodeLayerProjection,
+): boolean {
+  const parent = node.parentId
+    ? projection.nodes.find((candidate) => candidate.id === node.parentId)
+    : undefined;
+  if (parent) return isFlowContainerNode(parent);
+  return isFlowDisplay(node.layout.parentDisplay);
+}
+
 /**
  * Attempts the alt-drag-duplicate fast path for a single-node panel drop;
  * returns "handled" once it has applied the content update and selection
@@ -169,23 +250,33 @@ function tryDuplicateOnPanelDrop(
   intent: LayersPanelMoveIntent,
   targetOwner: CodeLayerOwner,
   {
+    activeFileId,
     activeFile,
     applyFileContentUpdate,
     codeLayerOwnerByNodeId,
+    contentHistorySelectionAfterRef,
+    contentUndoStackRef,
     effectiveCodeLayerState,
     files,
     getFreshActiveContent,
+    getScreenContent,
+    overviewSelectedScreenIds,
     remapMotionTracksForClone,
     setSelectedElement,
     setSelectedLayerIdsState,
   }: Pick<
     LayerMoveArgs,
     | "activeFile"
+    | "activeFileId"
     | "applyFileContentUpdate"
     | "codeLayerOwnerByNodeId"
+    | "contentHistorySelectionAfterRef"
+    | "contentUndoStackRef"
     | "effectiveCodeLayerState"
     | "files"
     | "getFreshActiveContent"
+    | "getScreenContent"
+    | "overviewSelectedScreenIds"
     | "remapMotionTracksForClone"
     | "setSelectedElement"
     | "setSelectedLayerIdsState"
@@ -207,33 +298,84 @@ function tryDuplicateOnPanelDrop(
       ? getFreshActiveContent()
       : (files.find((file) => file.id === targetOwner.fileId)?.content ?? "");
   if (!baseContent) return "skip";
+  const projectionSource = targetOwner.sourceProjection.source;
+  const componentLinks =
+    projectionSource.kind === "design-file" && projectionSource.designId
+      ? {
+          sourceFileIds: [targetOwner.fileId],
+          targetSource: projectionSource,
+          documents: files.map((file) => ({
+            source: {
+              kind: "design-file" as const,
+              designId: projectionSource.designId!,
+              fileId: file.id,
+              filename: file.filename,
+            },
+            content: getScreenContent(file.id),
+          })),
+        }
+      : undefined;
   const duplicated = duplicateNodeForPanelDrop(
     baseContent,
     draggedId,
     intent.targetId,
     intent.placement,
+    projectionSource,
+    componentLinks,
   );
   if (!duplicated) return "skip";
-  applyFileContentUpdate(targetOwner.fileId, duplicated.content, {
-    recordHistory: true,
-    refreshPreview: false,
-    // The clone lands as a fresh sibling elsewhere in the tree; the bridge's
-    // scoped single-selector morph only reconciles whatever is currently
-    // selected and returns early, so a structural insert outside that
-    // subtree would otherwise never reach the live iframe (see the same
-    // note on the plain-move persist calls below).
-    forcePreviewFullDocument: true,
-  });
+  const contentUndoStackTopBeforeDuplicate = contentUndoStackRef
+    ? captureContentUndoStackTop(contentUndoStackRef.current)
+    : undefined;
+  const publication = applyFileContentUpdate(
+    targetOwner.fileId,
+    duplicated.content,
+    {
+      recordHistory: true,
+      refreshPreview: false,
+      // The clone lands as a fresh sibling elsewhere in the tree; the bridge's
+      // scoped single-selector morph only reconciles whatever is currently
+      // selected and returns early, so a structural insert outside that
+      // subtree would otherwise never reach the live iframe (see the same
+      // note on the plain-move persist calls below).
+      forcePreviewFullDocument: true,
+    },
+  );
+  if (publication.status !== "accepted") return "handled";
   remapMotionTracksForClone(duplicated.nodeIdMap, targetOwner.fileId);
-  const finalNode = buildCodeLayerProjection(duplicated.content).nodes.find(
+  const candidateProjection = buildCodeLayerProjection(duplicated.content, {
+    source: { kind: "design-file", fileId: targetOwner.fileId },
+  });
+  const candidateNode = candidateProjection.nodes.find(
     (node) =>
       node.dataAttributes["data-agent-native-node-id"] ===
       duplicated.duplicatedNodeId,
+  );
+  const acceptedProjection = projectAcceptedSource(publication, {
+    kind: "design-file",
+    fileId: targetOwner.fileId,
+  });
+  const finalNode = mapAcceptedSelectionNode(
+    publication,
+    acceptedProjection,
+    candidateNode,
   );
   if (finalNode) {
     setSelectedLayerIdsState([finalNode.id]);
     if (targetOwner.fileId === activeFile?.id) {
       setSelectedElement(elementInfoFromCodeLayerNode(finalNode));
+    }
+    if (contentUndoStackRef && contentHistorySelectionAfterRef) {
+      stampContentHistorySelectionAfter(
+        contentUndoStackRef.current,
+        contentHistorySelectionAfterRef.current,
+        contentUndoStackTopBeforeDuplicate,
+        {
+          activeFileId: activeFileId ?? activeFile?.id ?? null,
+          overviewSelectedScreenIds: overviewSelectedScreenIds ?? [],
+          selectedLayerIds: [finalNode.id],
+        },
+      );
     }
   }
   return "handled";
@@ -241,10 +383,13 @@ function tryDuplicateOnPanelDrop(
 
 export function runLayerMove(
   {
+    activeFileId,
+    activeBreakpointWidthState,
     activeFile,
     applyFileContentUpdate,
     canEditDesign,
     canMoveLayer,
+    boardFileId,
     codeLayerOwnerByNodeId,
     effectiveCodeLayerState,
     files,
@@ -252,6 +397,10 @@ export function runLayerMove(
     getScreenContent,
     handleLayerMoveToScreen,
     handleScreenLayerMove,
+    overviewScreens,
+    overviewSelectedScreenIds,
+    contentHistorySelectionAfterRef,
+    contentUndoStackRef,
     recordContentHistoryEntry,
     recordLocalContentHistoryEntry,
     remapMotionTracksForClone,
@@ -288,12 +437,17 @@ export function runLayerMove(
     const outcome =
       intent.draggedIds.length === 1
         ? tryDuplicateOnPanelDrop(intent, targetOwner, {
+            activeFileId,
             activeFile,
             applyFileContentUpdate,
             codeLayerOwnerByNodeId,
+            contentHistorySelectionAfterRef,
+            contentUndoStackRef,
             effectiveCodeLayerState,
             files,
             getFreshActiveContent,
+            getScreenContent,
+            overviewSelectedScreenIds,
             remapMotionTracksForClone,
             setSelectedElement,
             setSelectedLayerIdsState,
@@ -435,6 +589,70 @@ export function runLayerMove(
   }
 
   const movedIdOrder = classifiedDrags.map((drag) => drag.draggedId);
+  const preparedNodeIdByDraggedId = new Map<string, string>();
+  const destinationNodes = [
+    targetOwner.node,
+    ...classifiedDrags.flatMap((drag) => {
+      if (drag.kind !== "same-file") return [];
+      const owner = codeLayerOwnerByNodeId.get(drag.draggedId);
+      return owner ? [owner.node] : [];
+    }),
+  ];
+  const preparedDestination = prepareLayerNodeIdentities({
+    content: destContent,
+    nodes: destinationNodes,
+    renderedProjection: targetOwner.sourceProjection,
+  });
+  const preparedAnchorId = preparedDestination.nodeIds.get(targetOwner.node.id);
+  if (!preparedAnchorId) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
+  }
+  for (const drag of classifiedDrags) {
+    if (drag.kind !== "same-file") continue;
+    const nodeId = preparedDestination.nodeIds.get(drag.draggedId);
+    if (nodeId) preparedNodeIdByDraggedId.set(drag.draggedId, nodeId);
+  }
+
+  let nextDestContent = preparedDestination.content;
+  const preparedSourceContentMap = new Map<string, string>();
+  const sourceOriginalContentMap = new Map<string, string>();
+  const crossFileOwnersByFile = new Map<
+    string,
+    Array<{ draggedId: string; node: CodeLayerNode }>
+  >();
+  for (const drag of classifiedDrags) {
+    if (drag.kind !== "cross-file") continue;
+    const owner = codeLayerOwnerByNodeId.get(drag.draggedId);
+    if (!owner) continue;
+    const owners = crossFileOwnersByFile.get(drag.sourceFileId) ?? [];
+    owners.push({ draggedId: drag.draggedId, node: owner.node });
+    crossFileOwnersByFile.set(drag.sourceFileId, owners);
+  }
+  for (const [sourceFileId, owners] of crossFileOwnersByFile) {
+    const firstOwner = codeLayerOwnerByNodeId.get(owners[0]!.draggedId);
+    if (!firstOwner || !files.some((file) => file.id === sourceFileId)) {
+      continue;
+    }
+    const sourceContent = getLayerMoveSourceContent({
+      sourceFileId,
+      activeFileId: activeFile?.id,
+      activeContent: freshActiveContent,
+      sourceFileContent: getScreenContent(sourceFileId),
+      sourceContentMap: preparedSourceContentMap,
+    });
+    sourceOriginalContentMap.set(sourceFileId, sourceContent);
+    const prepared = prepareLayerNodeIdentities({
+      content: sourceContent,
+      nodes: owners.map((owner) => owner.node),
+      renderedProjection: firstOwner.sourceProjection,
+    });
+    preparedSourceContentMap.set(sourceFileId, prepared.content);
+    for (const owner of owners) {
+      const nodeId = prepared.nodeIds.get(owner.node.id);
+      if (nodeId) preparedNodeIdByDraggedId.set(owner.draggedId, nodeId);
+    }
+  }
 
   // L25: track each dragged node's former parent (by fileId + stable
   // data-agent-native-node-id), so that once every move in this intent
@@ -456,10 +674,8 @@ export function runLayerMove(
     formerParentAttrIdsByFileId.set(fileId, set);
   }
 
-  let nextDestContent = destContent;
   let moved = false;
   const sourceContentMap = new Map<string, string>();
-  const sourceOriginalContentMap = new Map<string, string>();
   const movedNodeIdByDraggedId = new Map<string, string>();
 
   for (const drag of getLayerMoveIterationOrder(
@@ -469,50 +685,117 @@ export function runLayerMove(
     const { draggedId } = drag;
     if (drag.kind === "same-file") {
       const draggedOwner = codeLayerOwnerByNodeId.get(draggedId);
-      // L2: a panel drop can reparent the node onto a different container
-      // (not just reorder among the same siblings) — e.g. dropping
-      // "inside" a different frame, or "before"/"after" an anchor that
-      // lives under a different parent than the dragged node's current
-      // one. The overview canvas reparent path
-      // (handleOverviewPrimitiveReparent) already rebases absolute
-      // left/top in that case so the element keeps its visual position
-      // instead of teleporting to (0,0)-relative-to-new-parent; mirror
-      // that here for the panel/tree move path.
+      const draggedNodeId = preparedNodeIdByDraggedId.get(draggedId);
+      if (!draggedOwner || !draggedNodeId) {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        continue;
+      }
+      // A Layers drop can reparent the node rather than reorder siblings.
+      // Keep world position for freeform targets; moveNode already normalizes
+      // a child entering auto layout into flow.
       const targetOwnerNode = codeLayerOwnerByNodeId.get(intent.targetId);
       const newParentId =
         intent.placement === "inside"
           ? intent.targetId
           : (targetOwnerNode?.node.parentId ?? null);
+      const newParentOwnerNode = newParentId
+        ? codeLayerOwnerByNodeId.get(newParentId)?.node
+        : undefined;
       const isCrossParent = Boolean(
         draggedOwner &&
         newParentId &&
         draggedOwner.node.parentId !== newParentId,
       );
-      const prevContentForRebase = nextDestContent;
-      const patch = applyVisualEdit(nextDestContent, {
-        kind: "moveNode",
-        target: { nodeId: draggedId },
-        anchor: { nodeId: intent.targetId },
+      const targetIsAutoLayout = isFlowContainerNode(newParentOwnerNode);
+      const liveLayout = readLiveLayerMoveLayout({
+        activeBreakpointWidthState,
+        activeFileId: activeFile?.id,
+        boardFileId,
+        destination: {
+          fileId: targetOwner.fileId,
+          node: targetOwner.node,
+          projection: targetOwner.sourceProjection,
+        },
+        overviewScreens,
         placement: intent.placement,
+        source: {
+          fileId: draggedOwner.fileId,
+          node: draggedOwner.node,
+          projection: draggedOwner.sourceProjection,
+        },
       });
+      if (liveLayout.status === "stale") {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        continue;
+      }
+      const destinationIsAutoLayout =
+        liveLayout.status === "resolved"
+          ? isFlowDisplay(liveLayout.destinationDisplay)
+          : targetIsAutoLayout;
+      const sourceIsOutOfFlow =
+        liveLayout.status === "resolved"
+          ? liveLayout.sourcePosition === "absolute" ||
+            liveLayout.sourcePosition === "fixed"
+          : isOutOfFlowNode(draggedOwner.node);
+      const sourceParentIsAutoLayout =
+        liveLayout.status === "resolved"
+          ? isFlowDisplay(liveLayout.sourceParentDisplay)
+          : isNodeParentFlow(draggedOwner.node, draggedOwner.sourceProjection);
+      const sourceWasIgnoredInAutoLayout =
+        sourceIsOutOfFlow && sourceParentIsAutoLayout;
+      const prevContentForRebase = nextDestContent;
+      const source = targetOwner.sourceProjection.source;
+      const patch = applyVisualEdit(
+        nextDestContent,
+        {
+          kind: "moveNode",
+          target: { nodeId: draggedNodeId },
+          anchor: { nodeId: preparedAnchorId },
+          placement: intent.placement,
+        },
+        {
+          source,
+          moveNode: {
+            destinationIsFlow: destinationIsAutoLayout,
+            sourceWasIgnoredInFlow:
+              sourceIsOutOfFlow && sourceParentIsAutoLayout,
+            forceRootIntoFlow:
+              destinationIsAutoLayout &&
+              sourceIsOutOfFlow &&
+              !sourceParentIsAutoLayout,
+          },
+        },
+      );
       if (patch.result.status !== "applied") {
         toast.error(
           codeLayerPatchMessage(
             patch.result.message,
             t("designEditor.toasts.layerMoveFailed"),
+            t,
           ),
           { duration: 4000 },
         );
         continue;
       }
       nextDestContent = patch.content;
-      if (isCrossParent && newParentId) {
+      // Preserve the auto-layout ignore state only when it existed in the
+      // source parent. Absolute positioning in a regular Frame is freeform
+      // placement, not an instruction to ignore the new parent's flow.
+      if (
+        isCrossParent &&
+        newParentId &&
+        (!destinationIsAutoLayout || sourceWasIgnoredInAutoLayout)
+      ) {
         const movedNodeAttrId =
           patch.projection.nodes.find(
             (n) =>
-              n.dataAttributes["data-agent-native-node-id"] === draggedId ||
-              n.id === draggedId,
-          )?.dataAttributes["data-agent-native-node-id"] ?? draggedId;
+              n.dataAttributes["data-agent-native-node-id"] === draggedNodeId ||
+              n.id === draggedNodeId,
+          )?.dataAttributes["data-agent-native-node-id"] ?? draggedNodeId;
         // getAbsolutePositioningForNodeInHtml/setAbsolutePositioningForNodeInHtml
         // select elements by their literal data-agent-native-node-id DOM
         // attribute, not this internal projection id (nodeIdFor always
@@ -521,13 +804,13 @@ export function runLayerMove(
         // through their owners first, or the lookups below silently miss
         // and the rebase never happens, leaving the dragged node's old
         // parent-relative left/top to render against the new parent.
-        const draggedAttrId =
-          draggedOwner?.node.dataAttributes["data-agent-native-node-id"] ??
-          draggedId;
+        const draggedAttrId = draggedNodeId;
         const newParentAttrId =
-          codeLayerOwnerByNodeId.get(newParentId)?.node.dataAttributes[
-            "data-agent-native-node-id"
-          ] ?? newParentId;
+          newParentId === intent.targetId
+            ? preparedAnchorId
+            : (codeLayerOwnerByNodeId.get(newParentId)?.node.dataAttributes[
+                "data-agent-native-node-id"
+              ] ?? newParentId);
         const sourcePosition = getAbsolutePositioningForNodeInHtml(
           prevContentForRebase,
           draggedAttrId,
@@ -549,41 +832,103 @@ export function runLayerMove(
           );
         }
       }
+      movedNodeIdByDraggedId.set(draggedId, draggedNodeId);
       moved = true;
     } else {
       const { sourceFileId } = drag;
+      const draggedOwner = codeLayerOwnerByNodeId.get(draggedId);
       const srcFile = files.find((f) => f.id === sourceFileId);
-      if (!srcFile) continue;
-      const currentSourceContent = getLayerMoveSourceContent({
-        sourceFileId,
-        activeFileId: activeFile?.id,
-        activeContent: freshActiveContent,
-        sourceFileContent: getScreenContent(sourceFileId),
-        sourceContentMap,
-      });
-      if (!sourceOriginalContentMap.has(sourceFileId)) {
-        sourceOriginalContentMap.set(sourceFileId, currentSourceContent);
+      if (!srcFile || !draggedOwner) continue;
+      const currentSourceContent =
+        sourceContentMap.get(sourceFileId) ??
+        preparedSourceContentMap.get(sourceFileId);
+      const nodeAttrId = preparedNodeIdByDraggedId.get(draggedId);
+      if (!currentSourceContent || !nodeAttrId) {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        continue;
       }
 
-      // The dragged node's data-agent-native-node-id is the node id
-      // tracked by code-layer. Look up the actual attribute value from
-      // the owner.
-      const draggedOwner = codeLayerOwnerByNodeId.get(draggedId);
-      const nodeAttrId =
-        draggedOwner?.node.dataAttributes["data-agent-native-node-id"] ??
-        draggedId;
-      const anchorAttrId =
-        codeLayerOwnerByNodeId.get(intent.targetId)?.node.dataAttributes[
-          "data-agent-native-node-id"
-        ] ?? intent.targetId;
+      const sourceProjection = buildCodeLayerProjection(currentSourceContent, {
+        source: { kind: "design-file", fileId: sourceFileId },
+      });
+      const sourceNode = sourceProjection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-node-id"] === nodeAttrId,
+      );
+      const destinationProjection = buildCodeLayerProjection(nextDestContent, {
+        source: { kind: "design-file", fileId: targetOwner.fileId },
+      });
+      const destinationNode = destinationProjection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-node-id"] === preparedAnchorId,
+      );
+      if (!sourceNode || !destinationNode) {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        continue;
+      }
+      const liveLayout = readLiveLayerMoveLayout({
+        activeBreakpointWidthState,
+        activeFileId: activeFile?.id,
+        boardFileId,
+        destination: {
+          fileId: targetOwner.fileId,
+          node: targetOwner.node,
+          projection: targetOwner.sourceProjection,
+        },
+        overviewScreens,
+        placement: intent.placement,
+        source: {
+          fileId: sourceFileId,
+          node: draggedOwner.node,
+          projection: draggedOwner.sourceProjection,
+        },
+      });
+      if (liveLayout.status === "stale") {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        continue;
+      }
+      const sourceIsOutOfFlow =
+        liveLayout.status === "resolved"
+          ? liveLayout.sourcePosition === "absolute" ||
+            liveLayout.sourcePosition === "fixed"
+          : isOutOfFlowNode(draggedOwner.node);
+      const sourceParentIsFlow =
+        liveLayout.status === "resolved"
+          ? isFlowDisplay(liveLayout.sourceParentDisplay)
+          : isNodeParentFlow(draggedOwner.node, draggedOwner.sourceProjection);
+      const destinationIsFlow =
+        liveLayout.status === "resolved"
+          ? isFlowDisplay(liveLayout.destinationDisplay)
+          : intent.placement === "inside"
+            ? isFlowContainerNode(targetOwner.node)
+            : isNodeParentFlow(targetOwner.node, targetOwner.sourceProjection);
+      const sourceWasIgnoredInFlow = sourceIsOutOfFlow && sourceParentIsFlow;
 
       const result = moveNodeBetweenDocuments(
         currentSourceContent,
         nextDestContent,
         {
           nodeId: nodeAttrId,
-          anchorNodeId: anchorAttrId,
+          sourceSelector: sourceNode.path,
+          anchorNodeId: preparedAnchorId,
           placement: intent.placement,
+          moveLayout:
+            liveLayout.status === "resolved"
+              ? {
+                  destinationIsFlow,
+                  sourceWasIgnoredInFlow,
+                  forceRootIntoFlow:
+                    destinationIsFlow &&
+                    sourceIsOutOfFlow &&
+                    !sourceWasIgnoredInFlow,
+                }
+              : undefined,
         },
       );
       if (result.status !== "applied") {
@@ -591,6 +936,7 @@ export function runLayerMove(
           codeLayerPatchMessage(
             result.message,
             t("designEditor.toasts.layerMoveFailed"),
+            t,
           ),
           { duration: 4000 },
         );
@@ -628,11 +974,10 @@ export function runLayerMove(
 
   const finalDestProjection =
     nextDestContent !== destContent
-      ? buildCodeLayerProjection(nextDestContent)
+      ? buildCodeLayerProjection(nextDestContent, {
+          source: targetOwner.sourceProjection.source,
+        })
       : null;
-  const finalDestTree = finalDestProjection
-    ? buildCodeLayerTree(finalDestProjection)
-    : [];
   const movedNodesAfterMove = movedIdOrder
     .map((draggedId) => {
       const node = movedNodeSnapshots.get(draggedId);
@@ -646,24 +991,40 @@ export function runLayerMove(
     })
     .filter((node): node is CodeLayerNode => Boolean(node));
 
-  if (movedNodesAfterMove.length > 0) {
-    setSelectedLayerIdsState(movedNodesAfterMove.map((node) => node.id));
-    const lastMovedNode = movedNodesAfterMove[movedNodesAfterMove.length - 1];
-    if (lastMovedNode && targetOwner.fileId === activeFile?.id) {
-      setSelectedElement(elementInfoFromCodeLayerNode(lastMovedNode));
+  const hasCrossFileMoves = sourceContentMap.size > 0;
+  try {
+    for (const [sourceFileId, nextSourceContent] of sourceContentMap) {
+      const sourceFile = files.find((file) => file.id === sourceFileId);
+      prepareAcceptedSourceContent(nextSourceContent, {
+        fileId: sourceFileId,
+        fileType: sourceFile?.fileType,
+        previousContent:
+          sourceOriginalContentMap.get(sourceFileId) ??
+          sourceFile?.content ??
+          "",
+      });
     }
-    const movedAncestorIds = movedNodesAfterMove.flatMap((node) =>
-      collectCodeLayerAncestors(finalDestTree, node.id),
-    );
-    setExpandedLayerIds((current) => {
-      const next = new Set(current);
-      next.add(targetOwner.fileId);
-      movedAncestorIds.forEach((ancestorId) => next.add(ancestorId));
-      return next.size === current.length ? current : Array.from(next);
+    if (nextDestContent !== destContent) {
+      const destinationFile = files.find(
+        (file) => file.id === targetOwner.fileId,
+      );
+      prepareAcceptedSourceContent(nextDestContent, {
+        fileId: targetOwner.fileId,
+        fileType: destinationFile?.fileType,
+        previousContent: destContent,
+      });
+    }
+  } catch {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), {
+      duration: 4000,
     });
+    return;
   }
 
-  const hasCrossFileMoves = sourceContentMap.size > 0;
+  let crossFileHistoryChanges: ContentHistoryChange[] | null = null;
+  const contentUndoStackTopBeforeMove = contentUndoStackRef
+    ? captureContentUndoStackTop(contentUndoStackRef.current)
+    : undefined;
   if (hasCrossFileMoves) {
     const crossFileChanges = [
       ...Array.from(sourceContentMap.entries()).map(
@@ -686,6 +1047,7 @@ export function runLayerMove(
           ]
         : []),
     ];
+    crossFileHistoryChanges = crossFileChanges;
     // recordContentHistoryEntry writes to the overview-only global stack
     // and (when the change touches the active file) clears the live
     // single-mode Yjs undo stack as a side effect. Outside overview mode
@@ -703,12 +1065,25 @@ export function runLayerMove(
   }
 
   // Persist source files that changed.
+  let allSourcePublicationsAccepted = true;
   for (const [sourceFileId, newSourceContent] of sourceContentMap) {
-    applyFileContentUpdate(sourceFileId, newSourceContent, {
+    const publication = applyFileContentUpdate(sourceFileId, newSourceContent, {
       recordHistory: !hasCrossFileMoves,
+      historyBeforeContent:
+        sourceOriginalContentMap.get(sourceFileId) ??
+        files.find((file) => file.id === sourceFileId)?.content ??
+        "",
       refreshPreview: false,
       forcePreviewFullDocument: true,
     });
+    if (publication.status !== "accepted") {
+      allSourcePublicationsAccepted = false;
+    } else {
+      const historyChange = crossFileHistoryChanges?.find(
+        (change) => change.fileId === sourceFileId,
+      );
+      if (historyChange) historyChange.after = publication.content;
+    }
   }
 
   // Persist dest file (which may also be the active file). A layer move can
@@ -720,10 +1095,74 @@ export function runLayerMove(
   // in-place, keyed) morph or a sibling reorder outside that one subtree
   // never reaches the live iframe.
   if (nextDestContent !== destContent) {
-    applyFileContentUpdate(targetOwner.fileId, nextDestContent, {
-      recordHistory: !hasCrossFileMoves,
-      refreshPreview: false,
-      forcePreviewFullDocument: true,
-    });
+    const publication = applyFileContentUpdate(
+      targetOwner.fileId,
+      nextDestContent,
+      {
+        recordHistory: !hasCrossFileMoves,
+        historyBeforeContent: destContent,
+        refreshPreview: false,
+        forcePreviewFullDocument: true,
+      },
+    );
+    if (publication.status !== "accepted" || !finalDestProjection) return;
+    const destinationHistoryChange = crossFileHistoryChanges?.find(
+      (change) => change.fileId === targetOwner.fileId,
+    );
+    if (destinationHistoryChange) {
+      destinationHistoryChange.after = publication.content;
+    } else if (contentUndoStackRef) {
+      const entry =
+        contentUndoStackRef.current[contentUndoStackRef.current.length - 1];
+      const change =
+        entry && entry !== contentUndoStackTopBeforeMove
+          ? getContentHistoryChanges(entry).find(
+              (candidate) => candidate.fileId === targetOwner.fileId,
+            )
+          : undefined;
+      if (change) change.after = publication.content;
+    }
+    const acceptedProjection = projectAcceptedSource(
+      publication,
+      targetOwner.sourceProjection.source,
+    );
+    const acceptedMovedNodes = movedNodesAfterMove
+      .map((node) =>
+        mapAcceptedSelectionNode(publication, acceptedProjection, node),
+      )
+      .filter((node): node is CodeLayerNode => Boolean(node));
+    if (allSourcePublicationsAccepted && acceptedMovedNodes.length > 0) {
+      setSelectedLayerIdsState(acceptedMovedNodes.map((node) => node.id));
+      const lastMovedNode = acceptedMovedNodes[acceptedMovedNodes.length - 1];
+      if (lastMovedNode && targetOwner.fileId === activeFile?.id) {
+        setSelectedElement(elementInfoFromCodeLayerNode(lastMovedNode));
+      }
+      const acceptedTree = buildCodeLayerTree(acceptedProjection);
+      const movedAncestorIds = acceptedMovedNodes.flatMap((node) =>
+        collectCodeLayerAncestors(acceptedTree, node.id),
+      );
+      setExpandedLayerIds((current) => {
+        const next = new Set(current);
+        next.add(targetOwner.fileId);
+        movedAncestorIds.forEach((ancestorId) => next.add(ancestorId));
+        return next.size === current.length ? current : Array.from(next);
+      });
+      if (
+        allSourcePublicationsAccepted &&
+        contentUndoStackRef &&
+        contentHistorySelectionAfterRef
+      ) {
+        stampContentHistorySelectionAfter(
+          contentUndoStackRef.current,
+          contentHistorySelectionAfterRef.current,
+          contentUndoStackTopBeforeMove,
+          {
+            activeFileId: activeFileId ?? activeFile?.id ?? null,
+            overviewSelectedScreenIds: overviewSelectedScreenIds ?? [],
+            selectedLayerIds: acceptedMovedNodes.map((node) => node.id),
+          },
+        );
+      }
+    }
   }
 }

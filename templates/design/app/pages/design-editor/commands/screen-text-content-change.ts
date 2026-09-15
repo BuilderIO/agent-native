@@ -3,6 +3,7 @@ import {
   buildCodeLayerProjection,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
+import { linkedComponentRootForNode } from "@shared/component-links";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -26,6 +27,13 @@ import type {
   EditorMode,
 } from "@/pages/design-editor/types";
 
+import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import type { LinkedComponentEdit } from "./linked-component-mutation";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
+
 export interface ScreenTextContentChangeArgs {
   activeFile: DesignFile;
   applyFileContentUpdate: (
@@ -40,6 +48,11 @@ export interface ScreenTextContentChangeArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
+  ) => ApplyFileContentUpdateResult;
+  applyLinkedComponentEdit?: (
+    fileId: string,
+    nodeId: string,
+    edit: LinkedComponentEdit,
   ) => void;
   canEditDesign: boolean;
   designSourceType: "inline" | "localhost" | "fusion";
@@ -81,6 +94,7 @@ export function runScreenTextContentChange(
   {
     activeFile,
     applyFileContentUpdate,
+    applyLinkedComponentEdit,
     canEditDesign,
     designSourceType,
     finalizePendingTextCreation,
@@ -126,23 +140,53 @@ export function runScreenTextContentChange(
   }
   const liveSnapshot = liveScreenSnapshotsById[screenId];
   const baseContent = liveSnapshot?.html ?? getScreenContent(screenId);
-  const projection = buildCodeLayerProjection(baseContent);
+  const source = liveSnapshot
+    ? { kind: "inline-html" as const, fileId: screenId }
+    : { kind: "design-file" as const, fileId: screenId };
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
     : resolveCodeLayerNodeFromBridge(projection, selector);
+  if (
+    screenSourceType === "inline" &&
+    !liveSnapshot &&
+    targetNode &&
+    linkedComponentRootForNode(targetNode, projection)
+  ) {
+    const durableNodeId =
+      targetNode.dataAttributes["data-agent-native-node-id"];
+    if (!durableNodeId || !applyLinkedComponentEdit) {
+      toast.error(t("designEditor.patchProof.selectorMissing"), {
+        duration: 4000,
+      });
+      return;
+    }
+    applyLinkedComponentEdit(screenId, durableNodeId, {
+      kind: "textContent",
+      value,
+    });
+    setActiveFileId(screenId);
+    setActiveTool("move");
+    setMode("edit");
+    return;
+  }
   const isEmpty = value.trim().length === 0;
   const removedContent =
     isEmpty && targetNode
       ? removeCodeLayerNodeFromHtml(baseContent, targetNode)
       : null;
   const patch = !removedContent
-    ? applyVisualEdit(baseContent, {
-        kind: "textContent",
-        target: targetNode ? { nodeId: targetNode.id } : { selector },
-        value,
-        html: details?.html,
-      })
+    ? applyVisualEdit(
+        baseContent,
+        {
+          kind: "textContent",
+          target: targetNode ? { nodeId: targetNode.id } : { selector },
+          value,
+          html: details?.html,
+        },
+        { source },
+      )
     : null;
   const nextContent =
     removedContent ??
@@ -167,15 +211,17 @@ export function runScreenTextContentChange(
     ],
     nextContent,
   );
+  let publication: ApplyFileContentUpdateResult | null = null;
   if (liveSnapshot) {
     updateLiveScreenSnapshotContent(screenId, nextContent, {
       recordHistory: !finalizedCreation,
     });
   } else {
-    applyFileContentUpdate(screenId, nextContent, {
+    publication = applyFileContentUpdate(screenId, nextContent, {
       skipPreview: true,
       recordHistory: !finalizedCreation,
     });
+    if (publication.status !== "accepted") return;
   }
   setActiveFileId(screenId);
   // T8: see the matching note in handleTextContentChange — commit
@@ -187,9 +233,9 @@ export function runScreenTextContentChange(
     setSelectedLayerIdsState([]);
     return;
   }
-  const nextProjection = buildCodeLayerProjection(nextContent);
-  const nextNode = targetNode
-    ? nextProjection.nodes.find((node) =>
+  const submittedProjection = buildCodeLayerProjection(nextContent, { source });
+  const nextNodeCandidate = targetNode
+    ? submittedProjection.nodes.find((node) =>
         codeLayerNodeMatchesBridgeTarget(
           node,
           selector,
@@ -197,6 +243,13 @@ export function runScreenTextContentChange(
         ),
       )
     : null;
+  const nextNode = publication
+    ? mapAcceptedSelectionNode(
+        publication,
+        projectAcceptedSource(publication, source),
+        nextNodeCandidate,
+      )
+    : nextNodeCandidate;
   if (nextNode) setSelectedLayerIdsState([nextNode.id]);
   setSelectedElement((previous) => {
     const base =

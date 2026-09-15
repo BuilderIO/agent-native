@@ -39,6 +39,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { loadCliBootstrap } from "./cli-bootstrap.js";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { resolveDevUserEmail } from "./dev-session.js";
 import { loadEnv } from "./utils.js";
@@ -243,12 +244,12 @@ async function runAppDbPluginIfPresent(): Promise<void> {
  */
 export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const actionName = process.argv[2];
+  const args = process.argv.slice(3);
 
-  if (!actionName || actionName === "--help") {
+  if (!actionName || actionName === "--help" || args.includes("--help")) {
     console.log(
       `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...]`,
     );
-    console.log(`\nRun any action with --help for usage details.`);
 
     // List local actions (try actions/ first, then scripts/)
     const actionsDir = path.resolve(process.cwd(), "actions");
@@ -293,8 +294,6 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
     process.exit(1);
   }
 
-  const args = process.argv.slice(3);
-
   // Forward to an already-running local dev server before touching the
   // database ourselves — PGlite's process lock (db/client.ts) means opening
   // it here while `pnpm dev` holds it open fails outright. Exits the process
@@ -316,6 +315,14 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   // `process.env.AGENT_USER_EMAIL` because env mutation leaks across
   // boundaries — see the cautionary comment in
   // `server/request-context.ts` about exactly that pattern.
+
+  // A CLI run mounts no Nitro plugins, so nothing has claimed the file upload
+  // slot that `createCoreRoutesPlugin` and the onboarding plugin claim on a
+  // server. Without this an action calling `uploadFile()` from `pnpm action`
+  // finds no provider and fails with storage fully configured — the same action
+  // works from the dev server and in production.
+  await loadCliBootstrap();
+
   const userEmail = await resolveDevUserEmail();
   const orgId = process.env.AGENT_ORG_ID || undefined;
 

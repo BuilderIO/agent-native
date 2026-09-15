@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import {
+  COMPONENT_ID_ATTR,
   COMPONENT_NAME_ATTR,
   isComponentInstance,
 } from "../shared/component-model.js";
@@ -116,5 +117,51 @@ describe("applyComponentAnnotations", () => {
     const result = applyComponentAnnotations("<x>", { source: null }, "X", []);
     expect(result.changed).toBe(false);
     expect(result.content).toBe("<x>");
+  });
+
+  it("stamps a stable opaque main identity without changing its name or props", () => {
+    const html =
+      '<button data-agent-native-node-id="button-1" data-variant="outline" aria-pressed="true">Go</button>';
+    const projection = buildCodeLayerProjection(html, {
+      source: {
+        kind: "design-file",
+        designId: "design-1",
+        fileId: "screen-1",
+      },
+    });
+    const node = projection.nodes[0];
+    expect(node).toBeTruthy();
+    if (!node) return;
+    const id = "cmp-opaque-test-id";
+    const first = applyComponentAnnotations(
+      html,
+      node,
+      "PrimaryButton",
+      deriveComponentPropStamps(node),
+      id,
+    );
+    const projected = buildCodeLayerProjection(first.content, {
+      source: projection.source,
+    }).nodes[0];
+    expect(first.changed).toBe(true);
+    expect(projected?.dataAttributes[COMPONENT_ID_ATTR]).toBe(id);
+    expect(projected?.dataAttributes[COMPONENT_NAME_ATTR]).toBe(
+      "PrimaryButton",
+    );
+    expect(projected?.dataAttributes["data-agent-native-prop-variant"]).toBe(
+      "outline",
+    );
+    expect(projected?.dataAttributes["data-agent-native-prop-pressed"]).toBe(
+      "true",
+    );
+    const second = applyComponentAnnotations(
+      first.content,
+      projected!,
+      "PrimaryButton",
+      deriveComponentPropStamps(projected!),
+      id,
+    );
+    expect(second.changed).toBe(false);
+    expect(second.content).toBe(first.content);
   });
 });

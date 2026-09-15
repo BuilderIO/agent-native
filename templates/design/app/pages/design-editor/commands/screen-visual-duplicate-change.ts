@@ -3,7 +3,10 @@ import { toast } from "sonner";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
-import { insertClonedHtmlLayer } from "@/pages/design-editor/clone-and-pen-edit";
+import {
+  insertClonedHtmlLayer,
+  type ComponentCloneBatchContext,
+} from "@/pages/design-editor/clone-and-pen-edit";
 import {
   codeLayerSelectorAliases,
   resolveCodeLayerNodeFromBridge,
@@ -14,6 +17,7 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface ScreenVisualDuplicateChangeArgs {
   activeFile: DesignFile;
+  componentLinksForFile?: (fileId: string) => ComponentCloneBatchContext;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -35,6 +39,7 @@ export interface ScreenVisualDuplicateChangeArgs {
     elementInfo?: ElementInfo,
     details?: {
       sourceId?: string;
+      sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
       anchorSelector?: string;
       anchorSourceId?: string;
       placement?: "before" | "after" | "inside";
@@ -48,6 +53,7 @@ export function runScreenVisualDuplicateChange(
     activeFile,
     applyFileContentUpdate,
     canEditDesign,
+    componentLinksForFile,
     getScreenContent,
     handleVisualDuplicateChange,
     t,
@@ -58,6 +64,7 @@ export function runScreenVisualDuplicateChange(
   elementInfo?: ElementInfo,
   details?: {
     sourceId?: string;
+    sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
     anchorSelector?: string;
     anchorSourceId?: string;
     placement?: "before" | "after" | "inside";
@@ -69,9 +76,17 @@ export function runScreenVisualDuplicateChange(
       false
     );
   }
+  let structureUnsupported = false;
+  const onUnsupportedStructure = () => {
+    structureUnsupported = true;
+    toast.error(
+      t("designEditor.componentInstances.linkedStructureUnsupported"),
+    );
+  };
   if (!canEditDesign) return false;
   const baseContent = getScreenContent(screenId);
-  const projection = buildCodeLayerProjection(baseContent);
+  const source = { kind: "design-file" as const, fileId: screenId };
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo
     ? {
         ...elementInfo,
@@ -100,6 +115,7 @@ export function runScreenVisualDuplicateChange(
     ? "after"
     : (details?.placement ?? "after");
   const nextContent = insertClonedHtmlLayer(baseContent, cloneHtml, {
+    onUnsupportedStructure,
     targetSelectors: targetNode
       ? codeLayerSelectorAliases(targetNode)
       : [selector],
@@ -110,7 +126,14 @@ export function runScreenVisualDuplicateChange(
         : undefined,
     placement: effectivePlacement,
     preserveIncomingNodeIds: true,
+    componentLinks: componentLinksForFile
+      ? {
+          ...componentLinksForFile(screenId),
+          sourceNodeIdMaps: [details?.sourceNodeIdMap],
+        }
+      : undefined,
   });
+  if (structureUnsupported) return false;
   if (!nextContent) {
     toast.error(t("designEditor.toasts.layerMoveFailed"), {
       duration: 4000,

@@ -356,6 +356,7 @@ const messages: AgentChatTranslation = {
     "模型网关在智能体作答前发生内部错误。请稍后重试；如果持续出现，请提供下方的错误 ID。",
   "errorMessages.gatewayNoDetails":
     "模型网关未返回错误详情，聊天无法恢复。请稍等片刻后重试；如果问题持续出现，请开始新聊天。",
+  "errorMessages.creditsLimitReached": "你已达到 AI 积分额度上限。",
   "errorMessages.inactivityTimeout":
     "智能体连接在完成前超时。您可以从已完成的部分继续，也可以重试。",
   "errorMessages.invalidToolSchema":
@@ -380,6 +381,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "没有帮助",
   "feedback.placeholder": "告诉我们哪里出了问题……",
   "feedback.submit": "提交",
+  "feedback.submitted": "反馈已提交",
   "feedback.thumbsDown": "不喜欢",
   "feedback.thumbsUp": "喜欢",
   "feedback.tooSlow": "太慢",
