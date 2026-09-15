@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import PromptPopover from "./PromptDialog";
+import PromptPopover, { assetsPickerUrl } from "./PromptDialog";
 
 interface ComposerStubProps {
   draftScope?: string;
@@ -255,6 +255,19 @@ describe("PromptPopover draft isolation", () => {
       '[data-testid="prompt-composer"]',
     );
     expect(composer?.getAttribute("data-draft-scope")).toBe("New design:none");
+  });
+});
+
+describe("PromptPopover asset picker", () => {
+  it("uses the embedded library picker contract", () => {
+    const url = new URL(assetsPickerUrl());
+
+    expect(url.pathname).toBe("/library");
+    expect(url.searchParams.get("__an_picker")).toBe("1");
+    expect(url.searchParams.get("mediaType")).toBe("image");
+    expect(url.searchParams.get("layout")).toBe("vertical");
+    expect(url.searchParams.get("embedded")).toBe("1");
+    expect(url.searchParams.get("callerAppId")).toBe("design");
   });
 });
 
