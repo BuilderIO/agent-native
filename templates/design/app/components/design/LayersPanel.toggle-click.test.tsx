@@ -203,6 +203,161 @@ describe("LayersPanel search affordance", () => {
     root.unmount();
     host.remove();
   });
+
+  it("caps the screens section and exposes a keyboard-resizable divider", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        <LayersPanel
+          screens={Array.from({ length: 8 }, (_, index) => ({
+            id: `screen-${index}`,
+            name: `Screen ${index}`,
+            type: "file" as const,
+          }))}
+          layers={[{ id: "layer-1", name: "Hero", type: "element" }]}
+          selectedIds={[]}
+          expandedIds={[]}
+          searchQuery=""
+          onSearchQueryChange={() => {}}
+          onExpandedIdsChange={() => {}}
+          onSelectionChange={() => {}}
+        />,
+      );
+    });
+
+    const screenSection = host.querySelector<HTMLElement>(
+      "[data-screen-section]",
+    );
+    const resizer = host.querySelector<HTMLElement>(
+      "[data-screen-section-resizer]",
+    );
+    expect(screenSection?.style.maxHeight).toBe("30%");
+    expect(resizer?.getAttribute("role")).toBe("separator");
+    expect(resizer?.getAttribute("aria-label")).toBe(
+      "layersPanel.resizeScreens",
+    );
+    expect(resizer?.getAttribute("aria-orientation")).toBe("horizontal");
+    expect(resizer?.hasAttribute("aria-valuemin")).toBe(true);
+    expect(resizer?.hasAttribute("aria-valuemax")).toBe(true);
+    expect(resizer?.hasAttribute("aria-valuenow")).toBe(true);
+    expect(resizer?.tabIndex).toBe(0);
+
+    root.unmount();
+    host.remove();
+  });
+
+  it("resizes the screens section with ArrowDown, Home, and End", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        <LayersPanel
+          screens={Array.from({ length: 8 }, (_, index) => ({
+            id: `screen-${index}`,
+            name: `Screen ${index}`,
+            type: "file" as const,
+          }))}
+          layers={[{ id: "layer-1", name: "Hero", type: "element" }]}
+          selectedIds={[]}
+          expandedIds={[]}
+          searchQuery=""
+          onSearchQueryChange={() => {}}
+          onExpandedIdsChange={() => {}}
+          onSelectionChange={() => {}}
+        />,
+      );
+    });
+
+    const panel = host.querySelector<HTMLElement>("[data-layers-panel]")!;
+    const screenSection = host.querySelector<HTMLElement>(
+      "[data-screen-section]",
+    )!;
+    const resizer = host.querySelector<HTMLElement>(
+      "[data-screen-section-resizer]",
+    )!;
+    Object.defineProperty(panel, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ height: 1000 }) as DOMRect,
+    });
+    Object.defineProperty(screenSection, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ height: 200 }) as DOMRect,
+    });
+
+    await act(async () => {
+      resizer.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
+      );
+    });
+    expect(screenSection.style.height).toBe("224px");
+
+    await act(async () => {
+      resizer.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Home" }),
+      );
+    });
+    expect(screenSection.style.height).toBe("96px");
+
+    await act(async () => {
+      resizer.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "End" }),
+      );
+    });
+    expect(screenSection.style.height).toBe("300px");
+
+    root.unmount();
+    host.remove();
+  });
+
+  it("scrolls the active screen row into view", async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            screens={Array.from({ length: 8 }, (_, index) => ({
+              id: `screen-${index}`,
+              name: `Screen ${index}`,
+              type: "file" as const,
+            }))}
+            activeScreenId="screen-7"
+            layers={[{ id: "layer-1", name: "Hero", type: "element" }]}
+            selectedIds={[]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+          />,
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+      });
+    } finally {
+      root.unmount();
+      host.remove();
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
 });
 
 describe("LayersPanel row hierarchy", () => {

@@ -16,6 +16,7 @@ import {
   IconChevronDown,
   IconMenu2,
   IconSearch,
+  IconUsers,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -137,6 +138,7 @@ import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
 import { isCalendarShortcutSuppressedTarget } from "@/lib/keyboard-shortcuts";
 import { getLocationSuggestions } from "@/lib/location-suggestions";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { isPersonCalendarId } from "@/lib/person-calendar";
 import { cn } from "@/lib/utils";
 import {
   buildWorkingLocationProperties,
@@ -499,29 +501,68 @@ export default function CalendarView() {
     browserTimezone: string;
   } | null>(null);
   const { data: rawOverlayPeople } = useOverlayPeople();
-  const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
-  const overlayEmails = useMemo(
-    () => overlayPeople.map((p) => p.email),
-    [overlayPeople],
+  const overlayPeople = useMemo(
+    () => (Array.isArray(rawOverlayPeople) ? rawOverlayPeople : []),
+    [rawOverlayPeople],
   );
-  const enabledGoogleCalendarSourceKeys = useMemo(() => {
+  const enabledGoogleSources = useMemo(() => {
     if (!googleCalendars.enabled || !googleCalendars.data) return undefined;
-    return googleCalendars.data
-      .filter((source) => {
-        if (source.accessRole === "freeBusyReader") {
-          return false;
-        }
-        return (
-          viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
-          (source.primary || source.selected)
-        );
-      })
-      .map((source) => source.sourceKey);
+    return googleCalendars.data.filter((source) => {
+      if (source.accessRole === "freeBusyReader") {
+        return false;
+      }
+      return (
+        viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
+        (source.primary || source.selected)
+      );
+    });
   }, [
     googleCalendars.data,
     googleCalendars.enabled,
     viewPrefs.googleCalendarVisibility,
   ]);
+  const enabledGoogleCalendarSourceKeys = useMemo(
+    () => enabledGoogleSources?.map((source) => source.sourceKey),
+    [enabledGoogleSources],
+  );
+  // Mirrors the sidebar's merged-row visibility: a person can also be a
+  // directly-shared Google calendar merged into the same row, so their
+  // overlay-sourced events must stay hidden when that Google side is
+  // explicitly hidden, even though the person side alone is still visible.
+  const googleHiddenPersonEmails = useMemo(() => {
+    const hidden = new Set<string>();
+    for (const source of googleCalendars.data ?? []) {
+      if (!isPersonCalendarId(source.calendarId)) continue;
+      // A free/busy-only source is excluded from enabledGoogleSources above,
+      // so its visibility toggle must not hide that person's overlay events.
+      if (source.accessRole === "freeBusyReader") continue;
+      // Mirrors the Sidebar's merged-row visibility: Google's own default
+      // "selected" state must not hide a deliberately-added overlay peer, so
+      // only an explicit stored preference counts as hidden here.
+      const explicitVisible =
+        viewPrefs.googleCalendarVisibility[source.canonicalKey];
+      if (explicitVisible === false)
+        hidden.add(source.calendarId.toLowerCase());
+    }
+    return hidden;
+  }, [googleCalendars.data, viewPrefs.googleCalendarVisibility]);
+  // A peer can be both an overlay person and a Google calendar shared with us.
+  // Requesting both reads the same calendar twice and renders every event
+  // twice, under two colors and two independent visibility toggles. Drop the
+  // overlay request when the shared calendar already covers that address —
+  // deduping the events afterwards is not possible, because provider event ids
+  // legitimately repeat across different people's calendars for the same
+  // meeting.
+  const overlayEmails = useMemo(() => {
+    const coveredByGoogle = new Set(
+      (enabledGoogleSources ?? []).map((source) =>
+        source.calendarId.toLowerCase(),
+      ),
+    );
+    return overlayPeople
+      .map((person) => person.email)
+      .filter((email) => !coveredByGoogle.has(email.toLowerCase()));
+  }, [overlayPeople, enabledGoogleSources]);
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
@@ -785,9 +826,27 @@ export default function CalendarView() {
         if (e.overlayEmail && hiddenCalendars.people.includes(e.overlayEmail))
           return false;
         if (
+          e.overlayEmail &&
+          googleHiddenPersonEmails.has(e.overlayEmail.toLowerCase())
+        )
+          return false;
+        if (
           e.source === "google" &&
           e.canonicalKey &&
           viewPrefs.googleCalendarVisibility[e.canonicalKey] === false
+        ) {
+          return false;
+        }
+        // A person can also be a directly-shared Google calendar. The
+        // sidebar merges that into the same row as their overlay entry, so
+        // hiding it must also hide their Google-sourced events, not just the
+        // overlay-sourced ones the check above covers.
+        if (
+          e.source === "google" &&
+          e.calendarId &&
+          hiddenCalendars.people.some(
+            (email) => email.toLowerCase() === e.calendarId!.toLowerCase(),
+          )
         ) {
           return false;
         }
@@ -816,6 +875,7 @@ export default function CalendarView() {
     quickEditTempIds,
     viewPrefs.showDeclinedEvents,
     viewPrefs.googleCalendarVisibility,
+    googleHiddenPersonEmails,
   ]);
 
   // Filter events for day view — use overlap check so multi-day continuation
@@ -2209,6 +2269,26 @@ export default function CalendarView() {
 
             {/* Right: search, new event */}
             <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+              {overlayPeople.length > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 sm:h-7 sm:w-7"
+                      asChild
+                    >
+                      <Link to="/booking-links?tab=shared">
+                        <IconUsers className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>{t("sidebar.managePeerAvailability")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

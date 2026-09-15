@@ -3,7 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
-import type { RemoteAgentAuth } from "../resources/metadata.js";
+import type {
+  RemoteAgentAuth,
+  RemoteAgentKind,
+} from "../resources/metadata.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
@@ -25,6 +28,7 @@ export interface DiscoveredAgent {
   color: string;
   cardUrl?: string;
   auth?: RemoteAgentAuth;
+  kind?: RemoteAgentKind;
 }
 
 export type OrgDirectoryDiscoveryResult =
@@ -463,6 +467,7 @@ export async function discoverAgents(
           color: manifest.color || builtin?.color || "#6B7280",
           ...(manifest.cardUrl ? { cardUrl: manifest.cardUrl } : {}),
           ...(manifest.auth ? { auth: manifest.auth } : {}),
+          ...(manifest.kind ? { kind: manifest.kind } : {}),
         });
       } catch {
         // Skip unreadable resources
@@ -628,6 +633,7 @@ async function overlayRemoteAgentResources(
       color: manifest.color || builtin?.color || "#6B7280",
       ...(manifest.cardUrl ? { cardUrl: manifest.cardUrl } : {}),
       ...(manifest.auth ? { auth: manifest.auth } : {}),
+      ...(manifest.kind ? { kind: manifest.kind } : {}),
     });
   }
 }

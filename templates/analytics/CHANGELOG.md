@@ -3,6 +3,16 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-14
+
+### Improved
+
+- Sidebar and session filter buttons now show when a filter is narrowing the list.
+
+### Changed
+
+- Creative Context is now an opt-in Lab, off by default.
+
 ## 2026-09-12
 
 ### Improved
