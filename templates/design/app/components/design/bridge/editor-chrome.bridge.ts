@@ -16405,7 +16405,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
       if (heightTouched)
         resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
-      resizeEl.style.transform = mergeFlipIntoTransform(flipTransformBase, rect.flipX, rect.flipY);
+      resizeEl.style.transform = mergeFlipIntoTransform(
+        flipTransformBase,
+        rect.flipX,
+        rect.flipY,
+      );
       if (scaleToolEnabled) {
         // Uniform scale factor: scaleToolEnabled already forces the
         // aspect-ratio lock above (nextRect), so width/origin.width and
@@ -16434,7 +16438,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
       if (widthTouched) previewStyles.width = resizeEl.style.width;
       if (heightTouched) previewStyles.height = resizeEl.style.height;
-      if (resizeEl.style.transform) previewStyles.transform = resizeEl.style.transform;
+      if (resizeEl.style.transform)
+        previewStyles.transform = resizeEl.style.transform;
       if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         previewStyles.fontSize = resizeEl.style.fontSize;
       }

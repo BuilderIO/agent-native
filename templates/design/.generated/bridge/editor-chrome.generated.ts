@@ -11673,7 +11673,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
         if (heightTouched)
           resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
-        resizeEl.style.transform = mergeFlipIntoTransform(flipTransformBase, rect.flipX, rect.flipY);
+        resizeEl.style.transform = mergeFlipIntoTransform(
+          flipTransformBase,
+          rect.flipX,
+          rect.flipY
+        );
         if (scaleToolEnabled) {
           var kScaleFactor = rect.width / Math.max(1, origin.width);
           if (originFontSize > 0 && !svgViewBoxScalesFont) {
@@ -11693,7 +11697,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
         if (widthTouched) previewStyles.width = resizeEl.style.width;
         if (heightTouched) previewStyles.height = resizeEl.style.height;
-        if (resizeEl.style.transform) previewStyles.transform = resizeEl.style.transform;
+        if (resizeEl.style.transform)
+          previewStyles.transform = resizeEl.style.transform;
         if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
           previewStyles.fontSize = resizeEl.style.fontSize;
         }
