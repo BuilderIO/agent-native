@@ -383,4 +383,39 @@ describe("hydrateReferenceDocuments", () => {
     // A digest the budget cut is not one the agent can be told to match.
     expect(result.measuredDesignCount).toBe(0);
   });
+
+  it("names a reference the budget could only fit a fragment of", async () => {
+    // Leaves a positive remainder too small to carry a usable block.
+    const filler = "x".repeat(11_800);
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(
+        async (_action: string, input: { filePath: string }) =>
+          input.filePath.includes("styled")
+            ? pdfResult
+            : {
+                format: "pdf",
+                pageCount: 1,
+                textPageCount: 1,
+                pages: [{ pageNum: 1, text: filler }],
+              },
+      );
+
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("filler-0.pdf"),
+        uploaded("filler-1.pdf"),
+        uploaded("filler-2.pdf"),
+        uploaded("styled.pdf"),
+      ],
+      { callActionImpl },
+    );
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    // A stub the agent cannot identify is worse than a named omission.
+    expect(result.context).toContain("### styled.pdf");
+    expect(result.context).toContain("filled the reference budget");
+    expect(result.measuredDesignCount).toBe(0);
+  });
 });

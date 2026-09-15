@@ -21,8 +21,18 @@ export const REFERENCE_HYDRATION_DEADLINE_MS = 4 * 60 * 1000;
 const HYDRATION_CONCURRENCY = 3;
 
 const MAX_CHARS_PER_REFERENCE = 12_000;
-/** Ceiling across all references, so N attachments cannot flood the prompt. */
+/**
+ * Ceiling on reference *content* across all references, so N attachments
+ * cannot flood the prompt. The short per-file notice left behind for a
+ * reference the budget could not fit is fixed overhead on top of this.
+ */
 const MAX_TOTAL_REFERENCE_CHARS = 36_000;
+/**
+ * A block clipped below this is a fragment, not a reference — not even the
+ * heading is guaranteed to survive — so the agent is told the file was
+ * omitted rather than handed an unidentifiable stub.
+ */
+const MIN_PARTIAL_REFERENCE_CHARS = 600;
 const MAX_PDF_PAGES_IN_CONTEXT = 20;
 const MAX_PPTX_SLIDES_IN_CONTEXT = 20;
 const MAX_DOCX_SECTIONS_IN_CONTEXT = 20;
@@ -346,7 +356,7 @@ export async function hydrateReferenceDocuments(
   let measuredDesignCount = 0;
   for (const outcome of outcomes) {
     if (outcome.status !== "read") continue;
-    if (budget.remaining <= 0) {
+    if (budget.remaining < MIN_PARTIAL_REFERENCE_CHARS) {
       blocks.push(
         `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
       );
