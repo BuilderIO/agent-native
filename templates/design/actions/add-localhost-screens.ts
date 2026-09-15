@@ -379,9 +379,7 @@ function metadataMatchesRoute(
   const storedContentMatches =
     typeof args.content === "string" && routeUrlsMatch(args.content, args.url);
   const hasStoredRouteHint =
-    typeof metadata.url === "string" ||
-    typeof metadata.previewUrl === "string" ||
-    typeof args.content === "string";
+    typeof metadata.url === "string" || typeof metadata.previewUrl === "string";
   if (hasStoredRouteHint && !storedUrlMatches && !storedContentMatches) {
     return false;
   }

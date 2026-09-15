@@ -324,6 +324,41 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(result.screens[0]?.id).toBe("legacy_file");
   });
 
+  it("refreshes a legacy localhost screen when its content is inline HTML", async () => {
+    mocks.state.files = [
+      {
+        id: "legacy_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "<main>Existing screen</main>",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        legacy_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/settings"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).toBe("legacy_file");
+    expect(mocks.state.insertedFile).toBeNull();
+    expect(mocks.state.updatedFiles).toHaveLength(1);
+  });
+
   it("keeps query-backed routes distinct from the same pathname", async () => {
     mocks.state.files = [
       {
