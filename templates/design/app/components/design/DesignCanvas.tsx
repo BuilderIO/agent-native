@@ -1399,7 +1399,27 @@ export function DesignCanvas({
   const bridgeRegistrationAttemptGenerationRef = useRef(0);
   const [bridgeRegistrationRetryNonce, setBridgeRegistrationRetryNonce] =
     useState(0);
+  // Scoped strictly to the registration fetch() itself failing — drives
+  // externalPreviewUrl's raw-URL fallback and the floating
+  // LocalNetworkAccessPrompt card below. Deliberately separate from
+  // bridgeConnectionLostError: a fetch failure and "the live document never
+  // confirmed ready after a successful registration" (handleSuspectedBridge
+  // Restart's destructive paths) are different failure modes — the latter
+  // proves the bridge WAS reachable, so a permission-flavored "maybe you need
+  // to grant local network access" message would be actively misleading
+  // there, and unlike a fetch failure there's no still-reachable raw
+  // dev-server document to fall back to showing (the live document itself is
+  // what stopped responding).
   const [bridgeRegistrationError, setBridgeRegistrationError] = useState<{
+    bridgeKey: string;
+    message: string;
+  } | null>(null);
+  // handleSuspectedBridgeRestart's destructive terminal states (retry budget
+  // exhausted, or /health itself confirms the process is unreachable) keep
+  // their original full-cover blocking card and retry action, untouched by
+  // the raw-fallback/floating-card behavior above — see
+  // bridgeRegistrationError's comment for why these must not share state.
+  const [bridgeConnectionLostError, setBridgeConnectionLostError] = useState<{
     bridgeKey: string;
     message: string;
   } | null>(null);
@@ -1604,8 +1624,20 @@ export function DesignCanvas({
   const usesLiveEditInjectedBridge =
     sourceType === "localhost" &&
     Boolean(bridgeUrl && previewToken && rawExternalPreviewUrl);
+  // Hoisted above usesLiveEditEditorBridge (rather than declared next to
+  // externalPreviewUrl/usingRawFallbackPreview below, which reuse it) because
+  // a failed registration's raw-URL fallback document has no injected editor
+  // bridge script and can never answer an editor command or post the ready
+  // handshake — usesLiveEditEditorBridge must already reflect that, or the
+  // still-"editable" chrome above it (selection, inspector, hover) lets the
+  // user attempt edits that silently queue forever against a frame that will
+  // never respond (see postOneShotBridgeMessage's queueing above).
+  const bridgeRegistrationFailedForCurrentKey =
+    bridgeRegistrationError?.bridgeKey === liveEditBridgeKey;
   const usesLiveEditEditorBridge =
-    usesLiveEditInjectedBridge && includeLiveEditEditorChrome;
+    usesLiveEditInjectedBridge &&
+    includeLiveEditEditorChrome &&
+    !bridgeRegistrationFailedForCurrentKey;
   const effectiveRegisteredLiveEditBridgeKey =
     registeredLiveEditBridgeKey ??
     (hasRecentLiveEditRegistration(registrationHandoffKey)
@@ -1691,8 +1723,6 @@ export function DesignCanvas({
   // that permission check), so showing it read-only beats hiding a working
   // app behind an indefinite loading state. LocalNetworkAccessPrompt offers
   // the way to actually enable editing from here.
-  const bridgeRegistrationFailedForCurrentKey =
-    bridgeRegistrationError?.bridgeKey === liveEditBridgeKey;
   const usingRawFallbackPreview =
     usesLiveEditInjectedBridge &&
     !liveEditExternalPreviewUrl &&
@@ -1869,7 +1899,12 @@ export function DesignCanvas({
       return null;
     }
     const generation = ++bridgeRegistrationAttemptGenerationRef.current;
+    // isUnmountedRef also gates this: a manual Connect click's fetch has no
+    // effect cleanup to cancel it if the canvas unmounts while it's in
+    // flight, so without this check a late-resolving attempt could still
+    // write state (or schedule a retry timer) for a component that's gone.
     const isCurrent = () =>
+      !isUnmountedRef.current &&
       bridgeRegistrationAttemptGenerationRef.current === generation;
     const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
     try {
@@ -1915,6 +1950,7 @@ export function DesignCanvas({
       // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
       setBridgeRegistrationError(null);
       setBridgeRegistrationFailureKind(null);
+      setBridgeConnectionLostError(null);
       setConnectingLocalNetworkAccess(false);
       lateLiveEditReadyRecoveryRef.current = null;
       setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
@@ -1964,6 +2000,7 @@ export function DesignCanvas({
       setRegisteredLiveEditBridgeKey(null);
       setBridgeRegistrationError(null);
       setBridgeRegistrationFailureKind(null);
+      setBridgeConnectionLostError(null);
       setLiveEditSameInstanceStalledError(null);
       lateLiveEditReadyRecoveryRef.current = null;
       return;
@@ -2102,7 +2139,7 @@ export function DesignCanvas({
               }
             : null;
           setRegisteredLiveEditBridgeKey(null);
-          setBridgeRegistrationError({
+          setBridgeConnectionLostError({
             bridgeKey: liveEditBridgeKey,
             message: t("designCanvas.localBridge.confirmationRetryExhausted"),
           });
@@ -2120,7 +2157,7 @@ export function DesignCanvas({
         // re-triggers the registration effect above.
         bridgeInstanceIdRef.current = responseBridgeInstanceId;
         setRegisteredLiveEditBridgeKey(null);
-        setBridgeRegistrationError(null);
+        setBridgeConnectionLostError(null);
         setLiveEditSameInstanceStalledError(null);
         // A genuine restart makes any same-instance-id wait we'd accumulated
         // against the OLD process meaningless — reset the escalation clock so
@@ -2186,7 +2223,7 @@ export function DesignCanvas({
           }
         : null;
       setRegisteredLiveEditBridgeKey(null);
-      setBridgeRegistrationError({
+      setBridgeConnectionLostError({
         bridgeKey: liveEditBridgeKey,
         message: t("designCanvas.localBridge.connectionNotConfirmed"),
       });
@@ -2207,7 +2244,7 @@ export function DesignCanvas({
           }
         : null;
       setRegisteredLiveEditBridgeKey(null);
-      setBridgeRegistrationError({
+      setBridgeConnectionLostError({
         bridgeKey: liveEditBridgeKey,
         message: error instanceof Error ? error.message : String(error),
       });
@@ -2818,7 +2855,7 @@ export function DesignCanvas({
               Date.now(),
             );
           }
-          setBridgeRegistrationError((current) =>
+          setBridgeConnectionLostError((current) =>
             current?.bridgeKey === lateReadyRecovery.bridgeKey ? null : current,
           );
           setRegisteredLiveEditBridgeKey(lateReadyRecovery.bridgeKey);
@@ -5048,7 +5085,40 @@ export function DesignCanvas({
       sameOriginBridgePending ||
       liveEditDocumentPending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
-          {waitingForLiveEditBridge || sameOriginBridgePending ? (
+          {bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
+            // handleSuspectedBridgeRestart's destructive terminal state (see
+            // bridgeConnectionLostError's declaration comment): the
+            // registration itself succeeded, so unlike the floating
+            // LocalNetworkAccessPrompt card above there's no raw dev-server
+            // fallback to show underneath — the live document is what
+            // stopped responding, not the fetch. Keeps its original
+            // full-cover card and copy, unchanged from before this PR.
+            <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
+                {
+                  "Live editor connection failed" /* i18n-ignore local dev bridge registration failure title */
+                }
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {
+                  "Is the local dev server still running?" /* i18n-ignore local dev bridge registration failure subtitle */
+                }
+              </div>
+              <div className="w-full truncate rounded bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">
+                {bridgeConnectionLostError.message}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleConnectLocalNetworkAccess}
+              >
+                <IconRefresh className="size-3.5" />
+                {"Retry" /* i18n-ignore local dev bridge retry button */}
+              </Button>
+            </div>
+          ) : waitingForLiveEditBridge || sameOriginBridgePending ? (
             <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
               {
                 "Preparing live editor..." /* i18n-ignore transient localhost live-edit bridge loading state */
