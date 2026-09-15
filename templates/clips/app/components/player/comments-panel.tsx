@@ -8,17 +8,22 @@ import {
   type InlineMarkdownProtectedSpan,
 } from "@agent-native/core/client/markdown";
 import {
-  IconSend,
-  IconCheck,
+  IconArrowUp,
   IconMoodSmile,
   IconCornerDownRight,
   IconDots,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type Ref, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -27,7 +32,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Kbd } from "@/components/ui/kbd";
 import {
   Popover,
   PopoverContent,
@@ -46,6 +50,7 @@ import {
   CommentComposer as CommentTextComposer,
   type MentionEntry,
 } from "./comment-composer";
+import { CommentSubmissionWidget } from "./comment-feed";
 import { REACTION_EMOJIS } from "./reaction-emojis";
 import { msToClock } from "./scrubber";
 
@@ -69,6 +74,34 @@ type CommentsLens = {
   applyComments: (data: unknown, next: Comment[]) => unknown;
 };
 
+type CommentsMutationContext = {
+  type: "add" | "reaction" | "remove" | "update";
+  tempId?: string;
+  commentId?: string;
+  emoji?: string;
+  reactionKey?: string;
+  operationToken?: number;
+  removed?: Comment[];
+};
+
+type ReactionState = {
+  confirmedUsers: string[];
+  confirmedToken: number;
+  latestToken: number;
+  pending: Map<number, { optimisticUsers: string[] }>;
+  authoritativeUsers?: string[];
+  authoritativeToken?: number;
+};
+
+type EditState = {
+  confirmed: Comment;
+  confirmedToken: number;
+  latestToken: number;
+  pending: Map<number, Comment>;
+  authoritative?: Comment;
+  authoritativeToken?: number;
+};
+
 const defaultLens: CommentsLens = {
   selectComments: (data) =>
     (data as { comments?: Comment[] } | undefined)?.comments,
@@ -86,9 +119,66 @@ export interface Comment {
   mentions?: CommentMentionDisplay[];
   videoTimestampMs: number;
   emojiReactionsJson: string;
-  resolved: boolean;
+  /** Legacy persisted field; resolved comments render like regular comments. */
+  resolved?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+const MAX_COMMENT_REPLY_DEPTH = 2;
+
+type CommentThreadNode = {
+  comment: Comment;
+  children: CommentThreadNode[];
+};
+
+function buildCommentThread(comments: Comment[]): CommentThreadNode | null {
+  if (comments.length === 0) return null;
+
+  const nodes = new Map<string, CommentThreadNode>();
+  for (const comment of comments) {
+    nodes.set(comment.id, { comment, children: [] });
+  }
+
+  const rootComment = comments.find((comment) => comment.parentId == null);
+  const root = nodes.get(rootComment?.id ?? comments[0].id);
+  if (!root) return null;
+
+  for (const comment of comments) {
+    const node = nodes.get(comment.id);
+    if (!node || node === root) continue;
+    const parent = comment.parentId ? nodes.get(comment.parentId) : null;
+    (parent && parent !== node ? parent.children : root.children).push(node);
+  }
+
+  return root;
+}
+
+export function collectCommentSubtreeIds(comments: Comment[], rootId: string) {
+  const ids = new Set([rootId]);
+  let frontier = [rootId];
+  while (frontier.length > 0) {
+    const nextIds = comments
+      .filter(
+        (comment) => comment.parentId && frontier.includes(comment.parentId),
+      )
+      .map((comment) => comment.id)
+      .filter((id) => !ids.has(id));
+    nextIds.forEach((id) => ids.add(id));
+    frontier = nextIds;
+  }
+  return ids;
+}
+
+function updateReactionUsers(
+  raw: string,
+  emoji: string,
+  users: string[],
+): string {
+  const reactions = parseReactions(raw);
+  if (users.length === 0) delete reactions[emoji];
+  else reactions[emoji] = users;
+  return JSON.stringify(reactions);
 }
 
 export interface CommentsPanelProps {
@@ -161,6 +251,15 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
+  // Keep a local projection alongside the query cache so real recording
+  // mutations render immediately while the action request is in flight.
+  const [visibleComments, setVisibleComments] = useState(comments);
+  const visibleCommentsRef = useRef(visibleComments);
+  const reactionStatesRef = useRef(new Map<string, ReactionState>());
+  const reactionSequenceRef = useRef(0);
+  const editStatesRef = useRef(new Map<string, EditState>());
+  const editSequenceRef = useRef(0);
+  const successfulDeletionIdsRef = useRef(new Set<string>());
   const [draftMentions, setDraftMentions] = useState<MentionEntry[]>([]);
   const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -178,7 +277,15 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    visibleCommentsRef.current = comments;
+    setVisibleComments(comments);
+  }, [comments]);
+
   const patchComments = (updater: (prev: Comment[]) => Comment[]) => {
+    const nextVisible = updater(visibleCommentsRef.current);
+    visibleCommentsRef.current = nextVisible;
+    setVisibleComments(nextVisible);
     queryClient.setQueryData(queryKey, (old: unknown) => {
       if (!old) return old;
       const current = selectComments(old) ?? [];
@@ -186,10 +293,150 @@ export function CommentsPanel(props: CommentsPanelProps) {
     });
   };
 
+  const reconcileReactionMutation = (
+    ctx: CommentsMutationContext,
+    serverUsers?: string[],
+    succeeded = false,
+  ) => {
+    if (
+      !ctx.reactionKey ||
+      !ctx.operationToken ||
+      !ctx.commentId ||
+      !ctx.emoji
+    ) {
+      return;
+    }
+    const state = reactionStatesRef.current.get(ctx.reactionKey);
+    if (!state) return;
+
+    const token = ctx.operationToken;
+    if (succeeded) {
+      if (serverUsers && token >= state.confirmedToken) {
+        state.confirmedUsers = serverUsers;
+        state.confirmedToken = token;
+      }
+      if (token === state.latestToken && serverUsers) {
+        // Keep older requests tracked: the server action is a toggle and an
+        // older request can still commit after this response arrives.
+        state.authoritativeUsers = serverUsers;
+        state.authoritativeToken = token;
+      }
+    }
+    state.pending.delete(token);
+
+    const pendingEntry = Array.from(state.pending.entries()).sort(
+      ([left], [right]) => right - left,
+    )[0];
+    const users =
+      pendingEntry &&
+      (!state.authoritativeToken || pendingEntry[0] > state.authoritativeToken)
+        ? pendingEntry[1].optimisticUsers
+        : (state.authoritativeUsers ?? state.confirmedUsers);
+    patchComments((list) =>
+      list.map((comment) =>
+        comment.id === ctx.commentId
+          ? {
+              ...comment,
+              emojiReactionsJson: updateReactionUsers(
+                comment.emojiReactionsJson,
+                ctx.emoji!,
+                users,
+              ),
+            }
+          : comment,
+      ),
+    );
+
+    if (state.pending.size === 0) {
+      void queryClient.invalidateQueries({ queryKey });
+      reactionStatesRef.current.delete(ctx.reactionKey);
+    }
+  };
+
+  const reconcileEditMutation = (
+    ctx: CommentsMutationContext,
+    data?: {
+      id?: string;
+      content?: string;
+      mentions?: CommentMentionDisplay[];
+      updatedAt?: string;
+    },
+    succeeded = false,
+  ) => {
+    if (!ctx.commentId || !ctx.operationToken) return;
+    const state = editStatesRef.current.get(ctx.commentId);
+    if (!state) return;
+
+    const token = ctx.operationToken;
+    if (succeeded && data?.content && data.updatedAt) {
+      const serverComment: Comment = {
+        ...state.confirmed,
+        content: data.content,
+        ...(data.mentions !== undefined ? { mentions: data.mentions } : {}),
+        updatedAt: data.updatedAt,
+      };
+      if (token >= state.confirmedToken) {
+        state.confirmed = serverComment;
+        state.confirmedToken = token;
+      }
+      if (token === state.latestToken) {
+        state.authoritative = serverComment;
+        state.authoritativeToken = token;
+      }
+    }
+    state.pending.delete(token);
+
+    const pendingEntry = Array.from(state.pending.entries()).sort(
+      ([left], [right]) => right - left,
+    )[0];
+    const projection =
+      pendingEntry &&
+      (!state.authoritativeToken || pendingEntry[0] > state.authoritativeToken)
+        ? pendingEntry[1]
+        : (state.authoritative ?? state.confirmed);
+    patchComments((list) =>
+      list.map((comment) =>
+        comment.id === ctx.commentId
+          ? {
+              ...comment,
+              ...projection,
+              // Reactions are maintained by their own mutation queue.
+              emojiReactionsJson: comment.emojiReactionsJson,
+            }
+          : comment,
+      ),
+    );
+
+    if (state.pending.size === 0) {
+      void queryClient.invalidateQueries({ queryKey });
+      editStatesRef.current.delete(ctx.commentId);
+    }
+  };
+
+  const rollbackComments = (ctx: CommentsMutationContext | undefined) => {
+    if (!ctx) return;
+    if (ctx.type === "add" && ctx.tempId) {
+      patchComments((list) =>
+        list.filter((comment) => comment.id !== ctx.tempId),
+      );
+      return;
+    }
+    if (ctx.type === "remove" && ctx.removed) {
+      // The query cache may have changed while deletion was in flight. Avoid
+      // restoring a stale snapshot; refetch the authoritative list instead.
+      patchComments((list) =>
+        list.filter(
+          (comment) => !successfulDeletionIdsRef.current.has(comment.id),
+        ),
+      );
+      void queryClient.invalidateQueries({ queryKey });
+      return;
+    }
+  };
+
   const addComment = useActionMutation("add-comment", {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
-      const prev = queryClient.getQueryData(queryKey);
       const tempId = makeTempId();
       const now = new Date().toISOString();
       const optimistic: Comment = {
@@ -202,15 +449,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
         mentions: displayCommentMentions(vars.mentions),
         videoTimestampMs: vars.videoTimestampMs ?? 0,
         emojiReactionsJson: "{}",
-        resolved: false,
         createdAt: now,
         updatedAt: now,
       };
       patchComments((list) => [...list, optimistic]);
-      return { prev, tempId };
+      return { type: "add", tempId } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      rollbackComments(ctx);
     },
     onSuccess: (data: any, _vars, ctx: any) => {
       if (!ctx?.tempId || !data?.id) return;
@@ -224,78 +470,75 @@ export function CommentsPanel(props: CommentsPanelProps) {
     },
   });
 
-  const resolve = useActionMutation("resolve-comment", {
-    onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey });
-      const prev = queryClient.getQueryData(queryKey);
-      patchComments((list) =>
-        list.map((c) =>
-          c.id === vars.id
-            ? {
-                ...c,
-                resolved:
-                  typeof vars.resolved === "boolean"
-                    ? vars.resolved
-                    : !c.resolved,
-              }
-            : c,
-        ),
-      );
-      return { prev };
-    },
-    onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
-    },
-  });
-
   const reactToComment = useActionMutation("react-to-comment", {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
-      const prev = queryClient.getQueryData(queryKey);
       const currentUser = currentUserEmail;
-      if (!currentUser) return { prev };
-      patchComments((commentList) =>
-        commentList.map((comment) => {
-          if (comment.id !== vars.commentId) return comment;
-          let reactions: Record<string, string[]> = {};
-          try {
-            const parsed = JSON.parse(comment.emojiReactionsJson || "{}");
-            if (parsed && typeof parsed === "object") {
-              reactions = parsed as Record<string, string[]>;
-            }
-          } catch {}
-          const reactingUsers = Array.isArray(reactions[vars.emoji])
-            ? reactions[vars.emoji]
-            : [];
-          const userAlreadyReacted = reactingUsers.includes(currentUser);
-          const updatedReactingUsers = userAlreadyReacted
-            ? reactingUsers.filter((email) => email !== currentUser)
-            : [...reactingUsers, currentUser];
-          const updatedReactions = { ...reactions };
-          if (updatedReactingUsers.length === 0) {
-            delete updatedReactions[vars.emoji];
-          } else {
-            updatedReactions[vars.emoji] = updatedReactingUsers;
-          }
-          return {
-            ...comment,
-            emojiReactionsJson: JSON.stringify(updatedReactions),
-          };
-        }),
+      if (!currentUser) {
+        return {
+          type: "reaction",
+          commentId: vars.commentId,
+          emoji: vars.emoji,
+        } satisfies CommentsMutationContext;
+      }
+      const currentComment = visibleCommentsRef.current.find(
+        (comment) => comment.id === vars.commentId,
       );
-      return { prev };
+      const previousUsers = currentComment
+        ? (parseReactions(currentComment.emojiReactionsJson)[vars.emoji] ?? [])
+        : [];
+      const optimisticUsers = previousUsers.includes(currentUser)
+        ? previousUsers.filter((email) => email !== currentUser)
+        : [...previousUsers, currentUser];
+      const reactionKey = `${vars.commentId}\u0000${vars.emoji}`;
+      const operationToken = ++reactionSequenceRef.current;
+      const state =
+        reactionStatesRef.current.get(reactionKey) ??
+        (() => {
+          const next: ReactionState = {
+            confirmedUsers: previousUsers,
+            confirmedToken: 0,
+            latestToken: operationToken,
+            pending: new Map(),
+          };
+          reactionStatesRef.current.set(reactionKey, next);
+          return next;
+        })();
+      state.latestToken = operationToken;
+      state.pending.set(operationToken, { optimisticUsers });
+      patchComments((commentList) =>
+        commentList.map((comment) =>
+          comment.id === vars.commentId
+            ? {
+                ...comment,
+                emojiReactionsJson: updateReactionUsers(
+                  comment.emojiReactionsJson,
+                  vars.emoji,
+                  optimisticUsers,
+                ),
+              }
+            : comment,
+        ),
+      );
+      return {
+        type: "reaction",
+        commentId: vars.commentId,
+        emoji: vars.emoji,
+        reactionKey,
+        operationToken,
+      } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      reconcileReactionMutation(ctx, undefined, false);
     },
-    onSuccess: (data: any, vars: any) => {
-      if (!data?.reactions) return;
-      patchComments((list) =>
-        list.map((c) =>
-          c.id === vars.commentId
-            ? { ...c, emojiReactionsJson: JSON.stringify(data.reactions) }
-            : c,
-        ),
+    onSuccess: (data: any, _vars: any, ctx: any) => {
+      const users = ctx?.emoji
+        ? (data?.reactions?.[ctx.emoji] ?? [])
+        : undefined;
+      reconcileReactionMutation(
+        ctx,
+        Array.isArray(users) ? users : undefined,
+        true,
       );
     },
   });
@@ -303,31 +546,69 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const remove = useActionMutation("delete-comment", {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
-      const prev = queryClient.getQueryData(queryKey);
-      // Deleting a root comment cascades to its replies server-side, so mirror
-      // that here: drop the target comment and any descendants in the same
-      // thread whose parent chain leads back to it.
+      const current = visibleCommentsRef.current;
+      const target = current.find((comment) => comment.id === vars.id);
+      const removedIds = target
+        ? collectCommentSubtreeIds(current, target.id)
+        : new Set<string>();
+      const removed = current.filter((comment) => removedIds.has(comment.id));
       patchComments((list) => {
-        const target = list.find((c) => c.id === vars.id);
-        if (!target) return list;
-        const isRoot = target.parentId == null;
-        if (isRoot) {
-          return list.filter((c) => c.threadId !== target.threadId);
-        }
-        return list.filter((c) => c.id !== vars.id);
+        return list.filter((comment) => !removedIds.has(comment.id));
       });
-      return { prev };
+      return {
+        type: "remove",
+        removed,
+      } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      rollbackComments(ctx);
+    },
+    onSuccess: (data: any, _vars: any, ctx: any) => {
+      const deletedIds = Array.isArray(data?.deletedCommentIds)
+        ? data.deletedCommentIds
+        : (ctx?.removed ?? []).map((comment: Comment) => comment.id);
+      deletedIds.forEach((id: string) =>
+        successfulDeletionIdsRef.current.add(id),
+      );
+      patchComments((list) =>
+        list.filter(
+          (comment) => !successfulDeletionIdsRef.current.has(comment.id),
+        ),
+      );
     },
   });
 
   const updateComment = useActionMutation("update-comment", {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
-      const prev = queryClient.getQueryData(queryKey);
       const updatedAt = new Date().toISOString();
+      const current = visibleCommentsRef.current.find(
+        (comment) => comment.id === vars.id,
+      );
+      const operationToken = ++editSequenceRef.current;
+      if (current) {
+        const state =
+          editStatesRef.current.get(vars.id) ??
+          (() => {
+            const next: EditState = {
+              confirmed: current,
+              confirmedToken: 0,
+              latestToken: operationToken,
+              pending: new Map(),
+            };
+            editStatesRef.current.set(vars.id, next);
+            return next;
+          })();
+        state.latestToken = operationToken;
+        state.pending.set(operationToken, {
+          ...current,
+          content: vars.content,
+          ...(vars.mentions === undefined
+            ? {}
+            : { mentions: displayCommentMentions(vars.mentions) }),
+          updatedAt,
+        });
+      }
       patchComments((list) =>
         list.map((comment) =>
           comment.id === vars.id
@@ -342,37 +623,27 @@ export function CommentsPanel(props: CommentsPanelProps) {
             : comment,
         ),
       );
-      return { prev };
+      return {
+        type: "update",
+        commentId: vars.id,
+        operationToken,
+      } satisfies CommentsMutationContext;
     },
     onError: (_err, vars: any, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      reconcileEditMutation(ctx, undefined, false);
       setEditingId(vars.id);
       setEditDraft(vars.content);
       setEditMentions(vars.mentions ?? []);
     },
-    onSuccess: (data: any) => {
-      if (!data?.id || !data?.content || !data?.updatedAt) return;
-      patchComments((list) =>
-        list.map((comment) =>
-          comment.id === data.id
-            ? {
-                ...comment,
-                content: data.content,
-                ...(data.mentions !== undefined
-                  ? { mentions: data.mentions }
-                  : {}),
-                updatedAt: data.updatedAt,
-              }
-            : comment,
-        ),
-      );
+    onSuccess: (data: any, _vars: any, ctx: any) => {
+      reconcileEditMutation(ctx, data, true);
     },
   });
 
   // Group by thread
   const threads = useMemo(() => {
     const map = new Map<string, Comment[]>();
-    comments.forEach((c) => {
+    visibleComments.forEach((c) => {
       const list = map.get(c.threadId) ?? [];
       list.push(c);
       map.set(c.threadId, list);
@@ -381,7 +652,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     return Array.from(map.values()).map((list) =>
       list.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     );
-  }, [comments]);
+  }, [visibleComments]);
 
   // Sort threads by the first comment's videoTimestampMs
   const sortedThreads = useMemo(
@@ -390,6 +661,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
         return (a[0]?.videoTimestampMs ?? 0) - (b[0]?.videoTimestampMs ?? 0);
       }),
     [threads],
+  );
+
+  const threadRoots = useMemo(
+    () =>
+      sortedThreads
+        .map(buildCommentThread)
+        .filter((root): root is CommentThreadNode => root !== null),
+    [sortedThreads],
   );
 
   function submitDraft(value: string, target: Comment | null) {
@@ -430,7 +709,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     addComment.mutate(vars);
   }
 
-  function openReply(root: Comment) {
+  function openReply(comment: Comment) {
     if (!canComment) {
       if (!isSignedIn && onUnauthenticated) {
         onUnauthenticated("comment");
@@ -441,7 +720,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       onUnauthenticated("comment");
       return;
     }
-    setReplyTo(root);
+    setReplyTo(comment);
     setReplyMentions([]);
     setTimeout(() => replyComposerRef.current?.focus(), 0);
   }
@@ -497,11 +776,85 @@ export function CommentsPanel(props: CommentsPanelProps) {
     />
   );
 
+  const renderCommentNode = (
+    node: CommentThreadNode,
+    depth: number,
+    ancestors = new Set<string>(),
+  ): ReactNode => {
+    if (ancestors.has(node.comment.id)) return null;
+    const nextAncestors = new Set(ancestors).add(node.comment.id);
+    const replyAllowed = depth < MAX_COMMENT_REPLY_DEPTH;
+    const childDepth = Math.min(depth + 1, MAX_COMMENT_REPLY_DEPTH);
+    return (
+      <li
+        key={node.comment.id}
+        className={cn(depth === 0 && !isInlinePresentation && "px-3")}
+      >
+        <CommentCard
+          comment={node.comment}
+          formatRelativeTime={formatters.formatRelativeTime}
+          currentUserEmail={currentUserEmail}
+          canComment={canComment}
+          onSeek={onSeek}
+          onReply={() => openReply(node.comment)}
+          onDelete={(id) => remove.mutate({ id })}
+          isEditing={editingId === node.comment.id}
+          editDraft={editDraft}
+          onEditDraftChange={setEditDraft}
+          onEditMentionAdd={(mention) =>
+            setEditMentions((current) => upsertMention(current, mention))
+          }
+          hasSelectedEditMentions={selectedEditMentions.length > 0}
+          members={mentionMembers}
+          onStartEdit={() => startEditing(node.comment)}
+          onCancelEdit={cancelEditing}
+          onSaveEdit={() => submitEdit(node.comment)}
+          onReact={(commentId, emoji) =>
+            reactToComment.mutate({ commentId, emoji })
+          }
+          onUnauthenticated={onUnauthenticated}
+          canReply={replyAllowed}
+          isReply={depth > 0}
+        />
+        {replyAllowed && replyTo?.id === node.comment.id ? (
+          <div className="ps-8">
+            <InlineReplyComposer
+              draft={replyDraft}
+              textareaRef={replyComposerRef}
+              currentUserEmail={currentUserEmail}
+              currentUserName={currentUserName}
+              onDraftChange={setReplyDraft}
+              onMentionAdd={(mention) =>
+                setReplyMentions((current) => upsertMention(current, mention))
+              }
+              members={mentionMembers}
+              onCancel={() => {
+                setReplyDraft("");
+                setReplyMentions([]);
+                setReplyTo(null);
+              }}
+              onSubmit={() => submitDraft(replyDraft, replyTo)}
+            />
+          </div>
+        ) : null}
+        {node.children.length > 0 ? (
+          <ul
+            className={cn(
+              "flex flex-col gap-0",
+              depth >= MAX_COMMENT_REPLY_DEPTH ? "ps-0" : "ps-8",
+            )}
+          >
+            {node.children.map((child) =>
+              renderCommentNode(child, childDepth, nextAncestors),
+            )}
+          </ul>
+        ) : null}
+      </li>
+    );
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-transparent">
-      {isInlinePresentation && enableComments ? (
-        <div className="mb-3 shrink-0">{composer}</div>
-      ) : null}
       <div
         className={cn(
           "min-h-0 flex-1 overflow-y-auto",
@@ -509,118 +862,33 @@ export function CommentsPanel(props: CommentsPanelProps) {
           isSharePresentation && "flex min-h-0 flex-col",
         )}
       >
-        {sortedThreads.length === 0 ? (
+        {threadRoots.length === 0 ? (
           <EmptyCommentsState
             enableComments={enableComments}
             isSharePresentation={isSharePresentation}
             isInlinePresentation={isInlinePresentation}
           />
         ) : (
-          <ul className="space-y-3">
-            {sortedThreads.map((thread) => {
-              const root = thread[0];
-              const replies = thread.slice(1);
-              return (
-                <li
-                  key={root.threadId}
-                  className={cn("space-y-2", !isInlinePresentation && "px-3")}
-                >
-                  <CommentCard
-                    comment={root}
-                    formatRelativeTime={formatters.formatRelativeTime}
-                    currentUserEmail={currentUserEmail}
-                    canComment={canComment}
-                    onSeek={onSeek}
-                    onReply={() => openReply(root)}
-                    onResolve={(id, resolved) =>
-                      resolve.mutate({ id, resolved })
-                    }
-                    onDelete={(id) => remove.mutate({ id })}
-                    isEditing={editingId === root.id}
-                    editDraft={editDraft}
-                    onEditDraftChange={setEditDraft}
-                    onEditMentionAdd={(mention) =>
-                      setEditMentions((current) =>
-                        upsertMention(current, mention),
-                      )
-                    }
-                    hasSelectedEditMentions={selectedEditMentions.length > 0}
-                    members={mentionMembers}
-                    onStartEdit={() => startEditing(root)}
-                    onCancelEdit={cancelEditing}
-                    onSaveEdit={() => submitEdit(root)}
-                    onReact={(commentId, emoji) =>
-                      reactToComment.mutate({ commentId, emoji })
-                    }
-                    onUnauthenticated={onUnauthenticated}
-                  />
-                  {replies.length ? (
-                    <ul className="ml-3 space-y-2 pl-8">
-                      {replies.map((r) => (
-                        <li key={r.id}>
-                          <CommentCard
-                            comment={r}
-                            formatRelativeTime={formatters.formatRelativeTime}
-                            currentUserEmail={currentUserEmail}
-                            canComment={canComment}
-                            onSeek={onSeek}
-                            onReply={() => openReply(root)}
-                            onResolve={(id, resolved) =>
-                              resolve.mutate({ id, resolved })
-                            }
-                            onDelete={(id) => remove.mutate({ id })}
-                            isEditing={editingId === r.id}
-                            editDraft={editDraft}
-                            onEditDraftChange={setEditDraft}
-                            onEditMentionAdd={(mention) =>
-                              setEditMentions((current) =>
-                                upsertMention(current, mention),
-                              )
-                            }
-                            hasSelectedEditMentions={
-                              selectedEditMentions.length > 0
-                            }
-                            members={mentionMembers}
-                            onStartEdit={() => startEditing(r)}
-                            onCancelEdit={cancelEditing}
-                            onSaveEdit={() => submitEdit(r)}
-                            onReact={(commentId, emoji) =>
-                              reactToComment.mutate({ commentId, emoji })
-                            }
-                            onUnauthenticated={onUnauthenticated}
-                            isReply
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  {replyTo?.threadId === root.threadId ? (
-                    <InlineReplyComposer
-                      draft={replyDraft}
-                      textareaRef={replyComposerRef}
-                      onDraftChange={setReplyDraft}
-                      onMentionAdd={(mention) =>
-                        setReplyMentions((current) =>
-                          upsertMention(current, mention),
-                        )
-                      }
-                      members={mentionMembers}
-                      onCancel={() => {
-                        setReplyDraft("");
-                        setReplyMentions([]);
-                        setReplyTo(null);
-                      }}
-                      onSubmit={() => submitDraft(replyDraft, replyTo)}
-                    />
-                  ) : null}
-                </li>
-              );
-            })}
+          <ul
+            className={cn(
+              "flex flex-col gap-5",
+              isInlinePresentation && "gap-0 pb-16",
+            )}
+          >
+            {threadRoots.map((root) => renderCommentNode(root, 0))}
           </ul>
         )}
       </div>
 
-      {isSharePresentation && enableComments ? (
+      {isInlinePresentation && enableComments ? (
+        <div className="relative z-10 -mt-16 shrink-0 bg-transparent pt-16">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 z-0 h-16 bg-gradient-to-b from-background/0 to-background lg:from-background/0 lg:to-background"
+          />
+          <div className="relative z-10 bg-background">{composer}</div>
+        </div>
+      ) : isSharePresentation && enableComments ? (
         <div className="px-4 py-4">{composer}</div>
       ) : !isSharePresentation && !isInlinePresentation ? (
         composer
@@ -719,24 +987,49 @@ function CommentComposer({
   if (!canComment && isSignedIn) return null;
 
   if (!isSignedIn && onUnauthenticated) {
-    const inlineAnonymousComposer = isInlinePresentation;
+    if (isInlinePresentation) {
+      return (
+        <button
+          type="button"
+          onClick={() => onUnauthenticated("comment")}
+          className="flex h-[117px] w-full flex-col items-start overflow-hidden px-2.5 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="flex min-h-0 flex-1 w-full flex-col overflow-hidden rounded-xl border border-transparent bg-background shadow-[var(--comment-input-shadow)]">
+            <span className="flex min-h-0 flex-1 items-start px-4 pt-[11px] text-sm leading-5 text-muted-foreground">
+              <span className="truncate">
+                {t("commentsPanel.leaveComment")}
+              </span>
+            </span>
+            <span className="h-px w-full bg-border" />
+            <span className="flex h-[38px] w-full items-center justify-end px-[7px]">
+              <span className="flex size-[22px] items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <IconArrowUp className="size-3" />
+              </span>
+            </span>
+          </span>
+        </button>
+      );
+    }
     return (
       <button
         type="button"
         onClick={() => onUnauthenticated("comment")}
         className={cn(
-          inlineAnonymousComposer
-            ? "flex w-full items-center gap-2 text-left text-sm text-muted-foreground outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring"
-            : "flex w-full items-center gap-3 rounded-md border border-input bg-background px-3 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "flex w-full gap-2 text-left text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          isInlinePresentation ? "items-center" : "items-start",
+          !isInlinePresentation &&
+            "rounded-xl bg-muted/60 p-2 transition-colors duration-150 hover:bg-muted",
         )}
       >
-        <Avatar className="size-7 shrink-0">
+        <Avatar
+          className={cn("size-7 shrink-0", !isInlinePresentation && "mt-1")}
+        >
           <AvatarFallback className="bg-muted text-xs text-muted-foreground">
             A
           </AvatarFallback>
         </Avatar>
-        {inlineAnonymousComposer ? (
-          <span className="flex min-w-0 flex-1 items-center border-b border-border py-1">
+        {isInlinePresentation ? (
+          <span className="flex min-h-10 min-w-0 flex-1 items-center rounded-[20px] bg-muted/60 px-3 transition-colors duration-150 hover:bg-muted">
             <span className="min-w-0 flex-1 truncate">
               {t("commentsPanel.leaveComment")}
             </span>
@@ -753,6 +1046,18 @@ function CommentComposer({
     );
   }
 
+  if (isInlinePresentation) {
+    return (
+      <CommentSubmissionWidget
+        draft={draft}
+        onDraftChange={onDraftChange}
+        onMentionAdd={onMentionAdd}
+        members={members}
+        onSubmit={onSubmit}
+      />
+    );
+  }
+
   return (
     <div
       className={cn(isConversationPresentation ? "space-y-2" : "space-y-2 p-3")}
@@ -766,14 +1071,14 @@ function CommentComposer({
       <div
         className={cn(
           "flex gap-2",
-          isInlinePresentation && "items-center",
+          isConversationPresentation ? "items-center" : "items-start",
           isConversationPresentation &&
             !isInlinePresentation &&
-            "items-start rounded-md p-3 shadow-sm",
+            "rounded-xl bg-muted/60 p-2",
         )}
       >
         {isConversationPresentation ? (
-          <Avatar className="mt-0.5 size-7 shrink-0">
+          <Avatar className="size-7 shrink-0">
             {avatarUrl ? (
               <AvatarImage
                 src={avatarUrl}
@@ -795,8 +1100,11 @@ function CommentComposer({
         ) : null}
         <div
           className={cn(
-            "flex min-w-0 flex-1 gap-2",
-            isInlinePresentation && "items-center border-b border-border py-1",
+            "flex min-w-0 flex-1 gap-1",
+            isConversationPresentation &&
+              "items-end bg-muted/60 transition-colors duration-150",
+            isConversationPresentation &&
+              "rounded-xl p-1.5 ps-3 ring-1 ring-transparent transition-[background-color,box-shadow] focus-within:bg-background focus-within:ring-ring",
           )}
         >
           <CommentTextComposer
@@ -807,42 +1115,30 @@ function CommentComposer({
             members={members}
             onSubmit={onSubmit}
             placeholder={t("commentsPanel.leaveComment")}
-            rows={isInlinePresentation ? 1 : 2}
+            rows={2}
+            maxHeight={128}
             className={cn(
-              "resize-none border-0 bg-transparent text-sm",
-              isInlinePresentation
-                ? "min-h-8 flex-1 border-0 px-0 py-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                : isConversationPresentation
-                  ? "min-h-10 flex-1 border-0 px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                  : "min-h-[60px]",
+              "resize-none bg-transparent text-base leading-5 sm:text-sm",
+              isConversationPresentation
+                ? "max-h-32 min-h-8 flex-1 border-0 px-0 py-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                : "min-h-[60px]",
             )}
             submitOnEnter
           />
-          {!isInlinePresentation || draft.trim() ? (
-            <Button
-              type="button"
-              aria-label={t("commentsPanel.commentButton")}
-              onClick={onSubmit}
-              disabled={!draft.trim()}
-              size={isInlinePresentation ? "sm" : "icon"}
-              className={cn(
-                "shrink-0 bg-primary text-primary-foreground hover:bg-primary/90",
-                isConversationPresentation && !isInlinePresentation && "size-8",
-                isInlinePresentation && "h-8 px-3",
-              )}
-            >
-              {isInlinePresentation ? (
-                <>
-                  {t("commentsPanel.commentButton")}
-                  <Kbd className="h-5 min-w-0 bg-primary-foreground/15 px-1.5 text-[10px] text-primary-foreground">
-                    Enter
-                  </Kbd>
-                </>
-              ) : (
-                <IconSend className="size-4" />
-              )}
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            aria-label={t("commentsPanel.commentButton")}
+            data-comment-submit
+            onClick={onSubmit}
+            disabled={!draft.trim()}
+            size="icon"
+            className={cn(
+              "shrink-0 rounded-full",
+              isConversationPresentation && "size-7",
+            )}
+          >
+            <IconArrowUp className="size-4" />
+          </Button>
         </div>
       </div>
     </div>
@@ -852,6 +1148,8 @@ function CommentComposer({
 function InlineReplyComposer({
   draft,
   textareaRef,
+  currentUserEmail,
+  currentUserName,
   onDraftChange,
   onMentionAdd,
   members,
@@ -860,6 +1158,8 @@ function InlineReplyComposer({
 }: {
   draft: string;
   textareaRef: Ref<HTMLTextAreaElement>;
+  currentUserEmail?: string;
+  currentUserName?: string;
   onDraftChange: (value: string) => void;
   onMentionAdd: (mention: MentionEntry) => void;
   members: { email: string; name: string | null }[];
@@ -867,35 +1167,43 @@ function InlineReplyComposer({
   onSubmit: () => void;
 }) {
   const t = useT();
+  const avatarUrl = useAvatarUrl(currentUserEmail);
+  const displayName =
+    currentUserName || currentUserEmail || t("recordingInsights.anonymous");
 
   return (
-    <div className="ml-12 mt-2 rounded-lg p-2">
-      <CommentTextComposer
-        ref={textareaRef}
-        autoFocus
-        value={draft}
-        aria-label={t("commentsPanel.writeReply")}
-        onChange={onDraftChange}
-        onMentionAdd={onMentionAdd}
-        members={members}
-        onSubmit={onSubmit}
-        placeholder={t("commentsPanel.writeReply")}
-        className="min-h-16 resize-none border-0 bg-background text-sm"
-        onEscape={onCancel}
-        submitOnEnter
-      />
-      <div className="mt-2 flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          {t("common.cancel")}
-        </Button>
+    <div className="flex items-center gap-2.5">
+      <Avatar className="size-6 shrink-0">
+        {avatarUrl ? <AvatarImage src={avatarUrl} alt={displayName} /> : null}
+        <AvatarFallback className="bg-primary/15 text-[10px] text-primary">
+          {initials(displayName)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex min-w-0 flex-1 items-end gap-1 rounded-[16px] border border-transparent bg-muted/60 p-[3px] ps-[9px] transition-colors duration-150 focus-within:border-ring">
+        <CommentTextComposer
+          ref={textareaRef}
+          autoFocus
+          value={draft}
+          aria-label={t("commentsPanel.writeReply")}
+          onChange={onDraftChange}
+          onMentionAdd={onMentionAdd}
+          members={members}
+          onSubmit={onSubmit}
+          placeholder={t("commentsPanel.writeReply")}
+          rows={1}
+          maxHeight={128}
+          className="min-h-6 max-h-32 resize-none border-0 bg-transparent px-0 py-0.5 text-sm leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          onEscape={onCancel}
+          submitOnEnter
+        />
         <Button
           size="icon"
           onClick={onSubmit}
           disabled={!draft.trim()}
           aria-label={t("commentsPanel.writeReply")}
-          className="size-8 bg-primary text-primary-foreground hover:bg-primary/90"
+          className="size-[22px] rounded-full"
         >
-          <IconSend className="size-4" />
+          <IconArrowUp className="size-3" />
         </Button>
       </div>
     </div>
@@ -966,7 +1274,6 @@ function CommentCard({
   isEditing,
   onSeek,
   onReply,
-  onResolve,
   onDelete,
   onEditDraftChange,
   onEditMentionAdd,
@@ -977,6 +1284,7 @@ function CommentCard({
   onSaveEdit,
   onReact,
   onUnauthenticated,
+  canReply = true,
   isReply,
 }: {
   comment: Comment;
@@ -987,7 +1295,6 @@ function CommentCard({
   isEditing: boolean;
   onSeek: (ms: number) => void;
   onReply: () => void;
-  onResolve: (id: string, resolved: boolean) => void;
   onDelete: (id: string) => void;
   onEditDraftChange: (value: string) => void;
   onEditMentionAdd: (mention: MentionEntry) => void;
@@ -998,6 +1305,7 @@ function CommentCard({
   onSaveEdit: () => void;
   onReact: (commentId: string, emoji: string) => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
+  canReply?: boolean;
   isReply?: boolean;
 }) {
   const t = useT();
@@ -1045,34 +1353,29 @@ function CommentCard({
     t("recordingInsights.anonymous");
 
   return (
-    <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
-      <Avatar className="h-7 w-7 shrink-0">
+    <div className="group/comment flex items-start gap-2 pt-2">
+      <Avatar className="size-6 shrink-0">
         {avatarUrl ? <AvatarImage src={avatarUrl} alt={commentAuthor} /> : null}
-        <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
+        <AvatarFallback className="bg-primary text-[10px] text-primary-foreground">
           {initials(commentAuthor)}
         </AvatarFallback>
       </Avatar>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 text-xs">
-          <span className="font-medium text-foreground truncate">
+      <div className="min-w-0 flex-1">
+        <div className="flex h-6 items-center gap-1.5">
+          <span className="min-w-0 truncate text-sm font-medium leading-5 text-foreground">
             {commentAuthor}
+          </span>
+          <span className="text-xs leading-4 text-muted-foreground">
+            {relativeTime(comment.createdAt, formatRelativeTime)}
           </span>
           {!isReply ? (
             <button
+              type="button"
               onClick={() => onSeek(comment.videoTimestampMs)}
-              className="font-mono text-[11px] text-primary hover:underline"
+              className="ms-auto rounded-sm font-mono text-xs leading-4 text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {msToClock(comment.videoTimestampMs)}
             </button>
-          ) : null}
-          <span className="text-muted-foreground text-[11px]">
-            {relativeTime(comment.createdAt, formatRelativeTime)}
-          </span>
-          {comment.resolved ? (
-            <Badge variant="secondary" className="ms-auto gap-1 text-[10px]">
-              <IconCheck className="h-3 w-3" />
-              {t("commentsPanel.resolved")}
-            </Badge>
           ) : null}
         </div>
         {isEditing ? (
@@ -1090,21 +1393,24 @@ function CommentCard({
           <>
             <InlineMarkdown
               content={comment.content}
-              className="mt-0.5 text-sm text-foreground"
+              className="mt-0.5 text-sm leading-5 text-foreground [overflow-wrap:anywhere]"
               renderLists
               protectedSpans={commentMentionSpans(comment.mentions)}
             />
 
-            <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
-              {canParticipate ? (
+            <div
+              data-comment-actions
+              className="mt-1 flex min-h-7 min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto text-xs text-muted-foreground"
+            >
+              {canParticipate && canReply ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   onClick={onReply}
-                  className="h-auto gap-1 p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+                  className="h-7 gap-1.5 rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
                 >
-                  <IconCornerDownRight className="h-3 w-3" />
+                  <IconCornerDownRight className="size-3" />
                   {t("commentsPanel.reply")}
                 </Button>
               ) : null}
@@ -1115,17 +1421,18 @@ function CommentCard({
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
-                      className="h-auto gap-1 p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+                      size="icon"
+                      aria-label={t("commentsPanel.react")}
+                      title={t("commentsPanel.react")}
+                      className="size-7 rounded-md text-foreground hover:bg-accent hover:text-accent-foreground"
                     >
-                      <IconMoodSmile className="h-3 w-3" />
-                      {t("commentsPanel.react")}
+                      <IconMoodSmile className="size-4" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent
                     side="top"
                     align="start"
-                    className="p-1 w-auto"
+                    className="w-auto p-1"
                   >
                     <div className="flex gap-0.5">
                       {REACTION_EMOJIS.map((e) => (
@@ -1139,7 +1446,8 @@ function CommentCard({
                             setLocalJson(JSON.stringify(toggleEmoji(e)));
                             onReact(comment.id, e);
                           }}
-                          className="text-lg h-8 w-8 rounded hover:bg-accent flex items-center justify-center"
+                          aria-label={`${t("commentsPanel.react")} ${e}`}
+                          className="flex size-8 items-center justify-center rounded text-lg hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           {e}
                         </button>
@@ -1149,19 +1457,41 @@ function CommentCard({
                 </Popover>
               ) : null}
 
-              {currentUserEmail && canComment ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onResolve(comment.id, !comment.resolved)}
-                  className="h-auto p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
-                >
-                  {comment.resolved
-                    ? t("commentsPanel.unresolve")
-                    : t("commentsPanel.resolve")}
-                </Button>
-              ) : null}
+              {Object.entries(reactions).map(([emoji, users]) => {
+                const mine =
+                  !!currentUserEmail && users.includes(currentUserEmail);
+                return canParticipate ? (
+                  <Button
+                    key={emoji}
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      if (!currentUserEmail) {
+                        onUnauthenticated?.("react");
+                        return;
+                      }
+                      setLocalJson(JSON.stringify(toggleEmoji(emoji)));
+                      onReact(comment.id, emoji);
+                    }}
+                    aria-pressed={mine}
+                    title={t("commentsPanel.react")}
+                    className={cn(
+                      "h-7 min-w-7 shrink-0 gap-1 rounded-md px-1.5 text-xs font-normal",
+                      mine && "text-primary",
+                    )}
+                  >
+                    {emoji} {users.length}
+                  </Button>
+                ) : (
+                  <span
+                    key={emoji}
+                    className="flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs"
+                  >
+                    {emoji} {users.length}
+                  </span>
+                );
+              })}
 
               {isOwner && canComment ? (
                 <DropdownMenu>
@@ -1173,9 +1503,9 @@ function CommentCard({
                       aria-label={t("commentsPanel.moreActions", {
                         author: commentAuthor,
                       })}
-                      className="ms-auto size-6 text-muted-foreground hover:text-foreground"
+                      className="pointer-events-none ms-auto size-7 rounded-md text-muted-foreground opacity-0 transition-opacity group-hover/comment:pointer-events-auto group-hover/comment:opacity-100 group-focus-within/comment:pointer-events-auto group-focus-within/comment:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-accent hover:text-accent-foreground"
                     >
-                      <IconDots className="h-3 w-3" />
+                      <IconDots className="size-3.5" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -1194,46 +1524,6 @@ function CommentCard({
             </div>
           </>
         )}
-
-        {Object.keys(reactions).length > 0 ? (
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {Object.entries(reactions).map(([emoji, users]) => {
-              const mine =
-                !!currentUserEmail && users.includes(currentUserEmail);
-              return canParticipate ? (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => {
-                    if (!currentUserEmail) {
-                      onUnauthenticated?.("react");
-                      return;
-                    }
-                    setLocalJson(JSON.stringify(toggleEmoji(emoji)));
-                    onReact(comment.id, emoji);
-                  }}
-                  aria-pressed={mine}
-                  title={t("commentsPanel.react")}
-                  className={cn(
-                    "text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 transition-colors",
-                    mine
-                      ? "bg-primary/15 border border-primary/40 text-primary hover:bg-primary/25"
-                      : "bg-accent border border-transparent hover:bg-accent/70",
-                  )}
-                >
-                  {emoji} {users.length}
-                </button>
-              ) : (
-                <span
-                  key={emoji}
-                  className="text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 bg-accent border border-transparent"
-                >
-                  {emoji} {users.length}
-                </span>
-              );
-            })}
-          </div>
-        ) : null}
       </div>
     </div>
   );

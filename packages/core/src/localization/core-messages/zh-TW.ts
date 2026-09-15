@@ -348,6 +348,7 @@ const messages: AgentChatTranslation = {
     "模型閘道在代理回答前發生內部錯誤。請稍後重試；若持續發生，請提供下方的錯誤 ID。",
   "errorMessages.gatewayNoDetails":
     "模型閘道未傳回錯誤詳細資訊，聊天無法復原。請稍候再試；如果問題持續發生，請開始新聊天。",
+  "errorMessages.creditsLimitReached": "你已達到 AI 點數額度上限。",
   "errorMessages.inactivityTimeout":
     "代理連線在完成前逾時。您可以從已完成的部分繼續，也可以重試。",
   "errorMessages.invalidToolSchema":

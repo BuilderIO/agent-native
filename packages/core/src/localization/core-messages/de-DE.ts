@@ -599,6 +599,7 @@ const messages: AgentChatTranslation = {
     "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",
   "errorMessages.gatewayNoDetails":
     "Das Modell-Gateway hat keine Fehlerdetails zurückgegeben und der Chat konnte nicht fortgesetzt werden. Warte einen Moment und versuche es erneut. Falls das Problem bestehen bleibt, starte einen neuen Chat.",
+  "errorMessages.creditsLimitReached": "Du hast dein KI-Credit-Limit erreicht.",
   "errorMessages.inactivityTimeout":
     "Die Verbindung zum Agenten wurde wegen Zeitüberschreitung beendet, bevor er fertig war. Du kannst mit dem Teilergebnis fortfahren oder es erneut versuchen.",
   "errorMessages.invalidToolSchema":

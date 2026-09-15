@@ -596,6 +596,8 @@ const messages: AgentChatTranslation = {
     "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
   "errorMessages.gatewayNoDetails":
     "O gateway do modelo não retornou detalhes do erro, e o chat não pôde ser recuperado. Aguarde um momento e tente novamente. Se o problema persistir, inicie um novo chat.",
+  "errorMessages.creditsLimitReached":
+    "Você atingiu o limite de créditos de IA.",
   "errorMessages.inactivityTimeout":
     "A conexão com o agente expirou antes da conclusão. Você pode continuar a partir do trabalho parcial ou tentar novamente.",
   "errorMessages.invalidToolSchema":

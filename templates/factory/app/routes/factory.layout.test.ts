@@ -108,4 +108,27 @@ describe("Factory route tabs", () => {
     expect(source).toContain('activeTab === "map"');
     expect(source).toContain("<FactoryHistoryView");
   });
+
+  it("wires the Audit refresh trigger to refetch and shows a spinner while fetching", () => {
+    const source = readSource();
+    expect(source).toContain(
+      "onClick={() => setAuditRefreshToken((current) => current + 1)}",
+    );
+    expect(source).toContain("disabled={auditFetching}");
+    expect(source).toContain('<IconLoader2 className="size-4 animate-spin" />');
+    expect(source).toContain("onFetchingChange={setAuditFetching}");
+    expect(source).toContain("refreshToken={auditRefreshToken}");
+    // The spinner branch must live inside the audit refresh button, not just
+    // anywhere in the file.
+    const buttonIdx = source.indexOf(
+      'aria-label={t("factoryRoute.auditRefresh")}',
+    );
+    const spinnerIdx = source.indexOf(
+      '<IconLoader2 className="size-4 animate-spin" />',
+    );
+    const closingButtonIdx = source.indexOf("</Button>", buttonIdx);
+    expect(buttonIdx).toBeGreaterThan(-1);
+    expect(spinnerIdx).toBeGreaterThan(buttonIdx);
+    expect(spinnerIdx).toBeLessThan(closingButtonIdx);
+  });
 });

@@ -10,6 +10,7 @@ import {
 import {
   handleAgentPackMutationSuccess,
   isPendingWorkspaceResourceApproval,
+  readAgentPack,
   SimpleAgentsPanel,
   summarizeSkippedPackFiles,
 } from "./simple-agents-panel";
@@ -133,6 +134,55 @@ function selectTab(label: string): void {
     new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }),
   );
 }
+
+describe("readAgentPack", () => {
+  const profile = { id: "a", name: "bot", path: "agents/bot.md", content: "" };
+
+  it("reports a not-yet-loaded pack without claiming it is empty", () => {
+    expect(readAgentPack(undefined)).toEqual({ ok: false, loaded: false });
+  });
+
+  it("treats a failed query as unreadable, not as an empty pack", () => {
+    // A rejected list-agent-pack query used to render as an empty pack, which
+    // let Add write a new file into a guessed agents/<slug> root.
+    expect(readAgentPack(undefined, true)).toEqual({ ok: false, loaded: true });
+  });
+
+  it("treats a response with no root as unreadable", () => {
+    expect(readAgentPack({ profile, files: [] } as never)).toEqual({
+      ok: false,
+      loaded: true,
+    });
+  });
+
+  it("distinguishes an unreadable response from an empty pack", () => {
+    // A response missing `files` used to throw during render and take the
+    // whole page down with the router error boundary.
+    expect(readAgentPack({ profile, root: "agents/bot" } as never)).toEqual({
+      ok: false,
+      loaded: true,
+    });
+
+    const empty = readAgentPack({ profile, root: "agents/bot", files: [] });
+    expect(empty.ok && empty.root).toBe("agents/bot");
+    expect(empty.ok).toBe(true);
+    expect(empty.ok && empty.files).toHaveLength(1);
+  });
+
+  it("puts the profile ahead of the pack files", () => {
+    const result = readAgentPack({
+      profile,
+      root: "agents/bot",
+      files: [{ id: "f1", name: "notes.md", path: "x", content: "" }] as never,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.files.map((file) => file.id)).toEqual([
+      "a",
+      "f1",
+    ]);
+    expect(result.ok && result.files[0]?.kind).toBe("agent");
+  });
+});
 
 describe("SimpleAgentsPanel", () => {
   let container: HTMLDivElement;
