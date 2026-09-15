@@ -200,6 +200,7 @@ import {
   isCanonicalIdentitySsoClientRequest,
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
 } from "./identity-sso-store.js";
 import { healUndecryptableJwks } from "./jwks-secret-rotation.js";
 import {
@@ -3612,9 +3613,9 @@ function createAuthGuardFn(
     // 401-for-/_agent-native/*: they resolve / mint the browser session
     // themselves and verify a signature-bound, single-use, CSRF-stated
     // hub token — not a cookie. The handler fails closed with 404 unless
-    // direct web SSO is configured or the request is from an exact canonical
-    // hosted app origin. Keeping the bypass exact avoids exposing any other
-    // identity subpath.
+    // direct web SSO is configured, the request is from an exact canonical
+    // hosted app origin, or it is an entry request on an immutable Netlify
+    // deploy URL. Keeping the bypass exact avoids exposing other subpaths.
     const isIdentitySsoEntryPath =
       p === "/_agent-native/identity/login" ||
       p === "/_agent-native/identity/callback" ||
@@ -3633,11 +3634,19 @@ function createAuthGuardFn(
         getHeader(event, "host"),
         getHeader(event, "x-forwarded-proto"),
       );
+    const isNetlifyPreviewFederationEntry =
+      (p === "/_agent-native/identity/login" ||
+        p === "/_agent-native/identity/callback") &&
+      isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      );
     if (
       isIdentitySsoEntryPath &&
       (isIdentitySsoExplicitlyEnabled() ||
         isDesktopIdentityRequest ||
-        isCanonicalHostedIdentityRequest)
+        isCanonicalHostedIdentityRequest ||
+        isNetlifyPreviewFederationEntry)
     ) {
       return;
     }

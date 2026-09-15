@@ -3137,7 +3137,7 @@ describe("server/auth", () => {
       });
     });
 
-    it("bypasses only the two federated-SSO entry routes", async () => {
+    it("limits preview SSO bypass to trusted login and callback requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
@@ -3162,6 +3162,39 @@ describe("server/auth", () => {
           error: "Unauthorized",
         });
       }
+
+      vi.stubEnv("SITE_NAME", "agent-native-mail");
+      const previewHeaders = {
+        host: "0123456789abcdef01234567--agent-native-mail.netlify.app",
+        "x-forwarded-proto": "https",
+      };
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        await expect(
+          guard(createMockEvent({ path, headers: previewHeaders })),
+        ).resolves.toBeUndefined();
+      }
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/identity/bootstrap",
+            headers: previewHeaders,
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/identity/login",
+            headers: {
+              ...previewHeaders,
+              host: "deploy-preview-123--agent-native-mail.netlify.app",
+            },
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
 
       vi.stubEnv("APP_URL", "https://mail.agent-native.com");
       for (const path of [
