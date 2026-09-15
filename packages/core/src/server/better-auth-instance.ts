@@ -216,9 +216,9 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
 export async function getBetterAuthUserIdForEmail(
   email: string,
 ): Promise<string | undefined> {
-  const adapter = await getBetterAuthInternalAdapter();
-  if (!adapter) return undefined;
   try {
+    const adapter = await getBetterAuthInternalAdapter();
+    if (!adapter) return undefined;
     const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
       includeAccounts: false,
     });

@@ -963,7 +963,10 @@ export async function createOAuthSession(
     authProvider?: "google" | `sso:${string}` | null;
     trackSignup?: {
       authProvider: string;
+      /** Provider subjects are retained for legacy callers, never used as auth_user_id. */
       authUserId?: string;
+      /** Canonical Better Auth fallback supplied by the core callback. */
+      canonicalAuthUserId?: string;
       name?: string | null;
       attribution?: Record<string, string | undefined>;
       signupAnonymousId?: string;
@@ -1018,7 +1021,7 @@ export async function createOAuthSession(
         readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
       const authUserId =
         (await getBetterAuthUserIdForEmail(email)) ??
-        opts.trackSignup.authUserId;
+        opts.trackSignup.canonicalAuthUserId;
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         origin: "google_oauth",

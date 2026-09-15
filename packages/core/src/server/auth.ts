@@ -5290,7 +5290,7 @@ async function mountBetterAuthRoutes(
               // panels, which is always a Better Auth id — the Google profile
               // id that used to go here joined to nothing. Only looked up when
               // the event will actually be emitted.
-              authUserId: isNewGoogleUser
+              canonicalAuthUserId: isNewGoogleUser
                 ? await getBetterAuthUserIdForEmail(email)
                 : undefined,
               name: typeof user.name === "string" ? user.name : undefined,
