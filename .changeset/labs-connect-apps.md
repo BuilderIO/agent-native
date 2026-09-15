@@ -1,4 +1,5 @@
 ---
+"@agent-native/core": minor
 "@agent-native/dispatch": minor
 ---
 

@@ -23,6 +23,8 @@ Le premier administrateur d’amorçage qui se connecte crée l’organisation c
 
 Avec `ORG_CREATION=closed`, la création d’organisations est refusée tant que `AUTH_BOOTSTRAP_ADMINS` ne comporte pas au moins un administrateur vérifié, qui crée l’organisation canonique lors de sa première connexion.
 
+Si la liste est vide, le premier créateur authentifié peut initialiser l’organisation et un avertissement est journalisé. Configurez la liste avant la production afin qu’un inconnu ne puisse pas s’approprier un espace de travail vide.
+
 ## Clés et rôles de l’entreprise
 
 Un propriétaire ou administrateur peut enregistrer une clé LLM pour l’organisation. Une clé personnelle reste prioritaire jusqu’à ce que le membre choisisse la clé de l’organisation. Les rôles applicatifs s’appliquent à une seule application et un membre peut en avoir plusieurs. Les administrateurs peuvent associer des permissions définies dans le code à des rôles sans redéployer.

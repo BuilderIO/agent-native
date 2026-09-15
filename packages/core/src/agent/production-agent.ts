@@ -4928,6 +4928,10 @@ export async function runAgentLoop(opts: {
   ownerEmail?: string | null;
   orgId?: string | null;
   appId?: string;
+  /** One-turn authorization snapshot prepared by the request transport. */
+  appAuthorization?:
+    | import("../org/app-roles.js").AppAuthorizationContext
+    | null;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
   actionCaller?: ActionCaller;
   /** Trusted trigger lineage for automation-dispatched action calls. */
@@ -5070,15 +5074,17 @@ export async function runAgentLoop(opts: {
   ) => {
     if (!appAuthorizationPromise) {
       appAuthorizationPromise =
-        opts.appId && userEmail && orgId
-          ? import("../org/app-roles.js").then(
-              ({ resolveAppAuthorizationContext }) =>
-                resolveAppAuthorizationContext(opts.appId!, {
-                  userEmail,
-                  orgId,
-                }),
-            )
-          : Promise.resolve(null);
+        opts.appAuthorization !== undefined
+          ? Promise.resolve(opts.appAuthorization)
+          : opts.appId && userEmail && orgId
+            ? import("../org/app-roles.js").then(
+                ({ resolveAppAuthorizationContext }) =>
+                  resolveAppAuthorizationContext(opts.appId!, {
+                    userEmail,
+                    orgId,
+                  }),
+              )
+            : Promise.resolve(null);
     }
     return appAuthorizationPromise;
   };
@@ -11725,6 +11731,9 @@ export function createProductionAgentHandler(
           },
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          ...(options.appId && getRequestOrgId()
+            ? { appAuthorization: getRequestRunContext()?.appAuthorization }
+            : {}),
           attachments: requestAttachments,
           reasoningEffort,
           // The interactive chat turn needs real completion headroom — the

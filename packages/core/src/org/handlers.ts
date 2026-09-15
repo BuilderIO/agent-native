@@ -323,6 +323,8 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
     const email = requireAuthEmail(session).trim().toLowerCase();
     const body = await readBody(event);
     const orgId = typeof body?.orgId === "string" ? body.orgId.trim() : "";
+    const requestedTransferTo =
+      typeof body?.transferTo === "string" ? body.transferTo.trim() : "";
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(orgId)) {
       throw createError({ statusCode: 400, message: "orgId is required" });
     }
@@ -351,9 +353,34 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
       });
     }
 
-    let revoked = false;
+    let transferTo = requestedTransferTo;
+    if (!transferTo) {
+      // The original removal request may have reached the authority before
+      // local cleanup failed, so its transfer target is not persisted in the
+      // pending marker. Prefer the organization's active owner as the safe,
+      // deterministic fallback for a self-retry.
+      const successor = await e.execute({
+        sql: `SELECT email FROM org_members
+              WHERE org_id = ? AND LOWER(email) <> ?
+                AND federation_removal_pending_at IS NULL
+                AND role IN ('owner', 'admin', 'member')
+              ORDER BY CASE WHEN role = 'owner' THEN 0
+                            WHEN role = 'admin' THEN 1 ELSE 2 END,
+                       joined_at ASC, LOWER(email) ASC
+              LIMIT 1`,
+        args: [orgId, email],
+      });
+      transferTo = String((successor.rows[0] as any)?.email ?? "").trim();
+    }
+    if (!transferTo) {
+      throw createError({
+        statusCode: 409,
+        message: "An active organization member is required as a successor",
+      });
+    }
+
     try {
-      revoked = await revokeFederatedOrganizationMember(event, {
+      await revokeFederatedOrganizationMember(event, {
         orgId,
         actorEmail: email,
         actorRole: role,
@@ -361,19 +388,22 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
       });
     } catch (error) {
       void error;
-    }
-    if (!revoked) {
       throw createError({
         statusCode: 503,
         message:
           "Could not confirm removal with the identity authority; local cleanup remains pending.",
       });
     }
+    // `false` means the organization has no linked authority (the normal
+    // local-only case), not that the local removal failed. A linked authority
+    // either confirms the idempotent revoke with `true` or throws, in which
+    // case the pending marker remains for this route to retry later.
 
     try {
-      await e.execute({
-        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
-        args: [orgId, email],
+      await offboardMember(e, email, {
+        transferTo,
+        orgId,
+        actorEmail: email,
       });
     } catch (error) {
       void error;
@@ -443,8 +473,9 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event);
   const email = requireAuthEmail(session);
   const emailVerified = session?.emailVerified === true;
+  const access = getAppConfig().access;
 
-  if (getAppConfig().access.orgCreation === "closed") {
+  if (access.orgCreation === "closed") {
     // Closed means closed: only a verified configured bootstrap admin may
     // create the canonical organization, whether the database is empty or
     // already has one.
@@ -482,6 +513,32 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
         });
       }
       return { success: true };
+    }
+
+    if (access.bootstrapAdmins.length === 0) {
+      console.warn(
+        "[org] ORG_CREATION=closed has no AUTH_BOOTSTRAP_ADMINS; allowing the first authenticated creator to bootstrap the workspace",
+      );
+      const body = await readBody(event);
+      const name = body?.name?.trim();
+      if (!name) {
+        throw createError({
+          statusCode: 400,
+          message: "Organization name is required",
+        });
+      }
+      const {
+        id,
+        name: createdName,
+        role,
+      } = await createOrganization(name, email);
+      await syncFederatedOrgBestEffort(event, {
+        email,
+        orgId: id,
+        orgName: createdName,
+        role,
+      });
+      return { id, name: createdName, role };
     }
 
     throw createError({
@@ -1027,6 +1084,13 @@ export const removeMemberHandler = defineEventHandler(
         message: "A transferTo successor is required when removing a member",
       });
     }
+    const transferTo = body.transferTo.trim().toLowerCase();
+    if (!transferTo || transferTo === memberEmail.trim().toLowerCase()) {
+      throw createError({
+        statusCode: 400,
+        message: "A different successor is required when removing a member",
+      });
+    }
 
     // memberEmail comes from the URL path verbatim; org_members may
     // hold the row with any case. LOWER both sides for the lookup AND
@@ -1071,6 +1135,21 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
 
+    const successor = await e.execute({
+      sql: `SELECT 1 FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
+      args: [ctx.orgId, transferTo],
+    });
+    if (successor.rows.length === 0) {
+      throw createError({
+        statusCode: 400,
+        message:
+          "Transfer target must be an active member of this organization",
+      });
+    }
+
     await e.execute({
       sql: `UPDATE org_members SET federation_removal_pending_at = ?
             WHERE org_id = ? AND LOWER(email) = ?
@@ -1100,7 +1179,7 @@ export const removeMemberHandler = defineEventHandler(
 
     try {
       await offboardMember(e, memberEmail, {
-        transferTo: body.transferTo,
+        transferTo,
         orgId: ctx.orgId,
         actorEmail: ctx.email,
       });

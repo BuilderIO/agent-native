@@ -49,7 +49,14 @@ describe("scanResourceActionAccess", () => {
     expect(
       scanResourceActionAccess({
         root: rootWithAction(
-          'export default defineAction({ resourceType: "form", access: { scope: "resource" } });\n',
+          'export default defineAction({ resourceType: "form", access: { scope: "resource", resource: { type: "form", idFrom: "id" } } });\n',
+        ),
+      }).warnings,
+    ).toEqual([]);
+    expect(
+      scanResourceActionAccess({
+        root: rootWithAction(
+          'export default defineAction({ resource: { type: "form", idFrom: "id" } });\n',
         ),
       }).warnings,
     ).toEqual([]);
@@ -57,6 +64,20 @@ describe("scanResourceActionAccess", () => {
       scanResourceActionAccess({
         root: rootWithAction(
           'export default defineAction({ resourceType: "form", run: () => assertAccess("form", "id", "editor") });\n',
+        ),
+      }).warnings,
+    ).toEqual([]);
+    expect(
+      scanResourceActionAccess({
+        root: rootWithAction(
+          'export default defineAction({ resourceType: "form", run: () => resolveAccess("form", "id") });\n',
+        ),
+      }).warnings,
+    ).toEqual([]);
+    expect(
+      scanResourceActionAccess({
+        root: rootWithAction(
+          'export default defineAction({ resourceType: "form", run: () => accessFilter("form") });\n',
         ),
       }).warnings,
     ).toEqual([]);

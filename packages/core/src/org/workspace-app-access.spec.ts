@@ -440,4 +440,23 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "https://dispatch.example.test/_agent-native/actions/claim-workspace-app-organization",
     );
   });
+
+  it("honors a local organization disable before hosted registry access", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    resetAppConfigForTests();
+    mocks.execute.mockResolvedValueOnce({ rows: [{ org_enabled: false }] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

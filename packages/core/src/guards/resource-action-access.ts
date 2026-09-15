@@ -9,8 +9,9 @@ import type { GuardFinding, GuardResult } from "./types.js";
 const SOURCE_FILE = /\.(?:[cm]?[jt]s|[jt]sx)$/;
 const ACTION_FILE = /(?:^|[/\\])actions(?:[/\\]).+\.[^/\\]+$/;
 const ACTION_CALL = /\bdefineAction\s*\(/g;
-const RESOURCE_HINT = /\b(?:resourceType|resourceId)\s*:/;
-const ACCESS_GUARD = /\b(?:access\s*:|assertAccess\s*\()/;
+const RESOURCE_HINT = /\b(?:resourceType|resourceId)\s*:|\bresource\s*:\s*\{/;
+const ACCESS_GUARD =
+  /\b(?:access\s*:|resource\s*:\s*\{|assertAccess\s*\(|resolveAccess\s*\(|accessFilter\s*\()/;
 const ALLOW = /guard:allow-resource-action-access\b/;
 
 /** Warn when an action looks resource-scoped without a shared access contract. */

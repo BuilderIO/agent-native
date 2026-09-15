@@ -1177,11 +1177,15 @@ export function MembersTableCard({
     () => new Set(),
   );
   const [bulkActionKey, setBulkActionKey] = useState(0);
+  const [bulkAppRoles, setBulkAppRoles] = useState<string[]>([]);
   const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
   const updateGroupMembers = useActionMutation(
     "bulk-update-workspace-user-groups",
   );
   const { data: appRoleData } = useAppRoles(appRoles?.appId);
+  const setAppMemberRoles = useSetAppMemberRoles();
+  const canManageAppRoles = Boolean(appRoles && appRoleData?.canManage);
+  const canBulkSelect = canManageGroups || canManageAppRoles;
   const appRoleByEmail = new Map(
     (appRoleData?.assignments ?? []).map((a) => [
       a.email.toLowerCase(),
@@ -1233,6 +1237,26 @@ export function MembersTableCard({
         },
       },
     );
+  }
+
+  async function applyBulkAppRoles() {
+    if (!appRoles || !canManageAppRoles || selectedEmails.size === 0) return;
+    try {
+      for (const email of selectedEmails) {
+        await setAppMemberRoles.mutateAsync({
+          appId: appRoles.appId,
+          email,
+          roles: bulkAppRoles,
+        });
+      }
+      setSelectedEmails(new Set());
+      // The mutation error remains available on the shared mutation object so
+      // the administrator can correct the selection and retry.
+      // coercion-ok: the mutation object carries the typed failure to the UI.
+    } catch {
+      // The mutation exposes the failed request through its shared error UI;
+      // keep the selection so the administrator can correct and retry.
+    }
   }
 
   return (
@@ -1299,7 +1323,7 @@ export function MembersTableCard({
           </span>
         </div>
       )}
-      {canManageGroups && members.length > 0 ? (
+      {canBulkSelect && members.length > 0 ? (
         <div className="flex flex-col gap-3 rounded-lg bg-muted/40 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Checkbox
@@ -1321,12 +1345,69 @@ export function MembersTableCard({
                     defaultValue: "{{count}} selected",
                     count: selectedCount,
                   })
-                : t("org.selectMembers", {
-                    defaultValue: "Select people to edit groups",
-                  })}
+                : t("org.selectMembers")}
             </span>
           </div>
-          {selectedCount > 0 && groups.length > 0 ? (
+          {selectedCount > 0 && canManageAppRoles ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    className="h-8 min-w-36 border-0 bg-background px-2 text-xs"
+                  >
+                    {bulkAppRoles.length
+                      ? bulkAppRoles
+                          .map((role) => appRoles?.roleLabels?.[role] ?? role)
+                          .join(", ")
+                      : t("org.notAssigned")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-56 p-0">
+                  <Command>
+                    <CommandList>
+                      <CommandGroup>
+                        {appRoles?.roles.map((role) => {
+                          const checked = bulkAppRoles.includes(role);
+                          return (
+                            <CommandItem
+                              key={role}
+                              value={role}
+                              onSelect={() =>
+                                setBulkAppRoles(
+                                  checked
+                                    ? bulkAppRoles.filter(
+                                        (item) => item !== role,
+                                      )
+                                    : [...bulkAppRoles, role],
+                                )
+                              }
+                            >
+                              <Checkbox checked={checked} />
+                              <span>
+                                {appRoles?.roleLabels?.[role] ?? role}
+                              </span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <Button
+                type="button"
+                intent="primary"
+                emphasis="solid"
+                disabled={setAppMemberRoles.isPending}
+                onClick={() => void applyBulkAppRoles()}
+                className="h-8 px-2 text-xs"
+              >
+                {t("org.save")}
+              </Button>
+            </div>
+          ) : null}
+          {selectedCount > 0 && canManageGroups && groups.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2">
               <Select
                 key={`add-${bulkActionKey}`}
@@ -1377,7 +1458,7 @@ export function MembersTableCard({
               </Button>
             </div>
           ) : null}
-          {selectedCount > 0 && groups.length === 0 ? (
+          {selectedCount > 0 && canManageGroups && groups.length === 0 ? (
             <span className="text-xs text-muted-foreground">
               {t("org.createGroupForBulk", {
                 defaultValue: "Create a group below first",
@@ -1385,6 +1466,7 @@ export function MembersTableCard({
             </span>
           ) : null}
           <ErrorText error={updateGroupMembers.error} />
+          <ErrorText error={setAppMemberRoles.error} />
         </div>
       ) : null}
       <div
@@ -1450,7 +1532,8 @@ export function MembersTableCard({
                 appRoles={appRoles}
                 appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? []}
                 canManageAppRoles={Boolean(appRoleData?.canManage)}
-                canSelect={canManageGroups}
+                transferCandidates={members}
+                canSelect={canBulkSelect}
                 selected={selectedEmails.has(m.email)}
                 onSelect={(checked) => toggleSelected(m.email, checked)}
               />
@@ -1729,9 +1812,7 @@ function AppRoleControl({
     </span>
   ) : (
     <span className="text-xs text-muted-foreground/70">
-      {appRoles.defaultRole
-        ? labelFor(appRoles.defaultRole)
-        : t("org.notAssigned")}
+      {t("org.notAssigned")}
     </span>
   );
 
@@ -2007,6 +2088,7 @@ export function MemberRow({
   appRoles,
   appRole,
   canManageAppRoles,
+  transferCandidates = [],
   canSelect = false,
   selected = false,
   onSelect,
@@ -2021,6 +2103,7 @@ export function MemberRow({
   appRoles?: AppRolesDescriptor;
   appRole?: string[];
   canManageAppRoles?: boolean;
+  transferCandidates?: MemberListItem[];
   canSelect?: boolean;
   selected?: boolean;
   onSelect?: (checked: boolean) => void;
@@ -2031,6 +2114,21 @@ export function MemberRow({
   const [editing, setEditing] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [transferTo, setTransferTo] = useState(currentUserEmail ?? "");
+  const transferOptions = useMemo(() => {
+    const options = transferCandidates.filter(
+      (candidate) => candidate.email.toLowerCase() !== email.toLowerCase(),
+    );
+    if (
+      currentUserEmail &&
+      !options.some(
+        (candidate) =>
+          candidate.email.toLowerCase() === currentUserEmail.toLowerCase(),
+      )
+    ) {
+      options.unshift({ email: currentUserEmail, role: "member" });
+    }
+    return options;
+  }, [currentUserEmail, email, transferCandidates]);
   const avatarUrl = image?.trim() || null;
   const displayName = name?.trim() || email;
 
@@ -2131,14 +2229,27 @@ export function MemberRow({
             ) : null}
             {confirmingRemove ? (
               <div className="flex flex-col items-end gap-1">
-                <Input
-                  type="email"
-                  value={transferTo}
-                  onChange={(event) => setTransferTo(event.target.value)}
-                  placeholder={t("org.transferTo")}
-                  aria-label={t("org.transferTo")}
-                  className="h-7 w-44 text-xs"
-                />
+                <Select
+                  value={transferTo || undefined}
+                  onValueChange={setTransferTo}
+                  disabled={
+                    removeMember.isPending || transferOptions.length === 0
+                  }
+                >
+                  <SelectTrigger
+                    className="h-7 w-52 text-xs"
+                    aria-label={t("org.transferTo")}
+                  >
+                    <SelectValue placeholder={t("org.transferTo")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {transferOptions.map((candidate) => (
+                      <SelectItem key={candidate.email} value={candidate.email}>
+                        {candidate.name?.trim() || candidate.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <div className="flex items-center gap-1">
                   <Button
                     type="button"
@@ -2155,7 +2266,11 @@ export function MemberRow({
                     emphasis="solid"
                     disabled={
                       removeMember.isPending ||
-                      !EMAIL_RE.test(transferTo.trim()) ||
+                      !transferOptions.some(
+                        (candidate) =>
+                          candidate.email.toLowerCase() ===
+                          transferTo.trim().toLowerCase(),
+                      ) ||
                       transferTo.trim().toLowerCase() === email.toLowerCase()
                     }
                     onClick={() =>

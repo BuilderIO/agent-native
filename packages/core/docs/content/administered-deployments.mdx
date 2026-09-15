@@ -36,10 +36,10 @@ team from **Team settings**.
 
 When organization creation is closed, ordinary members cannot create another
 organization. The no-organization screen directs them to ask an administrator.
-With `ORG_CREATION=closed`, organization creation is refused until
-`AUTH_BOOTSTRAP_ADMINS` lists at least one verified administrator, who creates
-the canonical organization on first sign-in. Keep a verified bootstrap-admin
-address available for initial setup and recovery.
+If `AUTH_BOOTSTRAP_ADMINS` is configured, only a verified listed administrator
+can create the canonical organization. If the list is empty, the first
+authenticated creator is allowed and a warning is logged; configure the list
+before production so a stranger cannot claim an empty workspace.
 
 ## Company credentials and roles
 

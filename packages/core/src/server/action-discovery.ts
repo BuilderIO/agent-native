@@ -664,6 +664,7 @@ export async function mergeCoreSharingActions(
       () => import("../org/actions/set-workspace-app-access.js"),
     ],
     ["explain-access", () => import("../org/actions/explain-access.js")],
+    ["offboard-member", () => import("../org/actions/offboard-member.js")],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "list-workspace-user-groups",

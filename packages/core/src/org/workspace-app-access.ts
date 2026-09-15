@@ -192,6 +192,38 @@ async function hostedWorkspaceAppAccess(
   }
 }
 
+async function localOrganizationAppEnabled(
+  appId: string,
+  orgId: string | null,
+): Promise<boolean | null> {
+  if (!orgId) return null;
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT org_enabled FROM workspace_apps
+            WHERE id = ? AND org_id = ? LIMIT 1`,
+      args: [appId, orgId],
+    });
+    const row = Array.isArray(result?.rows)
+      ? (result.rows[0] as { org_enabled?: unknown } | undefined)
+      : undefined;
+    if (!row) return null;
+    return !(
+      row.org_enabled === false ||
+      row.org_enabled === 0 ||
+      row.org_enabled === "false" ||
+      row.org_enabled === "0"
+    );
+  } catch (error) {
+    if (!isMissingOrganizationTableError(error)) {
+      console.error(
+        "[workspace-app-access] local organization app state unavailable",
+        error,
+      );
+    }
+    return null;
+  }
+}
+
 async function loadWorkspaceOrgMember(
   db: DbExec,
   orgId: string,
@@ -338,6 +370,17 @@ export async function isWorkspaceAppAccessAllowed(
   }
   if (normalizedAppId.toLowerCase() === "dispatch") {
     return isDispatchWorkspaceAppAccessAllowed(context, email);
+  }
+
+  // A local disable is an explicit organization decision and must win over
+  // the hosted registry response. Missing local rows preserve the registry
+  // path for hosted deployments that do not mirror workspace_apps locally.
+  if (configuredWorkspaceDirectory()) {
+    const locallyEnabled = await localOrganizationAppEnabled(
+      normalizedAppId,
+      context.orgId?.trim() || null,
+    );
+    if (locallyEnabled === false) return false;
   }
 
   const hostedAccess = await hostedWorkspaceAppAccess(

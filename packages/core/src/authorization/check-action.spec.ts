@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { defineAction } from "../action.js";
-import { checkAction } from "./check-action.js";
+import { checkAction, type ActionAccessConfig } from "./check-action.js";
 
 describe("checkAction", () => {
   it("allows an action with no access contract", async () => {
@@ -28,6 +28,19 @@ describe("checkAction", () => {
     ).resolves.toMatchObject({
       allowed: false,
       reason: "The caller is not an active member of this organization.",
+    });
+  });
+
+  it("denies a resource contract without a resource definition", async () => {
+    await expect(
+      checkAction(
+        { scope: "resource" } as ActionAccessConfig,
+        {},
+        { caller: "frontend" },
+      ),
+    ).resolves.toEqual({
+      allowed: false,
+      reason: "This action has an invalid resource access policy.",
     });
   });
 

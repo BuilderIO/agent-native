@@ -16,7 +16,7 @@ export interface IdentityRekeyDb {
   transaction?<T>(fn: (tx: IdentityRekeyDb) => Promise<T>): Promise<T>;
 }
 
-type IdentityColumn = {
+export type IdentityColumn = {
   table: string;
   column: string;
   mode?:

@@ -280,6 +280,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-workspace-app-access": "orgAdministration",
   "set-workspace-app-access": "orgAdministration",
   "explain-access": "orgAdministration",
+  "offboard-member": "orgAdministration",
   "share-resource": "sharing",
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",

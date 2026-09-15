@@ -8,7 +8,9 @@ export async function loader() {
       name: app.name,
       description: `Agent-Native ${app.name} app`,
       url: app.demoUrl,
-      capabilities: ["identity-sso", "connect"],
+      // Catalog rows are pointers, not trust assertions. Dispatch verifies
+      // the target agent card before showing Connect or starting a handoff.
+      capabilities: [],
       source: "first-party" as const,
     })),
     ...communityApps
@@ -18,7 +20,7 @@ export async function loader() {
         name: app.name,
         description: app.description,
         url: app.demoUrl!,
-        capabilities: ["connect"],
+        capabilities: [],
         source: "community" as const,
       })),
   ];

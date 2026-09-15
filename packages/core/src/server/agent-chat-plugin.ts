@@ -3761,6 +3761,7 @@ export function createAgentChatPlugin(
           runCtx.userApiKey = userApiKey.apiKey;
           runCtx.userApiKeyEnvVar = userApiKey.apiKeyEnvVar;
           if (options?.appId && orgId) {
+            runCtx.appAuthorization = null;
             try {
               const { resolveAppAuthorizationContext } =
                 await import("../org/app-roles.js");
@@ -3768,7 +3769,7 @@ export function createAgentChatPlugin(
                 options.appId,
                 { userEmail: owner, orgId },
               );
-              if (authorization) runCtx.appAuthorization = authorization;
+              runCtx.appAuthorization = authorization;
             } catch (error) {
               console.warn(
                 "[agent-chat] app authorization context unavailable",

@@ -128,7 +128,7 @@ export interface RequestRunContext {
     appId: string;
     roles: string[];
     permissions: Record<string, string[]>;
-  };
+  } | null;
   /** Hosted tools-only harness selected for this agent run. */
   hostedHarnessRuntime?: "claude-code" | "codex" | "pi" | "opencode";
   /**

@@ -75,21 +75,27 @@ mapping is.
 
 ## Near-term first-party experience
 
-The first product step is to make the existing protocol feel like a connection:
+The labs implementation in this release is intentionally bounded to the
+pieces the framework can verify today:
 
-1. The app registry advertises whether an app supports `identity-sso`, local
-   provisioning, organization federation, A2A, and deep links.
-2. Dispatch shows **Connect** for an eligible app and records the user's
-   organization-admin approval when the app will receive organization context.
-3. Dispatch runs the existing exact-origin PKCE flow. A canonical app may first
-   try the silent `prompt=none` probe; ordinary local sign-in remains the
-   fallback.
-4. The target app JIT-links or creates the verified local account, provisions
-   the approved organization membership, and redirects to a safe
-   `/_agent-native/open` deep link.
-5. Dispatch shows connection state and offers disconnect/revoke. Revocation
-   stops new exchanges, invalidates outstanding flow state, and revokes target
-   sessions during offboarding.
+1. The public catalog is a list of app pointers. Dispatch fetches each target's
+   exact-origin agent card and shows **Connect** only when that card advertises
+   `capabilities.connect: true`.
+2. A manually entered URL follows the same URL and card validation. Invalid,
+   credential-bearing, private-network, or oversized targets are rejected.
+3. **Connect** opens the existing exact-origin PKCE handoff at the target's
+   `/_agent-native/identity/login?prompt=none` path. The target app performs
+   verified-email JIT linking and returns through `/_agent-native/open`; its
+   ordinary local sign-in form remains the fallback.
+4. Organization federation and app access checks remain server-authoritative.
+   The page does not infer consent, registration, or membership from catalog
+   metadata.
+
+Hub-side dynamic identity-client registration, consent records, connection
+state, and disconnect/session revocation are not implemented by this labs page:
+the current identity hub has no per-app connection registry or revocation API.
+Those are required for a marketplace and must be added as a separate protocol
+batch before the UI claims an app is connected or offers **Disconnect**.
 
 This should be enabled in stages with rollout flags: canonical first-party
 apps first, then approved self-hosted deployments, and only later community
@@ -158,6 +164,6 @@ Documents/dynamic registration, consented scopes, capability review, key
 rotation, revocation, and marketplace lifecycle policy.
 
 The current RBAC/offboarding/checkAction work includes this labs surface and
-the capability seam, but not arbitrary marketplace provisioning or wildcard
-cookie sharing. Those remain follow-up features built on the existing
-identity-SSO protocol and the Applications surface.
+the capability seam, but not arbitrary marketplace provisioning, connection
+state, revocation, or wildcard cookie sharing. Those remain follow-up features
+built on the existing identity-SSO protocol and the Applications surface.

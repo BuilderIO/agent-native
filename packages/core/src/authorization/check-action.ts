@@ -18,14 +18,21 @@ export interface ActionResourceAccess {
   level?: ActionResourceAccessLevel;
 }
 
-export interface ActionAccessConfig {
+interface ActionAccessConfigBase {
   /** Which shared boundary must be present before the action can run. */
-  scope?: ActionAccessScope;
+  scope?: Exclude<ActionAccessScope, "resource">;
   /** App-declared permission required for this action. */
   permission?: string;
   /** Optional resource share/ownership check. */
   resource?: ActionResourceAccess;
 }
+
+export type ActionAccessConfig =
+  | ActionAccessConfigBase
+  | (Omit<ActionAccessConfigBase, "scope" | "resource"> & {
+      scope: "resource";
+      resource: ActionResourceAccess;
+    });
 
 export interface ActionAccessDecision {
   allowed: boolean;
@@ -83,6 +90,13 @@ export async function checkAction(
   target?: ActionAccessTarget,
 ): Promise<ActionAccessDecision> {
   if (!config) return { allowed: true, reason: "No action access policy." };
+
+  if (config.scope === "resource" && !config.resource) {
+    return {
+      allowed: false,
+      reason: "This action has an invalid resource access policy.",
+    };
+  }
 
   const identity = {
     ...normalizedIdentity(ctx),
