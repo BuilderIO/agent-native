@@ -185,7 +185,7 @@ describe("selected library actions layout", () => {
     const trashSource = readSource("../../routes/_app.trash.tsx");
 
     expect(layoutSource).toContain(
-      'to: meetingsLabEnabled ? "/meetings" : "/settings#lab-clips.meetings"',
+      "to: getMeetingsSidebarHref(meetingsLabEnabled, CLIPS_MEETINGS.key)",
     );
     expect(meetingsSource).toContain("<PageBreadcrumb");
     expect(dictateSource).toContain("<PageBreadcrumb");
@@ -193,6 +193,15 @@ describe("selected library actions layout", () => {
     expect(trashSource).not.toContain('<h1 className="text-base font-semibold');
     expect(dictateSource).not.toContain(
       't("dictateRoute.voiceToTextDescription")',
+    );
+  });
+
+  it("never lets the toolbar action group shrink behind the search bar", () => {
+    const gridSource = readSource("./library-grid.tsx");
+
+    expect(gridSource).toContain("lg:grid-cols-[minmax(0,1fr)_20rem_auto]");
+    expect(gridSource).toContain(
+      "ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end",
     );
   });
 

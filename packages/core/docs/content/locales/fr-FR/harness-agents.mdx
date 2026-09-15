@@ -98,8 +98,8 @@ apparaître en arrière-plan/sous-agent avec [Custom Agents & Teams](/docs/agent
 
 Leurs packages d'exécution sont des **dépendances homologues facultatives** et se chargent paresseusement, donc
 une application qui n'utilise jamais de harnais ne paie pas pour cela. Chaque adaptateur porte un
-Indice `installPackage` (par exemple `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` lance une installation claire
+Indice `installPackage` (par exemple `@ai-sdk/harness@latest
+@ai-sdk/harness-codex@latest`); `resolveAgentHarness` lance une installation claire
 erreur si les packages sont manquants, et `isAgentHarnessPackageInstalled(entry)`
 vous permet de vérifier en premier.
 
@@ -162,38 +162,24 @@ tout est risqué sauf si `allow-all`. Les approbations semblent normales
 it) et écrit des événements `file-change` ; les méthodes de terminal ne sont pas annoncées,
 l'agent utilise donc son propre shell.
 
-## Authentification Codex : code UI par rapport aux bacs à sable de harnais {#codex-auth}
+## Authentification Codex : code UI par rapport aux adaptateurs de harnais {#codex-auth}
 
-Il existe deux surfaces Codex, et elles s'authentifient différemment :
+Il existe deux surfaces Codex :
 
-- **Agent-Native Code / Desktop** exécute `codex exec` sur la machine de l'utilisateur. Si
-  l'utilisateur a exécuté `codex login`, cette exécution locale réutilise tout ChatGPT
-  l'abonnement ou la clé API authentifie les rapports Codex CLI installés via
-  `codex login status`.
-- **`ai-sdk-harness:codex`** charge `@ai-sdk/harness-codex`, qui pilote Codex
-  à l'intérieur du bac à sable du harnais via `@openai/codex-sdk`. Cela ne se fait pas en silence
-  hériter de la connexion Desktop `~/.codex` de l'utilisateur, car le bac à sable peut être distant
-  ou isolé. Pour les bacs à sable fiables/privés, inscrivez-vous avec `codexCliAuth: true` ;
-  Agent-Native copie le fichier d'authentification local Codex CLI dans le bac à sable avant le
-  le harnais démarre. Pour les sandbox hébergés ou partagés, configurez la clé/passerelle API
-  auth à la place.
+- **Agent-Native Code / Desktop** exécute `codex exec` sur la machine de l'utilisateur
+  et réutilise la connexion locale de Codex CLI indiquée par `codex login status`.
+- **`ai-sdk-harness:codex`** utilise le flux d'abonnement natif d'AI SDK Harness
+  lorsqu'il est pris en charge par le harnais sous-jacent. Aucun réglage supplémentaire
+  n'est nécessaire : les identifiants restent sur l'hôte, les identifiants API explicites
+  sont prioritaires et l'authentification résultante est transmise au bac à sable sans
+  copier le fichier d'authentification local. Définissez `harnessOptions.auth` sur
+  `"ai-gateway"` pour utiliser uniquement AI Gateway ; ce mode ne lit jamais un
+  abonnement natif.
 
-Donc, si quelqu'un demande quel paquet contient le chemin Codex OAuth : pour le codage local
-sessions, utilisez `@agent-native/core` / Desktop plus celui installé
-`@openai/codex` CLI et `codex login`. Pour le `ai-sdk-harness:codex` en bac à sable,
-utilisez l'opt-in explicite `codexCliAuth` lors de la copie de cette connexion dans le bac à sable
-est acceptable.
-
-```ts
-const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
-  codexCliAuth: true,
-});
-```
-
-`codexCliAuth: true` lit `CODEX_HOME/auth.json` ou `~/.codex/auth.json`. À
-pointez sur une autre connexion locale, passez
-`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` ou
-`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
+L'adaptateur intégré `ai-sdk-harness:codex` prend uniquement en charge
+`permissionMode: "allow-all"`, car c'est le seul mode accepté par le runtime Codex
+stable. Omettez `permissionMode` pour utiliser cette valeur par défaut ;
+`allow-reads` et `allow-edits` sont refusés par cet adaptateur.
 
 ## Enregistrer et résoudre {#register-resolve}
 
@@ -210,9 +196,14 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `resolveAgentHarness(name, config?)` renvoie un `AgentHarnessAdapter`. Le
 Le `config` facultatif est transmis à l'usine d'adaptateurs – pour les adaptateurs AI SDK
 qui correspond à `AiSdkHarnessAdapterOptions` (`label`, `description`,
-`permissionMode`, `harnessOptions`, `agentOptions` et Codex uniquement
-`codexCliAuth`). Utilisez `listAgentHarnesses()` pour énumérer ce pour quoi vous êtes enregistré
+`permissionMode`, `harnessOptions` et `agentOptions`). Utilisez `listAgentHarnesses()` pour énumérer ce pour quoi vous êtes enregistré
 un sélecteur.
+
+Pour les harnais intégrés avec bac à sable, transmettez un fournisseur de bac à
+sable via `agentOptions.sandbox` lors de leur enregistrement. Le fournisseur doit
+implémenter `resumeSession` pour la réhydratation après un redémarrage du
+processus ; une session `sandbox` fournie par l'appelant ne couvre que la création
+initiale.
 
 ## Faire un tour {#run-a-turn}
 
@@ -234,7 +225,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

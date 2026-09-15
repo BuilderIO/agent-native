@@ -1423,7 +1423,9 @@ if (
   !reusableBetaFreshness.includes(
     "Beta source_ref must be a full 40-character commit SHA.",
   ) ||
-  !reusableBetaFreshness.includes("Beta source_ref must equal current main") ||
+  !reusableBetaFreshness.includes(
+    "Beta source ${sourceSha} is not an ancestor of main ${mainSha}",
+  ) ||
   !reusableBetaFreshness.includes(
     "Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.",
   ) ||

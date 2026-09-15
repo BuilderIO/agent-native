@@ -97,6 +97,17 @@ describe("Google callback deploy verification guard", () => {
     );
   });
 
+  it("accepts a pinned beta source while main advances during the queue", () => {
+    assert.match(
+      reusableSource,
+      /const comparison = await github\.rest\.repos\.compareCommits\([\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
+    assert.doesNotMatch(
+      reusableSource,
+      /Beta source_ref must equal current main/,
+    );
+  });
+
   it("checks the published beta runtime context for the relay secret", () => {
     const relayStep =
       "      - name: Verify Netlify Google OAuth relay metadata";
@@ -863,10 +874,6 @@ describe("production Netlify site concurrency guard", () => {
       String(betaResolveStep?.with?.script),
       /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
     );
-    assert.match(
-      reusableSource,
-      /\['automatic', 'automatic-build'\]\.includes\(process\.env\.CALLER\.trim\(\)\)/,
-    );
     const confirmCurrentSourceStep = (
       (
         (betaResolveSource.jobs as Workflow)[
@@ -896,7 +903,10 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /Beta source_ref must be a full 40-character commit SHA/,
     );
-    assert.match(reusableSource, /Beta source_ref must equal current main/);
+    assert.match(
+      reusableSource,
+      /Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
     assert.match(
       reusableSource,
       /Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt\.yml\./,
