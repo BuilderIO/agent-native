@@ -13,7 +13,10 @@ import {
 import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
@@ -88,6 +91,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const { session } = useSession();
@@ -326,7 +330,9 @@ export function Layout({ children }: LayoutProps) {
             onComposerTextChange={handleComposerTextChange}
             composerSlot={
               <>
-                <CreativeContextComposerChip />
+                {creativeContextEnabled ? (
+                  <CreativeContextComposerChip />
+                ) : null}
                 {detectedFigmaComposerLink ? (
                   <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
                 ) : null}

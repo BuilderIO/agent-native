@@ -49,9 +49,9 @@ Read the relevant skill before deeper work:
 - Use `view-screen` before editing when the active deck, selected slide, or
   current layout is unclear.
 - Preserve deck structure; prefer focused slide edits over regenerating decks.
-- New-deck attachments are reference context. Import into a deck only after an
-  explicit request or Import control; explicit imports follow `sourceImport`
-  and preserve structure.
+- New-deck attachments arrive pre-read; never ignore one. Import into a deck
+  only on explicit request or the Import control; imports follow
+  `sourceImport` and preserve structure.
 - A source import with `fidelity: partial` or `imagesSkipped` is not safe to
   restyle automatically; report the exact warning instead of silently
   replacing content.

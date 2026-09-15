@@ -73,11 +73,21 @@ export default defineAction({
       author_email: row.authorEmail,
       submission_source: row.submissionSource,
       submission_run_id: row.submissionRunId,
-      author_name: resolveUserProfileName(
-        row.authorEmail,
-        row.authorName,
-        profiles.get(row.authorEmail.toLowerCase())?.name,
-      ),
+      actor_kind:
+        row.actorKind ??
+        (row.submissionSource === "agent" || row.submissionSource === "mcp"
+          ? "agent"
+          : "human"),
+      author_name:
+        row.actorKind === "agent" ||
+        row.submissionSource === "agent" ||
+        row.submissionSource === "mcp"
+          ? "AI Agent"
+          : resolveUserProfileName(
+              row.authorEmail,
+              row.authorName,
+              profiles.get(row.authorEmail.toLowerCase())?.name,
+            ),
       resolved: row.resolved,
       created_at: row.createdAt,
       updated_at: row.updatedAt,

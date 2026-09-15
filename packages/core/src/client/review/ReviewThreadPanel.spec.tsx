@@ -82,6 +82,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     act(() => root.unmount());
     container.remove();
     rootComment.body = "Make the heading clearer";
+    (rootComment as ReviewComment).createdBy = "human";
     const comment = rootComment as ReviewComment & {
       resolutionNote?: string;
     };
@@ -90,6 +91,22 @@ describe("ReviewThreadPanel sidebar layout", () => {
     delete comment.resolutionNote;
     mutate.mockReset();
     vi.unstubAllGlobals();
+  });
+
+  it("uses the localized agent label without displaying the acting human as author", () => {
+    (rootComment as ReviewComment).createdBy = "agent";
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          agentLabel="KI"
+          showComposer={false}
+        />,
+      );
+    });
+    expect(container.textContent).toContain("KI");
+    expect(container.textContent).not.toContain("reviewer@example.com");
   });
 
   it("uses a flat container and progressively discloses reply and narrow actions", () => {
