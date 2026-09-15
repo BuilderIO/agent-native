@@ -49,6 +49,7 @@ import {
   getPgliteClient,
   isPgliteUrl,
   loadPgliteDrizzle,
+  pgliteDrizzleClient,
   pgPoolOptions,
   neonPoolOptions,
   guardNeonPool,
@@ -2492,7 +2493,10 @@ export async function buildDatabaseConfig(): Promise<
   if (isPgliteUrl(url)) {
     const { drizzle } = await loadPgliteDrizzle();
     const client = await getPgliteClient(url);
-    const db = drizzle({ client, schema: pgAuthSchema });
+    const db = drizzle({
+      client: pgliteDrizzleClient(url, client),
+      schema: pgAuthSchema,
+    });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
       provider: "pg",
