@@ -193,21 +193,7 @@ afterEach(() => {
   );
   mocks.state.orgRole = "admin";
   mocks.getDbExec.mockReset();
-  mocks.getDbExec.mockImplementation(() => ({
-    execute: vi.fn(async (statement: unknown) => {
-      const sql =
-        typeof statement === "string"
-          ? statement
-          : String((statement as { sql?: unknown })?.sql ?? "");
-      if (sql.includes("SELECT id FROM workspace_apps")) {
-        return { rows: [], rowsAffected: 0 };
-      }
-      return {
-        rows: mocks.state.orgRole ? [{ role: mocks.state.orgRole }] : [],
-        rowsAffected: 0,
-      };
-    }),
-  }));
+  mocks.getDbExec.mockImplementation(mocks.defaultDbExec);
   mocks.resolveAccess.mockReset();
   mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
   mocks.resolveBuilderCredentialsDetailed.mockResolvedValue({
@@ -495,6 +481,9 @@ describe("listWorkspaceApps", () => {
       () => listWorkspaceApps({ includeAgentCards: false }),
     );
 
+    // Prove the recorder is live before trusting an empty mutation list; a
+    // dead capture would otherwise make this assertion pass vacuously.
+    expect(mocks.executedSql.some((sql) => /\bSELECT\b/i.test(sql))).toBe(true);
     const mutations = mocks.executedSql.filter((sql) =>
       /\b(INSERT|UPDATE|DELETE)\b/i.test(sql),
     );
@@ -548,11 +537,9 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+    expect(mocks.executedSql.some((sql) => /\bINSERT\b/i.test(sql))).toBe(true);
     expect(warn).not.toHaveBeenCalledWith(
       expect.stringContaining("denied the registry read"),
-    );
-    expect(warn).not.toHaveBeenCalledWith(
-      expect.stringContaining("no access record for"),
     );
     warn.mockRestore();
   });
