@@ -226,9 +226,22 @@ export function buildResilientNeonPool<
       if (prop === "query") return resilientQuery;
       if (prop === "connect") {
         return (...args: any[]) =>
-          (target as any)
-            .connect(...args)
-            .then((client: any) => guardNeonTransactionClient(client));
+          retryOnConnectionError(async () => {
+            let acquireTimedOut = false;
+            const client = await withDbTimeout<any>(
+              "connect",
+              () =>
+                (target as any).connect(...args).then((client: any) => {
+                  if (acquireTimedOut) client.release();
+                  return client;
+                }),
+              dbOpTimeoutMs(),
+              () => {
+                acquireTimedOut = true;
+              },
+            );
+            return guardNeonTransactionClient(client);
+          });
       }
       const val = (target as any)[prop];
       return typeof val === "function" ? val.bind(target) : val;

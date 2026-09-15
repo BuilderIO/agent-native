@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildContentDocumentAgentDiscovery,
+  buildContentDocumentMcpGuidance,
   buildContentPublicDocumentPath,
   buildContentPublicDocumentUrl,
   DOCUMENT_AGENT_READABLE_INSTRUCTIONS,
@@ -44,6 +45,21 @@ describe("content agent-readable discovery", () => {
       contextUrl:
         "/content/api/document-agent-context.json?id=doc+1&agent_access=tok%2B1",
       instructions: DOCUMENT_AGENT_READABLE_INSTRUCTIONS,
+      preferredTransport: "mcp",
+      mcpUrl: "/content/mcp",
+      mcpConnectUrl: "/content/mcp/connect",
+      readAction: {
+        name: "get-document",
+        arguments: { id: "doc 1" },
+      },
     });
+  });
+
+  it("names the MCP action argument consistently in prose and structured guidance", () => {
+    const guidance = buildContentDocumentMcpGuidance("doc-1");
+
+    expect(guidance.readAction.arguments).toEqual({ id: "doc-1" });
+    expect(guidance.instructions).toContain("get-document with id");
+    expect(guidance.instructions).not.toContain("get-document with resourceId");
   });
 });

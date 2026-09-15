@@ -113,6 +113,15 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "Interface utilisateur",
+  "agentPanel.keyScope": "Portée de la clé",
+  "agentPanel.personalKeyScope": "Personnelle",
+  "agentPanel.organizationKeyScope": "Organisation",
+  "agentPanel.personalKeyInEffect": "Votre clé personnelle est utilisée.",
+  "agentPanel.organizationKeyInEffect":
+    "La clé de l’organisation est utilisée.",
+  "agentPanel.sharedKeyInEffect": "Une clé partagée est utilisée.",
+  "agentPanel.useOrganizationKey": "Utiliser la clé de l’organisation",
+  "agentPanel.keyStatusUnavailable": "L’état de la clé est indisponible.",
   "agentHostNudge.sidebarTitle": "Utiliser le chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Vous discutez déjà avec {{agent}}. Demandez-lui de travailler directement avec cette app.",
@@ -135,6 +144,25 @@ const messages: AgentChatTranslation = {
   "common.no": "Non",
   "common.retry": "Réessayer",
   "common.save": "Enregistrer",
+  "agents.hostedAgent": "Agent hébergé",
+  "agents.cardUrl": "URL de la carte de l’agent",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Authentification",
+  "agents.authNone": "Aucune authentification",
+  "agents.authBearer": "Jeton Bearer",
+  "agents.authClientCredentials": "Identifiants client OAuth",
+  "agents.chooseCredential": "Choisir un identifiant",
+  "agents.vault": "Coffre",
+  "agents.tokenUrl": "URL du jeton",
+  "agents.clientId": "ID client",
+  "agents.scope": "Portée",
+  "agents.authIncomplete":
+    "Complétez les champs d’authentification de l’agent hébergé.",
+  "agents.invalidUrl":
+    "Les URL d’agent doivent utiliser HTTPS, sauf pour localhost ou les URL de développement de bouclage.",
+  "agents.statusReachable": "Accessible",
+  "agents.statusAuthRejected": "Authentification refusée",
+  "agents.statusNoJsonRpc": "Pas de JSON-RPC",
   "common.saveFailed": "Échec de l’enregistrement",
   "common.saveFailedStatus": "Échec de l’enregistrement ({{status}})",
   "common.saving": "Enregistrement...",
@@ -346,6 +374,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Informations sur les données",
   "widget.dataTable": "Tableau de données",
   "widget.downloadCsv": "Télécharger le CSV",
+  "widget.connectProvider": "Connecter {{provider}}",
   "widget.loadingToolResult": "Chargement du résultat de l’outil",
   "widget.noRows": "Aucune ligne",
   "widget.points": "{{formattedCount}} points",
@@ -613,6 +642,10 @@ const messages: AgentChatTranslation = {
     "La connexion à l’agent a expiré avant la fin. Vous pouvez poursuivre à partir du travail partiel ou réessayer.",
   "errorMessages.invalidToolSchema":
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
+  "errorMessages.malformedRequest":
+    "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.malformedRequestAttachment":
+    "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
   "errorMessages.noProviderConnected":
     "Aucun fournisseur de LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs d’IA, puis connectez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":
@@ -762,6 +795,14 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Lecteur",
   "share.viewerDescription": "Peut consulter",
   "share.userGroup": "Groupe d’utilisateurs",
+  "settings.emailTitle": "Adresse e-mail",
+  "settings.emailChange": "Changer d’adresse e-mail",
+  "settings.emailChanging": "Envoi...",
+  "settings.emailChangeSent":
+    "Consultez vos e-mails pour confirmer ce changement.",
+  "settings.emailChangeError": "Impossible d’envoyer la confirmation.",
+  "settings.emailNewLabel": "Nouvelle adresse e-mail",
+  "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
 };
 
 export default messages;

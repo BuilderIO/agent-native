@@ -119,7 +119,10 @@ const messages = {
         stuck: "عالق",
         clean: "سليم",
         ineligible: "غير مؤهل",
+        merged: "مُدمج على GitHub",
         reopened: "أُعيد فتحه بعد التحديث",
+        mergeable_as_of:
+          "قابل للدمج؛ لن تُ ping Factory‏ Builder مرة أخرى على هذا الفرع.",
       },
       slack: {
         claimed: "مُستَلَم",
@@ -362,6 +365,9 @@ const messages = {
     auditSkipped: "{{count}} متخطى",
     auditStartedCount: "{{count}} بدأ",
     auditSeenBefore: "شوهد سابقاً",
+    auditMergedOnGitHub: "مُدمج على GitHub",
+    auditClosedOnGitHub: "مغلق على GitHub",
+    auditDraftOnGitHub: "مسودة على GitHub",
     auditNewThisRun: "جديد",
     auditAlreadyStarted: "بدأ مسبقاً",
     historyTab: "السجل",

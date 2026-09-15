@@ -247,6 +247,7 @@ const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
   "EMAIL_AGENT_ADDRESS",
   "EMAIL_INBOUND_WEBHOOK_SECRET",
   "ANTHROPIC_API_KEY",
+  "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
   "AGENT_NATIVE_BUILDER_RELAY_SECRET",
   "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS",
   "AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES",
@@ -5301,11 +5302,34 @@ function createBrowserOnlyServerStubPlugin() {
   };
 }
 
+function createEnterpriseAuthAdapterStubPlugin(enabled: boolean) {
+  if (enabled) return null;
+
+  const stubbed = new Set(["@better-auth/sso", "@better-auth/scim"]);
+  const stubIdPrefix = "\0agent-native-enterprise-auth-adapter-stub:";
+  return {
+    name: "agent-native-enterprise-auth-adapter-stub",
+    resolveId(id: string) {
+      const packageName = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+      return stubbed.has(packageName) ? `${stubIdPrefix}${packageName}` : null;
+    },
+    load(id: string) {
+      if (!id.startsWith(stubIdPrefix)) return null;
+      return "export default {};";
+    },
+  };
+}
+
 export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
 ): Record<string, string> {
+  const isEnabled = (value: string | undefined) =>
+    ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
@@ -5352,6 +5376,12 @@ export function resolveNitroBuildReplacements(
       JSON.stringify(
         JSON.stringify(resolveDeclaredRuntimePackageNames(projectCwd)),
       ),
+    // Enterprise auth adapters are optional at runtime, but must be present in
+    // the server bundle when an operator enables either feature. Baking this
+    // marker lets dead-code elimination keep them out of default deployments.
+    "process.env.AGENT_NATIVE_BUILD_ENTERPRISE_AUTH": JSON.stringify(
+      isEnabled(env.AUTH_SSO) || isEnabled(env.AUTH_SCIM) ? "true" : "false",
+    ),
     // Whether the recurring-jobs scheduled function exists is decided HERE, by
     // the build env. `scheduledTriggerAvailability` cannot re-derive it later —
     // a pipeline that sets the kill switch only for the build leaves no runtime
@@ -5415,6 +5445,12 @@ async function buildWithNitro() {
     ...loadEnv(nitroMode, cwd, ""),
     ...process.env,
   };
+  const enterpriseAuthAdaptersEnabled = [
+    nitroEnvironment.AUTH_SSO,
+    nitroEnvironment.AUTH_SCIM,
+  ].some((value) =>
+    ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? ""),
+  );
   const nitroAgentConfig = await loadResolvedAgentNativeConfig(
     cwd,
     createAgentNativeConfigContext("build", nitroMode),
@@ -5500,7 +5536,7 @@ export default bundle;
     },
     virtual: nitroVirtual,
     replace: resolveNitroBuildReplacements(
-      process.env,
+      nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
@@ -5531,6 +5567,9 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        ...(enterpriseAuthAdaptersEnabled
+          ? []
+          : [createEnterpriseAuthAdapterStubPlugin(false)]),
         ...(isAwsAmplifyPreset(preset)
           ? [
               {

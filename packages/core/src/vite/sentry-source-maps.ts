@@ -4,7 +4,7 @@
  * captured events. Both derive it from the same `resolveAgentNativeBuildId()`
  * identifier so they can't drift apart independently.
  */
-import { readdir, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 
 import { sentryVitePlugin } from "@sentry/vite-plugin";
@@ -65,20 +65,6 @@ export function isSentrySourceMapUploadEnabled(
   return resolveSentrySourceMapUploadConfig(env) !== null;
 }
 
-async function removeSourceMaps(directory: string): Promise<void> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  await Promise.all(
-    entries.map(async (entry) => {
-      const filePath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await removeSourceMaps(filePath);
-      } else if (entry.name.endsWith(".map")) {
-        await rm(filePath, { force: true });
-      }
-    }),
-  );
-}
-
 function createUploadedSourceMapCleanupPlugin(): Plugin {
   return {
     name: "agent-native:delete-uploaded-sentry-source-maps",
@@ -86,12 +72,21 @@ function createUploadedSourceMapCleanupPlugin(): Plugin {
     writeBundle: {
       order: "post",
       sequential: true,
-      async handler(outputOptions) {
-        if (outputOptions.dir) {
-          await removeSourceMaps(outputOptions.dir);
-        } else if (outputOptions.file) {
-          await rm(`${outputOptions.file}.map`, { force: true });
-        }
+      async handler(outputOptions, bundle) {
+        const outputDirectory = outputOptions.dir
+          ? outputOptions.dir
+          : path.dirname(outputOptions.file!);
+        const sourceMapFileNames = Object.values(bundle).flatMap((output) => {
+          if (output.type === "asset") {
+            return output.fileName.endsWith(".map") ? [output.fileName] : [];
+          }
+          return output.map ? [`${output.fileName}.map`] : [];
+        });
+        await Promise.all(
+          sourceMapFileNames.map((fileName) =>
+            rm(path.join(outputDirectory, fileName), { force: true }),
+          ),
+        );
       },
     },
   };

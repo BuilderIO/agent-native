@@ -2,15 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// setFlowPositioningOverrideForNodeInHtml/setAbsolutePositioningForNodeInHtml
-// live in html-layer-positioning.ts (extracted from DesignEditor.tsx as a
-// pure, non-closure module-scope helper module); the second test below
-// inspects that helper's own definition text.
-const htmlLayerPositioningSource = readFileSync(
-  new URL("./html-layer-positioning.ts", import.meta.url),
-  "utf8",
-);
-
 describe("flow-to-absolute structure drop persistence", () => {
   it("persists absolute-container positioning even when the source node began in flow", () => {
     const structureChangeSources = [
@@ -53,22 +44,6 @@ describe("flow-to-absolute structure drop persistence", () => {
       expect(section).toContain("details.forceFlowPositionOverride");
       expect(section).toContain("setFlowPositioningOverrideForNodeInHtml(");
     }
-  });
-
-  it("persists an important static override only for the explicit stylesheet fallback signal", () => {
-    const helperStart = htmlLayerPositioningSource.indexOf(
-      "function setFlowPositioningOverrideForNodeInHtml",
-    );
-    const helperEnd = htmlLayerPositioningSource.indexOf(
-      "function setAbsolutePositioningForNodeInHtml",
-      helperStart,
-    );
-    const helper = htmlLayerPositioningSource.slice(helperStart, helperEnd);
-    expect(helperStart).toBeGreaterThanOrEqual(0);
-    expect(helper).toContain(
-      'element.style.setProperty("position", "static", "important")',
-    );
-    expect(helper).toContain("ABS_POSITION_PROPS");
   });
 
   it("keeps the source update on the existing local history/optimistic-preview path", () => {

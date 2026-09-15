@@ -1,6 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { QueryClient } from "@tanstack/react-query";
+import type { RefObject } from "react";
 import { toast } from "sonner";
 
 import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
@@ -11,15 +12,16 @@ import {
   nextBlankScreenFilename,
 } from "@/pages/design-editor/canvas-primitive-insert";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import { getCanvasFrameGeometry } from "@/pages/design-editor/design-data-geometry-utils";
 import type { FileCreationHistoryEntry } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface AddScreenArgs {
   canEditDesign: boolean;
-  canvasFrameGeometryById: CanvasFrameGeometryById;
   createFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >;
+  designDataJsonRef: RefObject<Record<string, unknown>>;
   files: DesignFile[];
   focusCreatedScreen: (screenId: string, geometry: FrameGeometry) => void;
   id: string | undefined;
@@ -42,8 +44,8 @@ export interface AddScreenArgs {
 
 export function runAddScreen({
   canEditDesign,
-  canvasFrameGeometryById,
   createFileMutation,
+  designDataJsonRef,
   files,
   focusCreatedScreen,
   id,
@@ -80,7 +82,7 @@ export function runAddScreen({
             result,
           });
           writeFrameGeometrySnapshot({
-            ...canvasFrameGeometryById,
+            ...getCanvasFrameGeometry(designDataJsonRef.current),
             [nextId]: nextGeometry,
           });
           focusCreatedScreen(nextId, nextGeometry);

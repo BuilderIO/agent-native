@@ -55,6 +55,7 @@ async function applyRepeatStyleEdit() {
     await page.evaluate((todos) => {
       const template = document.querySelector("template")!;
       let at: Node = template;
+      const rows: HTMLElement[] = [];
       for (const text of todos) {
         const row = (
           template as HTMLTemplateElement
@@ -62,7 +63,15 @@ async function applyRepeatStyleEdit() {
         row.querySelector("span")!.textContent = text;
         at.parentNode!.insertBefore(row, at.nextSibling);
         at = row;
+        rows.push(row);
       }
+      // Mirror Alpine's ownership index so the bridge can identify these
+      // manually-created clones through its supported runtime ownership path.
+      (
+        template as HTMLTemplateElement & {
+          _x_lookup: Map<string, HTMLElement>;
+        }
+      )._x_lookup = new Map(rows.map((row, index) => [`todo-${index}`, row]));
     }, TODOS);
     await page.addScriptTag({ content: hydrated(HEAD) });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');

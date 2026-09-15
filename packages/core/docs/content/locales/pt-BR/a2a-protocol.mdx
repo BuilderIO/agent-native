@@ -358,6 +358,92 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## Conexões de agentes hospedados {#hosted-agent-connections}
+
+Um agente hospedado pode participar do A2A quando expõe um endpoint A2A
+compatível. Um provedor de modelos ou SDK de agentes sozinho não é um par A2A.
+Mantenha a interface, as ações e o banco de dados do app no host normal da
+aplicação e conecte o runtime do agente por um adaptador ou pelo endpoint A2A.
+
+Uma conexão hospedada tem metadados do endpoint e um descritor de autenticação.
+Mantenha esses metadados com o recurso do agente remoto ou o registro da
+conexão. Nunca coloque um token ou segredo de cliente no manifesto:
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url` é o endpoint de invocação ou a URL base. `cardUrl` é opcional quando a
+descoberta usa `/.well-known/agent-card.json`. Use-o quando o provedor publicar
+o card em outro caminho. O cliente lê a versão do protocolo no card do agente.
+Se o card do provedor não a incluir, passe `protocolVersion` diretamente para
+`A2AClient`. `auth` descreve como o código do servidor obtém um token bearer. Os
+descritores aceitos são `bearer` com um `credentialRef` armazenado no vault, ou
+`oauth-client-credentials` com `tokenUrl`, `clientId`, `clientSecretRef` e
+`scope`. `credentialRef` e `clientSecretRef` são referências a segredos, nunca
+os valores dos segredos.
+
+### A2A bearer genérico {#generic-bearer-a2a}
+
+Use o cliente padrão quando o par aceitar `Authorization: Bearer ...`, fornecer
+um card compatível e aceitar JSON-RPC Agent-Native:
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+Resolva `token` no servidor por meio da conexão do workspace ou do vault. Não o
+envie por código do navegador, não o escreva em um manifesto e não o inclua em
+um prompt. Uma chave de API estática é apenas uma credencial de transporte para
+o serviço remoto. Ela não estabelece a identidade do chamador Agent-Native nem
+carrega `approvedActions`.
+
+### Microsoft Foundry {#microsoft-foundry}
+
+[Os agentes hospedados do Azure AI Foundry](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+executam seu código ou contêiner de agente atrás de endpoint, identidade,
+escalonamento, estado de sessão e observabilidade gerenciados. Esse modelo
+hospeda o runtime do agente. Mantenha a interface, as ações e a implantação
+PostgreSQL do Agent-Native no host do app e chame o endpoint do Foundry pelo
+código do servidor.
+
+O Foundry pode expor um endpoint A2A por meio do [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
+Ele exige autenticação do Microsoft Entra, e o chamador precisa da permissão
+Foundry Agent Consumer. Use o card e o endpoint v0.3 do provedor com `cardUrl`
+e `protocolVersion` quando o endpoint falar JSON-RPC Agent-Native. O provedor de
+tokens deve obter e renovar um token de acesso do Entra. `A2A_SECRET` e uma
+chave de API estática não atendem à autenticação do Foundry.
+
+### Gemini Enterprise {#gemini-enterprise}
+
+[O Gemini Enterprise pode registrar agentes A2A externos](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
+e o Agent Registry pode publicar um endpoint proxy. A vinculação HTTP+JSON usa
+caminhos específicos do provedor: descoberta usa `GET {url}/v1/card`, invocação
+usa `POST {url}/v1/message:send` e streaming usa `POST {url}/v1/message:stream`.
+As solicitações usam tokens bearer do Google OAuth ou ADC e permissões do Google
+Cloud IAM. Consulte [Chamar um agente usando seu endpoint A2A do registro](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+para os requisitos de endpoint e permissões.
+
+Esses caminhos diferem dos caminhos JSON-RPC Agent-Native
+(`/.well-known/agent-card.json` e `/_agent-native/a2a`). Registre o endpoint
+somente depois de adicionar um adaptador que traduza o formato do protocolo e
+obtenha e renove as credenciais do Google. Se o destino expuser um endpoint A2A
+padrão separado, use-o com a orientação de bearer genérico. O tráfego de registro
+do Gemini Enterprise não passa pelas políticas do Agent Gateway, então aplique a
+política de autenticação e autorização do próprio destino.
+
 ## Invocação programática do espaço de trabalho {#programmatic-invoke}
 
 Para espaços de trabalho nativos do agente, prefira o auxiliar `agentNative` ao codificar ou um

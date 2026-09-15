@@ -3,6 +3,74 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-15
+
+### Improved
+
+- Mail labels recipient and account controls for keyboard and assistive-technology parity.
+- Match Superhuman's compact compose card geometry on desktop
+
+### Fixed
+
+- New drafts focus the To field immediately for keyboard-first composing
+
+## 2026-09-14
+
+### Added
+
+- Find implemented keyboard shortcuts by context from the Command menu.
+
+### Improved
+
+- Choose a send time by typing a date or time in natural language.
+- Keyboard navigation keeps recipient suggestions visible
+- Mail Trash shortcuts now also support #
+- Make Mail search clear buttons keyboard-activatable while preserving input focus
+- New and reopened drafts open in a compact compose card, with fullscreen opt-in.
+- Replies can be sent and marked Done with a shortcut or preference
+- Screen readers can identify Mail's Search and clear controls.
+- Send Later and Send + Mark Done are available in the compose command palette
+
+### Fixed
+
+- Canceled inbox swipes no longer suppress the next tap on a message.
+- Expired multi-key shortcuts no longer fire after a layout refresh.
+- Mail move actions stay on the selected mailbox account
+- Mail now prompts you to finish or clear recipient text before sending or scheduling.
+- Mail triage actions stay on the selected mailbox account
+- Recipient autocomplete resets its highlighted suggestion when the search query changes.
+- Search works on keyboard layouts that require Shift to type the slash key.
+- Starting another draft brings it into view even when an existing draft is minimized.
+- The message-list A shortcut now opens a Reply All draft
+- Forward drafts now retain the original message attachments
+- Undo for archive and trash actions now targets only the latest operation and expires after 10 seconds.
+
+## 2026-09-13
+
+### Added
+
+- Compose can suggest common phrases on desktop when autocomplete is enabled
+
+### Improved
+
+- Escape clears the command search before closing the palette and returns focus to the control that opened it.
+- Tab stays in compose fields, and a shortcut opens Bcc directly.
+
+### Fixed
+
+- All Mail and Archive now show their correct keyboard shortcuts in the command palette.
+- Drafts and sent messages now use the selected Gmail account.
+- Fixed Mail to keep scheduled sends bound to the selected account, validate recipients, and report incomplete account and move operations.
+- G+A now opens All Mail instead of Archive.
+- Gmail drafts report account refresh failures clearly, and multi-account inbox sync avoids repeated lookups.
+- Harden scheduled sends and mixed-account moves; localize move confirmations.
+- Mail chooses a usable connected account when the default mailbox cannot refresh
+- Mail fetches labels from a managed Gmail account when its cache is empty alongside OAuth accounts
+- Mail no longer shows a failed OAuth account as connected through a same-address workspace grant.
+- Mail reports Gmail account read failures instead of showing incomplete results as empty.
+- Search and recipient autocomplete keep keyboard selection aligned with current suggestions
+- Search opens and focuses from the command menu
+
 ## 2026-09-12
 
 ### Improved

@@ -7,8 +7,11 @@ import {
   countBabysitComments,
   countFactoryBabysitComments,
   decideBabysitPing,
+  commentBodyLooksLikeBotFailureAfterPing,
   deferBabysitQuietWindowExpired,
   detectBotErrorAfterPing,
+  stripCodeContextForBotErrorScan,
+  BABYSIT_COMMENT_V2,
   DEFAULT_BABYSIT_PR_COMMENT,
   formatBabysitAuditSummary,
   hasCompletePassingChecks,
@@ -714,9 +717,37 @@ describe("babysit work policy", () => {
           { body: DEFAULT_BABYSIT_PR_COMMENT, author: "steve8708" },
         ],
         "factory-bot",
+        1,
       ),
     ).toBe(1);
     expect(countFactoryBabysitComments([], "factory-bot")).toBe(0);
+  });
+
+  it("counts v2 Factory ping comments by version prefix", () => {
+    expect(
+      countFactoryBabysitComments(
+        [{ body: BABYSIT_COMMENT_V2, author: "factory-bot" }],
+        "factory-bot",
+        2,
+      ),
+    ).toBe(1);
+  });
+
+  it("treats outdated bot threads as clean when no other work remains", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      comments: [
+        comment({
+          id: "bot1",
+          author: "builder-io-integration[bot]",
+          body: "please fix",
+          isOutdated: true,
+        }),
+      ],
+      botAuthors: ["builder-io-integration[bot]"],
+    });
+    expect(result.unansweredBotComments).toHaveLength(0);
+    expect(result.isClean).toBe(true);
   });
 
   it("treats unresolved bot review threads as not clean", () => {
@@ -933,6 +964,64 @@ describe("babysit work policy", () => {
         lastCommentAtMs: pingAt,
       }),
     ).toBe(true);
+  });
+
+  it("detects Builder generic retry banners after Factory's ping", () => {
+    const pingAt = Date.parse("2026-08-11T15:23:49.000Z");
+    expect(
+      detectBotErrorAfterPing({
+        comments: [],
+        issueComments: [
+          {
+            author: "builder-io-integration[bot]",
+            body: "There was a problem with your request, please try again later. Error id: 123",
+            createdAt: "2026-08-11T15:24:00.000Z",
+          },
+        ],
+        lastCommentAtMs: pingAt,
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores technical error prose in Builder disposition replies", () => {
+    const pingAt = Date.parse("2026-09-14T22:31:32.208Z");
+    expect(
+      detectBotErrorAfterPing({
+        comments: [
+          {
+            id: "root-1",
+            author: "builder-io-integration",
+            inReplyToId: null,
+            body: "#### review finding",
+            createdAt: "2026-09-14T21:41:53.000Z",
+          },
+          {
+            id: "reply-1",
+            author: "builder-io-integration",
+            inReplyToId: "root-1",
+            body: "Not fixed — acknowledged and deliberate.\n\nDynamic error text passing through unlocalised is also the existing behaviour of this module for provider payload messages.",
+            createdAt: "2026-09-14T22:41:35.000Z",
+          },
+        ],
+        lastCommentAtMs: pingAt,
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores dotted error identifiers inside inline code", () => {
+    expect(
+      commentBodyLooksLikeBotFailureAfterPing(
+        "`gateway-error-lane-parity.spec.ts` asserts exactly this for the 402 credits limit case (`expect(credits.stop.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE)`).",
+      ),
+    ).toBe(false);
+    expect(
+      stripCodeContextForBotErrorScan("an error path, and centralising"),
+    ).toBe("an error path, and centralising");
+    expect(
+      commentBodyLooksLikeBotFailureAfterPing(
+        "an error path, and centralising",
+      ),
+    ).toBe(false);
   });
 
   it("reopens defer after the builder quiet window expires", () => {

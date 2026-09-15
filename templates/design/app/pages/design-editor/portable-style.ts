@@ -75,12 +75,8 @@ export function applyPortableStyleSnapshotToHtml(
   if (typeof window === "undefined" || !snapshot?.nodes?.length) {
     return content;
   }
-  // Do NOT skip based on source/dest stylesheet <head> equality: identical
-  // heads don't prove an identical cascade (body classes, ancestor
-  // selectors, and other document-level context can still differ), and this
-  // apply is idempotent when the values already match — so there is nothing
-  // to gain by trying to detect "already equal" and every way to gain by not
-  // getting it wrong.
+  // Equal heads do not guarantee equal body/ancestor cascades.
+  // ponytail: inline snapshots may mask later responsive stylesheet rules.
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const root = doc.querySelector(
