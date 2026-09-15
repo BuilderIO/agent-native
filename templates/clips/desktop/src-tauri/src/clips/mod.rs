@@ -1764,7 +1764,11 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         // stale (pre-resize) read here would center/clamp against the old,
         // narrower width and let the window balloon past the screen edge
         // once the real resize lands a moment later.
-        let target_scale = w.scale_factor().unwrap_or(1.0).max(1.0);
+        let target_scale = monitor
+            .as_ref()
+            .map(|monitor| monitor.scale_factor())
+            .unwrap_or_else(|| w.scale_factor().unwrap_or(1.0))
+            .max(1.0);
         let target_physical = PhysicalSize::new(
             (window_width * target_scale).round() as u32,
             (window_height * target_scale).round() as u32,
