@@ -4,6 +4,7 @@ import type {
   AgentHarnessContinueInput,
   AgentHarnessCreateSessionOptions,
   AgentHarnessEvent,
+  AgentHarnessPermissionMode,
   AgentHarnessSession,
   AgentHarnessTurnInput,
 } from "./types.js";
@@ -52,6 +53,21 @@ const dynamicImport = new Function("specifier", "return import(specifier)") as (
   specifier: string,
 ) => Promise<any>;
 
+/** @internal */
+export function resolveAiSdkHarnessPermissionMode(
+  runtime: AiSdkHarnessRuntime,
+  requested?: AgentHarnessPermissionMode,
+): AgentHarnessPermissionMode {
+  const permissionMode =
+    requested ?? (runtime === "codex" ? "allow-all" : "allow-reads");
+  if (runtime === "codex" && permissionMode !== "allow-all") {
+    throw new Error(
+      `[agent-harness] The Codex AI SDK harness only supports permissionMode "allow-all".`,
+    );
+  }
+  return permissionMode;
+}
+
 export function createAiSdkHarnessAdapter(
   options: AiSdkHarnessAdapterOptions,
 ): AgentHarnessAdapter {
@@ -75,6 +91,10 @@ export function createAiSdkHarnessAdapter(
     installPackage: `@ai-sdk/harness@latest ${runtime.packageName}@latest`,
     capabilities,
     async createSession(sessionOptions) {
+      const permissionMode = resolveAiSdkHarnessPermissionMode(
+        options.runtime,
+        sessionOptions.permissionMode ?? options.permissionMode,
+      );
       const [{ HarnessAgent }, runtimeModule] = await Promise.all([
         dynamicImport("@ai-sdk/harness/agent"),
         dynamicImport(runtime.packageName),
@@ -105,10 +125,7 @@ export function createAiSdkHarnessAdapter(
           : {}),
         ...(sessionOptions.skills ? { skills: sessionOptions.skills } : {}),
         ...(sessionOptions.tools ? { tools: sessionOptions.tools } : {}),
-        permissionMode:
-          sessionOptions.permissionMode ??
-          options.permissionMode ??
-          "allow-reads",
+        permissionMode,
       });
 
       const nativeSession = await createNativeSession(agent, sessionOptions);
@@ -117,29 +134,32 @@ export function createAiSdkHarnessAdapter(
   };
 }
 
-async function createNativeSession(
+/** @internal */
+export async function createNativeSession(
   agent: any,
   options: AgentHarnessCreateSessionOptions,
 ): Promise<any> {
-  if (options.resumeState && typeof agent.resumeSession === "function") {
-    return agent.resumeSession(options.resumeState);
-  }
-  if (options.resumeState && typeof agent.createSession === "function") {
-    try {
-      return await agent.createSession({ resumeState: options.resumeState });
-    } catch (error) {
-      if (isExplicitlyMissingHarnessSession(error)) {
-        return agent.createSession();
-      }
-      throw error;
-    }
+  if (options.resumeState != null && options.sessionId == null) {
+    throw new Error(
+      "[agent-harness] Resuming an AI SDK Harness session requires sessionId.",
+    );
   }
   if (typeof agent.createSession !== "function") {
     throw new Error(
       "[agent-harness] HarnessAgent does not expose createSession()",
     );
   }
-  return agent.createSession();
+
+  const createOptions = {
+    ...(options.sessionId !== undefined
+      ? { sessionId: options.sessionId }
+      : {}),
+    ...(options.resumeState != null ? { resumeFrom: options.resumeState } : {}),
+    ...(options.signal ? { abortSignal: options.signal } : {}),
+  };
+  return Object.keys(createOptions).length > 0
+    ? agent.createSession(createOptions)
+    : agent.createSession();
 }
 
 class AiSdkHarnessSession implements AgentHarnessSession {
@@ -299,16 +319,4 @@ function normalizeFileOperation(
     value === "rename"
     ? value
     : "unknown";
-}
-
-function isExplicitlyMissingHarnessSession(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "";
-  return /(?:session|conversation).*(?:not found|does not exist|unknown|unsupported)|(?:unknown|unsupported).*(?:session|conversation)/i.test(
-    message,
-  );
 }

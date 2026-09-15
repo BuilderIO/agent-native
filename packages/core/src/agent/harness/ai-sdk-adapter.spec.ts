@@ -1,6 +1,49 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { aiSdkHarnessPartToEvents } from "./ai-sdk-adapter.js";
+import {
+  aiSdkHarnessPartToEvents,
+  createNativeSession,
+  resolveAiSdkHarnessPermissionMode,
+} from "./ai-sdk-adapter.js";
+
+describe("AI SDK harness session setup", () => {
+  it("uses Codex's supported default and rejects unsupported modes", () => {
+    expect(resolveAiSdkHarnessPermissionMode("codex")).toBe("allow-all");
+    expect(resolveAiSdkHarnessPermissionMode("claude-code")).toBe(
+      "allow-reads",
+    );
+    expect(() =>
+      resolveAiSdkHarnessPermissionMode("codex", "allow-reads"),
+    ).toThrow(/allow-all/);
+  });
+
+  it("passes the stable session resume contract to HarnessAgent", async () => {
+    const createSession = vi.fn().mockResolvedValue({ id: "native-session" });
+    const resumeState = { type: "resume-session", data: {} };
+
+    await createNativeSession(
+      { createSession },
+      {
+        sessionId: "agent-session",
+        resumeState,
+      },
+    );
+
+    expect(createSession).toHaveBeenCalledWith({
+      sessionId: "agent-session",
+      resumeFrom: resumeState,
+    });
+  });
+
+  it("does not silently start a fresh session without a resume id", async () => {
+    await expect(
+      createNativeSession(
+        { createSession: vi.fn() },
+        { resumeState: { type: "resume-session", data: {} } },
+      ),
+    ).rejects.toThrow(/requires sessionId/);
+  });
+});
 
 describe("aiSdkHarnessPartToEvents", () => {
   it("maps AI SDK stream text and tool parts to harness events", () => {
