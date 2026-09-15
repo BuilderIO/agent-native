@@ -13,10 +13,17 @@ import {
 } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { queryFirstSelector } from "@/pages/design-editor/clone-and-pen-edit";
 import {
   codeLayerPatchMessage,
+  codeLayerSelectorAliases,
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "@/pages/design-editor/commands/selection-publication";
 import {
   captureContentUndoStackTop,
   captureYjsUndoStackTop,
@@ -66,28 +73,52 @@ export function collectLiveSizeHints(
     boardFileId,
   )?.contentDocument;
   if (!doc) return hints;
-  for (const nodeId of nodeIds) {
-    // Mirrors applyWrapNodes's own target resolution: a caller-supplied id
-    // can be either the real data-agent-native-node-id attribute or the
-    // projection's internal node id — only the attribute value is queryable
-    // in the live DOM.
-    const node = projection.nodes.find(
-      (n) =>
-        n.dataAttributes["data-agent-native-node-id"] === nodeId ||
-        n.id === nodeId,
+  for (const requestedId of nodeIds) {
+    let node = projection.nodes.find(
+      (candidate) => candidate.id === requestedId,
     );
-    const attrId = node?.dataAttributes["data-agent-native-node-id"];
-    if (!attrId) continue;
-    const el = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(attrId)}"]`,
-    );
-    if (!el) continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-      // Keyed by the real attribute value: computeAbsoluteUnionBounds
-      // reads data-agent-native-node-id straight off the parsed element,
-      // not the caller's (possibly internal-projection-id) target id.
-      hints[attrId] = { width: rect.width, height: rect.height };
+    if (!node) {
+      const rawIdMatches = projection.nodes.filter(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] === requestedId,
+      );
+      // Raw source IDs are only a safe fallback when the projection has
+      // exactly one owner. Duplicate legacy IDs must not collapse multiple
+      // nodes onto whichever attribute selector happens to match first.
+      if (rawIdMatches.length !== 1) continue;
+      node = rawIdMatches[0];
+    }
+    if (!node) continue;
+
+    const rawId = node.dataAttributes["data-agent-native-node-id"];
+    const sameRawIdNodes = rawId
+      ? projection.nodes.filter(
+          (candidate) =>
+            candidate.dataAttributes["data-agent-native-node-id"] === rawId,
+        )
+      : [];
+    // The stable-attribute alias is ambiguous for legacy duplicate IDs; use
+    // only this node's positional path. If that exact path is absent from the
+    // live iframe, do not fall through to an alias that could now identify a
+    // surviving sibling instead.
+    const selectors =
+      sameRawIdNodes.length > 1 ? [node.path] : codeLayerSelectorAliases(node);
+    const element = queryFirstSelector(doc, selectors);
+    const iframeWindow = doc.defaultView;
+    if (
+      !element ||
+      !iframeWindow ||
+      !(element instanceof iframeWindow.HTMLElement)
+    ) {
+      continue;
+    }
+    // offsetWidth/offsetHeight preserve the element's layout border box.
+    // getBoundingClientRect includes transforms and iframe scaling, which
+    // would inflate the source-space frame geometry for rotated/scaled nodes.
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+    if (width > 0 && height > 0) {
+      hints[node.id] = { width, height };
     }
   }
   return hints;
@@ -110,7 +141,7 @@ export interface FrameSelectionArgs {
       clipboardMutation?: ClipboardContentMutationPublication;
       selectionBefore?: YjsUndoSelectionSnapshot;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   boardFileId: string | undefined;
   canEditDesign: boolean;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
@@ -144,8 +175,9 @@ export function runFrameSelection({
 }: FrameSelectionArgs) {
   if (!canEditDesign || !activeFile) return;
   const baseContent = getFreshActiveContent();
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
   const fileIds = new Set(files.map((f) => f.id));
-  const baseProjection = buildCodeLayerProjection(baseContent);
+  const baseProjection = buildCodeLayerProjection(baseContent, { source });
   const activeNodeIdSet = buildActiveFileNodeIdSet(baseProjection);
   const nodeIds = selectedLayerIdsState.filter(
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
@@ -164,18 +196,23 @@ export function runFrameSelection({
     activeIframeId,
     boardFileId,
   );
-  const patch = applyVisualEdit(baseContent, {
-    kind: "wrapNodes",
-    targetIds: nodeIds,
-    autoLayout: false,
-    wrapperKind: "frame",
-    sizeHints,
-  });
+  const patch = applyVisualEdit(
+    baseContent,
+    {
+      kind: "wrapNodes",
+      targetIds: nodeIds,
+      autoLayout: false,
+      wrapperKind: "frame",
+      sizeHints,
+    },
+    { source },
+  );
   if (patch.result.status !== "applied") {
     toast.error(
       codeLayerPatchMessage(
         patch.result.message,
         t("designEditor.toasts.layerMoveFailed"),
+        t,
       ),
       { duration: 4000 },
     );
@@ -197,23 +234,8 @@ export function runFrameSelection({
       "Frame",
     );
     if (renamed) nextContent = renamed;
-    const taggedProjection = buildCodeLayerProjection(nextContent);
-    const taggedNode = taggedProjection.nodes.find(
-      (n) =>
-        n.dataAttributes["data-agent-native-node-id"] ===
-        patch.result.wrapperNodeId,
-    );
-    if (taggedNode) {
-      const tagged = setCodeLayerAttributeInHtml(
-        nextContent,
-        taggedNode,
-        "data-an-primitive",
-        "frame",
-      );
-      if (tagged) nextContent = tagged;
-    }
     wrapperNode =
-      buildCodeLayerProjection(nextContent).nodes.find(
+      buildCodeLayerProjection(nextContent, { source }).nodes.find(
         (n) =>
           n.dataAttributes["data-agent-native-node-id"] ===
           patch.result.wrapperNodeId,
@@ -240,10 +262,25 @@ export function runFrameSelection({
   const contentUndoStackTopBeforeFrame = captureContentUndoStackTop(
     contentUndoStackRef.current,
   );
-  applyLocalContentUpdate(nextContent, {
+  const initialWrapperNode = wrapperNode;
+  const submittedProjection = buildCodeLayerProjection(nextContent, { source });
+  const submittedWrapper = initialWrapperNode
+    ? submittedProjection.nodes.find(
+        (candidate) => candidate.id === initialWrapperNode.id,
+      )
+    : undefined;
+  const publication = applyLocalContentUpdate(nextContent, {
     forcePreviewFullDocument: true,
     selectionBefore: selectionBeforeFrame,
   });
+  if (publication.status !== "accepted") return;
+  const acceptedProjection = projectAcceptedSource(publication, source);
+  wrapperNode =
+    mapAcceptedSelectionNode(
+      publication,
+      acceptedProjection,
+      submittedWrapper,
+    ) ?? undefined;
   stampYjsUndoSelection(
     undoManagerRef.current,
     undoStackTopBeforeFrame,

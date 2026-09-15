@@ -34,12 +34,18 @@ const mockActiveOrg = vi.hoisted(() => ({
   current: { orgId: "org-a" } as { orgId: string | null } | undefined,
 }));
 const mockOrgPending = vi.hoisted(() => ({ current: false }));
+const mockOrgQueryOptions = vi.hoisted(() => ({
+  values: [] as Array<{ enabled?: boolean } | undefined>,
+}));
 
 vi.mock("@agent-native/core/client/org", () => ({
-  useOrg: () => ({
-    data: mockActiveOrg.current,
-    isPending: mockOrgPending.current,
-  }),
+  useOrg: (options?: { enabled?: boolean }) => {
+    mockOrgQueryOptions.values.push(options);
+    return {
+      data: mockActiveOrg.current,
+      isPending: mockOrgPending.current,
+    };
+  },
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
@@ -121,6 +127,7 @@ beforeEach(() => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   mockActiveOrg.current = { orgId: "org-a" };
   mockOrgPending.current = false;
+  mockOrgQueryOptions.values = [];
 });
 
 afterEach(async () => {
@@ -162,6 +169,18 @@ describe("PromptPopover draft isolation", () => {
     );
     expect(composer?.getAttribute("data-draft-scope")).toBe(
       "Tweak design:org-a",
+    );
+  });
+
+  it("keeps host prompts anonymous without querying the active org", async () => {
+    await renderPopover({ scopeDraftsToOrg: false });
+    const composer = container!.querySelector(
+      '[data-testid="prompt-composer"]',
+    );
+
+    expect(mockOrgQueryOptions.values).toContainEqual({ enabled: false });
+    expect(composer?.getAttribute("data-draft-scope")).toBe(
+      "Generate design:anonymous",
     );
   });
 

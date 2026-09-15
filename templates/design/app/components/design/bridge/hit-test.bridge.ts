@@ -16,8 +16,10 @@
  *     placement: 'before'|'after'|'inside', axis: 'x'|'y',
  *     anchorRect: { left: number, top: number, width: number, height: number } }
  *
- * `anchorSelector` accompanies `pendingNodeId`: a body-rooted structural
- * `tag:nth-of-type(n) > …` path whose nth indexes are SOURCE-EQUIVALENT —
+ * `anchorSelector` accompanies `pendingNodeId`, and also accompanies an
+ * ambiguous stable anchor id only when the hit-test has an exact source
+ * revision proof: a body-rooted structural `tag:nth-of-type(n) > …` path
+ * whose nth indexes are SOURCE-EQUIVALENT —
  * computed against the live DOM but skipping Alpine-generated siblings
  * (x-for clones and x-if instantiations, identified via the sibling
  * templates' own `_x_lookup` / `_x_currentIfEl` bookkeeping) and
@@ -279,6 +281,7 @@
     if (!el || el === document.body || el === document.documentElement) {
       return false;
     }
+    if (isAutoLayoutElement(el)) return false;
     if (window.getComputedStyle(el).position === "static") return false;
     var children = el.children;
     if (children.length === 0) return false;
@@ -295,6 +298,7 @@
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
     if (!el || el.nodeType !== 1) return false;
     if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
+    if (isAutoLayoutElement(el)) return false;
     var primitive = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
@@ -305,13 +309,14 @@
       // other drawn shapes stay leaves, matching what
       // appendCanvasPrimitiveToHtml enforces on draw.
       if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
-    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+    } else if (!hasAbsolutePositionedChild(el)) {
       // Unmarked markup is judged by how it positions its CHILDREN, not by its
       // own position: an absolutely positioned card whose children are in
       // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
     }
     var cs = window.getComputedStyle(el);
+    if (primitive === "frame" && cs.position === "relative") return true;
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
@@ -388,9 +393,63 @@
       el.getAttribute("data-code-layer-id") ||
       el.getAttribute("data-layer-id") ||
       el.getAttribute("data-builder-id") ||
+      el.getAttribute("data-loc") ||
       el.id ||
       ""
     );
+  }
+
+  function escapeAttribute(value: unknown): string {
+    var text = String(value);
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(text);
+    }
+    return text.replace(/[\0-\x1f\x7f\\"]/g, function (character) {
+      if (character === "\\" || character === '"') return "\\" + character;
+      return "\\" + character.charCodeAt(0).toString(16) + " ";
+    });
+  }
+
+  function isUniqueRenderedNodeId(
+    nodeId: string,
+    expectedElement: Element | null,
+  ): boolean {
+    if (!nodeId) return false;
+    var selectors = [
+      '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
+      '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+      '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+      '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+      '[data-loc="' + escapeAttribute(nodeId) + '"]',
+      '[id="' + escapeAttribute(nodeId) + '"]',
+    ];
+    var matches = document.querySelectorAll(selectors.join(","));
+    return matches.length === 1 && matches[0] === expectedElement;
+  }
+
+  function getAnchorNodeProvenance(
+    nodeId: string,
+    anchor: Element | null,
+  ): { versionHash?: string; uniqueNodeId?: string } | undefined {
+    if (!anchor || isTemplateCloneElement(anchor)) return undefined;
+    var candidate = (window as any).__agentNativeSourceProvenance;
+    if (!candidate || typeof candidate !== "object") return undefined;
+    var versionHash =
+      typeof candidate.versionHash === "string" && candidate.versionHash
+        ? candidate.versionHash
+        : undefined;
+    var uniqueNodeId =
+      nodeId &&
+      Array.isArray(candidate.uniqueNodeIds) &&
+      candidate.uniqueNodeIds.indexOf(nodeId) !== -1 &&
+      isUniqueRenderedNodeId(nodeId, anchor)
+        ? nodeId
+        : undefined;
+    if (!versionHash && !uniqueNodeId) return undefined;
+    var provenance: { versionHash?: string; uniqueNodeId?: string } = {};
+    if (versionHash) provenance.versionHash = versionHash;
+    if (uniqueNodeId) provenance.uniqueNodeId = uniqueNodeId;
+    return provenance;
   }
 
   function layerNameForElement(el: Element | null): string {
@@ -402,41 +461,18 @@
     );
   }
 
-  // Detects an Alpine `<template x-for>` runtime clone: Alpine keeps the
-  // `<template>` element itself in the live DOM (as a hidden, zero-size
-  // marker) and inserts every rendered instance as a DIRECT SIBLING of that
-  // template, all still children of the same parent — so `ul > template,
-  // li, li, li` is the live shape for `<ul><template x-for>...</template>
-  // rendering 3 items</ul>`. The static SOURCE HTML the host resolves moves
-  // against only ever contains the single template child, never the N
-  // runtime clones, so a hit-test anchor resolved onto a clone — or onto a
-  // container whose only children are clones, if the caller doesn't skip
-  // them — can never resolve on the host and always comes back
-  // `applied:false`. Detected once per hit-test via an ancestor walk (not
-  // just the immediate parent) so nested x-for clones (e.g. a subtask `<li>`
-  // inside a per-task `<ul>` that is itself x-for'd) are also caught,
-  // stopping at the first stable-id ancestor (anything inside a stamped
-  // subtree has a real anchor and is fine).
+  // Detects exact Alpine-generated x-for/x-if instances by the template's own
+  // lookup/current-instance references. Walk through every ancestor so a
+  // descendant inside a clone is refused too; copied stable IDs do not turn a
+  // runtime instance into an authored source node.
   //
   // keep in sync with editor-chrome.bridge.ts isTemplateCloneElement
   function isTemplateCloneElement(el: Element | null): boolean {
     var node: Element | null = el;
     while (node && node !== document.documentElement) {
-      if (getNodeId(node)) return false;
       var parent = node.parentElement;
       if (!parent) return false;
-      var siblings = parent.children;
-      for (var i = 0; i < siblings.length; i += 1) {
-        var sib = siblings[i];
-        if (
-          sib !== node &&
-          sib.tagName &&
-          sib.tagName.toLowerCase() === "template" &&
-          sib.hasAttribute("x-for")
-        ) {
-          return true;
-        }
-      }
+      if (alpineGeneratedChildrenOf(parent).indexOf(node) !== -1) return true;
       node = parent;
     }
     return false;
@@ -539,7 +575,7 @@
     var children = parent.children;
     for (var i = 0; i < children.length; i += 1) {
       var child = children[i] as Element & {
-        _x_lookup?: Record<string, Element>;
+        _x_lookup?: Map<unknown, Element> | Record<string, Element>;
         _x_currentIfEl?: Element;
       };
       if (!child.tagName || child.tagName.toLowerCase() !== "template") {
@@ -549,10 +585,21 @@
         if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
         var lookup = child._x_lookup;
         if (lookup) {
-          for (var key in lookup) {
-            if (Object.prototype.hasOwnProperty.call(lookup, key)) {
-              var item = lookup[key];
+          var map = lookup as Map<unknown, Element>;
+          if (
+            typeof map.forEach === "function" &&
+            typeof map.get === "function"
+          ) {
+            map.forEach(function (item) {
               if (item) generated.push(item);
+            });
+          } else {
+            var record = lookup as Record<string, Element>;
+            for (var key in record) {
+              if (Object.prototype.hasOwnProperty.call(record, key)) {
+                var item = record[key];
+                if (item) generated.push(item);
+              }
             }
           }
         }
@@ -1133,11 +1180,28 @@
     // attribute writes; a HOST caller decides whether/when to persist it.
     var pendingNodeId: string =
       result && !anchorNodeId ? getOrMintPendingNodeId(result.anchor) : "";
-    // Only computed alongside a minted pendingNodeId — it exists so a host
-    // can persist that pending id into the stored document (see the file
-    // header's anchorSelector contract). "" (omitted) when the anchor is an
-    // Alpine-generated instance with no source node.
-    var anchorSelector: string = pendingNodeId
+    // Pending ids are newly minted runtime markers, not authored ids. They
+    // can carry the rendered document revision, but are never promoted to a
+    // unique authored-node claim.
+    var targetAnchorProvenance = getAnchorNodeProvenance(
+      anchorNodeId,
+      result ? result.anchor : null,
+    );
+    // An idless anchor needs its selector so the host can persist the pending
+    // id into the stored document. An existing stable ID also needs a
+    // selector when it is not uniquely proven; in that case only an exact
+    // rendered-source version hash authorizes the positional fallback. ""
+    // (omitted) when the anchor is an Alpine-generated instance with no
+    // source node.
+    var needsSourceSelector =
+      Boolean(pendingNodeId) ||
+      Boolean(
+        anchorNodeId &&
+        targetAnchorProvenance &&
+        targetAnchorProvenance.versionHash &&
+        !targetAnchorProvenance.uniqueNodeId,
+      );
+    var anchorSelector: string = needsSourceSelector
       ? buildSourceEquivalentSelector(result ? result.anchor : null)
       : "";
     var placement: string = result ? result.placement : "inside";
@@ -1150,6 +1214,7 @@
           type: "agent-native:hit-test-result",
           correlationId: correlationId,
           anchorNodeId: anchorNodeId,
+          targetAnchorProvenance: targetAnchorProvenance,
           pendingNodeId: pendingNodeId || undefined,
           anchorSelector: anchorSelector || undefined,
           placement: placement,

@@ -1,4 +1,8 @@
-import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  applyVisualEdit,
+  buildCodeLayerProjection,
+  type CodeLayerSource,
+} from "@shared/code-layer";
 
 import {
   inferFlowAxisFromRects,
@@ -243,11 +247,14 @@ export type ApplyAutoLayoutSuggestionResult =
 export function applyAutoLayoutSuggestion(
   content: string,
   suggestion: AutoLayoutSuggestion,
+  source?: CodeLayerSource,
 ): ApplyAutoLayoutSuggestionResult {
   if (!suggestion.safeToApply) {
     return { status: "failed", content, message: "unsafe-suggestion" };
   }
-  const initialProjection = buildCodeLayerProjection(content);
+  const initialProjection = buildCodeLayerProjection(content, {
+    ...(source ? { source } : {}),
+  });
   const container = initialProjection.nodes.find(
     (node) =>
       node.id === suggestion.containerId ||
@@ -276,25 +283,37 @@ export function applyAutoLayoutSuggestion(
 
   let nextContent = content;
   for (let index = 1; index < resolvedOrderedChildIds.length; index += 1) {
-    const moved = applyVisualEdit(nextContent, {
-      kind: "moveNode",
-      target: { nodeId: resolvedOrderedChildIds[index]! },
-      anchor: { nodeId: resolvedOrderedChildIds[index - 1]! },
-      placement: "after",
-    });
+    const moved = applyVisualEdit(
+      nextContent,
+      {
+        kind: "moveNode",
+        target: { nodeId: resolvedOrderedChildIds[index]! },
+        anchor: { nodeId: resolvedOrderedChildIds[index - 1]! },
+        placement: "after",
+      },
+      {
+        ...(source ? { source } : {}),
+      },
+    );
     if (moved.result.status === "applied") nextContent = moved.content;
     else {
       return { status: "failed", content, message: moved.result.message };
     }
   }
 
-  const autoLayout = applyVisualEdit(nextContent, {
-    kind: "autoLayout",
-    targetId: container.id,
-    enabled: true,
-    direction: suggestion.direction,
-    gap: `${suggestion.gap}px`,
-  });
+  const autoLayout = applyVisualEdit(
+    nextContent,
+    {
+      kind: "autoLayout",
+      targetId: container.id,
+      enabled: true,
+      direction: suggestion.direction,
+      gap: `${suggestion.gap}px`,
+    },
+    {
+      ...(source ? { source } : {}),
+    },
+  );
   if (autoLayout.result.status !== "applied") {
     return { status: "failed", content, message: autoLayout.result.message };
   }
@@ -315,12 +334,18 @@ export function applyAutoLayoutSuggestion(
       : []),
   ];
   for (const [property, value] of styleValues) {
-    const styled = applyVisualEdit(nextContent, {
-      kind: "style",
-      target: { nodeId: container.id },
-      property,
-      value,
-    });
+    const styled = applyVisualEdit(
+      nextContent,
+      {
+        kind: "style",
+        target: { nodeId: container.id },
+        property,
+        value,
+      },
+      {
+        ...(source ? { source } : {}),
+      },
+    );
     if (styled.result.status === "applied") nextContent = styled.content;
     else {
       return { status: "failed", content, message: styled.result.message };

@@ -15,6 +15,7 @@ import {
   renderExportDocumentCanvas,
   resolveBoardExportCropRect,
   resolveExportCropTarget,
+  resolveSelectedExportElements,
 } from "@/pages/design-editor/png-export-render";
 
 export interface RenderPngBlobArgs {
@@ -162,7 +163,18 @@ export async function runRenderPngBlob(
     }
   } else {
     const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
+    const selections = Array.isArray(cropSelection)
+      ? cropSelection
+      : cropSelection
+        ? [cropSelection]
+        : [];
+    if (scope === "element" && selections.length === 0) {
+      throw new PngCaptureError("selection-unresolved");
+    }
     const cropTarget = resolveExportCropTarget(doc, cropSelection);
+    if (cropTarget.kind === "unresolved") {
+      throw new PngCaptureError("selection-unresolved");
+    }
     const selectionCropRect =
       cropTarget.kind === "rect" ? cropTarget.rect : null;
     const boardCropRect =
@@ -175,21 +187,22 @@ export async function runRenderPngBlob(
       exportScale: requestedExportScale,
       cropRect: boardCropRect,
       render: html2canvas,
+      isolateSelectedElements: selectionCropRect
+        ? resolveSelectedExportElements(doc, cropSelection)
+        : [],
     });
     const cropped = selectionCropRect
       ? cropCanvasToRect(rendered.canvas, selectionCropRect, rendered.scale)
       : null;
     // An element capture that silently widens to the whole document is a
     // preview of something the user did not ask to export, and nothing
-    // downstream can tell it apart from a real one. Selecting the screen
-    // itself is not that case: the whole screen is what that selection
-    // exports, so failing it made the inspector's export preview permanently
-    // unavailable for every frame-level selection.
-    if (scope === "element" && cropTarget.kind !== "whole-screen" && !cropped) {
-      throw new PngCaptureError("no-preview");
+    // downstream can tell it apart from a real one. Whole-screen targets are
+    // explicit; unresolved targets remain typed failures above.
+    if (scope === "element" && cropTarget.kind === "rect" && !cropped) {
+      throw new PngCaptureError("selection-unresolved");
     }
-    // Render the whole page first, then crop, so ancestor backgrounds show
-    // through every selected frame exactly as they do on screen.
+    // Preserve page layout while excluding ancestor paints from a selected
+    // element's transparent export area.
     outputCanvas = cropped ?? rendered.canvas;
   }
   const mimeType =

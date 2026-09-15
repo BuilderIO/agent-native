@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CommandMenu,
   openAgentSettings,
+  useCommandMenuNestedDialog,
   useCommandMenuShortcut,
   type CommandMenuDoc,
 } from "./CommandMenu.js";
@@ -319,6 +320,107 @@ describe("CommandMenu docs group", () => {
     expect(dialog?.querySelector("button")).toBeNull();
   });
 
+  it("labels the input", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          inputLabel="Search content"
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Results">
+            <CommandMenu.Item onSelect={() => undefined}>Page</CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+
+    expect(input?.getAttribute("aria-label")).toBe("Search content");
+    expect(list?.querySelector("[cmdk-item]")?.textContent).toBe("Page");
+  });
+
+  it("lets one custom layout owner compose around the shared listbox", () => {
+    let renderContentCalls = 0;
+    let renderListCalls = 0;
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          renderContent={({ renderList }) => {
+            renderContentCalls += 1;
+            const list = renderList(
+              <CommandMenu.Group heading="Results">
+                <CommandMenu.Item onSelect={() => undefined}>
+                  Result
+                </CommandMenu.Item>
+              </CommandMenu.Group>,
+            );
+            renderListCalls += 1;
+            return (
+              <section data-testid="owner">
+                <button>Toolbar</button>
+                {list}
+                <button>Pagination</button>
+              </section>
+            );
+          }}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    expect(document.querySelectorAll('[data-testid="owner"]')).toHaveLength(1);
+    expect(renderListCalls).toBe(renderContentCalls);
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+    expect(list?.textContent).toContain("Result");
+    expect(list?.textContent).toContain("Action");
+    expect(list?.textContent).not.toContain("Toolbar");
+    expect(list?.textContent).not.toContain("Pagination");
+  });
+
+  it("uses legacy renderResults when custom content renders the default list", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          renderResults={(query) => (
+            <CommandMenu.Group heading="Dynamic">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Result for {query || "empty search"}
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          )}
+          renderContent={({ renderList }) => (
+            <section data-testid="owner">{renderList()}</section>
+          )}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+    expect(list?.textContent).toContain("Result for empty search");
+    expect(list?.textContent).toContain("Static action");
+  });
+
   it("keeps arrow-key selection and Enter activation on shared command items", () => {
     const selectFirst = vi.fn();
     const selectSecond = vi.fn();
@@ -382,6 +484,42 @@ describe("CommandMenu docs group", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("dismisses a nested dialog before the command dialog", async () => {
+    const dismissNested = vi.fn();
+    const onOpenChange = vi.fn();
+    function NestedDialog() {
+      useCommandMenuNestedDialog(dismissNested);
+      return <div role="dialog" aria-label="Date picker" />;
+    }
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={onOpenChange}
+          showAgentFallback={false}
+          renderContent={() => <NestedDialog />}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await act(async () => Promise.resolve());
+
+    expect(dismissNested).toHaveBeenCalledOnce();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it("can opt into opening from a contenteditable target", () => {
     function ShortcutHarness() {
       const [open, setOpen] = React.useState(false);
@@ -413,6 +551,37 @@ describe("CommandMenu docs group", () => {
     });
 
     expect(document.body.textContent).toContain("open");
+  });
+
+  it("leaves modified K chords available to app commands", () => {
+    const onOpen = vi.fn();
+    function ShortcutHarness() {
+      useCommandMenuShortcut(onOpen);
+      return null;
+    }
+    act(() => root.render(<ShortcutHarness />));
+    for (const modifier of [{ altKey: true }, { shiftKey: true }]) {
+      const event = new KeyboardEvent("keydown", {
+        key: "k",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+        ...modifier,
+      });
+      act(() => document.body.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(onOpen).not.toHaveBeenCalled();
+    act(() => {
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "k",
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 
   it("claims Cmd+K from native controls without opening", () => {

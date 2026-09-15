@@ -153,6 +153,10 @@ export interface DesignColorPickerLabels {
 export interface DesignColorPickerProps {
   value: string;
   onChange: (value: string) => void;
+  /** Optional controlled popover state for fill rows that replace their picker
+   *  while converting a solid paint into a gradient. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   /**
    * Optional gesture-lifecycle signal, complementary to `onChange`. The SV
    * field, hue slider, and alpha slider call `onChange` on every pointermove
@@ -164,6 +168,8 @@ export interface DesignColorPickerProps {
    * existing every-tick `onChange`-only behavior.
    */
   onChangeComplete?: (value: string) => void;
+  /** Fired after an active pointer gesture is restored and canceled by undo. */
+  onChangeCancel?: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
   onImageFillChange?: (value: ImageFillValue) => void;
   backgroundImage?: string;
@@ -184,7 +190,11 @@ export interface DesignColorPickerProps {
   onAddFill?: () => void;
   onRemoveFill?: (id: string) => void;
   paintType?: DesignPaintType;
-  onPaintTypeChange?: (type: DesignPaintType) => void;
+  /**
+   * Handles a paint-type switch structurally. Return `false` to use the
+   * picker's built-in conversion for that type instead.
+   */
+  onPaintTypeChange?: (type: DesignPaintType) => boolean | void;
   gradientType?: DesignGradientType;
   onGradientTypeChange?: (type: DesignGradientType) => void;
   // Accepted but unused in the popover — gradient stop handles belong on canvas.
@@ -234,6 +244,8 @@ export interface DesignColorPickerProps {
   labels?: Partial<DesignColorPickerLabels>;
   /** Allow Design history chords while the picker owns focus in its portal. */
   allowDesignHistoryHotkeys?: boolean;
+  /** Called for idle Design history chords before they bubble to the editor. */
+  onDesignHistoryHotkey?: () => void;
   disabled?: boolean;
   className?: string;
   /**
@@ -543,7 +555,10 @@ export async function beginEyedropperPick(): Promise<string | null> {
 export function DesignColorPicker({
   value,
   onChange,
+  open: controlledOpen,
+  onOpenChange: onControlledOpenChange,
   onChangeComplete,
+  onChangeCancel,
   onPaintValueChange,
   onImageFillChange,
   backgroundImage,
@@ -574,6 +589,7 @@ export function DesignColorPicker({
   onShaderChange,
   labels,
   allowDesignHistoryHotkeys = false,
+  onDesignHistoryHotkey,
   disabled = false,
   className,
   trigger,
@@ -618,19 +634,12 @@ export function DesignColorPicker({
   const [mode, setMode] = useState<DesignColorMode>("hex");
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
   const hexDraftRef = useRef(hexDraft);
-  const [open, setOpen] = useState(false);
-  // Snapshot of value/opacity/paintType captured the instant the popover
-  // opens, so Escape can cancel the whole editing session — matching Figma:
-  // dragging hue/sat/alpha/gradient stops live-previews the color, but
-  // Escaping out reverts everything back to how it was before the popover
-  // opened, not just whatever field happens to be focused. Re-snapshotted
-  // only on the open transition (see the effect below), never while already
-  // open, so it doesn't chase the user's own edits.
-  const openSnapshotRef = useRef({
-    value,
-    opacity: effectiveOpacity,
-    paintType,
-  });
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
+    onControlledOpenChange?.(nextOpen);
+  };
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
   // Preserve the last non-zero hue so dragging through an achromatic point
@@ -714,16 +723,6 @@ export function DesignColorPicker({
     setHexDraft(nextHex);
   }, [color]);
 
-  useEffect(() => {
-    if (open) {
-      openSnapshotRef.current = { value, opacity: effectiveOpacity, paintType };
-    }
-    // Deliberately only depends on `open`: this must capture the value as of
-    // the open transition, not re-run on every edit made while already open
-    // (that would defeat the point of an Escape-to-cancel snapshot).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
   // The local override (the user's explicit paint-type click) persists for the
   // life of the open popover so EditPanel bouncing `paintType` back to solid
   // can't wipe a just-selected gradient/image/shader. A new element selection
@@ -742,7 +741,7 @@ export function DesignColorPicker({
 
   // ── Emit helpers ────────────────────────────────────────────────────────────
 
-  // Tracks the last CSS value handed to onChange/onPaintValueChange, so a
+  // Tracks the last CSS value emitted through any value callback, so a
   // gesture-end (pointerup on the SV field / hue / alpha tracks) can re-emit
   // that exact value once via onChangeComplete without recomputing it from
   // pointer coordinates after the drag has already ended.
@@ -752,15 +751,25 @@ export function DesignColorPicker({
     onChangeComplete?.(lastEmittedValueRef.current);
   };
 
-  const emitColor = (nextColor: RgbaColor, nextOpacity = effectiveOpacity) => {
+  const emitColor = (
+    nextColor: RgbaColor,
+    nextOpacity = effectiveOpacity,
+    phase: "preview" | "commit" = "preview",
+  ) => {
     const next = rgbaToCss(withColorOpacity(nextColor, nextOpacity));
     lastEmittedValueRef.current = next;
-    onChange(next);
+    if (phase === "commit" && onChangeComplete) onChangeComplete(next);
+    else onChange(next);
   };
 
-  const emitPaintValue = (nextValue: string) => {
+  const emitPaintValue = (
+    nextValue: string,
+    phase: "preview" | "commit" = "preview",
+  ) => {
     lastEmittedValueRef.current = nextValue;
     if (onPaintValueChange) onPaintValueChange(nextValue);
+    else if (phase === "commit" && onChangeComplete)
+      onChangeComplete(nextValue);
     else onChange(nextValue);
   };
 
@@ -790,8 +799,10 @@ export function DesignColorPicker({
     }
     if (activeGradient) {
       const hexIncludesAlpha = hasHexAlpha(currentDraft);
-      emitStopColor(hexIncludesAlpha ? parsed : { ...parsed, a: fieldColor.a });
-      notifyChangeComplete();
+      emitStopColor(
+        hexIncludesAlpha ? parsed : { ...parsed, a: fieldColor.a },
+        "commit",
+      );
       return;
     }
     const hexIncludesAlpha = hasHexAlpha(currentDraft);
@@ -799,8 +810,7 @@ export function DesignColorPicker({
       ? alphaToOpacity(parsed.a)
       : effectiveOpacity;
     if (hexIncludesAlpha && onOpacityChange) onOpacityChange(nextOpacity);
-    emitColor(parsed, nextOpacity);
-    notifyChangeComplete();
+    emitColor(parsed, nextOpacity, "commit");
   };
 
   const setOpacity = (nextOpacity: number) => {
@@ -817,12 +827,15 @@ export function DesignColorPicker({
 
   // ── Gradient editing ─────────────────────────────────────────────────────────
 
-  const emitGradient = (next: GradientValue) => {
+  const emitGradient = (
+    next: GradientValue,
+    phase: "preview" | "commit" = "preview",
+  ) => {
     setLocalGradient(next);
     if (onGradientTypeChange && next.kind !== gradientType) {
       onGradientTypeChange(next.kind as DesignGradientType);
     }
-    emitPaintValue(gradientToCss(next));
+    emitPaintValue(gradientToCss(next), phase);
   };
 
   // Derived, never written back: `defaultGradient` mints fresh random stop ids,
@@ -858,20 +871,30 @@ export function DesignColorPicker({
   useEffect(() => {
     if (!activeGradient || !selectedStopColor) return;
     const parsed = parseCssColorExtended(selectedStopColor);
-    if (parsed) setHexDraft(toDisplayHex(parsed));
+    if (parsed) {
+      const next = toDisplayHex(parsed);
+      hexDraftRef.current = next;
+      setHexDraft(next);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStopColor, effectiveSelectedStopId]);
 
-  const emitStopColor = (nextColor: RgbaColor) => {
+  const emitStopColor = (
+    nextColor: RgbaColor,
+    phase: "preview" | "commit" = "preview",
+  ) => {
     if (!activeGradient || !selectedStop) return;
-    emitGradient({
-      ...activeGradient,
-      stops: activeGradient.stops.map((stop) =>
-        stop.id === selectedStop.id
-          ? { ...stop, color: rgbaToCss(nextColor) }
-          : stop,
-      ),
-    });
+    emitGradient(
+      {
+        ...activeGradient,
+        stops: activeGradient.stops.map((stop) =>
+          stop.id === selectedStop.id
+            ? { ...stop, color: rgbaToCss(nextColor) }
+            : stop,
+        ),
+      },
+      phase,
+    );
   };
 
   // Value-row emit helpers: route to the selected stop in gradient mode,
@@ -942,8 +965,7 @@ export function DesignColorPicker({
     // Defer structural fill changes to EditPanel when it manages layered fills.
     if (onPaintTypeChange) {
       setLocalPaintType(nextType);
-      onPaintTypeChange(nextType);
-      return;
+      if (onPaintTypeChange(nextType) !== false) return;
     }
 
     setLocalPaintType(nextType);
@@ -1031,29 +1053,6 @@ export function DesignColorPicker({
   };
 
   const hasEyeDropper = hasEyeDropperSupport();
-
-  // Cancels the whole editing session back to the snapshot captured when the
-  // popover opened — the Escape-key contract (matches Figma: any live-preview
-  // dragging done while the popover was open gets thrown away, not just
-  // whatever field currently has focus). Resets every local override so the
-  // effective paint type / gradient / shader recompute cleanly from the
-  // reverted props on the next render.
-  const revertToOpenSnapshot = () => {
-    if (disabled) return;
-    const snapshot = openSnapshotRef.current;
-    setLocalPaintType(null);
-    setLocalGradient(null);
-    setSelectedStopId("");
-    setShaderDescriptor(null);
-    setView("picker");
-    if (onPaintTypeChange && snapshot.paintType !== undefined) {
-      onPaintTypeChange(snapshot.paintType);
-    }
-    if (onOpacityChange) onOpacityChange(snapshot.opacity);
-    lastEmittedValueRef.current = snapshot.value;
-    onChange(snapshot.value);
-    onChangeComplete?.(snapshot.value);
-  };
 
   // ── Value row inputs by mode ─────────────────────────────────────────────────
 
@@ -1183,7 +1182,7 @@ export function DesignColorPicker({
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           {trigger ?? (
             /* Trigger: compact swatch + hex + opacity% — matches the design editor's fill row */
@@ -1218,9 +1217,20 @@ export function DesignColorPicker({
           align="start"
           sideOffset={8}
           className="z-[10000] w-[252px] p-0 shadow-xl"
+          data-design-chrome-region="right-panel"
           data-design-history-hotkeys={
             allowDesignHistoryHotkeys ? "true" : undefined
           }
+          onKeyDown={(event) => {
+            if (
+              (event.metaKey || event.ctrlKey) &&
+              !event.altKey &&
+              (event.key.toLowerCase() === "z" ||
+                event.key.toLowerCase() === "y")
+            ) {
+              onDesignHistoryHotkey?.();
+            }
+          }}
           // Keep the picker open when the style change triggered by a paint-type
           // switch causes the canvas to re-project the element. Without this,
           // Radix treats the resulting focus shift as an "interact outside" event
@@ -1231,11 +1241,6 @@ export function DesignColorPicker({
           // re-projection can't close the popover. Genuine pointer clicks
           // outside still close it via the default onInteractOutside behavior.
           onFocusOutside={(e) => e.preventDefault()}
-          // Escape cancels the whole editing session (see revertToOpenSnapshot)
-          // and then still closes the popover via Radix's default dismiss
-          // behavior — this only reverts the color/opacity/paint-type state,
-          // it doesn't call `e.preventDefault()`, so the close still happens.
-          onEscapeKeyDown={revertToOpenSnapshot}
         >
           <div className="rounded-md bg-popover text-popover-foreground">
             {view === "shader" && glslShaderContext ? (
@@ -1560,6 +1565,12 @@ export function DesignColorPicker({
                               }
                             }}
                             onCommit={notifyChangeComplete}
+                            onCancel={
+                              onChangeCancel
+                                ? () =>
+                                    onChangeCancel(lastEmittedValueRef.current)
+                                : undefined
+                            }
                           />
                         </div>
                       </div>
@@ -1938,6 +1949,7 @@ function ColorTrack({
   backgroundPosition,
   onChange,
   onCommit,
+  onCancel,
 }: {
   label: string;
   value: number;
@@ -1949,6 +1961,7 @@ function ColorTrack({
   backgroundSize?: string;
   backgroundPosition?: string;
   onChange: (value: number) => void;
+  onCancel?: () => void;
   /**
    * Fired once per gesture with the final value already applied — on
    * pointerup/pointercancel that ends a drag, and after every keyboard step
@@ -1959,6 +1972,7 @@ function ColorTrack({
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
+  const gestureStartValueRef = useRef(value);
   const percent = ((value - min) / (max - min)) * 100;
 
   const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
@@ -1993,6 +2007,25 @@ function ColorTrack({
     }
   };
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      draggingRef.current &&
+      onCancel &&
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      event.key.toLowerCase() === "z"
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      draggingRef.current = POINTER_GESTURE_IDLE;
+      onChange(gestureStartValueRef.current);
+      onCancel();
+      return;
+    }
+    stepWithKeyboard(event);
+  };
+
   return (
     <div
       ref={trackRef}
@@ -2003,11 +2036,13 @@ function ColorTrack({
       aria-valuemax={max}
       aria-valuenow={Math.round(value)}
       aria-disabled={disabled}
-      onKeyDown={stepWithKeyboard}
+      onKeyDown={handleKeyDown}
       onPointerDown={(event) => {
         if (disabled) return;
+        gestureStartValueRef.current = value;
         draggingRef.current = startPointerGesture();
         event.currentTarget.setPointerCapture(event.pointerId);
+        if (onCancel) event.currentTarget.focus();
         updateFromPointer(event);
       }}
       onPointerMove={(event) => {

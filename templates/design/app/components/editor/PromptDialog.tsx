@@ -369,6 +369,8 @@ interface PromptPopoverProps {
    * fold the org id in themselves.
    */
   draftScope?: string;
+  /** Keep organization lookups out of unauthenticated prompt hosts. */
+  scopeDraftsToOrg?: boolean;
 }
 
 export interface PromptCreativeContextOption {
@@ -443,6 +445,7 @@ export default function PromptPopover({
   creationMode,
   onCreationModeChange,
   draftScope,
+  scopeDraftsToOrg = true,
 }: PromptPopoverProps) {
   const t = useT();
   // Composer drafts persist to localStorage, which is scoped to the browser
@@ -450,7 +453,9 @@ export default function PromptPopover({
   // transition with no reload and no storage clear (see useSwitchOrg). Fold
   // the active org id into the key so a draft abandoned under one account
   // never resurfaces after switching to another.
-  const { data: org, isPending: orgPending } = useOrg();
+  const { data: org, isPending: orgPending } = useOrg({
+    enabled: scopeDraftsToOrg,
+  });
   const baseDraftScope = draftScope ?? title;
   // Before the org query resolves, we don't yet know which account this
   // draft belongs to. Route to a distinct "pending" bucket rather than
@@ -458,9 +463,11 @@ export default function PromptPopover({
   // (or later leak) a different account's abandoned draft during the brief
   // window before `org` loads. `org?.orgId` is legitimately `null` for
   // users with no active org, so that gets its own stable suffix too.
-  const orgScopedDraftScope = orgPending
-    ? `${baseDraftScope}:pending`
-    : `${baseDraftScope}:${org?.orgId ?? "none"}`;
+  const orgScopedDraftScope = scopeDraftsToOrg
+    ? orgPending
+      ? `${baseDraftScope}:pending`
+      : `${baseDraftScope}:${org?.orgId ?? "none"}`
+    : `${baseDraftScope}:anonymous`;
   const [showStartChoice, setShowStartChoice] = useState(offerStartChoice);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);
