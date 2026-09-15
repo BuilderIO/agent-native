@@ -59,6 +59,52 @@ describe("scheduled mail actions", () => {
     expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
   });
 
+  it("rejects a schedule without a complete send payload", async () => {
+    await expect(
+      action.run({ runAt: Date.now() + 60_000 } as never),
+    ).rejects.toThrow("Scheduled email payload is incomplete or invalid");
+
+    await expect(
+      action.run({
+        runAt: Date.now() + 60_000,
+        payload: { to: "recipient@example.com" },
+      } as never),
+    ).rejects.toThrow("Scheduled email payload is incomplete or invalid");
+
+    expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed scheduled attachments before persistence", async () => {
+    await expect(
+      action.run({
+        runAt: Date.now() + 60_000,
+        payload: {
+          to: "recipient@example.com",
+          subject: "Scheduled",
+          body: "body",
+          attachments: [{ originalName: "missing-upload-key.pdf" }],
+        },
+      } as never),
+    ).rejects.toThrow("Scheduled email payload is incomplete or invalid");
+
+    expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-future run time before persistence", async () => {
+    await expect(
+      action.run({
+        runAt: Date.now() - 1,
+        payload: {
+          to: "recipient@example.com",
+          subject: "Scheduled",
+          body: "body",
+        },
+      }),
+    ).rejects.toThrow("runAt must be a future timestamp");
+
+    expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
+  });
+
   it("owner-scopes the selected sender and persists its canonical identity", async () => {
     mocks.resolveScheduledSendAccountEmail.mockResolvedValue(
       "Selected@example.com",

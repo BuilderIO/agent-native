@@ -200,12 +200,19 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "예약 발송 취소",
+      dateInput: "날짜 및 시간",
+      noDateMatch: "일치하는 미래 시간이 없습니다",
+      inputPlaceholder: "예: 오전 8시, 3일 후, 8월 7일",
+      scheduleAt: "{{date}}에",
+      scheduledFor: "{{date}}에 예약됨",
       pickDateTime: "날짜 및 시간 선택...",
       scheduleSend: "발송 예약",
       sendNow: "지금 보내기",
 
       laterToday: "오늘 나중에",
       tomorrowMorning: "내일 아침",
+      tomorrowAfternoon: "내일 오후",
+      weekdayMorning: "{{weekday}} 아침",
       nextWeek: "다음 주",
     },
     snooze: {

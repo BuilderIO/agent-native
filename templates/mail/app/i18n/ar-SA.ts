@@ -200,12 +200,19 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "إلغاء الإرسال المجدول",
+      dateInput: "التاريخ والوقت",
+      noDateMatch: "لا يوجد وقت مستقبلي مطابق",
+      inputPlaceholder: "جرّب: 8 صباحًا، 3 أيام، 7 أغسطس",
+      scheduleAt: "في {{date}}",
+      scheduledFor: "تمت جدولة الإرسال في {{date}}",
       pickDateTime: "اختر التاريخ والوقت...",
       scheduleSend: "جدولة الإرسال",
       sendNow: "إرسال الآن",
 
       laterToday: "لاحقًا اليوم",
       tomorrowMorning: "صباح الغد",
+      tomorrowAfternoon: "غدًا بعد الظهر",
+      weekdayMorning: "صباح {{weekday}}",
       nextWeek: "الأسبوع القادم",
     },
     snooze: {

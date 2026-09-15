@@ -240,8 +240,13 @@ and `cancel-scheduled-email` both strip that prefix internally before looking
 up the job — pass the id as shown to the user either way.
 
 Use `create-scheduled-send` to create one from an agent call. It is approval
-gated like `send-email` and is not a page-local WebMCP tool. `create-scheduled-job`
-is the page-local action for snoozes.
+gated like `send-email` and is not a page-local WebMCP tool. Its `payload` must
+include `to`, `subject`, and `body`; it may also include `cc`, `bcc`, the
+selected `accountEmail`, reply/thread ids, and previously uploaded attachments.
+The top-level `accountEmail` and `threadId` identify the selected sender and
+thread, while the same fields in `payload` are persisted for the worker. Pass a
+future epoch-millisecond `runAt` and use only a connected account resolved for
+the current owner. `create-scheduled-job` is the page-local action for snoozes.
 
 ## Snippets
 

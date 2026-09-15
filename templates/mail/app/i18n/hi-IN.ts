@@ -200,12 +200,19 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "शेड्यूल भेजना रद्द करें",
+      dateInput: "तारीख और समय",
+      noDateMatch: "भविष्य का कोई मिलान समय नहीं",
+      inputPlaceholder: "आज़माएँ: 8 am, 3 दिन, 7 अगस्त",
+      scheduleAt: "{{date}} को",
+      scheduledFor: "{{date}} के लिए शेड्यूल किया गया",
       pickDateTime: "तारीख और समय चुनें...",
       scheduleSend: "भेजना शेड्यूल करें",
       sendNow: "अभी भेजें",
 
       laterToday: "आज बाद में",
       tomorrowMorning: "कल सुबह",
+      tomorrowAfternoon: "कल दोपहर",
+      weekdayMorning: "{{weekday}} सुबह",
       nextWeek: "अगले सप्ताह",
     },
     snooze: {

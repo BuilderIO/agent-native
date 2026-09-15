@@ -28,6 +28,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({
+    formatDate: (date: Date) => date.toISOString(),
+  }),
 }));
 
 vi.mock("sonner", () => ({ toast: mockToast }));
@@ -351,6 +354,45 @@ describe("ComposeModal scheduling", () => {
 
     expect(getByTestId("schedule-open").textContent).toBe("true");
     expect(mockScheduleEmail).not.toHaveBeenCalled();
+  });
+
+  it("passes the complete draft through the canonical scheduled-send action", async () => {
+    mockScheduleEmail.mockResolvedValue({});
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Schedule send" }));
+    fireEvent.click(getByRole("button", { name: "Schedule later" }));
+
+    await waitFor(() => expect(mockScheduleEmail).toHaveBeenCalledOnce());
+    const [request] = mockScheduleEmail.mock.calls[0];
+    expect(request).toEqual(
+      expect.objectContaining({
+        runAt: expect.any(Number),
+        payload: expect.objectContaining({
+          to: draft.to,
+          subject: draft.subject,
+          body: draft.body,
+        }),
+      }),
+    );
+    expect(request).not.toHaveProperty("to");
+    expect(request).not.toHaveProperty("subject");
+    expect(request).not.toHaveProperty("body");
   });
 
   it.each([

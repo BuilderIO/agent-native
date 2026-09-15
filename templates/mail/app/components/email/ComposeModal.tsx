@@ -1,5 +1,5 @@
 import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
@@ -222,6 +222,7 @@ export function ComposeModal({
   onInitialExpandedConsumed,
 }: ComposeModalProps) {
   const t = useT();
+  const formatters = useFormatters();
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
   const [isExpanded, setIsExpanded] = useState(
@@ -498,16 +499,20 @@ export function ComposeModal({
 
     try {
       await scheduleEmail.mutateAsync({
-        to: expandAliasTokens(draftSnapshot.to, aliases),
-        cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
-        bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
-        subject: draftSnapshot.subject,
-        body: draftSnapshot.body,
-        replyToId: draftSnapshot.replyToId,
         threadId: draftSnapshot.replyToThreadId,
         accountEmail: draftSnapshot.accountEmail,
-        attachments: draftSnapshot.attachments,
         runAt,
+        payload: {
+          to: expandAliasTokens(draftSnapshot.to, aliases),
+          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+          bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
+          subject: draftSnapshot.subject,
+          body: draftSnapshot.body,
+          replyToId: draftSnapshot.replyToId,
+          threadId: draftSnapshot.replyToThreadId,
+          accountEmail: draftSnapshot.accountEmail,
+          attachments: draftSnapshot.attachments,
+        },
       });
 
       // Preserve edits made while the scheduling request was in flight.
@@ -518,14 +523,14 @@ export function ComposeModal({
         onDiscard(schedulingId);
       }
 
-      const scheduledDate = new Date(runAt).toLocaleString("en-US", {
+      const scheduledDate = formatters.formatDate(new Date(runAt), {
         weekday: "short",
         month: "short",
         day: "numeric",
         hour: "numeric",
         minute: "2-digit",
       });
-      toast(`Scheduled for ${scheduledDate}`);
+      toast(t("mail.sendLater.scheduledFor", { date: scheduledDate }));
     } catch {
       toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
     } finally {

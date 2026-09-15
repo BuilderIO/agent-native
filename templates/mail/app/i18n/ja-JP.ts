@@ -201,12 +201,19 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "予約送信をキャンセル",
+      dateInput: "日時",
+      noDateMatch: "一致する未来の時間がありません",
+      inputPlaceholder: "例: 午前8時、3日後、8月7日",
+      scheduleAt: "{{date}}",
+      scheduledFor: "{{date}}に予約しました",
       pickDateTime: "日時を選択...",
       scheduleSend: "送信を予約",
       sendNow: "今すぐ送信",
 
       laterToday: "今日の後で",
       tomorrowMorning: "明日の朝",
+      tomorrowAfternoon: "明日の午後",
+      weekdayMorning: "{{weekday}}の朝",
       nextWeek: "来週",
     },
     snooze: {

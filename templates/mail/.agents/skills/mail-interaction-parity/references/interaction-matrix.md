@@ -4,6 +4,40 @@ This is the working ledger for the side-by-side pass. Each case is intentionally
 small enough to run, observe, fix, and re-run. `SH` means the Superhuman
 reference sequence; `MAIL` means the corresponding Mail sequence.
 
+## Visual and latency evidence
+
+Pair each replay at the same viewport with the same realistic, non-sensitive
+fixture or approved test thread. Capture both products at the key resulting
+states, including inbox/list, thread, compose, menus, and applicable
+empty/loading/error states. Record concrete differences in density, alignment,
+typography, focus/hover, menu behavior, and compose/thread geometry. Link each
+observation to its case ID and replay the exact state after a fix.
+
+For repeatable hot paths, define the trigger and endpoint before timing. Record
+input/click-to-first-visible-acknowledgment separately from trigger-to-usable
+content. Keep viewport, fixture, account, network, and cache conditions fixed,
+alternate product order, and report cold and warm runs separately. Use a
+monotonic clock. After three warmups, collect 30 samples per metric where the
+interaction is safe and repeatable. Report `n`, p50, and empirical p95 only at
+`n >= 30`; below that, report `n`, median, and range, and mark p95 unsupported.
+Do not treat live provider-send time as a client-latency benchmark.
+
+Unverified local performance lead (reported 2026-09-14 by the coordinating
+task, not a controlled profile): the normal Mail server logged about 408
+requests over 23 minutes. Repeated `GET /api/emails` and
+`/_agent-native/actions/list-inbox-threads` reads took roughly 1.6–9.0 seconds,
+and the PGlite worker briefly reached about 34% CPU. The helper server was
+stopped to free the shared validation lane. On the Mail pass, capture request
+cadence and per-endpoint timings, then distinguish polling, mutation-driven
+refreshes, and expensive reads before changing code. This lead is not a
+reproduced result or root-cause finding. Static source leads to check later:
+`useInboxThreads()` polls every 3 seconds while a response reports syncing and
+every 20 seconds otherwise; `useEmails()` polls every 2 minutes; the visibility
+refresh invalidates at most once per minute; and `useDbSync()` invalidates on
+external refresh-signal, settings, or screen-refresh events. Confirm exact
+request timestamps and active query state before attributing the observed
+traffic to any one path.
+
 ## Navigation, focus, and layout
 
 - NAV-001 — Load the root route. SH: confirm the default inbox, active tab,
@@ -676,12 +710,38 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   authoritative.
 - SEND-004 — Delay/deny the provider. Verify sending, delayed, failed, edit,
   retry, discard, rollback of optimistic reply, exact error, and preserved draft.
-- SEND-005 — Send Later presets, custom date/time, natural language, timezone,
-  past/minimum date, daylight saving transition, picker cancel, slow parse,
-  parse failure, schedule success/failure, scheduled list, send-now, and cancel.
-  With a mocked provider, verify an email scheduled before going offline still
-  sends at its scheduled time, while a send/schedule queued offline waits for
-  connectivity and syncs after reconnect; never use a real send for this case.
+- SEND-005 — Open Send Later from the split-button, Command, and
+  Cmd/Ctrl+Shift+L. Record the preset order and dates. Type a relative date,
+  weekday plus time, time-only value, yearless date, day-part phrase, invalid
+  phrase, and a past date. Check suggestion text, local timezone, ArrowUp and
+  ArrowDown, Enter, click, first and second Escape, outside click, reopen, and
+  custom date/time selection. Verify minimum time, daylight-saving boundaries,
+  parse latency, schedule success/failure, scheduled-list read-back, send-now,
+  cancel, and undo. With a mocked provider, verify an email scheduled before
+  going offline still sends at its scheduled time, while a send/schedule queued
+  offline waits for connectivity and syncs after reconnect. Never use a real
+  send for this case. On mobile, open Send Later from a new compose and a
+  reply, choose a suggested day/time, then Pick date & time; verify touch
+  selection, picker confirm/cancel, local timezone, minimum time, dismissal,
+  reopen state, and that scheduling never falls through to Send. Record whether
+  the mobile surface omits natural-language input as documented. Compare the
+  official [Schedule Emails](https://help.superhuman.com/hc/en-us/articles/47206763851533-Switching-from-Notion-Mail-to-Superhuman-Mail)
+  guide with the live behavior.
+  Superhuman baseline (2026-09-14, no message sent): an empty picker suggested
+  tomorrow at 8:00 AM, tomorrow at 1:00 PM, and next Monday at 8:00 AM. The
+  input placeholder was “Try: 8 am, 3 days, aug 7”. `Monday 9:45am` resolved to
+  the next Monday at 9:45 AM, `3 days` to 8:00 AM in three days, `8 am` to the
+  next day at 8:00 AM, and yearless `aug 7` to August 7, 2027. The first Escape
+  cleared typed text while keeping the picker open; the second closed it.
+  Mail now has a local natural-language parser, those three preset equivalents,
+  two-step Escape handling, and a native-picker fallback with the hidden input
+  kept out of tab order. Parser/component regression cases were added for the
+  observed phrases, future-only dates, keyboard commitment, Escape, and picker
+  fallback. They have not been run yet because Mail browser/e2e verification is
+  serialized behind the active Slides QA pass. No Mail parity claim is made
+  until those tests and a same-state browser replay pass. With a mocked
+  provider, verify schedule success/failure and offline behavior without
+  sending real mail.
 - SEND-006 — Test Smart Send on an eligible Business/Enterprise desktop account:
   activity-data eligibility, no recommendation, recipient timezone, multiple
   recipients and optimization choice, no-reply reminder mode, scheduled-send
@@ -788,7 +848,18 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   not silently retarget an open draft or mutate another account. Record SH's
   exact confirmation, cache, and recovery behavior side by side; do not connect,
   disconnect, or modify a real mailbox. Remove synthetic accounts and reset
-  provider mocks after the case.
+  provider mocks after the case. Auth proof is split: a live Gmail provider
+  connection through the local-dev session confirms provider-mail access, but
+  does not prove normal Google identity sign-in. A delegated identity attempt
+  reached the callback but failed with `account_owner_mismatch`; the local
+  sign-in view observed then exposed no normal sign-out control, so no safe
+  sign-out and retry path was available at that time. Recheck the affordance
+  during the focused pass. No account/user rows or OAuth tokens were
+  changed, no consent screen was accepted, and repeated live login attempts
+  are out of scope. Inspect the exact error UX during the focused pass. If safe
+  reauthentication remains unavailable, report the
+  Google identity sign-in case as unverified while continuing provider-mail
+  E2E tests through the existing connection.
 - ACCOUNT-002 — With two synthetic accounts, compare Command-based desktop add,
   desktop account switching/reordering/sign-out, and per-account draft sender.
   Repeat setup on mobile (accounts added on desktop do not auto-sync); test the

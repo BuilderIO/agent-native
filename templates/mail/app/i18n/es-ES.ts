@@ -200,12 +200,19 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Cancelar envío programado",
+      dateInput: "Fecha y hora",
+      noDateMatch: "No hay una hora futura coincidente",
+      inputPlaceholder: "Prueba: 8 a. m., 3 días, 7 ago",
+      scheduleAt: "El {{date}}",
+      scheduledFor: "Programado para {{date}}",
       pickDateTime: "Elegir fecha y hora...",
       scheduleSend: "Programar envío",
       sendNow: "Enviar ahora",
 
       laterToday: "Más tarde hoy",
       tomorrowMorning: "Mañana por la mañana",
+      tomorrowAfternoon: "Mañana por la tarde",
+      weekdayMorning: "{{weekday}} por la mañana",
       nextWeek: "La próxima semana",
     },
     snooze: {

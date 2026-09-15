@@ -200,11 +200,18 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "取消定時傳送",
+      dateInput: "日期和時間",
+      noDateMatch: "沒有符合的未來時間",
+      inputPlaceholder: "試試：上午 8 點、3 天後、8 月 7 日",
+      scheduleAt: "{{date}}",
+      scheduledFor: "已安排於 {{date}}",
       pickDateTime: "選取日期和時間...",
       scheduleSend: "定時傳送",
       sendNow: "立即傳送",
       laterToday: "今天晚些時候",
       tomorrowMorning: "明天早上",
+      tomorrowAfternoon: "明天下午",
+      weekdayMorning: "{{weekday}}早上",
       nextWeek: "下週",
     },
     snooze: {

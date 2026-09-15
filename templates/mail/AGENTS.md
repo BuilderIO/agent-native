@@ -67,8 +67,9 @@ Read the relevant skill before deeper work:
 | `get-hubspot-contact` | HubSpot contact + deals + tickets by email. |
 | `create-attachment-upload` | Short-lived upload URL for an attachment. |
 | `manage-draft` | Create/update/delete a `compose-{id}` draft. |
-| `send-email` / `send-queued-drafts` | Approval-gated real sends; not registered as page-local WebMCP tools. Hand sends to the in-app agent or MCP rather than `provider-api-request`. |
-| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts` | Teammate/Slack draft review. |
+| `send-email` / `send-queued-drafts` | Approval-gated real sends; use the in-app agent/MCP, not `provider-api-request`. |
+| `create-scheduled-send` | Schedule a future send (`payload.to`, `.subject`, `.body` required). |
+| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` | Teammate/Slack draft review. |
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
 | `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |
 | `manage-gmail-filters` | Gmail-native filters. |
