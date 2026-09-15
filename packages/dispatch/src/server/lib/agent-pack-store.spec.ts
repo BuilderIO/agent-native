@@ -58,4 +58,40 @@ describe("applyAgentPackCreate", () => {
     );
     expect(mocks.applyWorkspaceResourceCreate).not.toHaveBeenCalled();
   });
+
+  it("rejects two pack files that normalize to the same path", async () => {
+    // Neither path exists in the DB yet, so the preflight lookup alone would
+    // let both through and the create loop would insert two rows at one path.
+    mocks.getWorkspaceResourceByPath.mockResolvedValue(null);
+
+    const { applyAgentPackCreate } = await import("./agent-pack-store.js");
+
+    let caught: unknown;
+    try {
+      await applyAgentPackCreate([
+        { kind: "agent", name: "Researcher", path: "agents/researcher.md", content: "# Agent", scope: "all" },
+        {
+          kind: "agent-file",
+          name: "glossary.md",
+          path: "agents/researcher/context/glossary.md",
+          content: "# Glossary",
+          scope: "all",
+        },
+        {
+          kind: "agent-file",
+          name: "glossary-2.md",
+          path: "agents/researcher/context/glossary.md",
+          content: "# Glossary v2",
+          scope: "all",
+        },
+      ]);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeDefined();
+    expect(isActionContractError(caught)).toBe(true);
+    expect((caught as { statusCode?: number }).statusCode).toBe(409);
+    expect(mocks.applyWorkspaceResourceCreate).not.toHaveBeenCalled();
+  });
 });

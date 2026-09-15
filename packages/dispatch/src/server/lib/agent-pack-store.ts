@@ -20,6 +20,22 @@ export async function applyAgentPackCreate(
   ctx?: { ownerEmail: string; orgId: string | null },
 ) {
   const resourceCtx = ctx ?? requireWorkspaceResourceCtx();
+
+  // Two pack files that normalize to the same path (e.g. a case-only
+  // difference) would otherwise both pass the DB preflight below — neither
+  // exists yet — and the create loop would insert two rows at one path.
+  const seenPaths = new Set<string>();
+  for (const input of inputs) {
+    if (seenPaths.has(input.path)) {
+      failAgentImport(
+        `An agent pack cannot contain two files at ${input.path}.`,
+        AGENT_IMPORT_ERROR_CODES.duplicate,
+        { statusCode: 409 },
+      );
+    }
+    seenPaths.add(input.path);
+  }
+
   const existing = await Promise.all(
     inputs.map((input) => getWorkspaceResourceByPath(input.path, resourceCtx)),
   );
