@@ -608,6 +608,8 @@ const messages: AgentChatTranslation = {
     "La passerelle du modèle a rencontré une erreur interne avant que l'agent puisse répondre. Réessayez dans un instant et indiquez l'identifiant d'erreur ci-dessous si cela persiste.",
   "errorMessages.gatewayNoDetails":
     "La passerelle du modèle n’a fourni aucun détail sur l’erreur et la discussion n’a pas pu reprendre. Patientez un instant et réessayez. Si le problème persiste, démarrez une nouvelle discussion.",
+  "errorMessages.creditsLimitReached":
+    "Vous avez atteint votre limite de crédits IA.",
   "errorMessages.inactivityTimeout":
     "La connexion à l’agent a expiré avant la fin. Vous pouvez poursuivre à partir du travail partiel ou réessayer.",
   "errorMessages.invalidToolSchema":
@@ -635,6 +637,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Peu utile",
   "feedback.placeholder": "Dites-nous ce qui n'a pas fonctionné...",
   "feedback.submit": "Envoyer",
+  "feedback.submitted": "Commentaires envoyés",
   "feedback.thumbsDown": "Pouce vers le bas",
   "feedback.thumbsUp": "Pouce vers le haut",
   "feedback.tooSlow": "Trop lent",

@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Forms are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-12
+
+### Fixed
+
+- Creating a form no longer dead-ends when a field is missing its type; the agent is told exactly which field and which property to correct.
+
 ## 2026-08-25
 
 ### Fixed

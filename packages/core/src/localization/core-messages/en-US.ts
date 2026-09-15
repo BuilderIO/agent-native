@@ -367,6 +367,7 @@ const messages = {
     "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
+  "errorMessages.creditsLimitReached": "You've reached your AI credits limit.",
   "errorMessages.inactivityTimeout":
     "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
   "errorMessages.invalidToolSchema":
@@ -392,6 +393,7 @@ const messages = {
   "feedback.notHelpful": "Not helpful",
   "feedback.placeholder": "Tell us what went wrong...",
   "feedback.submit": "Submit",
+  "feedback.submitted": "Feedback submitted",
   "feedback.thumbsDown": "Thumbs down",
   "feedback.thumbsUp": "Thumbs up",
   "feedback.tooSlow": "Too slow",

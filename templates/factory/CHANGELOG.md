@@ -3,13 +3,31 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-11
+
+### Improved
+
+- The Audit tab shows pull request numbers beside GitHub item titles, collapses long summaries with view more, and uses a clear Open thread button.
+- GitHub inbox rows now show source, pull request number, and author on one line; Slack list rows resolve stored member names instead of raw ids, and Slack detail drops the duplicate heading once the thread loads.
+- The Inbox list now shows separate Routing and Automation columns so babysit and Slack workflow progress is visible beside escalation status.
+- PR babysitting now follows unresolved bot review feedback, defers while Builder is active, and shows recommendation, decision, and because on the Audit tab.
+
 ## 2026-09-10
 
 ### Improved
 
 - Slack feedback marks clear bugs with 👀 again and requires that reaction before dispatching Builder.
 
+### Fixed
+
+- Factory automations keep display names, Slack channels, and author filters after poll runs and metadata repair.
+- Factory PR babysitting now nudges Builder on Clips, Design, and Content pull requests instead of parking them as owner-managed.
+
 ## 2026-09-09
+
+### Added
+
+- A pull request that another request cannot unblock is now parked as stuck for a human to look at, rather than asked again on the next round.
 
 ### Improved
 
@@ -17,6 +35,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Factory asks Builder to fix pull-request feedback once per round of work, instead of repeating the request each time GitHub recalculates whether the branch merges cleanly.
 - Slack feedback keeps a claimed 👀/🤖 marker after polling, so those threads stay out of the review queue.
 - Slack feedback no longer moves an already-started thread to needs-manual just because the parent already has 👀 or 🤖.
 

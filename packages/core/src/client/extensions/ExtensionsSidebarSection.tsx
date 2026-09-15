@@ -32,6 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
+import { FilterTriggerIndicator } from "../components/ui/filter-trigger.js";
 import {
   HoverCard,
   HoverCardContent,
@@ -582,10 +583,15 @@ function ExtensionSortMenu({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-[opacity,color,background-color] hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
+              className={cn(
+                "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 transition-[opacity,color,background-color] hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100",
+                showHidden ? "text-foreground opacity-100" : "opacity-0",
+              )}
               aria-label={copy.sortOptions}
             >
-              <IconFilter className="h-3.5 w-3.5" />
+              <FilterTriggerIndicator active={showHidden}>
+                <IconFilter className="h-3.5 w-3.5" />
+              </FilterTriggerIndicator>
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>

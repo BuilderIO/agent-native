@@ -139,6 +139,7 @@ describe("save-factory-automation", () => {
         slackChannelId: "",
         slackChannelName: "",
         enabled: false,
+        clearIdentityFields: true,
       },
       { userEmail: "teammate@example.com" },
     );
@@ -146,6 +147,26 @@ describe("save-factory-automation", () => {
     const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
     expect(saved).not.toContain("slackChannelId:");
     expect(saved).not.toContain("slackChannelName:");
+  });
+
+  it("rejects disabled saves that clear the channel without clearIdentityFields", async () => {
+    const { default: action } = await import("./save-factory-automation.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          slackChannelId: "",
+          enabled: false,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow(
+      "Refusing to clear Slack channel without clearIdentityFields: true.",
+    );
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
   });
 
   it("rejects Slack saves that clear the channel", async () => {

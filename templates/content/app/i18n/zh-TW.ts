@@ -177,7 +177,9 @@ const exactEnglish = {
   },
 };
 
-const history = {};
+const history = {
+  historyCheckpointRecovery: "已復原草稿",
+};
 
 const overrides = {
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
@@ -334,6 +336,16 @@ const overrides = {
     useDiskVersion: "使用磁碟版本",
     keepLocalDraft: "保留我的版本",
     previewDraftRecovery: "未儲存的頁面草稿",
+    previewDraftCompare: "選擇要保留的版本",
+    previewDraftYourEdits: "你的編輯",
+    previewDraftSavedVersion: "已儲存版本",
+    previewDraftKeepMine: "保留我的版本",
+    previewDraftUseSaved: "使用已儲存版本",
+    previewDraftSaveSeparately: "將我的版本另存為頁面",
+    previewDraftSavedToHistory: "你的編輯已儲存到版本記錄",
+    previewDraftSavedSeparately: "你的編輯已另存為頁面",
+    previewDraftOpenSavedPage: "開啟頁面",
+    previewDraftConflict: "此草稿與較新的頁面版本衝突，因此未還原。",
     restorePreviewDraft: "還原草稿",
     pageSaveBeforeNavigationFailed:
       "無法儲存最新的頁面編輯。請重試後再離開此頁面。",
@@ -882,6 +894,21 @@ const overrides = {
     cancel: "取消",
     submit: "評論",
     askAi: "詢問 AI",
+    aiSuggestChanges: "建議變更",
+    aiUnavailable: "無法使用",
+    aiReplyInThread: "在留言串中回覆",
+    aiApplyAndResolve: "套用變更並解決",
+    aiPromptSuggest: "請為此留言建議變更。",
+    aiPromptReply: "請回覆此留言。",
+    aiPromptApplyResolve: "請套用此留言中的變更並將其解決。",
+    aiWorking: "AI 正在處理…",
+    aiReplied: "AI 已回覆",
+    aiSuggestionReady: "檢視建議",
+    aiChangesApplied: "已套用變更",
+    aiNeedsReview: "需要檢視",
+    aiFailed: "AI 請求失敗",
+    retry: "重試",
+    sourceComment: "來源留言",
     resolve: "解決",
     resolved: "已解決（{{count}}）",
     unanchored: "無法使用醒目提示",
@@ -1078,6 +1105,8 @@ const overrides = {
     databaseRowsAndLocalPropertiesWereKeptIntact: "集合行和本機屬性已保留。",
     failedToAttachSource: "附加來源失敗",
     failedToCreateRow: "建立行失敗",
+    pageCreatedCollectionRefreshFailed:
+      "已建立頁面，但此集合無法重新整理。請重新載入以查看。",
     failedToDeleteRow: "刪除行失敗",
     failedToDeleteSelectedRows: "刪除所選行失敗",
     failedToDuplicateEverySelectedRow: "未能複製所有選取行",

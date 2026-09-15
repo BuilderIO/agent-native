@@ -146,6 +146,154 @@ import {
 } from "./VisualEditor";
 
 describe("suggestion replacement intent", () => {
+  it("keeps a plain-word replacement on the canonical paragraph/list revision", () => {
+    const canonical =
+      "Alpha bravo charlie delta.\n\n- Echo foxtrot golf\n- Hotel india juliet\n- Kilo lima mike";
+    const editor = createMarkdownEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "paragraph-list-word",
+      baseContent: canonical,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    try {
+      const from = 7;
+      const to = from + "bravo".length;
+      const transaction = editor.state.tr.insertText("BRAVISSIMO", from, to);
+      const intent = suggestionReplacementIntentForTransaction(transaction, {
+        from,
+        to,
+        empty: false,
+      });
+      expect(intent).toMatchObject({
+        beforeText: "bravo",
+        afterText: "BRAVISSIMO",
+        startOffset: canonical.indexOf("bravo"),
+      });
+      recordSuggestionReplacementIntent(
+        session,
+        intent!,
+        intent!.beforeMarkdown,
+      );
+      editor.view.dispatch(transaction);
+      const draft = docToNfm(editor.state.doc.toJSON());
+      const operations = suggestionDraftOperations(session, draft);
+
+      expect(operations).toHaveLength(1);
+      expect(operations[0]).toMatchObject({
+        kind: "replace_text",
+        before: { markdown: canonical, changedText: "bravo" },
+        after: {
+          markdown: canonical.replace("bravo", "BRAVISSIMO"),
+          changedText: "BRAVISSIMO",
+        },
+        anchor: {
+          from: canonical.indexOf("bravo"),
+          to: canonical.indexOf("bravo") + "bravo".length,
+        },
+      });
+      const draftAnchor = draftSuggestionAnchors(operations, draft)[0]!;
+      expect(
+        suggestionTextPresentationForSource(operations[0]!.after.changedText, {
+          source: operations[0]!.after.markdown,
+          from: operations[0]!.anchor.from,
+          to:
+            operations[0]!.anchor.from +
+            operations[0]!.after.changedText.length,
+        }),
+      ).not.toBeNull();
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "paragraph-list-word",
+          kind: operations[0]!.kind,
+          beforeText: operations[0]!.before.changedText,
+          afterText: operations[0]!.after.changedText,
+          beforePresentation: {
+            source: operations[0]!.before.markdown,
+            from: operations[0]!.anchor.from,
+            to: operations[0]!.anchor.to,
+          },
+          afterPresentation: {
+            source: operations[0]!.after.markdown,
+            from: operations[0]!.anchor.from,
+            to:
+              operations[0]!.anchor.from +
+              operations[0]!.after.changedText.length,
+          },
+          anchor: draftAnchor,
+          presentation: "draft",
+        }),
+      ).not.toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("maps three raw-revision replacements to every draft preview and highlight", () => {
+    const raw = "one alpha.\n\n- two beta\n- three gamma";
+    const draft = "ONE alpha.\n- TWO beta\n- THREE gamma";
+    const session = createSuggestionDraftSession({
+      id: "three-replacements",
+      baseContent: raw,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    const operations = suggestionDraftOperations(session, draft);
+    expect(
+      operations.map(({ before, after }) => [
+        before.changedText,
+        after.changedText,
+      ]),
+    ).toEqual([
+      ["one", "ONE"],
+      ["two", "TWO"],
+      ["three", "THREE"],
+    ]);
+    expect(
+      operations.every((operation) => operation.before.markdown === raw),
+    ).toBe(true);
+
+    const anchors = draftSuggestionAnchors(operations, draft);
+    const editor = createMarkdownEditor(draft);
+    try {
+      operations.forEach((operation, index) => {
+        const anchor = anchors[index]!;
+        expect(draft.slice(anchor.from, anchor.to)).toBe(
+          operation.after.changedText,
+        );
+        expect(
+          suggestionTextPresentationForSource(operation.after.changedText, {
+            source: operation.after.markdown,
+            from: operation.anchor.from,
+            to: operation.anchor.from + operation.after.changedText.length,
+          }),
+        ).not.toBeNull();
+        expect(
+          suggestionHighlightSpec(editor.state.doc, {
+            id: `three-replacements-${index}`,
+            kind: operation.kind,
+            beforeText: operation.before.changedText,
+            afterText: operation.after.changedText,
+            beforePresentation: {
+              source: operation.before.markdown,
+              from: operation.anchor.from,
+              to: operation.anchor.to,
+            },
+            afterPresentation: {
+              source: operation.after.markdown,
+              from: operation.anchor.from,
+              to: operation.anchor.from + operation.after.changedText.length,
+            },
+            anchor,
+            presentation: "draft",
+          }),
+        ).not.toBeNull();
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps a suffix Add after native backspaces cancel an insertion in a mixed session", () => {
     const editor = createMarkdownEditor(
       "This reads better compared to the original.\n\nEditors publish carefully.\n\nFinal sentence.",
@@ -1366,6 +1514,12 @@ describe("live suggestion presentation", () => {
         kind: "delete_text",
         beforeText: "Whole document",
         afterText: "",
+        beforePresentation: {
+          source: "Whole document",
+          from: 0,
+          to: "Whole document".length,
+        },
+        afterPresentation: { source: "", from: 0, to: 0 },
         anchor: { from: 0, prefix: "", suffix: "" },
         presentation: "draft",
       });
@@ -1375,6 +1529,154 @@ describe("live suggestion presentation", () => {
         editor.view.dom.querySelector(".suggestion-delete-widget")?.textContent,
       ).toBe("Whole document");
       expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      name: "middle paragraph",
+      canonical: "First paragraph.\nMiddle paragraph.\nLast paragraph.",
+      childIndex: 1,
+    },
+    {
+      name: "final paragraph",
+      canonical: "First paragraph.\nFinal paragraph.",
+      childIndex: 1,
+    },
+    {
+      name: "middle paragraph with repeated context",
+      canonical: "Repeat.\nRepeat.\nRepeat.",
+      childIndex: 1,
+    },
+  ])(
+    "maps a mounted deletion of all text in the $name to its empty textblock",
+    ({ canonical, childIndex }) => {
+      const editor = createSuggestionEditor(canonical);
+      try {
+        let childPos = 0;
+        for (let index = 0; index < childIndex; index += 1)
+          childPos += editor.state.doc.child(index).nodeSize;
+        const paragraph = editor.state.doc.child(childIndex);
+        editor.view.dispatch(
+          editor.state.tr.delete(
+            childPos + 1,
+            childPos + 1 + paragraph.content.size,
+          ),
+        );
+        const draft = docToNfm(editor.state.doc.toJSON());
+        const [operation] = markdownSuggestionOperations(canonical, draft);
+        const expectedFrom =
+          canonical.split("\n").slice(0, childIndex).join("\n").length +
+          (childIndex > 0 ? 1 : 0);
+        expect(operation).toMatchObject({
+          kind: "delete_text",
+          before: { changedText: paragraph.textContent },
+          after: { changedText: "<empty-block/>" },
+          anchor: {
+            from: expectedFrom,
+            to: expectedFrom + paragraph.content.size,
+          },
+        });
+        const [anchor] = draftSuggestionAnchors([operation!], draft);
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: `clear-${childIndex}`,
+          kind: operation!.kind,
+          beforeText: operation!.before.changedText,
+          afterText: operation!.after.changedText,
+          beforePresentation: {
+            source: operation!.before.markdown,
+            from: operation!.anchor.from,
+            to: operation!.anchor.to,
+          },
+          afterPresentation: {
+            source: operation!.after.markdown,
+            from: anchor!.from,
+            to: anchor!.to,
+          },
+          anchor: anchor!,
+          presentation: "draft",
+        });
+        expect(spec).toMatchObject({
+          kind: "delete",
+          from: childPos + 1,
+          to: childPos + 1,
+          deletedText: paragraph.textContent,
+        });
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps a mounted paragraph-boundary deletion distinct from clearing a textblock", () => {
+    const canonical = "First paragraph.\nSecond paragraph.";
+    const editor = createSuggestionEditor(canonical);
+    try {
+      const boundary = editor.state.doc.child(0).nodeSize - 1;
+      editor.view.dispatch(editor.state.tr.delete(boundary, boundary + 2));
+      expect(editor.state.doc.childCount).toBe(1);
+      const draft = docToNfm(editor.state.doc.toJSON());
+      const [operation] = markdownSuggestionOperations(canonical, draft);
+      expect(operation).toMatchObject({
+        kind: "delete_text",
+        before: { changedText: "\n" },
+        after: { changedText: "" },
+      });
+      const [anchor] = draftSuggestionAnchors([operation!], draft);
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "delete-boundary",
+        kind: operation!.kind,
+        beforeText: operation!.before.changedText,
+        afterText: operation!.after.changedText,
+        beforePresentation: {
+          source: operation!.before.markdown,
+          from: operation!.anchor.from,
+          to: operation!.anchor.to,
+        },
+        afterPresentation: {
+          source: operation!.after.markdown,
+          from: anchor!.from,
+          to: anchor!.to,
+        },
+        anchor: anchor!,
+        presentation: "draft",
+      });
+      expect(spec).toMatchObject({ kind: "delete" });
+      expect(spec?.from).toBe(spec?.to);
+      expect(spec?.deletedText).toBe("\n");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fails closed when the deletion does not identify one empty textblock", () => {
+    const editor = createSuggestionEditor("");
+    try {
+      editor.view.dispatch(
+        editor.state.tr.insert(
+          editor.state.doc.content.size,
+          editor.schema.nodes.paragraph.create(),
+        ),
+      );
+      expect(editor.state.doc.childCount).toBe(2);
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "ambiguous-clear",
+          kind: "delete_text",
+          beforeText: "Whole document",
+          afterText: "",
+          beforePresentation: {
+            source: "Whole document",
+            from: 0,
+            to: "Whole document".length,
+          },
+          afterPresentation: { source: "", from: 0, to: 0 },
+          anchor: { from: 0, prefix: "", suffix: "" },
+          presentation: "draft",
+        }),
+      ).toBeNull();
     } finally {
       editor.destroy();
     }
