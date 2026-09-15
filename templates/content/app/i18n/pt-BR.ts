@@ -964,6 +964,8 @@ const sidebarPinned = {
   moveToPosition: "Mover para a posição",
   positionNumber: "Posição {{position}}",
   failedSaveOrder: "Não foi possível salvar a ordem",
+  addedPageToCollection: "{{page}} adicionada a {{collection}}",
+  failedAddPageToCollection: "Não foi possível adicionar a página à coleção",
   moreActionsFor: "Mais ações para {{label}}",
   orderButton: "Ordem: {{order}}",
   orderMode: {

@@ -15,6 +15,7 @@ import {
   DatabaseSidebarView,
   contentSidebarOrderedItems,
   databaseSidebarReorderItems,
+  resolveSidebarCollectionDrop,
   databaseSidebarItemTree,
   databaseSidebarRootItems,
   databaseSidebarRowIndent,
@@ -41,6 +42,90 @@ const item = (id: string, title: string, parentId: string | null = null) =>
     position: 0,
     properties: [],
   }) as ContentDatabaseItem;
+
+const collectionItem = (id: string, title: string) => {
+  const base = item(id, title);
+  return {
+    ...base,
+    document: {
+      ...base.document,
+      database: { id: `database-${id}`, documentId: id, title },
+    },
+  } as ContentDatabaseItem;
+};
+
+describe("resolveSidebarCollectionDrop", () => {
+  it("resolves a page dropped onto a collection row", () => {
+    const page = item("page", "Already written");
+    const collection = collectionItem("collection", "New collection");
+
+    expect(
+      resolveSidebarCollectionDrop([page, collection], page.id, collection.id),
+    ).toEqual({ page, collection });
+  });
+
+  it("ignores a drop onto an ordinary page", () => {
+    const page = item("page", "Already written");
+    const other = item("other", "Other page");
+
+    expect(
+      resolveSidebarCollectionDrop([page, other], page.id, other.id),
+    ).toBeNull();
+  });
+
+  it("ignores a collection dropped onto another collection", () => {
+    const source = collectionItem("source", "Source collection");
+    const target = collectionItem("target", "Target collection");
+
+    expect(
+      resolveSidebarCollectionDrop([source, target], source.id, target.id),
+    ).toBeNull();
+  });
+
+  it("still resolves a page already nested under the collection", () => {
+    // `remove-database-items` leaves the page parented under the collection it
+    // was removed from, so nesting does not mean membership. Declining here is
+    // what made dragging such a page back onto the collection do nothing.
+    const collection = collectionItem("collection", "Collection");
+    const base = item("page", "Page");
+    const page = {
+      ...base,
+      document: { ...base.document, parentId: "collection" },
+    } as ContentDatabaseItem;
+
+    expect(
+      resolveSidebarCollectionDrop([page, collection], page.id, collection.id),
+    ).toEqual({ page, collection });
+  });
+
+  it("ignores read-only and local-file rows", () => {
+    const base = item("page", "Page");
+    const readOnlyPage = {
+      ...base,
+      document: { ...base.document, canEdit: false },
+    } as ContentDatabaseItem;
+    const collection = collectionItem("collection", "Collection");
+    expect(
+      resolveSidebarCollectionDrop(
+        [readOnlyPage, collection],
+        readOnlyPage.id,
+        collection.id,
+      ),
+    ).toBeNull();
+
+    const localPage = {
+      ...base,
+      document: { ...base.document, source: { mode: "local-files" as const } },
+    } as ContentDatabaseItem;
+    expect(
+      resolveSidebarCollectionDrop(
+        [localPage, collection],
+        localPage.id,
+        collection.id,
+      ),
+    ).toBeNull();
+  });
+});
 
 describe("DatabaseSidebarView", () => {
   it("keeps a personal custom item order before new membership positions", () => {

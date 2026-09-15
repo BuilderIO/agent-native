@@ -109,6 +109,31 @@ export function reorderedSidebarItemIds(
   return nextItems.map((item) => item.id);
 }
 
+export type SidebarDropOutcome =
+  | { kind: "claimed" }
+  | { kind: "reorder"; itemIds: string[]; position: number }
+  | { kind: "none" };
+
+/**
+ * `claimDrop` is asked first, before reordering is even computed. A page and a
+ * collection are frequently siblings, so a reorder-first order resolves that
+ * drop as an ordinary sibling swap and the page is never adopted.
+ */
+export function resolveSidebarDrop(
+  items: SidebarReorderItem[],
+  activeId: string,
+  overId: string,
+  claimDrop?: (activeId: string, overId: string) => boolean,
+): SidebarDropOutcome {
+  if (claimDrop?.(activeId, overId)) return { kind: "claimed" };
+  const currentIds = items.map((item) => item.id);
+  const itemIds = reorderedSidebarItemIds(items, activeId, overId);
+  if (!itemIds.some((id, index) => id !== currentIds[index])) {
+    return { kind: "none" };
+  }
+  return { kind: "reorder", itemIds, position: itemIds.indexOf(activeId) };
+}
+
 export function sidebarReorderAnnouncement(
   items: SidebarReorderItem[],
   itemId: string,
@@ -146,6 +171,7 @@ export function SidebarReorderProvider({
   items,
   labels,
   onReorder,
+  onDropInto,
   children,
 }: {
   items: SidebarReorderItem[];
@@ -154,6 +180,12 @@ export function SidebarReorderProvider({
     itemIds: string[],
     moved: { itemId: string; position: number },
   ) => void;
+  /**
+   * Offered every drop before reordering. Return true to claim it. A page and
+   * a collection are often siblings, so a reorder-first check would resolve
+   * that drop as a valid sibling swap and the page would never be adopted.
+   */
+  onDropInto?: (activeItemId: string, overItemId: string) => boolean;
   children: ReactNode;
 }) {
   const itemNodes = useRef(new Map<string, HTMLElement>());
@@ -274,14 +306,14 @@ export function SidebarReorderProvider({
     }
     const overId = event.over?.id;
     if (overId) {
-      const currentIds = items.map((item) => item.id);
-      const nextIds = reorderedSidebarItemIds(
+      const outcome = resolveSidebarDrop(
         items,
-        String(event.active.id),
+        itemId,
         String(overId),
+        onDropInto,
       );
-      if (nextIds.some((id, index) => id !== currentIds[index])) {
-        onReorder(nextIds, { itemId, position: nextIds.indexOf(itemId) });
+      if (outcome.kind === "reorder") {
+        onReorder(outcome.itemIds, { itemId, position: outcome.position });
       }
     }
     clearDragState();

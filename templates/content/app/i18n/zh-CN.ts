@@ -1033,6 +1033,8 @@ const sidebarPinned = {
   moveToPosition: "移至位置",
   positionNumber: "位置 {{position}}",
   failedSaveOrder: "无法保存排序",
+  addedPageToCollection: "已将 {{page}} 添加到 {{collection}}",
+  failedAddPageToCollection: "无法将页面添加到集合",
   moreActionsFor: "{{label}} 的更多操作",
   orderButton: "排序：{{order}}",
   orderMode: {

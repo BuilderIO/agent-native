@@ -39,6 +39,18 @@ actions, and local folders that sync into the same collection model.
   its exact title, then inspect it with `get-content-database` before creating
   or submitting anything. Do not create a second collection when the canonical
   one already exists.
+- To put a page that already exists into a collection, call
+  `add-document-to-content-database` with the collection and that page's
+  document ID. `add-database-item` and `create-content-database` never adopt an
+  existing page: the first creates a new blank row, and the second turns the
+  page you pass into the collection's own backing page. Creating a collection is
+  not the same as filling it, so verify membership in the action's receipt
+  before telling the user the page was added.
+- A page is a row of at most one ordinary collection. To move a row from one
+  collection to another, call `remove-database-items` on the old one first;
+  adopting it directly is refused rather than leaving the old collection
+  listing a row whose page now lives somewhere else. Files, Pinned, and
+  Workspaces memberships are separate and are kept automatically.
 - Local folders are sources attached to a space's canonical Files collection.
   Imported pages are normal SQL-backed Content documents; the trusted local
   bridge handles pull, export, stable file identity, and conflict review.
@@ -66,6 +78,7 @@ pnpm action list-documents
 pnpm action get-document '{"id":"<document-id>"}'
 pnpm action edit-document '{"id":"<document-id>","find":"old copy","replace":"new copy"}'
 pnpm action update-document '{"id":"<document-id>","content":"# Updated\n\nBody"}'
+pnpm action add-document-to-content-database '{"databaseId":"<collection-id>","documentId":"<existing-page-id>"}'
 pnpm action connect-local-folder-source '{"connectionId":"<opaque-bridge-id>","label":"Docs","createSourceBackedSpace":true,"truthPolicy":"source_primary"}'
 ```
 

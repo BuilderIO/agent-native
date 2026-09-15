@@ -33,7 +33,7 @@ const agentSchema = schema
 
 export default defineAction({
   description:
-    "Create one row in an exact ordinary Content collection using the mutation target and schema revision from a fresh get-content-database read. Strictly validates every non-Blocks property, applies one new intent once per fresh idempotency key, and returns a verified receipt with stable membership and page identities.",
+    "Create one row in an exact ordinary Content collection using the mutation target and schema revision from a fresh get-content-database read. Strictly validates every non-Blocks property, applies one new intent once per fresh idempotency key, and returns a verified receipt with stable membership and page identities. This always creates a new page; to move a page that already exists into the collection, use add-document-to-content-database instead.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: agentSchema,
@@ -44,7 +44,7 @@ export default defineAction({
     isConsequential: true,
     title: "Add Content Database Item",
     description:
-      "Delegate creation of one page item in an existing Content collection.",
+      "Delegate creation of one new blank page item in an existing Content collection. It never adopts a page that already exists; use add-document-to-content-database for that.",
   },
   schema,
   audit: {

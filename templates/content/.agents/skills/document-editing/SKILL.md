@@ -230,6 +230,11 @@ can't convey:
   `document_property_definitions`) whose rows are also documents, linked
   through `content_database_items`. Row pages are omitted from the ordinary
   sidebar tree — they're reached through the collection view.
+- Membership is two writes, not one: the row page's `parent_id` points at the
+  collection's backing page *and* a `content_database_items` row exists. Writing
+  only the parent leaves a page filed under the collection that the collection
+  never lists. `add-document-to-content-database` is the only path that adopts
+  an already-written page, and it writes both halves in one transaction.
 
 Documents are **private by default**; use `share-resource` /
 `set-resource-visibility` (`resourceType document`) to change access.

@@ -69,7 +69,45 @@ export interface ContentFilesSidebarManualReorder {
     itemIds: string[],
     moved: { itemId: string; position: number },
   ) => void;
+  /**
+   * Dropping a page onto a collection row. Reordering cannot express this, so
+   * the provider hands the gesture here instead of discarding it.
+   */
+  onAddPageToCollection?: (
+    page: ContentDatabaseItem,
+    collection: ContentDatabaseItem,
+  ) => void;
   labels: SidebarReorderLabels;
+}
+
+/**
+ * Only a collection row can adopt a dropped page, and only when the dropped row
+ * is an ordinary page. Everything else returns null so the drop falls through
+ * to ordinary reordering, which is how a row still gets reordered past a
+ * collection at the same level.
+ *
+ * Being nested under the collection is deliberately NOT a reason to decline:
+ * `remove-database-items` drops the membership row but leaves the page parented
+ * there, so a removed row looks nested while the collection no longer lists it.
+ * Declining that drop is what left the reporter dragging a page onto a
+ * collection and watching nothing happen. Adoption is idempotent, so a page
+ * that really is a member just reports that back.
+ */
+export function resolveSidebarCollectionDrop(
+  items: ContentDatabaseItem[],
+  activeItemId: string,
+  overItemId: string,
+): { page: ContentDatabaseItem; collection: ContentDatabaseItem } | null {
+  const page = items.find((item) => item.id === activeItemId);
+  const collection = items.find((item) => item.id === overItemId);
+  if (!page || !collection) return null;
+  if (!collection.document.database) return null;
+  if (page.document.database) return null;
+  if (page.document.canEdit === false) return null;
+  if (collection.document.canEdit === false) return null;
+  if (page.document.source?.mode === "local-files") return null;
+  if (collection.document.source?.mode === "local-files") return null;
+  return { page, collection };
 }
 
 export interface ContentFilesSidebarRenderReorder {
@@ -581,11 +619,27 @@ export function DatabaseSidebarView({
     untitledLabel,
     Boolean(hierarchyItems),
   );
+  const collectionDropItems = hierarchyUniverseItems ?? hierarchyItems ?? items;
+  const onAddPageToCollection = manualReorder?.onAddPageToCollection;
   const reorderableNavigation = manualReorder ? (
     <SidebarReorderProvider
       items={reorderItems}
       labels={manualReorder.labels}
       onReorder={manualReorder.onReorder}
+      onDropInto={
+        onAddPageToCollection
+          ? (activeItemId, overItemId) => {
+              const drop = resolveSidebarCollectionDrop(
+                collectionDropItems,
+                activeItemId,
+                overItemId,
+              );
+              if (!drop) return false;
+              onAddPageToCollection(drop.page, drop.collection);
+              return true;
+            }
+          : undefined
+      }
     >
       {navigation}
     </SidebarReorderProvider>

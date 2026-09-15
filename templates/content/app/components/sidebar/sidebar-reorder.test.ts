@@ -7,6 +7,7 @@ import {
   isSidebarDragReleaseClick,
   isPointerSidebarDrag,
   reorderedSidebarItemIds,
+  resolveSidebarDrop,
   sidebarReorderAnnouncement,
 } from "./sidebar-reorder";
 
@@ -103,5 +104,39 @@ describe("reorderedSidebarItemIds", () => {
 
     expect(announcement).toBe("Reordering Child B. Position 1.");
     expect(announcement).not.toContain("child-b");
+  });
+});
+
+describe("resolveSidebarDrop", () => {
+  it("lets a claim win over an available sibling reorder", () => {
+    // "one" and "two" are root siblings, so reordering can express this drop.
+    // Dropping a page onto a collection looks exactly like this, which is why
+    // the claim has to be offered first.
+    expect(reorderedSidebarItemIds(items, "one", "two")).not.toEqual(
+      items.map((entry) => entry.id),
+    );
+    expect(resolveSidebarDrop(items, "one", "two", () => true)).toEqual({
+      kind: "claimed",
+    });
+  });
+
+  it("reorders when the claim declines", () => {
+    expect(resolveSidebarDrop(items, "one", "two", () => false)).toEqual({
+      kind: "reorder",
+      itemIds: ["two", "child-a", "one", "child-b"],
+      position: 2,
+    });
+  });
+
+  it("reorders when no claim handler is wired at all", () => {
+    expect(resolveSidebarDrop(items, "one", "two")).toMatchObject({
+      kind: "reorder",
+    });
+  });
+
+  it("reports nothing to do for a drop reordering cannot express", () => {
+    expect(resolveSidebarDrop(items, "two", "child-a", () => false)).toEqual({
+      kind: "none",
+    });
   });
 });

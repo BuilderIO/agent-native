@@ -939,6 +939,8 @@ const sidebarPinned = {
   moveToPosition: "위치로 이동",
   positionNumber: "{{position}}번째 위치",
   failedSaveOrder: "순서를 저장하지 못했습니다",
+  addedPageToCollection: "{{page}}을(를) {{collection}}에 추가했습니다",
+  failedAddPageToCollection: "페이지를 컬렉션에 추가하지 못했습니다",
   moreActionsFor: "{{label}}의 추가 작업",
   orderButton: "정렬: {{order}}",
   orderMode: {
