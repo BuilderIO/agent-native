@@ -70,6 +70,15 @@ describe("aiSdkHarnessPartToEvents", () => {
       aiSdkHarnessPartToEvents({ type: "text-delta", text: "hi" }),
     ).toEqual([{ type: "text-delta", text: "hi" }]);
     expect(
+      aiSdkHarnessPartToEvents({ type: "text-delta", delta: "stable hi" }),
+    ).toEqual([{ type: "text-delta", text: "stable hi" }]);
+    expect(
+      aiSdkHarnessPartToEvents({
+        type: "reasoning-delta",
+        delta: "stable thought",
+      }),
+    ).toEqual([{ type: "thinking-delta", text: "stable thought" }]);
+    expect(
       aiSdkHarnessPartToEvents({
         type: "tool-call",
         toolCallId: "t1",
@@ -135,7 +144,7 @@ describe("aiSdkHarnessPartToEvents", () => {
       aiSdkHarnessPartToEvents({
         type: "file-change",
         path: "README.md",
-        operation: "update",
+        event: "modify",
       }),
     ).toEqual([
       {

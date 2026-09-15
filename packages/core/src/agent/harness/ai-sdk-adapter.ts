@@ -255,11 +255,21 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
   const events: AgentHarnessEvent[] = [];
   switch (type) {
     case "text-delta":
-      if (part.text) events.push({ type: "text-delta", text: part.text });
+      {
+        const text = typeof part.delta === "string" ? part.delta : part.text;
+        if (typeof text === "string" && text) {
+          events.push({ type: "text-delta", text });
+        }
+      }
       break;
     case "reasoning-delta":
     case "thinking-delta":
-      if (part.text) events.push({ type: "thinking-delta", text: part.text });
+      {
+        const text = typeof part.delta === "string" ? part.delta : part.text;
+        if (typeof text === "string" && text) {
+          events.push({ type: "thinking-delta", text });
+        }
+      }
       break;
     case "tool-input-start":
     case "tool-input-delta":
@@ -331,7 +341,7 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
         events.push({
           type: "file-change",
           path: String(part.path),
-          operation: normalizeFileOperation(part.operation),
+          operation: normalizeFileOperation(part.event ?? part.operation),
           summary: typeof part.summary === "string" ? part.summary : undefined,
         });
       }
