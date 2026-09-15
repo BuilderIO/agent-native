@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ANTHROPIC_MANAGED_AGENTS_METADATA_KEY } from "./anthropic-managed-agents.js";
 import {
   AgentInvocationError,
   buildAgentInvocationPrompt,
@@ -17,6 +18,8 @@ vi.mock("./remote-agent-auth.js", () => ({
 }));
 
 vi.mock("./anthropic-managed-agents.js", () => ({
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY:
+    "agent-native/anthropic-managed-agents",
   createAnthropicManagedAgentsHandler: managedHandlerFactoryMock,
 }));
 
@@ -203,6 +206,54 @@ describe("invokeAgent", () => {
         contextId: "context_fixture",
       }),
     );
+  });
+
+  it("preserves managed-agent approval continuation metadata", async () => {
+    const handler = vi.fn(async () => ({
+      message: {
+        role: "agent" as const,
+        parts: [{ type: "text" as const, text: "Approval required" }],
+        metadata: {
+          [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+            sessionId: "ses_fixture",
+            pendingToolUseIds: ["tool_fixture"],
+          },
+        },
+      },
+      taskState: "input-required" as const,
+    }));
+    managedHandlerFactoryMock.mockReturnValueOnce(handler);
+    const rt = runtime({
+      findAgent: vi.fn(async () => ({
+        id: "anthropic-research",
+        name: "Anthropic Research",
+        description: "Research",
+        url: "https://api.anthropic.com",
+        color: "#2563eb",
+        kind: {
+          provider: "anthropic-managed-agents" as const,
+          agentId: "agt_fixture",
+          environmentId: "env_fixture",
+          credentialRef: "ANTHROPIC_API_KEY",
+        },
+      })),
+    });
+
+    const result = await invokeAgent({
+      target: "anthropic-research",
+      prompt: "Research this repository",
+      contextId: "context_fixture",
+      runtime: rt,
+    });
+
+    expect(result).toMatchObject({
+      responseText: "Approval required",
+      taskState: "input-required",
+      continuation: {
+        sessionId: "ses_fixture",
+        pendingToolUseIds: ["tool_fixture"],
+      },
+    });
   });
 
   it("rejects direct actions for managed-agent targets", async () => {

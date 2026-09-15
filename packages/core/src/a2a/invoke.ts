@@ -13,7 +13,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import { createAnthropicManagedAgentsHandler } from "./anthropic-managed-agents.js";
+import {
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY,
+  createAnthropicManagedAgentsHandler,
+  type AnthropicManagedAgentContinuation,
+} from "./anthropic-managed-agents.js";
 import {
   callAction as defaultCallAction,
   callAgent as defaultCallAgent,
@@ -77,6 +81,8 @@ export interface AgentInvocationResult {
   target: ResolvedAgentInvocationTarget;
   prompt: string;
   responseText: string;
+  taskState?: "input-required";
+  continuation?: AnthropicManagedAgentContinuation;
 }
 
 export interface AgentActionInvocationResult {
@@ -260,6 +266,10 @@ export async function invokeAgent(
       .map((part) => part.text)
       .join("\n")
       .trim();
+    const resultMetadata =
+      result.message.metadata?.[ANTHROPIC_MANAGED_AGENTS_METADATA_KEY];
+    const continuation = readManagedAgentContinuation(resultMetadata);
+    const taskState = result.taskState;
     if (!responseText) {
       throw new AgentInvocationError(
         "invalid-response",
@@ -271,6 +281,8 @@ export async function invokeAgent(
       target,
       prompt,
       responseText,
+      ...(taskState ? { taskState } : {}),
+      ...(continuation ? { continuation } : {}),
     };
   }
   const authOptions = await resolveInvocationAuth(target, options.userEmail);
@@ -465,4 +477,26 @@ function normalizeAgentHandle(value: string): string {
 
 function formatSelfCallError(selfAppId: string): string {
   return `Error: You cannot use A2A invocation to call yourself (${selfAppId}). Use your own registered actions/tools instead. A2A invocation is only for communicating with OTHER separately-deployed apps.`;
+}
+
+function readManagedAgentContinuation(
+  value: unknown,
+): AnthropicManagedAgentContinuation | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const sessionId =
+    typeof candidate.sessionId === "string" ? candidate.sessionId.trim() : "";
+  if (!sessionId) return undefined;
+  const pendingToolUseIds = Array.isArray(candidate.pendingToolUseIds)
+    ? candidate.pendingToolUseIds.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim() !== "",
+      )
+    : [];
+  return {
+    sessionId,
+    ...(pendingToolUseIds.length ? { pendingToolUseIds } : {}),
+  };
 }
