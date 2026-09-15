@@ -614,13 +614,19 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     useCase: "repositories, issues, pull requests, code, engineering analytics",
     useCaseKey: "mcpIntegrations.catalog.github.useCase",
     url: "https://api.githubcopilot.com/mcp/",
-    authMode: "oauth",
-    connectionMode: "manual",
-    availability: "provider-setup",
-    verification: "restricted",
+    // GitHub's authorization server (https://github.com/login/oauth) advertises
+    // no registration_endpoint and no Client ID Metadata Documents, so the
+    // Connect button could never mint a client. A personal access token on the
+    // Authorization header is the connection GitHub actually accepts.
+    authMode: "headers",
+    connectionMode: "headers",
+    availability: "ready",
+    verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("github"),
-    docsUrl: "https://github.com/github/github-mcp-server",
+    docsUrl:
+      "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
     setupNoteKey: "mcpIntegrations.catalog.github.setupNote",
+    headerPlaceholder: "Authorization: Bearer <github-token>",
     keywords: ["git", "repositories", "issues", "pull requests", "code"],
   },
   {

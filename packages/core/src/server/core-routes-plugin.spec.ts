@@ -1,4 +1,4 @@
-import type { H3Event } from "h3";
+import { createApp, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -37,6 +37,7 @@ import {
   mountApplicationStateRoutes,
   matchesSavedHostedAgentProbe,
   stripRemoteAgentAuth,
+  createPublicRemoteAgentsHandler,
 } from "./core-routes-plugin.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 
@@ -73,6 +74,12 @@ describe("public remote-agent discovery", () => {
         clientId: "client-id",
         clientSecretRef: "FOUNDRY_SECRET",
       },
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_01",
+        environmentId: "env_01",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
     });
 
     expect(publicAgent).toEqual({
@@ -83,6 +90,47 @@ describe("public remote-agent discovery", () => {
       cardUrl: "https://agent.example.test/card",
     });
     expect("auth" in publicAgent).toBe(false);
+    expect("kind" in publicAgent).toBe(false);
+  });
+
+  it("omits hosted-agent auth from the HTTP listing response", async () => {
+    const app = createApp();
+    app.use(
+      "/_agent-native/agents",
+      createPublicRemoteAgentsHandler(async () => [
+        {
+          id: "foundry",
+          name: "Foundry",
+          description: "Hosted agent",
+          url: "https://agent.example.test",
+          color: "#000",
+          cardUrl: "https://agent.example.test/card",
+          auth: {
+            type: "bearer",
+            credentialRef: "FOUNDRY_SECRET",
+          },
+        },
+      ]),
+    );
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/agents"),
+    );
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      agents: Array<Record<string, unknown>>;
+    };
+    expect(payload.agents).toEqual([
+      {
+        id: "foundry",
+        name: "Foundry",
+        description: "Hosted agent",
+        url: "https://agent.example.test",
+        color: "#000",
+        cardUrl: "https://agent.example.test/card",
+      },
+    ]);
+    expect(payload.agents[0]).not.toHaveProperty("auth");
   });
 });
 
@@ -117,6 +165,30 @@ describe("hosted-agent probes", () => {
           url: "https://attacker.example.test",
           cardUrl: "https://attacker.example.test/card",
           auth,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("matches a saved managed-agent provider reference", () => {
+    const kind = {
+      provider: "anthropic-managed-agents" as const,
+      agentId: "agt_01",
+      environmentId: "env_01",
+      credentialRef: "ANTHROPIC_API_KEY",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        { url: "https://api.anthropic.com", kind },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        {
+          url: "https://api.anthropic.com",
+          kind: { ...kind, agentId: "agt_other" },
         },
       ),
     ).toBe(false);

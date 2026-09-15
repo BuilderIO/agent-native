@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   trackOnboardingEvent: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
+  useOnboardingPreviewStep: vi.fn(),
   navigateToMcpOAuthStart: vi.fn(),
 }));
 
@@ -38,6 +39,7 @@ vi.mock("./use-onboarding.js", () => ({
 
 vi.mock("./use-preview-mode.js", () => ({
   useOnboardingPreviewMode: mocks.useOnboardingPreviewMode,
+  useOnboardingPreviewStep: mocks.useOnboardingPreviewStep,
 }));
 
 vi.mock("../settings/useBuilderStatus.js", () => ({
@@ -71,7 +73,9 @@ describe("FirstRunOnboarding", () => {
     mocks.trackOnboardingEvent.mockReset();
     mocks.useOnboarding.mockReset();
     mocks.useOnboardingPreviewMode.mockReset();
+    mocks.useOnboardingPreviewStep.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
+    mocks.useOnboardingPreviewStep.mockReturnValue(null);
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
       statusResolved: true,

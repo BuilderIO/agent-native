@@ -470,6 +470,53 @@ así que confirme que está disponible en el proyecto de destino antes de
 mostrarlo en el selector del espacio de trabajo. Consulte [invocar un agente de Gemini Enterprise](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
 para conocer la URL del recurso y los requisitos de IAM.
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents no expone un punto de conexión A2A entrante. Use el
+adaptador del framework cuando Agent-Native deba ser propietario de la
+superficie A2A, el estado del flujo de trabajo y las aprobaciones, mientras el
+agente alojado sea propietario de su sesión, contexto y herramientas. El
+adaptador crea una sesión de Managed Agents, envía eventos `user.message` y lee
+el flujo de eventos de la sesión. Un evento bloqueante `agent.tool_use` o
+`agent.mcp_tool_use` se convierte en una tarea A2A con estado `input-required` y
+en un evento de ejecución `approval-request`. Reanude la sesión con
+confirmaciones estructuradas y explícitas en los metadatos devueltos; nunca
+infiera una aprobación a partir de un mensaje:
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` es una referencia de la bóveda a la clave de API de Anthropic.
+El adaptador la resuelve dentro del ámbito del usuario y la organización del
+llamador y envía los encabezados requeridos `anthropic-beta:
+managed-agents-2026-04-01` y `anthropic-version: 2023-06-01`. Registre
+`anthropic-managed-agents` en el catálogo de conexiones del espacio de trabajo
+para reutilizar las concesiones de conexión existentes por aplicación. El
+adaptador se monta en el punto de extensión normal `A2AConfig.handler`:
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pase `handler` en la A2AConfig que se entrega a mountA2A()
+```
+
 ## Invocación programática del espacio de trabajo {#programmatic-invoke}
 
 Para espacios de trabajo nativos del agente, prefiera el asistente `agentNative` cuando utilice código o

@@ -1,6 +1,8 @@
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isBuilderGatewayInternalErrorMessage,
+  isContextOverflowMessage,
   isCreditsLimitErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
@@ -69,6 +71,28 @@ const GATEWAY_INTERNAL_ERROR_MESSAGE =
 const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
   "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
 const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
+/**
+ * The gateway codes a payload it could not parse as `invalid_request`, and
+ * that lane deliberately does not retry. Both sentences below therefore have
+ * to carry the recovery, because nothing downstream will try again.
+ */
+const MALFORMED_REQUEST_ATTACHMENT_MESSAGE =
+  "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.";
+const MALFORMED_REQUEST_MESSAGE =
+  "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.";
+/** Codes the gateway and providers use for a payload they refused to parse. */
+const MALFORMED_REQUEST_CODES = new Set([
+  "invalid_request",
+  "invalid_request_error",
+]);
+/**
+ * Provider wire fields that only exist because a message carried an
+ * attachment. Matching the field name rather than the prose keeps this working
+ * across the three providers behind the gateway, which word the same rejection
+ * differently.
+ */
+const ATTACHMENT_REJECTION_PATTERN =
+  /\b(?:file_url|image_url|file_data|input_file|media_type|mime\s?type|image\.source|document\s+block)\b/i;
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -217,6 +241,11 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "The provider returned an HTML error page.",
     "agentChat.errorMessages.providerHtml",
   ],
+  [
+    MALFORMED_REQUEST_ATTACHMENT_MESSAGE,
+    "agentChat.errorMessages.malformedRequestAttachment",
+  ],
+  [MALFORMED_REQUEST_MESSAGE, "agentChat.errorMessages.malformedRequest"],
 ]);
 
 const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
@@ -382,7 +411,14 @@ export function normalizeChatError(
     };
   }
 
-  if (code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE) {
+  // Match the envelope as well as the canonical code. The gateway emits this
+  // exact apology on its `invalid_request` stop lane too, and that lane never
+  // reaches `canonicalizeBuilderGatewayErrorCode`, so a code-only check left
+  // the raw apology and a bare hex id as the entire user-visible error.
+  if (
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
+    isBuilderGatewayInternalErrorMessage(text)
+  ) {
     return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
   }
 
@@ -483,6 +519,20 @@ export function normalizeChatError(
     return {
       message:
         "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
+      details: text,
+    };
+  }
+
+  // Last classified case, so every more specific `invalid_request` above —
+  // a tool schema, a context overflow, a rate limit the gateway coded this way
+  // — keeps its own copy. What is left is a payload the provider refused to
+  // parse, and its raw sentence names provider wire fields (`input[0]
+  // .content[1].file_url`) that no reader can act on.
+  if (MALFORMED_REQUEST_CODES.has(code) && !isContextOverflowMessage(text)) {
+    return {
+      message: ATTACHMENT_REJECTION_PATTERN.test(text)
+        ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE
+        : MALFORMED_REQUEST_MESSAGE,
       details: text,
     };
   }

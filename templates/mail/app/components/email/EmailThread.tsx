@@ -1199,13 +1199,15 @@ export function EmailThread({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
                 onClick={goBack}
+                aria-label={t("mail.thread.back")}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
                 <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Back (Esc)</TooltipContent>
+            <TooltipContent>{t("mail.thread.back")} (Esc)</TooltipContent>
           </Tooltip>
 
           <div className="flex-1 min-w-0">
@@ -1288,7 +1290,9 @@ export function EmailThread({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
+                      type="button"
                       onClick={handleArchive}
+                      aria-label={t("mail.actions.archive")}
                       className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                     >
                       <IconArchive className="h-4 w-4" />
@@ -1302,7 +1306,9 @@ export function EmailThread({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
+                        type="button"
                         onClick={handleTrash}
+                        aria-label={t("mail.actions.moveToTrash")}
                         className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                       >
                         <IconTrash className="h-4 w-4" />
@@ -1314,13 +1320,17 @@ export function EmailThread({
                   </Tooltip>
                 )}
                 <button
+                  type="button"
                   onClick={() => goToSibling(-1)}
+                  aria-label={t("mail.thread.previousConversation")}
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
                 >
                   <IconChevronUp className="h-3.5 w-3.5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => goToSibling(1)}
+                  aria-label={t("mail.thread.nextConversation")}
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
                   <IconChevronDown className="h-3.5 w-3.5" />
@@ -1329,9 +1339,14 @@ export function EmailThread({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
+                        type="button"
                         onClick={onToggleMaximize}
+                        aria-label={t(
+                          isMaximized
+                            ? "mail.thread.minimize"
+                            : "mail.thread.maximize",
+                        )}
                         className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
-                        aria-label={isMaximized ? "Minimize" : "Maximize"}
                         aria-pressed={isMaximized}
                       >
                         {isMaximized ? (
@@ -1342,7 +1357,11 @@ export function EmailThread({
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {isMaximized ? "Minimize" : "Maximize"}
+                      {t(
+                        isMaximized
+                          ? "mail.thread.minimize"
+                          : "mail.thread.maximize",
+                      )}
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -1574,6 +1593,7 @@ function ThreadLoadingState({
     to: { name: string; email: string }[];
   };
 }) {
+  const t = useT();
   const threadSubject = preview?.subject?.replace(/^(Re|Fwd|Fw):\s*/i, "");
 
   return (
@@ -1583,13 +1603,15 @@ function ThreadLoadingState({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
                 onClick={onBack}
+                aria-label={t("mail.thread.back")}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
                 <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Back (Esc)</TooltipContent>
+            <TooltipContent>{t("mail.thread.back")} (Esc)</TooltipContent>
           </Tooltip>
 
           <div className="flex-1 min-w-0">
@@ -1811,7 +1833,7 @@ const ExpandedMessageCard = forwardRef<
           <div className="flex flex-col gap-1 text-[13px]">
             <div className="flex gap-3">
               <span className="w-10 shrink-0 text-muted-foreground/60">
-                From
+                {t("mail.thread.from")}
               </span>
               <span className="text-foreground font-semibold">
                 <button
@@ -1823,7 +1845,9 @@ const ExpandedMessageCard = forwardRef<
               </span>
             </div>
             <div className="flex gap-3">
-              <span className="w-10 shrink-0 text-muted-foreground/60">To</span>
+              <span className="w-10 shrink-0 text-muted-foreground/60">
+                {t("mail.thread.to")}
+              </span>
               <span className="text-foreground">
                 {email.to.map(renderContactLink)}
               </span>
@@ -1831,7 +1855,7 @@ const ExpandedMessageCard = forwardRef<
             {email.cc && email.cc.length > 0 && (
               <div className="flex gap-3">
                 <span className="w-10 shrink-0 text-muted-foreground/60">
-                  Cc
+                  {t("mail.thread.cc")}
                 </span>
                 <span className="text-foreground">
                   {email.cc.map(renderContactLink)}
@@ -1847,7 +1871,7 @@ const ExpandedMessageCard = forwardRef<
                   month: "long",
                   day: "numeric",
                 })}{" "}
-                at{" "}
+                {t("mail.thread.at")}{" "}
                 {new Date(email.date).toLocaleTimeString("en-US", {
                   hour: "numeric",
                   minute: "2-digit",
@@ -1855,7 +1879,9 @@ const ExpandedMessageCard = forwardRef<
                 })}
               </span>
               <button
+                type="button"
                 onClick={() => setShowDetails(false)}
+                aria-label={t("mail.thread.closeDetails")}
                 className="text-muted-foreground/50 hover:text-foreground transition-colors"
               >
                 <IconX className="h-3.5 w-3.5" />
@@ -1895,24 +1921,28 @@ const ExpandedMessageCard = forwardRef<
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onReply();
                   }}
+                  aria-label={t("mail.compose.reply")}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
                   <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Reply</TooltipContent>
+              <TooltipContent>{t("mail.compose.reply")}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onReplyAll();
                   }}
+                  aria-label={t("mail.mobileActions.replyAll")}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
                   <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
@@ -1925,16 +1955,18 @@ const ExpandedMessageCard = forwardRef<
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onForward();
                   }}
+                  aria-label={t("mail.compose.forward")}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
                   <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Forward</TooltipContent>
+              <TooltipContent>{t("mail.compose.forward")}</TooltipContent>
             </Tooltip>
           </div>
 
@@ -2036,6 +2068,8 @@ const ExpandedMessageCard = forwardRef<
               ))}
             {email.attachments.length > 1 && (
               <button
+                type="button"
+                aria-label={t("mail.thread.downloadAll")}
                 onClick={() => {
                   for (const att of email.attachments!) {
                     const a = document.createElement("a");
@@ -3611,6 +3645,7 @@ function ThreadSearchBar({
       <input
         ref={inputRef}
         type="text"
+        aria-label={t("mail.thread.searchConversationLabel")}
         value={query}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -3630,37 +3665,45 @@ function ThreadSearchBar({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={onPrev}
+              aria-label={t("mail.thread.previousMatch")}
               disabled={totalMatches === 0}
               className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <IconChevronUp className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Previous match (Shift+Enter)</TooltipContent>
+          <TooltipContent>
+            {t("mail.thread.previousMatch")} (Shift+Enter)
+          </TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={onNext}
+              aria-label={t("mail.thread.nextMatch")}
               disabled={totalMatches === 0}
               className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <IconChevronDown className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Next match (Enter)</TooltipContent>
+          <TooltipContent>{t("mail.thread.nextMatch")} (Enter)</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={onClose}
+              aria-label={t("mail.thread.closeSearch")}
               className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
             >
               <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Close (Esc)</TooltipContent>
+          <TooltipContent>{t("mail.thread.closeSearch")} (Esc)</TooltipContent>
         </Tooltip>
       </div>
     </div>
