@@ -354,6 +354,15 @@ promote `handled`/`completed`, reactions, source tests, or unchanged live state
 to **Fixed**. Repeats require a new failing pre-change reproduction and the
 earlier false claim.
 
+Every regression claim also needs a Red/Green proof. Preserve the exact fix
+hunk, reverse-apply only that hunk with `git apply -R`, run the same regression
+check and record its failing assertion, then re-apply the hunk and record the
+passing result. Do not call a test a regression test when it still passes
+without the fix. Repeat timing-sensitive checks 10 times and record the pass
+count. If a local build or typecheck is red because workspace output is
+missing, build the required workspace package and rerun it on a clean
+`origin/main` snapshot before calling the red pre-existing.
+
 ### Npx and package reports have a release gate
 
 An npx scaffold is versioned. Record its pinned core version, the version
