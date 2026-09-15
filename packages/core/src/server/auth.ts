@@ -30,7 +30,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
-import { readDevActionDiscoveryFile } from "./dev-action-bridge.js";
+import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
   isEmbedCapabilityScope,

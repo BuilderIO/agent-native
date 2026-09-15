@@ -131,6 +131,8 @@ describe("auth guard hint gate", () => {
     );
     const index = source.indexOf("devLoopbackAuthHint(");
     expect(index).toBeGreaterThan(-1);
+    expect(source).toContain('from "./dev-action-discovery.js"');
+    expect(source).not.toContain('from "./dev-action-bridge.js"');
     const gate = source.slice(Math.max(0, index - 500), index);
     expect(gate).toContain('p.startsWith("/_agent-native/")');
     expect(gate).toContain("isDevEnvironment()");
