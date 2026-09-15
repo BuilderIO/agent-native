@@ -31,12 +31,26 @@
 /** Logical width of each variant board, before `--dv-scale`. */
 const BOARD_WIDTH = 600;
 
+/** Label row above each board, and the canvas padding above that. */
+const BOARD_LABEL_HEIGHT = 22;
+const CANVAS_TOP_PAD = 24;
+
 /**
- * On-screen height of a board body. Shorter than the design inside it so both
- * variants run off the bottom edge and get cut there, the way the canvas clips
- * a real page.
+ * How much of a board the card shows. The canvas is pinned to this so the crop
+ * is a fixed edge in the picture rather than wherever the boards happen to end.
  */
-const BOARD_BODY_HEIGHT = 300;
+const BOARD_VISIBLE_HEIGHT = 300;
+
+/**
+ * Drawn height of a board body, taller than what the canvas shows. The surplus
+ * runs past the cut so the board — and on the selected one its outline and
+ * bottom handles — leaves the frame instead of coming to rest on the card's
+ * bottom edge, where the selection chrome read as clipped in half.
+ */
+const BOARD_BODY_HEIGHT = 400;
+
+const canvasHeight = (topPad: number) =>
+  topPad + BOARD_LABEL_HEIGHT + BOARD_VISIBLE_HEIGHT;
 
 const NAV_LINKS = ["Roasts", "Subscriptions", "Story"];
 
@@ -168,11 +182,14 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   "html.light .design-variants-mock { --dv-frame-bg: hsl(0 0% 100%); --dv-canvas-bg: hsl(0 0% 92%); --dv-border: hsl(0 0% 90%); --dv-fg: hsl(0 0% 10%); --dv-fg-muted: hsl(0 0% 45%); }",
 
   ".design-variants-mock-frame { overflow: hidden; border: 1px solid var(--dv-border); border-radius: 12px; background: var(--dv-frame-bg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
-  ".design-variants-mock-canvas { display: flex; justify-content: center; gap: 24px; overflow: hidden; padding: 24px 20px 0; background: var(--dv-canvas-bg); }",
+  `.design-variants-mock-canvas { display: flex; height: ${canvasHeight(CANVAS_TOP_PAD)}px; justify-content: center; gap: 24px; overflow: hidden; padding: ${CANVAS_TOP_PAD}px 20px 0; background: var(--dv-canvas-bg); }`,
 
   // Board frames. Square corners on the body are intentional: the editor avoids
   // a card radius there because it reads as the page's own corner radius.
-  `.design-variants-mock .dv-board { position: relative; width: calc(${BOARD_WIDTH}px * var(--dv-scale)); flex-shrink: 0; }`,
+  // `align-self` matters: as a stretched flex child the board would take the
+  // canvas's height, and the selection outline it positions would stop dead on
+  // the crop line instead of running past it with the board.
+  `.design-variants-mock .dv-board { position: relative; width: calc(${BOARD_WIDTH}px * var(--dv-scale)); flex-shrink: 0; align-self: flex-start; }`,
   ".design-variants-mock .dv-board-label { display: flex; height: 22px; align-items: center; gap: 5px; padding-left: 2px; color: var(--dv-fg-muted); font-size: 11px; font-weight: 500; }",
   ".design-variants-mock .dv-board.is-selected .dv-board-label { color: var(--dv-selection); }",
   ".design-variants-mock .dv-board-chosen { display: inline-flex; align-items: center; padding: 0 5px; border-radius: 4px; background: var(--dv-selection); color: var(--dv-selection-contrast); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }",
@@ -241,11 +258,11 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   // The boards are a fixed logical size, so their zoom steps down with the
   // card: the use-case row narrows its media cell long before the page is
   // anywhere near mobile. Stays last so it wins on source order.
-  "@media (max-width: 1320px) { .design-variants-mock { --dv-scale: 0.34; } .design-variants-mock-canvas { gap: 18px; padding: 20px 16px 0; } }",
-  "@media (max-width: 560px) { .design-variants-mock { --dv-scale: 0.26; } .design-variants-mock-canvas { gap: 12px; padding: 16px 12px 0; } }",
+  `@media (max-width: 1320px) { .design-variants-mock { --dv-scale: 0.34; } .design-variants-mock-canvas { height: ${canvasHeight(20)}px; gap: 18px; padding: 20px 16px 0; } }`,
+  `@media (max-width: 560px) { .design-variants-mock { --dv-scale: 0.26; } .design-variants-mock-canvas { height: ${canvasHeight(16)}px; gap: 12px; padding: 16px 12px 0; } }`,
   // Below 480 the media cell is the phone viewport minus its own padding, and
   // two boards side by side no longer fit at any of the steps above.
-  "@media (max-width: 480px) { .design-variants-mock { --dv-scale: 0.21; } .design-variants-mock-canvas { gap: 10px; padding: 14px 10px 0; } }",
+  `@media (max-width: 480px) { .design-variants-mock { --dv-scale: 0.21; } .design-variants-mock-canvas { height: ${canvasHeight(14)}px; gap: 10px; padding: 14px 10px 0; } }`,
 ].join("\n");
 
 function Board({
