@@ -21,26 +21,17 @@ function alphaId(): string {
   )!.id;
 }
 
-function stubIframeRect(
+function stubIframeLayoutSize(
   iframe: HTMLIFrameElement,
   rect: { width: number; height: number },
 ): void {
   const doc = iframe.contentDocument!;
   doc.body.innerHTML = '<div data-agent-native-node-id="alpha"></div>';
-  vi.spyOn(
-    doc.querySelector("[data-agent-native-node-id]")!,
-    "getBoundingClientRect",
-  ).mockReturnValue({
-    x: 0,
-    y: 0,
-    top: 0,
-    left: 0,
-    right: rect.width,
-    bottom: rect.height,
-    width: rect.width,
-    height: rect.height,
-    toJSON: () => ({}),
-  });
+  const element = doc.querySelector<HTMLElement>(
+    "[data-agent-native-node-id]",
+  )!;
+  vi.spyOn(element, "offsetWidth", "get").mockReturnValue(rect.width);
+  vi.spyOn(element, "offsetHeight", "get").mockReturnValue(rect.height);
 }
 
 function mountScreenIframe(
@@ -51,7 +42,7 @@ function mountScreenIframe(
   iframe.setAttribute("data-design-preview-iframe", "");
   iframe.setAttribute("data-screen-iframe-id", screenIframeId);
   document.body.append(iframe);
-  stubIframeRect(iframe, rect);
+  stubIframeLayoutSize(iframe, rect);
 }
 
 function mountBoardIframe(rect: { width: number; height: number }): void {
@@ -61,7 +52,7 @@ function mountBoardIframe(rect: { width: number; height: number }): void {
   iframe.setAttribute("data-design-preview-iframe", "");
   layer.append(iframe);
   document.body.append(layer);
-  stubIframeRect(iframe, rect);
+  stubIframeLayoutSize(iframe, rect);
 }
 
 describe("collectLiveSizeHints", () => {
@@ -85,7 +76,7 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints.alpha).toEqual({ width: 120, height: 40 });
+    expect(hints[alphaId()]).toEqual({ width: 120, height: 40 });
   });
 
   it("returns no hint when the active file's iframe cannot be found", () => {
@@ -114,7 +105,7 @@ describe("collectLiveSizeHints", () => {
       "board",
     );
 
-    expect(hints.alpha).toEqual({ width: 150, height: 60 });
+    expect(hints[alphaId()]).toEqual({ width: 150, height: 60 });
   });
 
   it("measures in the active breakpoint sub-frame, not the primary screen iframe", () => {
@@ -129,6 +120,6 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints.alpha).toEqual({ width: 200, height: 80 });
+    expect(hints[alphaId()]).toEqual({ width: 200, height: 80 });
   });
 });

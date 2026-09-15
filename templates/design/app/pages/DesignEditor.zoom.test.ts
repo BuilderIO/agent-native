@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   clampOverviewDisplayZoom,
   clampZoom,
+  getBoardSelectionFitBounds,
   computeFitCameraForFrames,
   computeIframeLocalCanvasPoint,
   readOverviewZoomPercentFromTransform,
@@ -108,6 +109,69 @@ describe("getNextZoomStepUp / getNextZoomStepDown — Figma-style doubling ancho
     }
     expect(zoom).toBe(2);
     expect(iterations).toBeLessThan(1000);
+  });
+});
+
+describe("getBoardSelectionFitBounds", () => {
+  it("fits a distant Board layer with selected Screen frames, excluding the Board frame", () => {
+    const bounds = getBoardSelectionFitBounds({
+      selectedFrameEntries: [
+        {
+          id: "board",
+          geometry: { x: -65_536, y: -65_536, width: 131_072, height: 131_072 },
+        },
+        {
+          id: "screen-selected",
+          geometry: { x: 1000, y: 200, width: 320, height: 240 },
+        },
+        {
+          id: "screen-unselected",
+          geometry: { x: 8000, y: 8000, width: 1280, height: 800 },
+        },
+      ],
+      selectedScreenIds: new Set(["board", "screen-selected"]),
+      boardFileId: "board",
+      boardBounds: { left: -1200, top: 100, width: 120, height: 90 },
+    });
+
+    expect(bounds).toMatchObject({
+      left: -1200,
+      top: 100,
+      right: 1320,
+      bottom: 440,
+      width: 2520,
+      height: 340,
+      centerX: 60,
+      centerY: 270,
+    });
+  });
+
+  it("keeps Board-only fit bounds when no Screen frames are selected", () => {
+    expect(
+      getBoardSelectionFitBounds({
+        selectedFrameEntries: [
+          {
+            id: "board",
+            geometry: {
+              x: -65_536,
+              y: -65_536,
+              width: 131_072,
+              height: 131_072,
+            },
+          },
+        ],
+        selectedScreenIds: new Set(["board"]),
+        boardFileId: "board",
+        boardBounds: { left: -1200, top: 100, width: 120, height: 90 },
+      }),
+    ).toMatchObject({
+      left: -1200,
+      top: 100,
+      right: -1080,
+      bottom: 190,
+      width: 120,
+      height: 90,
+    });
   });
 });
 

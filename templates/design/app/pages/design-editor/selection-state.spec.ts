@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { GeometryHistorySelection } from "./history";
 import {
+  getOverviewScreenExportGeometryById,
   elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
   hasSelectableCodeLayerParent,
@@ -10,11 +11,45 @@ import {
   isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
+  resolveOverviewScreenFrameGeometry,
   resolveEffectiveSelectedLayerIds,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
 } from "./selection-state";
+
+describe("overview screen export geometry", () => {
+  it("uses the live natural height only for explicit Hug screens", () => {
+    const persisted = {
+      hug: { x: 20, y: 40, width: 300, height: 400 },
+      fixed: { x: 360, y: 40, width: 300, height: 400 },
+    };
+    const result = getOverviewScreenExportGeometryById({
+      overviewScreens: [
+        { id: "hug", width: 300, height: 400, heightMode: "hug" },
+        { id: "fixed", width: 300, height: 400, heightMode: "fixed" },
+      ],
+      canvasFrameGeometryById: persisted,
+      naturalHeightsById: { hug: 84, fixed: 96 },
+    });
+
+    expect(result.hug).toEqual({ ...persisted.hug, height: 84 });
+    expect(result.fixed).toEqual(persisted.fixed);
+    expect(persisted.hug.height).toBe(400);
+    expect(persisted.fixed.height).toBe(400);
+  });
+
+  it("keeps persisted height until Hug content has a valid measurement", () => {
+    expect(
+      resolveOverviewScreenFrameGeometry({
+        screen: { id: "hug", width: 300, height: 400, heightMode: "hug" },
+        screenIndex: 0,
+        canvasFrameGeometryById: { hug: { width: 300, height: 400 } },
+        naturalHeight: Number.NaN,
+      }).height,
+    ).toBe(400);
+  });
+});
 
 function makeSelection(
   overrides: Partial<GeometryHistorySelection> = {},

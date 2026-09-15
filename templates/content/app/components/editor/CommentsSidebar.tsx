@@ -53,6 +53,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FilterTriggerIndicator } from "@/components/ui/filter-trigger";
 import {
   Tooltip,
   TooltipContent,
@@ -783,6 +784,8 @@ export function CommentsSidebar({
     replyDrafts.setHistoryFilters({ kind });
   const setHistoryAuthor = (author: string | null) =>
     replyDrafts.setHistoryFilters({ author });
+  const historyFiltered =
+    historyStatus !== "all" || historyKind !== "all" || historyAuthor !== null;
   const [historyPortalContainer, setHistoryPortalContainer] =
     useState<HTMLDivElement | null>(null);
   const activeConflictId = suggestions.find(
@@ -1479,9 +1482,14 @@ export function CommentsSidebar({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  historyFiltered ? "text-foreground" : "text-muted-foreground",
+                )}
               >
-                <IconFilter size={14} />
+                <FilterTriggerIndicator active={historyFiltered}>
+                  <IconFilter size={14} />
+                </FilterTriggerIndicator>
                 {t("comments.filter")}
               </button>
             </DropdownMenuTrigger>

@@ -827,18 +827,24 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
 
     const beforeIds = new Set(Object.keys(await boardObjects(page)));
     await pressToolKey(page, "r"); // rectangle tool, per TOOL_SHORTCUTS
-    // A plain click (no drag) never committed a shape here — use the same
-    // real drag gesture proven to create board shapes elsewhere in this
-    // suite (parity-tutorial-2.spec.ts's drawWithTool).
-    await page.mouse.move(outsideX, outsideY);
-    await page.mouse.down();
-    await page.mouse.move(outsideX + 100, outsideY + 100, { steps: 8 });
-    await page.mouse.up();
-    await page.waitForTimeout(400);
+    // A no-drag click with a shape tool creates the default-size board shape.
+    await page.mouse.click(outsideX, outsideY);
+
+    const newShapeIds = async () =>
+      Object.keys(await boardObjects(page)).filter(
+        (id) => !beforeIds.has(id) && !id.startsWith("draft-"),
+      );
+    await expect
+      .poll(newShapeIds, {
+        timeout: 10_000,
+        message: "one rectangle-tool click must create one board shape",
+      })
+      .toHaveLength(1);
+    const [shapeId] = await newShapeIds();
+    if (!shapeId) throw new Error("rectangle click created no board shape");
 
     // It renders inside the board's own same-origin iframe — reach into it
     // rather than the host page.
-    const shapeId = await waitForNewBoardObjectId(page, beforeIds);
     const before = await boardObjectBoundingBox(page, shapeId);
     expect(
       before,

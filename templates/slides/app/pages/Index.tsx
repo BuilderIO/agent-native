@@ -19,7 +19,6 @@ import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
-  IconFilter,
   IconPlus,
   IconRefresh,
   IconSearch,
@@ -31,6 +30,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
+import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import {
   NewDeckReferenceStep,
@@ -56,19 +56,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   describeDeckPersistenceFailure,
   type Deck,
@@ -2021,59 +2009,6 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
     </main>
-  );
-}
-
-function DeckFilterMenu({
-  value,
-  onChange,
-}: {
-  value: DeckFilter;
-  onChange: (value: DeckFilter) => void;
-}) {
-  const t = useT();
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-label={
-                value === "mine"
-                  ? t("home.showMineDecks")
-                  : t("home.showAllDecks")
-              }
-              className="size-9 shrink-0 p-0"
-            >
-              <IconFilter className="size-3.5" aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>
-          {value === "mine" ? t("home.showMineDecks") : t("home.showAllDecks")}
-        </TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="start">
-        <DropdownMenuRadioGroup
-          value={value}
-          onValueChange={(nextValue) => {
-            if (nextValue === "mine" || nextValue === "all") {
-              onChange(nextValue);
-            }
-          }}
-        >
-          <DropdownMenuRadioItem value="mine">
-            {t("home.mine")}
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="all">
-            {t("home.all")}
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

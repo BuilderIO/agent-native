@@ -1,3 +1,4 @@
+import { splitCssLayers } from "@/components/design/edit-panel/fill-gradient-helpers";
 import type { ElementInfo } from "@/components/design/types";
 import { isDesignHotkeyEditableTarget } from "@/hooks/useDesignHotkeys";
 
@@ -121,12 +122,152 @@ function normalizeHtml2CanvasColor(value: string): string {
   return parseRgbLikeColorFunction(value) ?? "rgb(0, 0, 0)";
 }
 
+export function normalizeHtml2CanvasImage(value: string): string {
+  // Computed sRGB color-mix stops can use the normal renderer, preserving
+  // external images and webfonts that a foreignObject cannot load.
+  if (!/\bin srgb\b/.test(value)) return value;
+  return splitCssLayers(value)
+    .map((layer) => {
+      if (
+        !/^(?:linear|radial)-gradient\(/.test(layer) ||
+        !/\bin srgb\b/.test(layer)
+      )
+        return layer;
+      return layer
+        .replace(
+          /\bcolor\(\s*srgb\s+[^)]+\)/gi,
+          (color) => parseRgbLikeColorFunction(color) ?? color,
+        )
+        .replace(/(\(\s*)in srgb\s*,\s*/g, "$1")
+        .replace(/\s+in srgb(?=\s*,)/g, "");
+    })
+    .join(", ");
+}
+
 function elementInlineStyle(
   element: Element | undefined,
 ): CSSStyleDeclaration | null {
   if (!element) return null;
   const style = (element as Element & { style?: CSSStyleDeclaration }).style;
   return style && typeof style.setProperty === "function" ? style : null;
+}
+
+function resolveClonedElement(
+  sourceDocument: Document,
+  clonedDocument: Document,
+  sourceElement: Element,
+): Element | null {
+  const nodeId = sourceElement.getAttribute("data-agent-native-node-id");
+  if (nodeId) {
+    const matchingNode = Array.from(
+      clonedDocument.querySelectorAll("[data-agent-native-node-id]"),
+    ).find(
+      (element) => element.getAttribute("data-agent-native-node-id") === nodeId,
+    );
+    if (matchingNode) return matchingNode;
+  }
+  const id = sourceElement.getAttribute("id");
+  if (id) {
+    const matchingId = clonedDocument.getElementById(id);
+    if (matchingId) return matchingId;
+  }
+
+  const path: number[] = [];
+  for (
+    let element: Element | null = sourceElement;
+    element && element !== sourceDocument.documentElement;
+    element = element.parentElement
+  ) {
+    const parent = element.parentElement;
+    if (!parent) return null;
+    const index = Array.from(parent.children).indexOf(element);
+    if (index < 0) return null;
+    path.push(index);
+  }
+  if (path.length === 0)
+    return sourceElement === sourceDocument.documentElement
+      ? clonedDocument.documentElement
+      : null;
+
+  let clonedElement: Element = clonedDocument.documentElement;
+  for (let index = path.length - 1; index >= 0; index -= 1) {
+    const sourceIndex = path[index]!;
+    const children = Array.from(clonedElement.children).filter(
+      (child) => child.localName !== "html2canvaspseudoelement",
+    );
+    const child = children[sourceIndex];
+    if (!child) return null;
+    clonedElement = child;
+  }
+  return clonedElement;
+}
+
+export function isolateSelectedExportElements(
+  sourceDocument: Document,
+  clonedDocument: Document,
+  selectedElements: readonly Element[],
+): void {
+  if (selectedElements.length === 0) return;
+
+  const selectedClones = new Set<Element>();
+  for (const element of selectedElements) {
+    const clone = resolveClonedElement(sourceDocument, clonedDocument, element);
+    if (!clone) throw new PngCaptureError("selection-unresolved");
+    selectedClones.add(clone);
+  }
+
+  const selectedSubtreeClones = new Set<Element>();
+  const ancestorClones = new Set<Element>();
+  for (const element of selectedClones) {
+    element
+      .querySelectorAll("*")
+      .forEach((child) => selectedSubtreeClones.add(child));
+    for (
+      let ancestor = element.parentElement;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      ancestorClones.add(ancestor);
+    }
+  }
+  const visibleClones = new Set([
+    ...selectedClones,
+    ...selectedSubtreeClones,
+    ...ancestorClones,
+  ]);
+
+  const sourceElements = [
+    sourceDocument.documentElement,
+    ...Array.from(sourceDocument.documentElement.querySelectorAll("*")),
+  ];
+  for (const sourceElement of sourceElements) {
+    const clone = resolveClonedElement(
+      sourceDocument,
+      clonedDocument,
+      sourceElement,
+    );
+    if (!clone) continue;
+    const parentVisible = clone.parentElement
+      ? visibleClones.has(clone.parentElement)
+      : true;
+    if (!visibleClones.has(clone) && parentVisible) {
+      const style = elementInlineStyle(clone);
+      style?.setProperty("opacity", "0", "important");
+    }
+  }
+
+  for (const ancestor of ancestorClones) {
+    const style = elementInlineStyle(ancestor);
+    if (!style) continue;
+    style.setProperty("background-color", "transparent", "important");
+    style.setProperty("background-image", "none", "important");
+    style.setProperty("border-top-color", "transparent", "important");
+    style.setProperty("border-right-color", "transparent", "important");
+    style.setProperty("border-bottom-color", "transparent", "important");
+    style.setProperty("border-left-color", "transparent", "important");
+    style.setProperty("outline-color", "transparent", "important");
+    style.setProperty("box-shadow", "none", "important");
+  }
 }
 
 function sanitizeHtml2CanvasClone(
@@ -164,7 +305,11 @@ function sanitizeHtml2CanvasClone(
     for (const property of HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES) {
       const value = computed.getPropertyValue(property);
       if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
-      clonedStyle.setProperty(property, "none", "important");
+      clonedStyle.setProperty(
+        property,
+        normalizeHtml2CanvasImage(value),
+        "important",
+      );
     }
 
     // html2canvas paints a placeholder as the input value, using the input's
@@ -207,35 +352,18 @@ export function sanitizeSerializedXmlForSvg(value: string): string {
   );
 }
 
-export type ExportCropTarget =
-  /** Crop the render to this document-space rect. */
-  | {
-      kind: "rect";
-      rect: { x: number; y: number; width: number; height: number };
-    }
-  /** Nothing narrows the render: no selection, or the selection *is* the
-   *  screen. The whole screen is the honest capture of that selection. */
-  | { kind: "whole-screen" }
-  /** A selection was made, but none of it resolves in the live document, so
-   *  what would be captured is not what the caller asked for. */
-  | { kind: "unresolved" };
-
 /**
- * Resolve the document-space rect of one selected element inside the preview
- * iframe so image exports (PNG/SVG) can crop to just that frame instead of the
- * whole screen.
- *
- * `whole-screen` and `unresolved` are deliberately different results. Callers
- * that widen to the full render on `whole-screen` would be exporting something
- * the user never selected if they also widened on `unresolved`.
+ * Resolve the document-space rect of the currently selected element inside the
+ * preview iframe so image exports (PNG/SVG) can crop to just that frame instead
+ * of the whole screen. Returns null — meaning "export the whole screen" — when
+ * there is no element selection, when the selection is the screen root
+ * (BODY/HTML, which is the whole screen anyway), or when the element can no
+ * longer be resolved in the live document.
  */
-function resolveElementExportCropTarget(
+function resolveElementForExport(
   doc: Document,
   selected: ElementInfo,
-): ExportCropTarget {
-  if (isScreenRootElementInfo(selected)) return { kind: "whole-screen" };
-  const view = doc.defaultView;
-  if (!view) return { kind: "unresolved" };
+): Element | null {
   let element: Element | null = null;
   if (selected.sourceId) {
     try {
@@ -253,21 +381,38 @@ function resolveElementExportCropTarget(
       element = null;
     }
   }
-  if (!element) return { kind: "unresolved" };
-  const rect = element.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return { kind: "unresolved" };
-  // getBoundingClientRect is viewport-relative; add the iframe scroll offset so
-  // coordinates match the full-document render (which starts at the page top).
-  return {
-    kind: "rect",
-    rect: {
-      x: rect.left + (view.scrollX ?? 0),
-      y: rect.top + (view.scrollY ?? 0),
-      width: rect.width,
-      height: rect.height,
-    },
-  };
+  return element;
 }
+
+export function resolveSelectedExportElements(
+  doc: Document,
+  selected: ElementInfo | readonly ElementInfo[] | null | undefined,
+): Element[] {
+  const selections = Array.isArray(selected)
+    ? selected
+    : selected
+      ? [selected]
+      : [];
+  const screenRootSelections = selections.filter(isScreenRootElementInfo);
+  if (screenRootSelections.length > 0) {
+    if (selections.length !== 1)
+      throw new PngCaptureError("selection-unresolved");
+    return [];
+  }
+  return selections.map((selection) => {
+    const element = resolveElementForExport(doc, selection);
+    if (!element) throw new PngCaptureError("selection-unresolved");
+    return element;
+  });
+}
+
+export type ExportCropTarget =
+  | {
+      kind: "rect";
+      rect: { x: number; y: number; width: number; height: number };
+    }
+  | { kind: "whole-screen" }
+  | { kind: "unresolved" };
 
 export function resolveExportCropTarget(
   doc: Document,
@@ -279,31 +424,54 @@ export function resolveExportCropTarget(
       ? [selected]
       : [];
   if (selections.length === 0) return { kind: "whole-screen" };
-  const targets = selections.map((selection) =>
-    resolveElementExportCropTarget(doc, selection),
-  );
-  // The screen root contains every other selectable node, so a selection that
-  // includes it unions to the whole screen. Cropping to a co-selected child
-  // would export less than was selected.
-  if (targets.some((target) => target.kind === "whole-screen")) {
-    return { kind: "whole-screen" };
+  const includesScreenRoot = selections.some(isScreenRootElementInfo);
+
+  try {
+    const elements = resolveSelectedExportElements(
+      doc,
+      includesScreenRoot
+        ? selections.filter((selection) => !isScreenRootElementInfo(selection))
+        : selections,
+    );
+    // A Screen root widens the crop to the full document, but every ordinary
+    // member still has to resolve before the selection can be exported.
+    if (includesScreenRoot) return { kind: "whole-screen" };
+    if (elements.length === 0) return { kind: "unresolved" };
+    const rect = unionExportCropRects(
+      elements.map((element) => {
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+          throw new PngCaptureError("selection-unresolved");
+        }
+        const view = doc.defaultView;
+        return {
+          x: rect.left + (view?.scrollX ?? 0),
+          y: rect.top + (view?.scrollY ?? 0),
+          width: rect.width,
+          height: rect.height,
+        };
+      }),
+    );
+    return rect ? { kind: "rect", rect } : { kind: "unresolved" };
+  } catch (error) {
+    if (
+      error instanceof PngCaptureError &&
+      error.code === "selection-unresolved"
+    ) {
+      return { kind: "unresolved" };
+    }
+    throw error;
   }
-  const rect = unionExportCropRects(
-    targets.flatMap((target) => (target.kind === "rect" ? [target.rect] : [])),
-  );
-  return rect ? { kind: "rect", rect } : { kind: "unresolved" };
 }
 
-/**
- * Rect-or-null view of {@link resolveExportCropTarget} for the whole-screen
- * export paths (PDF page sizing, SVG), where an unresolvable selection and a
- * screen-level selection both correctly mean "size to the whole screen".
- */
 export function resolveExportCropRect(
   doc: Document,
   selected: ElementInfo | readonly ElementInfo[] | null | undefined,
 ): { x: number; y: number; width: number; height: number } | null {
   const target = resolveExportCropTarget(doc, selected);
+  if (target.kind === "unresolved") {
+    throw new PngCaptureError("selection-unresolved");
+  }
   return target.kind === "rect" ? target.rect : null;
 }
 
@@ -404,12 +572,14 @@ export async function renderExportDocumentCanvas({
   exportScale,
   cropRect,
   render,
+  isolateSelectedElements = [],
 }: {
   doc: Document;
   iframe: HTMLIFrameElement;
   exportScale: number;
   cropRect?: ExportCropRect | null;
   render: (typeof import("html2canvas"))["default"];
+  isolateSelectedElements?: readonly Element[];
 }): Promise<{ canvas: HTMLCanvasElement; scale: number }> {
   // A freshly loaded preview iframe (new generation, screen switch, or just a
   // fast click) can still be mid-load for its CDN Tailwind/Alpine script and
@@ -456,6 +626,11 @@ export async function renderExportDocumentCanvas({
     backgroundColor: null,
     onclone: (clonedDocument: Document) => {
       sanitizeHtml2CanvasClone(doc, clonedDocument);
+      isolateSelectedExportElements(
+        doc,
+        clonedDocument,
+        isolateSelectedElements,
+      );
       removeEditorChromeOverlays(clonedDocument);
     },
   };
@@ -471,6 +646,7 @@ export async function renderExportDocumentCanvas({
       });
       return { canvas, scale: effectiveScale };
     } catch (primaryError) {
+      if (primaryError instanceof PngCaptureError) throw primaryError;
       console.warn(
         "PNG canvas capture failed; retrying foreignObject renderer:",
         primaryError,
@@ -478,6 +654,14 @@ export async function renderExportDocumentCanvas({
       const canvas = await render(doc.documentElement, {
         ...options,
         foreignObjectRendering: true,
+        onclone: (clonedDocument: Document) => {
+          isolateSelectedExportElements(
+            doc,
+            clonedDocument,
+            isolateSelectedElements,
+          );
+          removeEditorChromeOverlays(clonedDocument);
+        },
       });
       return { canvas, scale: effectiveScale };
     }
@@ -496,6 +680,7 @@ export type PngCaptureScope = "document" | "screens" | "element";
 
 export type PngCaptureErrorCode =
   | "no-preview"
+  | "selection-unresolved"
   | "external-preview"
   | "read-only-preview"
   | "blob-failed";

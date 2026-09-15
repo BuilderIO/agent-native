@@ -193,6 +193,104 @@ describe("apply-visual-edit", () => {
     ).toBe(false);
   });
 
+  it("requires a value for style sets and omits it for style removal", () => {
+    const base = {
+      source: { kind: "design-file", designId: "design_123" },
+      intent: {
+        kind: "style",
+        target: { selector: "main" },
+        property: "color",
+      },
+    };
+
+    expect(action.schema.safeParse(base).success).toBe(false);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        intent: { ...base.intent, operation: "set", value: "red" },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        intent: { ...base.intent, operation: "remove" },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        intent: {
+          ...base.intent,
+          operation: "remove",
+          value: "red",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("returns needsAgent for style removal from local JSX", async () => {
+    const result = await action.run({
+      source: {
+        kind: "local-file",
+        designId: "design_123",
+        connectionId: "connection_123",
+        path: "src/App.tsx",
+      },
+      intent: {
+        kind: "style",
+        operation: "remove",
+        target: { sourceAnchor: { line: 1, column: 1 } },
+        property: "color",
+      },
+    });
+
+    expect(result).toMatchObject({
+      result: { status: "needsAgent", changed: false },
+      persisted: false,
+    });
+  });
+
+  it("refuses breakpoint-scoped style removal without changing base or breakpoint CSS", async () => {
+    const content =
+      '<style>.card{color:tomato}@media(max-width:809px){.card{color:purple}}</style><div class="card" style="color:blue!important;color:green;width:10px"></div>';
+    setFiles([
+      {
+        id: "file_123",
+        designId: "design_123",
+        filename: "index.html",
+        fileType: "html",
+        content,
+        designData: JSON.stringify({
+          breakpointSet: {
+            breakpoints: [{ widthPx: 390 }, { widthPx: 810 }],
+          },
+          screenMetadata: { file_123: { width: 1280 } },
+        }),
+      },
+    ]);
+
+    const result = await action.run({
+      source: { kind: "design-file", fileId: "file_123" },
+      intent: {
+        kind: "style",
+        operation: "remove",
+        target: { selector: ".card" },
+        property: "color",
+      },
+      activeFrameWidthPx: 390,
+      includeContent: true,
+      persist: true,
+    });
+
+    expect(result).toMatchObject({
+      result: { status: "needsAgent", changed: false },
+      persisted: false,
+      patchedContent: content,
+    });
+    expect(mocks.applyVisualEdit).not.toHaveBeenCalled();
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
+  });
+
   it("fails fast when fileId and designId disagree", async () => {
     await expect(
       action.run({
@@ -339,6 +437,31 @@ describe("apply-visual-edit", () => {
   // through readLiveSourceFile/writeInlineSourceFile (expectedVersionHash
   // CAS), not the old raw unconditional db.update + applyText/seedFromText.
   describe("persistence (readLiveSourceFile / writeInlineSourceFile CAS)", () => {
+    it("rejects broken stylesheet content before writing SQL or collaborative text", async () => {
+      const before =
+        "<style>:root{--primary:#0F766E;--accent:#ccfbf1}</style><main>Orbit</main>";
+      setFile(before);
+      mocks.applyVisualEdit.mockReturnValueOnce({
+        result: { status: "applied", changed: true },
+        projection: { nodes: [] },
+        content: before.replace("--primary:#0F766E;", '--primary:#0F766E;"}]'),
+      });
+
+      await expect(
+        action.run({
+          source: { kind: "design-file", fileId: "file_123" },
+          intent: {
+            kind: "style",
+            target: { selector: "main" },
+            property: "color",
+            value: "red",
+          },
+        }),
+      ).rejects.toThrow(/not valid CSS.*Unclosed string/);
+      expect(mocks.updateChain.set).not.toHaveBeenCalled();
+      expect(mocks.seededCollabText.size).toBe(0);
+    });
+
     it("persists the patched content and reports persisted: true when the edit actually changes the file", async () => {
       mocks.applyVisualEdit.mockReturnValueOnce({
         result: { status: "applied", changed: true },

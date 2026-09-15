@@ -1,9 +1,24 @@
 // @vitest-environment happy-dom
 
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  patchCodeLayerNodeAttributes,
+} from "@shared/code-layer";
+import type { CodeLayerSource } from "@shared/code-layer";
+import {
+  analyzeComponentLinks,
+  applyComponentPropertyEdit,
+} from "@shared/component-links";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_OVERRIDES_ATTR,
+  COMPONENT_REF_ATTR,
+  COMPONENT_SOURCE_NODE_ID_ATTR,
+} from "@shared/component-model";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  insertClonedHtmlLayers,
   extractLayerPosition,
   prepareClonedHtmlLayersForLiveInsert,
   preserveClipboardLayerName,
@@ -152,6 +167,520 @@ describe("extractLayerPosition", () => {
   });
 });
 
+describe("linked component cloning", () => {
+  const designId = "design-components";
+  const sourceFileId = "screen-source";
+  const source = {
+    kind: "design-file" as const,
+    designId,
+    fileId: sourceFileId,
+    filename: "index.html",
+  };
+  const nestedOverrides = encodeURIComponent(
+    JSON.stringify([{ sourceNodeId: "play-label", property: "style:color" }]),
+  );
+  const outerOverrides = encodeURIComponent(
+    JSON.stringify([{ sourceNodeId: "card-copy", property: "style:color" }]),
+  );
+  const sourceHtml = `<!doctype html><html><body>
+    <article data-agent-native-node-id="card-main" data-agent-native-component-id="cmp-card" data-agent-native-component="Card">
+      <button data-agent-native-node-id="card-play" data-agent-native-component-ref="cmp-play" data-agent-native-component="PlayButton" data-agent-native-component-overrides="${nestedOverrides}">
+        <span data-agent-native-node-id="play-label-instance" data-agent-native-component-source-node-id="play-label">Play</span>
+      </button>
+      <p data-agent-native-node-id="card-copy" style="color: black">Card</p>
+    </article>
+    <button data-agent-native-node-id="play-main" data-agent-native-component-id="cmp-play" data-agent-native-component="PlayButton">
+      <span data-agent-native-node-id="play-label" style="color: white">Play</span>
+    </button>
+  </body></html>`;
+  const sourceDocument = (content: string) => ({ source, content });
+  const findNode = (
+    content: string,
+    nodeId: string,
+    sourceValue: CodeLayerSource = source,
+  ) =>
+    buildCodeLayerProjection(content, { source: sourceValue }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === nodeId,
+    );
+  const assertLinksResolve = (
+    contents: Array<{ source: CodeLayerSource; content: string }>,
+  ) => {
+    const analysis = analyzeComponentLinks(
+      contents.map(({ source: sourceValue, content }) =>
+        buildCodeLayerProjection(content, { source: sourceValue }),
+      ),
+    );
+    expect(analysis.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          componentId: "cmp-card",
+          status: "resolved",
+        }),
+        expect.objectContaining({
+          componentId: "cmp-play",
+          status: "resolved",
+        }),
+      ]),
+    );
+    expect(analysis.invalidNodes).toEqual([]);
+  };
+
+  it("duplicates a main twice, then duplicates a linked reference without losing nested mappings", () => {
+    const mainHtml = findNode(sourceHtml, "card-main")?.source;
+    expect(mainHtml).toBeTruthy();
+    if (!mainHtml) return;
+    const mainFragment = sourceHtml.slice(mainHtml.start, mainHtml.end);
+    const first = insertClonedHtmlLayers(sourceHtml, [mainFragment], {
+      componentLinks: {
+        sourceFileIds: [sourceFileId],
+        targetSource: source,
+        documents: [sourceDocument(sourceHtml)],
+      },
+    });
+    expect(first).not.toBeNull();
+    if (!first) return;
+    const firstProjection = buildCodeLayerProjection(first.content, { source });
+    const firstReference = firstProjection.nodes.find(
+      (node) => node.dataAttributes[COMPONENT_REF_ATTR] === "cmp-card",
+    );
+    expect(firstReference).toBeTruthy();
+    if (!firstReference) return;
+    const withOverrides = patchCodeLayerNodeAttributes(first.content, [
+      {
+        node: firstReference,
+        attributes: { [COMPONENT_OVERRIDES_ATTR]: outerOverrides },
+      },
+    ]);
+    expect(withOverrides).not.toBeNull();
+    if (!withOverrides) return;
+    const second = insertClonedHtmlLayers(withOverrides, [mainFragment], {
+      componentLinks: {
+        sourceFileIds: [sourceFileId],
+        targetSource: source,
+        documents: [sourceDocument(withOverrides)],
+      },
+    });
+    expect(second).not.toBeNull();
+    if (!second) return;
+
+    const afterTwoMains = buildCodeLayerProjection(second.content, { source });
+    const cardReferences = afterTwoMains.nodes.filter(
+      (node) => node.dataAttributes[COMPONENT_REF_ATTR] === "cmp-card",
+    );
+    expect(cardReferences).toHaveLength(2);
+    const sourceReference = cardReferences[0];
+    expect(sourceReference).toBeTruthy();
+    if (!sourceReference) return;
+    const sourceNestedReference = sourceReference.children[0]
+      ? afterTwoMains.nodes.find(
+          (node) => node.id === sourceReference.children[0],
+        )
+      : undefined;
+    expect(sourceNestedReference).toBeTruthy();
+    if (!sourceNestedReference) return;
+    const withNestedOverride = patchCodeLayerNodeAttributes(second.content, [
+      {
+        node: sourceNestedReference,
+        attributes: { [COMPONENT_OVERRIDES_ATTR]: nestedOverrides },
+      },
+    ]);
+    expect(withNestedOverride).not.toBeNull();
+    if (!withNestedOverride) return;
+    const cloneSourceProjection = buildCodeLayerProjection(withNestedOverride, {
+      source,
+    });
+    const cloneSourceReference = cloneSourceProjection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        sourceReference.dataAttributes["data-agent-native-node-id"],
+    );
+    expect(cloneSourceReference?.source).toBeTruthy();
+    if (!cloneSourceReference?.source) return;
+    const referenceFragment = withNestedOverride.slice(
+      cloneSourceReference.source.start,
+      cloneSourceReference.source.end,
+    );
+    const third = insertClonedHtmlLayers(
+      withNestedOverride,
+      [referenceFragment],
+      {
+        componentLinks: {
+          sourceFileIds: [sourceFileId],
+          targetSource: source,
+          documents: [sourceDocument(withNestedOverride)],
+        },
+      },
+    );
+    expect(third).not.toBeNull();
+    if (!third) return;
+
+    const finalProjection = buildCodeLayerProjection(third.content, { source });
+    const finalReferences = finalProjection.nodes.filter(
+      (node) => node.dataAttributes[COMPONENT_REF_ATTR] === "cmp-card",
+    );
+    expect(finalReferences).toHaveLength(3);
+    const clonedReference = finalProjection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        third.rootNodeIds[0],
+    );
+    expect(clonedReference?.dataAttributes[COMPONENT_OVERRIDES_ATTR]).toBe(
+      outerOverrides,
+    );
+    const clonedOuterRoot = finalProjection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        third.rootNodeIds[0],
+    );
+    const nestedReference = clonedOuterRoot?.children[0]
+      ? finalProjection.nodes.find(
+          (node) => node.id === clonedOuterRoot.children[0],
+        )
+      : undefined;
+    expect(nestedReference?.dataAttributes[COMPONENT_OVERRIDES_ATTR]).toBe(
+      nestedOverrides,
+    );
+    const nestedLabel = nestedReference?.children[0]
+      ? finalProjection.nodes.find(
+          (node) => node.id === nestedReference.children[0],
+        )
+      : undefined;
+    expect(nestedLabel?.dataAttributes[COMPONENT_SOURCE_NODE_ID_ATTR]).toBe(
+      "play-label",
+    );
+    expect(
+      new Set(
+        finalReferences.map(
+          (node) => node.dataAttributes["data-agent-native-node-id"],
+        ),
+      ).size,
+    ).toBe(3);
+    assertLinksResolve([sourceDocument(third.content)]);
+  });
+
+  it("links a main clone across Screens in the same Design and refuses cross-Design identity", () => {
+    const mainSpan = findNode(sourceHtml, "card-main")?.source;
+    expect(mainSpan).toBeTruthy();
+    if (!mainSpan) return;
+    const mainFragment = sourceHtml.slice(mainSpan.start, mainSpan.end);
+    const targetSource = {
+      kind: "design-file" as const,
+      designId,
+      fileId: "screen-target",
+      filename: "target.html",
+    };
+    const targetHtml =
+      '<!doctype html><html><body><div id="anchor"></div></body></html>';
+    const moved = insertClonedHtmlLayers(targetHtml, [mainFragment], {
+      targetSelectors: ["#anchor"],
+      placement: "inside",
+      componentLinks: {
+        sourceFileIds: [sourceFileId],
+        targetSource,
+        documents: [
+          sourceDocument(sourceHtml),
+          { source: targetSource, content: targetHtml },
+        ],
+      },
+    });
+    expect(moved).not.toBeNull();
+    if (!moved) return;
+    const targetProjection = buildCodeLayerProjection(moved.content, {
+      source: targetSource,
+    });
+    expect(
+      targetProjection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-node-id"] ===
+          moved.rootNodeIds[0],
+      )?.dataAttributes[COMPONENT_REF_ATTR],
+    ).toBe("cmp-card");
+    assertLinksResolve([
+      sourceDocument(sourceHtml),
+      { source: targetSource, content: moved.content },
+    ]);
+
+    const wrongDesignSource = { ...targetSource, designId: "other-design" };
+    expect(
+      insertClonedHtmlLayers(targetHtml, [mainFragment], {
+        componentLinks: {
+          sourceFileIds: [sourceFileId],
+          targetSource: wrongDesignSource,
+          documents: [
+            sourceDocument(sourceHtml),
+            { source: wrongDesignSource, content: targetHtml },
+          ],
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("links a canonical component nested inside an ordinary container clone", () => {
+    const containerHtml = sourceHtml
+      .replace(
+        '<article data-agent-native-node-id="card-main"',
+        '<section data-agent-native-node-id="group-main"><article data-agent-native-node-id="card-main"',
+      )
+      .replace(
+        '    </article>\n    <button data-agent-native-node-id="play-main"',
+        '    </article></section>\n    <button data-agent-native-node-id="play-main"',
+      );
+    const groupSpan = findNode(containerHtml, "group-main")?.source;
+    expect(groupSpan).toBeTruthy();
+    if (!groupSpan) return;
+    const groupFragment = containerHtml.slice(groupSpan.start, groupSpan.end);
+    const duplicated = insertClonedHtmlLayers(containerHtml, [groupFragment], {
+      componentLinks: {
+        sourceFileIds: [sourceFileId],
+        targetSource: source,
+        documents: [sourceDocument(containerHtml)],
+      },
+    });
+    expect(duplicated).not.toBeNull();
+    if (!duplicated) return;
+
+    const projection = buildCodeLayerProjection(duplicated.content, { source });
+    const cloneGroup = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        duplicated.rootNodeIds[0],
+    );
+    const clonedCard = cloneGroup?.children[0]
+      ? projection.nodes.find((node) => node.id === cloneGroup.children[0])
+      : undefined;
+    expect(clonedCard?.dataAttributes[COMPONENT_ID_ATTR]).toBeUndefined();
+    expect(clonedCard?.dataAttributes[COMPONENT_REF_ATTR]).toBe("cmp-card");
+    const originalCard = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "card-main",
+    );
+    expect(originalCard?.dataAttributes[COMPONENT_ID_ATTR]).toBe("cmp-card");
+    const clonedPlay = clonedCard?.children[0]
+      ? projection.nodes.find((node) => node.id === clonedCard.children[0])
+      : undefined;
+    expect(clonedPlay?.dataAttributes[COMPONENT_REF_ATTR]).toBe("cmp-play");
+    expect(clonedPlay?.dataAttributes[COMPONENT_SOURCE_NODE_ID_ATTR]).toBe(
+      "card-play",
+    );
+    expect(
+      clonedPlay?.dataAttributes[COMPONENT_OVERRIDES_ATTR],
+    ).toBeUndefined();
+    const clonedLabel = clonedPlay?.children[0]
+      ? projection.nodes.find((node) => node.id === clonedPlay.children[0])
+      : undefined;
+    expect(clonedLabel?.dataAttributes[COMPONENT_SOURCE_NODE_ID_ATTR]).toBe(
+      "play-label",
+    );
+    assertLinksResolve([sourceDocument(duplicated.content)]);
+  });
+
+  it("preserves a linked reference nested inside an ordinary container clone", () => {
+    const mainSpan = findNode(sourceHtml, "card-main")?.source;
+    expect(mainSpan).toBeTruthy();
+    if (!mainSpan) return;
+    const mainFragment = sourceHtml.slice(mainSpan.start, mainSpan.end);
+    const withReference = insertClonedHtmlLayers(sourceHtml, [mainFragment], {
+      componentLinks: {
+        sourceFileIds: [sourceFileId],
+        targetSource: source,
+        documents: [sourceDocument(sourceHtml)],
+      },
+    });
+    expect(withReference).not.toBeNull();
+    if (!withReference) return;
+    const beforeWrap = buildCodeLayerProjection(withReference.content, {
+      source,
+    });
+    const referenceRoot = beforeWrap.nodes.find(
+      (node) =>
+        node.dataAttributes[COMPONENT_REF_ATTR] === "cmp-card" &&
+        node.dataAttributes["data-agent-native-node-id"] ===
+          withReference.rootNodeIds[0],
+    );
+    expect(referenceRoot?.source).toBeTruthy();
+    if (!referenceRoot?.source) return;
+    const withOverrides = patchCodeLayerNodeAttributes(withReference.content, [
+      {
+        node: referenceRoot,
+        attributes: { [COMPONENT_OVERRIDES_ATTR]: outerOverrides },
+      },
+    ]);
+    expect(withOverrides).not.toBeNull();
+    if (!withOverrides) return;
+    const overriddenProjection = buildCodeLayerProjection(withOverrides, {
+      source,
+    });
+    const overriddenReference = overriddenProjection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        withReference.rootNodeIds[0],
+    );
+    expect(overriddenReference?.source).toBeTruthy();
+    if (!overriddenReference?.source) return;
+    const nestedReference = overriddenReference.children[0]
+      ? overriddenProjection.nodes.find(
+          (node) => node.id === overriddenReference.children[0],
+        )
+      : undefined;
+    expect(nestedReference).toBeTruthy();
+    if (!nestedReference) return;
+    const withNestedOverride = patchCodeLayerNodeAttributes(withOverrides, [
+      {
+        node: nestedReference,
+        attributes: { [COMPONENT_OVERRIDES_ATTR]: nestedOverrides },
+      },
+    ]);
+    expect(withNestedOverride).not.toBeNull();
+    if (!withNestedOverride) return;
+    const finalBeforeWrap = buildCodeLayerProjection(withNestedOverride, {
+      source,
+    });
+    const finalOverriddenReference = finalBeforeWrap.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        withReference.rootNodeIds[0],
+    );
+    expect(finalOverriddenReference?.source).toBeTruthy();
+    if (!finalOverriddenReference?.source) return;
+    const referenceHtml = withNestedOverride.slice(
+      finalOverriddenReference.source.start,
+      finalOverriddenReference.source.end,
+    );
+    const wrappedHtml =
+      withNestedOverride.slice(0, finalOverriddenReference.source.start) +
+      `<aside data-agent-native-node-id="ordinary-ref-group">${referenceHtml}</aside>` +
+      withNestedOverride.slice(finalOverriddenReference.source.end);
+    const groupFragment = `<aside data-agent-native-node-id="ordinary-ref-group">${referenceHtml}</aside>`;
+    const duplicated = insertClonedHtmlLayers(wrappedHtml, [groupFragment], {
+      componentLinks: {
+        sourceFileIds: [sourceFileId],
+        targetSource: source,
+        documents: [sourceDocument(wrappedHtml)],
+      },
+    });
+    expect(duplicated).not.toBeNull();
+    if (!duplicated) return;
+
+    const projection = buildCodeLayerProjection(duplicated.content, { source });
+    const cloneGroup = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        duplicated.rootNodeIds[0],
+    );
+    const clonedCard = cloneGroup?.children[0]
+      ? projection.nodes.find((node) => node.id === cloneGroup.children[0])
+      : undefined;
+    expect(clonedCard?.dataAttributes[COMPONENT_REF_ATTR]).toBe("cmp-card");
+    expect(clonedCard?.dataAttributes[COMPONENT_OVERRIDES_ATTR]).toBe(
+      outerOverrides,
+    );
+    const clonedPlay = clonedCard?.children[0]
+      ? projection.nodes.find((node) => node.id === clonedCard.children[0])
+      : undefined;
+    expect(clonedPlay?.dataAttributes[COMPONENT_REF_ATTR]).toBe("cmp-play");
+    expect(clonedPlay?.dataAttributes[COMPONENT_OVERRIDES_ATTR]).toBe(
+      nestedOverrides,
+    );
+    const clonedLabel = clonedPlay?.children[0]
+      ? projection.nodes.find((node) => node.id === clonedPlay.children[0])
+      : undefined;
+    expect(clonedLabel?.dataAttributes[COMPONENT_SOURCE_NODE_ID_ATTR]).toBe(
+      "play-label",
+    );
+    assertLinksResolve([sourceDocument(duplicated.content)]);
+  });
+
+  it("propagates a nested main edit through the cloned parent reference", () => {
+    const propagationHtml = sourceHtml.replace(
+      ` data-agent-native-component-overrides="${nestedOverrides}"`,
+      "",
+    );
+    const mainSpan = findNode(propagationHtml, "card-main")?.source;
+    expect(mainSpan).toBeTruthy();
+    if (!mainSpan) return;
+    const mainFragment = propagationHtml.slice(mainSpan.start, mainSpan.end);
+    const cloned = insertClonedHtmlLayers(propagationHtml, [mainFragment], {
+      componentLinks: {
+        sourceFileIds: [sourceFileId],
+        targetSource: source,
+        documents: [sourceDocument(propagationHtml)],
+      },
+    });
+    expect(cloned).not.toBeNull();
+    if (!cloned) return;
+
+    const propagation = applyComponentPropertyEdit({
+      documents: [sourceDocument(cloned.content)],
+      target: { fileId: sourceFileId, nodeId: "play-label" },
+      edit: { kind: "style", property: "color", value: "red" },
+    });
+    expect(propagation.status).toBe("updated");
+    if (propagation.status !== "updated") return;
+    const finalContent = propagation.changes.find(
+      (change) => change.fileId === sourceFileId,
+    )?.after;
+    expect(finalContent).toBeTruthy();
+    if (!finalContent) return;
+    const finalProjection = buildCodeLayerProjection(finalContent, { source });
+    const playReferences = finalProjection.nodes.filter(
+      (node) => node.dataAttributes[COMPONENT_REF_ATTR] === "cmp-play",
+    );
+    expect(playReferences).toHaveLength(2);
+    for (const reference of playReferences) {
+      const instanceLabel = finalProjection.nodes.find(
+        (node) =>
+          node.parentId === reference.id &&
+          node.dataAttributes[COMPONENT_SOURCE_NODE_ID_ATTR] === "play-label",
+      );
+      expect(instanceLabel?.style.color).toBe("red");
+    }
+  });
+
+  it("refuses a component subtree with ambiguous copied durable IDs", () => {
+    const ambiguousHtml = sourceHtml.replace(
+      'data-agent-native-node-id="card-copy"',
+      'data-agent-native-node-id="card-play"',
+    );
+    const mainSpan = findNode(ambiguousHtml, "card-main")?.source;
+    expect(mainSpan).toBeTruthy();
+    if (!mainSpan) return;
+    const result = insertClonedHtmlLayers(
+      "<!doctype html><html><body></body></html>",
+      [ambiguousHtml.slice(mainSpan.start, mainSpan.end)],
+      {
+        componentLinks: {
+          sourceFileIds: [sourceFileId],
+          targetSource: source,
+          documents: [sourceDocument(ambiguousHtml)],
+        },
+      },
+    );
+    expect(result).toBeNull();
+  });
+
+  it("refuses a clone batch when a linked reference cannot be resolved", () => {
+    const unresolvedContent = `<!doctype html><html><body>
+      <section data-agent-native-node-id="unresolved" data-agent-native-component-ref="missing-component">Source</section>
+    </body></html>`;
+    const result = insertClonedHtmlLayers(
+      unresolvedContent,
+      [
+        '<div data-agent-native-node-id="ordinary">Ordinary clone</div>',
+        '<section data-agent-native-node-id="unresolved" data-agent-native-component-ref="missing-component">Unresolved linked clone</section>',
+      ],
+      {
+        componentLinks: {
+          sourceFileIds: [sourceFileId, sourceFileId],
+          targetSource: source,
+          documents: [sourceDocument(unresolvedContent)],
+        },
+      },
+    );
+
+    expect(result).toBeNull();
+  });
+});
+
 function parseFragment(html: string): Element {
   const doc = new DOMParser().parseFromString(
     `<template>${html}</template>`,
@@ -163,6 +692,26 @@ function parseFragment(html: string): Element {
 }
 
 describe("prepareClonedHtmlLayersForLiveInsert", () => {
+  it("rejects a failed snapshot sentinel atomically", () => {
+    const layerHtmls = [
+      `<div data-agent-native-node-id=\"one\">One</div>`,
+      `<div data-agent-native-node-id=\"two\">Two</div>`,
+    ];
+    const liveResult = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      layerHtmls,
+      { styleSnapshots: [undefined, null] },
+    );
+    const storedResult = insertClonedHtmlLayers(
+      "<!doctype html><html><body></body></html>",
+      layerHtmls,
+      { styleSnapshots: [undefined, null] },
+    );
+
+    expect(liveResult).toBeNull();
+    expect(storedResult).toBeNull();
+  });
+
   it("preserves the human runtime layer name before clone ids replace authored ids", () => {
     const html =
       '<section id="runtime-panel" data-component-name="RuntimePanel">Panel</section>';

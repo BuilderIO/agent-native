@@ -81,7 +81,11 @@ const NUMERIC_DESIGN_DATA_ENTRY_KEYS: Record<string, ReadonlySet<string>> = {
 function describeRejectedValue(value: unknown): string {
   if (value === null) return "null";
   if (typeof value === "string") return `the string ${JSON.stringify(value)}`;
-  if (typeof value === "number") return `the non-finite number ${value}`;
+  if (typeof value === "number") {
+    return Number.isFinite(value)
+      ? `the number ${value}`
+      : `the non-finite number ${value}`;
+  }
   if (Array.isArray(value)) return "an array";
   return `a ${typeof value}`;
 }
@@ -104,7 +108,9 @@ function numericEntryError(
   entry: unknown,
   numericKeys: ReadonlySet<string>,
 ): string | null {
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return `Design ${map} entry must be an object with numeric width and height fields, received ${describeRejectedValue(entry)}. Use a delete operation to clear an entry.`;
+  }
   if (map === "screenMetadata") {
     const heights = (entry as Record<string, unknown>).breakpointHeights;
     if (heights !== undefined) {
@@ -188,7 +194,7 @@ export function numericDesignDataWriteError(
 
   if (path.length === 1) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return null;
+      return `Design ${map} must be an object keyed by file ID, received ${describeRejectedValue(value)}. Use a delete operation to clear the map.`;
     }
     for (const entry of Object.values(value)) {
       const error = numericEntryError(map, entry, numericKeys);

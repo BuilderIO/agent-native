@@ -27,10 +27,132 @@ import {
   updateAppAuthStateByTab,
   updateWebContentsIdByTab,
   updateDesktopIdentityStatusByTab,
+  updateNavigationStateByTab,
+  resolveDesktopHistoryShortcut,
+  DesktopContentNavigationToolbar,
   orderDesktopApps,
   resolveDesktopChatFirstPrimaryTab,
   MultiFrontierModeControl,
 } from "./CodeAgentsHub.js";
+
+describe("Content desktop navigation", () => {
+  it("disables unavailable history actions and invokes available controls", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const onBack = vi.fn();
+    const onForward = vi.fn();
+    const onRefresh = vi.fn();
+
+    act(() => {
+      root.render(
+        React.createElement(DesktopContentNavigationToolbar, {
+          state: { canGoBack: true, canGoForward: false },
+          onBack,
+          onForward,
+          onRefresh,
+        }),
+      );
+    });
+
+    const back = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Back"]',
+    );
+    const forward = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Forward"]',
+    );
+    const refresh = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Refresh"]',
+    );
+    expect(back?.disabled).toBe(false);
+    expect(forward?.disabled).toBe(true);
+    expect(refresh?.disabled).toBe(false);
+
+    act(() => {
+      back?.click();
+      forward?.click();
+      refresh?.click();
+    });
+    expect(onBack).toHaveBeenCalledOnce();
+    expect(onForward).not.toHaveBeenCalled();
+    expect(onRefresh).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+  });
+
+  it("keeps refresh available before history state is ready", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const onRefresh = vi.fn();
+
+    act(() => {
+      root.render(
+        React.createElement(DesktopContentNavigationToolbar, {
+          onBack: vi.fn(),
+          onForward: vi.fn(),
+          onRefresh,
+        }),
+      );
+    });
+
+    const refresh = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Refresh"]',
+    );
+    expect(refresh?.disabled).toBe(false);
+    act(() => refresh?.click());
+    expect(onRefresh).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+  });
+
+  it("maps unshifted command brackets to webview history", () => {
+    expect(
+      resolveDesktopHistoryShortcut({
+        key: "[",
+        code: "BracketLeft",
+        metaKey: true,
+        shiftKey: false,
+      }),
+    ).toBe("back");
+    expect(
+      resolveDesktopHistoryShortcut({
+        key: "]",
+        code: "BracketRight",
+        metaKey: true,
+        shiftKey: false,
+      }),
+    ).toBe("forward");
+    expect(
+      resolveDesktopHistoryShortcut({
+        key: "{",
+        code: "BracketLeft",
+        metaKey: true,
+        shiftKey: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps independent navigation state for each app tab", () => {
+    const first = updateNavigationStateByTab({}, "content:1", {
+      canGoBack: true,
+      canGoForward: false,
+    });
+    const second = updateNavigationStateByTab(first, "content:2", {
+      canGoBack: false,
+      canGoForward: true,
+    });
+
+    expect(second).toEqual({
+      "content:1": { canGoBack: true, canGoForward: false },
+      "content:2": { canGoBack: false, canGoForward: true },
+    });
+    expect(
+      updateNavigationStateByTab(second, "content:2", {
+        canGoBack: false,
+        canGoForward: true,
+      }),
+    ).toBe(second);
+  });
+});
 import {
   initialMultiFrontierRunAutoContinue,
   providerOperationFailureNotice,
@@ -420,6 +542,17 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shortcutSource).toContain('? ","');
   });
 
+  it("keeps the main-process active app synchronized when switching surface tabs", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toMatch(
+      /chatFirstSurfaceTabsStore\.activate\(tab\.id\);[\s\S]*?window\.electronAPI\?\.setActiveApp\?\.\([\s\S]*?tab\.appId[\s\S]*?CODE_AGENTS_SURFACE_ID/,
+    );
+  });
+
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
     const apps = [
       {
@@ -570,8 +703,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain(
       "const canToggleChatFirstSurfacePanel = canRenderChatFirstSurfacePanel;",
     );
-    expect(hubSource).toContain(
-      "hasChatFirstActiveChat &&\n            !chatFirstAppSelected",
+    expect(hubSource).toMatch(
+      /hasChatFirstActiveChat &&\s*!chatFirstAppSelected/,
     );
     expect(hubSource).toContain(
       "canToggleChatFirstSurfacePanel\n                    ? chatFirstSurfacePanel.toggle",

@@ -459,7 +459,7 @@ export function GlslShaderKnobs({
   onValuesChange: (
     next: Record<string, GlslUniformValue>,
     changedName: string,
-    phase: "preview" | "commit",
+    phase: ScrubInputChangeMeta["phase"],
   ) => void;
 }) {
   const t = useT();
@@ -474,7 +474,7 @@ export function GlslShaderKnobs({
   const emit = (
     name: string,
     value: GlslUniformValue,
-    phase: "preview" | "commit",
+    phase: ScrubInputChangeMeta["phase"],
   ) => {
     onValuesChange({ ...values, [name]: value }, name, phase);
   };
@@ -504,7 +504,7 @@ export function GlslShaderKnobs({
             const emitAxis = (
               axis: 0 | 1,
               value: number,
-              phase: "preview" | "commit",
+              phase: ScrubInputChangeMeta["phase"],
             ) => {
               const next: [number, number] = [pair[0] ?? 0, pair[1] ?? 0];
               next[axis] = value;
@@ -815,7 +815,7 @@ export function GlslShaderPanel({
   const handleValuesChange = (
     next: Record<string, GlslUniformValue>,
     changedName: string,
-    phase: "preview" | "commit",
+    phase: ScrubInputChangeMeta["phase"],
   ) => {
     if (!activeDef) return;
     setDraftValues(next);

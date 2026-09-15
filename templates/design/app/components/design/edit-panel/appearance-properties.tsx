@@ -51,6 +51,7 @@ import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
   StyleChangeHandler,
+  StylesChangeHandler,
 } from "./style-change-types";
 import {
   BLEND_MODE_OPTIONS,
@@ -61,6 +62,7 @@ import {
 export function CornerRadiusControl({
   styles,
   onStyleChange,
+  onStylesChange,
   element,
   motionKeyframeContext,
   breakpointOverrideContext,
@@ -68,6 +70,7 @@ export function CornerRadiusControl({
 }: {
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
   /**
    * Optional — only needed to render the keyframe diamond / breakpoint
    * override indicator next to the uniform radius field. Omit for callers
@@ -152,11 +155,20 @@ export function CornerRadiusControl({
     // Always write the longhands along with the shorthand: stale inline
     // longhand declarations serialize after the shorthand and would override
     // it, turning uniform-radius commits into silent no-ops.
-    onStyleChange("borderRadius", next, meta);
-    onStyleChange("borderTopLeftRadius", next, meta);
-    onStyleChange("borderTopRightRadius", next, meta);
-    onStyleChange("borderBottomRightRadius", next, meta);
-    onStyleChange("borderBottomLeftRadius", next, meta);
+    const patch = {
+      borderRadius: next,
+      borderTopLeftRadius: next,
+      borderTopRightRadius: next,
+      borderBottomRightRadius: next,
+      borderBottomLeftRadius: next,
+    };
+    if (onStylesChange) {
+      onStylesChange(patch, meta);
+      return;
+    }
+    Object.entries(patch).forEach(([property, style]) =>
+      onStyleChange(property, style, meta),
+    );
   };
   const toggleIndependentCorners = () => {
     // Collapsing while corners differ flattens them to the displayed uniform
@@ -481,20 +493,22 @@ export function BlendModeMenu({
 export function AppearanceProperties({
   element,
   onStyleChange,
+  onStylesChange,
+  hidden,
+  onToggleHidden,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
+  hidden: boolean;
+  onToggleHidden?: () => void;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const hidden =
-    styles.visibility === "hidden" ||
-    styles.display === "none" ||
-    parseNumericValue(styles.opacity || "1") === 0;
   return (
     <PanelSection
       title={t("root.commandAppearance")}
@@ -507,9 +521,8 @@ export function AppearanceProperties({
                 : "Hide" /* i18n-ignore design inspector action */
             }
             active={hidden}
-            onClick={() =>
-              onStyleChange("visibility", hidden ? "visible" : "hidden")
-            }
+            onClick={onToggleHidden}
+            disabled={!onToggleHidden}
           >
             {hidden ? (
               <IconEyeOff className="size-3.5" />
@@ -587,6 +600,7 @@ export function AppearanceProperties({
           key={elementIdentityKey(element)}
           styles={styles}
           onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
           element={element}
           motionKeyframeContext={motionKeyframeContext}
           breakpointOverrideContext={breakpointOverrideContext}

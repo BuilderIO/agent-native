@@ -121,7 +121,8 @@ export function runScreenVisualStyleChange(
   if (entries.length === 0) return;
   const baseContent = getScreenContent(screenId);
   if (!baseContent) return;
-  const projection = buildCodeLayerProjection(baseContent);
+  const source = { kind: "design-file" as const, fileId: screenId };
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
@@ -137,6 +138,7 @@ export function runScreenVisualStyleChange(
         target: targetNode ? { nodeId: targetNode.id } : { selector },
         property,
         value,
+        source,
         upperBoundPx: activeBreakpointUpperBoundPx,
         lowerBoundPx:
           responsiveEditScopeRef.current === "only"
