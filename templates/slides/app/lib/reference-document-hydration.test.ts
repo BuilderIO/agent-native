@@ -344,4 +344,43 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.measuredDesignCount).toBe(0);
     expect(result.context).toContain("one exception to the no-reread rule");
   });
+
+  it("does not count a measured design the budget only partly kept", async () => {
+    const filler = "x".repeat(10_000);
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(
+        async (_action: string, input: { filePath: string }) =>
+          input.filePath.includes("styled")
+            ? {
+                ...pdfResult,
+                pages: [{ pageNum: 1, text: "y".repeat(20_000) }],
+              }
+            : {
+                format: "pdf",
+                pageCount: 1,
+                textPageCount: 1,
+                pages: [{ pageNum: 1, text: filler }],
+              },
+      );
+
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("filler-0.pdf"),
+        uploaded("filler-1.pdf"),
+        uploaded("filler-2.pdf"),
+        uploaded("styled.pdf"),
+      ],
+      { callActionImpl },
+    );
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    // Present but clipped by the budget — "(PDF)" distinguishes a truncated
+    // block from the omitted-reference notice.
+    expect(result.context).toContain("### styled.pdf (PDF)");
+    expect(result.context).toContain("[truncated]");
+    // A digest the budget cut is not one the agent can be told to match.
+    expect(result.measuredDesignCount).toBe(0);
+  });
 });

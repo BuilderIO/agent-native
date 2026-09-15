@@ -352,13 +352,15 @@ export async function hydrateReferenceDocuments(
       );
       continue;
     }
+    const fitsWhole = outcome.block.length <= budget.remaining;
     const block = truncate(outcome.block, budget.remaining);
     budget.remaining -= block.length;
     blocks.push(block);
-    // Counted only once the block survives the budget. A digest dropped for
-    // space cannot be matched, and counting it would suppress the styling
-    // fallback while leaving the agent nothing to follow.
-    if (outcome.measuredDesign) measuredDesignCount += 1;
+    // Counted only when the whole block survives the budget. A digest the
+    // budget clipped — wholly or partly — cannot be matched, and counting it
+    // would suppress the styling fallback while leaving the agent nothing to
+    // follow.
+    if (outcome.measuredDesign && fitsWhole) measuredDesignCount += 1;
   }
 
   return {
