@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 /**
  * Base fill row image-layer prop wiring regression.
  *
@@ -21,12 +23,17 @@
  * backgroundPosition values instead of leaving them empty.
  */
 
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
 import { baseFillLayerSourceProps, FillProperties } from "./fill-properties";
+
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -46,7 +53,8 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 vi.mock("../inspector", () => ({
-  DesignColorPicker: () => null,
+  DesignColorPicker: ({ trigger }: { trigger?: unknown }) => trigger as never,
+  ScrubInput: () => null,
   imageFillToBackgroundStyles: () => ({
     backgroundImage: "",
     backgroundSize: "",
@@ -167,7 +175,7 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
-  it("keeps the base picker mounted after converting a box fill to a gradient", () => {
+  it("omits the empty base picker but keeps the converted gradient row", () => {
     const el = element({
       computedStyles: {
         backgroundColor: "rgba(255, 0, 0, 0)",
@@ -183,7 +191,9 @@ describe("FillProperties base row — image layer prop wiring", () => {
       }),
     );
 
-    expect(markup).toContain('data-testid="base-fill-color-input"');
+    expect(markup).not.toContain('data-testid="base-fill-color-input"');
+    expect(markup).toContain("Linear gradient 1");
+    expect(markup).toContain('aria-label="editPanel.labels.removeLayer"');
   });
 
   it("wires backgroundSize/backgroundRepeat/backgroundPosition onto the base row's ColorInput, not just backgroundImage", () => {
@@ -266,5 +276,88 @@ describe("FillProperties base row — image layer prop wiring", () => {
 
     expect(markup).toContain('aria-label="editPanel.labels.addFill"');
     expect(markup).toContain("Click + to replace mixed content");
+  });
+});
+
+describe("FillProperties layer sizing", () => {
+  it("restores a hidden fill's cyclic size after reordering it", async () => {
+    let inlineStyles: Record<string, string> = {
+      backgroundColor: "transparent",
+      backgroundImage: "url(a.png), url(b.png), url(c.png)",
+      backgroundSize: "cover, contain",
+      backgroundRepeat: "no-repeat, repeat-x",
+      backgroundPosition: "left, right",
+    };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn((property: string, value: string) => {
+      inlineStyles = { ...inlineStyles, [property]: value };
+    });
+    const onStylesChange = vi.fn((styles: Record<string, string>) => {
+      inlineStyles = { ...inlineStyles, ...styles };
+    });
+    const mount = async () => {
+      await act(async () => {
+        root.render(
+          createElement(FillProperties, {
+            element: element({
+              selector: ".fills",
+              computedStyles: { ...inlineStyles },
+              inlineStyles: { ...inlineStyles },
+            }),
+            onStyleChange,
+            onStylesChange,
+          }),
+        );
+      });
+    };
+    const click = async (label: string, index = 0) => {
+      const button = Array.from(host.querySelectorAll("button")).filter(
+        (candidate) => candidate.getAttribute("aria-label") === label,
+      )[index];
+      if (!button) throw new Error(`missing button: ${label} (${index})`);
+      await act(async () => {
+        button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await mount();
+    };
+
+    await mount();
+    await click("editPanel.labels.hideLayer", 2);
+    expect(inlineStyles.backgroundSize).toBe("cover, contain, 0px 0px");
+
+    const handles = host.querySelectorAll<HTMLElement>(
+      '[aria-label="editPanel.labels.reorderLayer"]',
+    );
+    const source = handles[2];
+    const sourceRow = source?.closest<HTMLElement>(
+      "[data-inspector-action-rail]",
+    );
+    const targetRow = handles[0]?.closest<HTMLElement>(
+      "[data-inspector-action-rail]",
+    );
+    if (!source || !sourceRow || !targetRow) {
+      throw new Error("fill drag rows were not rendered");
+    }
+    const dataTransfer = {
+      setData: () => {},
+      effectAllowed: "",
+    };
+    await act(async () => {
+      const start = new Event("dragstart", { bubbles: true });
+      Object.defineProperty(start, "dataTransfer", { value: dataTransfer });
+      source.dispatchEvent(start);
+    });
+    await act(async () => {
+      targetRow.dispatchEvent(new Event("drop", { bubbles: true }));
+    });
+    await mount();
+    expect(inlineStyles.backgroundSize).toBe("0px 0px, cover, contain");
+
+    await click("editPanel.labels.showLayer");
+    expect(inlineStyles.backgroundSize).toBe("cover, cover, contain");
+    await act(async () => root.unmount());
+    host.remove();
   });
 });

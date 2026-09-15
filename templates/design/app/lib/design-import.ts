@@ -318,6 +318,7 @@ export interface DesignClipboardLayerEntry {
   sourceParentNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 
@@ -413,6 +414,8 @@ function validateDesignClipboardPayload(
       (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
       (entry.sourceParentNodeId !== undefined &&
         !clipboardString(entry.sourceParentNodeId)) ||
+      (entry.styleSnapshotCaptureFailed !== undefined &&
+        typeof entry.styleSnapshotCaptureFailed !== "boolean") ||
       (entry.portableStyleSnapshot !== undefined &&
         !isPortableClipboardStyleSnapshot(entry.portableStyleSnapshot)) ||
       (entry.managedStyleSnapshot !== undefined &&

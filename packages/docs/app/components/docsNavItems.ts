@@ -746,6 +746,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "organizations-teams-permissions",
       },
       {
+        id: "administered-deployments",
+        labelKey: "administeredDeployments",
+        slug: "administered-deployments",
+      },
+      {
         id: "security",
         labelKey: "securityDataScoping",
         slug: "security",
@@ -1035,6 +1040,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "package-lifecycle",
             labelKey: "packageLifecycle",
             slug: "package-lifecycle",
+          },
+          {
+            id: "versioning-and-stability",
+            labelKey: "versioningAndStability",
+            slug: "versioning-and-stability",
           },
         ],
       },

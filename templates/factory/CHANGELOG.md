@@ -3,6 +3,17 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-14
+
+### Improved
+
+- Factory PR babysit uses a fair queue so re-queued pull requests are not starved, re-prioritizes open PRs when new review work arrives without a commit, and posts a v2 ping comment with per-thread disposition guidance.
+- PR babysit now terminalizes merged and closed pull requests instead of re-listing them with "Seen before".
+
+### Fixed
+
+- Factory automations keep display names, Slack channels, and custom prompts through metadata repair, tab switches, and accidental clears.
+
 ## 2026-09-11
 
 ### Improved

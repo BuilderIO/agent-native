@@ -3,6 +3,7 @@ import {
   buildCodeLayerProjection,
   type CodeLayerNode,
   type CodeLayerProjection,
+  type CodeLayerSource,
 } from "@shared/code-layer";
 
 import {
@@ -14,7 +15,6 @@ export type EnableInlineScreenAutoLayoutResult =
   | {
       status: "applied" | "unchanged";
       content: string;
-      targetNodeId: string;
       direction: "row" | "column";
       gap: number;
       padding: number;
@@ -73,8 +73,10 @@ export function enableInlineScreenAutoLayout(args: {
   content: string;
   width?: number;
   height?: number;
+  source?: CodeLayerSource;
 }): EnableInlineScreenAutoLayoutResult {
-  const projection = buildCodeLayerProjection(args.content);
+  const source = args.source ?? { kind: "inline-html" as const };
+  const projection = buildCodeLayerProjection(args.content, { source });
   const target = resolveInlineScreenAutoLayoutRoot(projection);
   if (!target) {
     return { status: "unsupported", content: args.content };
@@ -90,13 +92,21 @@ export function enableInlineScreenAutoLayout(args: {
     .filter((node): node is CodeLayerNode => Boolean(node))
     .map((node) => rectForNode(node));
   const inferred = inferAutoLayoutFromChildren(targetRect, childRects);
-  const autoLayoutPatch = applyVisualEdit(args.content, {
-    kind: "autoLayout",
-    targetId: target.id,
-    enabled: true,
-    direction: inferred.direction,
-    gap: `${inferred.gap}px`,
-  });
+  const autoLayoutPatch = applyVisualEdit(
+    args.content,
+    {
+      kind: "autoLayout",
+      targetId: target.id,
+      enabled: true,
+      containerStyles: {
+        display: "flex",
+        "flex-direction": inferred.direction,
+        gap: `${inferred.gap}px`,
+        ...(inferred.padding > 0 ? { padding: `${inferred.padding}px` } : {}),
+      },
+    },
+    { source },
+  );
   if (autoLayoutPatch.result.status !== "applied") {
     return {
       status: "failed",
@@ -105,23 +115,10 @@ export function enableInlineScreenAutoLayout(args: {
     };
   }
 
-  let content = autoLayoutPatch.content;
-  if (inferred.padding > 0) {
-    const paddingPatch = applyVisualEdit(content, {
-      kind: "style",
-      target: { nodeId: target.id },
-      property: "padding",
-      value: `${inferred.padding}px`,
-    });
-    if (paddingPatch.result.status === "applied") {
-      content = paddingPatch.content;
-    }
-  }
-
+  const content = autoLayoutPatch.content;
   return {
     status: content === args.content ? "unchanged" : "applied",
     content,
-    targetNodeId: target.id,
     ...inferred,
   };
 }

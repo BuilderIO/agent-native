@@ -161,3 +161,19 @@ export function viewportChangedFrameIds(
     );
   });
 }
+
+export function frameHeightChangedIds(
+  before: CanvasFrameGeometryById,
+  after: CanvasFrameGeometryById,
+) {
+  const ids = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...ids].filter((frameId) => {
+    const beforeSize = viewportSizeFromFrameGeometry(before[frameId]);
+    const afterSize = viewportSizeFromFrameGeometry(after[frameId]);
+    return (
+      beforeSize !== null &&
+      afterSize !== null &&
+      beforeSize.height !== afterSize.height
+    );
+  });
+}

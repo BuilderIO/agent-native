@@ -313,6 +313,45 @@ describe("buildResilientNeonPool", () => {
     );
     expect(client.query).toHaveBeenNthCalledWith(2, "SELECT 1");
   });
+
+  it("bounds Drizzle transaction acquires and releases late clients", async () => {
+    const { buildResilientNeonPool } = await import("./create-get-db.js");
+
+    let resolveLateAcquire!: (client: any) => void;
+    const lateClient = {
+      query: vi.fn(),
+      release: vi.fn(),
+    };
+    const client = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveLateAcquire = resolve;
+            }),
+        )
+        .mockResolvedValueOnce(client),
+      query: vi.fn(),
+      end: vi.fn(),
+      on: vi.fn(),
+    };
+
+    const resilient = buildResilientNeonPool(pool as any);
+    const transactionClient = await resilient.connect();
+
+    expect(pool.connect).toHaveBeenCalledTimes(2);
+    await transactionClient.query("SELECT 1");
+    transactionClient.release();
+
+    resolveLateAcquire(lateClient);
+    await Promise.resolve();
+    expect(lateClient.release).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("isSqlRead", () => {

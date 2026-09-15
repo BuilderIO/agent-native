@@ -68,6 +68,21 @@ export function shouldApplyRemotePreviewContent({
 
 const diffMatchPatch = new DiffMatchPatch();
 
+// A rendered SQL edit can arrive before its server Yjs delta. Authoring the
+// next full-text edit against that stale document duplicates the missing edit.
+export function canWriteCollabText(
+  ydoc: Y.Doc | null,
+  isSynced: boolean,
+  baseContent: string,
+): boolean {
+  return Boolean(
+    ydoc &&
+    !ydoc.isDestroyed &&
+    isSynced &&
+    ydoc.getText("content").toString() === baseContent,
+  );
+}
+
 /**
  * Replace the collab document's text with `next` as the smallest set of
  * disjoint splices, and report whether anything changed.

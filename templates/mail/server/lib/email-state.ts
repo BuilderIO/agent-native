@@ -26,7 +26,7 @@ import {
 } from "./google-api.js";
 import {
   getClientForConnectedAccount,
-  getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   getOAuth2Credentials,
   isConnected,
 } from "./google-auth.js";
@@ -108,16 +108,23 @@ export async function resolveAccountEmail(
 ): Promise<string> {
   if (!accountEmail || accountEmail === ownerEmail) return ownerEmail;
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-  if (accounts.some((a) => a.accountId === accountEmail)) return accountEmail;
+  const oauthAccount = accounts.find(
+    (account) => account.accountId.toLowerCase() === accountEmail.toLowerCase(),
+  );
+  if (oauthAccount) return oauthAccount.accountId;
   // No OAuth row — accept it when it's the owner's managed workspace Gmail
   // grant (getConnectedAccounts is the single "which accounts exist" source).
-  const connected = await getConnectedAccounts(ownerEmail);
+  const { accounts: connected, errors } =
+    await getConnectedAccountsWithErrors(ownerEmail);
   if (
     connected.some(
       (email) => email.toLowerCase() === accountEmail.toLowerCase(),
     )
   ) {
     return accountEmail;
+  }
+  if (errors.length > 0) {
+    throw new Error(errors.map(({ error }) => error).join("; "));
   }
   throw new Error("Account not owned by current user");
 }
@@ -165,8 +172,12 @@ export async function resolveMutationAccount(
   if (accounts.length === 0) {
     // No OAuth rows — a managed-only owner has none by design. Fall back to
     // the managed grant when it's the owner's sole connected account.
-    const connected = await getConnectedAccounts(ownerEmail);
+    const { accounts: connected, errors } =
+      await getConnectedAccountsWithErrors(ownerEmail);
     if (connected.length === 1) return connected[0];
+    if (connected.length === 0 && errors.length > 0) {
+      throw new Error(errors.map(({ error }) => error).join("; "));
+    }
   }
 
   throw new Error(
@@ -229,7 +240,12 @@ async function listMutableAccounts(
 ): Promise<Array<{ accountId: string }>> {
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
   if (accounts.length > 0) return accounts;
-  return (await getConnectedAccounts(ownerEmail)).map((accountId) => ({
+  const { accounts: connected, errors } =
+    await getConnectedAccountsWithErrors(ownerEmail);
+  if (connected.length === 0 && errors.length > 0) {
+    throw new Error(errors.map(({ error }) => error).join("; "));
+  }
+  return connected.map((accountId) => ({
     accountId,
   }));
 }

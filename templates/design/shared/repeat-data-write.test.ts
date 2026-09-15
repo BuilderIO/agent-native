@@ -32,6 +32,12 @@ const BARS = `<body x-data="c()">
   <script>function c(){return{v:[38,52,44]}}</script>
 </body>`;
 
+const CARDS = `<main x-data="{ cards: [
+  { id: 1, title: 'North Star' },
+  { id: 2, title: 'Signal Bloom' },
+  { id: 3, title: 'Quiet Atlas' }
+] }"><template x-for="card in cards" :key="card.id"></template></main>`;
+
 const XFOR = "t in todos";
 
 function labels(html: string, xFor = XFOR): string[] {
@@ -203,6 +209,34 @@ describe("removeRepeatItem and duplicateRepeatItem", () => {
       "Buy milk",
       "Pay rent",
     ]);
+  });
+
+  it("mints a unique safe numeric key without changing copied data", () => {
+    const written = duplicateRepeatItem({
+      html: CARDS,
+      xFor: "card in cards",
+      index: 1,
+      keyField: "id",
+    });
+    if (written.status !== "written") throw new Error(written.reason);
+
+    expect(
+      [...written.html.matchAll(/\bid:\s*(\d+)/g)].map((m) => Number(m[1])),
+    ).toEqual([1, 2, 4, 3]);
+    expect(
+      [...written.html.matchAll(/\btitle:\s*'([^']+)'/g)].map((m) => m[1]),
+    ).toEqual(["North Star", "Signal Bloom", "Signal Bloom", "Quiet Atlas"]);
+
+    const unsafe = duplicateRepeatItem({
+      html: CARDS.replace("id: 3", `id: ${Number.MAX_SAFE_INTEGER}`),
+      xFor: "card in cards",
+      index: 1,
+      keyField: "id",
+    });
+    expect(unsafe.status).toBe("refused");
+    expect(unsafe.status === "refused" && unsafe.reason).toMatch(
+      /safe-integer/,
+    );
   });
 
   it("leaves the rest of the document byte-identical", () => {

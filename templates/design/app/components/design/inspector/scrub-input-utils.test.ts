@@ -12,11 +12,11 @@ import {
 } from "./scrub-input-utils";
 
 describe("scrub input expression parsing", () => {
-  it("applies operator-prefixed expressions to the current value", () => {
-    expect(parseScrubExpression("/2", 24)?.value).toBe(12);
-    expect(parseScrubExpression("+8", 24)?.value).toBe(32);
-    expect(parseScrubExpression("*1.5", 24)?.value).toBe(36);
-    expect(parseScrubExpression("-4", 24)?.value).toBe(20);
+  it("treats leading signs as absolute values and rejects bare multiply or divide", () => {
+    expect(parseScrubExpression("/2", 24)).toBeNull();
+    expect(parseScrubExpression("+8", 24)?.value).toBe(8);
+    expect(parseScrubExpression("*1.5", 24)).toBeNull();
+    expect(parseScrubExpression("-4", 24)?.value).toBe(-4);
   });
 
   it("evaluates simple absolute expressions with operator precedence", () => {
@@ -34,7 +34,7 @@ describe("scrub input expression parsing", () => {
   });
 
   it("clamps to min and max", () => {
-    expect(parseScrubExpression("+20", 90, { max: 100 })?.value).toBe(100);
+    expect(parseScrubExpression("120", 90, { max: 100 })?.value).toBe(100);
     expect(parseScrubExpression("-20", 10, { min: 0 })?.value).toBe(0);
   });
 
@@ -78,7 +78,7 @@ describe("scrub input expression parsing", () => {
   it("accepts a comma decimal separator", () => {
     expect(parseScrubExpression("12,5", 0)?.value).toBe(12.5);
     expect(parseScrubExpression("-12,5", 0)?.value).toBe(-12.5);
-    expect(parseScrubExpression("+2,5", 24)?.value).toBe(26.5);
+    expect(parseScrubExpression("+2,5", 24)?.value).toBe(2.5);
     // Still supports comma decimals inside a larger expression.
     expect(parseScrubExpression("1,5 + 2,5", 0)?.value).toBe(4);
     // Units are stripped before tokenizing, so this still works with a unit.

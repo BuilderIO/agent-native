@@ -1,10 +1,10 @@
-import { canonicalizeNfm } from "@shared/nfm";
+import { canonicalizeNfm } from "../../../../shared/nfm.js";
 import {
   suggestionFormattingChanges,
   suggestionMarkedSourceRanges,
   SuggestionFormattingMappingError,
-} from "@shared/suggestion-formatting";
-import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
+} from "../../../../shared/suggestion-formatting.js";
+import { resolveMarkdownSuggestionRange } from "../../../../shared/suggestion-rebase.js";
 
 export type MarkdownSuggestionOperation = {
   ordinal: number;

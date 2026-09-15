@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -187,6 +188,114 @@ describe("runScript package actions", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("Fixture package actions:");
     expect(result.stdout).toContain("package-action");
+  }, 40_000);
+
+  it("short-circuits named action help before dev dispatch or imports", () => {
+    const databaseUrl = `pglite:${path.join(tmpDir, "session-db")}`;
+    const marker = (name: string) => path.join(tmpDir, name);
+    const writeMarker = (name: string, content: string) =>
+      `writeFileSync(${JSON.stringify(marker(name))}, ${JSON.stringify(content)});`;
+
+    fs.mkdirSync(path.join(tmpDir, "server", "plugins"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "server", "plugins", "db.ts"),
+      `
+        import { writeFileSync } from "node:fs";
+        ${writeMarker("plugin-import.marker", "imported")}
+        export default async function () {
+          ${writeMarker("plugin-run.marker", "ran")}
+        }
+      `,
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "mutating-action.ts"),
+      `
+        import { writeFileSync } from "node:fs";
+        ${writeMarker("action-import.marker", "imported")}
+        export default async function () {
+          ${writeMarker("action-run.marker", "ran")}
+        }
+      `,
+    );
+    fs.mkdirSync(path.join(tmpDir, ".agent-native"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, ".agent-native", "dev-server.json"),
+      JSON.stringify({
+        origin: "http://127.0.0.1:9488",
+        pid: process.pid,
+        token: "fixture-token",
+        databaseKey: createHash("sha256").update(databaseUrl).digest("hex"),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "run.ts"),
+      `
+        import { writeFileSync } from "node:fs";
+        import { runScript } from ${JSON.stringify(pathToFileURL(runnerSource).href)};
+
+        globalThis.fetch = async () => {
+          ${writeMarker("forward.marker", "called")}
+          return {
+            status: 200,
+            json: async () => ({ ok: true, result: "forwarded fixture" }),
+          } as Response;
+        };
+        runScript();
+      `,
+    );
+
+    const env = { ...process.env };
+    for (const key of [
+      "AGENT_USER_EMAIL",
+      "AGENT_ORG_ID",
+      "APP_NAME",
+      "AUTH_MODE",
+      "DATABASE_URL_UNPOOLED",
+      "NETLIFY_DATABASE_URL",
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "NODE_ENV",
+    ]) {
+      delete env[key];
+    }
+    env.DATABASE_URL = databaseUrl;
+    env.NODE_ENV = "development";
+
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "mutating-action", "--help"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env,
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Usage: pnpm action");
+    expect(result.stdout).not.toContain(
+      "Run any action with --help for usage details.",
+    );
+    for (const name of [
+      "forward.marker",
+      "plugin-import.marker",
+      "plugin-run.marker",
+      "action-import.marker",
+      "action-run.marker",
+    ]) {
+      expect(fs.existsSync(marker(name))).toBe(false);
+    }
+    expect(fs.existsSync(path.join(tmpDir, "session-db"))).toBe(false);
+
+    const forwarded = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "mutating-action"],
+      { cwd: tmpDir, encoding: "utf8", env, timeout: spawnTimeoutMs },
+    );
+    expect(forwarded.status).toBe(0);
+    expect(forwarded.stdout).toContain("forwarded fixture");
+    expect(fs.existsSync(marker("forward.marker"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, "session-db"))).toBe(false);
   }, 40_000);
 
   it("runs a package action when no local action exists", () => {

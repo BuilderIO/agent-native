@@ -4,6 +4,7 @@ import {
   isElectron,
   resolveGoogleSignInCredentials,
   resolveOAuthRedirectUri,
+  wrapNetlifyPreviewGoogleOAuthState,
   registerDesktopExchange,
   prepareDesktopOAuthBrowserBinding,
   safeReturnPath,
@@ -43,7 +44,13 @@ function oauthRedirectResponse(url: string) {
 export default defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -150,12 +157,13 @@ export default defineEventHandler(async (event: H3Event) => {
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
     const params = new URLSearchParams({
       client_id: credentials.clientId,
       redirect_uri: redirectUri,
       response_type: "code",
-      state,
+      state: oauthState,
     });
 
     if (calendarConnect) {

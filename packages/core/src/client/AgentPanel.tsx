@@ -27,7 +27,7 @@ import {
   IconMessageDots,
   IconTerminal2,
   IconLayoutSidebarRightCollapse,
-  IconLayoutSidebarRightExpand,
+  IconLayoutSidebarRight,
   IconLayoutGrid,
   IconCheck,
   IconPlus,
@@ -4651,12 +4651,7 @@ export function AgentToggleButton({
             className,
           )}
         >
-          {icon ??
-            (open ? (
-              <IconLayoutSidebarRightCollapse size={18} aria-hidden />
-            ) : (
-              <IconLayoutSidebarRightExpand size={18} aria-hidden />
-            ))}
+          {icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}
         </button>
       }
       content={t("agentPanel.toggleAgent")}

@@ -478,3 +478,7 @@ const state = encodeOAuthState({
 User-Agent의 Canary 표시는 가용성 힌트일 뿐 원격 증명이 아니며, 인증과 권한 부여는 이를 신뢰하지 않습니다.
 정식 호스팅 앱은 앱별 identity hub 환경 설정 없이 패키지된 Desktop SSO Canary 요청을 인식합니다. 일반 브라우저는 일반 앱별 로그인을 계속 사용합니다. 자체 호스팅 앱에는 남아 있는 명시적 Desktop 또는 서버 측 페더레이션 경로에만 `AGENT_NATIVE_IDENTITY_HUB_URL`이 필요합니다. 안정적인 Desktop 빌드는 이후 릴리스가 별도로 승인될 때까지 브로커를 초기화하지 않습니다.
 Canary는 익명 앱 로그인 탐색을 가로채지 않습니다. 사용자는 활성 등록 앱에 대해 Desktop 설정에서 워크스페이스 로그인을 명시적으로 선택해야 하며, 일반 앱 로그인은 기본 경로로 유지됩니다.
+
+## 관리 배포와 초대
+
+관리 배포에서는 `AUTH_SIGNUP=invited`, `ORG_CREATION=closed`, `AUTO_CREATE_DEFAULT_ORG=0`을 설정합니다. [관리 배포 가이드](/docs/administered-deployments)에서 부트스트랩 관리자, 초대, 허용 도메인을 확인하세요. 멤버 초대와 도메인 가입은 별도의 규칙입니다.

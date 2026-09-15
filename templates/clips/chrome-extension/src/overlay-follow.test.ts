@@ -18,11 +18,27 @@ describe("Clips overlay follow permissions", () => {
     expect(contentScriptSource).toContain(
       "if (flags.__clipsOverlayHostReady) return;",
     );
+    expect(contentScriptSource).toContain("data.token !== historyBridgeToken");
+    expect(contentScriptSource).toContain(
+      "MAX_HISTORY_NAVIGATION_MESSAGES_PER_WINDOW",
+    );
+    expect(contentScriptSource).toContain(
+      "MAX_CLICK_INPUT_MESSAGES_PER_WINDOW",
+    );
+    expect(contentScriptSource).toContain("function resetDiagnosticQuotas");
+    expect(contentScriptSource).toContain("resetQuotas || enteringRecording");
+    expect(contentScriptSource).toContain(
+      "sendDiagnosticNavigation(window.location.href)",
+    );
   });
 
   it("keeps cross-tab follow enabled and declares the broad-host manifest path", () => {
     const backgroundSource = readFileSync(
       new URL("./background.ts", import.meta.url),
+      "utf8",
+    );
+    const historyBridgeSource = readFileSync(
+      new URL("./content-history-bridge.ts", import.meta.url),
       "utf8",
     );
     expect(backgroundSource).toContain(
@@ -37,6 +53,7 @@ describe("Clips overlay follow permissions", () => {
         matches?: string[];
         js?: string[];
         run_at?: string;
+        world?: string;
         all_frames?: boolean;
       }>;
     };
@@ -57,7 +74,30 @@ describe("Clips overlay follow permissions", () => {
       }),
     );
 
+    const historyBridge = manifest.content_scripts?.find((entry) =>
+      entry.js?.includes("assets/content-history-bridge.js"),
+    );
+    expect(historyBridge).toEqual(
+      expect.objectContaining({
+        matches: ["<all_urls>"],
+        js: ["assets/content-history-bridge.js"],
+        run_at: "document_start",
+        world: "MAIN",
+        all_frames: false,
+      }),
+    );
+
     expect(backgroundSource).toContain("sendWithInjectionFallback");
     expect(backgroundSource).toContain("shouldFollowOverlay");
+    expect(backgroundSource).toContain("assets/content-history-bridge.js");
+    expect(historyBridgeSource).toContain("webCrypto?.randomUUID");
+    expect(historyBridgeSource).toContain("webCrypto.getRandomValues(bytes)");
+    expect(historyBridgeSource).toContain('data.kind === "request-token"');
+    expect(backgroundSource).toContain("MAX_CLICK_INPUT_INGRESS_PER_WINDOW");
+    expect(backgroundSource).toContain("restoreCaptureSession");
+    expect(backgroundSource).toContain('overlayPhase === "paused"');
+    expect(backgroundSource).toContain(
+      'const resetDiagnosticQuotas = overlayPhase === "recording";',
+    );
   });
 });
