@@ -2827,6 +2827,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "ComposerPrimitive",
     "CompositeAttachmentAdapter",
     "DOMParser",
+    "DOMSerializer",
     "Decoration",
     "DecorationSet",
     "Editor",

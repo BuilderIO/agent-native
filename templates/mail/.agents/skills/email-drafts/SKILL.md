@@ -15,7 +15,43 @@ Create, edit, and manage email drafts. Each draft is stored as an application st
 
 Drafts are stored in the `application_state` SQL table via `writeAppState("compose-{id}", draft)` from `@agent-native/core/application-state`. Each entry is one draft. Multiple drafts can exist simultaneously — they appear as tabs in the compose panel.
 
-## Schema
+## Calling `manage-draft`
+
+`manage-draft`'s call arguments are NOT the stored draft record below — every
+call requires a top-level `action`, and `action` decides which other fields
+apply:
+
+| `action`       | Other required fields | Notes                                    |
+| -------------- | ---------------------- | ---------------------------------------- |
+| `create`       | none                    | `id` is optional; the action assigns one when omitted. Recipient/subject/body fields are all optional but should be set to compose real content. |
+| `update`       | `id`                    | `id` must be the id returned by a prior `create` call — never invent one. |
+| `delete`       | `id`                    | Removes the compose state and its saved mailbox copy. |
+| `delete-saved` | `savedDraftId`          | Use when only the saved mailbox copy remains (compose state already closed). |
+| `delete-all`   | none                    | Deletes every open compose draft. |
+
+There is no standalone "create draft" tool — `create` is this action's only
+entry point for a new draft. Always call `action: "create"` first and use the
+`id` it returns for any later `update`/`delete` on that same draft; do not
+call `update`/`delete` speculatively before a matching `create`.
+
+To draft a reply to a specific message, create with `mode: "reply"` and
+`replyToId` set to that message's id:
+
+```json
+{
+  "action": "create",
+  "to": "recipient@example.com",
+  "subject": "Re: Meeting follow-up",
+  "body": "Hi team,\n\nThanks for the great discussion today...",
+  "mode": "reply",
+  "replyToId": "18d4a2f9e1b2c3d4"
+}
+```
+
+## Stored Draft Record (`compose-{id}`)
+
+This is the persisted shape of the `compose-{id}` application-state row that
+`manage-draft` reads and writes — not the `manage-draft` call arguments above.
 
 ```json
 {
@@ -36,12 +72,12 @@ Drafts are stored in the `application_state` SQL table via `writeAppState("compo
 | Field             | Type   | Required | Description                                     |
 | ----------------- | ------ | -------- | ----------------------------------------------- |
 | `id`              | string | yes      | Unique draft ID (must match key suffix)         |
-| `to`              | string | yes      | Comma-separated recipient email addresses       |
+| `to`              | string | no       | Comma-separated recipient email addresses       |
 | `cc`              | string | no       | Comma-separated CC addresses                    |
 | `bcc`             | string | no       | Comma-separated BCC addresses                   |
-| `subject`         | string | yes      | Email subject line                              |
-| `body`            | string | yes      | Email body in **markdown** (see formatting below) |
-| `mode`            | string | yes      | One of: `"compose"`, `"reply"`, `"forward"`     |
+| `subject`         | string | no       | Email subject line                              |
+| `body`            | string | no       | Email body in **markdown** (see formatting below) |
+| `mode`            | string | no       | One of: `"compose"`, `"reply"`, `"forward"` (defaults to `"compose"`) |
 | `replyToId`       | string | no       | Message ID being replied to (for reply/forward) |
 | `replyToThreadId` | string | no       | Thread ID for grouping (for reply/forward)      |
 

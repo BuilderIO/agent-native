@@ -106,6 +106,7 @@ import {
 } from "@/lib/event-popover-style";
 import {
   applyEndTimeChange,
+  shiftEndForDateChange,
   shiftEndForStartChange,
 } from "@/lib/event-time-range";
 
@@ -638,6 +639,16 @@ export function CreateEventPopover({
   ]);
 
   function handleDateChange(nextDate: string) {
+    if (!allDay) {
+      const next = shiftEndForDateChange(
+        { date, startTime, endDate, endTime },
+        nextDate,
+      );
+      setDate(next.date);
+      setEndDate(next.endDate);
+      setEndTime(next.endTime);
+      return;
+    }
     setDate(nextDate);
     setEndDate((current) => (current < nextDate ? nextDate : current));
   }

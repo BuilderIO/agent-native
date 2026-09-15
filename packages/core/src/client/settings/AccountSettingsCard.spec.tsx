@@ -108,6 +108,7 @@ vi.mock("../i18n.js", () => ({
       "settings.emailChangeError": "Could not send confirmation.",
       "settings.emailNewLabel": "New email",
       "settings.emailNewPlaceholder": "Enter new email",
+      "agentChat.auth.logOut": "Log out",
     }[key] ??
     options?.defaultValue ??
     key,
@@ -351,5 +352,21 @@ describe("AccountSettingsForm name editing", () => {
     });
 
     expect(container.textContent).toContain("E-Mail-Adresse ändern");
+  });
+
+  it("renders the sign-out action in account settings", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    const signOutRow = container.querySelector("#sign-out");
+    expect(signOutRow?.textContent).toContain("Log out");
+    expect(signOutRow?.querySelector("button")?.textContent?.trim()).toBe(
+      "Log out",
+    );
   });
 });

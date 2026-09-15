@@ -32,6 +32,7 @@ vi.mock("../i18n.js", () => ({
     if (key === "org.noPeopleFound") return "No people found";
     if (key === "org.noMembers") return "No members";
     if (key === "org.inviteMembers") return "Invite members";
+    if (key === "org.newGroup") return "New group";
     return key;
   },
 }));
@@ -145,6 +146,7 @@ describe("MemberRow organization controls", () => {
             nextMemberOffset={null}
             onMemberPageChange={vi.fn()}
             onMemberSearchChange={onMemberSearchChange}
+            onCreateGroup={vi.fn()}
           />
         </TooltipProvider>,
       );
@@ -191,6 +193,7 @@ describe("MemberRow organization controls", () => {
             nextMemberOffset={null}
             onMemberPageChange={vi.fn()}
             onMemberSearchChange={vi.fn()}
+            onCreateGroup={vi.fn()}
           />
         </TooltipProvider>,
       );
@@ -198,5 +201,56 @@ describe("MemberRow organization controls", () => {
 
     expect(container.textContent).toContain("No people found");
     expect(container.textContent).not.toContain("Invite members");
+  });
+
+  it("offers to create a group for selected members when none exist", () => {
+    const onCreateGroup = vi.fn();
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MembersTableCard
+            members={[
+              {
+                email: "morgan@example.test",
+                role: "member",
+              },
+            ]}
+            totalMembers={1}
+            pendingInvites={[]}
+            isLoadingMembers={false}
+            isFetchingMembers={false}
+            membersError={null}
+            onRetryMembers={vi.fn()}
+            currentUserEmail="owner@example.test"
+            currentUserRole="owner"
+            groups={[]}
+            canManageGroups
+            memberOffset={0}
+            memberSearch=""
+            activeMemberSearch=""
+            hasNextPage={false}
+            nextMemberOffset={null}
+            onMemberPageChange={vi.fn()}
+            onMemberSearchChange={vi.fn()}
+            onCreateGroup={onCreateGroup}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const select = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Select morgan@example.test"]',
+    );
+    expect(select).not.toBeNull();
+    act(() => select?.click());
+
+    const createButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim() === "New group");
+    expect(createButton).not.toBeUndefined();
+    act(() => createButton?.click());
+
+    expect(onCreateGroup).toHaveBeenCalledWith(["morgan@example.test"]);
   });
 });

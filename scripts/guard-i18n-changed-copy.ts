@@ -65,8 +65,12 @@ export function hasForwardedInlineLocaleUpdate(
     return false;
   }
 
+  // A wrapper either spreads the inline block or re-exports it wholesale
+  // (`export default messagesByLocale["es-ES"]`, the shape every template
+  // generates). Both mean the translation already lives in the source file,
+  // so there is nothing for the wrapper to change.
   return new RegExp(
-    `^\\s*\\.\\.\\.\\s*messagesByLocale\\s*\\[\\s*["']${locale}["']\\s*\\]`,
+    `^\\s*(?:\\.\\.\\.\\s*|export\\s+default\\s+)messagesByLocale\\s*\\[\\s*["']${locale}["']\\s*\\]`,
     "m",
   ).test(wrapperText);
 }

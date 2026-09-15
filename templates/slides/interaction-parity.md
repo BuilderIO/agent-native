@@ -782,6 +782,55 @@ local Comments panel intentionally keeps Agent-Native styling and labels while
 matching Google's interaction semantics. No deployment or beta health claim is
 made by this ledger; that requires the post-merge monitoring workflow.
 
+## Gap-closure replay — 2026-09-15
+
+This pass runs on branch `steve8708/changes-8095` at the pre-fix working-tree
+head `45ad3ed8ef58f50973ae090df31dd9e949082b2f`, with one local production
+artifact server at `http://127.0.0.1:4174/` and the same 1280×720 viewport used
+for the Google Slides oracle. The disposable local deck was
+`Comment parity screenshot fixture`; the private Google reference remained
+`Slides Comment Parity QA` and its baseline comments were not changed.
+
+### Evidence and disposition
+
+- Live local evidence passed for the source-added rail and editor paths:
+  New slide, `Ctrl+M` insertion after the active slide, contiguous Shift-range
+  selection, selected-set duplicate, one-step selected-block reorder,
+  Tab/Shift+Tab canvas traversal, anchored comment/reply persistence across
+  reload, and same-layout insertion. The measured input-to-visible values were
+  878 ms, 1070 ms, 2421 ms (two-click range sequence), 1106 ms, 1239 ms,
+  678 ms, 796 ms, and 292 ms respectively; these include the browser harness
+  wait and are not intrinsic performance benchmarks.
+- A confirmed product-owned bug was reproduced beside Google: `⌘/Ctrl+A`
+  from an object-focused canvas cleared the local selection after the
+  selection-only rerender, while Google selected all editable slide objects.
+  Root cause was the content-reconciliation effect depending on the unstable
+  `applyMultiSelection` closure; selecting an object changed that closure and
+  caused the effect to consume an empty pending-resync value. The effect now
+  keys only on `slide.content` and reads the latest callback through a ref.
+  `SlideEditor.render-phase.test.ts` guards this boundary, and the focused
+  interaction suite passes 10 files / 247 tests.
+- Native `⌘/Ctrl+V` was attempted but the browser harness reported an empty
+  virtual clipboard. This is an environment limitation, not a product
+  disposition; native paste remains open for a seeded clipboard replay.
+- The local screenshot fixture was intentionally left as disposable QA data;
+  it is not shipped source and has not been called representative production
+  content. No Google slide or baseline comment was deleted.
+
+### Post-fix browser proof boundary
+
+The fresh production artifact was reloaded at the matched 1280×720 viewport.
+After a real pointer selection focused the canvas, object-focused `⌘+A` retained
+all five selectable roots: the accessibility tree reported `5 selected`, the
+selection chip was visible, and the DOM contained one multi-selection outline
+covering the selected set. The click/key/state-capture replay measured 867 ms
+including browser-harness wait time; it is not an intrinsic performance
+benchmark. The before and after captures were shown inline in the task output;
+the CUA harness exposes no filesystem screenshot path. This verifies the
+specific select-all regression row, not the entire interaction matrix. Native
+paste and all other rows explicitly left open above remain unverified, and the
+unrelated Content docs working-tree edit remains untouched.
+
 ## Disposition rules
 
 - `Implemented, verify` means the implementation and focused unit coverage
