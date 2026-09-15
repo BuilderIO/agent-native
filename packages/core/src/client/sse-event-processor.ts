@@ -19,7 +19,6 @@ import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
   humanizeToolName,
-  isDelegatedAgentToolCall,
   isToolCallActive,
   runningToolLabel,
 } from "./tool-display.js";
@@ -1232,34 +1231,43 @@ function coalesceCompletedToolRepeat(
 }
 
 /**
- * Drop preparation spinners for calls that never started, at a server-declared
- * continuation boundary.
+ * Drop preparation spinners the turn went on to serve.
  *
- * The continuation re-runs the model, so any action it re-issues arrives under
- * a NEW call id and paints its own card. The abandoned spinner would otherwise
- * stay pending for the rest of the turn and, on the eventual `done`, be
- * reported as an action that never ran - announcing a failure on a turn that
- * went on to succeed. A `tool_start` clears the `activity` flag, so nothing
- * that actually began is removable here.
+ * A continuation re-runs the model, so work it re-issues arrives under a NEW
+ * call id and paints its own card. The superseded spinner would otherwise stay
+ * pending and, on `done`, be reported as an action that never ran - announcing
+ * a failure on a turn that actually succeeded.
  *
- * Delegated agent cards are the exception: `agent_call` opens them with
- * `activity: true` and only its own `done`/`pending`/`error` ever resolves
- * them, so the flag stays set for the whole delegation. They outlive
- * continuation boundaries by design - a sub-agent is in-flight work, not an
- * unstarted intention - and dropping one would strand its result with no card
- * to land on.
+ * Deliberately done at `done` rather than at the continuation boundary. A
+ * boundary only means the continuation was REQUESTED: it can still fail (retry
+ * exhaustion, a conflicting active run, a user stop), and then the spinner is
+ * the only record that the action was promised and never ran. Waiting for a
+ * completed call for the same tool means we drop it only once we can see the
+ * intention was carried out.
+ *
+ * The completion must sit LATER in the transcript. A parallel sibling of the
+ * same tool is upgraded in place, so its completed card lands BEFORE any still
+ * unstarted twin - which stays reported, correctly.
  */
-function dropUnstartedActionPreparations(content: ContentPart[]): void {
+function dropSupersededActionPreparations(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (
-      part?.type === "tool-call" &&
-      part.activity === true &&
-      part.result === undefined &&
-      !isDelegatedAgentToolCall(part)
+      part?.type !== "tool-call" ||
+      part.activity !== true ||
+      part.result !== undefined
     ) {
-      content.splice(index, 1);
+      continue;
     }
+    const servedLater = content.some(
+      (later, laterIndex) =>
+        laterIndex > index &&
+        later.type === "tool-call" &&
+        later.toolName === part.toolName &&
+        later.activity !== true &&
+        later.result !== undefined,
+    );
+    if (servedLater) content.splice(index, 1);
   }
 }
 
@@ -2076,7 +2084,6 @@ export function processEvent(
   }
 
   if (ev.type === "loop_limit") {
-    dropUnstartedActionPreparations(content);
     const maxIterations =
       typeof ev.maxIterations === "number" ? ev.maxIterations : undefined;
     return {
@@ -2089,7 +2096,6 @@ export function processEvent(
   }
 
   if (ev.type === "auto_continue") {
-    dropUnstartedActionPreparations(content);
     const reason =
       ev.reason === "stream_ended" ||
       ev.reason === "loop_limit" ||
@@ -2202,6 +2208,7 @@ export function processEvent(
     // tools so both success and interrupted-terminal paths settle the UI.
     dispatchActivityClear(tabId);
     const userStoppedRun = ev.reason === "user";
+    dropSupersededActionPreparations(content);
     const interruptedTools = pendingToolNames(content);
     const allInterruptedTools = [
       ...interruptedTools.running,

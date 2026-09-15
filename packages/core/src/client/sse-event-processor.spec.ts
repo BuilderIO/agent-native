@@ -2437,10 +2437,9 @@ describe("SSE event processor error classification", () => {
 
   // The server ends a chunk that announced an action but never started it with
   // `auto_continue` (run-manager `endsDuringActionPreparation`). The
-  // continuation re-runs the model under fresh call ids, so the abandoned
-  // spinner must not survive to be reported as a never-run action on the
-  // eventual `done`.
-  it("drops an abandoned action preparation at a continuation boundary", async () => {
+  // continuation re-issues the work under a fresh call id, so the superseded
+  // spinner must not be reported as a never-run action on the eventual `done`.
+  it("does not report an action the continuation went on to complete", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -2484,7 +2483,11 @@ describe("SSE event processor error classification", () => {
       ),
     ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
 
-    expect(content).toEqual([]);
+    // The boundary only means a continuation was REQUESTED. Until one lands,
+    // the promised action is still the only record that it was promised.
+    expect(content).toEqual([
+      expect.objectContaining({ toolName: "resources", activity: true }),
+    ]);
 
     const results = await drain(
       readSSEStream(
@@ -2511,6 +2514,9 @@ describe("SSE event processor error classification", () => {
       ),
     );
 
+    expect(
+      content.filter((part) => part.type === "tool-call" && part.activity),
+    ).toEqual([]);
     const last = results.at(-1) as { metadata?: { custom?: unknown } };
     expect(last?.metadata?.custom).toBeUndefined();
     expect(
@@ -2521,11 +2527,10 @@ describe("SSE event processor error classification", () => {
     ).toBe(false);
   });
 
-  // A delegated sub-agent card is opened by `agent_call` with `activity: true`
-  // and is only ever resolved by its own `agent_call` done/pending/error, so the
-  // flag stays set while the sub-agent is genuinely in flight. Dropping one at a
-  // continuation boundary would strand its result with no card to land on.
-  it("keeps an in-flight delegated agent card across a continuation boundary", async () => {
+  // A continuation that never lands leaves the promise unfulfilled, and the
+  // card is the only record of it. Mirrors the adapter's conflict-exhaustion
+  // path, where the boundary is followed by nothing at all.
+  it("still reports an action when no continuation ever completes it", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -2549,63 +2554,107 @@ describe("SSE event processor error classification", () => {
         readSSEStream(
           eventStream([
             {
-              type: "agent_call",
-              status: "start",
-              agent: "researcher",
-              agentCallId: "agent-call-1",
-            },
-            {
               type: "activity",
-              label: "Preparing resources action",
-              tool: "resources",
-              id: "call-resources-1",
+              label: "Preparing run-code action",
+              tool: "run-code",
+              id: "call-run-code-1",
             },
-            { type: "auto_continue", reason: "stream_ended" },
+            { type: "loop_limit", maxIterations: 1 },
           ]),
           content,
           counter,
-          "tab-delegated",
+          "tab-unfulfilled",
         ),
       ),
     ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
 
-    expect(content).toEqual([
-      expect.objectContaining({
-        type: "tool-call",
-        toolCallId: "agent-call-1",
-        toolName: "agent:researcher",
-        activity: true,
-      }),
-    ]);
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "done" }]),
+        content,
+        counter,
+        "tab-unfulfilled",
+      ),
+    );
+
+    const last = results.at(-1) as {
+      metadata?: { custom?: { runError?: { message?: string } } };
+    };
+    expect(last?.metadata?.custom?.runError?.message).toContain(
+      "stopped before starting the run code action",
+    );
+    expect(content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: "run-code",
+          activity: true,
+          result: "Stopped before this action started.",
+        }),
+      ]),
+    );
+  });
+
+  // A parallel twin of the same tool is upgraded in place, so its completed
+  // card lands BEFORE the unstarted one. Position is what separates "re-issued
+  // after" from "sibling that ran alongside".
+  it("still reports an unstarted parallel twin of a tool that did run", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
 
     const results = await drain(
       readSSEStream(
         eventStream([
           {
-            type: "agent_call",
-            status: "done",
-            agent: "researcher",
-            agentCallId: "agent-call-1",
+            type: "activity",
+            label: "Preparing resources action",
+            tool: "resources",
+            id: "res-a",
           },
-          { type: "text", text: "The researcher reported back." },
+          {
+            type: "activity",
+            label: "Preparing resources action",
+            tool: "resources",
+            id: "res-b",
+          },
+          {
+            type: "tool_start",
+            tool: "resources",
+            id: "res-a",
+            input: { action: "write" },
+          },
+          {
+            type: "tool_done",
+            tool: "resources",
+            id: "res-a",
+            input: { action: "write" },
+            result: "written",
+          },
           { type: "done" },
         ]),
-        content,
-        counter,
-        "tab-delegated",
+        [],
+        { value: 0 },
+        "tab-parallel",
       ),
     );
 
-    expect(content).toEqual([
-      expect.objectContaining({
-        toolCallId: "agent-call-1",
-        toolName: "agent:researcher",
-        result: "Done",
-      }),
-      expect.objectContaining({ type: "text" }),
-    ]);
-    const last = results.at(-1) as { metadata?: { custom?: unknown } };
-    expect(last?.metadata?.custom).toBeUndefined();
+    const last = results.at(-1) as {
+      metadata?: { custom?: { runError?: { details?: string } } };
+    };
+    expect(last?.metadata?.custom?.runError?.details).toBe(
+      "interrupted_actions: resources",
+    );
   });
 
   it("uses a calm writing label for streamed tool-input progress", async () => {
