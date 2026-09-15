@@ -438,8 +438,9 @@ async function responseError(
   let detail = "";
   try {
     detail = (await response.text()).slice(0, MAX_ERROR_BODY_CHARS).trim();
-  } catch {
-    // Preserve the typed upstream failure when the body is unreadable.
+  } catch (cause) {
+    detail =
+      cause instanceof Error ? cause.message : "response body unavailable";
   }
   return new AnthropicManagedAgentsError({
     code: streaming ? "stream_error" : "api_error",
