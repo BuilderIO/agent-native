@@ -13066,6 +13066,61 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBeUndefined();
   });
 
+  it("drops preparation context superseded by an earlier continuation boundary", () => {
+    // A chunk that ended at `auto_continue` was re-prompted, and the resumed
+    // model re-issued its work under fresh ids. Naming the pre-boundary tool
+    // would point the next continuation at a superseded intention.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+        { type: "auto_continue", reason: "stream_ended" },
+        {
+          type: "activity",
+          label: "Preparing generate-design action",
+          tool: "generate-design",
+          id: "generate-1",
+          progressBytes: 512,
+        },
+        {
+          type: "tool_start",
+          tool: "generate-design",
+          id: "generate-1",
+          input: { designId: "d1" },
+        },
+        {
+          type: "tool_done",
+          tool: "generate-design",
+          id: "generate-1",
+          input: { designId: "d1" },
+          result: '{"ok":true}',
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("still names the tool when the ledger ENDS at a continuation boundary", () => {
+    // The trailing boundary is the event being explained, not an earlier attempt
+    // it superseded - this is the context the continuation prompt exists to carry.
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+        { type: "auto_continue", reason: "stream_ended" },
+      ]),
+    ).toBe("edit-design");
+  });
+
   it("keeps earlier unfinished action-preparation context when a later parallel input starts and finishes", () => {
     expect(
       lastUnfinishedPreparingActionToolFromEvents([

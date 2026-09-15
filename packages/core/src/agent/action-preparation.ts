@@ -68,6 +68,24 @@ function preparationEvidence(
 }
 
 /**
+ * A boundary that ends one attempt at the model.
+ *
+ * These only clear when something FOLLOWS them: a boundary in the middle of the
+ * window closed an earlier attempt, and anything it left open was superseded by
+ * the continuation that came after (which re-prompts the model and re-issues
+ * work under fresh call ids). A TRAILING boundary is the verdict under review,
+ * and the whole point of the scan is what was still open when it arrived -
+ * clearing on that would always answer "nothing".
+ */
+function isTurnBoundaryEvent(event: AgentChatEvent): boolean {
+  return (
+    event.type === "done" ||
+    event.type === "auto_continue" ||
+    event.type === "loop_limit"
+  );
+}
+
+/**
  * Every tool input the model announced and never started, oldest first.
  */
 export function unfinishedActionPreparations(
@@ -92,11 +110,28 @@ export function unfinishedActionPreparations(
     return Boolean(oldest);
   };
 
-  const removeMatchingActivePreparation = (event: {
-    id?: string;
-    tool?: string;
-    type: "tool_done" | "tool_start";
-  }) => {
+  /**
+   * Once a tool RUNS, any older announcement of that same tool was served.
+   *
+   * Call ids are not comparable across a re-issue: when a truncated tool input
+   * is retried inside one chunk, the model re-announces under a fresh id and
+   * the first announcement would otherwise stay open for the rest of the turn -
+   * continuing a turn that had in fact carried the intention out.
+   */
+  const retireOlderPreparationsForTool = (tool: string, order: number) => {
+    for (const [key, value] of [...active]) {
+      if (value.tool === tool && value.order < order) active.delete(key);
+    }
+  };
+
+  const removeMatchingActivePreparation = (
+    event: {
+      id?: string;
+      tool?: string;
+      type: "tool_done" | "tool_start";
+    },
+    order: number,
+  ) => {
     const id = event.id?.trim();
     const tool = event.tool?.trim();
     if (!tool) return;
@@ -104,6 +139,8 @@ export function unfinishedActionPreparations(
       if (!active.delete(`id:${id}`)) {
         removeOldestMatchingActivePreparation(tool, (value) => !value.id);
       }
+      if (event.type === "tool_start")
+        retireOlderPreparationsForTool(tool, order);
       return;
     }
 
@@ -140,7 +177,7 @@ export function unfinishedActionPreparations(
       return;
     }
     if (event.type === "tool_start" || event.type === "tool_done") {
-      removeMatchingActivePreparation(event);
+      removeMatchingActivePreparation(event, order);
       return;
     }
     if (
@@ -156,11 +193,7 @@ export function unfinishedActionPreparations(
       // The turn handed control to the user on purpose. Whatever else the model
       // had queued is the user's call to resume, not ours to auto-continue.
       event.type === "approval_required" ||
-      // A `done` that is not the last event closed an EARLIER turn in this
-      // window. The trailing one is the verdict under review, and the whole
-      // point of the scan is what was still open when it arrived — erasing on
-      // it would always answer "nothing".
-      (event.type === "done" && order < events.length - 1)
+      (isTurnBoundaryEvent(event) && order < events.length - 1)
     ) {
       active.clear();
       idlessToolStarts.clear();

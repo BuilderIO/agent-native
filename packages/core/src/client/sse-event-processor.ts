@@ -19,6 +19,7 @@ import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
   humanizeToolName,
+  isDelegatedAgentToolCall,
   isToolCallActive,
   runningToolLabel,
 } from "./tool-display.js";
@@ -1240,6 +1241,13 @@ function coalesceCompletedToolRepeat(
  * reported as an action that never ran - announcing a failure on a turn that
  * went on to succeed. A `tool_start` clears the `activity` flag, so nothing
  * that actually began is removable here.
+ *
+ * Delegated agent cards are the exception: `agent_call` opens them with
+ * `activity: true` and only its own `done`/`pending`/`error` ever resolves
+ * them, so the flag stays set for the whole delegation. They outlive
+ * continuation boundaries by design - a sub-agent is in-flight work, not an
+ * unstarted intention - and dropping one would strand its result with no card
+ * to land on.
  */
 function dropUnstartedActionPreparations(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
@@ -1247,7 +1255,8 @@ function dropUnstartedActionPreparations(content: ContentPart[]): void {
     if (
       part?.type === "tool-call" &&
       part.activity === true &&
-      part.result === undefined
+      part.result === undefined &&
+      !isDelegatedAgentToolCall(part)
     ) {
       content.splice(index, 1);
     }

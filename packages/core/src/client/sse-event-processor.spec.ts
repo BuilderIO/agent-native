@@ -2521,6 +2521,93 @@ describe("SSE event processor error classification", () => {
     ).toBe(false);
   });
 
+  // A delegated sub-agent card is opened by `agent_call` with `activity: true`
+  // and is only ever resolved by its own `agent_call` done/pending/error, so the
+  // flag stays set while the sub-agent is genuinely in flight. Dropping one at a
+  // continuation boundary would strand its result with no card to land on.
+  it("keeps an in-flight delegated agent card across a continuation boundary", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const content: ContentPart[] = [];
+    const counter = { value: 0 };
+
+    await expect(
+      drain(
+        readSSEStream(
+          eventStream([
+            {
+              type: "agent_call",
+              status: "start",
+              agent: "researcher",
+              agentCallId: "agent-call-1",
+            },
+            {
+              type: "activity",
+              label: "Preparing resources action",
+              tool: "resources",
+              id: "call-resources-1",
+            },
+            { type: "auto_continue", reason: "stream_ended" },
+          ]),
+          content,
+          counter,
+          "tab-delegated",
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
+
+    expect(content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "agent-call-1",
+        toolName: "agent:researcher",
+        activity: true,
+      }),
+    ]);
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            status: "done",
+            agent: "researcher",
+            agentCallId: "agent-call-1",
+          },
+          { type: "text", text: "The researcher reported back." },
+          { type: "done" },
+        ]),
+        content,
+        counter,
+        "tab-delegated",
+      ),
+    );
+
+    expect(content).toEqual([
+      expect.objectContaining({
+        toolCallId: "agent-call-1",
+        toolName: "agent:researcher",
+        result: "Done",
+      }),
+      expect.objectContaining({ type: "text" }),
+    ]);
+    const last = results.at(-1) as { metadata?: { custom?: unknown } };
+    expect(last?.metadata?.custom).toBeUndefined();
+  });
+
   it("uses a calm writing label for streamed tool-input progress", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
