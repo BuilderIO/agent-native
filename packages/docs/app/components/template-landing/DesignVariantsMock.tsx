@@ -52,6 +52,15 @@ const BOARD_BODY_HEIGHT = 400;
 const canvasHeight = (topPad: number) =>
   topPad + BOARD_LABEL_HEIGHT + BOARD_VISIBLE_HEIGHT;
 
+/**
+ * The illustration Variant A leads with. Transparent PNG line art, so it needs
+ * the light plate `.kt-hero-art` draws behind it in both themes — on the dark
+ * artboard the black strokes would otherwise disappear. `width` is ~2x the
+ * 180px slot for retina; no `height`, so the CDN keeps the square aspect.
+ */
+const HERO_ILLUSTRATION_SRC =
+  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0daad3243582418486e48030d8edb0ab?format=webp&width=440";
+
 const NAV_LINKS = ["Roasts", "Subscriptions", "Story"];
 
 function Wordmark() {
@@ -99,8 +108,14 @@ function VariantABoard() {
           </div>
         </div>
         <div className="kt-hero-art">
-          <span className="kt-hero-art-disc" />
-          <span className="kt-hero-art-band" />
+          <img
+            className="kt-hero-art-img"
+            src={HERO_ILLUSTRATION_SRC}
+            alt=""
+            crossOrigin="anonymous"
+            decoding="async"
+            loading="lazy"
+          />
         </div>
       </div>
       <div className="kt-card-row">
@@ -208,8 +223,8 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   // The design. Monochrome with one bright neutral for emphasis, matching the
   // hero artboards: a saturated palette here competed with the selection blue,
   // which is the only thing in the picture that has to be noticed.
-  ".design-variants-mock { --kt-bg: #0c0c0e; --kt-elevated: #16161a; --kt-fg: #a9a9af; --kt-fg-soft: rgba(169, 169, 175, 0.62); --kt-line: rgba(169, 169, 175, 0.12); --kt-accent: #cdcdd1; --kt-accent-on: #0c0c0e; }",
-  "html.light .design-variants-mock { --kt-bg: #f4f4f5; --kt-elevated: #ffffff; --kt-fg: #55555e; --kt-fg-soft: rgba(85, 85, 94, 0.62); --kt-line: rgba(85, 85, 94, 0.14); --kt-accent: #26262b; --kt-accent-on: #f4f4f5; }",
+  ".design-variants-mock { --kt-bg: #0c0c0e; --kt-elevated: #16161a; --kt-fg: #a9a9af; --kt-fg-soft: rgba(169, 169, 175, 0.62); --kt-line: rgba(169, 169, 175, 0.12); --kt-accent: #cdcdd1; --kt-accent-on: #0c0c0e; --kt-plate: #ededf0; }",
+  "html.light .design-variants-mock { --kt-bg: #f4f4f5; --kt-elevated: #ffffff; --kt-fg: #55555e; --kt-fg-soft: rgba(85, 85, 94, 0.62); --kt-line: rgba(85, 85, 94, 0.14); --kt-accent: #26262b; --kt-accent-on: #f4f4f5; --kt-plate: #ffffff; }",
   ".design-variants-mock .kt { display: flex; min-height: 100%; flex-direction: column; background: var(--kt-bg); color: var(--kt-fg); }",
 
   ".design-variants-mock .kt-nav { display: flex; height: 74px; flex-shrink: 0; align-items: center; gap: 34px; padding: 0 34px; }",
@@ -228,9 +243,8 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   ".design-variants-mock .kt-cta-ghost { display: flex; height: 48px; flex-shrink: 0; align-items: center; padding: 0 22px; border: 2px solid var(--kt-line); border-radius: 999px; font-size: 17px; font-weight: 600; white-space: nowrap; }",
   // A drawn panel rather than a photo: the two boards have to differ in layout,
   // and a stock shot would make the difference read as "one has a picture".
-  ".design-variants-mock .kt-hero-art { position: relative; display: flex; width: 180px; height: 210px; flex-shrink: 0; align-items: center; justify-content: center; overflow: hidden; border-radius: 26px; background: linear-gradient(150deg, var(--kt-elevated), var(--kt-line)); box-shadow: inset 0 0 0 2px var(--kt-line); }",
-  ".design-variants-mock .kt-hero-art-disc { width: 96px; height: 96px; border: 8px solid var(--kt-line); border-radius: 999px; }",
-  ".design-variants-mock .kt-hero-art-band { position: absolute; left: 0; right: 0; bottom: 26px; height: 18px; background: var(--kt-line); }",
+  ".design-variants-mock .kt-hero-art { position: relative; display: flex; width: 180px; height: 210px; flex-shrink: 0; align-items: center; justify-content: center; overflow: hidden; border-radius: 26px; background: var(--kt-plate); box-shadow: inset 0 0 0 2px var(--kt-line); }",
+  ".design-variants-mock .kt-hero-art-img { width: 100%; height: 100%; object-fit: contain; padding: 14px; }",
 
   ".design-variants-mock .kt-card-row { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 30px 34px 0; }",
   ".design-variants-mock .kt-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 2px solid var(--kt-line); border-radius: 22px; background: var(--kt-elevated); }",
