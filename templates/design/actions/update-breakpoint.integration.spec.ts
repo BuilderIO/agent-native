@@ -80,7 +80,10 @@ vi.mock("../server/db/index.js", async () => {
   };
 });
 
-import { getBreakpointMediaDeclarations } from "../shared/breakpoint-media.js";
+import {
+  getBreakpointMediaDeclarations,
+  injectManagedBreakpointCss,
+} from "../shared/breakpoint-media.js";
 import updateBreakpoint from "./update-breakpoint.js";
 
 const managedHtml = `<!doctype html><html><head><style data-agent-native-breakpoints>
@@ -206,6 +209,99 @@ describe("update-breakpoint persistence", () => {
     expect(persistedFile.content).toContain(
       '[data-custom="opaque"] { color: hotpink; }',
     );
+  });
+
+  it("migrates responsive class bounds wider and preserves unrelated content", async () => {
+    const classedHtml = managedHtml
+      .replace(
+        '<div data-agent-native-node-id="hero">x</div>',
+        '<div data-agent-native-node-id="hero" class="max-[809px]:top-6 keep-me max-[1279px]:text-lg">x</div>',
+      )
+      .replace(
+        "</style></head>",
+        '</style><style>.opaque::before { content: "max-[809px]:top-6"; }</style></head>',
+      );
+    await localDb.pglite?.query(
+      "UPDATE design_files SET content = $1 WHERE id = $2",
+      [classedHtml, "file-1"],
+    );
+
+    const result = await updateBreakpoint.run({
+      designId: "design-1",
+      breakpointId: "tablet",
+      widthPx: 900,
+    });
+
+    expect(result).toMatchObject({ updated: true });
+    const persistedFile = await queryOne<{ content: string }>(
+      "SELECT content FROM design_files WHERE id = $1",
+      ["file-1"],
+    );
+    expect(persistedFile.content).toContain(
+      'class="max-[899px]:top-6 keep-me max-[1279px]:text-lg"',
+    );
+    expect(persistedFile.content).toContain('content: "max-[809px]:top-6"');
+  });
+
+  it("migrates responsive classes when managed CSS has no affected bound", async () => {
+    const classedHtml = managedHtml.replace(
+      '<div data-agent-native-node-id="hero">x</div>',
+      '<div data-agent-native-node-id="hero" class="max-[809px]:top-6 keep-me">x</div>',
+    );
+    const classOnlyHtml = injectManagedBreakpointCss(
+      classedHtml,
+      '@media (max-width: 500px) {\n  [data-custom="opaque"] { color: red; }\n}',
+    );
+    await localDb.pglite?.query(
+      "UPDATE design_files SET content = $1 WHERE id = $2",
+      [classOnlyHtml, "file-1"],
+    );
+
+    const result = await updateBreakpoint.run({
+      designId: "design-1",
+      breakpointId: "tablet",
+      widthPx: 900,
+    });
+
+    expect(result).toMatchObject({ updated: true });
+    const persistedFile = await queryOne<{ content: string }>(
+      "SELECT content FROM design_files WHERE id = $1",
+      ["file-1"],
+    );
+    expect(persistedFile.content).toContain(
+      'class="max-[899px]:top-6 keep-me"',
+    );
+    expect(persistedFile.content).toContain("@media (max-width: 500px)");
+    expect(persistedFile.content).toContain(
+      '[data-custom="opaque"] { color: red; }',
+    );
+  });
+
+  it("migrates responsive class bounds narrower", async () => {
+    const classedHtml = managedHtml.replace(
+      '<div data-agent-native-node-id="hero">x</div>',
+      '<div data-agent-native-node-id="hero" class="max-[809px]:top-6 keep-me max-[1279px]:text-lg">x</div>',
+    );
+    await localDb.pglite?.query(
+      "UPDATE design_files SET content = $1 WHERE id = $2",
+      [classedHtml, "file-1"],
+    );
+
+    const result = await updateBreakpoint.run({
+      designId: "design-1",
+      breakpointId: "tablet",
+      widthPx: 700,
+    });
+
+    expect(result).toMatchObject({ updated: true });
+    const persistedFile = await queryOne<{ content: string }>(
+      "SELECT content FROM design_files WHERE id = $1",
+      ["file-1"],
+    );
+    expect(persistedFile.content).toContain(
+      'class="max-[699px]:top-6 keep-me max-[1279px]:text-lg"',
+    );
+    expect(persistedFile.content).toContain("@media (max-width: 699px)");
   });
 
   it("migrates media bounds regardless of at-rule casing", async () => {

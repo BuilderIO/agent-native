@@ -1992,9 +1992,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       y: nextPan.y,
       zoom: zoomRef.current,
     };
-    // Only on mount, screen-count changes, or device-preview changes.
+    // Only on mount, screen-count or chrome-inset changes, or device-preview changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewDeviceFrame, screens.length]);
+  }, [chromeInsetLeft, chromeInsetRight, previewDeviceFrame, screens.length]);
 
   useEffect(() => {
     return () => {

@@ -23,6 +23,7 @@ import {
 import { isStandaloneHttpUrl } from "./html-content.js";
 import {
   getPropertyClasses,
+  migrateMaxWidthClassBounds,
   parseClassGroups,
   parseClassToken,
   removeMaxWidthPropertyClass,
@@ -4084,6 +4085,45 @@ function replaceOrInsertAttribute(
     : -1;
   const insertAt = slashIndex > element.start ? slashIndex : closeIndex;
   return `${html.slice(0, insertAt)} ${name}="${escaped}"${html.slice(insertAt)}`;
+}
+
+/**
+ * Migrate generated max-width class tokens in HTML without serializing the
+ * document. The existing source parser skips opaque head/script/style text;
+ * reverse attribute splices keep every other byte unchanged.
+ */
+export function migrateMaxWidthClassBoundsInHtml(
+  html: string,
+  boundMap: ReadonlyMap<number, number | null>,
+): string | null {
+  if (boundMap.size === 0) return html;
+  const updates: Array<{ element: ParsedElement; className: string }> = [];
+
+  for (const element of parseHtmlElements(html)) {
+    const currentClass = attributeValue(element, "class");
+    if (currentClass === null) continue;
+    const nextClass = migrateMaxWidthClassBounds(currentClass, boundMap);
+    if (nextClass === null) {
+      // coercion-ok: callers treat null as a typed migration refusal.
+      return null;
+    }
+    if (nextClass !== currentClass) {
+      updates.push({ element, className: nextClass });
+    }
+  }
+
+  let nextHtml = html;
+  for (let index = updates.length - 1; index >= 0; index -= 1) {
+    const update = updates[index];
+    if (!update) continue;
+    nextHtml = replaceOrInsertAttribute(
+      nextHtml,
+      update.element,
+      "class",
+      update.className,
+    );
+  }
+  return nextHtml;
 }
 
 function removeAttributeFromHtml(

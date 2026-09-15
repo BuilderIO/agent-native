@@ -111,6 +111,7 @@ import { linkedComponentRootForNode } from "@shared/component-links";
 import {
   componentNodeIdMatches,
   isComponentInstance,
+  isComponentInstanceForInstanceActions,
 } from "@shared/component-model";
 import { getOverviewScreenFileIds } from "@shared/design-files";
 import { DESIGN_REVIEW_PANEL } from "@shared/design-flags";
@@ -8070,6 +8071,14 @@ function DesignEditor() {
       ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
       : undefined;
   }, [selectedCodeLayerNode]);
+  // Keep canonical mains available to the Component section's read/source
+  // controls while withholding instance-only actions from those selections.
+  const selectedInstanceActionNodeId = useMemo(() => {
+    if (!selectedCodeLayerNode) return undefined;
+    return isComponentInstanceForInstanceActions(selectedCodeLayerNode)
+      ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
+      : undefined;
+  }, [selectedCodeLayerNode]);
   const acceptedActiveFile = activeFile?.id
     ? rawServerFilesByIdRef.current.get(activeFile.id)
     : undefined;
@@ -9112,11 +9121,11 @@ function DesignEditor() {
   // actions here; Swap opens that canonical picker directly so both entry
   // points share one catalog and mutation path.
   const handleGoToMainComponentMenuAction = useCallback(() => {
-    if (!id || !selectedComponentNodeId) return;
+    if (!id || !selectedInstanceActionNodeId) return;
     goToMainComponentMutation.mutate(
       {
         designId: id,
-        nodeId: selectedComponentNodeId,
+        nodeId: selectedInstanceActionNodeId,
         fileId: activeFileId ?? undefined,
       },
       {
@@ -9144,7 +9153,13 @@ function DesignEditor() {
           toast.error(t("designEditor.componentInstances.resolveMainFailed")),
       },
     );
-  }, [activeFileId, goToMainComponentMutation, id, selectedComponentNodeId, t]);
+  }, [
+    activeFileId,
+    goToMainComponentMutation,
+    id,
+    selectedInstanceActionNodeId,
+    t,
+  ]);
 
   const handleDetachInstanceMenuAction = useCallback(
     () =>
@@ -9155,7 +9170,7 @@ function DesignEditor() {
         detachComponentInstanceMutation,
         handleComponentPropApplied,
         id,
-        selectedComponentNodeId,
+        selectedComponentNodeId: selectedInstanceActionNodeId,
         t,
       }),
     [
@@ -9165,7 +9180,7 @@ function DesignEditor() {
       detachComponentInstanceMutation,
       handleComponentPropApplied,
       id,
-      selectedComponentNodeId,
+      selectedInstanceActionNodeId,
       t,
     ],
   );
@@ -9175,12 +9190,12 @@ function DesignEditor() {
   // immediate context-menu behavior (the click opens choices; it doesn't
   // merely tell the user where to look).
   const handleSwapInstanceMenuAction = useCallback(() => {
-    if (!id || !selectedComponentNodeId) return;
+    if (!id || !selectedInstanceActionNodeId) return;
     setUiHidden(false);
     setMode("edit");
     setActiveInspectorTab("design");
     setComponentSwapPickerRequest((request) => request + 1);
-  }, [id, selectedComponentNodeId]);
+  }, [id, selectedInstanceActionNodeId]);
 
   const handleReviewFixApplied = useCallback(
     (
@@ -16330,7 +16345,7 @@ function DesignEditor() {
     // a component instance, matching onOpacityChange's "absent handler is a
     // no-op" convention just below.
     onDetachInstance:
-      canEditDesign && selectedComponentNodeId
+      canEditDesign && selectedInstanceActionNodeId
         ? handleDetachInstanceMenuAction
         : undefined,
     // H2: plain digit sequences — set selection opacity. The identity and
@@ -23713,7 +23728,7 @@ function DesignEditor() {
             // Figma instance-only cluster: only meaningful when the current
             // selection IS a recognised component instance.
             isComponentInstance={
-              canEditDesign && Boolean(selectedComponentNodeId)
+              canEditDesign && Boolean(selectedInstanceActionNodeId)
             }
             canFlipHorizontal={canEditDesign && Boolean(selectedElement)}
             canFlipVertical={canEditDesign && Boolean(selectedElement)}

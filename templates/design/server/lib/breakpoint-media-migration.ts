@@ -5,6 +5,7 @@ import {
   extractManagedBreakpointCss,
   injectManagedBreakpointCss,
 } from "../../shared/breakpoint-media.js";
+import { migrateMaxWidthClassBoundsInHtml } from "../../shared/code-layer.js";
 
 const MEDIA_PARAMS_RE = /^\s*\(\s*max-width\s*:\s*(\d+(?:\.\d+)?)px\s*\)\s*$/i;
 
@@ -14,17 +15,19 @@ type ResolvedMediaRule = {
 };
 
 /**
- * Rewrites only the numeric bounds in the managed stylesheet's media AST.
- * PostCSS keeps declarations, comments, unknown selectors, and nested
- * at-rules intact. A null result is a safe refusal when the stylesheet cannot
- * be parsed or two scopes would collapse into one.
+ * Rewrites responsive class and managed stylesheet bounds without
+ * serializing the document. PostCSS keeps declarations, comments, unknown
+ * selectors, and nested at-rules intact. A null result is a safe refusal
+ * when the source cannot be migrated or two scopes would collapse into one.
  */
 export function migrateBreakpointMediaBounds(
   html: string,
   boundMap: ReadonlyMap<number, number | null>,
 ): string | null {
-  const css = extractManagedBreakpointCss(html);
-  if (css === null || boundMap.size === 0) return html;
+  const withMigratedClasses = migrateMaxWidthClassBoundsInHtml(html, boundMap);
+  if (withMigratedClasses === null) return null;
+  const css = extractManagedBreakpointCss(withMigratedClasses);
+  if (css === null || boundMap.size === 0) return withMigratedClasses;
 
   let root: Root;
   try {
@@ -76,7 +79,7 @@ export function migrateBreakpointMediaBounds(
   });
 
   if (refused) return null;
-  if (!changed) return html;
+  if (!changed) return withMigratedClasses;
 
   for (const [rule, { source, target }] of resolved) {
     if (source === target) continue;
@@ -112,5 +115,5 @@ export function migrateBreakpointMediaBounds(
     parent.nodes = reordered;
   }
 
-  return injectManagedBreakpointCss(html, root.toString());
+  return injectManagedBreakpointCss(withMigratedClasses, root.toString());
 }
