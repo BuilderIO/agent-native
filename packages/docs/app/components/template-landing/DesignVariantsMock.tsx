@@ -295,10 +295,10 @@ export function DesignVariantsMock({
       <style>{DESIGN_VARIANTS_MOCK_CSS}</style>
       <div className="design-variants-mock-frame" aria-hidden="true">
         <div className="design-variants-mock-canvas">
-          <Board label="Image lede">
+          <Board label="Variant A">
             <VariantABoard />
           </Board>
-          <Board label="Type lede" selected>
+          <Board label="Variant B" selected>
             <VariantBBoard />
           </Board>
         </div>
