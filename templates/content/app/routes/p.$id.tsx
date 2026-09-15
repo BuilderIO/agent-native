@@ -187,7 +187,7 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
             rel: "alternate",
             type: "application/agent-native+json",
             href: discovery.contextUrl,
-            title: "Agent-readable Content document",
+            title: "Agent-readable Content document", // i18n-ignore -- machine-readable alternate-link metadata, not UI copy.
           },
         ]
       : []),
