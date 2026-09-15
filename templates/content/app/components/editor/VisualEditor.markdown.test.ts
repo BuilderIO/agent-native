@@ -528,6 +528,76 @@ describe("markdown clipboard parsing", () => {
     }
   });
 
+  it("keeps dual-format paste-as-plain-text Markdown literal", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<pre><code># Plain paste heading\n\n- first</code></pre>",
+    );
+    clipboardData.setData("text/plain", "# Plain paste heading\n\n- first");
+
+    try {
+      const input = (
+        editor.view as unknown as {
+          input: { shiftKey: boolean; lastKeyCode: number | null };
+        }
+      ).input;
+      input.shiftKey = true;
+      input.lastKeyCode = 86;
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.textContent).toContain("# Plain paste heading");
+      expect(editor.state.doc.textContent).toContain("- first");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) =>
+            node.type.name === "heading" || node.type.name === "bulletList",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps Markdown literal when pasting into a code block", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<pre><code># Literal heading\n**literal bold**</code></pre>",
+    );
+    clipboardData.setData("text/plain", "# Literal heading\n**literal bold**");
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "codeBlock" }],
+      });
+      editor.commands.setTextSelection(1);
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("codeBlock");
+      expect(editor.state.doc.textContent).toContain("# Literal heading");
+      expect(editor.state.doc.textContent).toContain("**literal bold**");
+      expect(editor.state.doc.firstChild?.firstChild?.marks).toHaveLength(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("preserves paragraph-only rich HTML instead of reparsing its text", () => {
     const editor = createFullEditor();
     const clipboardData = new DataTransfer();

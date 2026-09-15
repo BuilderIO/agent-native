@@ -339,6 +339,18 @@ const MarkdownPasteDetection = Extension.create({
             return parsePlainTextClipboardSlice(editor, text, _context);
           },
           handlePaste(view, event) {
+            const context = view.state.selection.$from;
+            // ProseMirror records the Shift-paste intent on its view input state,
+            // but does not expose that state in the public EditorView type.
+            const input = (
+              view as unknown as {
+                input?: { shiftKey: boolean; lastKeyCode: number | null };
+              }
+            ).input;
+            const isPlainTextPaste =
+              input?.shiftKey === true && input.lastKeyCode !== 45;
+            if (isPlainTextPaste || context.parent.type.spec.code) return false;
+
             const clipboardData = event.clipboardData;
             if (!clipboardData) return false;
 
@@ -370,7 +382,7 @@ const MarkdownPasteDetection = Extension.create({
             const slice = parseMarkdownClipboardSlice(
               editor,
               plainText,
-              view.state.selection.$from,
+              context,
             );
             if (!slice) return false;
 
