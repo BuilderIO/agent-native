@@ -968,6 +968,24 @@ export default defineAction({
       const deletedSlideIds = new Set<string>();
       const signaturesBeforeOperations = slideSignatures(deck);
       const contentsBeforeOperations = slideContents(deck);
+      const fitFieldsBeforeOperations = new Map<
+        string,
+        { content: unknown; layout: unknown; excalidrawData: unknown }
+      >(
+        (Array.isArray(deck.slides) ? deck.slides : [])
+          .filter((slide: { id?: unknown }) => typeof slide.id === "string")
+          .map(
+            (slide: Record<string, unknown>) =>
+              [
+                slide.id as string,
+                {
+                  content: slide.content,
+                  layout: slide.layout,
+                  excalidrawData: slide.excalidrawData,
+                },
+              ] as const,
+          ),
+      );
       const derivedBeforeOperations = new Map<
         string,
         { layoutFitRevision: unknown; layoutWarningDismissed: unknown }
@@ -991,24 +1009,6 @@ export default defineAction({
           (deck.slides as Array<{ id?: string }>).some(
             (slide) => slide.id === op.slideId,
           );
-        const previousSlide =
-          op.op === "patch-slide" || op.op === "add-slide"
-            ? (
-                deck.slides as Array<{
-                  id?: string;
-                  content?: unknown;
-                  layout?: unknown;
-                  excalidrawData?: unknown;
-                }>
-              ).find((slide) => slide.id === op.slideId)
-            : undefined;
-        const previousFitFields = previousSlide
-          ? {
-              content: previousSlide.content,
-              layout: previousSlide.layout,
-              excalidrawData: previousSlide.excalidrawData,
-            }
-          : null;
         applyOperation(deck, op, {
           clearLayoutWarningDismissal: isAgentCaller,
         });
@@ -1019,24 +1019,6 @@ export default defineAction({
           )
         ) {
           deletedSlideIds.add(op.slideId);
-        }
-        if (op.op === "add-slide" && !previousSlide) {
-          layoutFitSlideIds.add(op.slideId);
-        } else if (op.op === "patch-slide" && previousFitFields) {
-          const nextSlide = (
-            deck.slides as Array<{
-              id?: string;
-              content?: unknown;
-              layout?: unknown;
-              excalidrawData?: unknown;
-            }>
-          ).find((slide) => slide.id === op.slideId);
-          if (
-            nextSlide &&
-            slideFitRenderFieldsChanged(previousFitFields, nextSlide)
-          ) {
-            layoutFitSlideIds.add(op.slideId);
-          }
         }
       }
       // ─── What actually changed, per slide ─────────────────────────────────
@@ -1088,11 +1070,9 @@ export default defineAction({
         if (deletedSlideIds.has(slideId)) changedSlideIds.add(slideId);
       }
 
-      // Replay mints a fit revision and clears a dismissed overflow warning on
-      // every intermediate edit. When the batch nets out to the same material
-      // slide, none of that was earned, so revert it rather than persist a
-      // reset warning and schedule a re-measure for content nobody changed. An
-      // explicit dismissal in this batch is a real request and is left alone.
+      // Dismissing an overflow warning is a real requested mutation, so it
+      // counts as a change even though the signature ignores the field.
+      // Without this the batch would look like a no-op and be rejected.
       const explicitWarningSlideIds = new Set(
         operations.flatMap((operation) =>
           (operation.op === "patch-slide" || operation.op === "add-slide") &&
@@ -1104,7 +1084,34 @@ export default defineAction({
       );
       for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
         if (typeof slide.id !== "string") continue;
-        if (changedSlideIds.has(slide.id)) continue;
+        if (!explicitWarningSlideIds.has(slide.id)) continue;
+        if (
+          slide.layoutWarningDismissed !==
+          derivedBeforeOperations.get(slide.id)?.layoutWarningDismissed
+        ) {
+          changedSlideIds.add(slide.id);
+        }
+      }
+
+      // Fit state answers "must the browser re-measure this slide", which
+      // depends on the rendered fields the batch NETS to, not on what replay
+      // touched along the way. An intermediate edit mints a revision and
+      // clears a dismissed warning; if the final geometry matches what was
+      // stored, none of that was earned. Recomputing here rather than
+      // accumulating per operation also covers the notes-only net change,
+      // where the slide really did change but its geometry did not.
+      for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
+        if (typeof slide.id !== "string") continue;
+        const previousFitFields = fitFieldsBeforeOperations.get(slide.id);
+        if (!previousFitFields) {
+          layoutFitSlideIds.add(slide.id);
+          continue;
+        }
+        if (slideFitRenderFieldsChanged(previousFitFields, slide)) {
+          layoutFitSlideIds.add(slide.id);
+          continue;
+        }
+        layoutFitSlideIds.delete(slide.id);
         const derived = derivedBeforeOperations.get(slide.id);
         if (!derived) continue;
         if (derived.layoutFitRevision === undefined) {
@@ -1119,7 +1126,6 @@ export default defineAction({
             slide.layoutWarningDismissed = derived.layoutWarningDismissed;
           }
         }
-        layoutFitSlideIds.delete(slide.id);
       }
 
       const unchangedSlideIds = requestedSlideIds.filter(

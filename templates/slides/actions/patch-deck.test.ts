@@ -2321,3 +2321,85 @@ describe("run() — derived state and lifecycle around net-zero edits", () => {
     expect(fitSlideIds).toEqual(["slide-2"]);
   });
 });
+
+describe("run() — fit state follows the net change, not the replay", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            notes: "old",
+            layoutFitRevision: "rev-1",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("persists a warning-dismissal-only patch instead of rejecting it", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { layoutWarningDismissed: false },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(
+      persisted.slides.find((slide: { id: string }) => slide.id === "slide-1")
+        .layoutWarningDismissed,
+    ).toBe(false);
+  });
+
+  it("does not re-measure a slide whose rendered fields net out unchanged", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Interim</div>" },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>", notes: "new" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    expect(result.layoutFit).toBeUndefined();
+    const slide1 = JSON.parse(lastUpdatedDeckData!).slides.find(
+      (slide: { id: string }) => slide.id === "slide-1",
+    );
+    expect(slide1.notes).toBe("new");
+    expect(slide1.layoutFitRevision).toBe("rev-1");
+    expect(slide1.layoutWarningDismissed).toBe(true);
+  });
+});
