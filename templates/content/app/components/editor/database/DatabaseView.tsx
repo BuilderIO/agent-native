@@ -18689,12 +18689,19 @@ function RowNameCell({
         wrapCells ? "items-start" : "items-center",
       )}
     >
-      <DatabaseItemPageIcon
-        document={item.document}
-        className="size-4 text-sm"
-        fallbackClassName="size-4"
-        fallback={workspaceCatalog ? "folder" : "page"}
-      />
+      <span
+        className={cn(
+          "flex shrink-0 items-center",
+          databaseTitleButtonDensityClass(rowDensity, wrapCells),
+        )}
+      >
+        <DatabaseItemPageIcon
+          document={item.document}
+          className="size-4 text-sm"
+          fallbackClassName="size-4"
+          fallback={workspaceCatalog ? "folder" : "page"}
+        />
+      </span>
       {canEdit && editingTitle ? (
         <input
           ref={rowTitleInputRef}

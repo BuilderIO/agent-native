@@ -60,3 +60,57 @@ export function missingDesignSystemDataFields(value: unknown): string[] {
 
   return missing;
 }
+
+export type DesignSystemIndexingStatus = "ready" | "indexing" | "unavailable";
+
+const READY_BUILDER_STATUSES = new Set(["ready", "complete", "completed"]);
+const UNAVAILABLE_BUILDER_STATUSES = new Set([
+  "error",
+  "failed",
+  "cancelled",
+  "canceled",
+]);
+
+/**
+ * A Builder-indexed proxy design system (see `builder-design-system-proxy.ts`)
+ * has no usable tokens/components until Builder confirms indexing finished —
+ * selecting it before then is exactly what produced the "still being
+ * indexed" agent stall this guards against. A locally authored design system
+ * has no `builderStatus` at all and is always immediately usable. An
+ * unrecognized or missing status on a Builder-sourced row is treated as still
+ * indexing rather than ready, so a stale or malformed row never becomes
+ * silently selectable.
+ */
+export function getDesignSystemIndexingStatus(
+  data: unknown,
+): DesignSystemIndexingStatus {
+  const record =
+    data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+  if (!record || record.source !== "builder") return "ready";
+
+  const rawStatus = record.builderStatus;
+  const status =
+    typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : "";
+  if (READY_BUILDER_STATUSES.has(status)) return "ready";
+  if (UNAVAILABLE_BUILDER_STATUSES.has(status)) return "unavailable";
+  return "indexing";
+}
+
+/**
+ * Same as `getDesignSystemIndexingStatus`, for callers that only have the raw
+ * `data` JSON string (e.g. `list-design-systems`' row). Empty/missing data has
+ * never been written by create/update-design-system, so it reads as a legacy
+ * row predating that column rather than a corrupted one. A non-empty string
+ * that fails to parse is corrupted — its `source`/`builderStatus` can't be
+ * read, so it fails closed to `unavailable` instead of the ready default.
+ */
+export function parseDesignSystemIndexingStatus(
+  data: string | null | undefined,
+): DesignSystemIndexingStatus {
+  if (!data) return "ready";
+  try {
+    return getDesignSystemIndexingStatus(JSON.parse(data));
+  } catch {
+    return "unavailable";
+  }
+}

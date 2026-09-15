@@ -34,6 +34,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { FilterTriggerIndicator } from "@/components/ui/filter-trigger";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -256,6 +257,7 @@ export default function SessionsPage() {
   );
 
   const recordings = data ?? [];
+  const popoverFiltered = range !== "30d" || app !== "";
 
   return (
     <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
@@ -283,10 +285,16 @@ export default function SessionsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-9 w-9 shrink-0"
+                      className={cn(
+                        "h-9 w-9 shrink-0",
+                        popoverFiltered &&
+                          "border border-primary/40 text-primary",
+                      )}
                       aria-label={t("sessions.filters")}
                     >
-                      <IconSettings className="h-4 w-4" />
+                      <FilterTriggerIndicator active={popoverFiltered}>
+                        <IconSettings className="h-4 w-4" />
+                      </FilterTriggerIndicator>
                     </Button>
                   </PopoverTrigger>
                 </TooltipTrigger>
