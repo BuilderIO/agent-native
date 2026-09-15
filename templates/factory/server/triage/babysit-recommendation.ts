@@ -1,5 +1,10 @@
 import type { BabysitMechanicalVerdict } from "./babysit-evidence.js";
 import {
+  assessThreadDispositions,
+  builderAddressedReviewThreadsAfterPing,
+} from "./babysit-thread-closure.js";
+import {
+  DEFAULT_BABYSIT_BOT_AUTHORS,
   detectBotErrorAfterPing,
   type BabysitProposal,
   type BabysitRecommendation,
@@ -34,11 +39,6 @@ export interface BabysitRecommendationResult {
 export function computeBabysitRecommendation(
   input: BabysitRecommendationInput,
 ): BabysitRecommendationResult {
-  const botErrorAfterPing = detectBotErrorAfterPing({
-    comments: input.comments,
-    issueComments: input.issueComments,
-    lastCommentAtMs: input.lastCommentAtMs,
-  });
   const builderActive = input.mechanical.builderActive;
   const builderActiveUntil = input.mechanical.builderActiveUntil;
   const openBot = input.proposal.unansweredBotComments.length;
@@ -46,6 +46,22 @@ export function computeBabysitRecommendation(
   const blockingFailed = input.proposal.failingChecks.length;
   const headShaChanged =
     Boolean(input.lastPingHeadSha) && input.lastPingHeadSha !== input.headSha;
+  const threadAssessment = input.issueComments
+    ? assessThreadDispositions({
+        comments: input.comments,
+        issueComments: input.issueComments,
+        lastCommentAtMs: input.lastCommentAtMs,
+        botAuthors: [...DEFAULT_BABYSIT_BOT_AUTHORS],
+      })
+    : null;
+  const rawBotErrorAfterPing = detectBotErrorAfterPing({
+    comments: input.comments,
+    issueComments: input.issueComments,
+    lastCommentAtMs: input.lastCommentAtMs,
+  });
+  const botErrorAfterPing =
+    rawBotErrorAfterPing &&
+    !builderAddressedReviewThreadsAfterPing(threadAssessment);
 
   if (botErrorAfterPing) {
     return {
@@ -69,11 +85,38 @@ export function computeBabysitRecommendation(
     };
   }
 
+  if (
+    threadAssessment &&
+    threadAssessment.dispositionCounts.requiredNotFixing > 0
+  ) {
+    return {
+      recommendation: "stuck",
+      because:
+        "At least one review thread was marked Required — not fixing, so another Factory ping is unlikely to help.",
+      builderActive: false,
+      builderActiveUntil: null,
+      botErrorAfterPing: false,
+    };
+  }
+
   if (!input.mechanical.needsWork && input.proposal.isClean) {
+    const dispositionSummary = threadAssessment
+      ? [
+          threadAssessment.dispositionCounts.requiredFixed > 0
+            ? `${threadAssessment.dispositionCounts.requiredFixed} required fixed`
+            : null,
+          threadAssessment.dispositionCounts.optionalSkipping > 0
+            ? `${threadAssessment.dispositionCounts.optionalSkipping} optional skipped`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(", ")
+      : "";
     return {
       recommendation: "clean",
-      because:
-        "CI is green and there is no unresolved human or bot review feedback.",
+      because: dispositionSummary
+        ? `CI is green and review threads are closed (${dispositionSummary}).`
+        : "CI is green and there is no unresolved human or bot review feedback.",
       builderActive: false,
       builderActiveUntil: null,
       botErrorAfterPing: false,

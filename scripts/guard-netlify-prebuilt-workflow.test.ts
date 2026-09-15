@@ -99,7 +99,7 @@ describe("Google callback deploy verification guard", () => {
 
   it("checks the published beta runtime context for the relay secret", () => {
     const relayStep =
-      "      - name: Verify Netlify Google OAuth relay configuration";
+      "      - name: Verify Netlify Google OAuth relay metadata";
     const packageStep = "      - name: Package the prebuilt artifact";
     const uploadStep = "      - name: Upload the prebuilt artifact";
     const smokeStep = "      - name: Smoke-test the uploaded deploy";
@@ -123,6 +123,32 @@ describe("Google callback deploy verification guard", () => {
     assert.match(step, /context === "deploy-preview"/);
     assert.match(step, /preview relay configuration is optional/);
     assert.match(step, /throw new Error/);
+    assert.match(step, /!value/);
+    assert.match(step, /Netlify masks secret values/);
+    assert.match(step, /Verified Google OAuth relay metadata/);
+    assert.doesNotMatch(step, /netlify env:get/);
+    const metadataScript = step.match(
+      /printf '%s' "\$env_json" \|\n\s*node -e '\n([\s\S]*?)\n\s*' "\$relay_context"/,
+    )?.[1];
+    assert.ok(metadataScript);
+    const runMetadataCheck = (variables: unknown[], context: string) =>
+      execFileSync(process.execPath, ["-e", metadataScript, context], {
+        encoding: "utf8",
+        input: JSON.stringify(variables),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    const allContextRelay = {
+      key: "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
+      is_secret: true,
+      scopes: ["runtime"],
+      values: [{ context: "all" }],
+    };
+    assert.doesNotThrow(() =>
+      runMetadataCheck([allContextRelay], "branch-deploy"),
+    );
+    assert.throws(() =>
+      runMetadataCheck([{ ...allContextRelay, values: [] }], "branch-deploy"),
+    );
     assert.match(
       step,
       /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,

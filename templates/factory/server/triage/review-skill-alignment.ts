@@ -102,9 +102,11 @@ Follow the fixed poll → list → propose → babysit path only. Read
 the babysit decision unless the briefing clearly contradicts them.
 
 Allowed decisions: ping, defer, already_asked, stuck. Unresolved bot review
-threads count as work. Factory-only duplicate detection ignores human copies of
-the template comment. Defer while Builder is active within the 20-minute quiet
-window. Mark stuck when bot errors after a ping make another ask useless.
+threads count as work unless closed by reply, GitHub resolve, outdated status,
+or a structured coverage comment. Factory-only duplicate detection ignores human
+copies of the template comment. Defer while Builder is active within the 20-minute
+quiet window. Mark stuck when bot errors after a ping, or Required — not fixing
+on a thread, make another ask useless.
 
 Do not review diffs, call govern-factory-pull-request, or use ad-hoc GitHub
 tools. Never approve or merge.`;
