@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { signA2AToken } from "@agent-native/core/a2a";
+import { isActionContractError } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
   getOrgA2ASecret,
@@ -11,6 +12,8 @@ import {
   isWorkspaceAppAccessAllowed,
 } from "@agent-native/core/org";
 import {
+  CredentialStoreUnavailableError,
+  FeatureNotConfiguredError,
   createBuilderProject,
   getBuilderBranchProjectId,
   getRequestContext,
@@ -27,8 +30,12 @@ import {
   putSetting,
 } from "@agent-native/core/settings";
 import {
+  BUILDER_CONNECT_PROVIDER,
+  BUILDER_CONNECT_PROVIDER_LABEL,
   assertValidWorkspaceAppId,
+  connectRequiredResult,
   normalizeWorkspaceAppHomePath,
+  type ConnectRequiredCard,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 
@@ -2668,6 +2675,78 @@ async function grantSelectedWorkspaceResources(input: {
 }
 
 /**
+ * Builder authorization failures arrive as a generic throw from the Builder
+ * API helpers. Left unclassified they all became `builder-error` ("try again
+ * in a moment"), which is wrong for the one cause the user can actually fix,
+ * and left the `builder-not-connected` Connect control unreachable.
+ */
+const BUILDER_NOT_CONNECTED_ERROR_CODES = new Set([
+  "builder_not_connected",
+  "builder_oauth_reauthorization_required",
+]);
+
+function builderFailureReason(
+  err: unknown,
+): Exclude<
+  AppCreationUnavailableReason,
+  "identity-not-linked" | "settings-management-required"
+> {
+  if (err instanceof CredentialStoreUnavailableError) {
+    return "credential-store-unavailable";
+  }
+  if (err instanceof FeatureNotConfiguredError) return "builder-not-connected";
+  if (
+    isActionContractError(err) &&
+    BUILDER_NOT_CONNECTED_ERROR_CODES.has(err.errorCode)
+  ) {
+    return "builder-not-connected";
+  }
+  return "builder-error";
+}
+
+function builderUnavailable(input: {
+  appId: string;
+  projectId: string;
+  err: unknown;
+  fallbackDetail: string;
+  builderErrorMessage: string;
+}): AppCreationBuilderUnavailableResult {
+  const reason = builderFailureReason(input.err);
+  const detail =
+    input.err instanceof Error && input.err.message
+      ? input.err.message
+      : input.fallbackDetail;
+  const base = {
+    mode: "builder-unavailable" as const,
+    appId: input.appId,
+    projectId: input.projectId,
+    detail,
+  };
+  if (reason === "builder-not-connected") {
+    const connect = connectRequiredResult({
+      provider: BUILDER_CONNECT_PROVIDER,
+      providerLabel: BUILDER_CONNECT_PROVIDER_LABEL,
+      reason: `${BUILDER_CONNECT_PROVIDER_LABEL} is not connected for this workspace, so the app could not be created.`,
+    });
+    return {
+      ...base,
+      reason,
+      message: connect.connectRequired.message,
+      connectRequired: connect.connectRequired,
+    };
+  }
+  if (reason === "credential-store-unavailable") {
+    return {
+      ...base,
+      reason,
+      message:
+        "Could not read this workspace's saved connections, so the app was not created. This is temporary - try again.",
+    };
+  }
+  return { ...base, reason, message: input.builderErrorMessage };
+}
+
+/**
  * Discriminates why `startWorkspaceAppCreation` could not hand off to Builder.
  * UIs and agents should branch on this instead of parsing `message` text.
  */
@@ -2693,6 +2772,9 @@ export interface AppCreationBuilderUnavailableResult {
   /** Raw underlying error text for agents/operators debugging the deployment. */
   detail?: string;
   projectId: string;
+  /** Present only for `builder-not-connected`, so chat and the create-app UI
+   *  render a Connect control instead of restating the blocker. */
+  connectRequired?: ConnectRequiredCard;
 }
 
 export interface AppCreationLocalAgentResult {
@@ -2824,19 +2906,14 @@ export async function startWorkspaceAppCreation(input: {
           message: APP_CREATION_SETTINGS_REQUIRED_MESSAGE,
         };
       }
-      const detail =
-        err instanceof Error && err.message
-          ? err.message
-          : "Builder could not provision the workspace project";
-      return {
-        mode: "builder-unavailable",
+      return builderUnavailable({
         appId: built.appId,
-        reason: "builder-error",
         projectId: "",
-        detail,
-        message:
+        err,
+        fallbackDetail: "Builder could not provision the workspace project",
+        builderErrorMessage:
           "Builder could not prepare the connected Agent-Native workspace. Try again in a moment.",
-      };
+      });
     }
   }
 
@@ -2870,19 +2947,14 @@ export async function startWorkspaceAppCreation(input: {
         cleanupError,
       );
     }
-    const detail =
-      err instanceof Error && err.message
-        ? err.message
-        : "Builder could not start the app branch";
-    return {
-      mode: "builder-unavailable",
+    return builderUnavailable({
       appId: built.appId,
-      reason: "builder-error",
       projectId: builderProjectId,
-      detail,
-      message:
+      err,
+      fallbackDetail: "Builder could not start the app branch",
+      builderErrorMessage:
         "Builder could not start the app branch. This is usually temporary — try again.",
-    };
+    });
   }
 
   await recordPendingWorkspaceApp({

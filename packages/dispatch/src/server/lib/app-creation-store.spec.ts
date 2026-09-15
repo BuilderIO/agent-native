@@ -1,4 +1,8 @@
-import { runWithRequestContext } from "@agent-native/core/server";
+import { ActionContractError } from "@agent-native/core/action";
+import {
+  CredentialStoreUnavailableError,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -1530,6 +1534,117 @@ describe("startWorkspaceAppCreation", () => {
     expect(result.reason).toBe("builder-error");
     expect(result.detail).toBe("Builder keys are not configured");
     expect(result.message).not.toContain(leakedProjectId);
+  });
+
+  // The reported dead end: chat said "Builder isn't connected" with nothing to
+  // click. Every Builder authorization failure used to collapse into
+  // `builder-error` ("try again in a moment"), so neither the agent nor the
+  // create-app UI could offer the Connect control they already implement.
+  it("classifies a disconnected Builder as builder-not-connected with a connect action", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
+    mocks.runBuilderAgent.mockRejectedValue(
+      new ActionContractError("Builder.io is not connected.", {
+        errorCode: "builder_not_connected",
+        statusCode: 400,
+      }),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder-unavailable");
+    expect(result.reason).toBe("builder-not-connected");
+    expect(result.detail).toBe("Builder.io is not connected.");
+    expect(result.connectRequired).toMatchObject({
+      provider: "builder",
+      providerLabel: "Builder.io",
+    });
+    expect(result.message).toContain("Builder.io is not connected");
+    expect(result.message).toContain("Connect Builder.io");
+    expect(result.message).not.toContain("try again");
+  });
+
+  it("classifies a disconnected Builder while provisioning the workspace project", async () => {
+    stubHostedRuntime();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
+    mocks.createBuilderProject.mockRejectedValue(
+      new ActionContractError("Builder.io is not connected.", {
+        errorCode: "builder_not_connected",
+        statusCode: 400,
+      }),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.reason).toBe("builder-not-connected");
+    expect(result.connectRequired?.message).toBe(result.message);
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  // Revocation upstream is not an outage: the stored credential is present but
+  // rejected, so retry prose sends the user back into the same wall.
+  it("treats a Builder-rejected credential as reconnectable, not transient", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-9",
+      }),
+    );
+    mocks.runBuilderAgent.mockRejectedValue(
+      new ActionContractError("Unauthorized", {
+        errorCode: "builder_not_connected",
+        statusCode: 400,
+      }),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.reason).toBe("builder-not-connected");
+    expect(result.connectRequired?.provider).toBe("builder");
+    expect(result.detail).toBe("Unauthorized");
+    expect(result.message).not.toContain("try again");
+  });
+
+  it("keeps an unreadable credential store separate from a missing connection", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
+    mocks.runBuilderAgent.mockRejectedValue(
+      new CredentialStoreUnavailableError(new Error("connection terminated")),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.reason).toBe("credential-store-unavailable");
+    expect(result.connectRequired).toBeUndefined();
+    expect(result.message).toContain("try again");
+  });
+
+  it("attaches no connect prompt when Builder is connected", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-7",
+      }),
+    );
+    mocks.runBuilderAgent.mockResolvedValue({
+      branchName: "onboarding1",
+      url: `https://builder.io/app/projects/${leakedProjectId}/onboarding1`,
+      status: "processing",
+    });
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder");
+    expect(result.connectRequired).toBeUndefined();
+    expect(result.message).not.toContain("Connect Builder.io");
   });
 
   it("provisions and remembers the workspace Builder project when none is configured", async () => {
