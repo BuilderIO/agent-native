@@ -536,7 +536,8 @@ export function navigateAppWebviewHistory(
       webview.goForward();
     }
     return true;
-  } catch {
+  } catch (error) {
+    console.warn(`[desktop-navigation] unable to navigate ${direction}`, error);
     return false;
   }
 }
