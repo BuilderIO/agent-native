@@ -1006,7 +1006,7 @@ export async function createOAuthSession(
     if (opts.authProvider !== null) {
       setIdentityGoogleAuthCookie(event, email);
     }
-    if (opts.trackSignup?.isNewUser !== false) {
+    if (opts.trackSignup && opts.trackSignup.isNewUser !== false) {
       setFirstRunOnboardingCookie(event);
     }
     if (shouldTrackSignup && opts.trackSignup) {

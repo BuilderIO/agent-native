@@ -8370,6 +8370,7 @@ describe("server/auth", () => {
       expect(setCookie).toContain(result.sessionToken);
       expect(setCookie).toContain("SameSite=None");
       expect(setCookie).toContain("Secure");
+      expect(setCookie).not.toContain(`${FIRST_RUN_ONBOARDING_COOKIE}=1`);
     });
 
     it("clears stale host-only cookies before setting a custom-domain shared session", async () => {
