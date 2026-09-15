@@ -57,6 +57,11 @@ vi.mock("../db/client.js", () => ({
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
 
+let ambientUser: string | undefined;
+vi.mock("../server/request-context.js", () => ({
+  getRequestUserEmail: () => ambientUser,
+}));
+
 vi.mock("../server/poll.js", () => ({
   recordChange: vi.fn((event: Record<string, unknown>) => {
     recorded.push(event);
@@ -112,6 +117,8 @@ beforeEach(async () => {
   recordOrder.length = 0;
   committedAt = 0;
   tick = 0;
+  ambientUser = OWNER;
+  rawClient.execute.mockClear();
 });
 
 function runsEvents() {
@@ -119,7 +126,7 @@ function runsEvents() {
 }
 
 describe("runs poll notifications", () => {
-  it("scopes the event to the thread owner and its shareable identity", async () => {
+  it("scopes the event to the acting caller and the thread's shareable identity", async () => {
     await insertRun("run-1", "thread-1", "turn-1");
     await settle();
 
@@ -133,18 +140,34 @@ describe("runs poll notifications", () => {
     });
   });
 
-  it("stays access-gated when the owner cannot be resolved", async () => {
-    await insertRun("run-orphan", "thread-missing", "turn-orphan");
+  it("stays access-gated when there is no ambient caller", async () => {
+    ambientUser = undefined;
+    await insertRun("run-orphan", "thread-1", "turn-orphan");
     await settle();
 
     const event = runsEvents()[0];
-    // No owner is not a licence to broadcast: an untagged event would be
+    // No caller is not a licence to broadcast: an untagged event would be
     // visible to every authenticated user.
     expect(event.owner).toBeUndefined();
     expect(event).toMatchObject({
       resourceType: "chat_thread",
-      resourceId: "thread-missing",
+      resourceId: "thread-1",
     });
+  });
+
+  it("never queries chat_threads to build the event", async () => {
+    // This notifier fires from paths that hold an open transaction on a
+    // shared connection, so a stray read that fails aborts the caller's
+    // transaction ("current transaction is aborted, commands ignored until
+    // end of transaction block"). The caller must come from request context.
+    await insertRun("run-1", "thread-1", "turn-1");
+    await settle();
+
+    expect(runsEvents()[0]).toMatchObject({ owner: OWNER });
+    const statements = rawClient.execute.mock.calls.map(([input]) =>
+      typeof input === "string" ? input : input.sql,
+    );
+    expect(statements.some((sql) => /chat_threads/i.test(sql))).toBe(false);
   });
 
   it("announces a terminal status write", async () => {

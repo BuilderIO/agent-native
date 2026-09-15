@@ -21,6 +21,7 @@ import {
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import { recordChange } from "../server/poll.js";
+import { getRequestUserEmail } from "../server/request-context.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -45,49 +46,42 @@ export const RUN_STALE_MS = 15_000;
  * the agent panel, so without this a run that starts or ends between mounts is
  * never picked up.
  *
- * The event carries the thread's owner and its shareable identity. An event
- * with no owner, org, or resource tag is delivered to every authenticated user
- * (`getChangeVisibilityForUser`), which would both fan every user's tray out on
- * unrelated private chat activity and put a private thread id in a globally
- * visible payload. `owner` grants the owner immediately; `resourceType` /
- * `resourceId` let a sharee resolve through the access-aware branch. The owner
- * fast path matters: the access branch returns "pending" on a cold cache and
- * drops that event, which for a two-event run lifecycle would hide the whole
- * running state and only reveal the run once it finished.
+ * The event carries the acting caller and the thread's shareable identity. An
+ * event with no owner, org, or resource tag is delivered to every
+ * authenticated user (`getChangeVisibilityForUser`), which would both fan every
+ * user's tray out on unrelated private chat activity and put a private thread
+ * id in a globally visible payload. `owner` grants the caller who started or
+ * ended the run immediately; `resourceType` / `resourceId` let the thread owner
+ * and any sharee resolve through the access-aware branch. The owner fast path
+ * matters: that branch returns "pending" on a cold cache and drops the event,
+ * which across a two-event run lifecycle would hide the running state and only
+ * reveal the run once it had already finished.
+ *
+ * The caller comes from the ambient request context, never from a query. This
+ * runs on paths that hold an open transaction on a shared connection, so a
+ * stray read here aborts the caller's transaction when it fails — the notifier
+ * must not touch the database at all.
  *
  * Best-effort: poll delivery is advisory, the tray still polls while a run
  * reads as active, and a failure here must never fail the run it reports on.
  */
 function bumpRunsPoll(threadId: string): void {
-  void (async () => {
-    // An unresolved owner is not a reason to broadcast: fall back to the
+  try {
+    // An unresolved caller is not a reason to broadcast: fall back to the
     // access-gated tags alone rather than emitting a globally visible event.
-    let owner: string | null = null;
-    try {
-      const { rows } = await getDbExec().execute({
-        sql: `SELECT owner_email FROM chat_threads WHERE id = ? LIMIT 1`,
-        args: [threadId],
-      });
-      const value = (rows?.[0] as { owner_email?: unknown } | undefined)
-        ?.owner_email;
-      owner = typeof value === "string" && value.trim() ? value : null;
-    } catch {
-      owner = null;
-    }
-    try {
-      recordChange({
-        source: "runs",
-        type: "change",
-        key: threadId,
-        resourceType: "chat_thread",
-        resourceId: threadId,
-        ...(owner ? { owner } : {}),
-      });
-    } catch {
-      // coercion-ok: a dropped poll notification cannot corrupt run state, and
-      // the tray's active-run polling still converges on the terminal status.
-    }
-  })();
+    const caller = getRequestUserEmail()?.trim();
+    recordChange({
+      source: "runs",
+      type: "change",
+      key: threadId,
+      resourceType: "chat_thread",
+      resourceId: threadId,
+      ...(caller ? { owner: caller } : {}),
+    });
+  } catch {
+    // coercion-ok: a dropped poll notification cannot corrupt run state, and
+    // the tray's active-run polling still converges on the terminal status.
+  }
 }
 
 /**
