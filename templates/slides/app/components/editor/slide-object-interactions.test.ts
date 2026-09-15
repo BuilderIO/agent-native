@@ -15,6 +15,7 @@ import {
   cloneSlideObject,
   collectMovableSlideObjects,
   computeSlideObjectZOrder,
+  clampSlideObjectPlacementPosition,
   computeSlideObjectZOrderForSelection,
   createSlideLinePlacementGeometry,
   createSlideObjectPlacementGeometry,
@@ -734,6 +735,45 @@ describe("slide object interactions", () => {
     );
     expect(geometry.width).toBe(6);
     expect(geometry.height).toBe(6);
+  });
+
+  it("clamps an unrotated shape identically to the old plain bounding-box clamp", () => {
+    expect(
+      clampSlideObjectPlacementPosition(
+        { x: -50, y: 10, width: 80, height: 40 },
+        300,
+        200,
+      ),
+    ).toEqual({ x: 0, y: 10 });
+    expect(
+      clampSlideObjectPlacementPosition(
+        { x: 250, y: 10, width: 80, height: 40 },
+        300,
+        200,
+      ),
+    ).toEqual({ x: 220, y: 10 });
+  });
+
+  it("clamps a rotated line by its rendered footprint, not its unrotated bar length", () => {
+    // A near-vertical line dragged from the left edge: the unrotated bar is
+    // 251px long (the full drag distance) but its rendered footprint is only
+    // ~20px wide, so it must not be pushed away from the drag position as if
+    // it were a 251px-wide box.
+    const start = { x: 10, y: 0 };
+    const end = { x: 30, y: 250 };
+    const geometry = createSlideLinePlacementGeometry(start, end);
+
+    const clamped = clampSlideObjectPlacementPosition(
+      geometry,
+      300,
+      300,
+      geometry.rotation,
+    );
+
+    // The line's rendered center must stay at the drag midpoint; only an
+    // unrotated-box clamp would have shifted it.
+    const renderedCenterX = clamped.x + geometry.width / 2;
+    expect(renderedCenterX).toBeCloseTo((start.x + end.x) / 2, 5);
   });
 
   it("promotes a Markdown-rendered canvas so a new text box can persist as a freeform object", () => {

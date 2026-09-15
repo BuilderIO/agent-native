@@ -147,6 +147,7 @@ import {
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
+  clampSlideObjectPlacementPosition,
   clientPointToSlideCoordinates,
   cloneSlideObject,
   collectMovableSlideObjects,
@@ -4800,8 +4801,14 @@ export default function SlideEditor({
       ensureSlideObjectId(shape);
       ensureBuilderId(shape);
       shape.style.position = "absolute";
-      shape.style.left = `${Math.max(0, Math.min(geometry.x, containingBlock.offsetWidth - geometry.width))}px`;
-      shape.style.top = `${Math.max(0, Math.min(geometry.y, containingBlock.offsetHeight - geometry.height))}px`;
+      const clampedPosition = clampSlideObjectPlacementPosition(
+        geometry,
+        containingBlock.offsetWidth,
+        containingBlock.offsetHeight,
+        lineRotationDeg,
+      );
+      shape.style.left = `${clampedPosition.x}px`;
+      shape.style.top = `${clampedPosition.y}px`;
       shape.style.width = `${geometry.width}px`;
       shape.style.height = `${geometry.height}px`;
       shape.style.boxSizing = "border-box";
