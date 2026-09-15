@@ -122,7 +122,7 @@ export default defineAction({
       });
     }
 
-    await db
+    const updated = await db
       .update(schema.slideComments)
       .set({ content: args.content, updatedAt })
       .where(
@@ -130,7 +130,14 @@ export default defineAction({
           eq(schema.slideComments.id, args.id),
           eq(schema.slideComments.deckId, comment.deckId),
         ),
-      );
+      )
+      .returning({ id: schema.slideComments.id });
+    if (updated.length === 0) {
+      fail(`Comment not found: ${args.id}`, {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
+    }
 
     return { ok: true };
   },

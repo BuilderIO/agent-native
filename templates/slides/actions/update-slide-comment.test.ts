@@ -16,7 +16,10 @@ type Row = {
   updatedAt: string;
 };
 
-const state = vi.hoisted(() => ({ rows: [] as Row[] }));
+const state = vi.hoisted(() => ({
+  rows: [] as Row[],
+  deleteBeforeContentUpdate: false,
+}));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() => vi.fn(() => "author@example.com"));
 
@@ -89,10 +92,18 @@ vi.mock("../server/db/index.js", () => {
     update: () => ({
       set: (patch: Partial<Row>) => ({
         where: (cond: any) => {
+          if (state.deleteBeforeContentUpdate) {
+            state.rows = state.rows.filter((row) => !matches(row, cond));
+          }
           for (const row of state.rows) {
             if (matches(row, cond)) Object.assign(row, patch);
           }
-          return Promise.resolve();
+          return {
+            returning: async () =>
+              state.rows
+                .filter((row) => matches(row, cond))
+                .map((row) => ({ id: row.id })),
+          };
         },
       }),
     }),
@@ -123,6 +134,7 @@ beforeEach(() => {
   // (e.g. the "rejects reopening" case below) never leaks into the next.
   vi.resetAllMocks();
   mockGetUserEmail.mockReturnValue("author@example.com");
+  state.deleteBeforeContentUpdate = false;
   state.rows = [
     {
       id: "c-1",
@@ -207,6 +219,14 @@ describe("update-slide-comment", () => {
     );
     expect(state.rows[0].content).toBe("Updated text");
     expect(state.rows[1].content).toBe("A reply"); // untouched — content edits are single-row
+  });
+
+  it("reports not found when the comment disappears before content update", async () => {
+    state.deleteBeforeContentUpdate = true;
+
+    await expect(
+      run({ id: "c-1", deckId: "deck-1", content: "Updated text" }),
+    ).rejects.toThrow("Comment not found");
   });
 
   it("requires editor access to edit someone else's comment content", async () => {

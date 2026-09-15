@@ -96,37 +96,39 @@ export default defineAction({
         : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
     const db = getDb();
-    const [deck] = await db
-      .select({ data: schema.decks.data })
-      .from(schema.decks)
-      .where(eq(schema.decks.id, deckId))
-      .limit(1);
-    if (!deck) {
-      fail(`Deck not found: ${deckId}`, {
-        errorCode: "not_found",
-        statusCode: 404,
-      });
-    }
-    const deckData: unknown = JSON.parse(deck.data);
-    const slides = (deckData as { slides?: unknown } | null)?.slides;
-    if (!Array.isArray(slides)) {
-      throw new Error(`Deck has invalid slide data: ${deckId}`);
-    }
-    if (
-      !slides.some(
-        (slide) =>
-          Boolean(slide) &&
-          typeof slide === "object" &&
-          (slide as { id?: unknown }).id === slideId,
-      )
-    ) {
-      fail(`Slide not found in deck: ${slideId}`, {
-        errorCode: "not_found",
-        statusCode: 404,
-      });
-    }
-
     await db.transaction(async (tx) => {
+      // Deck deletion takes this same lock before removing dependent rows, so
+      // slide validation and comment insertion share one serialized boundary.
+      const [deck] = await tx
+        .select({ id: schema.decks.id, data: schema.decks.data })
+        .from(schema.decks)
+        .where(eq(schema.decks.id, deckId))
+        .for("update");
+      if (!deck) {
+        fail(`Deck not found: ${deckId}`, {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
+      }
+      const deckData: unknown = JSON.parse(deck.data);
+      const slides = (deckData as { slides?: unknown } | null)?.slides;
+      if (!Array.isArray(slides)) {
+        throw new Error(`Deck has invalid slide data: ${deckId}`);
+      }
+      if (
+        !slides.some(
+          (slide) =>
+            Boolean(slide) &&
+            typeof slide === "object" &&
+            (slide as { id?: unknown }).id === slideId,
+        )
+      ) {
+        fail(`Slide not found in deck: ${slideId}`, {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
+      }
+
       if (requestedThreadId) {
         // Resolution and replies take the same thread locks so a reply cannot
         // pass a stale unresolved check while a concurrent resolve commits.

@@ -12,6 +12,7 @@ type Row = {
 
 const state = vi.hoisted(() => ({
   deckData: JSON.stringify({ slides: [{ id: "slide-1" }, { id: "slide-2" }] }),
+  deckMissingAtLock: false,
   inserted: {} as Record<string, unknown>,
   rows: [] as Row[],
 }));
@@ -58,7 +59,7 @@ vi.mock("../server/db/index.js", () => {
       from: (table: unknown) => ({
         where: (condition: any) => {
           const rows =
-            table === schema.decks
+            table === schema.decks && !state.deckMissingAtLock
               ? [{ id: "deck-1", data: state.deckData }]
               : state.rows;
           const matchingRows = rows.filter((row) =>
@@ -112,6 +113,7 @@ beforeEach(() => {
   state.deckData = JSON.stringify({
     slides: [{ id: "slide-1" }, { id: "slide-2" }],
   });
+  state.deckMissingAtLock = false;
   state.inserted = {};
   state.rows = [
     {
@@ -189,6 +191,15 @@ describe("add-slide-comment", () => {
     await expect(
       run({ deckId: "deck-1", slideId: "slide-missing", content: "Comment" }),
     ).rejects.toThrow("Slide not found in deck");
+    expect(state.inserted).toEqual({});
+  });
+
+  it("rechecks the deck under its lock before inserting", async () => {
+    state.deckMissingAtLock = true;
+
+    await expect(
+      run({ deckId: "deck-1", slideId: "slide-1", content: "Comment" }),
+    ).rejects.toThrow("Deck not found");
     expect(state.inserted).toEqual({});
   });
 
