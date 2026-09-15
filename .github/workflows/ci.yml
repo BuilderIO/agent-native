@@ -213,7 +213,7 @@ jobs:
     # Cap the run so a hung test fails fast instead of pinning a runner for
     # GitHub's 6h default. Slow DB/integration/e2e specs run in separate jobs
     # below so they can run in parallel instead of serially behind fast tests.
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       # Report every lane's result; don't cancel siblings on the first failure.
       fail-fast: false
