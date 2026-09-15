@@ -194,8 +194,11 @@ export function applyDesignClipboardManagedStyles(
   targetHtml: string,
   snapshots: Array<DesignClipboardManagedStyleSnapshot | null | undefined>,
   nodeIdMap: ReadonlyMap<string, string>,
+  options: { ensureGroupRuntime?: boolean } = {},
 ): string {
-  targetHtml = ensureGroupRuntime(targetHtml);
+  if (options.ensureGroupRuntime !== false) {
+    targetHtml = ensureGroupRuntime(targetHtml);
+  }
   if (snapshots.length === 0 || nodeIdMap.size === 0) return targetHtml;
 
   const breakpoints: BreakpointMediaModel = parseBreakpointMediaCss(

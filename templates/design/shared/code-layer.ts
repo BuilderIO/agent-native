@@ -560,6 +560,8 @@ export interface WrapNodeSizeHint {
   /** Parent-content-relative border-box position for an in-flow target. */
   left?: number;
   top?: number;
+  /** Live layout found authored CSS that removes this target from flow. */
+  outOfFlow?: true;
 }
 
 export interface WrapNodesEditIntent {
@@ -3604,10 +3606,16 @@ export function buildCodeLayerTree(
 
   for (const node of projection.nodes) {
     const componentName = node.componentInstance?.name;
+    const explicitLayerName =
+      node.layerNameSource === "attribute" ? node.layerName : undefined;
     const type = treeTypeForNode(node, nodesById);
     treeById.set(node.id, {
       id: node.id,
-      name: componentName ?? unnamedLayerName(node, type) ?? node.layerName,
+      name:
+        explicitLayerName ??
+        componentName ??
+        unnamedLayerName(node, type) ??
+        node.layerName,
       type,
       isNativeTextPrimitive:
         node.dataAttributes["data-an-primitive"] === "text",
@@ -6337,6 +6345,7 @@ function computeMeasuredFlowBounds(
     const hint = sizeHints?.get(element);
     if (
       !hint ||
+      hint.outOfFlow ||
       !Number.isFinite(hint.left) ||
       !Number.isFinite(hint.top) ||
       !Number.isFinite(hint.width) ||
@@ -6501,6 +6510,12 @@ function applyWrapNodes(
     targetElements,
     sizeHintsByElement,
   );
+  if (
+    !targetGeometry &&
+    targetElements.some((element) => sizeHintsByElement.get(element)?.outOfFlow)
+  ) {
+    return "unsupported";
+  }
   const measuredFlowGeometry =
     !autoLayout && !targetGeometry
       ? computeMeasuredFlowBounds(targetElements, sizeHintsByElement)
@@ -6604,7 +6619,6 @@ function applyWrapNodes(
   const insertAt = lastTargetStart - bytesRemovedBefore;
 
   result = `${result.slice(0, insertAt)}${wrapperContent}${result.slice(insertAt)}`;
-  if (hasMeasuredGroupRuntime) result = ensureGroupRuntime(result);
 
   return {
     content: result,
@@ -8039,11 +8053,17 @@ function applyVisualEditUnsafe(
         },
       };
     }
-    const nextProjection = buildCodeLayerProjection(wrapEdit.content, {
+    // Component structure validation requires this intermediate transform to
+    // change only the canonical main span. Propagation installs the document
+    // runtime after that boundary has been validated for every linked copy.
+    const nextContent = options.allowMainComponentStructure
+      ? wrapEdit.content
+      : ensureGroupRuntime(wrapEdit.content);
+    const nextProjection = buildCodeLayerProjection(nextContent, {
       source,
     });
     return {
-      content: wrapEdit.content,
+      content: nextContent,
       projection: nextProjection,
       result: {
         ...patchResult(

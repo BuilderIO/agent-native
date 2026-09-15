@@ -305,4 +305,28 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
     expect(wrapperOpenTag).not.toContain("position: absolute");
     expect(patch.content).not.toContain("999px");
   });
+
+  it.each(["group", "frame"] as const)(
+    "refuses to wrap an authored-stylesheet out-of-flow target as a %s",
+    (wrapperKind) => {
+      const content = `<body><style>.floating{position:absolute;left:20px;top:40px}</style><div class="floating" data-agent-native-node-id="label">Label</div></body>`;
+      const patch = applyVisualEdit(content, {
+        kind: "wrapNodes",
+        targetIds: ["label"],
+        wrapperKind,
+        sizeHints: {
+          label: {
+            width: 80,
+            height: 20,
+            left: 20,
+            top: 40,
+            outOfFlow: true,
+          },
+        },
+      });
+
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(content);
+    },
+  );
 });

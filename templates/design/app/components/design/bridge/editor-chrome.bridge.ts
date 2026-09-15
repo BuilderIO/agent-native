@@ -3630,7 +3630,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // or portableStyleSnapshot, so this intentionally omits both. Full detail is
   // still posted on element-select / drag-start / edit-time messages via
   // getElementInfo().
-  function getLightElementInfo(el: Element): unknown {
+  function getLightElementInfo(
+    el: Element,
+    includePendingNodeId = false,
+  ): unknown {
     var rect = el.getBoundingClientRect();
     var componentName = componentNameForElement(el);
     var sourceBacked =
@@ -3642,11 +3645,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : null;
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var cs = window.getComputedStyle(el);
+    var pendingNodeId = "";
+    if (
+      includePendingNodeId &&
+      !getSourceId(el) &&
+      el !== document.body &&
+      el !== document.documentElement &&
+      el.getAttribute &&
+      el.setAttribute &&
+      !isTemplateCloneElement(el)
+    ) {
+      pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
+      if (!pendingNodeId) {
+        pendingNodeId = freshRuntimeNodeId("pending");
+        el.setAttribute("data-an-pending-node-id", pendingNodeId);
+      }
+    }
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
       computedStyles: {},
@@ -3807,7 +3827,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // drill-in/click-to-pick (deep: needs every descendant to walk one level
     // further per repeat click) — the caller says which via `deep`.
     return collectSelectableElements(deep).map(function (target) {
-      return getElementInfo(target);
+      // Bulk candidates only need identity plus geometry. A selected
+      // candidate is replayed through select-element for the full inspector
+      // payload; portable snapshots here make deep picking quadratic in the
+      // number of descendants.
+      return getLightElementInfo(target, true);
     });
   }
 
@@ -6352,11 +6376,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var paddingRight = readPx(cs.paddingRight);
     var paddingBottom = readPx(cs.paddingBottom);
     var paddingLeft = readPx(cs.paddingLeft);
-    var sx = chromeScaleX();
-    var sy = chromeScaleY();
     var line = chromeLineScale();
-    var hLineWidth = Math.max(6, Math.min(18, rect.width * 0.12)) * sx;
-    var vLineHeight = Math.max(6, Math.min(18, rect.height * 0.12)) * sy;
+    var tickLength =
+      Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) *
+      line;
     var innerLeft = borderLeft;
     var innerTop = borderTop;
     var innerWidth = Math.max(1, rect.width - borderLeft - borderRight);
@@ -6378,9 +6401,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             height: paddingTop,
           },
           line: {
-            x: rect.width / 2 - hLineWidth / 2,
+            x: rect.width / 2 - tickLength / 2,
             y: innerTop + paddingTop / 2 - line / 2,
-            width: hLineWidth,
+            width: tickLength,
             height: line,
           },
         }),
@@ -6403,9 +6426,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             height: paddingBottom,
           },
           line: {
-            x: rect.width / 2 - hLineWidth / 2,
+            x: rect.width / 2 - tickLength / 2,
             y: rect.height - borderBottom - paddingBottom / 2 - line / 2,
-            width: hLineWidth,
+            width: tickLength,
             height: line,
           },
         }),
@@ -6429,9 +6452,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           line: {
             x: innerLeft + paddingLeft / 2 - line / 2,
-            y: rect.height / 2 - vLineHeight / 2,
+            y: rect.height / 2 - tickLength / 2,
             width: line,
-            height: vLineHeight,
+            height: tickLength,
           },
         }),
       );
@@ -6454,9 +6477,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           line: {
             x: rect.width - borderRight - paddingRight / 2 - line / 2,
-            y: rect.height / 2 - vLineHeight / 2,
+            y: rect.height / 2 - tickLength / 2,
             width: line,
-            height: vLineHeight,
+            height: tickLength,
           },
         }),
       );
@@ -6472,11 +6495,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var children = visibleLayoutChildren(el);
     if (children.length < 2) return [];
     var handles = [];
-    var sx = chromeScaleX();
-    var sy = chromeScaleY();
     var line = chromeLineScale();
-    var hLineWidth = 8 * sx;
-    var vLineHeight = 8 * sy;
+    var tickLength = 8 * line;
     var isFlex = cs.display === "flex" || cs.display === "inline-flex";
     var isGrid = cs.display === "grid" || cs.display === "inline-grid";
     if (!isFlex && !isGrid) return handles;
@@ -6516,9 +6536,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               region: { x: a.right, y: top, width: gap, height: height },
               line: {
                 x: a.right + gap / 2 - line / 2,
-                y: top + height / 2 - vLineHeight / 2,
+                y: top + height / 2 - tickLength / 2,
                 width: line,
-                height: vLineHeight,
+                height: tickLength,
               },
             }),
           );
@@ -6536,9 +6556,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               value: cssGap,
               region: { x: left, y: a.bottom, width: width, height: gap },
               line: {
-                x: left + width / 2 - hLineWidth / 2,
+                x: left + width / 2 - tickLength / 2,
                 y: a.bottom + gap / 2 - line / 2,
-                width: hLineWidth,
+                width: tickLength,
                 height: line,
               },
             }),
@@ -10197,6 +10217,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return clampSpacingValue(originValue + delta);
   }
 
+  var paddingProperties = [
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+  ];
+
   function applySpacingDragValue(
     target: Element,
     handle: {
@@ -10213,8 +10240,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } | null,
     value: number,
     mirrorOpposite: boolean,
+    syncAllPadding: boolean,
   ): void {
     if (!target || !handle) return;
+    if (handle.kind === "padding" && syncAllPadding) {
+      for (var i = 0; i < 4; i += 1) {
+        target.style[paddingProperties[i]] = value + "px";
+      }
+      return;
+    }
     target.style[handle.property] = value + "px";
     if (
       handle.kind === "padding" &&
@@ -10240,10 +10274,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var dragEl = selectedEl;
     var originValue = handle.value;
-    var originInlineValue = (dragEl as HTMLElement).style[handle.property];
-    var originInlineOppositeValue = handle.oppositeProperty
-      ? (dragEl as HTMLElement).style[handle.oppositeProperty]
-      : "";
+    var originInlinePaddingValues = {};
+    for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+      var paddingProperty = paddingProperties[paddingIndex];
+      originInlinePaddingValues[paddingProperty] = (
+        dragEl as HTMLElement
+      ).style[paddingProperty];
+    }
+    var syncAllPadding = !!e.shiftKey;
     var startX = e.clientX;
     var startY = e.clientY;
     lastSpacingPointerPoint = { x: startX, y: startY };
@@ -10252,20 +10290,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle: handle,
       currentValue: originValue,
       mirrorOpposite: !!e.altKey,
+      syncAllPadding: syncAllPadding,
+      touchedAllPadding: syncAllPadding,
     };
+    applySpacingDragValue(
+      dragEl,
+      handle,
+      originValue,
+      !!e.altKey,
+      syncAllPadding,
+    );
     // Hide the hover-only hatch fill the instant the drag begins (Figma-style:
     // hatch communicates "this is the resizable band" on hover; once dragging,
     // only the live value badge should be visible over the padding band).
     updateSpacingOverlay(selectedEl);
     showSpacingBadgeForHandle(handle, originValue);
 
-    function updateSpacingDragMirrorState(mirrorOpposite: boolean) {
+    function updateSpacingDragState(
+      mirrorOpposite: boolean,
+      syncAllPadding: boolean,
+    ) {
       if (!spacingDrag) return;
-      if (spacingDrag.mirrorOpposite === mirrorOpposite) return;
+      if (
+        spacingDrag.mirrorOpposite === mirrorOpposite &&
+        spacingDrag.syncAllPadding === syncAllPadding
+      ) {
+        return;
+      }
+      var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding;
+      if (syncAllPadding) {
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          spacingDrag.currentValue,
+          mirrorOpposite,
+          true,
+        );
+      }
       spacingDrag = {
         handle: handle,
         currentValue: spacingDrag.currentValue,
         mirrorOpposite: mirrorOpposite,
+        syncAllPadding: syncAllPadding,
+        touchedAllPadding: touchedAllPadding,
       };
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -10281,10 +10348,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function restoreSpacingDragValue() {
       if (dragEl && document.documentElement.contains(dragEl)) {
-        (dragEl as HTMLElement).style[handle.property] = originInlineValue;
-        if (handle.oppositeProperty) {
-          (dragEl as HTMLElement).style[handle.oppositeProperty] =
-            originInlineOppositeValue;
+        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+          var paddingProperty = paddingProperties[paddingIndex];
+          (dragEl as HTMLElement).style[paddingProperty] =
+            originInlinePaddingValues[paddingProperty];
         }
         selectedEl = dragEl;
         positionOverlay(selectionOverlay, dragEl);
@@ -10305,8 +10372,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cancelSpacingDrag();
         return;
       }
-      if (ev.key !== "Alt") return;
-      updateSpacingDragMirrorState(!!ev.altKey);
+      if (ev.key !== "Alt" && ev.key !== "Shift") return;
+      updateSpacingDragState(!!ev.altKey, !!ev.shiftKey);
     }
 
     function onMove(ev) {
@@ -10319,13 +10386,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
+      var syncAllPadding = !!ev.shiftKey;
+      var touchedAllPadding =
+        (spacingDrag && spacingDrag.touchedAllPadding) || syncAllPadding;
       spacingDrag = {
         handle: handle,
         currentValue: nextValue,
         mirrorOpposite: !!ev.altKey,
+        syncAllPadding: syncAllPadding,
+        touchedAllPadding: touchedAllPadding,
       };
       lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
-      applySpacingDragValue(dragEl, handle, nextValue, !!ev.altKey);
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        nextValue,
+        !!ev.altKey,
+        syncAllPadding,
+      );
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, nextValue);
     }
@@ -10341,17 +10419,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var mirrorOpposite = spacingDrag
         ? spacingDrag.mirrorOpposite
         : !!ev.altKey;
-      applySpacingDragValue(dragEl, handle, finalValue, mirrorOpposite);
+      var syncAllPadding = spacingDrag
+        ? spacingDrag.syncAllPadding
+        : !!ev.shiftKey;
+      var touchedAllPadding = spacingDrag
+        ? spacingDrag.touchedAllPadding
+        : syncAllPadding;
+      var commitAllPadding =
+        handle.kind === "padding" && (syncAllPadding || touchedAllPadding);
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        finalValue,
+        mirrorOpposite,
+        commitAllPadding,
+      );
       selectedEl = dragEl;
       spacingDrag = null;
       var styles = {};
-      styles[handle.property] = finalValue + "px";
-      if (
-        handle.kind === "padding" &&
-        mirrorOpposite &&
-        handle.oppositeProperty
-      ) {
-        styles[handle.oppositeProperty] = finalValue + "px";
+      if (commitAllPadding) {
+        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+          styles[paddingProperties[paddingIndex]] = finalValue + "px";
+        }
+      } else {
+        styles[handle.property] = finalValue + "px";
+        if (
+          handle.kind === "padding" &&
+          mirrorOpposite &&
+          handle.oppositeProperty
+        ) {
+          styles[handle.oppositeProperty] = finalValue + "px";
+        }
       }
       postVisualStyleChange(styles);
       positionOverlay(selectionOverlay, dragEl);

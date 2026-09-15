@@ -23,7 +23,7 @@
 
   const W = window as unknown as Window &
     typeof globalThis & { __anGroupRuntime?: GroupRuntimeApi };
-  if (W.__anGroupRuntime?.version === 1) {
+  if (W.__anGroupRuntime?.version === 2) {
     W.__anGroupRuntime.scan();
     return;
   }
@@ -55,13 +55,63 @@
     group.setAttribute("data-agent-native-group-runtime-state", "unsupported");
   }
 
+  function hasNonIdentityScale(value: string): boolean {
+    const scale = value.trim().toLowerCase();
+    if (!scale || scale === "none") return false;
+    return scale.split(/\s+/).some((part) => Number(part) !== 1);
+  }
+
+  function hasNonZeroTranslate(value: string): boolean {
+    const translate = value.trim().toLowerCase();
+    if (!translate || translate === "none") return false;
+    return translate
+      .split(/\s+/)
+      .some((part) => !/^[-+]?0(?:\.0+)?(?:[a-z%]+)?$/.test(part));
+  }
+
   function transformed(element: HTMLElement): boolean {
     const computed = getComputedStyle(element);
     return (
       computed.transform !== "none" ||
-      computed.translate !== "none" ||
-      computed.rotate !== "none" ||
-      computed.scale !== "none" ||
+      hasNonZeroTranslate(computed.translate) ||
+      (computed.rotate !== "none" &&
+        computed.rotate !== "0deg" &&
+        computed.rotate !== "0") ||
+      hasNonIdentityScale(computed.scale) ||
+      !/^(?:1|normal)?$/.test(computed.getPropertyValue("zoom"))
+    );
+  }
+
+  function translationOnlyTransform(value: string): boolean {
+    if (typeof DOMMatrixReadOnly === "undefined") return false;
+    try {
+      const matrix = new DOMMatrixReadOnly(value);
+      return (
+        matrix.is2D &&
+        Math.abs(matrix.a - 1) <= 0.001 &&
+        Math.abs(matrix.b) <= 0.001 &&
+        Math.abs(matrix.c) <= 0.001 &&
+        Math.abs(matrix.d - 1) <= 0.001
+      );
+    } catch (error) {
+      console.debug(
+        "[agent-native] measured Group rejected an invalid transform matrix",
+        error,
+      );
+      return false;
+    }
+  }
+
+  function distortsRelativeGeometry(element: HTMLElement): boolean {
+    const computed = getComputedStyle(element);
+    return (
+      (computed.transform !== "none" &&
+        !translationOnlyTransform(computed.transform)) ||
+      computed.perspective !== "none" ||
+      (computed.rotate !== "none" &&
+        computed.rotate !== "0deg" &&
+        computed.rotate !== "0") ||
+      hasNonIdentityScale(computed.scale) ||
       !/^(?:1|normal)?$/.test(computed.getPropertyValue("zoom"))
     );
   }
@@ -89,7 +139,10 @@
       parent;
       parent = parent.parentElement
     ) {
-      if (transformed(parent)) return true;
+      // Ancestor translations affect both client rects equally, including the
+      // Board surface's managed content offset. Scale/rotation/perspective do
+      // not cancel and cannot be written back as source pixel geometry.
+      if (distortsRelativeGeometry(parent)) return true;
     }
     return false;
   }
@@ -216,7 +269,7 @@
     });
   }
 
-  W.__anGroupRuntime = { version: 1, scan: schedule };
+  W.__anGroupRuntime = { version: 2, scan: schedule };
   if (typeof MutationObserver !== "undefined" && document.body) {
     new MutationObserver((records) => {
       if (

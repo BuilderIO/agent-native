@@ -483,6 +483,8 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     );
     expect(handler).toContain("if (!result?.updated)");
     expect(handler).toContain("result?.reason");
+    expect(handler).toContain("collabReconcilePending");
+    expect(handler).toContain("visualEditor.changesSaveWhenReconnected");
     const updateIndex = handler.search(
       /updateBreakpointMutation\s*\.mutateAsync/,
     );

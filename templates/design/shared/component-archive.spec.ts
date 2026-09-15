@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { emptyBoardHtml } from "./board-file";
+import { ensureCodeLayerNodeIdsInHtml } from "./code-layer";
 import {
   COMPONENT_ARCHIVE_ATTR,
   deleteComponentMain,
@@ -17,6 +18,12 @@ import {
   COMPONENT_REF_ATTR,
   COMPONENT_SOURCE_NODE_ID_ATTR,
 } from "./component-model";
+import {
+  buildGroupRuntimeScriptTag,
+  GROUP_RUNTIME_ATTR,
+  GROUP_RUNTIME_VERSION,
+} from "./group-runtime";
+import { LEGACY_GROUP_RUNTIME_V1_SOURCE } from "./group-runtime-legacy-v1";
 import { sourceContentHash } from "./source-workspace";
 
 const source = (fileId: string, filename = `${fileId}.html`) => ({
@@ -50,16 +57,37 @@ function boardContent(bodyMarkup: string): string {
   );
 }
 
+function nativeBoardContent(
+  bodyMarkup: string,
+  runtimeVersion = GROUP_RUNTIME_VERSION,
+): string {
+  const runtimeSource =
+    runtimeVersion === GROUP_RUNTIME_VERSION
+      ? buildGroupRuntimeScriptTag()
+      : `<script ${GROUP_RUNTIME_ATTR} data-runtime-version="${runtimeVersion}">\n${LEGACY_GROUP_RUNTIME_V1_SOURCE}\n</script>`;
+  const withManagedRuntime = boardContent(bodyMarkup).replace(
+    "</body>",
+    `${runtimeSource}</body>`,
+  );
+  return ensureCodeLayerNodeIdsInHtml(withManagedRuntime, {
+    source: source("file-main"),
+  }).content;
+}
+
 function missingParentBoardDocuments(
   parentAttributes = "",
   mainAttributes = "",
+  native = false,
+  runtimeVersion = GROUP_RUNTIME_VERSION,
 ) {
   const mainWithAttributes = main.replace(
     '<main data-agent-native-node-id="main-root"',
     `<main data-agent-native-node-id="main-root"${mainAttributes}`,
   );
   const original = documents(
-    boardContent(
+    (native
+      ? (bodyMarkup: string) => nativeBoardContent(bodyMarkup, runtimeVersion)
+      : boardContent)(
       `<section data-agent-native-node-id="main-parent"${parentAttributes}>${mainWithAttributes}</section>`,
     ),
     "__board__.html",
@@ -83,7 +111,12 @@ function missingParentBoardDocuments(
   );
   const current = original.map((document, index) =>
     index === 0
-      ? { ...document, content: emptyBoardHtml() }
+      ? {
+          ...document,
+          content: native
+            ? nativeBoardContent("", runtimeVersion)
+            : emptyBoardHtml(),
+        }
       : {
           ...document,
           content:
@@ -419,6 +452,248 @@ describe("component archive transforms", () => {
     expect(restoredContent).not.toContain(
       'data-agent-native-node-id="main-parent"',
     );
+  });
+
+  it("accepts stamped board roots with managed runtime siblings", () => {
+    const { original, deleted, current } = missingParentBoardDocuments(
+      "",
+      "",
+      true,
+    );
+    const restored = restoreComponentMain({
+      documents: current,
+      archived: original[0]!,
+      archive: deleted.archive,
+      deletionGeometry: {
+        fileId: "file-main",
+        mainNodeId: "main-root",
+        sourceVersionHash: sourceContentHash(original[0]!.content),
+        boundingRect: { x: 20, y: 30, width: 100, height: 70 },
+        worldBounds: {
+          left: 20,
+          top: 30,
+          right: 120,
+          bottom: 100,
+          width: 100,
+          height: 70,
+          centerX: 70,
+          centerY: 65,
+        },
+      },
+    });
+
+    expect(restored.status).toBe("updated");
+    if (restored.status !== "updated") return;
+    const restoredContent = restored.changes.find(
+      (change) => change.fileId === "file-main",
+    )?.after;
+    expect(restoredContent).toContain(
+      'html lang="en" data-agent-native-node-id=',
+    );
+    expect(restoredContent).toContain("<body data-agent-native-node-id=");
+    expect(restoredContent).toContain(
+      `<script ${GROUP_RUNTIME_ATTR} data-runtime-version="${GROUP_RUNTIME_VERSION}">`,
+    );
+  });
+
+  it("accepts stamped board roots with the exact legacy v1 runtime", () => {
+    const { original, deleted, current } = missingParentBoardDocuments(
+      "",
+      "",
+      true,
+      "1",
+    );
+    const restored = restoreComponentMain({
+      documents: current,
+      archived: original[0]!,
+      archive: deleted.archive,
+      deletionGeometry: {
+        fileId: "file-main",
+        mainNodeId: "main-root",
+        sourceVersionHash: sourceContentHash(original[0]!.content),
+        boundingRect: { x: 20, y: 30, width: 100, height: 70 },
+        worldBounds: {
+          left: 20,
+          top: 30,
+          right: 120,
+          bottom: 100,
+          width: 100,
+          height: 70,
+          centerX: 70,
+          centerY: 65,
+        },
+      },
+    });
+
+    expect(restored.status).toBe("updated");
+    if (restored.status !== "updated") return;
+    const restoredContent = restored.changes.find(
+      (change) => change.fileId === "file-main",
+    )?.after;
+    expect(restoredContent).toContain(
+      `<script ${GROUP_RUNTIME_ATTR} data-runtime-version="1">`,
+    );
+    expect(restoredContent).toContain(LEGACY_GROUP_RUNTIME_V1_SOURCE.trim());
+  });
+
+  it.each([
+    ["a body padding override", "body { padding: 100px; }"],
+    ["an html transform override", "html { transform: translateX(10px); }"],
+    ["a universal padding override", "* { padding: 100px; }"],
+  ])("refuses missing-parent restore with %s", (_label, override) => {
+    const { original, deleted, current } = missingParentBoardDocuments();
+    current[0] = {
+      ...current[0]!,
+      content: current[0]!.content.replace(
+        "</style>",
+        `</style><style>${override}</style>`,
+      ),
+    };
+    const restored = restoreComponentMain({
+      documents: current,
+      archived: original[0]!,
+      archive: deleted.archive,
+      deletionGeometry: {
+        fileId: "file-main",
+        mainNodeId: "main-root",
+        sourceVersionHash: sourceContentHash(original[0]!.content),
+        boundingRect: { x: 20, y: 30, width: 100, height: 70 },
+        worldBounds: {
+          left: 20,
+          top: 30,
+          right: 120,
+          bottom: 100,
+          width: 100,
+          height: 70,
+          centerX: 70,
+          centerY: 65,
+        },
+      },
+    });
+
+    expect(restored).toMatchObject({
+      status: "refused",
+      reason: "missing-restore-anchor",
+    });
+  });
+
+  it("refuses a board shell whose canonical CSS only appears in a comment", () => {
+    const { original, deleted, current } = missingParentBoardDocuments();
+    const canonicalStyle = emptyBoardHtml().match(
+      /<style>([\s\S]*?)<\/style>/,
+    )?.[1];
+    expect(canonicalStyle).toBeTruthy();
+    current[0] = {
+      ...current[0]!,
+      content: current[0]!.content.replace(
+        canonicalStyle!,
+        `/*${canonicalStyle}*/`,
+      ),
+    };
+    const restored = restoreComponentMain({
+      documents: current,
+      archived: original[0]!,
+      archive: deleted.archive,
+      deletionGeometry: {
+        fileId: "file-main",
+        mainNodeId: "main-root",
+        sourceVersionHash: sourceContentHash(original[0]!.content),
+        boundingRect: { x: 20, y: 30, width: 100, height: 70 },
+        worldBounds: {
+          left: 20,
+          top: 30,
+          right: 120,
+          bottom: 100,
+          width: 100,
+          height: 70,
+          centerX: 70,
+          centerY: 65,
+        },
+      },
+    });
+
+    expect(restored).toMatchObject({
+      status: "refused",
+      reason: "missing-restore-anchor",
+    });
+  });
+
+  it("refuses canonical board rules nested under a media context", () => {
+    const { original, deleted, current } = missingParentBoardDocuments();
+    const canonicalStyle = emptyBoardHtml().match(
+      /<style>([\s\S]*?)<\/style>/,
+    )?.[1];
+    expect(canonicalStyle).toBeTruthy();
+    current[0] = {
+      ...current[0]!,
+      content: current[0]!.content.replace(
+        canonicalStyle!,
+        `@media (min-width: 0px) {${canonicalStyle}}`,
+      ),
+    };
+    const restored = restoreComponentMain({
+      documents: current,
+      archived: original[0]!,
+      archive: deleted.archive,
+      deletionGeometry: {
+        fileId: "file-main",
+        mainNodeId: "main-root",
+        sourceVersionHash: sourceContentHash(original[0]!.content),
+        boundingRect: { x: 20, y: 30, width: 100, height: 70 },
+        worldBounds: {
+          left: 20,
+          top: 30,
+          right: 120,
+          bottom: 100,
+          width: 100,
+          height: 70,
+          centerX: 70,
+          centerY: 65,
+        },
+      },
+    });
+
+    expect(restored).toMatchObject({
+      status: "refused",
+      reason: "missing-restore-anchor",
+    });
+  });
+
+  it("refuses a head stylesheet link that can change the board origin", () => {
+    const { original, deleted, current } = missingParentBoardDocuments();
+    current[0] = {
+      ...current[0]!,
+      content: current[0]!.content.replace(
+        "</head>",
+        '<link rel="stylesheet" href="data:text/css,body{margin:50px!important}"></head>',
+      ),
+    };
+    const restored = restoreComponentMain({
+      documents: current,
+      archived: original[0]!,
+      archive: deleted.archive,
+      deletionGeometry: {
+        fileId: "file-main",
+        mainNodeId: "main-root",
+        sourceVersionHash: sourceContentHash(original[0]!.content),
+        boundingRect: { x: 20, y: 30, width: 100, height: 70 },
+        worldBounds: {
+          left: 20,
+          top: 30,
+          right: 120,
+          bottom: 100,
+          width: 100,
+          height: 70,
+          centerX: 70,
+          centerY: 65,
+        },
+      },
+    });
+
+    expect(restored).toMatchObject({
+      status: "refused",
+      reason: "missing-restore-anchor",
+    });
   });
 
   it("pins the restored border box over authored layout offsets and margins", () => {

@@ -1,3 +1,5 @@
+import { parse as parseHtml } from "parse5";
+import parseCss from "postcss/lib/parse";
 import { z } from "zod";
 
 import { BOARD_FILENAME, emptyBoardHtml } from "./board-file";
@@ -19,6 +21,12 @@ import {
   COMPONENT_OVERRIDES_ATTR,
   COMPONENT_REF_ATTR,
 } from "./component-model";
+import {
+  GROUP_RUNTIME_ATTR,
+  GROUP_RUNTIME_SOURCE,
+  GROUP_RUNTIME_VERSION,
+} from "./group-runtime";
+import { LEGACY_GROUP_RUNTIME_V1_SOURCE } from "./group-runtime-legacy-v1";
 import { sourceContentHash } from "./source-workspace";
 
 const NODE_ID_ATTR = "data-agent-native-node-id";
@@ -739,6 +747,147 @@ function normalizedCssValue(value: string | undefined): string {
   );
 }
 
+interface HtmlRawTextNode {
+  nodeName: string;
+  value?: string;
+  attrs?: Array<{ name: string; value: string }>;
+  childNodes?: HtmlRawTextNode[];
+}
+
+interface ManagedRawTextBlock {
+  tag: "script" | "style";
+  attributes: Record<string, string>;
+  content: string;
+  parentTag: string | undefined;
+}
+
+function managedRawTextBlocks(content: string): ManagedRawTextBlock[] {
+  const blocks: ManagedRawTextBlock[] = [];
+  const visit = (node: HtmlRawTextNode, parentTag?: string): void => {
+    if (node.nodeName === "template") return;
+    if (node.nodeName === "style" || node.nodeName === "script") {
+      blocks.push({
+        tag: node.nodeName,
+        attributes: Object.fromEntries(
+          (node.attrs ?? []).map((attribute) => [
+            attribute.name.toLowerCase(),
+            attribute.value,
+          ]),
+        ),
+        content: (node.childNodes ?? [])
+          .map((child) => child.value ?? "")
+          .join(""),
+        parentTag,
+      });
+      return;
+    }
+    for (const child of node.childNodes ?? []) visit(child, node.nodeName);
+  };
+  visit(parseHtml(content) as unknown as HtmlRawTextNode);
+  return blocks;
+}
+
+function stylesheetSignature(content: string): string | null {
+  try {
+    return parseCss(content, { map: false })
+      .toString()
+      .replace(/\s+/g, "")
+      .toLowerCase();
+  } catch {
+    // coercion-ok: callers treat null as a typed refusal and fail closed on invalid CSS.
+    return null;
+  }
+}
+
+function hasHeadStylesheetLink(content: string): boolean {
+  let found = false;
+  const visit = (node: HtmlRawTextNode, parentTag?: string): void => {
+    if (found || node.nodeName === "template") return;
+    if (node.nodeName === "link" && parentTag === "head") {
+      const rel = (node.attrs ?? []).find(
+        (attribute) => attribute.name.toLowerCase() === "rel",
+      )?.value;
+      found =
+        rel
+          ?.split(/\s+/)
+          .some((value) => value.toLowerCase() === "stylesheet") ?? false;
+      return;
+    }
+    for (const child of node.childNodes ?? []) visit(child, node.nodeName);
+  };
+  visit(parseHtml(content) as unknown as HtmlRawTextNode);
+  return found;
+}
+
+/**
+ * Persisted board sources support the exact canonical stylesheet emitted by
+ * emptyBoardHtml plus the generated measured-Group runtime script. Preview
+ * styles and arbitrary source scripts are not source-level board shell, so
+ * they fail closed instead of becoming an unbounded origin contract.
+ */
+function hasCanonicalBoardShellCss(content: string): boolean {
+  if (hasHeadStylesheetLink(content)) return false;
+  const expectedStyles = managedRawTextBlocks(emptyBoardHtml()).filter(
+    (block) =>
+      block.tag === "style" &&
+      block.parentTag === "head" &&
+      Object.keys(block.attributes).length === 0,
+  );
+  const actualBlocks = managedRawTextBlocks(content);
+  const actualStyles = actualBlocks.filter(
+    (block) =>
+      block.tag === "style" &&
+      block.parentTag === "head" &&
+      Object.keys(block.attributes).length === 0,
+  );
+  if (
+    expectedStyles.length !== 1 ||
+    actualStyles.length !== 1 ||
+    stylesheetSignature(actualStyles[0]!.content) !==
+      stylesheetSignature(expectedStyles[0]!.content)
+  ) {
+    return false;
+  }
+  return actualBlocks.every((block) => {
+    if (block.tag === "style") {
+      return (
+        block.parentTag === "head" && Object.keys(block.attributes).length === 0
+      );
+    }
+    if (
+      block.parentTag === "body" &&
+      block.attributes[GROUP_RUNTIME_ATTR] === ""
+    ) {
+      const runtimeVersion = block.attributes["data-runtime-version"];
+      const expectedRuntimeSource =
+        runtimeVersion === GROUP_RUNTIME_VERSION
+          ? GROUP_RUNTIME_SOURCE
+          : runtimeVersion === "1"
+            ? LEGACY_GROUP_RUNTIME_V1_SOURCE
+            : null;
+      return (
+        Object.keys(block.attributes).length === 2 &&
+        expectedRuntimeSource !== null &&
+        block.content.trim() === expectedRuntimeSource.trim()
+      );
+    }
+    return false;
+  });
+}
+
+function hasOnlyBoardShellAttributes(
+  node: CodeLayerNode,
+  allowed: ReadonlySet<string>,
+): boolean {
+  return Object.entries(node.attributes).every(([name, value]) => {
+    return (
+      allowed.has(name) &&
+      (name !== NODE_ID_ATTR ||
+        (typeof value === "string" && value.trim().length > 0))
+    );
+  });
+}
+
 function isZeroCssValue(value: string): boolean {
   return value
     .split(/\s+/)
@@ -827,23 +976,22 @@ function isCanonicalBoardRestoreRoot(
   if (
     value.document.source.filename !== BOARD_FILENAME ||
     root.tag.toLowerCase() !== "body" ||
-    Object.keys(root.attributes).length !== 0
+    !hasOnlyBoardShellAttributes(root, new Set([NODE_ID_ATTR]))
   ) {
     return false;
   }
   const parent = root.parentId
     ? value.projection.nodes.find((node) => node.id === root.parentId)
     : undefined;
-  if (parent?.tag.toLowerCase() !== "html") return false;
-
-  const canonicalBoard = emptyBoardHtml();
-  const headEnd = canonicalBoard.indexOf("</head>");
-  const canonicalHead =
-    headEnd < 0 ? "" : canonicalBoard.slice(0, headEnd + "</head>".length);
-  if (!canonicalHead || !value.document.content.startsWith(canonicalHead)) {
+  if (
+    !parent ||
+    parent.tag.toLowerCase() !== "html" ||
+    parent.parentId !== undefined ||
+    !hasOnlyBoardShellAttributes(parent, new Set(["lang", NODE_ID_ATTR]))
+  ) {
     return false;
   }
-  return true;
+  return hasCanonicalBoardShellCss(value.document.content);
 }
 
 function positionedArchivedMarkup(args: {

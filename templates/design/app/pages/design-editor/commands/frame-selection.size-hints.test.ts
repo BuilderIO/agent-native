@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { collectLiveSizeHints } from "./frame-selection";
@@ -222,5 +222,168 @@ describe("collectLiveSizeHints", () => {
     );
 
     expect(hints[absoluteId()]).toEqual({ width: 60, height: 24 });
+  });
+
+  it("marks authored-stylesheet absolute targets as out of flow", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.setAttribute("data-screen-iframe-id", "active.html");
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    doc.head.innerHTML = "<style>.authored-absolute{position:absolute}</style>";
+    doc.body.innerHTML =
+      '<div class="authored-absolute" data-agent-native-node-id="alpha"></div>';
+    const element = doc.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(80);
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(40);
+    const projection = buildCodeLayerProjection(
+      '<body><div class="authored-absolute" data-agent-native-node-id="alpha"></div></body>',
+    );
+    const id = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "alpha",
+    )!.id;
+
+    expect(
+      collectLiveSizeHints([id], projection, "active.html", undefined)[id],
+    ).toEqual({ width: 80, height: 40, outOfFlow: true });
+  });
+
+  it("preserves rendered stylesheet-positioned content when framing cannot express its geometry", () => {
+    const source =
+      '<body><style>.authored-absolute{position:absolute;left:20px;top:40px}</style><div class="authored-absolute" data-agent-native-node-id="alpha">Label</div></body>';
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.setAttribute("data-screen-iframe-id", "active.html");
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    doc.head.innerHTML =
+      "<style>.authored-absolute{position:absolute;left:20px;top:40px}</style>";
+    doc.body.innerHTML =
+      '<div class="authored-absolute" data-agent-native-node-id="alpha">Label</div>';
+    const element = doc.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(80);
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(40);
+    stubRect(element, { left: 20, top: 40, width: 80, height: 40 });
+    const projection = buildCodeLayerProjection(source);
+    const id = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "alpha",
+    )!.id;
+    const sizeHints = collectLiveSizeHints(
+      [id],
+      projection,
+      "active.html",
+      undefined,
+    );
+
+    const framed = applyVisualEdit(source, {
+      kind: "wrapNodes",
+      targetIds: [id],
+      wrapperKind: "frame",
+      sizeHints,
+    });
+
+    expect(sizeHints[id]).toEqual({
+      width: 80,
+      height: 40,
+      outOfFlow: true,
+    });
+    expect(framed.result.status).toBe("unsupported");
+    expect(framed.content).toBe(source);
+  });
+
+  it("omits client-space positions under a transformed ancestor", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.setAttribute("data-screen-iframe-id", "active.html");
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    doc.body.innerHTML =
+      '<main style="transform:scale(2)"><div data-agent-native-node-id="alpha"></div></main>';
+    const parent = doc.querySelector("main")!;
+    const element = doc.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(25);
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(14);
+    stubRect(parent, { left: 100, top: 200, width: 400, height: 200 });
+    stubRect(element, { left: 140, top: 260, width: 50, height: 28 });
+    const projection = buildCodeLayerProjection(FIXTURE);
+
+    expect(
+      collectLiveSizeHints([alphaId()], projection, "active.html", undefined)[
+        alphaId()
+      ],
+    ).toEqual({ width: 25, height: 14 });
+  });
+
+  it("keeps parent-relative positions under the managed Board surface translation", () => {
+    const layer = document.createElement("div");
+    layer.setAttribute("data-board-surface-layer", "");
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    layer.append(iframe);
+    document.body.append(layer);
+    const doc = iframe.contentDocument!;
+    doc.head.innerHTML =
+      "<style data-agent-native-content-offset>body > [data-agent-native-node-id]{translate:65536px 65536px}</style>";
+    doc.body.innerHTML = `<section data-agent-native-node-id="screen">
+  <main><div data-agent-native-node-id="alpha"></div></main>
+</section>`;
+    const parent = doc.querySelector("main")!;
+    const element = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="alpha"]',
+    )!;
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(25);
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(14);
+    stubRect(parent, {
+      left: 65_636,
+      top: 65_736,
+      width: 220,
+      height: 120,
+    });
+    stubRect(element, {
+      left: 65_666,
+      top: 65_786,
+      width: 25,
+      height: 14,
+    });
+    const fixture = `<body><section data-agent-native-node-id="screen">
+  <main><div data-agent-native-node-id="alpha"></div></main>
+</section></body>`;
+    const projection = buildCodeLayerProjection(fixture);
+    const id = nodeIdFor(fixture, "alpha");
+
+    expect(
+      collectLiveSizeHints([id], projection, "board", "board")[id],
+    ).toEqual({ width: 25, height: 14, left: 30, top: 50 });
+  });
+
+  it("omits client-space positions for an authored target translation", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.setAttribute("data-screen-iframe-id", "active.html");
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    doc.body.innerHTML =
+      '<main><div style="translate:20px 0" data-agent-native-node-id="alpha"></div></main>';
+    const parent = doc.querySelector("main")!;
+    const element = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="alpha"]',
+    )!;
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(25);
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(14);
+    stubRect(parent, { left: 100, top: 200, width: 220, height: 120 });
+    stubRect(element, { left: 150, top: 250, width: 25, height: 14 });
+    const fixture = `<body><main><div style="translate:20px 0" data-agent-native-node-id="alpha"></div></main></body>`;
+    const projection = buildCodeLayerProjection(fixture);
+    const id = nodeIdFor(fixture, "alpha");
+
+    expect(
+      collectLiveSizeHints([id], projection, "active.html", undefined)[id],
+    ).toEqual({ width: 25, height: 14 });
   });
 });

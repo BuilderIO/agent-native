@@ -6064,6 +6064,8 @@ function DesignEditor() {
   const handleAddScreen = useCallback(
     () =>
       runAddScreen({
+        boardContentBounds,
+        boardFileId,
         canEditDesign,
         createFileMutation,
         designDataJsonRef,
@@ -6079,12 +6081,14 @@ function DesignEditor() {
       }),
     [
       canEditDesign,
+      boardContentBounds,
+      boardFileId,
       createFileMutation,
       files,
       focusCreatedScreen,
       id,
       optimisticallyInsertCreatedFile,
-      overviewScreens.length,
+      overviewScreens,
       queryClient,
       recordFileCreationHistoryEntry,
       t,
@@ -8380,7 +8384,8 @@ function DesignEditor() {
         !activeFileId ||
         !selectedElement ||
         selectedElementInsideComponent
-      ) return;
+      )
+        return;
       const current = linkedComponentMutationQueueRef.current;
       if (current?.designId !== id) return;
       const nodeId = selectedElementLayerId ?? undefined;
@@ -21916,6 +21921,12 @@ function DesignEditor() {
             });
             return;
           }
+          const reconcilePending = (
+            result as { collabReconcilePending?: unknown } | undefined
+          )?.collabReconcilePending;
+          if (Array.isArray(reconcilePending) && reconcilePending.length > 0) {
+            toast.warning(t("visualEditor.changesSaveWhenReconnected"));
+          }
           if (activeBreakpointWidthStateRef.current === existing.widthPx) {
             handleBreakpointBarSelect(widthPx, breakpointId);
           }
@@ -23127,7 +23138,7 @@ function DesignEditor() {
             })
         : undefined,
     onRestoreComponent:
-      id && activeFile?.id
+      canEditDesign && id && activeFile?.id
         ? (nodeId: string) =>
             applyLinkedComponentEdit(activeFile.id, nodeId, {
               kind: "restoreMain",
@@ -23136,7 +23147,10 @@ function DesignEditor() {
     sourceCapabilities,
     selectedElementAlreadyComponent,
     onCreateComponent:
-      id && selectedElement && !selectedElementAlreadyComponent && !selectedElementInsideComponent
+      id &&
+      selectedElement &&
+      !selectedElementAlreadyComponent &&
+      !selectedElementInsideComponent
         ? handleCreateComponent
         : undefined,
     defaultComponentName,
@@ -23674,7 +23688,8 @@ function DesignEditor() {
             canCreateComponent={
               canEditDesign &&
               Boolean(selectedElement) &&
-              !selectedElementAlreadyComponent && !selectedElementInsideComponent
+              !selectedElementAlreadyComponent &&
+              !selectedElementInsideComponent
             }
             canReprompt={
               canEditDesign &&

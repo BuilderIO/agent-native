@@ -33,16 +33,12 @@ describe("measured flow Group runtime", () => {
   });
 
   it("grows a Group and its hug parent after a linked text override", async () => {
-    const authored = `<!doctype html><html><body><main id="parent" data-agent-native-component-id="card" style="display:inline-flex;flex-direction:column;align-items:flex-start"><span data-agent-native-node-id="label" data-agent-native-component-source-node-id="label-source" style="display:inline-block;width:max-content;white-space:nowrap;font:16px Arial">Short</span></main></body></html>`;
-    const patch = applyVisualEdit(
-      authored,
-      {
-        kind: "wrapNodes",
-        targetIds: ["label"],
-        sizeHints: { label: { width: 38, height: 18, left: 0, top: 0 } },
-      },
-      { allowMainComponentStructure: true },
-    );
+    const authored = `<!doctype html><html><body><main id="parent" style="display:inline-flex;flex-direction:column;align-items:flex-start"><span data-agent-native-node-id="label" data-agent-native-component-source-node-id="label-source" style="display:inline-block;width:max-content;white-space:nowrap;font:16px Arial">Short</span></main></body></html>`;
+    const patch = applyVisualEdit(authored, {
+      kind: "wrapNodes",
+      targetIds: ["label"],
+      sizeHints: { label: { width: 38, height: 18, left: 0, top: 0 } },
+    });
     expect(patch.result.status).toBe("applied");
     expect(
       patch.content.match(new RegExp(`<script ${GROUP_RUNTIME_ATTR}\\b`, "g")),
@@ -141,6 +137,35 @@ describe("measured flow Group runtime", () => {
         "A substantially longer linked instance label",
       );
       expect(patch.content).toContain(">Short</span>");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("measures a nested Group under the managed Board surface translation", async () => {
+    const html = ensureGroupRuntime(`<!doctype html><html><body>
+      <section style="translate:65536px 65536px">
+        <div id="group" data-agent-native-measured-flow-group style="position:relative;width:44px;height:20px">
+          <span style="position:absolute;left:0;top:0;width:80px;height:20px"></span>
+        </div>
+      </section>
+    </body></html>`);
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html);
+      await page.waitForFunction(
+        () =>
+          document
+            .getElementById("group")
+            ?.getAttribute("data-agent-native-group-runtime-state") ===
+          "active",
+      );
+      expect(
+        await page.evaluate(
+          () => document.getElementById("group")!.style.width,
+        ),
+      ).toBe("80px");
     } finally {
       await browser.close();
     }

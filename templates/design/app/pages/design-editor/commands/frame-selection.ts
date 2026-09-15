@@ -125,10 +125,23 @@ export function collectLiveSizeHints(
     const width = element.offsetWidth;
     const height = element.offsetHeight;
     if (width > 0 && height > 0) {
+      const computedPosition = iframeWindow.getComputedStyle(element).position;
+      const computedOutOfFlow =
+        computedPosition === "absolute" || computedPosition === "fixed";
       // Keep the existing integer layout dimensions for absolute/fixed
       // targets. Their hints feed the freeform union fallback, where a
       // transformed client rect would incorrectly enlarge the frame.
-      if (isOutOfFlowHintTarget(node)) {
+      if (isOutOfFlowHintTarget(node) || computedOutOfFlow) {
+        hints[node.id] = {
+          width,
+          height,
+          ...(!isOutOfFlowHintTarget(node) && computedOutOfFlow
+            ? { outOfFlow: true as const }
+            : {}),
+        };
+        continue;
+      }
+      if (hasUnsupportedMeasuredFlowAncestry(element, iframeWindow)) {
         hints[node.id] = { width, height };
         continue;
       }
@@ -144,6 +157,98 @@ export function collectLiveSizeHints(
     }
   }
   return hints;
+}
+
+function hasUnsupportedMeasuredFlowAncestry(
+  element: HTMLElement,
+  iframeWindow: Window,
+): boolean {
+  let isTarget = true;
+  for (
+    let current: HTMLElement | null = element;
+    current;
+    current = current.parentElement
+  ) {
+    const style = iframeWindow.getComputedStyle(current);
+    if (
+      (style.perspective && style.perspective !== "none") ||
+      hasNonIdentityScale(
+        style.scale ||
+          style.getPropertyValue("scale") ||
+          current.style.getPropertyValue("scale"),
+      ) ||
+      (style.rotate &&
+        style.rotate !== "none" &&
+        style.rotate !== "0deg" &&
+        style.rotate !== "0") ||
+      (style.zoom && style.zoom !== "normal" && style.zoom !== "1")
+    ) {
+      return true;
+    }
+    if (style.transform && style.transform !== "none") {
+      if (
+        isTarget ||
+        !isTranslationOnlyTransform(style.transform, iframeWindow)
+      ) {
+        return true;
+      }
+    }
+    // A translation on an ancestor affects both client rects and cancels in
+    // the child-parent delta. This includes the managed Board surface offset.
+    // A translation on the target affects only the child rect, so persisting
+    // that viewport delta as source left/top would double-apply it.
+    if (
+      isTarget &&
+      hasNonZeroTranslate(
+        style.translate ||
+          style.getPropertyValue("translate") ||
+          current.style.getPropertyValue("translate"),
+      )
+    ) {
+      return true;
+    }
+    isTarget = false;
+  }
+  return false;
+}
+
+function hasNonIdentityScale(value: string | undefined): boolean {
+  const scale = (value ?? "").trim().toLowerCase();
+  if (!scale || scale === "none") return false;
+  return scale.split(/\s+/).some((part) => Number(part) !== 1);
+}
+
+function hasNonZeroTranslate(value: string | undefined): boolean {
+  const translate = (value ?? "").trim().toLowerCase();
+  if (!translate || translate === "none") return false;
+  return translate
+    .split(/\s+/)
+    .some((part) => !/^[-+]?0(?:\.0+)?(?:[a-z%]+)?$/.test(part));
+}
+
+function isTranslationOnlyTransform(
+  transform: string,
+  iframeWindow: Window,
+): boolean {
+  const Matrix = (
+    iframeWindow as Window & {
+      DOMMatrixReadOnly?: typeof DOMMatrixReadOnly;
+    }
+  ).DOMMatrixReadOnly;
+  if (!Matrix) return false;
+  try {
+    const matrix = new Matrix(transform);
+    return (
+      matrix.is2D &&
+      Math.abs(matrix.a - 1) <= 0.001 &&
+      Math.abs(matrix.b) <= 0.001 &&
+      Math.abs(matrix.c) <= 0.001 &&
+      Math.abs(matrix.d - 1) <= 0.001
+    );
+    // coercion-ok: false keeps transformed viewport geometry out of source.
+  } catch {
+    return false;
+  }
 }
 
 function isOutOfFlowHintTarget(node: CodeLayerNode): boolean {

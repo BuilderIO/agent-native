@@ -1543,6 +1543,7 @@ export function planLinkedComponentStructureClone(
       mainAfter,
       options.managedStyleSnapshots ?? [],
       result.nodeIdMap,
+      { ensureGroupRuntime: false },
     ) !== mainAfter
   ) {
     return null;

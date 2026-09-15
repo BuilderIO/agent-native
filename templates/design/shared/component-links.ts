@@ -18,6 +18,7 @@ import {
   COMPONENT_REF_ATTR,
   COMPONENT_SOURCE_NODE_ID_ATTR,
 } from "./component-model";
+import { ensureGroupRuntime } from "./group-runtime";
 
 const NODE_ID_ATTR = "data-agent-native-node-id";
 
@@ -2889,6 +2890,12 @@ export function applyComponentStructureEdit(args: {
         content.slice(0, start) + replacement.content + content.slice(end);
     }
     updated.set(fileId, content);
+  }
+
+  for (const [fileId, content] of updated) {
+    if (content !== original.get(fileId)) {
+      updated.set(fileId, ensureGroupRuntime(content));
+    }
   }
 
   return {

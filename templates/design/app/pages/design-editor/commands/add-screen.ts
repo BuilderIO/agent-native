@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { getFrameGroupBounds } from "@shared/canvas-math";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
@@ -16,8 +17,12 @@ import { getCanvasFrameGeometry } from "@/pages/design-editor/design-data-geomet
 import type { FileCreationHistoryEntry } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { getAllScreenFrameEntries } from "../overview-camera";
+
 export interface AddScreenArgs {
   canEditDesign: boolean;
+  boardContentBounds?: FrameGeometry | null;
+  boardFileId?: string | null;
   createFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >;
@@ -44,6 +49,8 @@ export interface AddScreenArgs {
 
 export function runAddScreen({
   canEditDesign,
+  boardContentBounds,
+  boardFileId,
   createFileMutation,
   designDataJsonRef,
   files,
@@ -59,10 +66,29 @@ export function runAddScreen({
   if (!id || !canEditDesign) return;
   const filename = nextBlankScreenFilename(files);
   const content = blankScreenHtml(prettyScreenName(filename));
-  const nextGeometry = getInitialFrameGeometry(overviewScreens.length, {
+  const defaultGeometry = getInitialFrameGeometry(overviewScreens.length, {
     width: 1280,
     height: 2560,
   });
+  const bounds = getFrameGroupBounds(
+    getAllScreenFrameEntries({
+      overviewScreens,
+      canvasFrameGeometryById: getCanvasFrameGeometry(
+        designDataJsonRef.current,
+      ),
+      boardContentBounds,
+      boardFileId,
+      includeResponsivePreviews: true,
+    }),
+  );
+  const nextGeometry = bounds
+    ? {
+        x: bounds.right + 56,
+        y: bounds.top,
+        width: defaultGeometry.width,
+        height: defaultGeometry.height,
+      }
+    : defaultGeometry;
   createFileMutation.mutate(
     {
       designId: id,

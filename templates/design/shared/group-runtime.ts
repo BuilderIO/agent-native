@@ -1,7 +1,7 @@
 import { groupRuntimeBridgeScript } from "../.generated/bridge/group-runtime.generated";
 
 export const GROUP_RUNTIME_ATTR = "data-agent-native-group-runtime";
-export const GROUP_RUNTIME_VERSION = "1";
+export const GROUP_RUNTIME_VERSION = "2";
 export const GROUP_RUNTIME_SOURCE: string = groupRuntimeBridgeScript;
 export const MEASURED_FLOW_GROUP_ATTR = "data-agent-native-measured-flow-group";
 

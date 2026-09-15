@@ -23,6 +23,7 @@ import {
   COMPONENT_SOURCE_NODE_ID_ATTR,
   instanceFromNode,
 } from "./component-model";
+import { GROUP_RUNTIME_ATTR } from "./group-runtime";
 
 const SOURCE: CodeLayerSource = {
   kind: "design-file",
@@ -477,6 +478,36 @@ describe("linked component structure propagation", () => {
     }
   });
 
+  it("preserves every raw instance gap when the last projected child is deleted", () => {
+    const fixture = structuralDocuments();
+    const documents = fixture.documents.map((document, index) => ({
+      ...document,
+      content: document.content
+        .replace(
+          /<\/h2><p /,
+          `</h2><!--gap-${index}-between-->between-${index}<p `,
+        )
+        .replace(
+          /<\/p><\/section>/,
+          `</p>after-${index}<!--gap-${index}-suffix--></section>`,
+        ),
+    }));
+    const result = applyMainStructure(documents, {
+      kind: "deleteNode",
+      target: { nodeId: "subtitle" },
+    });
+
+    expect(result.status).toBe("updated");
+    if (result.status !== "updated") return;
+    for (const [index, fileId] of ["file-1", "file-2", "file-3"].entries()) {
+      const after = result.changes.find(
+        (change) => change.fileId === fileId,
+      )?.after;
+      expect(after).toContain(`<!--gap-${index}-between-->between-${index}`);
+      expect(after).toContain(`after-${index}<!--gap-${index}-suffix-->`);
+    }
+  });
+
   it("reorders children while retaining an instance text and style override", () => {
     const fixture = structuralDocuments();
     const result = applyMainStructure(fixture.documents, {
@@ -549,6 +580,77 @@ describe("linked component structure propagation", () => {
         ]),
       )}"`,
     );
+  });
+
+  it("installs a measured Group runtime after validating the canonical main boundary", () => {
+    const fixture = structuralDocuments();
+    const documents = fixture.documents.map((document, index) =>
+      index === 0
+        ? {
+            ...document,
+            content: document.content
+              .replace(
+                "<section ",
+                '<section data-agent-native-group-wrapper="true" data-an-primitive="frame" ',
+              )
+              .replace(/position:absolute;/g, "position:relative;"),
+          }
+        : document,
+    );
+    const mainDocument = documents[0]!;
+    const mainProjection = projection(mainDocument.content);
+    const titleId = nodeWithAttribute(
+      mainProjection.nodes,
+      NODE_ID_ATTR,
+      "title",
+    ).id;
+    const subtitleId = nodeWithAttribute(
+      mainProjection.nodes,
+      NODE_ID_ATTR,
+      "subtitle",
+    ).id;
+    const transformed = applyVisualEdit(
+      mainDocument.content,
+      {
+        kind: "wrapNodes",
+        targetIds: [titleId, subtitleId],
+        sizeHints: {
+          [titleId]: { left: 10, top: 20, width: 100, height: 20 },
+          [subtitleId]: { left: 150, top: 40, width: 120, height: 24 },
+        },
+      },
+      {
+        source: mainDocument.source,
+        allowMainComponentStructure: true,
+      },
+    );
+
+    expect(transformed.result.status).toBe("applied");
+    expect(transformed.content).toContain(
+      "data-agent-native-measured-flow-group",
+    );
+    expect(transformed.content).not.toContain(`<script ${GROUP_RUNTIME_ATTR}`);
+
+    const result = applyComponentStructureEdit({
+      documents,
+      target: { fileId: SOURCE.fileId!, nodeId: "main-card" },
+      mainBefore: mainDocument.content,
+      mainAfter: transformed.content,
+    });
+
+    expect(result.status).toBe("updated");
+    if (result.status !== "updated") return;
+    expect(result.changes.map(({ fileId }) => fileId)).toEqual([
+      "file-1",
+      "file-2",
+      "file-3",
+    ]);
+    for (const change of result.changes) {
+      expect(change.after).toContain("data-agent-native-measured-flow-group");
+      expect(
+        change.after.match(new RegExp(`<script ${GROUP_RUNTIME_ATTR}\\b`, "g")),
+      ).toHaveLength(1);
+    }
   });
 
   it("syncs auto-layout markers and classes without changing instance placement", () => {

@@ -99,6 +99,68 @@ describe("planLinkedComponentStructureClone", () => {
     expect(plan).toBeNull();
   });
 
+  it("plans a measured Group clone before the document runtime is installed", () => {
+    const source = {
+      kind: "design-file" as const,
+      designId: "design-1",
+      fileId: "main-file",
+      filename: "index.html",
+    };
+    const content = `<!doctype html><html><body><section data-agent-native-node-id="main" data-agent-native-component-id="card"><span data-agent-native-node-id="label">Label</span></section><section data-agent-native-node-id="instance" data-agent-native-component-ref="card"><span data-agent-native-node-id="instance-label" data-agent-native-component-source-node-id="label">Label</span></section></body></html>`;
+    const plan = planLinkedComponentStructureClone(
+      content,
+      [
+        '<div data-agent-native-node-id="group" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true" data-agent-native-measured-flow-group="true" style="position:relative;width:40px;height:20px"><span data-agent-native-node-id="group-label" style="position:absolute;left:0;top:0">New</span></div>',
+      ],
+      {
+        targetSelectors: ['[data-agent-native-node-id="label"]'],
+        placement: "after",
+        componentLinks: {
+          sourceFileIds: [source.fileId],
+          targetSource: source,
+          documents: [
+            { source, content },
+            {
+              source: { ...source, fileId: "instance-file" },
+              content:
+                '<section data-agent-native-node-id="instance" data-agent-native-component-ref="card"><span data-agent-native-node-id="instance-label" data-agent-native-component-source-node-id="label">Label</span></section>',
+            },
+          ],
+        },
+      },
+    );
+
+    expect(plan).not.toBeNull();
+    if (!plan) return;
+    expect(plan.mainAfter).toContain("data-agent-native-measured-flow-group");
+    expect(plan.mainAfter).not.toContain("data-agent-native-group-runtime");
+
+    const transformed = applyComponentStructureEdit({
+      documents: [
+        { source, content },
+        {
+          source: { ...source, fileId: "instance-file" },
+          content:
+            '<section data-agent-native-node-id="instance" data-agent-native-component-ref="card"><span data-agent-native-node-id="instance-label" data-agent-native-component-source-node-id="label">Label</span></section>',
+        },
+      ],
+      target: { fileId: source.fileId, nodeId: plan.targetNodeId },
+      mainBefore: plan.mainBefore,
+      mainAfter: plan.mainAfter,
+    });
+    expect(transformed.status).toBe("updated");
+    if (transformed.status !== "updated") return;
+    expect(
+      transformed.changes.find((change) => change.fileId === "instance-file")
+        ?.after,
+    ).toContain("data-agent-native-measured-flow-group");
+    for (const change of transformed.changes) {
+      expect(
+        change.after.match(/<script data-agent-native-group-runtime\b/g),
+      ).toHaveLength(1);
+    }
+  });
+
   it("propagates source projection errors instead of falling through as an ordinary clone", () => {
     const source = {
       kind: "design-file" as const,
