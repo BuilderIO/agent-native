@@ -71,7 +71,8 @@ describe("builderAddressedReviewThreadsAfterPing", () => {
     expect(builderAddressedReviewThreadsAfterPing(assessment)).toBe(false);
   });
 
-  it("returns true once Builder replied on a thread", () => {
+  it("returns true once Builder replied on a thread after the ping", () => {
+    const pingAt = Date.parse("2026-09-14T18:02:00.000Z");
     const assessment = assessThreadDispositions({
       comments: [
         root("1"),
@@ -83,7 +84,35 @@ describe("builderAddressedReviewThreadsAfterPing", () => {
           createdAt: "2026-09-14T18:05:00.000Z",
         },
       ],
+      lastCommentAtMs: pingAt,
     });
     expect(builderAddressedReviewThreadsAfterPing(assessment)).toBe(true);
+  });
+
+  it("ignores pre-ping resolved threads when checking post-ping Builder activity", () => {
+    const pingAt = Date.parse("2026-09-14T18:02:00.000Z");
+    const assessment = assessThreadDispositions({
+      comments: [root("1", { isResolved: true })],
+      lastCommentAtMs: pingAt,
+    });
+    expect(builderAddressedReviewThreadsAfterPing(assessment)).toBe(false);
+  });
+
+  it("ignores pre-ping Builder replies when checking post-ping activity", () => {
+    const pingAt = Date.parse("2026-09-14T18:02:00.000Z");
+    const assessment = assessThreadDispositions({
+      comments: [
+        root("1"),
+        {
+          id: "2",
+          author: "builder-io-bot",
+          inReplyToId: "1",
+          body: "Fixed in abc123",
+          createdAt: "2026-09-14T18:00:00.000Z",
+        },
+      ],
+      lastCommentAtMs: pingAt,
+    });
+    expect(builderAddressedReviewThreadsAfterPing(assessment)).toBe(false);
   });
 });

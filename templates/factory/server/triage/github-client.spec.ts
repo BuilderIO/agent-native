@@ -821,6 +821,24 @@ describe("GitHub triage client", () => {
     });
   });
 
+  it("rejects GraphQL payloads with top-level errors", () => {
+    expect(
+      reviewCommentsFromGraphqlThreads({
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                pageInfo: { hasNextPage: false },
+                nodes: [],
+              },
+            },
+          },
+        },
+        errors: [{ message: "Could not resolve review thread" }],
+      }),
+    ).toBeNull();
+  });
+
   it("maps GraphQL review threads into flat comments with thread flags", () => {
     const parsed = reviewCommentsFromGraphqlThreads({
       data: {

@@ -118,6 +118,39 @@ describe("computeBabysitRecommendation", () => {
     expect(result.recommendation).toBe("stuck");
   });
 
+  it("recommends stuck when only pre-ping resolved threads would veto bot errors", () => {
+    const now = Date.now();
+    const pingAt = now - 120_000;
+    const result = computeBabysitRecommendation({
+      proposal: baseProposal(),
+      mechanical: baseMechanical({ needsWork: true }),
+      checks: [],
+      comments: [
+        {
+          id: "root-1",
+          author: "builder-io-integration[bot]",
+          inReplyToId: null,
+          body: "#### review finding",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          isResolved: true,
+        },
+      ],
+      issueComments: [
+        {
+          author: "builder-io-integration[bot]",
+          body: "There was a problem with your request, please try again later. Error id: 123",
+          createdAt: new Date(now).toISOString(),
+        },
+      ],
+      lastCommentAtMs: pingAt,
+      lastPingHeadSha: "abc",
+      headSha: "abc",
+      nowMs: now,
+    });
+    expect(result.recommendation).toBe("stuck");
+    expect(result.botErrorAfterPing).toBe(true);
+  });
+
   it("defers instead of stuck when Builder replied on review threads after the ping", () => {
     const now = Date.now();
     const pingAt = now - 120_000;
@@ -171,6 +204,7 @@ describe("computeBabysitRecommendation", () => {
   });
 
   it("recommends stuck when a thread is marked required not fixing", () => {
+    const pingAt = Date.parse("2026-09-14T18:02:00.000Z");
     const result = computeBabysitRecommendation({
       proposal: {
         ...baseProposal(),
@@ -196,10 +230,10 @@ describe("computeBabysitRecommendation", () => {
         },
       ],
       issueComments: [],
-      lastCommentAtMs: Date.now() - 120_000,
+      lastCommentAtMs: pingAt,
       lastPingHeadSha: "abc",
       headSha: "abc",
-      nowMs: Date.now(),
+      nowMs: pingAt + 60_000,
     });
     expect(result.recommendation).toBe("stuck");
   });

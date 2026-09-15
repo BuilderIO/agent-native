@@ -411,6 +411,7 @@ export function reviewCommentsFromGraphqlThreads(
   payload: unknown,
 ): { comments: ReviewCommentObservation[]; commentsTruncated: boolean } | null {
   const root = record(payload);
+  if (Array.isArray(root.errors) && root.errors.length > 0) return null;
   const data = root.data;
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const repository = record((data as Record<string, unknown>).repository);
@@ -862,6 +863,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
           number: pullRequestNumber,
         });
         return reviewCommentsFromGraphqlThreads(payload);
+        // coercion-ok: GraphQL thread fetch failure falls back to REST review comments
       } catch {
         return null;
       }

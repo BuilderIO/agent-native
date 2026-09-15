@@ -25,6 +25,7 @@ export type ThreadDispositionAssessment = {
   status: ThreadClosureStatus;
   disposition: BabysitThreadDisposition | null;
   blocksMergeable: boolean;
+  addressedAfterPing: boolean;
 };
 
 export type ThreadDispositionAggregate = {
@@ -45,6 +46,28 @@ function dispositionBlocksMergeable(
 ): boolean {
   if (!disposition) return false;
   if (disposition === "required-not-fixing") return true;
+  return false;
+}
+
+function createdAtOrAfterPing(
+  createdAt: string,
+  lastPingMs: number | null,
+): boolean {
+  if (lastPingMs === null) return false;
+  const createdMs = Date.parse(createdAt);
+  return Number.isFinite(createdMs) && createdMs >= lastPingMs;
+}
+
+function threadHasPostPingBotReply(
+  rootId: string,
+  repliesByRoot: ReadonlyMap<string, ReviewCommentObservation[]>,
+  lastPingMs: number | null,
+  botAuthors: readonly string[],
+): boolean {
+  for (const reply of repliesByRoot.get(rootId) ?? []) {
+    if (!isBabysitBotAuthor(reply.author, botAuthors)) continue;
+    if (createdAtOrAfterPing(reply.createdAt, lastPingMs)) return true;
+  }
   return false;
 }
 
@@ -105,29 +128,53 @@ export function assessThreadDispositions(input: {
     if (comment.inReplyToId !== null) continue;
     let status: ThreadClosureStatus = "open";
     let disposition: BabysitThreadDisposition | null = null;
+    let addressedAfterPing = false;
 
     if (comment.isResolved === true) {
       status = "resolved";
+      addressedAfterPing = threadHasPostPingBotReply(
+        comment.id,
+        repliesByRoot,
+        lastPingMs,
+        botAuthors,
+      );
     } else if (comment.isOutdated === true) {
       status = "outdated";
+      addressedAfterPing = threadHasPostPingBotReply(
+        comment.id,
+        repliesByRoot,
+        lastPingMs,
+        botAuthors,
+      );
     } else {
       const coverage = coverageByRoot.get(comment.id);
       if (coverage) {
         status = "coverage";
         disposition = coverage.disposition;
+        addressedAfterPing = lastPingMs !== null;
         if (disposition === "unrecognized") {
           dispositionCounts.unrecognizedReply += 1;
         }
       } else {
         for (const reply of repliesByRoot.get(comment.id) ?? []) {
           if (!isBabysitBotAuthor(reply.author, botAuthors)) continue;
+          const postPingReply =
+            lastPingMs === null ||
+            createdAtOrAfterPing(reply.createdAt, lastPingMs);
+          if (lastPingMs !== null && !postPingReply) continue;
           const inline = parseInlineDisposition(reply.body);
           if (inline) {
             disposition = inline;
             status = statusFromDisposition(inline);
+            if (postPingReply && lastPingMs !== null) {
+              addressedAfterPing = true;
+            }
             break;
           }
           status = "replied";
+          if (postPingReply && lastPingMs !== null) {
+            addressedAfterPing = true;
+          }
           dispositionCounts.unrecognizedReply += 1;
           break;
         }
@@ -154,6 +201,7 @@ export function assessThreadDispositions(input: {
       status,
       disposition,
       blocksMergeable,
+      addressedAfterPing,
     });
   }
 
@@ -172,7 +220,7 @@ export function builderAddressedReviewThreadsAfterPing(
   assessment: ThreadDispositionAggregate | null | undefined,
 ): boolean {
   if (!assessment) return false;
-  return assessment.threads.some((thread) => thread.status !== "open");
+  return assessment.threads.some((thread) => thread.addressedAfterPing);
 }
 
 export function rootCommentsClosedByAssessment(

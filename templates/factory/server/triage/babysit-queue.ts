@@ -37,6 +37,7 @@ export function parseBabysitQueueCursor(
     }
     if (!lastCheckedAt.trim() || !lastId.trim()) return null;
     return { lastCheckedAt, lastId };
+    // coercion-ok: corrupt persisted cursor reads as absent queue position
   } catch {
     return null;
   }
