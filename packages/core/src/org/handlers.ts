@@ -515,32 +515,6 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
       return { success: true };
     }
 
-    if (access.bootstrapAdmins.length === 0) {
-      console.warn(
-        "[org] ORG_CREATION=closed has no AUTH_BOOTSTRAP_ADMINS; allowing the first authenticated creator to bootstrap the workspace",
-      );
-      const body = await readBody(event);
-      const name = body?.name?.trim();
-      if (!name) {
-        throw createError({
-          statusCode: 400,
-          message: "Organization name is required",
-        });
-      }
-      const {
-        id,
-        name: createdName,
-        role,
-      } = await createOrganization(name, email);
-      await syncFederatedOrgBestEffort(event, {
-        email,
-        orgId: id,
-        orgName: createdName,
-        role,
-      });
-      return { id, name: createdName, role };
-    }
-
     throw createError({
       statusCode: 403,
       message:
