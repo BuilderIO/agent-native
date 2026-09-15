@@ -38,6 +38,7 @@ export interface GeometryCommitArgs {
     direction: "commit" | "undo" | "redo",
   ) => void;
   lastGeometryCommitAtRef: RefObject<number>;
+  liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
   locallyPinnedHeightIdsRef: RefObject<Set<string>>;
   queryClient: QueryClient;
   queueFrameGeometrySave: (geometryById: CanvasFrameGeometryById) => void;
@@ -60,6 +61,7 @@ export function runGeometryCommit(
     id,
     applyLinkedContentChanges,
     lastGeometryCommitAtRef,
+    liveFrameGeometryRef,
     locallyPinnedHeightIdsRef,
     queryClient,
     queueFrameGeometrySave,
@@ -213,6 +215,7 @@ export function runGeometryCommit(
       return { ...old, data: JSON.stringify(nextData) };
     });
     queueFrameGeometrySave(afterSnapshot);
+    liveFrameGeometryRef.current = cloneCanvasFrameGeometry(afterSnapshot);
   } else {
     writeFrameGeometrySnapshot(
       afterSnapshot,

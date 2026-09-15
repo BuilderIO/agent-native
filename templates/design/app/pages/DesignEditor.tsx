@@ -5057,13 +5057,20 @@ function DesignEditor() {
           enqueueFrameGeometryDataSave,
           frameGeometrySaveTimerRef,
           id,
+          liveFrameGeometryRef,
           pendingFrameGeometrySaveRef,
           queryClient,
         },
         geometryById,
         options,
       ),
-    [boardFileId, enqueueFrameGeometryDataSave, id, queryClient],
+    [
+      boardFileId,
+      enqueueFrameGeometryDataSave,
+      id,
+      liveFrameGeometryRef,
+      queryClient,
+    ],
   );
 
   const handleGeometryCommit = useCallback(
@@ -5216,6 +5223,7 @@ function DesignEditor() {
           applyLinkedContentChanges: (changes, direction) =>
             applyGeometryHistoryContentChangesRef.current(changes, direction),
           lastGeometryCommitAtRef,
+          liveFrameGeometryRef,
           locallyPinnedHeightIdsRef,
           queryClient,
           queueFrameGeometrySave,
@@ -5242,6 +5250,7 @@ function DesignEditor() {
       screenRootComputedStylesById,
       syncUndoRedoState,
       t,
+      liveFrameGeometryRef,
       writeFrameGeometrySnapshot,
     ],
   );
@@ -23254,8 +23263,8 @@ function DesignEditor() {
                     scope={designChatScope}
                     chatHistory={designChatHistory}
                     showScopeBadge={false}
-                    showHeader={false}
-                    showTabBar={false}
+                    showHeader={true}
+                    showTabBar={true}
                     browserTabId={browserTabId}
                     onComposerTextChange={handleComposerTextChange}
                     onMessageCountChange={setChatMessageCount}
