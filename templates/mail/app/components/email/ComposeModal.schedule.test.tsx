@@ -241,6 +241,33 @@ describe("ComposeModal scheduling", () => {
     ).toBe("false");
   });
 
+  it("focuses the initial unsaved draft when the modal mounts", async () => {
+    const { container } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector(
+          '[data-mail-recipient-input][data-recipient-field="to"]',
+        ),
+      );
+    });
+  });
+
   it("focuses the To field after a new draft is added", async () => {
     const secondDraft: ComposeState = {
       ...draft,

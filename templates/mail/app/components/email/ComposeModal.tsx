@@ -245,7 +245,20 @@ export function ComposeModal({
     sendLater: () => {},
     sendAndMarkDone: () => {},
   });
-  const knownDraftIdsRef = useRef(new Set(drafts.map((draft) => draft.id)));
+  const knownDraftIdsRef = useRef(
+    new Set(
+      drafts
+        .filter((draft) => {
+          const isInitialNewCompose =
+            draft.id === activeDraft?.id &&
+            draft.mode === "compose" &&
+            !draft.savedDraftId &&
+            !draft.queuedDraftId;
+          return !isInitialNewCompose;
+        })
+        .map((draft) => draft.id),
+    ),
+  );
   const pendingNewDraftIdsRef = useRef(new Set<string>());
   const focusNewDraftIdRef = useRef<string | null>(null);
   const activeIdRef = useRef(activeId);
