@@ -694,6 +694,58 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 }
 
+/**
+ * The authorization server behind this MCP endpoint cannot mint a client on
+ * demand: its metadata advertises neither an RFC 7591 registration_endpoint nor
+ * SEP-991 Client ID Metadata Documents. Retrying never helps, which is what
+ * separates it from a transient discovery or network failure.
+ */
+export class McpOAuthRegistrationUnsupportedError extends Error {
+  readonly issuer?: string;
+  readonly authorizationServerUrl?: string;
+
+  constructor(details: {
+    issuer?: string;
+    authorizationServerUrl?: string;
+    cause?: unknown;
+  }) {
+    const server =
+      details.issuer ?? details.authorizationServerUrl ?? "(unknown)";
+    super(
+      `MCP OAuth authorization server ${server} does not support dynamic client registration`,
+      details.cause === undefined ? undefined : { cause: details.cause },
+    );
+    this.name = "McpOAuthRegistrationUnsupportedError";
+    this.issuer = details.issuer;
+    this.authorizationServerUrl = details.authorizationServerUrl;
+  }
+}
+
+/**
+ * The SDK persists discovery state before it attempts registration, so a failed
+ * start is classified from the metadata it already fetched rather than by
+ * matching the SDK's error text.
+ */
+function registrationUnsupportedFailure(
+  provider: McpOAuthClientProvider,
+  cause: unknown,
+): McpOAuthRegistrationUnsupportedError | undefined {
+  const discovery = provider.discoveryState();
+  const metadata = discovery?.authorizationServerMetadata as
+    | (AuthorizationServerMetadata & {
+        client_id_metadata_document_supported?: boolean;
+      })
+    | undefined;
+  if (!metadata) return undefined;
+  if (metadata.registration_endpoint) return undefined;
+  if (metadata.client_id_metadata_document_supported === true) return undefined;
+  return new McpOAuthRegistrationUnsupportedError({
+    issuer: typeof metadata.issuer === "string" ? metadata.issuer : undefined,
+    authorizationServerUrl: discovery?.authorizationServerUrl,
+    cause,
+  });
+}
+
 export async function startMcpOAuthAuthorization(
   options: McpOAuthProviderOptions & {
     scope?: string;
@@ -712,14 +764,23 @@ export async function startMcpOAuthAuthorization(
     );
   }
   const provider = new McpOAuthClientProvider(options);
-  const result = await auth(provider, {
-    serverUrl: options.serverUrl,
-    scope: options.scope,
-    ...(options.resourceMetadataUrl
-      ? { resourceMetadataUrl: new URL(options.resourceMetadataUrl) }
-      : {}),
-    fetchFn: guardedOAuthFetch(),
-  });
+  let result: Awaited<ReturnType<typeof auth>>;
+  try {
+    result = await auth(provider, {
+      serverUrl: options.serverUrl,
+      scope: options.scope,
+      ...(options.resourceMetadataUrl
+        ? { resourceMetadataUrl: new URL(options.resourceMetadataUrl) }
+        : {}),
+      fetchFn: guardedOAuthFetch(),
+    });
+  } catch (error) {
+    // A caller-supplied client never reaches registration, so only a start
+    // without one can have failed for want of a registerable client.
+    throw options.clientInformation
+      ? error
+      : (registrationUnsupportedFailure(provider, error) ?? error);
+  }
   if (result !== "REDIRECT" || !provider.authorizationRedirect) {
     throw new Error("MCP server did not start an interactive OAuth flow");
   }
