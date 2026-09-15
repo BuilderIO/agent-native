@@ -107,6 +107,15 @@ interface CliHandoffLaunchDeps {
   ) => { status: number | null; error?: Error };
 }
 
+function resolveCliHandoffBaseUrl(env: NodeJS.ProcessEnv): string | undefined {
+  return (
+    env.APP_URL ||
+    env.WORKSPACE_GATEWAY_URL ||
+    env.VITE_WORKSPACE_GATEWAY_URL ||
+    env.BETTER_AUTH_URL
+  );
+}
+
 export function openCliHandoff(
   urlOrPath: string,
   deps: CliHandoffLaunchDeps = {},
@@ -120,7 +129,8 @@ export function openCliHandoff(
         "Secure browser handoff is disabled by AGENT_NATIVE_NO_OPEN. Remove it and rerun this action.",
     };
   }
-  if (!isValidDevActionHandoffUrl(urlOrPath, env.APP_URL)) {
+  const baseUrl = resolveCliHandoffBaseUrl(env);
+  if (!isValidDevActionHandoffUrl(urlOrPath, baseUrl)) {
     return {
       ok: false,
       reason: "invalid-url",
@@ -130,11 +140,6 @@ export function openCliHandoff(
   }
   let url = urlOrPath;
   if (urlOrPath.startsWith("/")) {
-    const baseUrl =
-      env.APP_URL ||
-      env.WORKSPACE_GATEWAY_URL ||
-      env.VITE_WORKSPACE_GATEWAY_URL ||
-      env.BETTER_AUTH_URL;
     if (!baseUrl) {
       return {
         ok: false,
@@ -431,7 +436,7 @@ export async function tryForwardToDevServer(
   }
   const validHandoffUrl = isValidDevActionHandoffUrl(
     handoffUrl,
-    process.env.APP_URL,
+    resolveCliHandoffBaseUrl(process.env),
   )
     ? handoffUrl
     : undefined;

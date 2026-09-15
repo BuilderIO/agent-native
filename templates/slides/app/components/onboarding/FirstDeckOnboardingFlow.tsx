@@ -73,6 +73,14 @@ export function FirstDeckOnboardingFlow({
       ? "references"
       : "prompt",
   );
+  useEffect(() => {
+    if (!isOnboardingPreviewQuery(location.search)) return;
+    setStep(
+      new URLSearchParams(location.search).get("step") === "references"
+        ? "references"
+        : "prompt",
+    );
+  }, [location.search]);
   const [prompt, setPrompt] = useState("");
   const [promptFiles, setPromptFiles] = useState<UploadedFile[]>([]);
   const [referenceFilePaths, setReferenceFilePaths] = useState<string[]>([]);

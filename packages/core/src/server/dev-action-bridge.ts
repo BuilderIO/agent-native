@@ -64,6 +64,34 @@ export function hashDatabaseKey(databaseUrl: string): string {
 const DEV_ACTION_HANDOFF_KEYS = ["embedStartUrl", "startUrl"] as const;
 const DEV_ACTION_HANDOFF_PATH = "/_agent-native/embed/start";
 
+function withoutDevActionHandoffSecrets(
+  value: unknown,
+  ancestors = new WeakSet<object>(),
+): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (ancestors.has(value)) return "[Circular]";
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((child) =>
+        withoutDevActionHandoffSecrets(child, ancestors),
+      );
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(
+          ([key]) => !DEV_ACTION_HANDOFF_KEYS.some((name) => name === key),
+        )
+        .map(([key, child]) => [
+          key,
+          withoutDevActionHandoffSecrets(child, ancestors),
+        ]),
+    );
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
 function isLoopbackAppUrl(value: string): URL | undefined {
   if (!URL.canParse(value)) return undefined;
   const url = new URL(value);
@@ -341,7 +369,7 @@ export function mountDevActionForwardRoute(
           const devHandoffUrl = devActionHandoffUrl(result);
           return {
             ok: true,
-            result,
+            result: withoutDevActionHandoffSecrets(result),
             ...(devHandoffUrl ? { devHandoffUrl } : {}),
           };
         } catch (error: any) {

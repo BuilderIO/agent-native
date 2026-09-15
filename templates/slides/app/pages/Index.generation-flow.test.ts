@@ -114,6 +114,14 @@ describe("new deck generation flow", () => {
     );
   });
 
+  it("syncs the reference step when an onboarding preview URL changes", () => {
+    expect(onboardingSource).toContain(
+      "if (!isOnboardingPreviewQuery(location.search)) return;",
+    );
+    expect(onboardingSource).toContain("setStep(");
+    expect(onboardingSource).toContain("[location.search]");
+  });
+
   it("requires a generated title before the first slide", () => {
     const titleInstructionIndex = flow.indexOf(
       "After reading any requested or attached reference material, but before adding the first slide",

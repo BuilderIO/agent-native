@@ -221,30 +221,55 @@ export async function runApplyPendingVisualStylesWithAgent({
       }
     }
 
-    try {
-      session.sources = await Promise.all(
-        Array.from(sourceTargets.values()).map(async (source) => {
-          // read-local-file declares `http: { method: "GET" }`, so a
-          // default POST is refused with 405 and every Apply preflight
-          // fails before it reads a single baseline hash.
-          const result = (await callAction(
-            "read-local-file",
-            {
-              designId: id,
-              connectionId: source.connectionId,
-              path: source.path,
-            },
-            { method: "GET" },
-          )) as { versionHash?: string } | undefined;
-          if (!result?.versionHash) {
-            throw new Error(`Missing version hash for ${source.path}`);
-          }
-          return {
-            ...source,
-            baselineVersionHash: result.versionHash,
-          };
+    const hardDeadline = Date.now() + PENDING_STRUCTURE_HARD_TIMEOUT_MS;
+    const sourceReadDeadline = Symbol("source-read-deadline");
+    const readWithHardDeadline = async <T>(read: Promise<T>) => {
+      let timeoutId: number | undefined;
+      return Promise.race([
+        read,
+        new Promise<typeof sourceReadDeadline>((resolve) => {
+          timeoutId = window.setTimeout(
+            () => resolve(sourceReadDeadline),
+            Math.max(0, hardDeadline - Date.now()),
+          );
         }),
+      ]).finally(() => {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      });
+    };
+
+    try {
+      const initialSources = await readWithHardDeadline(
+        Promise.all(
+          Array.from(sourceTargets.values()).map(async (source) => {
+            // read-local-file declares `http: { method: "GET" }`, so a
+            // default POST is refused with 405 and every Apply preflight
+            // fails before it reads a single baseline hash.
+            const result = (await callAction(
+              "read-local-file",
+              {
+                designId: id,
+                connectionId: source.connectionId,
+                path: source.path,
+              },
+              { method: "GET" },
+            )) as { versionHash?: string } | undefined;
+            if (!result?.versionHash) {
+              throw new Error(`Missing version hash for ${source.path}`);
+            }
+            return {
+              ...source,
+              baselineVersionHash: result.versionHash,
+            };
+          }),
+        ),
       );
+      if (initialSources === sourceReadDeadline) {
+        cancelPendingStructureVerification("conflict");
+        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+        return;
+      }
+      session.sources = initialSources;
       if (session.cancelled) return;
 
       const delivery = await sendDesignSourceHandoffAndConfirm(
@@ -257,6 +282,11 @@ export async function runApplyPendingVisualStylesWithAgent({
         { timeoutMs: 10_000 },
       );
       if (session.cancelled) return;
+      if (Date.now() >= hardDeadline) {
+        cancelPendingStructureVerification("conflict");
+        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+        return;
+      }
       if (!delivery.delivered) {
         cancelPendingStructureVerification();
         toast.error(
@@ -272,7 +302,6 @@ export async function runApplyPendingVisualStylesWithAgent({
       if (delivery.target === "local") setActiveLeftPanel("agent");
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
 
-      const hardDeadline = Date.now() + PENDING_STRUCTURE_HARD_TIMEOUT_MS;
       let nextSourcePollAt = 0;
       let verificationRuntimeMounted = false;
       let observedVersionHashes = session.sources.map(
@@ -325,20 +354,23 @@ export async function runApplyPendingVisualStylesWithAgent({
         if (Date.now() >= nextSourcePollAt) {
           nextSourcePollAt = Date.now() + PENDING_STRUCTURE_SOURCE_POLL_MS;
           try {
-            const currentVersions = await Promise.all(
-              session.sources.map(async (source) => {
-                const result = (await callAction(
-                  "read-local-file",
-                  {
-                    designId: id,
-                    connectionId: source.connectionId,
-                    path: source.path,
-                  },
-                  { method: "GET" },
-                )) as { versionHash?: string } | undefined;
-                return result?.versionHash;
-              }),
+            const currentVersions = await readWithHardDeadline(
+              Promise.all(
+                session.sources.map(async (source) => {
+                  const result = (await callAction(
+                    "read-local-file",
+                    {
+                      designId: id,
+                      connectionId: source.connectionId,
+                      path: source.path,
+                    },
+                    { method: "GET" },
+                  )) as { versionHash?: string } | undefined;
+                  return result?.versionHash;
+                }),
+              ),
             );
+            if (currentVersions === sourceReadDeadline) break;
             if (session.cancelled) return;
             const versionChanged = currentVersions.some(
               (versionHash, index) =>

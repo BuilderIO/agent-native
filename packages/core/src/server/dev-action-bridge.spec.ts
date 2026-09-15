@@ -309,6 +309,7 @@ describe("mountDevActionForwardRoute", () => {
       value: "/_agent-native/embed/start?ticket=private",
       enumerable: false,
     });
+    result.startUrl = "/_agent-native/embed/start?ticket=enumerable";
     const handler = mountedHandler({
       "open-visual-edit": { run: vi.fn(async () => result) } as any,
     });

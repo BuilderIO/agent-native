@@ -45,6 +45,7 @@ function structureEdit(index: number): PendingLiveStructureEdit {
 function argsFor(
   edits: PendingLiveStructureEdit[],
   snapshots: Map<number, Record<string, { html: string; nodeCount: number }>>,
+  options: { hangReads?: boolean } = {},
 ) {
   const sessionRef = { current: undefined };
   const pendingEditsRef = { current: edits };
@@ -82,6 +83,7 @@ function argsFor(
   const cancelPendingStructureVerification = vi.fn();
 
   callActionMock.mockImplementation(async (_action, input) => {
+    if (options.hangReads) return new Promise(() => {});
     const path = (input as { path: string }).path;
     const index = Number(path.match(/screen-(\d+)/)?.[1]);
     const writeAt = index === 1 ? 65_000 : index === 2 ? 100_000 : 155_000;
@@ -137,7 +139,10 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     Object.assign(globalThis, {
-      window: { setTimeout: globalThis.setTimeout },
+      window: {
+        clearTimeout: globalThis.clearTimeout,
+        setTimeout: globalThis.setTimeout,
+      },
     });
     callActionMock.mockReset();
     sendDesignSourceHandoffAndConfirmMock.mockClear();
@@ -190,5 +195,19 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       "conflict",
     );
     expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+  });
+
+  it("does not let a hanging source read outlive the hard deadline", async () => {
+    const edits = [structureEdit(1)];
+    const setup = argsFor(edits, new Map(), { hangReads: true });
+    const applyPromise = runApplyPendingVisualStylesWithAgent(setup.args);
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(PENDING_STRUCTURE_HARD_TIMEOUT_MS);
+    await expect(applyPromise).resolves.toBeUndefined();
+
+    expect(setup.cancelPendingStructureVerification).toHaveBeenCalledWith(
+      "conflict",
+    );
   });
 });
