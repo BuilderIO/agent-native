@@ -64,7 +64,22 @@ const mocks = vi.hoisted(() => {
       role: "viewer",
       resource: {},
     })),
-    getDbExec: vi.fn(defaultDbExec),
+    getDbExec: vi.fn(() => ({
+      execute: vi.fn(async (statement: unknown) => {
+        const sql =
+          typeof statement === "string"
+            ? statement
+            : String((statement as { sql?: unknown })?.sql ?? "");
+        executedSql.push(sql);
+        if (sql.includes("SELECT id FROM workspace_apps")) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        return {
+          rows: state.orgRole ? [{ role: state.orgRole }] : [],
+          rowsAffected: 0,
+        };
+      }),
+    })),
     resolveBuilderCredentialsDetailed: vi.fn(async () => ({
       privateKey: null as string | null,
       publicKey: null as string | null,
@@ -178,7 +193,21 @@ afterEach(() => {
   );
   mocks.state.orgRole = "admin";
   mocks.getDbExec.mockReset();
-  mocks.getDbExec.mockImplementation(mocks.defaultDbExec);
+  mocks.getDbExec.mockImplementation(() => ({
+    execute: vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.includes("SELECT id FROM workspace_apps")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      return {
+        rows: mocks.state.orgRole ? [{ role: mocks.state.orgRole }] : [],
+        rowsAffected: 0,
+      };
+    }),
+  }));
   mocks.resolveAccess.mockReset();
   mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
   mocks.resolveBuilderCredentialsDetailed.mockResolvedValue({
@@ -473,11 +502,12 @@ describe("listWorkspaceApps", () => {
     warn.mockRestore();
   });
 
-  it("still reconciles registry state when the gateway is merely unavailable", async () => {
+  it("names the apps an unverified read cannot resolve access for", async () => {
     const fetchMock = vi.fn(
-      async () => new Response("not found", { status: 404 }),
+      async () => new Response("denied", { status: 403 }),
     );
     vi.stubGlobal("fetch", fetchMock);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
     stubManifest([
@@ -490,7 +520,41 @@ describe("listWorkspaceApps", () => {
       () => listWorkspaceApps({ includeAgentCards: false }),
     );
 
-    expect(mocks.executedSql.some((sql) => /\bINSERT\b/i.test(sql))).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("no access record for 1 app(s)"),
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("clips"));
+    warn.mockRestore();
+  });
+
+  // An unavailable route means the manifest really is the authority, so that
+  // path must stay trusted; only an explicit denial downgrades it.
+  it("treats an unavailable gateway as authoritative rather than unverified", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringContaining("denied the registry read"),
+    );
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringContaining("no access record for"),
+    );
+    warn.mockRestore();
   });
 
   it.each([401, 403])(

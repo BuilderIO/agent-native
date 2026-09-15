@@ -1326,10 +1326,17 @@ async function ensureWorkspaceAppRecords(
       }
     }
 
+    const unresolvedIds: string[] = [];
     for (const app of readyApps) {
       const existing = existingRecords.get(app.id);
       if (!existing) {
-        if (!shouldPersist) continue;
+        if (!shouldPersist) {
+          // Fail closed, but never silently: access here is unknown rather
+          // than denied, and the count is what tells an operator whether the
+          // degraded read is benign or is hiding the whole workspace.
+          unresolvedIds.push(app.id);
+          continue;
+        }
         const override = metadata.apps[app.id];
         // Never infer ownership from the person who happened to list apps.
         // Legacy manifests without trusted creation metadata remain
@@ -1425,6 +1432,12 @@ async function ensureWorkspaceAppRecords(
           visibility: existing.visibility === "private" ? "private" : "org",
         });
       }
+    }
+
+    if (unresolvedIds.length > 0) {
+      console.warn(
+        `[dispatch] unverified workspace app read has no access record for ${unresolvedIds.length} app(s); hidden from this response: ${unresolvedIds.join(", ")}`,
+      );
     }
 
     if (shouldReconcile && orgId) {
