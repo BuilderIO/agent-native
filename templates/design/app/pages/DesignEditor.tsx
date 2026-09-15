@@ -15365,6 +15365,24 @@ function DesignEditor() {
     () => enterOverviewFromZoom(),
     [enterOverviewFromZoom],
   );
+  // Escape is the standard "leave this mode" convention users try first, and
+  // Interact had no keyboard path back to Edit at all — only the bar's Close
+  // button. This listens on `window` in the default bubble phase, same as
+  // useDesignHotkeys elsewhere, so a Radix layer (the device Select, zoom
+  // Popover) still gets first refusal: its own document-level Escape
+  // handling stops the event before it reaches here, matching
+  // DesignColorPicker.escape.test.tsx's documented ordering. It intentionally
+  // does not reuse useDesignHotkeys, which stays disabled in Interact so the
+  // running prototype keeps owning every other shortcut.
+  useEffect(() => {
+    if (!responsiveInteractActive) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      handleExitResponsiveInteract();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [responsiveInteractActive, handleExitResponsiveInteract]);
   // Fit against the actual center canvas, not window.innerWidth: both rails
   // remain mounted in Interact, so window-level math can place a wide device
   // partly behind them. ResizeObserver also refits after either rail moves.
@@ -16196,8 +16214,11 @@ function DesignEditor() {
     onSendToBack: canEditDesign
       ? () => changeSelectedZIndex("back")
       : undefined,
-    // Interact owns the running app's keyboard behavior. The editor shell must
-    // not consume Escape or use it to change view/selection underneath it.
+    // Interact owns the running app's keyboard behavior. The editor shell's
+    // canvas Escape handling (selection clearing, drawing/pin-mode exit,
+    // breakpoint targeting) must not fire underneath it — the separate
+    // Escape listener next to handleExitResponsiveInteract covers leaving
+    // Interact itself.
     onEscape: responsiveInteractActive ? undefined : handleEscapeHotkey,
     onEnter: handleEnterHotkey,
     onSelectParent: handleSelectParentLayer,

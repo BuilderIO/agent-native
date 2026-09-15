@@ -71,6 +71,22 @@ describe("ResponsiveInteractBar mode exits", () => {
     expect(markup).toContain("tabler-icon-scribble");
   });
 
+  // Reported gap: the only way out of Interact was an icon-only Close button
+  // discoverable solely by hovering for its tooltip. The exit control now
+  // carries its own visible text so it doesn't depend on discovery.
+  it("shows the exit control's label as visible text, not just a tooltip", () => {
+    const markup = renderBar();
+    const exitButtonStart = markup.indexOf(
+      'aria-label="Exit responsive preview"',
+    );
+    const exitButtonEnd = markup.indexOf("</button>", exitButtonStart);
+
+    expect(exitButtonStart).toBeGreaterThan(-1);
+    expect(markup.slice(exitButtonStart, exitButtonEnd)).toContain(
+      "Exit responsive preview",
+    );
+  });
+
   it("hides Annotate for a caller without edit access", () => {
     const markup = renderBar({ canAnnotate: false });
 

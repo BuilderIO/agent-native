@@ -358,22 +358,20 @@ export function ResponsiveInteractBar({
         </div>
       </div>
       <div className="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onClose}
-              aria-label={t("designEditor.responsiveInteract.exit")}
-              className="size-7 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
-            >
-              <IconX className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {t("designEditor.responsiveInteract.exit")}
-          </TooltipContent>
-        </Tooltip>
+        {/* Reported gap: Interact's only way out was an icon-only button
+            discoverable solely by hovering for its tooltip. A visible label
+            is the fix — this is the one control a user stuck in Interact is
+            actively looking for, so it can't depend on hover to be found. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onClose}
+          aria-label={t("designEditor.responsiveInteract.exit")}
+          className="h-7 shrink-0 cursor-pointer gap-1.5 rounded-md px-2 !text-[12px] text-muted-foreground hover:text-foreground"
+        >
+          <IconX className="size-4" />
+          {t("designEditor.responsiveInteract.exit")}
+        </Button>
       </div>
     </div>
   );

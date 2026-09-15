@@ -283,9 +283,32 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain("const resolvedHeight =");
   });
 
-  it("leaves Escape entirely to the running app", () => {
+  it("keeps the canvas-shell Escape handling inert, but exits Interact on Escape", () => {
+    // The canvas shell's selection/drawing/breakpoint Escape handling must
+    // not fire underneath the running prototype.
     expect(source).toContain(
       "onEscape: responsiveInteractActive ? undefined : handleEscapeHotkey",
+    );
+    // Reported gap: Interact had no keyboard way out at all, only the bar's
+    // Close button. A dedicated window listener (not useDesignHotkeys, which
+    // stays disabled above) now exits Interact on Escape whenever the event
+    // reaches the parent window un-intercepted — i.e. never while a Radix
+    // layer (the device Select, zoom Popover) or the iframe itself has
+    // already handled it, matching DesignColorPicker.escape.test.tsx's
+    // documented ordering.
+    const escapeExitEffect = source.slice(
+      source.indexOf("const handleExitResponsiveInteract ="),
+      source.indexOf("// Fit against the actual center canvas"),
+    );
+    expect(escapeExitEffect).toContain(
+      "if (!responsiveInteractActive) return;",
+    );
+    expect(escapeExitEffect).toContain(
+      'if (event.key !== "Escape" || event.defaultPrevented) return;',
+    );
+    expect(escapeExitEffect).toContain("handleExitResponsiveInteract();");
+    expect(escapeExitEffect).toContain(
+      'window.addEventListener("keydown", handleKeyDown);',
     );
   });
 
