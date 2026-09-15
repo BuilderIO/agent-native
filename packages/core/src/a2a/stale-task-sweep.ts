@@ -49,12 +49,21 @@ const NOTHING_STUCK: StaleA2ATaskSweepResult = {
 };
 
 /**
- * Narrow to rows a terminal verdict could possibly apply to. The classifier is
- * still the authority per row — this predicate only keeps the scan off the
- * healthy majority, and mirrors the cutoffs the classifier will recompute.
+ * Narrow to rows a terminal verdict could possibly apply to. The classifier
+ * and `isA2ABackgroundRecoverable` are still the authority per row — this
+ * predicate only keeps the scan off the healthy majority, and mirrors the
+ * cutoffs the classifier will recompute.
+ *
+ * The processor check is duplicated here as a substring probe rather than left
+ * to the JS gate alone, because the batch cap is applied by this query. A row
+ * the JS gate always skips never changes state, always matches again, and
+ * sorts oldest-first — so enough of them would fill every batch forever and
+ * silently stop the sweep, which is the original bug wearing a different hat.
+ * Substring rather than a `jsonb` cast so one malformed row cannot throw the
+ * whole sweep; it can only over-match, and the JS gate rejects the extras.
  */
 const STUCK_CANDIDATE_SQL = `
-  metadata IS NOT NULL
+  strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0
   AND (
     (status_state IN ('submitted', 'working') AND created_at <= ?)
     OR

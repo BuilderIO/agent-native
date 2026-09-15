@@ -224,7 +224,8 @@ describe("reapAllStaleA2ATasks", () => {
       `INSERT INTO a2a_tasks
          (id, context_id, status_state, status_timestamp, history, artifacts,
           metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at)
-       VALUES ('corrupt', NULL, 'processing', ?, '[]', '[]', '{not json',
+       VALUES ('corrupt', NULL, 'processing', ?, '[]', '[]',
+               '{"__a2a_processor":{"verifiedEmail"',
                'a@example.com', '', NULL, ?, ?)`,
       [new Date(now).toISOString(), now - 20 * MINUTE, now - 10 * MINUTE],
     );
@@ -239,6 +240,38 @@ describe("reapAllStaleA2ATasks", () => {
       `SELECT status_state FROM a2a_tasks WHERE id = 'corrupt'`,
     );
     expect((rows[0] as any).status_state).toBe("processing");
+  });
+
+  it("is not starved by a batch-cap worth of ineligible rows", async () => {
+    // Ineligible rows never change state, so they match again on every tick
+    // and sort oldest-first. If the batch cap were applied before the
+    // eligibility gate, 200 of them would fill every batch forever and the
+    // sweep would silently stop — reintroducing the exact bug this fixes.
+    const now = Date.now();
+    await pglite.query(
+      `INSERT INTO a2a_tasks
+         (id, context_id, status_state, status_timestamp, history, artifacts,
+          metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at)
+       SELECT 'ineligible-' || i, NULL, 'working', ?, '[]', '[]',
+              '{"callerMetadata":{"userEmail":"a@example.com"}}',
+              'a@example.com', '', NULL, ?, ?
+       FROM generate_series(1, 250) AS i`,
+      // Older than the eligible task below, so they sort first.
+      [new Date(now).toISOString(), now - 90 * MINUTE, now - 90 * MINUTE],
+    );
+    await insertTask({
+      id: "eligible-behind-the-crowd",
+      state: "working",
+      ageMs: 20 * MINUTE,
+      sinceTouchMs: 20 * MINUTE,
+    });
+
+    const result = await reapAllStaleA2ATasks();
+
+    expect(result.reaped).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(await stateOf("eligible-behind-the-crowd")).toBe("failed");
+    expect(await stateOf("ineligible-1")).toBe("working");
   });
 
   it("counts a row that threw instead of reporting a clean pass", async () => {
