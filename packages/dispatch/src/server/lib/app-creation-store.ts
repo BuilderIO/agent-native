@@ -164,6 +164,13 @@ export interface WorkspaceAppSummary {
   workspaceSso?: boolean;
 }
 
+interface FinalizeWorkspaceAppsOptions {
+  /** Delete org rows absent from an authoritative manifest. */
+  reconcile?: boolean;
+  /** Write registry rows. False for a source the caller could not authenticate. */
+  persist?: boolean;
+}
+
 interface WorkspaceAppDiscovery {
   apps: WorkspaceAppSummary[];
   authoritative: boolean;
@@ -1266,12 +1273,17 @@ function appRecordTimestamp(value: string | null | undefined): number {
  */
 async function ensureWorkspaceAppRecords(
   apps: WorkspaceAppSummary[],
-  options: { reconcile?: boolean } = {},
+  options: { reconcile?: boolean; persist?: boolean } = {},
 ): Promise<WorkspaceAppSummary[]> {
   const readyApps = apps.filter(
     (app) => app.status !== "pending" && !app.isDispatch,
   );
-  const shouldReconcile = options.reconcile === true;
+  // A source the caller could not authenticate annotates from existing rows
+  // only. Minting a row here would create the very authorization the access
+  // filter then checks, and reconciling would delete rows and shares on the
+  // word of a manifest no authoritative registry confirmed.
+  const shouldPersist = options.persist !== false;
+  const shouldReconcile = options.reconcile === true && shouldPersist;
   if (!shouldReconcile && readyApps.length === 0) return apps;
 
   const orgId = currentOrgId();
@@ -1317,6 +1329,7 @@ async function ensureWorkspaceAppRecords(
     for (const app of readyApps) {
       const existing = existingRecords.get(app.id);
       if (!existing) {
+        if (!shouldPersist) continue;
         const override = metadata.apps[app.id];
         // Never infer ownership from the person who happened to list apps.
         // Legacy manifests without trusted creation metadata remain
@@ -1354,7 +1367,7 @@ async function ensureWorkspaceAppRecords(
         const existingOrgId = cleanOptionalText(existing.org_id) ?? null;
         // A registry row belongs to the org that created it. Never reassign a
         // row from another org just because a caller listed the same manifest.
-        if (existingOrgId && existingOrgId !== orgId) {
+        if (!shouldPersist || (existingOrgId && existingOrgId !== orgId)) {
           records.set(app.id, {
             ownerEmail: existingOwnerEmail,
             orgId: existingOrgId,
@@ -1990,11 +2003,17 @@ export async function updateWorkspaceAppMetadata(input: {
 export async function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
-  const finalize = async (apps: WorkspaceAppSummary[], reconcile = false) => {
+  const finalize = async (
+    apps: WorkspaceAppSummary[],
+    { reconcile = false, persist = true }: FinalizeWorkspaceAppsOptions = {},
+  ) => {
     // Reconcile from the complete manifest. Archive and audience filters only
     // control the response; treating hidden apps as absent deletes their rows.
     const annotated = await applyArchivedAndPending(apps);
-    const recorded = await ensureWorkspaceAppRecords(annotated, { reconcile });
+    const recorded = await ensureWorkspaceAppRecords(annotated, {
+      reconcile,
+      persist,
+    });
     const listed = options.includeArchived
       ? recorded
       : recorded.filter((app) => !app.archived);
@@ -2011,15 +2030,17 @@ export async function listWorkspaceApps(
     if (!(error instanceof WorkspaceAppsGatewayAuthorizationError)) throw error;
     // A denial answers for the gateway hop, not for what this caller may see.
     // The receiver resolves org membership against its own database, so a
-    // cross-deployment trust gap reads as 403 for every user at once. The
-    // deployment-owned manifests below describe the same mounted apps and are
-    // still access-filtered per caller in finalize(), so prefer them over
-    // blanking the workspace. A registry nothing can answer still throws.
+    // cross-deployment trust gap reads as 403 for every user at once. Serve
+    // the deployment manifests below rather than blanking the workspace, but
+    // treat them as unverified: read-only, so an unauthenticated read never
+    // writes the access rows it is about to be filtered by. A registry
+    // nothing can answer still throws.
     gatewayDenial = error;
   }
   if (gatewayApps) {
-    return finalize(gatewayApps.apps, gatewayApps.authoritative);
+    return finalize(gatewayApps.apps, { reconcile: gatewayApps.authoritative });
   }
+  const unverified = gatewayDenial !== null;
 
   const workspaceRoot = findWorkspaceRoot();
   const localFilesystemApps =
@@ -2028,14 +2049,20 @@ export async function listWorkspaceApps(
       : null;
   if (localFilesystemApps) {
     warnWorkspaceAppsGatewayDenial(gatewayDenial, "local filesystem");
-    return finalize(localFilesystemApps, true);
+    return finalize(localFilesystemApps, {
+      reconcile: !unverified,
+      persist: !unverified,
+    });
   }
 
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
   if (manifestApps) {
     warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment manifest");
-    return finalize(manifestApps, true);
+    return finalize(manifestApps, {
+      reconcile: !unverified,
+      persist: !unverified,
+    });
   }
 
   // Every remaining branch synthesizes a registry instead of reading one, so a

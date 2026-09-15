@@ -25,9 +25,28 @@ const mocks = vi.hoisted(() => {
   const state = {
     orgRole: "admin" as string | null,
   };
+  const executedSql: string[] = [];
+  const defaultDbExec = () => ({
+    execute: vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      executedSql.push(sql);
+      if (sql.includes("SELECT id FROM workspace_apps")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      return {
+        rows: state.orgRole ? [{ role: state.orgRole }] : [],
+        rowsAffected: 0,
+      };
+    }),
+  });
   return {
     settings,
     state,
+    executedSql,
+    defaultDbExec,
     getSetting: vi.fn(async (key: string) => settings.get(key) ?? null),
     mutateSetting: vi.fn(
       async (key: string, updater: (current: any) => any) => {
@@ -45,21 +64,7 @@ const mocks = vi.hoisted(() => {
       role: "viewer",
       resource: {},
     })),
-    getDbExec: vi.fn(() => ({
-      execute: vi.fn(async (statement: unknown) => {
-        const sql =
-          typeof statement === "string"
-            ? statement
-            : String((statement as { sql?: unknown })?.sql ?? "");
-        if (sql.includes("SELECT id FROM workspace_apps")) {
-          return { rows: [], rowsAffected: 0 };
-        }
-        return {
-          rows: state.orgRole ? [{ role: state.orgRole }] : [],
-          rowsAffected: 0,
-        };
-      }),
-    })),
+    getDbExec: vi.fn(defaultDbExec),
     resolveBuilderCredentialsDetailed: vi.fn(async () => ({
       privateKey: null as string | null,
       publicKey: null as string | null,
@@ -157,6 +162,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  mocks.executedSql.length = 0;
   mocks.settings.clear();
   mocks.getOrgSetting.mockReset();
   mocks.getOrgSetting.mockResolvedValue(null);
@@ -172,21 +178,7 @@ afterEach(() => {
   );
   mocks.state.orgRole = "admin";
   mocks.getDbExec.mockReset();
-  mocks.getDbExec.mockImplementation(() => ({
-    execute: vi.fn(async (statement: unknown) => {
-      const sql =
-        typeof statement === "string"
-          ? statement
-          : String((statement as { sql?: unknown })?.sql ?? "");
-      if (sql.includes("SELECT id FROM workspace_apps")) {
-        return { rows: [], rowsAffected: 0 };
-      }
-      return {
-        rows: mocks.state.orgRole ? [{ role: mocks.state.orgRole }] : [],
-        rowsAffected: 0,
-      };
-    }),
-  }));
+  mocks.getDbExec.mockImplementation(mocks.defaultDbExec);
   mocks.resolveAccess.mockReset();
   mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
   mocks.resolveBuilderCredentialsDetailed.mockResolvedValue({
@@ -452,6 +444,54 @@ describe("listWorkspaceApps", () => {
       warn.mockRestore();
     },
   );
+
+  // A read the caller could not authenticate must not write the access rows it
+  // is then filtered by, and must not delete rows or shares the denied
+  // registry never confirmed are gone.
+  it("never mutates registry state from the unverified fallback manifest", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    const mutations = mocks.executedSql.filter((sql) =>
+      /\b(INSERT|UPDATE|DELETE)\b/i.test(sql),
+    );
+    expect(mutations).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it("still reconciles registry state when the gateway is merely unavailable", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(mocks.executedSql.some((sql) => /\bINSERT\b/i.test(sql))).toBe(true);
+  });
 
   it.each([401, 403])(
     "still rejects a denied registry read when no deployment manifest can answer (%i)",
