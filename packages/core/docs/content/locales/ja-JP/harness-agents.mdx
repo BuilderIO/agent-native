@@ -175,6 +175,11 @@ Codex サーフェスは 2 つあります。
   `harnessOptions.auth` を `"ai-gateway"` に設定します。このモードはネイティブ
   サブスクリプションを読み取りません。
 
+組み込みの `ai-sdk-harness:codex` アダプターがサポートするのは
+`permissionMode: "allow-all"` のみです。安定版 Codex ランタイムで受け付けられる
+唯一のモードだからです。デフォルトを使うには `permissionMode` を省略してください。
+このアダプターでは `allow-reads` と `allow-edits` は拒否されます。
+
 ## 登録して解決 {#register-resolve}
 
 ```ts

@@ -179,6 +179,11 @@ There are two Codex surfaces:
   file. Set `harnessOptions.auth` to `"ai-gateway"` to use AI Gateway only;
   that mode never reads a native subscription.
 
+The built-in `ai-sdk-harness:codex` adapter only supports
+`permissionMode: "allow-all"`, because that is the stable Codex runtime's only
+accepted mode. Omit `permissionMode` to use that default;
+`allow-reads` and `allow-edits` are rejected for this adapter.
+
 ## Register and resolve {#register-resolve}
 
 ```ts

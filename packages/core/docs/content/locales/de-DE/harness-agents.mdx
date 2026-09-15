@@ -176,6 +176,11 @@ Es gibt zwei Codex-Oberflächen:
   `harnessOptions.auth` auf `"ai-gateway"`, um nur AI Gateway zu verwenden; dieser
   Modus liest niemals ein natives Abonnement.
 
+Der integrierte Adapter `ai-sdk-harness:codex` unterstützt nur
+`permissionMode: "allow-all"`, da dies der einzige akzeptierte Modus der stabilen
+Codex-Laufzeit ist. Lassen Sie `permissionMode` weg, um diesen Standard zu
+verwenden; `allow-reads` und `allow-edits` werden für diesen Adapter abgelehnt.
+
 ## Registrieren und lösen {#register-resolve}
 
 ```ts

@@ -4,6 +4,7 @@ import {
   aiSdkHarnessPartToEvents,
   createNativeSession,
   resolveAiSdkHarnessPermissionMode,
+  toAiSdkToolApprovalContinuation,
 } from "./ai-sdk-adapter.js";
 
 describe("AI SDK harness session setup", () => {
@@ -20,18 +21,36 @@ describe("AI SDK harness session setup", () => {
   it("passes the stable session resume contract to HarnessAgent", async () => {
     const createSession = vi.fn().mockResolvedValue({ id: "native-session" });
     const resumeState = { type: "resume-session", data: {} };
+    const sandboxSession = { id: "sandbox-session" };
 
     await createNativeSession(
       { createSession },
       {
         sessionId: "agent-session",
         resumeState,
+        sandbox: sandboxSession,
       },
     );
 
     expect(createSession).toHaveBeenCalledWith({
       sessionId: "agent-session",
       resumeFrom: resumeState,
+      sandboxSession,
+    });
+  });
+
+  it("maps framework approvals to the stable Harness continuation shape", () => {
+    expect(
+      toAiSdkToolApprovalContinuation({
+        id: "approval-1",
+        approved: false,
+        message: "Not this time",
+      }),
+    ).toEqual({
+      type: "tool-approval-response",
+      approvalId: "approval-1",
+      approved: false,
+      reason: "Not this time",
     });
   });
 
@@ -82,14 +101,25 @@ describe("aiSdkHarnessPartToEvents", () => {
         result: "ok",
       },
     ]);
+    expect(
+      aiSdkHarnessPartToEvents({
+        type: "tool-input-start",
+        id: "t1",
+        toolName: "bash",
+      }),
+    ).toEqual([]);
   });
 
   it("maps approval, file, compaction, finish, and error parts", () => {
     expect(
       aiSdkHarnessPartToEvents({
         type: "tool-approval-request",
-        id: "approval-1",
-        toolName: "write",
+        approvalId: "approval-1",
+        toolCall: {
+          toolCallId: "tool-1",
+          toolName: "write",
+          input: { path: "README.md" },
+        },
         message: "Approve write?",
       }),
     ).toEqual([
@@ -98,7 +128,7 @@ describe("aiSdkHarnessPartToEvents", () => {
         id: "approval-1",
         tool: "write",
         message: "Approve write?",
-        input: undefined,
+        input: { path: "README.md" },
       },
     ]);
     expect(
@@ -118,6 +148,42 @@ describe("aiSdkHarnessPartToEvents", () => {
     expect(aiSdkHarnessPartToEvents({ type: "compaction" })).toEqual([
       { type: "compaction", summary: undefined },
     ]);
+    expect(
+      aiSdkHarnessPartToEvents({
+        type: "tool-call",
+        toolCallId: "file-1",
+        toolName: "fileChange",
+        input: { event: "modify", path: "src/app.ts" },
+        dynamic: true,
+        providerExecuted: true,
+      }),
+    ).toEqual([
+      {
+        type: "file-change",
+        path: "src/app.ts",
+        operation: "update",
+      },
+    ]);
+    expect(
+      aiSdkHarnessPartToEvents({
+        type: "tool-result",
+        toolCallId: "file-1",
+        toolName: "fileChange",
+        output: { event: "modify", path: "src/app.ts" },
+        dynamic: true,
+        providerExecuted: true,
+      }),
+    ).toEqual([]);
+    expect(
+      aiSdkHarnessPartToEvents({
+        type: "tool-result",
+        toolCallId: "compact-1",
+        toolName: "compaction",
+        output: { trigger: "auto", summary: "trimmed context" },
+        dynamic: true,
+        providerExecuted: true,
+      }),
+    ).toEqual([{ type: "compaction", summary: "trimmed context" }]);
     expect(
       aiSdkHarnessPartToEvents({ type: "finish", finishReason: "stop" }),
     ).toEqual([{ type: "done", reason: "stop" }]);

@@ -174,6 +174,11 @@ it) ويكتب أحداث `file-change`؛ لا يتم الإعلان عن الط
   دون نسخ ملف المصادقة المحلي. عيّن `harnessOptions.auth` إلى `"ai-gateway"`
   لاستخدام AI Gateway فقط؛ هذا الوضع لا يقرأ اشتراكًا أصليًا.
 
+يدعم محول `ai-sdk-harness:codex` المضمّن فقط
+`permissionMode: "allow-all"`، لأن هذا هو الوضع الوحيد المقبول في إصدار Codex
+المستقر. اترك `permissionMode` دون تحديد لاستخدام هذا الإعداد الافتراضي؛ يتم
+رفض `allow-reads` و`allow-edits` لهذا المحول.
+
 ## التسجيل والحل {#register-resolve}
 
 ```ts

@@ -176,6 +176,11 @@ Il existe deux surfaces Codex :
   `"ai-gateway"` pour utiliser uniquement AI Gateway ; ce mode ne lit jamais un
   abonnement natif.
 
+L'adaptateur intégré `ai-sdk-harness:codex` prend uniquement en charge
+`permissionMode: "allow-all"`, car c'est le seul mode accepté par le runtime Codex
+stable. Omettez `permissionMode` pour utiliser cette valeur par défaut ;
+`allow-reads` et `allow-edits` sont refusés par cet adaptateur.
+
 ## Enregistrer et résoudre {#register-resolve}
 
 ```ts

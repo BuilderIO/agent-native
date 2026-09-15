@@ -68,6 +68,18 @@ export function resolveAiSdkHarnessPermissionMode(
   return permissionMode;
 }
 
+/** @internal */
+export function toAiSdkToolApprovalContinuation(
+  approval: NonNullable<AgentHarnessContinueInput["approval"]>,
+) {
+  return {
+    type: "tool-approval-response" as const,
+    approvalId: approval.id,
+    approved: approval.approved,
+    ...(approval.message ? { reason: approval.message } : {}),
+  };
+}
+
 export function createAiSdkHarnessAdapter(
   options: AiSdkHarnessAdapterOptions,
 ): AgentHarnessAdapter {
@@ -119,7 +131,6 @@ export function createAiSdkHarnessAdapter(
       const agent = new HarnessAgent({
         ...(options.agentOptions ?? {}),
         harness,
-        ...(sessionOptions.sandbox ? { sandbox: sessionOptions.sandbox } : {}),
         ...(sessionOptions.instructions
           ? { instructions: sessionOptions.instructions }
           : {}),
@@ -155,6 +166,7 @@ export async function createNativeSession(
       ? { sessionId: options.sessionId }
       : {}),
     ...(options.resumeState != null ? { resumeFrom: options.resumeState } : {}),
+    ...(options.sandbox != null ? { sandboxSession: options.sandbox } : {}),
     ...(options.signal ? { abortSignal: options.signal } : {}),
   };
   return Object.keys(createOptions).length > 0
@@ -203,7 +215,13 @@ class AiSdkHarnessSession implements AgentHarnessSession {
     }
     const result = await this.agent.continueStream({
       session: this.nativeSession,
-      ...(input.approval ? { approval: input.approval } : {}),
+      ...(input.approval
+        ? {
+            toolApprovalContinuations: [
+              toAiSdkToolApprovalContinuation(input.approval),
+            ],
+          }
+        : {}),
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     });
     for await (const part of result.fullStream ?? []) {
@@ -244,15 +262,26 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
       if (part.text) events.push({ type: "thinking-delta", text: part.text });
       break;
     case "tool-input-start":
-      events.push({
-        type: "tool-start",
-        id: part.id ?? part.toolCallId,
-        name: part.toolName ?? part.name ?? "tool",
-        input: {},
-      });
+    case "tool-input-delta":
+    case "tool-input-end":
       break;
     case "tool-call":
     case "dynamic-tool-call":
+      if (isSyntheticHarnessToolPart(part, "fileChange")) {
+        const input = part.input ?? part.args;
+        if (input && typeof input === "object" && !Array.isArray(input)) {
+          const path = input.path;
+          if (typeof path === "string") {
+            events.push({
+              type: "file-change",
+              path,
+              operation: normalizeFileOperation(input.event),
+            });
+          }
+        }
+        break;
+      }
+      if (isSyntheticHarnessToolPart(part, "compaction")) break;
       events.push({
         type: "tool-start",
         id: part.toolCallId ?? part.id,
@@ -262,6 +291,20 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
       break;
     case "tool-result":
     case "dynamic-tool-result":
+      if (isSyntheticHarnessToolPart(part, "fileChange")) break;
+      if (isSyntheticHarnessToolPart(part, "compaction")) {
+        const output = part.output ?? part.result;
+        events.push({
+          type: "compaction",
+          summary:
+            output && typeof output === "object" && !Array.isArray(output)
+              ? typeof output.summary === "string"
+                ? output.summary
+                : undefined
+              : undefined,
+        });
+        break;
+      }
       events.push({
         type: "tool-done",
         id: part.toolCallId ?? part.id,
@@ -272,15 +315,17 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
         result: part.output ?? part.result,
       });
       break;
-    case "tool-approval-request":
+    case "tool-approval-request": {
+      const toolCall = part.toolCall ?? {};
       events.push({
         type: "approval-request",
-        id: part.id ?? part.toolCallId ?? "approval",
-        tool: part.toolName ?? part.name,
+        id: part.approvalId ?? part.id ?? part.toolCallId ?? "approval",
+        tool: part.toolName ?? part.name ?? toolCall.toolName ?? toolCall.name,
         message: part.message ?? "Harness is waiting for approval",
-        input: part.input ?? part.args,
+        input: part.input ?? part.args ?? toolCall.input ?? toolCall.args,
       });
       break;
+    }
     case "file-change":
       if (part.path) {
         events.push({
@@ -313,10 +358,24 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
 function normalizeFileOperation(
   value: unknown,
 ): Extract<AgentHarnessEvent, { type: "file-change" }>["operation"] {
-  return value === "create" ||
-    value === "update" ||
-    value === "delete" ||
-    value === "rename"
-    ? value
-    : "unknown";
+  return value === "modify"
+    ? "update"
+    : value === "create" ||
+        value === "update" ||
+        value === "delete" ||
+        value === "rename"
+      ? value
+      : "unknown";
+}
+
+function isSyntheticHarnessToolPart(part: any, toolName: string): boolean {
+  return (
+    (part?.type === "tool-call" ||
+      part?.type === "dynamic-tool-call" ||
+      part?.type === "tool-result" ||
+      part?.type === "dynamic-tool-result") &&
+    part.dynamic === true &&
+    part.providerExecuted === true &&
+    (part.toolName ?? part.name) === toolName
+  );
 }

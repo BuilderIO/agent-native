@@ -173,6 +173,10 @@ Codex 有兩個表面：
   並且不必將本機驗證檔案複製到沙箱即可傳遞產生的驗證。若只使用 AI Gateway，
   請將 `harnessOptions.auth` 設為 `"ai-gateway"`；此模式不會讀取原生訂閱。
 
+內建 `ai-sdk-harness:codex` 轉接器僅支援 `permissionMode: "allow-all"`，因為這是
+穩定 Codex 執行階段唯一接受的模式。省略 `permissionMode` 即可使用此預設值；此
+轉接器會拒絕 `allow-reads` 和 `allow-edits`。
+
 ## 註冊並解析 {#register-resolve}
 
 ```ts

@@ -175,6 +175,11 @@ Hay dos superficies de Codex:
   de autenticación local. Establece `harnessOptions.auth` en `"ai-gateway"` para usar
   solo AI Gateway; ese modo nunca lee una suscripción nativa.
 
+El adaptador integrado `ai-sdk-harness:codex` solo admite
+`permissionMode: "allow-all"`, porque es el único modo aceptado por el tiempo de
+ejecución estable de Codex. Omite `permissionMode` para usar ese valor
+predeterminado; este adaptador rechaza `allow-reads` y `allow-edits`.
+
 ## Registrarse y resolver {#register-resolve}
 
 ```ts

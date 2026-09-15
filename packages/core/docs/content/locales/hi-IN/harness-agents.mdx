@@ -175,6 +175,11 @@ Codex की दो सतहें हैं:
   AI Gateway उपयोग करने के लिए `harnessOptions.auth` को `"ai-gateway"` पर सेट करें;
   यह मोड native subscription को कभी नहीं पढ़ता।
 
+अंतर्निहित `ai-sdk-harness:codex` एडाप्टर केवल
+`permissionMode: "allow-all"` का समर्थन करता है, क्योंकि स्थिर Codex रनटाइम में
+यही एकमात्र स्वीकार्य मोड है। इस डिफ़ॉल्ट का उपयोग करने के लिए `permissionMode`
+छोड़ दें; यह एडाप्टर `allow-reads` और `allow-edits` को अस्वीकार करता है।
+
 ## पंजीकरण करें और समाधान करें {#register-resolve}
 
 ```ts

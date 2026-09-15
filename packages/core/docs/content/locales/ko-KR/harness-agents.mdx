@@ -174,6 +174,11 @@ Codex 표면은 두 가지입니다.
   샌드박스로 전달됩니다. AI Gateway만 사용하려면 `harnessOptions.auth`를
   `"ai-gateway"`로 설정하세요. 이 모드는 네이티브 구독을 읽지 않습니다.
 
+내장 `ai-sdk-harness:codex` 어댑터는 안정적인 Codex 런타임에서 허용하는 유일한
+모드인 `permissionMode: "allow-all"`만 지원합니다. 이 기본값을 사용하려면
+`permissionMode`를 생략하세요. 이 어댑터에서는 `allow-reads`와 `allow-edits`가
+거부됩니다.
+
 ## 등록 및 해결 {#register-resolve}
 
 ```ts
