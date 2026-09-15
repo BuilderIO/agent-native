@@ -169,6 +169,81 @@ describe("selectParkedRowsForRecheck", () => {
   });
 });
 
+describe("shouldRequeueOpenFromRecheck", () => {
+  it("requeues in-review PRs when bot review keys grow without a head SHA change", async () => {
+    const { shouldRequeueOpenFromRecheck } =
+      await import("./poll-github-sources.js");
+    expect(
+      shouldRequeueOpenFromRecheck(
+        {
+          prBabysitState: "queued",
+          prBabysitBotReviewBodyKeys: ["bot1:please fix"],
+        },
+        {
+          humanReviewCommentCount: 0,
+          humanReviewBodyCount: 0,
+          botReviewBodyKeys: ["bot1:please fix", "bot2:new thread"],
+          commentsTruncated: false,
+          reviewsTruncated: false,
+          changesRequested: false,
+          botErrorAfterPing: false,
+          mergeable: true,
+          mergeableState: "clean",
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it("does not requeue parked babysit rows", async () => {
+    const { shouldRequeueOpenFromRecheck } =
+      await import("./poll-github-sources.js");
+    expect(
+      shouldRequeueOpenFromRecheck(
+        {
+          prBabysitState: "waiting",
+          prBabysitBotReviewBodyKeys: ["bot1:please fix"],
+        },
+        {
+          humanReviewCommentCount: 0,
+          humanReviewBodyCount: 0,
+          botReviewBodyKeys: ["bot1:please fix", "bot2:new thread"],
+          commentsTruncated: false,
+          reviewsTruncated: false,
+          changesRequested: false,
+          botErrorAfterPing: false,
+          mergeable: true,
+          mergeableState: "clean",
+        },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("selectOpenPrRowsForRecheck", () => {
+  it("includes in-review rows and skips parked ones", async () => {
+    const { selectOpenPrRowsForRecheck } =
+      await import("./poll-github-sources.js");
+    const rows = [
+      {
+        pullRequestNumber: 1,
+        repository: "acme/current",
+        metadataJson: JSON.stringify({ prBabysitState: "queued" }),
+      },
+      {
+        pullRequestNumber: 2,
+        repository: "acme/current",
+        metadataJson: JSON.stringify({ prBabysitState: "waiting" }),
+      },
+    ];
+    expect(
+      selectOpenPrRowsForRecheck(rows, {
+        configuredRepository: "acme/current",
+        listedOpenPrNumbers: new Set(),
+      }).map((row) => row.pullRequestNumber),
+    ).toEqual([1]);
+  });
+});
+
 describe("parkedRecheckEvidencePatch", () => {
   const recheck = {
     humanReviewCommentCount: 1,
@@ -668,6 +743,21 @@ describe("poll-github-sources author filter", () => {
         seenPages.push(requested);
         return pages[requested - 1] ?? page([]);
       },
+      getPullRequestSummary: async () => ({
+        state: "open",
+        headSha: "sha-1",
+        mergeable: true,
+        mergeableState: "clean",
+      }),
+      getPullRequestEvidence: async () => ({
+        comments: [],
+        commentsTruncated: false,
+        reviews: [],
+        reviewsTruncated: false,
+        checks: [],
+        checksCoverage: "complete",
+      }),
+      listIssueComments: async () => ({ comments: [], truncated: false }),
     });
 
     await action.run(input, context);
