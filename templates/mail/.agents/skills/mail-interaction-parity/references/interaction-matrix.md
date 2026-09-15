@@ -275,7 +275,7 @@ traffic to any one path.
   Official reference: Superhuman's [Undo](https://help.superhuman.com/hc/en-us/articles/46005666743309-Undo)
   guide documents `Z` to undo the last action within 10 seconds. Local
   regression evidence on 2026-09-14: `pnpm --filter mail exec vitest run
-  app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.test.tsx`
+app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.test.tsx`
   passed (2 files, 15 tests). The hook tests cover before/at/after expiry,
   latest-action replacement, stale toast callbacks, keyboard/toast
   consume-once behavior, active-toast-only dismissal, clearing, and
