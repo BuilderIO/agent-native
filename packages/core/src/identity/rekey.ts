@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { jwtVerify } from "jose";
 
+import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -1121,26 +1122,7 @@ export async function rekeyIdentity(
     }
   }
 
-  if (!options.dryRun)
-    await db.unsafe(`
-      CREATE TABLE IF NOT EXISTS agent_audit_log (
-        id TEXT PRIMARY KEY,
-        created_at BIGINT NOT NULL,
-        action TEXT NOT NULL,
-        caller TEXT NOT NULL,
-        actor_kind TEXT NOT NULL,
-        -- guard:allow-identity-column - immutable audit attribution
-        actor_email TEXT,
-        target_type TEXT,
-        target_id TEXT,
-        status TEXT NOT NULL DEFAULT 'success',
-        summary TEXT,
-        input TEXT,
-        -- guard:allow-identity-column - immutable audit ownership snapshot
-        owner_email TEXT,
-        visibility TEXT NOT NULL DEFAULT 'private'
-      )
-    `);
+  if (!options.dryRun) await db.unsafe(AGENT_AUDIT_LOG_CREATE_SQL);
   if (!options.dryRun)
     await db.unsafe(
       `INSERT INTO agent_audit_log (id, created_at, action, caller, actor_kind, actor_email, target_type, target_id, status, summary, input, owner_email, visibility) VALUES ($1, $2, 'identity.rekeyed', $3, $4, $5, 'identity', $6, 'success', $7, $8, $6, 'private')`,

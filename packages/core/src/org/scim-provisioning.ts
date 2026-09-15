@@ -217,7 +217,7 @@ async function ensureMembership(
   if (!org) return;
 
   const member = await findMember(database, orgId, email);
-  const mapping = await findMapping(database, orgId, userId);
+  let mapping = await findMapping(database, orgId, userId);
   if (mapping?.memberId) {
     const mappedMember = await database.findOne<MemberRow>({
       model: "orgMember",
@@ -253,6 +253,15 @@ async function ensureMembership(
       }
       return;
     }
+    // Local offboarding can remove the SCIM-owned membership while retaining
+    // this durable source mapping for retry. Drop the dangling mapping before
+    // creating a replacement so the unique (org_id, user_id) key remains
+    // singular on reactivation.
+    await database.delete({
+      model: "orgScimMembership",
+      where: [{ field: "id", value: mapping.id }],
+    });
+    mapping = null;
   }
   if (member) {
     if (mapping) return;
@@ -435,10 +444,25 @@ export function createFrameworkSCIMIdentity(): SCIMIdentity {
         }
       }
       // A directory deactivation revokes local and connected-app sessions only
-      // when no active SCIM organization remains for the identity. The Better
-      // Auth transaction owns the session rows, so this stays atomic with the
-      // membership mapping cleanup without pretending to cover other app DBs.
+      // when no active organization membership remains for the identity. The
+      // Better Auth transaction owns the session rows, so this stays atomic
+      // with the membership mapping cleanup without pretending to cover other
+      // app DBs.
       if (activeOrgIds.size === 0) {
+        const remainingMembers = await context.database.findMany<MemberRow>({
+          model: "orgMember",
+          where: [
+            {
+              field: "email",
+              value: normalizeEmail(user.email),
+              mode: "insensitive",
+            },
+          ],
+        });
+        const hasActiveMembership = remainingMembers.some(
+          (member) => member.federationRemovalPendingAt == null,
+        );
+        if (hasActiveMembership) return;
         await context.database.deleteMany({
           model: "session",
           where: [{ field: "userId", value: input.userId }],

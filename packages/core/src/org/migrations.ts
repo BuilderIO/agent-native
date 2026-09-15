@@ -1,3 +1,5 @@
+import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
+
 /**
  * Migration definitions for the org module. Versions are namespaced into a high
  * range (1000+) so they don't collide with template-owned migrations sharing
@@ -294,5 +296,10 @@ export const ORG_MIGRATIONS = [
     name: "workspace-app-org-enabled",
     sql: `ALTER TABLE workspace_apps
           ADD COLUMN IF NOT EXISTS org_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
+  },
+  {
+    version: 1032,
+    name: "agent-audit-log-base-table",
+    sql: AGENT_AUDIT_LOG_CREATE_SQL,
   },
 ];
