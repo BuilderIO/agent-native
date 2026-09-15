@@ -253,6 +253,28 @@ describe("identity SSO feature switch and request classifiers", () => {
     ).toBe(true);
   });
 
+  it("allows Google OAuth relay on the Dispatch preview without enabling client SSO", () => {
+    const deployHost = `${"e".repeat(24)}--agent-native-dispatch.netlify.app`;
+
+    expect(
+      store.isNetlifyDeployPermalinkGoogleOAuthClientRequest(
+        deployHost,
+        undefined,
+      ),
+    ).toBe(true);
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        deployHost,
+        undefined,
+      ),
+    ).toBe(false);
+    expect(
+      store.isNetlifyDeployPermalinkGoogleOAuthClientOrigin(
+        `https://${deployHost}`,
+      ),
+    ).toBe(true);
+  });
+
   it("keeps silent federation available for explicitly configured self-hosted apps", () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL =

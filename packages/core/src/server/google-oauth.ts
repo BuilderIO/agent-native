@@ -40,8 +40,8 @@ import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import {
-  isNetlifyDeployPermalinkIdentitySsoClientOrigin,
-  isNetlifyDeployPermalinkIdentitySsoClientRequest,
+  isNetlifyDeployPermalinkGoogleOAuthClientOrigin,
+  isNetlifyDeployPermalinkGoogleOAuthClientRequest,
 } from "./identity-sso-store.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 import {
@@ -253,7 +253,7 @@ export function getNetlifyPreviewGoogleOAuthCallbackUrl(
   if (
     !host ||
     !isNetlifyPreviewGoogleOAuthCallbackPath(cleanPath) ||
-    !isNetlifyDeployPermalinkIdentitySsoClientRequest(
+    !isNetlifyDeployPermalinkGoogleOAuthClientRequest(
       host,
       getHeader(event, "x-forwarded-proto"),
     )
@@ -272,7 +272,7 @@ export function isNetlifyPreviewGoogleOAuthCallbackUrl(
     const url = new URL(value);
     return (
       `${url.origin}${url.pathname}` === value &&
-      isNetlifyDeployPermalinkIdentitySsoClientOrigin(url.origin) &&
+      isNetlifyDeployPermalinkGoogleOAuthClientOrigin(url.origin) &&
       isNetlifyPreviewGoogleOAuthCallbackPath(url.pathname)
     );
   } catch {
