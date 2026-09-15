@@ -709,15 +709,26 @@ function restoreImageGeometry(
  * and slid every later column of a table sideways in the export, after
  * `restoreTextGeometry` had already pinned positions from the old layout.
  */
-function widenInPlace(element: HTMLElement, width: number) {
+export function widenInPlace(element: HTMLElement, width: number) {
   const rect = element.getBoundingClientRect();
   const extra = width - rect.width;
   if (!(extra > 0)) return;
   const style = window.getComputedStyle(element);
+  const rightToLeft = style.direction === "rtl";
+  const align =
+    style.textAlign === "start" || style.textAlign === "justify"
+      ? rightToLeft
+        ? "right"
+        : "left"
+      : style.textAlign === "end"
+        ? rightToLeft
+          ? "left"
+          : "right"
+        : style.textAlign;
   const share =
-    style.textAlign === "center" || style.textAlign === "-webkit-center"
+    align === "center" || align === "-webkit-center"
       ? 0.5
-      : style.textAlign === "right" || style.textAlign === "end"
+      : align === "right"
         ? 1
         : 0;
   const marginLeft = Number.parseFloat(style.marginLeft) || 0;

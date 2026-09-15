@@ -25,6 +25,7 @@ import {
   pinRenderedFontFamilies,
   pptxExportScale,
   replaceInlineSvgsWithImages,
+  widenInPlace,
 } from "./export-pptx-client";
 import { WRAP_MARK } from "./pptx-google-slides";
 
@@ -1138,4 +1139,27 @@ describe("markWrappedLines", () => {
       `BIG small ${WRAP_MARK}next`,
     );
   });
+});
+
+describe("widenInPlace", () => {
+  it.each([
+    ["ltr", "start", "10px", "-10px"],
+    ["ltr", "end", "-10px", "10px"],
+    ["rtl", "start", "-10px", "10px"],
+    ["rtl", "end", "10px", "-10px"],
+  ])(
+    "keeps the aligned edge fixed for %s text aligned to %s",
+    (direction, textAlign, marginLeft, marginRight) => {
+      document.body.innerHTML = `<p style="direction: ${direction}; text-align: ${textAlign}; margin-left: 10px; margin-right: 10px">Label</p>`;
+      const element = document.querySelector<HTMLElement>("p")!;
+      vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+        width: 100,
+      } as DOMRect);
+
+      widenInPlace(element, 120);
+
+      expect(element.style.marginLeft).toBe(marginLeft);
+      expect(element.style.marginRight).toBe(marginRight);
+    },
+  );
 });
