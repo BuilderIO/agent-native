@@ -5301,6 +5301,27 @@ function createBrowserOnlyServerStubPlugin() {
   };
 }
 
+function createEnterpriseAuthAdapterStubPlugin(enabled: boolean) {
+  if (enabled) return null;
+
+  const stubbed = new Set(["@better-auth/sso", "@better-auth/scim"]);
+  const stubIdPrefix = "\0agent-native-enterprise-auth-adapter-stub:";
+  return {
+    name: "agent-native-enterprise-auth-adapter-stub",
+    resolveId(id: string) {
+      const packageName = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+      return stubbed.has(packageName) ? `${stubIdPrefix}${packageName}` : null;
+    },
+    load(id: string) {
+      if (!id.startsWith(stubIdPrefix)) return null;
+      return "export default {};";
+    },
+  };
+}
+
 export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
@@ -5423,6 +5444,12 @@ async function buildWithNitro() {
     ...loadEnv(nitroMode, cwd, ""),
     ...process.env,
   };
+  const enterpriseAuthAdaptersEnabled = [
+    nitroEnvironment.AUTH_SSO,
+    nitroEnvironment.AUTH_SCIM,
+  ].some((value) =>
+    ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? ""),
+  );
   const nitroAgentConfig = await loadResolvedAgentNativeConfig(
     cwd,
     createAgentNativeConfigContext("build", nitroMode),
@@ -5539,6 +5566,9 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        ...(enterpriseAuthAdaptersEnabled
+          ? []
+          : [createEnterpriseAuthAdapterStubPlugin(false)]),
         ...(isAwsAmplifyPreset(preset)
           ? [
               {
