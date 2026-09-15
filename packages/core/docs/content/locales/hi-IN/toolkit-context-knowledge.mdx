@@ -1,0 +1,12 @@
+---
+title: "संदर्भ और ज्ञान"
+description: "Engine, data access और reusable presentation की सही सीमाओं के साथ agent-aware context surfaces बनाएं।"
+---
+
+# संदर्भ और ज्ञान
+
+Core application state, scoped access और Context X-Ray engine का owner है। Toolkit reusable presentation देता है; app domain records, taxonomy और selection rules का owner रहता है।
+
+Context X-Ray engine Core-owned रहता है। समान presentation के लिए Toolkit उपयोग करें, लेकिन state और access decisions Core तथा actions में रखें। [Context awareness](/docs/context-awareness) navigation, selection और focused object को agent के सामने रखता है; [Resources](/docs/toolkit-resources) files और attachments संभालता है।
+
+Context access control का विकल्प नहीं है। Provider knowledge लेने से पहले resource और credential checks बनाए रखें।

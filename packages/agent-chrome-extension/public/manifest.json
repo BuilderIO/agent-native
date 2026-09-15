@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Agent-Native Browser Control",
+  "short_name": "Agent Control",
+  "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4zCg87o6bpLOewhTS1K/N2iPenREHgxlbqeT5MKuXvtrpGdWx9exFo/GK2H+ABprwzUV01k3vD627vl0YQdh0kgDpvwlmR48+rZnA7V2rcjA5ISf4rE/Q0isscp/du4YqHJKoPgrd5VYNZY8PwqzYLkC1GUVtQIkngi1v1gCo9+eP3qSLqZHqTE4Du2bQmw1jVzxXMGMd6iAAb9PmvFSF5x49H6m8dPzrCb7/fPpCCWfpnclGr435OiACE8fCTZKPTDApIVpuJK1Lt/QlzE8BXmZFf8LqXh8o7yPKbzQIogS9vpiRq2mmr0caVWrHSbsxlKzAGIOO2w8aUsvuw3BQwIDAQAB",
+  "description": "Lets the Agent-Native desktop app operate explicitly assigned Chrome tabs.",
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "permissions": ["alarms", "debugger", "nativeMessaging", "storage", "tabs"]
+}
