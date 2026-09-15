@@ -1,44 +1,20 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
-  IconApps,
   IconArrowUpRight,
-  IconBrain,
-  IconBrandJira,
   IconBriefcase,
-  IconBrush,
-  IconCalendar,
-  IconCalendarTime,
-  IconChartBar,
   IconCheck,
-  IconChevronRight,
-  IconClipboardList,
-  IconCode,
   IconExternalLink,
-  IconFileText,
   IconKey,
-  IconLayoutBoard,
-  IconListCheck,
   IconLoader2,
   IconLogout,
-  IconMail,
-  IconMessageCircle,
-  IconMicrophone,
-  IconNote,
-  IconPhone,
-  IconPhoto,
   IconPlus,
   IconPresentation,
-  IconRoute,
-  IconScreenShare,
   IconSelector,
   IconSettings,
-  IconStack2,
   IconUser,
   IconUserCircle,
   IconUserPlus,
-  IconUsers,
   IconUsersGroup,
-  IconWorld,
 } from "@tabler/icons-react";
 import { useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
@@ -63,12 +39,6 @@ import {
   useAcceptInvitation,
   useJoinByDomain,
 } from "./hooks.js";
-import {
-  ORG_SWITCHER_MAX_APP_LINKS,
-  useOrgSwitcherAppLinks,
-  visibleOrgAppLinks,
-  type OrgSwitcherAppLink,
-} from "./workspace-app-links.js";
 
 export interface OrgSwitcherUtilityLink {
   id: string;
@@ -100,14 +70,9 @@ export interface OrgSwitcherProps {
   settingsPath?: string | null;
   /** Path to navigate to when the user clicks "Profile". Defaults to the shared Account settings section. */
   profilePath?: string | null;
-  /**
-   * Path to the Manage agent page. Settings links here too, but the switcher
-   * is the only always-visible surface, so omitting it leaves Files,
-   * Instructions, Memory, Skills and Automations reachable only from Settings.
-   * Pass `null` for apps that do not mount the Agent page.
-   */
+  /** @deprecated Manage agent is available in Settings and is not shown here. */
   agentPath?: string | null;
-  /** Omit the link to the app that currently owns this switcher. */
+  /** @deprecated The switcher no longer renders an app list. */
   currentAppId?: string;
   /** App-owned, low-frequency utilities rendered before sign out. */
   utilityLinks?: readonly OrgSwitcherUtilityLink[];
@@ -136,9 +101,6 @@ const ITEM_CLASS =
 const SECTION_LABEL_CLASS =
   "px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground";
 
-const APP_SUBMENU_CONTENT_CLASS =
-  "z-50 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
-
 const SWITCHER_BUTTON_CLASS =
   "flex w-full items-center gap-2 rounded-md border-0 bg-accent/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
 
@@ -147,182 +109,10 @@ const COMPACT_SWITCHER_BUTTON_CLASS =
 
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings/organization";
 const DEFAULT_PROFILE_PATH = "/settings/account";
-const DEFAULT_AGENT_PATH = "/settings/agent";
-
-const APP_ICON_MAP: Record<string, typeof IconApps> = {
-  Mail: IconMail,
-  CalendarDays: IconCalendar,
-  FileText: IconFileText,
-  LayoutBoard: IconLayoutBoard,
-  BarChart2: IconChartBar,
-  GalleryHorizontal: IconPresentation,
-  BrandJira: IconBrandJira,
-  ClipboardList: IconClipboardList,
-  Users: IconUsers,
-  Code: IconCode,
-  MessageCircle: IconMessageCircle,
-  Route: IconRoute,
-  ScreenShare: IconScreenShare,
-  Brush: IconBrush,
-  Brain: IconBrain,
-  Phone: IconPhone,
-  Note: IconNote,
-  Microphone: IconMicrophone,
-  CalendarTime: IconCalendarTime,
-  Globe: IconWorld,
-  Photo: IconPhoto,
-  ListCheck: IconListCheck,
-};
-
-function appMenuIcon(app: OrgSwitcherAppLink): typeof IconApps {
-  if (app.icon) return APP_ICON_MAP[app.icon] ?? IconStack2;
-  return app.isDispatch ? IconMessageCircle : IconStack2;
-}
-
 function organizationSettingsPath(path: string): string {
   if (path.includes("#")) return path;
   const pathname = path.split("?")[0]?.replace(/\/+$/, "");
   return pathname === "/settings" ? `${path}#organization` : path;
-}
-
-function AppMenuLink({
-  app,
-  onNavigate,
-}: {
-  app: OrgSwitcherAppLink;
-  onNavigate: () => void;
-}) {
-  const Icon = appMenuIcon(app);
-  const description =
-    app.status === "pending"
-      ? "Building"
-      : app.description?.trim() ||
-        (app.isDispatch ? "Workspace hub" : `${app.name} workspace`);
-  return (
-    <a
-      href={app.href}
-      onClick={onNavigate}
-      className="flex items-center gap-2 rounded-sm px-2.5 py-2 text-xs outline-none hover:bg-accent focus:bg-accent"
-    >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium text-foreground">
-          {app.name}
-        </span>
-        <span
-          className="block truncate text-[11px] text-muted-foreground"
-          title={description}
-        >
-          {description}
-        </span>
-      </span>
-      <IconArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-    </a>
-  );
-}
-
-function AppsSubmenu({
-  apps,
-  isLoading,
-  isWorkspace,
-  dispatchHref,
-  dispatchAllAppsHref,
-  currentAppId,
-  onNavigate,
-}: {
-  apps: OrgSwitcherAppLink[];
-  isLoading: boolean;
-  isWorkspace: boolean;
-  dispatchHref: string;
-  dispatchAllAppsHref: string;
-  currentAppId?: string;
-  onNavigate: () => void;
-}) {
-  const appsForMenu = currentAppId
-    ? apps.filter((app) => app.id !== currentAppId)
-    : apps;
-  const { links, overflowCount } = visibleOrgAppLinks(appsForMenu);
-  const visibleDispatchApp = links.find((app) => app.isDispatch);
-  const fallbackDispatchApp =
-    !isWorkspace || isLoading
-      ? {
-          id: "dispatch",
-          name: "Dispatch",
-          href: dispatchHref,
-          isDispatch: true,
-          status: "ready" as const,
-        }
-      : null;
-  const dispatchApp =
-    currentAppId === "dispatch"
-      ? null
-      : (visibleDispatchApp ?? fallbackDispatchApp);
-  const visibleNonDispatch = links
-    .filter((app) => !app.isDispatch)
-    .slice(0, dispatchApp ? undefined : ORG_SWITCHER_MAX_APP_LINKS);
-  const shownCount = (dispatchApp ? 1 : 0) + visibleNonDispatch.length;
-  const remainingCount = Math.max(
-    overflowCount,
-    appsForMenu.length - shownCount,
-  );
-
-  return (
-    <PopoverPrimitive.Root>
-      <PopoverPrimitive.Trigger asChild>
-        <button type="button" className={`${ITEM_CLASS} cursor-pointer`}>
-          <IconApps className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="flex-1 text-start">Apps</span>
-          <span className="text-[11px] text-muted-foreground">
-            {isLoading ? (
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              appsForMenu.length
-            )}
-          </span>
-          <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-        </button>
-      </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          side="right"
-          align="start"
-          sideOffset={8}
-          collisionPadding={12}
-          className={APP_SUBMENU_CONTENT_CLASS}
-        >
-          {dispatchApp && (
-            <AppMenuLink app={dispatchApp} onNavigate={onNavigate} />
-          )}
-
-          {dispatchApp && visibleNonDispatch.length > 0 && (
-            <div className="my-1 h-px bg-border" />
-          )}
-          {visibleNonDispatch.map((app) => (
-            <AppMenuLink key={app.id} app={app} onNavigate={onNavigate} />
-          ))}
-
-          {remainingCount > 0 && (
-            <>
-              <div className="my-1 h-px bg-border" />
-              <a
-                href={dispatchAllAppsHref}
-                onClick={onNavigate}
-                className="flex items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs text-foreground outline-none hover:bg-accent focus:bg-accent"
-              >
-                <IconApps className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex-1">
-                  {`View ${remainingCount} more in Dispatch`}
-                </span>
-                <IconArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              </a>
-            </>
-          )}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
-  );
 }
 
 function ReservedOrgSwitcherSpace({ className }: { className?: string }) {
@@ -357,8 +147,6 @@ export function OrgSwitcher({
   compact,
   settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
   profilePath = DEFAULT_PROFILE_PATH,
-  agentPath = DEFAULT_AGENT_PATH,
-  currentAppId,
   utilityLinks,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
@@ -377,7 +165,6 @@ export function OrgSwitcher({
   const [inviteEmail, setInviteEmail] = useState("");
   const [signingOut, setSigningOut] = useState(false);
   const [joiningOrgId, setJoiningOrgId] = useState<string | null>(null);
-  const appLinks = useOrgSwitcherAppLinks(open);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -725,57 +512,25 @@ export function OrgSwitcher({
                 <span className="flex-1 text-start">Create organization</span>
               </button>
 
-              <div className="my-1 h-px bg-border" />
-              <div className={SECTION_LABEL_CLASS}>
-                {t("settings.workspaceTitle")}
-              </div>
-              <AppsSubmenu
-                apps={appLinks.apps}
-                isLoading={appLinks.isLoading}
-                isWorkspace={appLinks.isWorkspace}
-                dispatchHref={appLinks.dispatchHref}
-                dispatchAllAppsHref={appLinks.dispatchAllAppsHref}
-                currentAppId={currentAppId}
-                onNavigate={() => setOpen(false)}
-              />
-              {(profilePath || agentPath) && (
+              {profilePath && (
                 <>
                   <div className="my-1 h-px bg-border" />
                   <div className={SECTION_LABEL_CLASS}>
                     {t("settings.profileTitle")}
                   </div>
-                  {profilePath && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOpen(false);
-                        void navigate(profilePath);
-                      }}
-                      className={`${ITEM_CLASS} cursor-pointer`}
-                    >
-                      <IconUserCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="flex-1 text-start">
-                        {t("settings.profileMenuItem")}
-                      </span>
-                    </button>
-                  )}
-                  {agentPath && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOpen(false);
-                        void navigate(agentPath);
-                      }}
-                      className={`${ITEM_CLASS} cursor-pointer`}
-                    >
-                      <IconBrain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="flex-1 text-start">
-                        {t("settings.manageAgentMenuItem", {
-                          defaultValue: "Manage agent",
-                        })}
-                      </span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      void navigate(profilePath);
+                    }}
+                    className={`${ITEM_CLASS} cursor-pointer`}
+                  >
+                    <IconUserCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 text-start">
+                      {t("settings.profileMenuItem")}
+                    </span>
+                  </button>
                 </>
               )}
               {utilityLinks && utilityLinks.length > 0 && (
