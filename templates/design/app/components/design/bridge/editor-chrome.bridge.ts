@@ -3915,7 +3915,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? "nwse-resize"
             : "nesw-resize";
     handle.style.cssText =
-      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" +
       cursor +
       ";";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -4281,6 +4281,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function updateParentAutoLayoutOverlay(el: Element | null): void {
+    // A selected frame already has its own selection outline. Showing the
+    // parent's layout box as a second dashed outline makes the frame read as
+    // nested chrome instead of one selected object; keep this affordance for
+    // ordinary child layers where it communicates their auto-layout parent.
+    if (el?.getAttribute("data-an-primitive") === "frame") {
+      hideParentAutoLayoutOverlay();
+      return;
+    }
     var parent = el && el.parentElement;
     if (
       !parent ||
@@ -4782,7 +4790,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       handle.setAttribute("data-corner", pos);
       handle.style.cssText =
-        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" +
         (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") +
         ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -6377,6 +6385,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var paddingBottom = readPx(cs.paddingBottom);
     var paddingLeft = readPx(cs.paddingLeft);
     var line = chromeLineScale();
+    // Both orientations derive their tick length from the same metric (the
+    // element's smaller dimension) and the same uniform scale factor, so a
+    // horizontal (top/bottom) tick and a vertical (left/right) tick always
+    // render at the same visual length.
     var tickLength =
       Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) *
       line;
@@ -6496,6 +6508,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (children.length < 2) return [];
     var handles = [];
     var line = chromeLineScale();
+    // Use the same uniform scale for both axes so a horizontal gap tick and
+    // a vertical gap tick render at the same visual length.
     var tickLength = 8 * line;
     var isFlex = cs.display === "flex" || cs.display === "inline-flex";
     var isGrid = cs.display === "grid" || cs.display === "inline-grid";
@@ -15561,11 +15575,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         showConstraintGuides(dragEl);
       }
-      showTransformBadge(
-        Math.round(nextLeft) + ", " + Math.round(nextTop),
-        ev.clientX,
-        ev.clientY,
-      );
       refreshOverlays();
     }
     function restoreSourceDragPosition(): void {

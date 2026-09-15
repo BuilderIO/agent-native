@@ -6725,20 +6725,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         setEqualGapGuides(snap.spacingGuides);
         setProximityMeasurements(snap.measurements);
 
-        // Resize shows a W x H badge and rotate shows a degrees badge — move
-        // was the one transform with no live feedback at all. Show the
-        // primary frame's new (rounded) position, matching resize/rotate's
-        // convention of displaying the current absolute value rather than a
-        // delta.
-        const primaryOrigin = state.originFrames[state.primaryId];
-        if (primaryOrigin) {
-          showTransformFeedback(
-            `${Math.round(primaryOrigin.x + dx + snap.dx)}, ${Math.round(primaryOrigin.y + dy + snap.dy)}`,
-            ev.clientX,
-            ev.clientY,
-          );
-        }
-
         // When all dragged ids are committed primitive nodeIds (not screen
         // frames), check for a container primitive drop target to highlight.
         const currentFrameIds = Object.keys(frameGeometryRef.current);
@@ -6837,7 +6823,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       onPick,
       readOnly,
       resolvePrimitiveScreenId,
-      showTransformFeedback,
       updateFrameGeometry,
       updateFrameGeometryRefOnly,
       updatePrimitiveDropTarget,
@@ -12497,7 +12482,7 @@ function PassiveSelectionBox({
             <span
               key={config.handle}
               data-passive-resize-handle={config.handle}
-              className="pointer-events-none absolute z-20 rounded-[2px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow"
+              className="pointer-events-none absolute z-20 rounded-none border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow"
               style={cornerHandleStyle(
                 config.handle,
                 config.cursor,
@@ -12620,7 +12605,7 @@ function ResizeHandles({
   if (!enabled) return null;
 
   const visibleHandleClass = cn(
-    "pointer-events-auto absolute z-20 rounded-[2px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow transition-opacity",
+    "pointer-events-auto absolute z-20 rounded-none border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow transition-opacity",
     active
       ? "opacity-100"
       : cn(

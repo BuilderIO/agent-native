@@ -3520,7 +3520,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var handle = document.createElement("span");
       handle.setAttribute("data-agent-native-edit-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : pos === "e" || pos === "w" ? "ew-resize" : pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize";
-      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + cursor + ";";
+      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" + cursor + ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -3767,6 +3767,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       parentAutoLayoutOverlay.style.display = "none";
     }
     function updateParentAutoLayoutOverlay(el) {
+      if (el?.getAttribute("data-an-primitive") === "frame") {
+        hideParentAutoLayoutOverlay();
+        return;
+      }
       var parent = el && el.parentElement;
       if (!parent || parent === document.body || parent === document.documentElement) {
         hideParentAutoLayoutOverlay();
@@ -3967,7 +3971,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "multi-selection-handle"
         );
         handle.setAttribute("data-corner", pos);
-        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
+        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
         if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
         if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -11067,11 +11071,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           showConstraintGuides(dragEl);
         }
-        showTransformBadge(
-          Math.round(nextLeft) + ", " + Math.round(nextTop),
-          ev.clientX,
-          ev.clientY
-        );
         refreshOverlays();
       }
       function restoreSourceDragPosition() {

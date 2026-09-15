@@ -186,6 +186,7 @@ import {
 } from "./inspector";
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
+import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import type { ScreenHeightMode } from "./multi-screen/screen-height";
 import {
   clampScreenDimension,
@@ -382,6 +383,10 @@ interface EditPanelProps {
   exporting?: boolean;
   /** Active file id — used for component prop editing context. */
   fileId?: string;
+  /** Reserved board file id, used to resolve the board preview iframe. */
+  boardFileId?: string;
+  /** Host iframe id for live component previews when overview has frame siblings. */
+  previewFrameId?: string;
   /** Latest active file HTML, used to compose rapid sequential source edits. */
   activeContent?: string;
   /** Optimistic localhost state styles that are not persisted into activeContent. */
@@ -2397,6 +2402,8 @@ export const EditPanel = memo(function EditPanel({
   onRenderExportPreview,
   exporting = false,
   fileId,
+  boardFileId,
+  previewFrameId,
   activeContent,
   pendingInteractionStateStyles,
   activeFileUpdatedAt,
@@ -3025,6 +3032,20 @@ export const EditPanel = memo(function EditPanel({
                 <ComponentSection
                   designId={designId}
                   fileId={fileId}
+                  boardFileId={boardFileId}
+                  previewFrameId={
+                    previewFrameId ??
+                    (viewMode === "overview" && fileId && breakpointContext
+                      ? getActiveScreenIframeId({
+                          id: fileId,
+                          activeBreakpointWidth:
+                            breakpointContext.activeWidthPx ?? undefined,
+                          breakpointWidths: [
+                            ...breakpointContext.breakpointWidths,
+                          ],
+                        })
+                      : fileId)
+                  }
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFileUpdatedAt}
                   componentDetailsReady={componentDetailsReady}

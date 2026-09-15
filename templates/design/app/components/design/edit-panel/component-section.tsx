@@ -60,6 +60,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
 import {
   canRebuildAlpineDataLosslessly,
   isBooleanPropValue,
@@ -520,6 +521,8 @@ export function isMessageFromOwnPreviewIframe(
 export function ComponentSection({
   designId,
   fileId,
+  boardFileId,
+  previewFrameId,
   activeContent,
   activeFileUpdatedAt,
   componentDetailsReady = true,
@@ -533,6 +536,10 @@ export function ComponentSection({
 }: {
   designId: string;
   fileId?: string;
+  /** Reserved board file id for the dedicated board preview iframe. */
+  boardFileId?: string;
+  /** Host iframe id for live prop previews when several frames are mounted. */
+  previewFrameId?: string;
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
   /** Whether the selected component is present in the accepted source snapshot. */
@@ -760,8 +767,12 @@ export function ComponentSection({
     (attribute: string, value: string) => {
       if (typeof document === "undefined") return;
 
-      const iframe = document.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
+      const targetFrameId = previewFrameId ?? fileId;
+      if (!targetFrameId) return;
+      const iframe = findCanvasIframeForScreen(
+        document.body,
+        targetFrameId,
+        boardFileId,
       );
       iframe?.contentWindow?.postMessage(
         {
@@ -773,7 +784,14 @@ export function ComponentSection({
         "*",
       );
     },
-    [data?.instance?.nodeId, data?.instance?.selector, nodeId],
+    [
+      data?.instance?.nodeId,
+      data?.instance?.selector,
+      boardFileId,
+      fileId,
+      nodeId,
+      previewFrameId,
+    ],
   );
 
   // Persist a single prop change through apply-component-prop-edit. Attribute

@@ -3893,15 +3893,7 @@ function DesignEditor() {
           options.expectedVersionHash,
           options.identityMigrationSourceContent,
         ),
-        pendingFileSavesRef.current[fileId] ??
-          (latestFileSaveForUnloadRef.current[fileId]
-            ?.identityMigrationSourceContent !== undefined &&
-          options.expectedVersionHash ===
-            sourceContentHash(
-              latestFileSaveForUnloadRef.current[fileId].content,
-            )
-            ? latestFileSaveForUnloadRef.current[fileId]
-            : undefined),
+        pendingFileSavesRef.current[fileId],
       );
       markPendingLocalFileContent(
         fileId,
@@ -7269,6 +7261,9 @@ function DesignEditor() {
           freshActiveContentFileId: activeFile?.id,
           freshActiveContent: getFreshActiveFileContent({
             activeContent,
+            pendingContent: activeFile?.id
+              ? pendingLocalFileContentsRef.current.get(activeFile.id)?.content
+              : null,
             latestContent: latestActiveContentRef.current,
             lastLocalContent: lastLocalContentRef.current,
           }),
@@ -11326,10 +11321,13 @@ function DesignEditor() {
     () =>
       getFreshActiveFileContent({
         activeContent,
+        pendingContent: activeFile?.id
+          ? pendingLocalFileContentsRef.current.get(activeFile.id)?.content
+          : null,
         latestContent: latestActiveContentRef.current,
         lastLocalContent: lastLocalContentRef.current,
       }),
-    [activeContent],
+    [activeContent, activeFile?.id],
   );
   const getFreshActivePreviewContent = useCallback(
     () =>
@@ -23143,6 +23141,7 @@ function DesignEditor() {
     exporting: pngExporting || svgExporting,
     designId: id,
     fileId: activeFile?.id,
+    boardFileId,
     componentNodeId: selectedComponentNodeId,
     componentInstanceHasLocalOverrides: selectedComponentHasLocalOverrides,
     onResetComponentInstanceOverrides:

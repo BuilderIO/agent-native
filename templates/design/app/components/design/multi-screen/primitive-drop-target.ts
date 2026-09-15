@@ -74,7 +74,8 @@ function primitiveMatchesNodeId(
   nodeId: string,
 ): boolean {
   return (
-    primitive.nodeId === nodeId || primitive.projectionIdentity?.nodeId === nodeId
+    primitive.nodeId === nodeId ||
+    primitive.projectionIdentity?.nodeId === nodeId
   );
 }
 
@@ -777,7 +778,9 @@ export function resolveNodeScreenId(
 ): string | null {
   for (const screen of screens) {
     const primitives = parsePrimitivesFromScreen(screen);
-    if (primitives.some((primitive) => primitiveMatchesNodeId(primitive, nodeId))) {
+    if (
+      primitives.some((primitive) => primitiveMatchesNodeId(primitive, nodeId))
+    ) {
       return screen.id;
     }
   }

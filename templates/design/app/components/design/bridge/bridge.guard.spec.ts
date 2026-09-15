@@ -1758,7 +1758,7 @@ it(
 // ── Figma-parity in-iframe editing behavior ────────────────────────────────
 
 it(
-  "editor chrome bridge shows a live position badge and locks to the dominant axis while Shift is held during a move drag",
+  "editor chrome bridge omits a move position badge and locks to the dominant axis while Shift is held during a move drag",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -1814,15 +1814,13 @@ it(
       // (280, 270) is a further +30/+30 delta from origin (200, 200).
       expect(draggedPosition).toEqual({ left: "230px", top: "230px" });
 
-      const badgeText = await page.evaluate(() => {
+      const badgeDisplay = await page.evaluate(() => {
         const badge = document.querySelector<HTMLElement>(
           "[data-agent-native-transform-badge]",
         );
-        return badge && window.getComputedStyle(badge).display !== "none"
-          ? badge.textContent
-          : null;
+        return badge ? window.getComputedStyle(badge).display : null;
       });
-      expect(badgeText).toBe("230, 230");
+      expect(badgeDisplay).toBe("none");
 
       await page.keyboard.down("Shift");
       await page.mouse.move(400, 400);

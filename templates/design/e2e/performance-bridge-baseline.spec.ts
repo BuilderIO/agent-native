@@ -1,7 +1,12 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import {
@@ -108,7 +113,9 @@ type RectsSample = {
 };
 
 function summarize(samples: RectsSample[]) {
-  const values = samples.map((sample) => sample.elapsedMs).sort((a, b) => a - b);
+  const values = samples
+    .map((sample) => sample.elapsedMs)
+    .sort((a, b) => a - b);
   const total = values.reduce((sum, value) => sum + value, 0);
   return {
     count: values.length,
@@ -228,9 +235,7 @@ async function selectFixtureNode(page: Page, fileId: string, nodeId: string) {
   const frame = page
     .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
     .contentFrame();
-  const target = frame.locator(
-    `[data-agent-native-node-id="${nodeId}"]`,
-  );
+  const target = frame.locator(`[data-agent-native-node-id="${nodeId}"]`);
   await expect(target).toBeVisible({ timeout: 15_000 });
   const box = await target.boundingBox();
   if (!box) throw new Error(`no bounding box for ${nodeId}`);
@@ -239,7 +244,7 @@ async function selectFixtureNode(page: Page, fileId: string, nodeId: string) {
     sourceId: node.getAttribute("data-agent-native-node-id"),
     textContent: (node.textContent ?? "").replace(/\s+/g, " ").trim(),
   }));
-  await page.evaluate(() => (((window as any).__bridge = [])));
+  await page.evaluate(() => ((window as any).__bridge = []));
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   await page.keyboard.down(modifier);
   try {
@@ -249,9 +254,9 @@ async function selectFixtureNode(page: Page, fileId: string, nodeId: string) {
   }
   const selectionHandle = await page.waitForFunction(
     () =>
-      [...((window as any).__bridge ?? [])].reverse().find(
-        (message: any) => message.type === "element-select",
-      ) ?? null,
+      [...((window as any).__bridge ?? [])]
+        .reverse()
+        .find((message: any) => message.type === "element-select") ?? null,
     undefined,
     { timeout: 15_000 },
   );
@@ -259,14 +264,16 @@ async function selectFixtureNode(page: Page, fileId: string, nodeId: string) {
   const payload = selection?.payload ?? selection;
   expect(payload?.sourceId).toBe(expected.sourceId);
   expect(payload?.tagName).toBe(expected.tagName);
-  expect(String(payload?.textContent ?? "").replace(/\s+/g, " ").trim()).toBe(
-    expected.textContent,
-  );
+  expect(
+    String(payload?.textContent ?? "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  ).toBe(expected.textContent);
   return { payload, selectionMode: "pointer" as const };
 }
 
 async function replayFixtureNode(page: Page, fileId: string, nodeId: string) {
-  await page.evaluate(() => (((window as any).__bridge = [])));
+  await page.evaluate(() => ((window as any).__bridge = []));
   await page.evaluate(
     ({ fileId: targetFileId, nodeId: targetNodeId }) => {
       const iframe = document.querySelector<HTMLIFrameElement>(
@@ -319,7 +326,9 @@ test("collect selectable rects baseline on nested responsive screens", async ({
   await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
   await installLongTaskObserver(page);
 
-  const iframeCount = await page.locator("iframe[data-design-preview-iframe]").count();
+  const iframeCount = await page
+    .locator("iframe[data-design-preview-iframe]")
+    .count();
   if (iframeCount === 0) throw new Error("no design preview iframe mounted");
   const fixtureStats = await primaryFrame.locator("body").evaluate((body) => {
     let maxDepth = 0;
@@ -415,9 +424,11 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     await page.waitForTimeout(750);
     overviewBridgeEvents = await page.evaluate(
       () =>
-        (window as typeof window & {
-          __perfOverviewBridgeEvents?: typeof overviewBridgeEvents;
-        }).__perfOverviewBridgeEvents ?? [],
+        (
+          window as typeof window & {
+            __perfOverviewBridgeEvents?: typeof overviewBridgeEvents;
+          }
+        ).__perfOverviewBridgeEvents ?? [],
     );
   }
 
@@ -444,7 +455,9 @@ test("collect selectable rects baseline on nested responsive screens", async ({
   const secondSelectionRows = await page
     .locator('[aria-selected="true"]')
     .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+z" : "Control+z",
+  );
   await page.waitForTimeout(300);
   const undoSelectionRows = await page
     .locator('[aria-selected="true"]')
@@ -483,14 +496,19 @@ test("collect selectable rects baseline on nested responsive screens", async ({
           },
           hoverPendingNodeId,
           sourceId: selectedPayload.sourceId,
-          computedStyleKeys: Object.keys(selectedPayload.computedStyles ?? {}).length,
-          hasPortableStyleSnapshot: Boolean(selectedPayload.portableStyleSnapshot),
+          computedStyleKeys: Object.keys(selectedPayload.computedStyles ?? {})
+            .length,
+          hasPortableStyleSnapshot: Boolean(
+            selectedPayload.portableStyleSnapshot,
+          ),
           inspectorInputs,
           selectionBeforeRows,
           firstSelectionRows,
           secondSelectionRows,
           undoSelectionRows,
-          bridgeMessageTypes: (await bridgeMessages(page)).map((message) => message.type),
+          bridgeMessageTypes: (await bridgeMessages(page)).map(
+            (message) => message.type,
+          ),
         },
         longTasks,
         capturedAt: new Date().toISOString(),
