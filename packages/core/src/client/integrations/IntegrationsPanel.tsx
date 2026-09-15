@@ -1165,7 +1165,12 @@ export function IntegrationsPanel() {
     null,
   );
   const [showEmailDetail, setShowEmailDetail] = useState(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(
+    () =>
+      (typeof window === "undefined"
+        ? ""
+        : new URLSearchParams(window.location.search).get("q")) ?? "",
+  );
   const { configured: emailConfigured, refresh: refreshEmailConfigured } =
     useEmailProviderConfigured();
   const statusMap = new Map(statuses.map((s) => [s.platform, s]));

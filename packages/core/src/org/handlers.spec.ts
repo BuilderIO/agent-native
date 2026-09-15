@@ -136,27 +136,17 @@ describe("org handlers", () => {
     expect(createOrganization).not.toHaveBeenCalled();
   });
 
-  it("allows the first authenticated creator when a closed deployment has no organizations", async () => {
+  it("refuses closed creation with no organizations and no bootstrap roster", async () => {
     process.env.ORG_CREATION = "closed";
     resetAppConfigForTests();
     mockExecute.mockResolvedValueOnce({ rows: [] });
-    vi.mocked(createOrganization).mockResolvedValueOnce({
-      id: "org-1",
-      name: "Initial org",
-      role: "owner",
-      a2aSecret: "secret",
-      createdAt: 1,
-    });
 
     await expect(
       createOrgHandler(
         makeEvent("/_agent-native/org", { name: "Initial org" }),
       ),
-    ).resolves.toEqual({ id: "org-1", name: "Initial org", role: "owner" });
-    expect(createOrganization).toHaveBeenCalledWith(
-      "Initial org",
-      "member@example.test",
-    );
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(createOrganization).not.toHaveBeenCalled();
   });
 
   it("waits for a configured bootstrap admin before allowing closed creation", async () => {

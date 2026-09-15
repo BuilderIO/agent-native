@@ -99,7 +99,7 @@ describe("Google callback deploy verification guard", () => {
 
   it("checks the published beta runtime context for the relay secret", () => {
     const relayStep =
-      "      - name: Verify Netlify Google OAuth relay configuration";
+      "      - name: Verify Netlify Google OAuth relay metadata";
     const packageStep = "      - name: Package the prebuilt artifact";
     const uploadStep = "      - name: Upload the prebuilt artifact";
     const smokeStep = "      - name: Smoke-test the uploaded deploy";
@@ -121,28 +121,30 @@ describe("Google callback deploy verification guard", () => {
     );
     assert.match(step, /relay_context=production/);
     assert.match(step, /!value/);
-    assert.match(
-      step,
-      /netlify env:get AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET[\s\S]*--scope runtime[\s\S]*--json 2>\/dev\/null \|[\s\S]*node -e/,
-    );
-    const resolverScript = step.match(
-      /--json 2>\/dev\/null \|\n\s*node -e '\n([\s\S]*?)\n\s*'/,
+    assert.match(step, /Netlify masks secret values/);
+    assert.match(step, /Verified Google OAuth relay metadata/);
+    assert.doesNotMatch(step, /netlify env:get/);
+    const metadataScript = step.match(
+      /printf '%s' "\$env_json" \|\n\s*node -e '\n([\s\S]*?)\n\s*' "\$relay_context"/,
     )?.[1];
-    assert.ok(resolverScript);
-    const runResolver = (json: string) =>
-      execFileSync(process.execPath, ["-e", resolverScript], {
+    assert.ok(metadataScript);
+    const runMetadataCheck = (variables: unknown[], context: string) =>
+      execFileSync(process.execPath, ["-e", metadataScript, context], {
         encoding: "utf8",
-        input: json,
+        input: JSON.stringify(variables),
         stdio: ["pipe", "pipe", "pipe"],
       });
-    assert.throws(
-      () => runResolver("{}"),
-      /AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET does not resolve/,
-    );
+    const allContextRelay = {
+      key: "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
+      is_secret: true,
+      scopes: ["runtime"],
+      values: [{ context: "all" }],
+    };
     assert.doesNotThrow(() =>
-      runResolver(
-        '{"AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET":"test-relay-secret"}',
-      ),
+      runMetadataCheck([allContextRelay], "branch-deploy"),
+    );
+    assert.throws(() =>
+      runMetadataCheck([{ ...allContextRelay, values: [] }], "branch-deploy"),
     );
     assert.match(
       step,
