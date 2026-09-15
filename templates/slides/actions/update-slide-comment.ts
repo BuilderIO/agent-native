@@ -19,8 +19,30 @@ export default defineAction({
     .refine(
       (args) => args.content !== undefined || args.resolved !== undefined,
       "Provide comment content or a resolved state",
+    )
+    .refine(
+      (args) => !(args.content !== undefined && args.resolved !== undefined),
+      {
+        message: "Provide either comment content or a resolved state, not both",
+        path: ["content"],
+      },
     ),
   run: async (args) => {
+    const hasContent = args.content !== undefined;
+    const hasResolved = args.resolved !== undefined;
+    if (!hasContent && !hasResolved) {
+      fail("Provide comment content or a resolved state", {
+        errorCode: "invalid_request",
+        statusCode: 400,
+      });
+    }
+    if (hasContent && hasResolved) {
+      fail("Provide either comment content or a resolved state, not both", {
+        errorCode: "invalid_request",
+        statusCode: 400,
+      });
+    }
+
     await assertAccess("deck", args.deckId, "commenter");
     const db = getDb();
     const [comment] = await db
@@ -49,10 +71,7 @@ export default defineAction({
     const userEmail = getRequestUserEmail()?.trim().toLowerCase();
     // Google Slides lets commenters close and reopen threads; content edits
     // still require authorship unless the caller is an editor.
-    if (
-      args.resolved === undefined &&
-      comment.authorEmail.trim().toLowerCase() !== userEmail
-    ) {
+    if (hasContent && comment.authorEmail.trim().toLowerCase() !== userEmail) {
       await assertAccess("deck", comment.deckId, "editor");
     }
 
@@ -86,9 +105,13 @@ export default defineAction({
       return { ok: true, resolved: false };
     }
 
-    // Both resolve and reopen return early above, so only content edits remain.
+    // The input contract rejects a request without either field, so reaching
+    // this branch means the operation is a content-only update.
     if (args.content === undefined) {
-      return { ok: true };
+      fail("Provide comment content or a resolved state", {
+        errorCode: "invalid_request",
+        statusCode: 400,
+      });
     }
 
     await db

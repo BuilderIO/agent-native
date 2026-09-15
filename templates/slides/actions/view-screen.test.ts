@@ -499,4 +499,41 @@ describe("view-screen", () => {
       "All 2 slides fit their measured content area.",
     );
   });
+
+  it("marks current-slide comments as truncated when more are available", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Comment-heavy deck",
+        data: JSON.stringify({
+          slides: [{ id: "slide-a", content: "<p>Slide</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    mockCommentRows = Array.from({ length: 101 }, (_, index) => ({
+      id: `comment-${index}`,
+      slideId: "slide-a",
+      threadId: `thread-${index}`,
+      parentId: null,
+      content: `Comment ${index}`,
+      quotedText: null,
+      anchor: null,
+      emojiReactionsJson: "{}",
+      authorEmail: "alice@example.com",
+      resolved: false,
+      createdAt: `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`,
+    }));
+
+    const result = await action.run({});
+
+    expect(result).toContain(
+      "### Comments on current slide (100; more available)",
+    );
+    expect(result).toContain(
+      'commentsStatus: truncated; showing the first 100. Use list-slide-comments with { deckId: "deck-1", slideId: "slide-a", limit: 100, offset: 100 } to continue.',
+    );
+    expect(result).toContain("commentId: comment-0");
+    expect(result).not.toContain("commentId: comment-100");
+  });
 });

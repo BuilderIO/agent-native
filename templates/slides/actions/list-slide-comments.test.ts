@@ -82,25 +82,31 @@ vi.mock("../server/db/index.js", () => {
     select: (projection?: Record<string, unknown>) => ({
       from: () => ({
         where: (condition: unknown) => ({
-          orderBy: () => ({
-            limit: async (count: number) =>
-              state.rows
-                .filter((row) => matches(row, condition))
-                .slice(0, count)
-                .map((row) => {
-                  if (!projection) return row;
-                  const result: Record<string, unknown> = {};
-                  for (const [key, selectedColumn] of Object.entries(
-                    projection,
-                  )) {
-                    const field = String(selectedColumn)
-                      .split(".")
-                      .pop() as keyof Row;
-                    result[key] = row[field];
-                  }
-                  return result;
-                }),
-          }),
+          orderBy: () => {
+            const matchingRows = () =>
+              state.rows.filter((row) => matches(row, condition));
+            const project = (row: Row) => {
+              if (!projection) return row;
+              const result: Record<string, unknown> = {};
+              for (const [key, selectedColumn] of Object.entries(projection)) {
+                const field = String(selectedColumn)
+                  .split(".")
+                  .pop() as keyof Row;
+                result[key] = row[field];
+              }
+              return result;
+            };
+            const page = (offset: number, limit?: number) =>
+              matchingRows()
+                .slice(offset, limit === undefined ? undefined : offset + limit)
+                .map(project);
+            return {
+              limit: (count: number) => ({
+                offset: async (offset: number) => page(offset, count),
+              }),
+              offset: async (offset: number) => page(offset),
+            };
+          },
         }),
       }),
     }),
@@ -183,5 +189,29 @@ describe("list-slide-comments", () => {
       "comment-1",
       "comment-2",
     ]);
+    expect(result).toMatchObject({
+      has_more: false,
+      next_offset: null,
+      limit: null,
+      offset: 0,
+    });
+  });
+
+  it("paginates when a bounded page size is requested", async () => {
+    const result = await (action as any).run({
+      deckId: "deck-1",
+      limit: 1,
+      offset: 0,
+    });
+
+    expect(result.comments.map((comment: any) => comment.id)).toEqual([
+      "comment-1",
+    ]);
+    expect(result).toMatchObject({
+      has_more: true,
+      next_offset: 1,
+      limit: 1,
+      offset: 0,
+    });
   });
 });

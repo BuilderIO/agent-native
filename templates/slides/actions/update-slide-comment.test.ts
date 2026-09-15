@@ -235,4 +235,28 @@ describe("update-slide-comment", () => {
         .success,
     ).toBe(false);
   });
+
+  it("rejects combined content and resolution updates", async () => {
+    expect(
+      (action as any).schema.safeParse({
+        id: "c-1",
+        deckId: "deck-1",
+        content: "Changed",
+        resolved: true,
+      }).success,
+    ).toBe(false);
+
+    await expect(
+      run({
+        id: "c-1",
+        deckId: "deck-1",
+        content: "Changed",
+        resolved: true,
+      }),
+    ).rejects.toThrow("not both");
+    expect(state.rows[0]).toMatchObject({
+      content: "Original text",
+      resolved: false,
+    });
+  });
 });

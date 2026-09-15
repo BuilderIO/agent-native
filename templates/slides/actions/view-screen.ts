@@ -29,6 +29,8 @@ type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
   slideId: string;
 };
 
+const CURRENT_SLIDE_COMMENT_LIMIT = 100;
+
 function getCurrentSlideFitMeasurement(
   value: unknown,
   slide: { id: string; content?: string; layoutFitRevision?: string } | null,
@@ -263,7 +265,7 @@ export default defineAction({
         lines.push("```");
       }
 
-      const commentRows = currentSlide
+      const fetchedCommentRows = currentSlide
         ? await db
             .select({
               id: schema.slideComments.id,
@@ -286,10 +288,22 @@ export default defineAction({
               ),
             )
             .orderBy(asc(schema.slideComments.createdAt))
-            .limit(100)
+            .limit(CURRENT_SLIDE_COMMENT_LIMIT + 1)
         : [];
+      const commentsTruncated =
+        fetchedCommentRows.length > CURRENT_SLIDE_COMMENT_LIMIT;
+      const commentRows = commentsTruncated
+        ? fetchedCommentRows.slice(0, CURRENT_SLIDE_COMMENT_LIMIT)
+        : fetchedCommentRows;
       lines.push(``);
-      lines.push(`### Comments on current slide (${commentRows.length})`);
+      lines.push(
+        `### Comments on current slide (${commentRows.length}${commentsTruncated ? "; more available" : ""})`,
+      );
+      if (commentsTruncated) {
+        lines.push(
+          `commentsStatus: truncated; showing the first ${CURRENT_SLIDE_COMMENT_LIMIT}. Use list-slide-comments with { deckId: "${rows[0].id}", slideId: "${currentSlide?.id}", limit: ${CURRENT_SLIDE_COMMENT_LIMIT}, offset: ${CURRENT_SLIDE_COMMENT_LIMIT} } to continue.`,
+        );
+      }
       if (commentRows.length === 0) {
         lines.push(`(no comments)`);
       } else {
