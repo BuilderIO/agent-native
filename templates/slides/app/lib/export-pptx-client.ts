@@ -2081,6 +2081,10 @@ export function markWrappedLines(root: HTMLElement): number {
 
   const rotation = new Map<Element, boolean>();
   const lineBottoms = new Map<Element, number>();
+  // A tall inline run can reach below the centres of the next line's glyphs,
+  // so a glyph that lands left of and below the one before it also starts a
+  // line.
+  const previousGlyphs = new Map<Element, DOMRect>();
   const marks: Array<{ node: Text; offset: number }> = [];
   const range = document.createRange();
   const walker = document.createTreeWalker(
@@ -2094,7 +2098,9 @@ export function markWrappedLines(root: HTMLElement): number {
         node.tagName === "BR" ||
         (value !== "inline" && value !== "contents")
       ) {
-        lineBottoms.delete(containerOf(node));
+        const container = containerOf(node);
+        lineBottoms.delete(container);
+        previousGlyphs.delete(container);
       }
       continue;
     }
@@ -2115,6 +2121,7 @@ export function markWrappedLines(root: HTMLElement): number {
       const character = text[offset];
       if (character === "\n" && keepsNewlines) {
         lineBottoms.delete(container);
+        previousGlyphs.delete(container);
         continue;
       }
       if (/\s/.test(character)) continue;
@@ -2123,7 +2130,14 @@ export function markWrappedLines(root: HTMLElement): number {
       const rect = range.getClientRects()[0];
       if (!rect || (!rect.width && !rect.height)) continue;
       const bottom = lineBottoms.get(container);
-      if (bottom !== undefined && rect.top + rect.height / 2 > bottom) {
+      const previous = previousGlyphs.get(container);
+      const wrapped =
+        bottom !== undefined &&
+        (rect.top + rect.height / 2 > bottom ||
+          (previous !== undefined &&
+            rect.left < previous.left - 0.5 &&
+            rect.top > previous.top + 0.5));
+      if (wrapped) {
         marks.push({ node, offset });
         lineBottoms.set(container, rect.bottom);
       } else {
@@ -2132,6 +2146,7 @@ export function markWrappedLines(root: HTMLElement): number {
           Math.max(bottom ?? rect.bottom, rect.bottom),
         );
       }
+      previousGlyphs.set(container, rect);
     }
   }
   // Last offset first, so an insertion never shifts one still to be made.

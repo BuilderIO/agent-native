@@ -1080,4 +1080,30 @@ describe("markWrappedLines", () => {
     expect(count).toBe(0);
     expect(root.querySelector("p")?.textContent).toBe("alpha beta gamma");
   });
+
+  it("marks a wrap after a tall inline run whose glyphs reach below the next line's centres", () => {
+    document.body.innerHTML = "<div><p>BIG small next</p></div>";
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const offset = this.startOffset;
+        const rect =
+          offset < 3
+            ? { top: 0, height: 60, left: offset * 30 }
+            : offset < 10
+              ? { top: 44, height: 12, left: 60 + offset * 8 }
+              : { top: 50, height: 12, left: (offset - 10) * 8 };
+        return [
+          { ...rect, bottom: rect.top + rect.height, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(1);
+    expect(root.querySelector("p")?.textContent).toBe(
+      `BIG small ${WRAP_MARK}next`,
+    );
+  });
 });

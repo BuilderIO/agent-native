@@ -68,11 +68,22 @@ export function widenTextBoxes(xml: string): string {
       /<a:xfrm(\s[^>]*)?><a:off x="(-?\d+)" y="(-?\d+)"\/><a:ext cx="(\d+)" cy="(\d+)"\/>/,
     );
     if (!transform || /\srot="-?[1-9]/.test(transform[1] ?? "")) return shape;
-    const align = shape.match(/<a:pPr\b[^>]*\salgn="(\w+)"/)?.[1] ?? "l";
-    if (align === "just" || align === "dist") return shape;
+    const paragraphs = shape.match(/<a:p>[\s\S]*?<\/a:p>/g) ?? [];
+    // The box grows from its aligned edge, and a box mixing alignments has no
+    // single edge to hold: growing it would slide some of its paragraphs.
+    const alignments = new Set(
+      paragraphs.map(
+        (paragraph) =>
+          paragraph.match(/<a:pPr\b[^>]*\salgn="(\w+)"/)?.[1] ?? "l",
+      ),
+    );
+    const [align = "l"] = alignments;
+    if (alignments.size > 1 || align === "just" || align === "dist") {
+      return shape;
+    }
 
     let droppedTrackingPt = 0;
-    for (const paragraph of shape.match(/<a:p>[\s\S]*?<\/a:p>/g) ?? []) {
+    for (const paragraph of paragraphs) {
       for (const line of paragraph.split(/<a:br\b/)) {
         let linePt = 0;
         for (const [, properties = "", , text] of line.matchAll(RUN_PATTERN)) {

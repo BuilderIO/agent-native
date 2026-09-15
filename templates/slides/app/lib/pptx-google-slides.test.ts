@@ -204,6 +204,36 @@ describe("widenTextBoxes", () => {
     expect(resultCx).toBe(cx + expectedGrowth(0, cx));
   });
 
+  it("widens a box whose paragraphs all share one alignment", () => {
+    const cx = 10_563_758;
+    const xml = textBoxShape({
+      algn: "ctr",
+      bodyXml: textRun("1234567890", -160),
+      cx,
+    }).replace(
+      "</p:txBody>",
+      `<a:p><a:pPr algn="ctr" indent="0" marL="0"><a:buNone/></a:pPr>${textRun("12345", -160)}</a:p></p:txBody>`,
+    );
+    const growth = expectedGrowth(16, cx);
+
+    const { cx: resultCx, x: resultX } = widenedRect(widenTextBoxes(xml));
+
+    expect(resultCx).toBe(cx + growth);
+    expect(resultX).toBe(expectedX(812_597, "ctr", growth));
+  });
+
+  it("leaves a box whose paragraphs mix alignments untouched", () => {
+    const xml = textBoxShape({
+      algn: "l",
+      bodyXml: textRun("1234567890", -160),
+    }).replace(
+      "</p:txBody>",
+      `<a:p><a:pPr algn="ctr" indent="0" marL="0"><a:buNone/></a:pPr>${textRun("12345", -160)}</a:p></p:txBody>`,
+    );
+
+    expect(widenTextBoxes(xml)).toBe(xml);
+  });
+
   it("leaves a rotated shape untouched", () => {
     const xml = textBoxShape({
       algn: "l",
