@@ -48,6 +48,35 @@ function boundedDetails(value: Record<string, unknown> | undefined): string {
     : serialized;
 }
 
+/** Persist a governance event outside an automation run (startup repair, etc.). */
+export async function recordFactoryGovernanceAudit(
+  identity: { userEmail: string; orgId: string },
+  input: FactoryAuditInput,
+  factoryId?: string | null,
+): Promise<void> {
+  const resolvedFactoryId = factoryId ?? input.factoryId ?? null;
+  await getDb()
+    .insert(factoryAuditEvents)
+    .values({
+      id: randomUUID(),
+      automationRunId: null,
+      automationThreadId: null,
+      automationName: null,
+      factoryId: resolvedFactoryId,
+      itemId: input.itemId ?? null,
+      source: input.source ?? null,
+      sourceUrl: input.sourceUrl ?? null,
+      action: boundedText(input.action, 120),
+      kind: input.kind ?? "governance",
+      status: input.status ?? "success",
+      summary: boundedText(input.summary, MAX_SUMMARY_LENGTH),
+      detailsJson: boundedDetails(input.details),
+      createdAt: new Date().toISOString(),
+      ownerEmail: identity.userEmail,
+      orgId: identity.orgId,
+    });
+}
+
 /**
  * Persist a bounded, source-linked explanation of an automation action. The
  * agent run id is the join key to core's automation history; no raw provider

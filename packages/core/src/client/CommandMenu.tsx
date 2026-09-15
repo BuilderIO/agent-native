@@ -683,19 +683,32 @@ export function openCommandMenu() {
  */
 export function useCommandMenuShortcut(
   onOpen: () => void,
-  options: { allowContentEditable?: boolean } = {},
+  options: {
+    allowContentEditable?: boolean;
+    /** Return false to leave an editable shortcut untouched for its local handler. */
+    shouldHandleContentEditable?: (event: KeyboardEvent) => boolean;
+  } = {},
 ) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        const target = e.target instanceof HTMLElement ? e.target : null;
+        const isContentEditable = target?.isContentEditable;
+        if (
+          isContentEditable &&
+          options.allowContentEditable &&
+          options.shouldHandleContentEditable &&
+          !options.shouldHandleContentEditable(e)
+        ) {
+          return;
+        }
+
         // Claim the shortcut before checking the focused element so an outer
         // host cannot open its own command menu while this one is focused.
         e.preventDefault();
         e.stopPropagation();
 
         // Don't trigger if user is typing in a native form control.
-        const target = e.target instanceof HTMLElement ? e.target : null;
-        const isContentEditable = target?.isContentEditable;
         if (
           target?.tagName === "INPUT" ||
           target?.tagName === "TEXTAREA" ||
@@ -715,7 +728,11 @@ export function useCommandMenuShortcut(
       document.removeEventListener("keydown", handleKeyDown, useCapture);
       window.removeEventListener(COMMAND_MENU_OPEN_EVENT, handleOpenRequest);
     };
-  }, [onOpen, options.allowContentEditable]);
+  }, [
+    onOpen,
+    options.allowContentEditable,
+    options.shouldHandleContentEditable,
+  ]);
 }
 
 export type {

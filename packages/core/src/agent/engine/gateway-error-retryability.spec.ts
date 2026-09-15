@@ -119,6 +119,8 @@ describe("Builder gateway error retryability", () => {
       /** Full control, for the branch that needs the abort deadline to fire. */
       fetchImpl?: () => (url: string, init?: RequestInit) => Promise<Response>;
       env?: Record<string, string>;
+      upgradeUrl?: boolean;
+      expectedErrorCode?: string;
       retryable: boolean;
     }> = [
       {
@@ -129,6 +131,18 @@ describe("Builder gateway error retryability", () => {
             message: "You have used all AI credits for this month",
           }),
         retryable: false,
+        upgradeUrl: true,
+      },
+      {
+        label: "402 with an unrecognized payment code",
+        response: () =>
+          jsonErrorResponse(402, {
+            code: "payment_required",
+            message: "Payment required",
+          }),
+        retryable: false,
+        upgradeUrl: true,
+        expectedErrorCode: "http_402",
       },
       {
         label: "403 gateway_not_enabled",
@@ -276,6 +290,7 @@ describe("Builder gateway error retryability", () => {
             },
           ]),
         retryable: false,
+        upgradeUrl: true,
       },
       {
         label: "in-stream invalid_request",
@@ -371,9 +386,18 @@ describe("Builder gateway error retryability", () => {
           // a visitor is told one line and nothing else.
           if (lane === "gateway-deploy") {
             expect(stop.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
-            expect(stop.upgradeUrl).toBeUndefined();
           } else {
             expect(stop.error).not.toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+          }
+          if (branch.upgradeUrl) {
+            expect(stop.upgradeUrl).toEqual(
+              expect.stringContaining("builder.io"),
+            );
+          } else {
+            expect(stop.upgradeUrl).toBeUndefined();
+          }
+          if (branch.expectedErrorCode) {
+            expect(stop.errorCode).toBe(branch.expectedErrorCode);
           }
           const engineError = new EngineError(stop.error ?? "", {
             errorCode: stop.errorCode,

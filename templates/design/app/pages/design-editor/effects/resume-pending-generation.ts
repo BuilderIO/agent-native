@@ -33,6 +33,9 @@ export interface ResumePendingGenerationArgs {
     options?: Omit<AgentChatMessage, "message" | "context">,
   ) => string;
   clearGenerationCompleteTimer: () => void;
+  creativeContextEnabled: boolean;
+  creativeContextLabLoading: boolean;
+  creativeContextLabError: string | null;
   design: DesignData | null;
   files: DesignFile[];
   generationModelRef: RefObject<{
@@ -51,6 +54,9 @@ export interface ResumePendingGenerationArgs {
 export function runResumePendingGeneration({
   agentSubmit,
   clearGenerationCompleteTimer,
+  creativeContextEnabled,
+  creativeContextLabLoading,
+  creativeContextLabError,
   design,
   files,
   generationModelRef,
@@ -62,6 +68,7 @@ export function runResumePendingGeneration({
   trackAgentGeneration,
 }: ResumePendingGenerationArgs) {
   if (!id || !design) return;
+  if (creativeContextLabLoading) return;
 
   const pending = readPendingGeneration(id);
   if (!pending) {
@@ -83,6 +90,17 @@ export function runResumePendingGeneration({
     return;
   }
 
+  if (pending.autoGenerate === false) {
+    setGenerationIssue(null);
+    setHasPendingGeneration(true);
+    return;
+  }
+  if (creativeContextLabError) {
+    setGenerationIssue(creativeContextLabError);
+    setHasPendingGeneration(true);
+    return;
+  }
+
   const prompt =
     pending.prompt && pending.prompt.trim().length > 0
       ? pending.prompt
@@ -98,12 +116,6 @@ export function runResumePendingGeneration({
       ? design.designSystemId
       : pending.designSystemId;
 
-  if (pending.autoGenerate === false) {
-    setGenerationIssue(null);
-    setHasPendingGeneration(true);
-    return;
-  }
-
   let cancelled = false;
   void (async () => {
     const shouldExploreVariants = promptRequestsVariantExploration(prompt);
@@ -118,9 +130,12 @@ export function runResumePendingGeneration({
     const usesTemplate = Boolean(pending.templateId);
     const [designSystemContext, intake] = await Promise.all([
       loadDesignSystemGenerationContext(pendingDesignSystemId),
-      usesTemplate || shouldExploreVariants
+      usesTemplate || shouldExploreVariants || !creativeContextEnabled
         ? Promise.resolve(null)
-        : loadIntakeContextFromAppState(readCreativeContextState),
+        : loadIntakeContextFromAppState(
+            readCreativeContextState,
+            creativeContextEnabled,
+          ),
     ]);
     if (cancelled) return;
     const shouldSkipQuestions =
