@@ -152,7 +152,10 @@ export function getCalendarViewDateRange(
     const displayedDays = Number.isInteger(numberOfDays)
       ? Math.min(31, Math.max(1, numberOfDays))
       : 7;
-    rangeStart = startOfCalendarWeek(selectedDate, weekStartsOn);
+    rangeStart =
+      displayedDays === 7
+        ? startOfCalendarWeek(selectedDate, weekStartsOn)
+        : selectedDate;
     rangeEndExclusive = addDaysToDateKey(rangeStart, displayedDays);
   } else if (viewMode === "month") {
     const monthEnd = addDaysToDateKey(nextMonthStart, -1);

@@ -10,7 +10,6 @@ import {
 } from "@tabler/icons-react";
 import {
   startOfWeek,
-  eachDayOfInterval,
   eachHourOfInterval,
   format,
   set,
@@ -41,6 +40,7 @@ import {
   partitionAllDayEvents,
 } from "@/lib/all-day-layout";
 import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
+import { getVisibleCalendarDays } from "@/lib/calendar-navigation";
 import {
   dateToCalendarDateKey,
   getBrowserTimezone,
@@ -606,30 +606,30 @@ export const WeekView = memo(function WeekView({
 
   const { prefs } = useViewPreferences();
   const displayedDayCount = normalizeNumberOfDays(numberOfDays);
-  const weekStart = useMemo(
-    () => startOfWeek(selectedDate, { weekStartsOn }),
-    [selectedDate, weekStartsOn],
+  const periodStart = useMemo(
+    () =>
+      displayedDayCount === 7
+        ? startOfWeek(selectedDate, { weekStartsOn })
+        : selectedDate,
+    [displayedDayCount, selectedDate, weekStartsOn],
   );
-  const weekEnd = useMemo(
-    () => addDays(weekStart, displayedDayCount - 1),
-    [displayedDayCount, weekStart],
+  const periodEnd = useMemo(
+    () => addDays(periodStart, displayedDayCount - 1),
+    [displayedDayCount, periodStart],
   );
   // Stable day/hour arrays — recomputed only when the week or weekend
   // visibility actually changes, so memoized children (event buttons) don't
   // see a new array identity on every drag/focus re-render.
   const days = useMemo(() => {
-    const fullWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
-    return prefs.hideWeekends
-      ? fullWeek.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)
-      : fullWeek;
-  }, [weekStart, weekEnd, prefs.hideWeekends]);
+    return getVisibleCalendarDays(periodStart, periodEnd, prefs.hideWeekends);
+  }, [periodEnd, periodStart, prefs.hideWeekends]);
   const hours = useMemo(
     () =>
       eachHourOfInterval({
-        start: set(weekStart, { hours: START_HOUR, minutes: 0 }),
-        end: set(weekStart, { hours: END_HOUR - 1, minutes: 0 }),
+        start: set(periodStart, { hours: START_HOUR, minutes: 0 }),
+        end: set(periodStart, { hours: END_HOUR - 1, minutes: 0 }),
       }),
-    [weekStart],
+    [periodStart],
   );
 
   // Separate all-day and timed events

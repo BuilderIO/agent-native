@@ -150,6 +150,28 @@ export function shouldApplyPreferencePoll(
   return requestedAtRevision === confirmedRevision;
 }
 
+export function mergePendingVisualPreferences(
+  remote: CalendarViewPreferences,
+  pending: Partial<CalendarViewPreferences>,
+): CalendarViewPreferences {
+  return normalizeCalendarViewPreferences({ ...remote, ...pending });
+}
+
+export function rollbackVisualPreferencePatch(
+  current: CalendarViewPreferences,
+  optimistic: Partial<CalendarViewPreferences>,
+  rollback: Partial<CalendarViewPreferences>,
+  activeKeys: readonly (keyof CalendarViewPreferences)[],
+): CalendarViewPreferences {
+  const rollbackEntries = activeKeys.flatMap((key) =>
+    Object.is(current[key], optimistic[key]) ? [[key, rollback[key]]] : [],
+  );
+  return normalizeCalendarViewPreferences({
+    ...current,
+    ...Object.fromEntries(rollbackEntries),
+  });
+}
+
 export function enqueueSourcePreferenceMutation<T>(
   chains: Record<string, Promise<unknown>>,
   preferenceKey: string,
@@ -192,6 +214,10 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
   const visibilityMutationChains = useRef<Record<string, Promise<unknown>>>({});
   const colorMutationChains = useRef<Record<string, Promise<unknown>>>({});
   const accountMutationChains = useRef<Record<string, Promise<unknown>>>({});
+  const visualPreferenceRequestIds = useRef<
+    Partial<Record<keyof CalendarViewPreferences, number>>
+  >({});
+  const pendingVisualPreferences = useRef<Partial<CalendarViewPreferences>>({});
   const confirmedServerRevision = useRef(0);
 
   useEffect(() => {
@@ -237,14 +263,19 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
               ...(pendingPreferences?.colors ?? {}),
               ...pendingAccountColors.current,
             };
+            const remoteWithPendingVisualPreferences =
+              mergePendingVisualPreferences(
+                remote,
+                pendingVisualPreferences.current,
+              );
             const next = normalizeCalendarViewPreferences({
-              ...remote,
+              ...remoteWithPendingVisualPreferences,
               googleCalendarVisibility: {
-                ...remote.googleCalendarVisibility,
+                ...remoteWithPendingVisualPreferences.googleCalendarVisibility,
                 ...pendingVisibility.current,
               },
               googleCalendarColors: {
-                ...remote.googleCalendarColors,
+                ...remoteWithPendingVisualPreferences.googleCalendarColors,
                 ...Object.fromEntries(
                   Object.entries(pendingGoogleColors.current).filter(
                     (entry): entry is [string, string] => entry[1] !== null,
@@ -254,7 +285,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
               ...(Object.keys(pendingColors).length > 0
                 ? {
                     accountColorModes: {
-                      ...remote.accountColorModes,
+                      ...remoteWithPendingVisualPreferences.accountColorModes,
                       ...Object.fromEntries(
                         Object.keys(pendingColors).map((accountEmail) => [
                           accountEmail,
@@ -263,7 +294,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
                       ),
                     },
                     accountColors: {
-                      ...remote.accountColors,
+                      ...remoteWithPendingVisualPreferences.accountColors,
                       ...pendingColors,
                     },
                   }
@@ -312,32 +343,74 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
 
   const update = useCallback(
     (patch: Partial<ViewPreferences>) => {
-      let rollbackPrefs: CalendarViewPreferences | null = null;
+      const preferenceKeys = Object.keys(
+        patch,
+      ) as (keyof CalendarViewPreferences)[];
+      if (preferenceKeys.length === 0) return;
+      const requestIds = new Map<keyof CalendarViewPreferences, number>();
+      for (const key of preferenceKeys) {
+        const requestId = (visualPreferenceRequestIds.current[key] ?? 0) + 1;
+        visualPreferenceRequestIds.current[key] = requestId;
+        requestIds.set(key, requestId);
+      }
+      let rollbackValues: Partial<CalendarViewPreferences> = {};
+      let optimisticValues: Partial<CalendarViewPreferences> = {};
       setPrefs((prev) => {
-        rollbackPrefs = prev;
         const next = normalizeCalendarViewPreferences({ ...prev, ...patch });
+        rollbackValues = Object.fromEntries(
+          preferenceKeys.map((key) => [key, prev[key]]),
+        ) as Partial<CalendarViewPreferences>;
+        optimisticValues = Object.fromEntries(
+          preferenceKeys.map((key) => [key, next[key]]),
+        ) as Partial<CalendarViewPreferences>;
+        for (const key of preferenceKeys) {
+          pendingVisualPreferences.current[key] = next[key] as never;
+        }
         save(next);
         window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
         return next;
       });
-      callAction("update-calendar-visual-preferences", patch).catch(() => {
-        setPrefs((current) => {
-          if (!rollbackPrefs) return current;
-          const stillOptimistic = Object.entries(patch).every(
-            ([key, value]) =>
-              current[key as keyof CalendarViewPreferences] === value,
+
+      callAction("update-calendar-visual-preferences", patch)
+        .then(() => {
+          let confirmed = false;
+          for (const key of preferenceKeys) {
+            if (
+              visualPreferenceRequestIds.current[key] === requestIds.get(key)
+            ) {
+              delete pendingVisualPreferences.current[key];
+              confirmed = true;
+            }
+          }
+          if (confirmed) confirmedServerRevision.current += 1;
+        })
+        .catch(() => {
+          const activeKeys = preferenceKeys.filter(
+            (key) =>
+              visualPreferenceRequestIds.current[key] === requestIds.get(key),
           );
-          if (!stillOptimistic) return current;
-          save(rollbackPrefs);
-          window.dispatchEvent(
-            new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+          if (activeKeys.length === 0) return;
+          for (const key of activeKeys) {
+            delete pendingVisualPreferences.current[key];
+          }
+          setPrefs((current) => {
+            const next = rollbackVisualPreferencePatch(
+              current,
+              optimisticValues,
+              rollbackValues,
+              activeKeys,
+            );
+            if (calendarViewPreferencesEqual(current, next)) return current;
+            save(next);
+            window.dispatchEvent(
+              new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+            );
+            return next;
+          });
+          toast.error(
+            `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
           );
-          return rollbackPrefs;
         });
-        toast.error(
-          `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
-        );
-      });
     },
     [t],
   );

@@ -681,9 +681,14 @@ export default function CalendarView() {
           // Warm two displayed periods so rapid `j j` stays instant, plus one
           // period back. A custom day count advances by that same count.
           const step = normalizeNumberOfDays(viewPrefs.numberOfDays);
-          const currentPeriodStart = dateKeyToDate(
-            dateToCalendarDateKey(startOfWeek(selectedDate, { weekStartsOn })),
-          );
+          const currentPeriodStart =
+            step === 7
+              ? dateKeyToDate(
+                  dateToCalendarDateKey(
+                    startOfWeek(selectedDate, { weekStartsOn }),
+                  ),
+                )
+              : selectedDate;
           const next = addDays(currentPeriodStart, step);
           const next2 = addDays(currentPeriodStart, step * 2);
           const prev = subDays(currentPeriodStart, step);
@@ -1937,11 +1942,12 @@ export default function CalendarView() {
           ? format(selectedDate, "MMM yyyy")
           : format(selectedDate, "MMMM yyyy");
       case "week": {
-        const ws = startOfWeek(selectedDate, { weekStartsOn });
-        const we = addDays(
-          ws,
-          normalizeNumberOfDays(viewPrefs.numberOfDays) - 1,
-        );
+        const displayedDays = normalizeNumberOfDays(viewPrefs.numberOfDays);
+        const ws =
+          displayedDays === 7
+            ? startOfWeek(selectedDate, { weekStartsOn })
+            : selectedDate;
+        const we = addDays(ws, displayedDays - 1);
         return isMobile
           ? `${format(ws, "MMM d")} – ${format(we, "d")}`
           : `${format(ws, "MMM d")} – ${format(we, "d, yyyy")}`;

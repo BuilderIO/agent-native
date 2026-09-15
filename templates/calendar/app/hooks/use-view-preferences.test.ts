@@ -1,11 +1,56 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { normalizeCalendarViewPreferences } from "@/lib/calendar-view-preferences";
+
 import {
   enqueueSourcePreferenceMutation,
+  mergePendingVisualPreferences,
+  rollbackVisualPreferencePatch,
   shouldApplyPreferencePoll,
 } from "./use-view-preferences";
 
 describe("source preference sequencing", () => {
+  it("keeps an optimistic visual preference over a stale poll", () => {
+    const remote = normalizeCalendarViewPreferences({
+      numberOfDays: 7,
+      showWeekNumbers: false,
+    });
+    const merged = mergePendingVisualPreferences(remote, {
+      numberOfDays: 5,
+    });
+
+    expect(merged.numberOfDays).toBe(5);
+    expect(merged.showWeekNumbers).toBe(false);
+  });
+
+  it("rolls back only the failed preference fields", () => {
+    const current = normalizeCalendarViewPreferences({
+      numberOfDays: 5,
+      showWeekNumbers: true,
+    });
+    const rolledBack = rollbackVisualPreferencePatch(
+      current,
+      { numberOfDays: 5 },
+      { numberOfDays: 7 },
+      ["numberOfDays"],
+    );
+
+    expect(rolledBack.numberOfDays).toBe(7);
+    expect(rolledBack.showWeekNumbers).toBe(true);
+  });
+
+  it("does not roll back a newer update to the same preference", () => {
+    const current = normalizeCalendarViewPreferences({ numberOfDays: 6 });
+    const rolledBack = rollbackVisualPreferencePatch(
+      current,
+      { numberOfDays: 5 },
+      { numberOfDays: 7 },
+      ["numberOfDays"],
+    );
+
+    expect(rolledBack.numberOfDays).toBe(6);
+  });
+
   it("discards a poll that started before a confirmed mutation", () => {
     expect(shouldApplyPreferencePoll(4, 5)).toBe(false);
     expect(shouldApplyPreferencePoll(5, 5)).toBe(true);
