@@ -6352,11 +6352,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var paddingRight = readPx(cs.paddingRight);
     var paddingBottom = readPx(cs.paddingBottom);
     var paddingLeft = readPx(cs.paddingLeft);
-    var sx = chromeScaleX();
-    var sy = chromeScaleY();
     var line = chromeLineScale();
-    var hLineWidth = Math.max(6, Math.min(18, rect.width * 0.12)) * sx;
-    var vLineHeight = Math.max(6, Math.min(18, rect.height * 0.12)) * sy;
+    // Both orientations derive their tick length from the same metric (the
+    // element's smaller dimension) and the same uniform scale factor, so a
+    // horizontal (top/bottom) tick and a vertical (left/right) tick always
+    // render at the same visual length.
+    var tickLength =
+      Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) *
+      line;
     var innerLeft = borderLeft;
     var innerTop = borderTop;
     var innerWidth = Math.max(1, rect.width - borderLeft - borderRight);
@@ -6378,9 +6381,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             height: paddingTop,
           },
           line: {
-            x: rect.width / 2 - hLineWidth / 2,
+            x: rect.width / 2 - tickLength / 2,
             y: innerTop + paddingTop / 2 - line / 2,
-            width: hLineWidth,
+            width: tickLength,
             height: line,
           },
         }),
@@ -6403,9 +6406,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             height: paddingBottom,
           },
           line: {
-            x: rect.width / 2 - hLineWidth / 2,
+            x: rect.width / 2 - tickLength / 2,
             y: rect.height - borderBottom - paddingBottom / 2 - line / 2,
-            width: hLineWidth,
+            width: tickLength,
             height: line,
           },
         }),
@@ -6429,9 +6432,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           line: {
             x: innerLeft + paddingLeft / 2 - line / 2,
-            y: rect.height / 2 - vLineHeight / 2,
+            y: rect.height / 2 - tickLength / 2,
             width: line,
-            height: vLineHeight,
+            height: tickLength,
           },
         }),
       );
@@ -6454,9 +6457,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           line: {
             x: rect.width - borderRight - paddingRight / 2 - line / 2,
-            y: rect.height / 2 - vLineHeight / 2,
+            y: rect.height / 2 - tickLength / 2,
             width: line,
-            height: vLineHeight,
+            height: tickLength,
           },
         }),
       );
@@ -6472,11 +6475,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var children = visibleLayoutChildren(el);
     if (children.length < 2) return [];
     var handles = [];
-    var sx = chromeScaleX();
-    var sy = chromeScaleY();
     var line = chromeLineScale();
-    var hLineWidth = 8 * sx;
-    var vLineHeight = 8 * sy;
+    // Use the same uniform scale for both axes so a horizontal gap tick and
+    // a vertical gap tick render at the same visual length.
+    var tickLength = 8 * line;
     var isFlex = cs.display === "flex" || cs.display === "inline-flex";
     var isGrid = cs.display === "grid" || cs.display === "inline-grid";
     if (!isFlex && !isGrid) return handles;
@@ -6516,9 +6518,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               region: { x: a.right, y: top, width: gap, height: height },
               line: {
                 x: a.right + gap / 2 - line / 2,
-                y: top + height / 2 - vLineHeight / 2,
+                y: top + height / 2 - tickLength / 2,
                 width: line,
-                height: vLineHeight,
+                height: tickLength,
               },
             }),
           );
@@ -6536,9 +6538,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               value: cssGap,
               region: { x: left, y: a.bottom, width: width, height: gap },
               line: {
-                x: left + width / 2 - hLineWidth / 2,
+                x: left + width / 2 - tickLength / 2,
                 y: a.bottom + gap / 2 - line / 2,
-                width: hLineWidth,
+                width: tickLength,
                 height: line,
               },
             }),
