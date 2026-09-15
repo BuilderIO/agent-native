@@ -49,6 +49,7 @@ import {
   terminalEventForAbortReason,
   RUN_RECORD_MISSING_ERROR_EVENT,
   RUN_RECORD_MISSING_GRACE_MS,
+  RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT,
   UNKNOWN_RUN_STATUS_ERROR_EVENT,
 } from "./run-store.js";
 import { isContinuationTerminalReason } from "./types.js";
@@ -2493,7 +2494,27 @@ function subscribeInMemory(
       // reconnect landing in that window used to get a clean close with no
       // terminal frame, which the client cannot tell from an abandoned turn.
       if (run.status !== "running") {
-        if (run.events.some((buffered) => isTerminalRunEvent(buffered.event))) {
+        const bufferedTerminalIndex = run.events.findLastIndex((buffered) =>
+          isTerminalRunEvent(buffered.event),
+        );
+        if (bufferedTerminalIndex >= 0) {
+          // The replay loop above only delivered events at or after `fromSeq`.
+          // A cursor already past the terminal event would otherwise close with
+          // no terminal frame — the same ambiguous close this change exists to
+          // remove. Re-emit it, matching the SQL path's past-cursor handling.
+          if (bufferedTerminalIndex < fromSeq) {
+            const buffered = run.events[bufferedTerminalIndex]!;
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ ...buffered.event, seq: buffered.seq })}\n\n`,
+                ),
+              );
+            } catch {
+              if (pingTimer) clearInterval(pingTimer);
+              return;
+            }
+          }
           if (pingTimer) clearInterval(pingTimer);
           controller.close();
           return;
@@ -2864,20 +2885,33 @@ function subscribeFromSQL(
                 // calls to outcome "unknown" and renders "stopped without
                 // sending a final message". Prefer the run's REAL terminal
                 // event, then fail loudly with an attributable code.
-                const existing = await getLastTerminalRunEvent(runId).catch(
-                  () => null,
+                //
+                // The branches above may discard a rejection here, because an
+                // unread terminal event degrades to an event synthesized from
+                // the row's own known status. In THIS branch the absence is
+                // itself the diagnosis, so collapsing a read failure into a
+                // null result would report "no terminal event exists" when we
+                // only failed to look. Keep unreadable and absent apart.
+                const lookup = await getLastTerminalRunEvent(runId).then(
+                  (event) => ({ read: true as const, event }),
+                  () => ({ read: false as const, event: null }),
                 );
+                const existing = lookup.event;
                 const terminalEvent = existing
                   ? existing.event
-                  : run
-                    ? { ...UNKNOWN_RUN_STATUS_ERROR_EVENT }
-                    : { ...RUN_RECORD_MISSING_ERROR_EVENT };
+                  : !lookup.read
+                    ? { ...RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT }
+                    : run
+                      ? { ...UNKNOWN_RUN_STATUS_ERROR_EVENT }
+                      : { ...RUN_RECORD_MISSING_ERROR_EVENT };
                 if (!existing) {
                   captureError(
                     new Error(
-                      run
-                        ? `Agent run ${runId} left 'running' with unrecognized status ${run.status}`
-                        : `Agent run ${runId} has no agent_runs row and no terminal event`,
+                      !lookup.read
+                        ? `Agent run ${runId} terminal-event lookup failed; outcome unknown`
+                        : run
+                          ? `Agent run ${runId} left 'running' with unrecognized status ${run.status}`
+                          : `Agent run ${runId} has no agent_runs row and no terminal event`,
                     ),
                     {
                       route: "/_agent-native/agent-chat/runs/:id/events",
@@ -2886,6 +2920,7 @@ function subscribeFromSQL(
                         source: "agent-run-manager",
                         phase: "sql-subscription-terminal",
                         runStatus: run?.status ?? "missing",
+                        terminalLookup: lookup.read ? "read" : "failed",
                       },
                       extra: { runId, fromSeq, lastSeq },
                     },

@@ -18,6 +18,12 @@ A subscriber now always leaves with a terminal frame. A missing row is retried
 for a grace period before being reported, so an ordinary startup race no longer
 ends the turn; after that it reports the typed, recoverable
 `run_record_missing`, and an unrecognized status reports `unknown_run_status`.
-Both prefer the run's real persisted terminal event when one exists and are
-captured for triage. The in-memory path waits briefly for the producer's real
-terminal event instead of closing, and fails loudly if it never arrives.
+A terminal-event lookup that fails to read reports `run_terminal_lookup_failed`
+rather than either of those, so "we looked and there is nothing" stays separable
+from "we could not look". All three prefer the run's real persisted terminal
+event when one exists and are captured for triage, and none auto-continues: the
+outcome is unknown, so an automatic re-POST could replay side effects that
+already landed. They surface with a manual Retry instead. The in-memory path
+waits briefly for the producer's real terminal event instead of closing, replays
+a buffered terminal event when the subscriber's cursor is already past it, and
+fails loudly if the event never arrives.

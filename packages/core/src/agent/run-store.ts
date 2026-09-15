@@ -172,6 +172,26 @@ export const UNKNOWN_RUN_STATUS_ERROR_EVENT = {
 } as const;
 
 /**
+ * Terminal error for a subscriber that could not READ the run's last terminal
+ * event, as opposed to establishing that there is none.
+ *
+ * `RUN_RECORD_MISSING_ERROR_EVENT` and `UNKNOWN_RUN_STATUS_ERROR_EVENT` both
+ * diagnose an ABSENCE, so reporting either one off a failed lookup would claim
+ * a confirmed outcome the subscription never established. Distinct code so
+ * "we looked and there is nothing" stays separable from "we could not look" in
+ * triage. Recoverable so the client offers a manual retry.
+ */
+export const RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run's final state could not be read, so this turn could not be confirmed as finished. Retry if the result is missing.",
+  errorCode: "run_terminal_lookup_failed",
+  recoverable: true,
+  details:
+    "Reading the run's last persisted terminal event failed. The run may have completed; its outcome is unknown to this connection rather than known to be absent.",
+} as const;
+
+/**
  * How long a subscriber keeps polling a run id with NO `agent_runs` row before
  * treating the absence as terminal.
  *

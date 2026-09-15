@@ -16,6 +16,7 @@ import type { AgentChatEvent } from "./types.js";
 // unknown-status fallbacks would otherwise spread `undefined` into the frame.
 const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
 const UNKNOWN_RUN_STATUS_ERROR_CODE = "unknown_run_status";
+const RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE = "run_terminal_lookup_failed";
 
 // Mutable so one test can exercise the grace window while the rest read the
 // terminal frames without waiting it out.
@@ -34,6 +35,13 @@ vi.mock("./run-store.js", () => ({
     error:
       "The agent run ended in a state this app does not recognize, so the result could not be confirmed. Retry if the result is missing.",
     errorCode: "unknown_run_status",
+    recoverable: true,
+  },
+  RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT: {
+    type: "error",
+    error:
+      "The agent run's final state could not be read, so this turn could not be confirmed as finished. Retry if the result is missing.",
+    errorCode: "run_terminal_lookup_failed",
     recoverable: true,
   },
   get RUN_RECORD_MISSING_GRACE_MS() {
@@ -176,6 +184,7 @@ import {
   resolveRunToolTimeoutCeilingMs,
   getActiveRunForThreadAsync,
   getRun,
+  IN_MEMORY_TERMINAL_SETTLE_MS,
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
@@ -190,7 +199,6 @@ import {
   SQL_SUBSCRIPTION_IDLE_POLL_MS,
   SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES,
   SQL_SUBSCRIPTION_RETRY_BASE_MS,
-  IN_MEMORY_TERMINAL_SETTLE_MS,
   TERMINAL_RUN_RECONNECT_WINDOW_MS,
   type ActiveRun,
 } from "./run-manager.js";
@@ -3216,6 +3224,63 @@ describe("run manager soft timeout", () => {
     await pump;
     expect(closed).toBe(true);
     expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+  });
+
+  it("re-emits an in-memory terminal event when the cursor is past it", async () => {
+    const run = startRun(
+      "run-memory-past-cursor",
+      "thread-memory-past-cursor",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => expect(run.status).not.toBe("running"));
+    expect(run.events).toEqual([{ seq: 0, event: { type: "done" } }]);
+
+    // Cursor already past the buffered terminal event, so the replay loop
+    // delivers nothing. Closing here would recreate the ambiguous close.
+    const stream = subscribeToRun("run-memory-past-cursor", 1);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+  });
+
+  it("retries instead of reporting a missing row when the terminal lookup fails", async () => {
+    // An unreadable terminal event is not an absent one. Reporting
+    // run_record_missing off a failed read would claim a confirmed outcome the
+    // subscription never established.
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockRejectedValue(
+      new Error("connection terminated unexpectedly"),
+    );
+
+    const stream = subscribeToRun("run-sql-terminal-lookup-failed", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    const pump = (async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) return;
+        chunks.push(decoder.decode(next.value));
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pump;
+
+    const output = chunks.join("");
+    expect(output).not.toContain(RUN_RECORD_MISSING_ERROR_CODE);
+    expect(output).toContain(RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE);
   });
 
   it("fails loud when an in-memory run never emits its terminal event", async () => {
