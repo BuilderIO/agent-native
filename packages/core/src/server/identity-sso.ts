@@ -360,13 +360,27 @@ interface SsoClientBinding {
   authority: string;
 }
 
+function resolveIdentitySsoClientOrigin(event: H3Event): string {
+  const host = getHeader(event, "host")?.trim();
+  if (
+    host &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      host,
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return `https://${host.toLowerCase()}`;
+  }
+  return getOrigin(event);
+}
+
 function resolveClientBinding(
   event: H3Event,
   hub: string,
 ): SsoClientBinding | null {
   const appId = resolveIdentitySsoAppId(event);
   const clientId = resolveClientId(appId);
-  const redirectUri = `${getOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
+  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
   const authority = normalizeAuthority(hub);
   if (!authority || !appId || !clientId || !redirectUri) return null;
   return { appId, clientId, redirectUri, authority };

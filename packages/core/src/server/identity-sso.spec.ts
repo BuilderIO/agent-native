@@ -88,8 +88,22 @@ vi.mock("./google-oauth.js", () => ({
   createOAuthSession: (...args: any[]) => createOAuthSessionMock(...args),
   getAppUrl: (event: any, path: string) =>
     `https://${event.headers?.host ?? "mail.agent-native.com"}${path}`,
-  getOrigin: (event: any) =>
-    `https://${event.headers?.host ?? "mail.agent-native.com"}`,
+  getOrigin: (event: any) => {
+    const host = event.headers?.host ?? "mail.agent-native.com";
+    const configuredOrigin = process.env.APP_URL ?? process.env.BETTER_AUTH_URL;
+    if (configuredOrigin) {
+      try {
+        if (
+          new URL(`https://${host}`).origin !== new URL(configuredOrigin).origin
+        ) {
+          return new URL(configuredOrigin).origin;
+        }
+      } catch {
+        // Fall through to the request origin for malformed test config.
+      }
+    }
+    return `https://${host}`;
+  },
 }));
 vi.mock("../org/auth-policy.js", () => ({
   GOOGLE_AUTH_REQUIRED_MESSAGE: "Google sign-in is required.",
@@ -274,6 +288,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetAppConfigForTests();
+  vi.unstubAllEnvs();
   delete process.env.A2A_SECRET;
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
   vi.unstubAllGlobals();
@@ -358,6 +373,22 @@ describe("identity SSO browser contract", () => {
 
     expect(resolveIdentityHubUrl(request)).toBe(
       "https://beta.dispatch.agent-native.com",
+    );
+  });
+
+  it("keeps an immutable preview origin in the callback binding", async () => {
+    const previewHost = `${"b".repeat(24)}--agent-native-mail.netlify.app`;
+    vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+    vi.stubEnv("BETTER_AUTH_URL", "https://mail.agent-native.com");
+    const request = event("/_agent-native/identity/login?return=/inbox", {
+      headers: { host: previewHost },
+    });
+
+    const response = await handleIdentitySso(request, "/login");
+    const location = new URL(response.headers.get("Location")!);
+
+    expect(location.searchParams.get("redirect_uri")).toBe(
+      `https://${previewHost}${"/_agent-native/identity/callback"}`,
     );
   });
 
