@@ -335,7 +335,7 @@ function ContentCommandMenu({
       onOpenChange={onOpenChange}
       placeholder={t("root.commandSearchPlaceholder")}
       inputLabel={t("root.commandSearchDocuments")}
-      className="w-[calc(100%-1rem)] max-w-xl"
+      className="!top-1/2 h-[min(760px,calc(100vh-2rem))] w-[calc(100vw-1rem)] max-w-5xl !-translate-y-1/2 [&_[cmdk-list]]:min-h-0 [&_[cmdk-list]]:max-h-none [&_[cmdk-list]]:flex-1 [&_[cmdk-root]]:h-full"
       showAgentFallback={false}
       changelog={changelog}
       changelogKey="content"
