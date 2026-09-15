@@ -299,6 +299,7 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleTouchCancel = useCallback(() => {
     resetSwipe();
+    didSwipeRef.current = false;
   }, [resetSwipe]);
 
   // Suppress click fired at the end of a swipe.
