@@ -124,8 +124,13 @@ const OVERLAY_SCAN_ROOTS = ["templates", "packages", "apps"];
 
 function hasPositionUtility(classValue: string): string | null {
   for (const token of classValue.split(/\s+/)) {
-    // Keep variant prefixes: `sm:relative` drops `fixed` just as hard.
-    const utility = token.slice(token.lastIndexOf(":") + 1);
+    // Keep variant prefixes: `sm:relative` drops `fixed` just as hard, and
+    // `!relative` / `relative!` beat it in the cascade even if the merge keeps
+    // both. Five overlay call sites here already use the important modifier.
+    const utility = token
+      .slice(token.lastIndexOf(":") + 1)
+      .replace(/^!/, "")
+      .replace(/!$/, "");
     if (POSITION_UTILITIES.includes(utility)) return token;
   }
   return null;
@@ -163,12 +168,54 @@ function readOpeningTag(source: string, start: number): string | null {
 }
 
 /**
+ * Blanks comment spans so a parked `{/* className="relative" *\/}` is not read
+ * as a live attribute. Length is preserved so offsets stay valid, and quotes
+ * are tracked so `href="https://..."` is not mistaken for a line comment.
+ */
+function maskComments(tag: string): string {
+  const out = tag.split("");
+  let quote: string | null = null;
+
+  for (let index = 0; index < tag.length; index += 1) {
+    const character = tag[index]!;
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character !== "/") continue;
+
+    const next = tag[index + 1];
+    if (next === "*") {
+      const close = tag.indexOf("*/", index + 2);
+      const end = close === -1 ? tag.length : close + 2;
+      for (let blank = index; blank < end; blank += 1) out[blank] = " ";
+      index = end - 1;
+      continue;
+    }
+    if (next === "/") {
+      const newline = tag.indexOf("\n", index);
+      const end = newline === -1 ? tag.length : newline;
+      for (let blank = index; blank < end; blank += 1) out[blank] = " ";
+      index = end - 1;
+    }
+  }
+
+  return out.join("");
+}
+
+/**
  * Every string literal a `class`/`className` attribute contributes. Scoped to
  * that attribute on purpose: reading all quoted strings in the tag would fail
  * an honest `aria-label="relative"`.
  */
-function classNameLiterals(tag: string): string[] {
+function classNameLiterals(rawTag: string): string[] {
   const literals: string[] = [];
+  const tag = maskComments(rawTag);
 
   for (const attribute of tag.matchAll(/\bclass(?:Name)?\s*=\s*/g)) {
     const rest = tag.slice(attribute.index + attribute[0].length);

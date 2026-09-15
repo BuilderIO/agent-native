@@ -189,6 +189,39 @@ test("ignores position utilities on children inside the overlay", () => {
   assert.deepEqual(findings, []);
 });
 
+test("flags important position utilities in either Tailwind syntax", () => {
+  // `!relative` wins the cascade against a non-important `fixed`, and five
+  // overlay call sites in this repo already use the important modifier.
+  for (const token of ["!relative", "sm:!absolute", "relative!"]) {
+    const { findings } = findOverlayPositionOverrides(
+      `<DialogContent className="${token} max-w-lg" />`,
+      "templates/demo/app/App.tsx",
+    );
+    assert.equal(findings.length, 1, token);
+    assert.match(
+      findings[0]!,
+      new RegExp(`receives "${token.replace("!", "\\!")}"`),
+    );
+  }
+});
+
+test("does not read a parked className out of a JSX comment", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent {/* className="relative" */} className="max-w-lg" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.deepEqual(findings, []);
+});
+
+test("does not mistake a URL in an attribute for a line comment", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent aria-describedby="https://example.test/docs" className="relative" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "relative"/);
+});
+
 test("honors a reviewed opt-out on the overlay tag", () => {
   const { findings } = findOverlayPositionOverrides(
     '<DialogContent /* overlay-position-ok: rendered into a positioned container */ className="relative">',

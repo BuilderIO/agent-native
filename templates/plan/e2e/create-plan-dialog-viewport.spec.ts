@@ -88,15 +88,19 @@ test.describe("create-plan dialog stays inside the viewport", () => {
     });
   }
 
-  test("does not push the page into a scroll", async ({ page }) => {
+  test("does not add page scroll of its own", async ({ page }) => {
     await page.setViewportSize(SHORT_VIEWPORT);
+    // Measure first: this account's Plans list may legitimately be taller than
+    // the viewport, and the claim under test is that the dialog adds nothing.
+    await page.goto("/plans");
+    await expect(page.getByRole("dialog")).toBeHidden();
+    const before = await page.evaluate(() => document.body.scrollHeight);
+
     const dialog = await openCreatePlanDialog(page);
     await dialog.getByRole("button", { name: /advanced/i }).click();
     await expect(dialog.getByLabel("Agent planning style")).toBeVisible();
 
-    const overflow = await page.evaluate(
-      () => document.body.scrollHeight - window.innerHeight,
-    );
-    expect(overflow).toBeLessThanOrEqual(0);
+    const after = await page.evaluate(() => document.body.scrollHeight);
+    expect(after).toBeLessThanOrEqual(before);
   });
 });
