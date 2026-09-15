@@ -1,6 +1,6 @@
 pr=5009
 owner_thread=01a0a229-a4ce-71f1-b06d-ed99c5097671
-version=25
-expires_at=2026-09-15T00:48:49.755Z
+version=26
+expires_at=2026-09-15T00:50:30.043Z
 observed_legacy_heartbeat_version=absent
 legacy_retired=true
