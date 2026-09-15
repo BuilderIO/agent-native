@@ -171,8 +171,17 @@ function readOpeningTag(source: string, start: number): string | null {
  * Blanks comment spans so a parked `{/* className="relative" *\/}` is not read
  * as a live attribute. Length is preserved so offsets stay valid, and quotes
  * are tracked so `href="https://..."` is not mistaken for a line comment.
+ *
+ * `lineComments: "at-line-start"` is for whole-file use. This is not a JS
+ * lexer, and an unquoted `//` in JSX body text would otherwise blank the rest
+ * of that line - hiding a real call site is worse than the parked example it
+ * would catch. A commented-out call site always sits on a line that starts
+ * with `//`, so that narrower rule covers it without the risk.
  */
-function maskComments(tag: string): string {
+function maskComments(
+  tag: string,
+  lineComments: "anywhere" | "at-line-start" = "anywhere",
+): string {
   const out = tag.split("");
   let quote: string | null = null;
 
@@ -198,6 +207,10 @@ function maskComments(tag: string): string {
       continue;
     }
     if (next === "/") {
+      if (lineComments === "at-line-start") {
+        const lineStart = tag.lastIndexOf("\n", index) + 1;
+        if (tag.slice(lineStart, index).trim() !== "") continue;
+      }
       const newline = tag.indexOf("\n", index);
       const end = newline === -1 ? tag.length : newline;
       for (let blank = index; blank < end; blank += 1) out[blank] = " ";
@@ -213,6 +226,39 @@ function maskComments(tag: string): string {
  * that attribute on purpose: reading all quoted strings in the tag would fail
  * an honest `aria-label="relative"`.
  */
+/**
+ * A template literal contributes both its static text and any string literal
+ * inside an interpolation, so `` `${wide ? "relative" : ""} max-w-lg` `` is
+ * read as `relative` plus `max-w-lg` rather than one opaque blob.
+ */
+function expandTemplateLiteral(raw: string): string[] {
+  if (!raw.includes("${")) return [raw];
+  const parts: string[] = [];
+  let rest = raw;
+
+  while (rest.length > 0) {
+    const open = rest.indexOf("${");
+    if (open === -1) {
+      parts.push(rest);
+      break;
+    }
+    parts.push(rest.slice(0, open));
+    let depth = 1;
+    let index = open + 2;
+    for (; index < rest.length && depth > 0; index += 1) {
+      if (rest[index] === "{") depth += 1;
+      else if (rest[index] === "}") depth -= 1;
+    }
+    const expression = rest.slice(open + 2, index - 1);
+    for (const nested of expression.matchAll(/"([^"]*)"|'([^']*)'/g)) {
+      parts.push(nested[1] ?? nested[2] ?? "");
+    }
+    rest = rest.slice(index);
+  }
+
+  return parts;
+}
+
 function classNameLiterals(rawTag: string): string[] {
   const literals: string[] = [];
   const tag = maskComments(rawTag);
@@ -224,6 +270,12 @@ function classNameLiterals(rawTag: string): string[] {
     if (opener === '"' || opener === "'") {
       const close = rest.indexOf(opener, 1);
       if (close > 0) literals.push(rest.slice(1, close));
+      continue;
+    }
+    if (opener === "`") {
+      const close = rest.indexOf("`", 1);
+      if (close > 0)
+        literals.push(...expandTemplateLiteral(rest.slice(1, close)));
       continue;
     }
     if (opener !== "{") continue;
@@ -238,7 +290,8 @@ function classNameLiterals(rawTag: string): string[] {
       if (quote) {
         if (character === "\\") index += 1;
         else if (character === quote) {
-          literals.push(literal);
+          if (quote === "`") literals.push(...expandTemplateLiteral(literal));
+          else literals.push(literal);
           quote = null;
         } else literal += character;
         continue;
@@ -275,7 +328,9 @@ export function findOverlayPositionOverrides(
     "g",
   );
 
-  for (const match of source.matchAll(opening)) {
+  const discoverable = maskComments(source, "at-line-start");
+
+  for (const match of discoverable.matchAll(opening)) {
     const component = match[1]!;
     const line = source.slice(0, match.index).split("\n").length;
     const tag = readOpeningTag(source, match.index);

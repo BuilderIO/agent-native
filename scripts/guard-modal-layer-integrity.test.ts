@@ -222,6 +222,55 @@ test("does not mistake a URL in an attribute for a line comment", () => {
   assert.match(findings[0]!, /receives "relative"/);
 });
 
+test("reads a position utility out of a template-literal interpolation", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent className={`${wide ? "relative" : ""} max-w-lg`} />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "relative"/);
+});
+
+test("keeps static template-literal text readable", () => {
+  const { findings } = findOverlayPositionOverrides(
+    "<DialogContent className={`sm:absolute ${width}`} />",
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "sm:absolute"/);
+});
+
+test("accepts a template-literal className with no position utility", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent className={`max-w-lg ${wide ? "sm:max-w-3xl" : ""}`} />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.deepEqual(findings, []);
+});
+
+test("skips a commented-out overlay example", () => {
+  const { findings } = findOverlayPositionOverrides(
+    [
+      '// <DialogContent className="relative">',
+      '/* <SheetContent className="absolute" /> */',
+      '<DialogContent className="max-w-lg" />',
+    ].join("\n"),
+    "templates/demo/app/App.tsx",
+  );
+  assert.deepEqual(findings, []);
+});
+
+test("still sees a call site sharing a line with a URL in JSX text", () => {
+  // Whole-file line-comment masking would blank from `//` to end of line and
+  // hide this; the at-line-start rule does not.
+  const { findings } = findOverlayPositionOverrides(
+    '<p>https://example.test</p><DialogContent className="relative" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "relative"/);
+});
+
 test("honors a reviewed opt-out on the overlay tag", () => {
   const { findings } = findOverlayPositionOverrides(
     '<DialogContent /* overlay-position-ok: rendered into a positioned container */ className="relative">',

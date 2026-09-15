@@ -90,17 +90,18 @@ test.describe("create-plan dialog stays inside the viewport", () => {
 
   test("does not add page scroll of its own", async ({ page }) => {
     await page.setViewportSize(SHORT_VIEWPORT);
-    // Measure first: this account's Plans list may legitimately be taller than
-    // the viewport, and the claim under test is that the dialog adds nothing.
-    await page.goto("/plans");
-    await expect(page.getByRole("dialog")).toBeHidden();
-    const before = await page.evaluate(() => document.body.scrollHeight);
-
+    // Both readings come from one settled DOM. Measuring across a navigation
+    // would race the plans list: a baseline taken mid-load is shorter than the
+    // same page once loaded, which fails even when the dialog adds nothing.
     const dialog = await openCreatePlanDialog(page);
     await dialog.getByRole("button", { name: /advanced/i }).click();
     await expect(dialog.getByLabel("Agent planning style")).toBeVisible();
+    const withDialog = await page.evaluate(() => document.body.scrollHeight);
 
-    const after = await page.evaluate(() => document.body.scrollHeight);
-    expect(after).toBeLessThanOrEqual(before);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    const withoutDialog = await page.evaluate(() => document.body.scrollHeight);
+
+    expect(withDialog).toBeLessThanOrEqual(withoutDialog);
   });
 });
