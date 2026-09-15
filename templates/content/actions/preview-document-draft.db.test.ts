@@ -37,6 +37,7 @@ afterAll(() => {
 });
 
 let counter = 0;
+const createdDocumentUpdatedAt = new Map<string, string>();
 async function createDocument() {
   const id = `draft_doc_${++counter}`;
   const now = new Date().toISOString();
@@ -61,7 +62,14 @@ async function createDocument() {
       createdBy: OWNER,
       createdAt: now,
     });
+  createdDocumentUpdatedAt.set(id, now);
   return id;
+}
+
+function documentUpdatedAt(documentId: string) {
+  const updatedAt = createdDocumentUpdatedAt.get(documentId);
+  if (!updatedAt) throw new Error(`Missing timestamp for ${documentId}`);
+  return updatedAt;
 }
 
 const payload = (content: string) => ({
@@ -279,6 +287,7 @@ describe("private preview document drafts", () => {
         expectedDraftVersion: 1,
         expectedDraftTitle: "Builder row",
         expectedDraftContent: "Local recovery",
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
       }),
     );
     await expect(
@@ -289,6 +298,7 @@ describe("private preview document drafts", () => {
           expectedDraftVersion: 1,
           expectedDraftTitle: "Builder row",
           expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
         }),
       ),
     ).resolves.toEqual({ status: "resolved", choice: "use_saved" });
@@ -317,6 +327,45 @@ describe("private preview document drafts", () => {
     ]);
   });
 
+  it("keeps the exact draft when Use saved was reviewed against an older page", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({
+        content: "Unseen saved body",
+        updatedAt: new Date(Date.now() + 1_000).toISOString(),
+      })
+      .where(eq(schema.documents.id, documentId));
+
+    const result = await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "use_saved",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Local recovery",
+        expectedDocumentUpdatedAt: before.updatedAt,
+      }),
+    );
+
+    expect(result.status).toBe("document_conflict");
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft?.content,
+    ).toBe("Local recovery");
+  });
+
   it("saves the exact local draft as one separate page without changing the original", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>
@@ -335,6 +384,7 @@ describe("private preview document drafts", () => {
         expectedDraftVersion: 1,
         expectedDraftTitle: "Builder row",
         expectedDraftContent: "Local recovery",
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
       }),
     );
 
@@ -368,6 +418,7 @@ describe("private preview document drafts", () => {
         expectedDraftVersion: 1,
         expectedDraftTitle: "Builder row",
         expectedDraftContent: "Local recovery",
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
       }),
     );
     expect(retry).toMatchObject({
@@ -391,6 +442,7 @@ describe("private preview document drafts", () => {
         expectedDraftVersion: 1,
         expectedDraftTitle: "Builder row",
         expectedDraftContent: "Local recovery",
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
       }),
     );
     expect(
@@ -417,6 +469,7 @@ describe("private preview document drafts", () => {
         expectedDraftVersion: 1,
         expectedDraftTitle: "Builder row",
         expectedDraftContent: content,
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
       }),
     );
     const [copy] = await getDb()
@@ -448,6 +501,7 @@ describe("private preview document drafts", () => {
         expectedDraftVersion: 1,
         expectedDraftTitle: "Builder row",
         expectedDraftContent: "Collaborator recovery",
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
       }),
     );
     const [copy] = await getDb()
@@ -488,6 +542,7 @@ describe("private preview document drafts", () => {
         expectedDraftVersion: 1,
         expectedDraftTitle: "Builder row",
         expectedDraftContent: "Terminal recovery",
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
       }),
     );
 
@@ -499,6 +554,7 @@ describe("private preview document drafts", () => {
           expectedDraftVersion: 1,
           expectedDraftTitle: "Builder row",
           expectedDraftContent: "Terminal recovery",
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
         }),
       ),
     ).rejects.toThrow("already resolved with another choice");

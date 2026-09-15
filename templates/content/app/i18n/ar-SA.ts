@@ -422,6 +422,14 @@ const editor = {
   registryBlockUnreadable: "تعذرت قراءة مصدر الكتلة المحفوظ.",
   blocksFieldRevisionConflict:
     "تم تغيير حقل الكتل هذا في مكان آخر. لم يتم حفظ تعديلك؛ ويظهر الآن أحدث إصدار.",
+  reconcileConflict: "تم تغيير هذه الصفحة في مكان آخر. لم يتم حفظ تعديلاتك بعد.",
+  reconcileFailed: "تعذّر دمج أحدث التغييرات. لم يتم حفظ تعديلاتك بعد.",
+  reconcileSaveFailed: "تعذّر حفظ تعديلاتك. راجعها وحاول مرة أخرى.",
+  reconcileSaving: "جارٍ حفظ تعديلاتك…",
+  reconcileReview: "مراجعة التغييرات",
+  reconcileReviewStale:
+    "تم تغيير الإصدار المحفوظ مرة أخرى. راجع أحدث نص قبل الحفظ.",
+  reconcileRefresh: "مراجعة أحدث إصدار",
   collabConnectingReadOnly:
     "جارٍ الاتصال بالمحرر المباشر. يتم عرض لقطة للقراءة فقط.",
   liveDocumentSaveBeforeSyncFailed: "تعذّر حفظ المستند المباشر قبل المزامنة.",
@@ -806,6 +814,9 @@ const rawLiterals = {
     previewDraftSavedToHistory: "تم حفظ تعديلاتك في سجل الإصدارات",
     previewDraftSavedSeparately: "تم حفظ تعديلاتك كصفحة منفصلة",
     previewDraftOpenSavedPage: "فتح الصفحة",
+    previewDraftMoreOptions: "خيارات إضافية",
+    previewDraftViewFullVersions: "عرض النسختين كاملتين",
+    previewDraftShowChanges: "عرض التغييرات",
     previewDraftConflict:
       "تتعارض هذه المسودة مع إصدار أحدث من الصفحة، لذلك لم تتم استعادتها.",
     restorePreviewDraft: "استعادة المسودة",

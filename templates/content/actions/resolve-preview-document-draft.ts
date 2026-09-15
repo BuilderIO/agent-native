@@ -78,8 +78,16 @@ export default defineAction({
       ...exactDraft,
       expectedDocumentUpdatedAt: z.string().min(1),
     }),
-    z.object({ choice: z.literal("use_saved"), ...exactDraft }),
-    z.object({ choice: z.literal("save_separately"), ...exactDraft }),
+    z.object({
+      choice: z.literal("use_saved"),
+      ...exactDraft,
+      expectedDocumentUpdatedAt: z.string().min(1),
+    }),
+    z.object({
+      choice: z.literal("save_separately"),
+      ...exactDraft,
+      expectedDocumentUpdatedAt: z.string().min(1),
+    }),
   ]),
   run: async (args, ctx) => {
     const userEmail = getRequestUserEmail();
@@ -144,18 +152,36 @@ export default defineAction({
             conflict("This draft was already resolved with another choice.");
           }
           return {
-            id: payload.draftId,
-            ownerEmail: userEmail,
-            orgId,
-            documentId: args.documentId,
-            title: claim.title,
-            content: claim.content,
-            baseDocumentUpdatedAt: payload.baseDocumentUpdatedAt,
-            loadedContentWasEmpty: payload.loadedContentWasEmpty,
-            deferredReason: payload.deferredReason,
-            version: args.expectedDraftVersion,
-            createdAt: payload.createdAt,
-            updatedAt: payload.updatedAt,
+            status: "claimed" as const,
+            draft: {
+              id: payload.draftId,
+              ownerEmail: userEmail,
+              orgId,
+              documentId: args.documentId,
+              title: claim.title,
+              content: claim.content,
+              baseDocumentUpdatedAt: payload.baseDocumentUpdatedAt,
+              loadedContentWasEmpty: payload.loadedContentWasEmpty,
+              deferredReason: payload.deferredReason,
+              version: args.expectedDraftVersion,
+              createdAt: payload.createdAt,
+              updatedAt: payload.updatedAt,
+            },
+          };
+        }
+        const [currentDocument] = await tx
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .for("update")
+          .limit(1);
+        if (
+          !currentDocument ||
+          currentDocument.updatedAt !== args.expectedDocumentUpdatedAt
+        ) {
+          return {
+            status: "document_conflict" as const,
+            document: currentDocument ?? null,
           };
         }
         const now = new Date().toISOString();
@@ -197,7 +223,7 @@ export default defineAction({
           .returning({ id: schema.documentPreviewDrafts.id });
         if (deleted.length !== 1)
           conflict("The saved draft changed during recovery.");
-        return draft;
+        return { status: "claimed" as const, draft };
       });
     };
     const markClaimResolved = async () => {
@@ -247,7 +273,9 @@ export default defineAction({
       );
     };
     if (args.choice === "keep_mine") {
-      const draft = await claimExactDraft();
+      const claimed = await claimExactDraft();
+      if (claimed.status === "document_conflict") return claimed;
+      const { draft } = claimed;
       try {
         const [current] = await db
           .select()
@@ -299,7 +327,8 @@ export default defineAction({
     }
 
     if (args.choice === "use_saved") {
-      await claimExactDraft();
+      const claimed = await claimExactDraft();
+      if (claimed.status === "document_conflict") return claimed;
       await markClaimResolved();
       return { status: "resolved" as const, choice: args.choice };
     }
@@ -318,7 +347,9 @@ export default defineAction({
         ? existing
         : null;
     };
-    const draft = await claimExactDraft();
+    const claimed = await claimExactDraft();
+    if (claimed.status === "document_conflict") return claimed;
+    const { draft } = claimed;
     const existingRecovery = await findExistingRecovery();
     if (existingRecovery) {
       await markClaimResolved();

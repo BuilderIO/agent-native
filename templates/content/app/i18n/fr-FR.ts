@@ -442,6 +442,17 @@ const editor = {
   registryBlockUnreadable: "La source enregistrée du bloc est illisible.",
   blocksFieldRevisionConflict:
     "Ce champ de blocs a été modifié ailleurs. Votre modification n’a pas été enregistrée ; la dernière version est maintenant affichée.",
+  reconcileConflict:
+    "Cette page a été modifiée ailleurs. Vos modifications ne sont pas encore enregistrées.",
+  reconcileFailed:
+    "Impossible de fusionner les dernières modifications. Vos modifications ne sont pas encore enregistrées.",
+  reconcileSaveFailed:
+    "Impossible d’enregistrer vos modifications. Vérifiez-les et réessayez.",
+  reconcileSaving: "Enregistrement de vos modifications…",
+  reconcileReview: "Vérifier les modifications",
+  reconcileReviewStale:
+    "La version enregistrée a de nouveau changé. Vérifiez le texte le plus récent avant d’enregistrer.",
+  reconcileRefresh: "Vérifier la dernière version",
   collabConnectingReadOnly:
     "Connexion de l'éditeur en direct. Affichage d'un instantané en lecture seule.",
   liveDocumentSaveBeforeSyncFailed:
@@ -839,6 +850,9 @@ const rawLiterals = {
     previewDraftSavedSeparately:
       "Vos modifications ont été enregistrées dans une autre page",
     previewDraftOpenSavedPage: "Ouvrir la page",
+    previewDraftMoreOptions: "Plus d’options",
+    previewDraftViewFullVersions: "Afficher les versions complètes",
+    previewDraftShowChanges: "Afficher les modifications",
     previewDraftConflict:
       "Ce brouillon est en conflit avec une version plus récente de la page. Il n’a pas été restauré.",
     restorePreviewDraft: "Restaurer le brouillon",

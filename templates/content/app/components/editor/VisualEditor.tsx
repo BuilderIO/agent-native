@@ -86,6 +86,10 @@ import {
   type CommentTextAnchor,
 } from "./comment-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
+import {
+  isEditorDraftSaveAccepted,
+  type EditorDraftSaveResult,
+} from "./editor-draft-save";
 import { AudioNode } from "./extensions/AudioNode";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
@@ -1116,6 +1120,12 @@ interface VisualEditorProps {
   contentUpdatedAt?: string | null;
   /** Opaque body revision used for base-aware external-edit reconciliation. */
   contentRevision?: string | null;
+  /** Latest server-confirmed body snapshot written by this editor. */
+  acknowledgedLocalSnapshot?: {
+    value: string;
+    revision: string;
+    updatedAt: string;
+  } | null;
   collabContentRevision?: string | null;
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
@@ -1128,7 +1138,9 @@ interface VisualEditorProps {
     serverRevision: string;
   }) => void;
   onChange: (markdown: string) => void;
-  onSaveContent?: (markdown: string) => boolean | Promise<boolean>;
+  onSaveContent?: (
+    markdown: string,
+  ) => EditorDraftSaveResult | Promise<EditorDraftSaveResult>;
   onEscape?: () => void;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
@@ -2616,6 +2628,7 @@ export function VisualEditor({
   content,
   contentUpdatedAt,
   contentRevision,
+  acknowledgedLocalSnapshot,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
@@ -2867,12 +2880,16 @@ export function VisualEditor({
       },
     ) => {
       const guards = guardsRef.current;
-      if (!guards) return false;
+      if (!guards) return "failed" as const;
       try {
         const serialized = serializeEditorDraftForPersistence(editorToPersist);
-        if (serialized === null) return options?.strict !== true;
+        if (serialized === null)
+          return options?.strict === true
+            ? ("failed" as const)
+            : ("unchanged" as const);
         const normalized = options?.markdown ?? serialized;
-        if (localFileMode && normalized === content) return true;
+        if (localFileMode && normalized === content)
+          return "unchanged" as const;
         // TipTap/Yjs can emit a local-looking empty-paragraph transaction while
         // an editor is mounting or reconciling. Content serializes that filler
         // as `<empty-block/>`, so the generic whitespace-only collab guard does
@@ -2885,24 +2902,24 @@ export function VisualEditor({
             userInitiated: options?.userInitiated === true,
           })
         ) {
-          return true;
+          return "unchanged" as const;
         }
         if (options?.immediate && onSaveContentRef.current) {
           return onSaveContentRef.current(normalized);
         }
-        if (options?.immediate) return false;
+        if (options?.immediate) return "failed" as const;
         // Don't persist an empty doc before Collaboration has seeded (would
         // clobber DB content with an empty string). `registerEmitted` records
         // this as the last-emitted value and returns false to skip the save.
-        if (!guards.registerEmitted(normalized)) return true;
+        if (!guards.registerEmitted(normalized)) return "unchanged" as const;
         setTimeout(() => onChangeRef.current(normalized), 0);
-        return true;
+        return "scheduled" as const;
       } catch (err: any) {
         toast.error(
           t("editor.markdownSerializationError", { message: err.message }),
         );
         console.error("Markdown serialization error:", err);
-        return false;
+        return "failed" as const;
       }
     },
     [content, localFileMode, t],
@@ -2912,11 +2929,13 @@ export function VisualEditor({
     const guards = guardsRef.current;
     if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
     try {
-      const persisted = await persistEditorContent(editorToPersist, {
+      const saveResult = await persistEditorContent(editorToPersist, {
         immediate: true,
         userInitiated: true,
       });
-      if (!persisted) throw new Error(t("empty.genericError"));
+      if (!isEditorDraftSaveAccepted(saveResult)) {
+        throw new Error(t("empty.genericError"));
+      }
     } catch (error) {
       // The ordinary onUpdate path still queues its debounced retry. Keep the
       // immediate durability attempt from becoming an unhandled rejection,
@@ -3195,13 +3214,14 @@ export function VisualEditor({
         ) {
           return true;
         }
-        return await Promise.resolve(
+        const result = await Promise.resolve(
           persistEditorContent(editor, {
             immediate: true,
             userInitiated: true,
             strict: true,
           }),
         );
+        return isEditorDraftSaveAccepted(result);
       },
     });
     return () => onPersistenceControllerChange?.(null);
@@ -3314,10 +3334,11 @@ export function VisualEditor({
           persistCommittedImage: async () => {
             if (!committed || editor.isDestroyed || suggestingRef.current)
               return false;
-            return await persistEditorContent(editor, {
+            const result = await persistEditorContent(editor, {
               immediate: true,
               userInitiated: true,
             });
+            return isEditorDraftSaveAccepted(result);
           },
         });
         if (!committed) throw new Error(t("empty.genericError"));
@@ -3404,6 +3425,7 @@ export function VisualEditor({
     contentRevision: propsPredateAcknowledgedRestore
       ? acknowledgedRestore!.contentRevision
       : contentRevision,
+    acknowledgedLocalSnapshot,
     collabContentRevision: propsPredateAcknowledgedRestore
       ? null
       : collabContentRevision,
@@ -3862,14 +3884,18 @@ export function VisualEditor({
           suggesting={suggesting}
           notionPageId={notionPageId}
           onDraftCommitted={() =>
-            persistEditorContent(editor, { userInitiated: true })
+            Promise.resolve(
+              persistEditorContent(editor, { userInitiated: true }),
+            ).then(isEditorDraftSaveAccepted)
           }
           onDraftPersisted={(markdown) =>
-            persistEditorContent(editor, {
-              markdown,
-              immediate: true,
-              userInitiated: true,
-            })
+            Promise.resolve(
+              persistEditorContent(editor, {
+                markdown,
+                immediate: true,
+                userInitiated: true,
+              }),
+            ).then(isEditorDraftSaveAccepted)
           }
         />
       ) : null}
