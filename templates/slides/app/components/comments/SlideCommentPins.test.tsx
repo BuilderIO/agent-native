@@ -474,4 +474,34 @@ describe("SlideCommentPins", () => {
     fireEvent.pointerDown(plane, { clientX: 300, clientY: 150 });
     expect(document.activeElement).toBe(canvas);
   });
+
+  it("clears a pending pin draft when the slide changes", async () => {
+    const view = renderWithCanvas({ active: true });
+    const plane = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        "[data-slide-comment-click-plane]",
+      );
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    fireEvent.click(plane, { clientX: 300, clientY: 150 });
+    expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
+
+    view.rerender(
+      <SlideCommentPins
+        active
+        canComment
+        comments={[]}
+        deckId="deck-1"
+        slideId="slide-2"
+        canvasSelector="[data-main-slide-canvas='true']"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText("Add a comment...")).toBeNull(),
+    );
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
 });

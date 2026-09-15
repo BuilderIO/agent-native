@@ -76,33 +76,41 @@ export default defineAction({
     }
 
     const updatedAt = new Date().toISOString();
+    const setThreadResolved = async (resolved: boolean) => {
+      await db.transaction(async (tx) => {
+        // Reply creation takes this same thread lock before checking
+        // resolution, so resolution cannot race an insert.
+        await tx
+          .select({ id: schema.slideComments.id })
+          .from(schema.slideComments)
+          .where(
+            and(
+              eq(schema.slideComments.deckId, comment.deckId),
+              eq(schema.slideComments.slideId, comment.slideId),
+              eq(schema.slideComments.threadId, comment.threadId),
+            ),
+          )
+          .for("update");
+        await tx
+          .update(schema.slideComments)
+          .set({ resolved, updatedAt })
+          .where(
+            and(
+              eq(schema.slideComments.deckId, comment.deckId),
+              eq(schema.slideComments.slideId, comment.slideId),
+              eq(schema.slideComments.threadId, comment.threadId),
+            ),
+          );
+      });
+      return { ok: true, resolved };
+    };
 
     if (args.resolved === true) {
-      await db
-        .update(schema.slideComments)
-        .set({ resolved: true, updatedAt })
-        .where(
-          and(
-            eq(schema.slideComments.deckId, comment.deckId),
-            eq(schema.slideComments.slideId, comment.slideId),
-            eq(schema.slideComments.threadId, comment.threadId),
-          ),
-        );
-      return { ok: true, resolved: true };
+      return setThreadResolved(true);
     }
 
     if (args.resolved === false) {
-      await db
-        .update(schema.slideComments)
-        .set({ resolved: false, updatedAt })
-        .where(
-          and(
-            eq(schema.slideComments.deckId, comment.deckId),
-            eq(schema.slideComments.slideId, comment.slideId),
-            eq(schema.slideComments.threadId, comment.threadId),
-          ),
-        );
-      return { ok: true, resolved: false };
+      return setThreadResolved(false);
     }
 
     // The input contract rejects a request without either field, so reaching

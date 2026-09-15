@@ -192,12 +192,12 @@ describe("list-slide-comments", () => {
     expect(result).toMatchObject({
       has_more: false,
       next_offset: null,
-      limit: null,
+      limit: 100,
       offset: 0,
     });
   });
 
-  it("does not truncate the complete result when no page size is requested", async () => {
+  it("bounds the default page and exposes continuation metadata", async () => {
     state.rows = Array.from({ length: 201 }, (_, index) => ({
       ...state.rows[0]!,
       id: `comment-${index}`,
@@ -208,9 +208,13 @@ describe("list-slide-comments", () => {
 
     const result = await (action as any).run({ deckId: "deck-1" });
 
-    expect(result.comments).toHaveLength(201);
-    expect(result.has_more).toBe(false);
-    expect(result.next_offset).toBeNull();
+    expect(result.comments).toHaveLength(100);
+    expect(result).toMatchObject({
+      has_more: true,
+      next_offset: 100,
+      limit: 100,
+      offset: 0,
+    });
   });
 
   it("paginates when a bounded page size is requested", async () => {

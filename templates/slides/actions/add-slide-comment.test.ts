@@ -53,44 +53,50 @@ vi.mock("../server/db/index.js", () => {
     }
     return true;
   };
+  const db = {
+    select: (projection?: Record<string, unknown>) => ({
+      from: (table: unknown) => ({
+        where: (condition: any) => {
+          const rows =
+            table === schema.decks
+              ? [{ id: "deck-1", data: state.deckData }]
+              : state.rows;
+          const matchingRows = rows.filter((row) =>
+            matches(row as Record<string, unknown>, condition),
+          );
+          const project = (row: unknown) => {
+            if (!projection) return row;
+            const result: Record<string, unknown> = {};
+            for (const [key, column] of Object.entries(projection)) {
+              result[key] =
+                table === schema.decks
+                  ? state.deckData
+                  : (row as Record<string, unknown>)[
+                      String(column).split(".").pop()!
+                    ];
+            }
+            return result;
+          };
+          const limit = async (count: number) =>
+            matchingRows.slice(0, count).map(project);
+          return {
+            limit,
+            for: async () => matchingRows.map(project),
+          };
+        },
+      }),
+    }),
+    insert: () => ({
+      values: async (value: Record<string, unknown>) => {
+        state.inserted = value;
+      },
+    }),
+  };
   return {
     schema,
     getDb: () => ({
-      select: (projection?: Record<string, unknown>) => ({
-        from: (table: unknown) => ({
-          where: (condition: any) => ({
-            limit: async (count: number) => {
-              const rows =
-                table === schema.decks
-                  ? [{ id: "deck-1", data: state.deckData }]
-                  : state.rows;
-              return rows
-                .filter((row) =>
-                  matches(row as unknown as Record<string, unknown>, condition),
-                )
-                .slice(0, count)
-                .map((row) => {
-                  if (!projection) return row;
-                  const result: Record<string, unknown> = {};
-                  for (const [key, column] of Object.entries(projection)) {
-                    result[key] =
-                      table === schema.decks
-                        ? state.deckData
-                        : (row as unknown as Record<string, unknown>)[
-                            String(column).split(".").pop()!
-                          ];
-                  }
-                  return result;
-                });
-            },
-          }),
-        }),
-      }),
-      insert: () => ({
-        values: async (value: Record<string, unknown>) => {
-          state.inserted = value;
-        },
-      }),
+      ...db,
+      transaction: async (run: (tx: typeof db) => Promise<unknown>) => run(db),
     }),
   };
 });
@@ -160,6 +166,7 @@ describe("add-slide-comment", () => {
         slideId: "slide-1",
         content: "Reply",
         threadId: "thread-2",
+        parentId: "root-2",
       }),
     ).rejects.toThrow("Comment thread not found on this slide");
     expect(state.inserted).toEqual({});
@@ -194,6 +201,7 @@ describe("add-slide-comment", () => {
         slideId: "slide-1",
         content: "Reply",
         threadId: "thread-1",
+        parentId: "root-1",
       }),
     ).rejects.toThrow("Reopen this comment thread before replying");
     expect(state.inserted).toEqual({});
@@ -208,5 +216,34 @@ describe("add-slide-comment", () => {
         parentId: "root-1",
       }).success,
     ).toBe(false);
+  });
+
+  it("requires a parent ID when the caller supplies a thread ID", () => {
+    expect(
+      (action as any).schema.safeParse({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        content: "Reply",
+        threadId: "thread-1",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects empty relationship IDs", () => {
+    for (const args of [
+      { threadId: "", parentId: "root-1" },
+      { threadId: "thread-1", parentId: "" },
+      { threadId: "   ", parentId: "root-1" },
+      { threadId: "thread-1", parentId: "   " },
+    ]) {
+      expect(
+        (action as any).schema.safeParse({
+          deckId: "deck-1",
+          slideId: "slide-1",
+          content: "Reply",
+          ...args,
+        }).success,
+      ).toBe(false);
+    }
   });
 });

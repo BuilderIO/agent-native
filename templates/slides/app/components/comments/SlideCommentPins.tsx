@@ -60,6 +60,7 @@ interface SlideCommentPinsProps {
 }
 
 type PendingComment = {
+  slideId: string;
   anchor: SlideCommentAnchor;
 };
 
@@ -215,6 +216,7 @@ function CommentThreadPopover({
                   deckId={deckId ?? ""}
                   onDelete={handleDelete}
                   canManage={canManageRoot}
+                  canReact={canComment}
                 />
                 {thread.comments.length > 1 && (
                   <div className="space-y-2 border-t border-border/70 pt-2">
@@ -241,6 +243,7 @@ function CommentThreadPopover({
                           reply.author_email.trim().toLowerCase() ===
                             currentUserEmail?.trim().toLowerCase()
                         }
+                        canReact={canComment}
                       />
                     ))}
                   </div>
@@ -382,6 +385,12 @@ export function SlideCommentPins({
     wasActive.current = active;
   }, [active, focusCanvas]);
 
+  useEffect(() => {
+    setPending((current) => (current?.slideId === slideId ? current : null));
+    setText("");
+    setError(null);
+  }, [slideId]);
+
   const createAnchor = useCallback(
     (clientX: number, clientY: number): SlideCommentAnchor | null => {
       if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) {
@@ -431,7 +440,7 @@ export function SlideCommentPins({
       const anchor = createAnchor(event.clientX, event.clientY);
       if (!anchor) return;
       setOpenThreadId(null);
-      setPending({ anchor });
+      setPending({ slideId, anchor });
       setText("");
       setError(null);
     },
@@ -441,6 +450,11 @@ export function SlideCommentPins({
   const submit = async () => {
     const trimmed = text.trim();
     if (!trimmed || !pending || !deckId || createComment.isPending) return;
+    if (pending.slideId !== slideId) {
+      setPending(null);
+      setText("");
+      return;
+    }
     setError(null);
     try {
       await onBeforeCommentSubmit?.();

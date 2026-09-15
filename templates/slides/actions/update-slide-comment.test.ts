@@ -66,20 +66,24 @@ vi.mock("../server/db/index.js", () => {
   const db = {
     select: (projection?: Record<string, unknown>) => ({
       from: () => ({
-        where: (cond: any) => ({
-          limit: async (n: number) => {
-            const matched = state.rows.filter((r) => matches(r, cond));
-            const project = (row: Row) => {
-              if (!projection) return row;
-              const out: Record<string, unknown> = {};
-              for (const key of Object.keys(projection)) {
-                out[key] = (row as any)[key];
-              }
-              return out;
-            };
+        where: (cond: any) => {
+          const matched = state.rows.filter((r) => matches(r, cond));
+          const project = (row: Row) => {
+            if (!projection) return row;
+            const out: Record<string, unknown> = {};
+            for (const key of Object.keys(projection)) {
+              out[key] = (row as any)[key];
+            }
+            return out;
+          };
+          const limit = async (n: number) => {
             return matched.slice(0, n).map(project);
-          },
-        }),
+          };
+          return {
+            limit,
+            for: async () => matched.map(project),
+          };
+        },
       }),
     }),
     update: () => ({
@@ -94,7 +98,13 @@ vi.mock("../server/db/index.js", () => {
     }),
   };
 
-  return { getDb: () => db, schema };
+  return {
+    getDb: () => ({
+      ...db,
+      transaction: async (run: (tx: typeof db) => Promise<unknown>) => run(db),
+    }),
+    schema,
+  };
 });
 
 import action from "./update-slide-comment";

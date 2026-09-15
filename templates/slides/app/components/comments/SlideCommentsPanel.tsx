@@ -60,6 +60,7 @@ interface SlideCommentsPanelProps {
   onBeforeCommentSubmit?: () => Promise<void>;
   onSelectSlide?: (slideId: string) => void;
   pendingComment: {
+    slideId: string;
     quotedText: string;
     anchor?: SlideCommentAnchor;
   } | null;
@@ -99,11 +100,13 @@ export function CommentItem({
   deckId,
   onDelete,
   canManage,
+  canReact,
 }: {
   comment: SlideComment;
   deckId: string;
   onDelete: () => void;
   canManage: boolean;
+  canReact: boolean;
 }) {
   const t = useT();
   const [editing, setEditing] = useState(false);
@@ -235,51 +238,64 @@ export function CommentItem({
           />
         )}
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          {reactions.map((reaction) => (
-            <button
-              key={reaction.emoji}
-              type="button"
-              aria-label={t("comments.toggleReaction", {
-                emoji: reaction.emoji,
-              })}
-              aria-pressed={reaction.reacted}
-              onClick={() => toggleEmoji(reaction.emoji)}
-              className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] transition-colors ${reaction.reacted ? "border-primary/60 bg-primary/10" : "border-border bg-background hover:bg-accent"}`}
-            >
-              <span aria-hidden="true">{reaction.emoji}</span>
-              <span>{reaction.count}</span>
-            </button>
-          ))}
-          <Popover open={reactionOpen} onOpenChange={setReactionOpen}>
-            <PopoverTrigger asChild>
+          {reactions.map((reaction) =>
+            canReact ? (
               <button
+                key={reaction.emoji}
                 type="button"
-                aria-label={t("comments.addReaction")}
-                className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={t("comments.toggleReaction", {
+                  emoji: reaction.emoji,
+                })}
+                aria-pressed={reaction.reacted}
+                onClick={() => toggleEmoji(reaction.emoji)}
+                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] transition-colors ${reaction.reacted ? "border-primary/60 bg-primary/10" : "border-border bg-background hover:bg-accent"}`}
               >
-                <IconPlus className="size-3" />
+                <span aria-hidden="true">{reaction.emoji}</span>
+                <span>{reaction.count}</span>
               </button>
-            </PopoverTrigger>
-            <PopoverContent
-              side="bottom"
-              align="start"
-              className="w-auto p-1.5"
-            >
-              <div className="flex gap-0.5">
-                {COMMENT_REACTION_EMOJIS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    aria-label={t("comments.reactWith", { emoji })}
-                    onClick={() => toggleEmoji(emoji)}
-                    className="rounded p-1.5 text-base leading-none hover:bg-accent"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
+            ) : (
+              <span
+                key={reaction.emoji}
+                aria-label={`${reaction.emoji} ${reaction.count}`}
+                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${reaction.reacted ? "border-primary/60 bg-primary/10" : "border-border bg-background"}`}
+              >
+                <span aria-hidden="true">{reaction.emoji}</span>
+                <span>{reaction.count}</span>
+              </span>
+            ),
+          )}
+          {canReact && (
+            <Popover open={reactionOpen} onOpenChange={setReactionOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t("comments.addReaction")}
+                  className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <IconPlus className="size-3" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="bottom"
+                align="start"
+                className="w-auto p-1.5"
+              >
+                <div className="flex gap-0.5">
+                  {COMMENT_REACTION_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      aria-label={t("comments.reactWith", { emoji })}
+                      onClick={() => toggleEmoji(emoji)}
+                      className="rounded p-1.5 text-base leading-none hover:bg-accent"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
         {error && !editing && (
           <p role="alert" className="mt-1 text-[11px] text-destructive">
@@ -562,6 +578,7 @@ function ThreadCard({
           rootComment.author_email.trim().toLowerCase() ===
             currentUserEmail?.trim().toLowerCase()
         }
+        canReact={canComment}
       />
 
       {/* Replies toggle */}
@@ -596,6 +613,7 @@ function ThreadCard({
                 r.author_email.trim().toLowerCase() ===
                   currentUserEmail?.trim().toLowerCase()
               }
+              canReact={canComment}
             />
           ))}
         </div>
@@ -692,20 +710,20 @@ export function SlideCommentsPanel({
           comment.author_email.trim().toLowerCase() ===
           normalizedCurrentUserEmail,
       );
-      const hasAttentionItem = thread.comments.some((comment) => {
-        if (
-          comment.author_email.trim().toLowerCase() ===
-          normalizedCurrentUserEmail
-        ) {
-          return false;
-        }
-        const mentionsViewer = normalizedCurrentUserEmail
-          ? comment.content
+      const hasNonViewerComment = thread.comments.some(
+        (comment) =>
+          comment.author_email.trim().toLowerCase() !==
+          normalizedCurrentUserEmail,
+      );
+      const hasViewerMention = normalizedCurrentUserEmail
+        ? thread.comments.some((comment) =>
+            comment.content
               .toLowerCase()
-              .includes(`@${normalizedCurrentUserEmail}`)
-          : false;
-        return mentionsViewer || hasViewerComment;
-      });
+              .includes(`@${normalizedCurrentUserEmail}`),
+          )
+        : false;
+      const hasAttentionItem =
+        hasViewerMention || (hasViewerComment && hasNonViewerComment);
       if (!hasAttentionItem) return false;
     }
 
@@ -726,17 +744,24 @@ export function SlideCommentsPanel({
     : audienceThreads.filter((t) => !t.resolved);
   const visibleResolvedThreads = audienceThreads.filter((t) => t.resolved);
   const showLoadError = commentsQuery.isError && threads.length === 0;
+  const currentPendingComment =
+    pendingComment?.slideId === slideId ? pendingComment : null;
 
   // When pending comment arrives, cancel any manual "add comment" mode
   useEffect(() => {
+    if (pendingComment && pendingComment.slideId !== slideId) {
+      onPendingDone();
+      return;
+    }
     if (pendingComment && !canComment) {
       onPendingDone();
       return;
     }
     if (pendingComment) setAddingComment(false);
-  }, [canComment, onPendingDone, pendingComment]);
+  }, [canComment, onPendingDone, pendingComment, slideId]);
 
-  const showInput = canComment && Boolean(pendingComment || addingComment);
+  const showInput =
+    canComment && Boolean(currentPendingComment || addingComment);
 
   return (
     <div className="flex h-full w-[17rem] flex-shrink-0 flex-col bg-[var(--slides-editor-surface)]">
@@ -829,8 +854,8 @@ export function SlideCommentsPanel({
         {/* Pending / manual new comment input */}
         {showInput && deckId && slideId && (
           <PendingCommentInput
-            quotedText={pendingComment ? pendingComment.quotedText : ""}
-            anchor={pendingComment?.anchor}
+            quotedText={currentPendingComment?.quotedText ?? ""}
+            anchor={currentPendingComment?.anchor}
             deckId={deckId}
             slideId={slideId}
             onBeforeSubmit={onBeforeCommentSubmit}

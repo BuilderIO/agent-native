@@ -163,7 +163,7 @@ describe("SlideCommentsPanel", () => {
         canComment
         canEdit
         currentUserEmail="writer@example.com"
-        pendingComment={{ quotedText: "Revenue", anchor }}
+        pendingComment={{ slideId: "slide-1", quotedText: "Revenue", anchor }}
         onPendingDone={onPendingDone}
         onClose={vi.fn()}
       />,
@@ -210,6 +210,109 @@ describe("SlideCommentsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it("shows existing reactions but hides reaction controls for viewers", () => {
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-1",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-1",
+              author_email: "writer@example.com",
+              author_name: "Writer",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Review this slide",
+              reactions: [{ emoji: "👍", count: 2, reacted: false }],
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+
+    render(
+      <SlideCommentsPanel
+        deckId="deck-1"
+        slideId="slide-1"
+        canComment={false}
+        canEdit={false}
+        currentUserEmail="viewer@example.com"
+        pendingComment={null}
+        onPendingDone={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Review this slide")).toBeTruthy();
+    expect(screen.getByText("👍")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add reaction" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Toggle reaction/ }),
+    ).toBeNull();
+  });
+
+  it("excludes a self-authored-only thread from For you", () => {
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-1",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-1",
+              author_email: "writer@example.com",
+              author_name: "Writer",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Only my note",
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+
+    render(
+      <SlideCommentsPanel
+        deckId="deck-1"
+        slideId="slide-1"
+        canComment
+        canEdit={false}
+        currentUserEmail="writer@example.com"
+        pendingComment={null}
+        onPendingDone={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "For you" }));
+
+    expect(screen.queryByText("Only my note")).toBeNull();
+  });
+
+  it("clears a pending comment that belongs to another slide", async () => {
+    const onPendingDone = vi.fn();
+    commentQueryState = { data: [], isError: false };
+
+    render(
+      <SlideCommentsPanel
+        deckId="deck-1"
+        slideId="slide-2"
+        canComment
+        canEdit
+        currentUserEmail="writer@example.com"
+        pendingComment={{ slideId: "slide-1", quotedText: "Old title" }}
+        onPendingDone={onPendingDone}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByPlaceholderText("Add a comment...")).toBeNull();
+    await waitFor(() => expect(onPendingDone).toHaveBeenCalledOnce());
   });
 
   it("renders inline markdown in comment bodies without block headings", () => {

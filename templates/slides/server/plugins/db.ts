@@ -344,6 +344,14 @@ WHERE change_group IS NOT NULL`,
       name: "slides-comment-emoji-reactions",
       sql: `ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS emoji_reactions_json TEXT NOT NULL DEFAULT '{}'`,
     },
+    {
+      version: 30,
+      name: "slides-comment-read-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS slide_comments_deck_created_idx
+ON slide_comments (deck_id, created_at);
+CREATE INDEX IF NOT EXISTS slide_comments_deck_slide_created_idx
+ON slide_comments (deck_id, slide_id, created_at)`,
+    },
   ],
   { table: "slides_migrations" },
 );

@@ -10,9 +10,11 @@ import { getDb, schema } from "../server/db/index.js"; // ensure registerShareab
 import { parseSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
 import { summarizeSlideCommentReactions } from "../shared/slide-comment-reactions.js";
 
+const DEFAULT_COMMENT_PAGE_SIZE = 100;
+
 export default defineAction({
   description:
-    "List comments for one slide, or all comments in a deck when slideId is omitted, ordered by creation time. By default returns every matching comment; pass limit (max 200) and offset for paged reads, and inspect has_more/next_offset when paging.",
+    "List comments for one slide, or all comments in a deck when slideId is omitted, ordered by creation time. Returns the first bounded page of 100 comments by default; pass limit (max 200) and offset for other pages, and inspect has_more/next_offset when paging.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().optional().describe("Slide ID; omit for all slides"),
@@ -34,7 +36,7 @@ export default defineAction({
   run: async (args) => {
     const { deckId, slideId } = args;
     const offset = args.offset ?? 0;
-    const pageLimit = args.limit;
+    const pageLimit = args.limit ?? DEFAULT_COMMENT_PAGE_SIZE;
     await assertAccess("deck", deckId, "viewer");
 
     const db = getDb();
@@ -51,13 +53,9 @@ export default defineAction({
           : eq(schema.slideComments.deckId, deckId),
       )
       .orderBy(asc(schema.slideComments.createdAt));
-    const rows =
-      pageLimit === undefined
-        ? await query.offset(offset)
-        : await query.limit(pageLimit + 1).offset(offset);
-    const hasMore = pageLimit !== undefined && rows.length > pageLimit;
-    const visibleRows =
-      pageLimit === undefined || !hasMore ? rows : rows.slice(0, pageLimit);
+    const rows = await query.limit(pageLimit + 1).offset(offset);
+    const hasMore = rows.length > pageLimit;
+    const visibleRows = hasMore ? rows.slice(0, pageLimit) : rows;
     const profiles = await getUserProfiles(
       visibleRows.map((row) => row.authorEmail),
     );
@@ -86,9 +84,8 @@ export default defineAction({
         updated_at: row.updatedAt,
       })),
       has_more: hasMore,
-      next_offset:
-        pageLimit !== undefined && hasMore ? offset + pageLimit : null,
-      limit: pageLimit ?? null,
+      next_offset: hasMore ? offset + pageLimit : null,
+      limit: pageLimit,
       offset,
     };
   },

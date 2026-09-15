@@ -553,6 +553,7 @@ export default function DeckEditor() {
     setSidePanel(opening ? "comments" : null);
   }, [sidePanel]);
   const [pendingComment, setPendingComment] = useState<{
+    slideId: string;
     quotedText: string;
     anchor?: SlideCommentAnchor;
   } | null>(null);
@@ -635,9 +636,12 @@ export default function DeckEditor() {
   // loading when `createdByMe` already confirms ownership — otherwise a
   // viewer would briefly see (and could click) edit affordances.
   const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
+  const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
   const openCommentComposer = useCallback(
     (quotedText: string, anchor?: SlideCommentAnchor) => {
       if (!canComment) return;
+      const commentSlideId = activeSlideId ?? fallbackCommentSlideId;
+      if (!commentSlideId) return;
       if (sidePanel !== "comments") {
         trackEvent("slide_panel_opened", {
           app_name: "slides",
@@ -645,11 +649,17 @@ export default function DeckEditor() {
           panel: "comments",
         });
       }
-      setPendingComment({ quotedText, anchor });
+      setPendingComment({ slideId: commentSlideId, quotedText, anchor });
       setSidePanel("comments");
     },
-    [canComment, sidePanel],
+    [activeSlideId, canComment, fallbackCommentSlideId, sidePanel],
   );
+  useEffect(() => {
+    const currentSlideId = activeSlideId ?? fallbackCommentSlideId;
+    if (pendingComment && pendingComment.slideId !== currentSlideId) {
+      setPendingComment(null);
+    }
+  }, [activeSlideId, fallbackCommentSlideId, pendingComment]);
   const flushCommentWrites = useCallback(async () => {
     if (!id) return;
     flushPendingSaves();
@@ -2950,7 +2960,11 @@ export default function DeckEditor() {
             currentUserEmail={session?.email ?? null}
             onBeforeCommentSubmit={flushCommentWrites}
             onSelectSlide={handleSlideSelection}
-            pendingComment={pendingComment}
+            pendingComment={
+              pendingComment?.slideId === currentSlide?.id
+                ? pendingComment
+                : null
+            }
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
               setSidePanel(null);

@@ -7,6 +7,7 @@ type Row = {
   authorEmail: string;
   threadId: string;
   parentId: string | null;
+  createdAt?: string;
 };
 
 const state = vi.hoisted(() => ({ rows: [] as Row[] }));
@@ -24,6 +25,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...conds: unknown[]) => ({ __and: conds }),
   eq: (col: unknown, value: unknown) => ({ __eq: [col, value] }),
+  asc: (column: unknown) => ({ __asc: column }),
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings,
     values,
@@ -50,26 +52,28 @@ vi.mock("../server/db/index.js", () => {
       authorEmail: col("authorEmail"),
       threadId: col("threadId"),
       parentId: col("parentId"),
+      createdAt: col("createdAt"),
     },
   };
 
   const db = {
     select: (projection?: Record<string, unknown>) => ({
       from: () => ({
-        where: (cond: any) => ({
-          limit: async (n: number) => {
-            const matched = state.rows.filter((r) => matches(r, cond));
-            const project = (row: Row) => {
-              if (!projection) return row;
-              const out: Record<string, unknown> = {};
-              for (const key of Object.keys(projection)) {
-                out[key] = (row as any)[key];
-              }
-              return out;
-            };
-            return matched.slice(0, n).map(project);
-          },
-        }),
+        where: (cond: any) => {
+          const matched = state.rows.filter((r) => matches(r, cond));
+          const project = (row: Row) => {
+            if (!projection) return row;
+            const out: Record<string, unknown> = {};
+            for (const key of Object.keys(projection))
+              out[key] = row[key as keyof Row];
+            return out;
+          };
+          const limit = async (n: number) => matched.slice(0, n).map(project);
+          return {
+            limit,
+            orderBy: () => ({ limit }),
+          };
+        },
       }),
     }),
     delete: () => ({
@@ -100,6 +104,7 @@ beforeEach(() => {
       authorEmail: "author@example.com",
       threadId: "c-1",
       parentId: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
     },
     {
       id: "c-2",
@@ -108,6 +113,7 @@ beforeEach(() => {
       authorEmail: "other@example.com",
       threadId: "c-1",
       parentId: "c-1",
+      createdAt: "2026-01-01T00:01:00.000Z",
     },
     {
       id: "c-3",
@@ -116,6 +122,7 @@ beforeEach(() => {
       authorEmail: "other@example.com",
       threadId: "c-3",
       parentId: null,
+      createdAt: "2026-01-02T00:00:00.000Z",
     },
   ];
 });
@@ -155,6 +162,23 @@ describe("delete-slide-comment", () => {
     await run({ id: "c-1", deckId: "deck-1" });
 
     expect(state.rows.map((r) => r.id)).toEqual(["c-3"]);
+  });
+
+  it("deletes a legacy reply with a null parent without deleting its thread", async () => {
+    state.rows.push({
+      id: "legacy-reply",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      authorEmail: "other@example.com",
+      threadId: "c-1",
+      parentId: null,
+      createdAt: "2026-01-01T00:02:00.000Z",
+    });
+    mockGetUserEmail.mockReturnValue("other@example.com");
+
+    await run({ id: "legacy-reply", deckId: "deck-1" });
+
+    expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2", "c-3"]);
   });
 
   it("propagates a Forbidden failure when the caller lacks the required role", async () => {

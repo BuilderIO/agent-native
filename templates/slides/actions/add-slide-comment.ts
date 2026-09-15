@@ -35,16 +35,25 @@ const addSlideCommentSchema = z
       ),
     threadId: z
       .string()
+      .trim()
+      .min(1)
       .optional()
       .describe("Existing thread ID for a reply; omit to start a new thread"),
     parentId: z
       .string()
+      .trim()
+      .min(1)
       .optional()
       .describe("Parent comment ID for a reply; requires threadId"),
   })
-  .refine((args) => !args.parentId || args.threadId, {
-    message: "A parent comment requires an existing thread ID",
-    path: ["threadId"],
+  .superRefine((args, ctx) => {
+    if (Boolean(args.threadId) !== Boolean(args.parentId)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "threadId and parentId must be supplied together",
+        path: [args.threadId ? "parentId" : "threadId"],
+      });
+    }
   });
 
 export default defineAction({
@@ -58,9 +67,23 @@ export default defineAction({
       content,
       quotedText,
       anchor,
-      threadId: requestedThreadId,
-      parentId,
+      threadId: rawThreadId,
+      parentId: rawParentId,
     } = args;
+    const requestedThreadId = rawThreadId?.trim();
+    const parentId = rawParentId?.trim();
+    const hasThreadId = rawThreadId !== undefined;
+    const hasParentId = rawParentId !== undefined;
+    if (
+      (hasThreadId && !requestedThreadId) ||
+      (hasParentId && !parentId) ||
+      hasThreadId !== hasParentId
+    ) {
+      fail("threadId and parentId must be supplied together and non-empty", {
+        errorCode: "invalid_comment_relationship",
+        statusCode: 400,
+      });
+    }
     await assertAccess("deck", deckId, "commenter");
 
     const id = Math.random().toString(36).slice(2, 14);
@@ -103,64 +126,58 @@ export default defineAction({
       });
     }
 
-    if (requestedThreadId) {
-      const [thread] = await db
-        .select({ resolved: schema.slideComments.resolved })
-        .from(schema.slideComments)
-        .where(
-          and(
-            eq(schema.slideComments.deckId, deckId),
-            eq(schema.slideComments.slideId, slideId),
-            eq(schema.slideComments.threadId, requestedThreadId),
-          ),
-        )
-        .limit(1);
-      if (!thread) {
-        fail("Comment thread not found on this slide", {
-          errorCode: "not_found",
-          statusCode: 404,
-        });
-      }
-      if (thread.resolved) {
-        fail("Reopen this comment thread before replying", {
-          errorCode: "comment_thread_resolved",
-          statusCode: 409,
-        });
-      }
-
-      if (parentId) {
-        const [parent] = await db
-          .select({ id: schema.slideComments.id })
+    await db.transaction(async (tx) => {
+      if (requestedThreadId) {
+        // Resolution and replies take the same thread locks so a reply cannot
+        // pass a stale unresolved check while a concurrent resolve commits.
+        const threadRows = await tx
+          .select({
+            id: schema.slideComments.id,
+            resolved: schema.slideComments.resolved,
+          })
           .from(schema.slideComments)
           .where(
             and(
-              eq(schema.slideComments.id, parentId),
               eq(schema.slideComments.deckId, deckId),
               eq(schema.slideComments.slideId, slideId),
               eq(schema.slideComments.threadId, requestedThreadId),
             ),
           )
-          .limit(1);
-        if (!parent) {
+          .for("update");
+        const thread = threadRows[0];
+        if (!thread) {
+          fail("Comment thread not found on this slide", {
+            errorCode: "not_found",
+            statusCode: 404,
+          });
+        }
+        if (thread.resolved) {
+          fail("Reopen this comment thread before replying", {
+            errorCode: "comment_thread_resolved",
+            statusCode: 409,
+          });
+        }
+
+        if (!threadRows.some((row) => row.id === parentId)) {
           fail("Parent comment not found in this thread", {
             errorCode: "not_found",
             statusCode: 404,
           });
         }
       }
-    }
 
-    await db.insert(schema.slideComments).values({
-      id,
-      deckId,
-      slideId,
-      threadId,
-      parentId: parentId ?? null,
-      content: content.trim(),
-      quotedText: quotedText ?? null,
-      anchor: serializeSlideCommentAnchor(anchor),
-      authorEmail,
-      authorName,
+      await tx.insert(schema.slideComments).values({
+        id,
+        deckId,
+        slideId,
+        threadId,
+        parentId: parentId ?? null,
+        content: content.trim(),
+        quotedText: quotedText ?? null,
+        anchor: serializeSlideCommentAnchor(anchor),
+        authorEmail,
+        authorName,
+      });
     });
 
     const notified = await notifyDeckComment({
@@ -170,7 +187,7 @@ export default defineAction({
       authorEmail,
       authorName,
       content,
-      isReply: Boolean(parentId ?? args.threadId),
+      isReply: requestedThreadId !== undefined,
     });
 
     return { id, threadId, notified };
