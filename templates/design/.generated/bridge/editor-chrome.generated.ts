@@ -5531,10 +5531,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       selectionOverlay.querySelectorAll("[data-agent-native-edit-handle]").forEach(function(handle) {
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        var sizeX = 7 * sx;
-        var sizeY = 7 * sy;
-        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
-        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        var sizeX = 7 * line;
+        var sizeY = 7 * line;
+        var inwardX = clampHandleInwardReach(sizeX - 4 * line, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * line, elHeight);
         handle.style.width = sizeX + "px";
         handle.style.height = sizeY + "px";
         handle.style.borderWidth = 1 * line + "px";

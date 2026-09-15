@@ -7203,12 +7203,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .querySelectorAll("[data-agent-native-edit-handle]")
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        var sizeX = 7 * sx;
-        var sizeY = 7 * sy;
-        // sizeY - 4*sy is exact (Sterbenz), so the unclamped offset below
+        // Both axes use the same uniform `line` scale (never sx/sy
+        // individually) so the square handle stays square and centered on
+        // the stroke corner even when the iframe's own X/Y chrome scale
+        // differs — using sx/sy here stretched the square into a rectangle
+        // and threw off the corner offset math whenever scaleX !== scaleY.
+        var sizeX = 7 * line;
+        var sizeY = 7 * line;
+        // sizeY - 4*line is exact (Sterbenz), so the unclamped offset below
         // reproduces the historical -4*scale bit-for-bit.
-        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
-        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        var inwardX = clampHandleInwardReach(sizeX - 4 * line, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * line, elHeight);
         handle.style.width = sizeX + "px";
         handle.style.height = sizeY + "px";
         handle.style.borderWidth = 1 * line + "px";
