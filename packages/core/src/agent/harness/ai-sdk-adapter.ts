@@ -236,6 +236,7 @@ class AiSdkHarnessSession implements AgentHarnessSession {
   }
 
   async detach(): Promise<unknown> {
+    this.toolCalls.clear();
     if (typeof this.nativeSession.detach === "function") {
       return this.nativeSession.detach();
     }
@@ -243,6 +244,7 @@ class AiSdkHarnessSession implements AgentHarnessSession {
   }
 
   async stop(): Promise<unknown> {
+    this.toolCalls.clear();
     if (typeof this.nativeSession.stop === "function") {
       return this.nativeSession.stop();
     }
@@ -250,6 +252,7 @@ class AiSdkHarnessSession implements AgentHarnessSession {
   }
 
   async destroy(): Promise<void> {
+    this.toolCalls.clear();
     await this.nativeSession.destroy?.();
   }
 }
@@ -326,6 +329,10 @@ export function aiSdkHarnessPartToEvents(
         });
         break;
       }
+      {
+        const id = part.toolCallId ?? part.id;
+        if (typeof id === "string") toolCalls.delete(id);
+      }
       events.push({
         type: "tool-done",
         id: part.toolCallId ?? part.id,
@@ -366,6 +373,7 @@ export function aiSdkHarnessPartToEvents(
         message: part.message ?? "Harness is waiting for approval",
         input,
       });
+      if (typeof toolCallId === "string") toolCalls.delete(toolCallId);
       break;
     }
     case "file-change":
@@ -385,9 +393,11 @@ export function aiSdkHarnessPartToEvents(
       });
       break;
     case "finish":
+      toolCalls.clear();
       events.push({ type: "done", reason: part.finishReason });
       break;
     case "error":
+      toolCalls.clear();
       events.push({
         type: "error",
         error: part.error?.message ?? part.message ?? "Harness stream error",

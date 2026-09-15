@@ -168,6 +168,7 @@ describe("aiSdkHarnessPartToEvents", () => {
         input: { path: "src/app.ts" },
       },
     ]);
+    expect(toolCalls.size).toBe(0);
     expect(
       aiSdkHarnessPartToEvents({
         type: "file-change",
