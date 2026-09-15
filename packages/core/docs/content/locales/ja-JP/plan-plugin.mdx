@@ -26,9 +26,7 @@ Plan を生成し、そのまま Plan アプリへ公開できます。このペ
 <div class="diagram-routes">
   <div class="diagram-col">
     <div class="diagram-node">
-      汎用 CLI<br /><small class="diagram-muted"
-        >skills add visual-plan</small
-      >
+      汎用 CLI<br /><small class="diagram-muted">skills add visual-plan</small>
     </div>
     <div class="diagram-node">
       Claude Code プラグイン<br /><small class="diagram-muted"
@@ -36,7 +34,9 @@ Plan を生成し、そのまま Plan アプリへ公開できます。このペ
       >
     </div>
     <div class="diagram-node">
-      Codex プラグイン<br /><small class="diagram-muted">codex plugin add</small>
+      Codex プラグイン<br /><small class="diagram-muted"
+        >codex plugin add</small
+      >
     </div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -162,7 +162,8 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
     ><small class="diagram-muted"
       >plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost ブリッジ &rarr;
       ホスト型の Plan UI がローカルのソースを読み取る。
-      <code>publish-visual-plan</code> を実行するまで DB への書き込みはない。</small
+      <code>publish-visual-plan</code> を実行するまで DB
+      への書き込みはない。</small
     >
   </div>
 </div>

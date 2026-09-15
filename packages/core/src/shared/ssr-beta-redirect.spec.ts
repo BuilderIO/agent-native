@@ -759,6 +759,24 @@ describe("getSsrBetaRedirectScript", () => {
         Number(productionStorage.getItem(BETA_OPT_OUT_STORAGE_KEY)),
       ).toBeGreaterThan(Date.now());
     });
+
+    // Regression pin for the Design template: Google sign-in on production
+    // was reported broken on beta because a fresh production session got
+    // auto-redirected to a beta host with no session of its own. This
+    // exercises the exact host pair Design deploys to, so a future edit to
+    // ENVIRONMENT_BETA_HOSTS that drops or renames the Design entry fails
+    // here instead of only reaching Design's beta sign-in page in the wild.
+    it("returns a signed-out Design beta arrival to Design's production page", async () => {
+      const result = await runScript({
+        href: "https://beta.design.agent-native.com/inbox?agentNativeLaneRedirect=1",
+        sessionStatus: 401,
+        session: null,
+      });
+
+      const target = new URL(result.redirectedTo ?? "");
+      expect(target.hostname).toBe("design.agent-native.com");
+      expect(target.pathname).toBe("/inbox");
+    });
   });
 
   it("emits a marked inline script for head or shell injection", () => {

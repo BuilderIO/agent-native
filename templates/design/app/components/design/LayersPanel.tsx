@@ -49,6 +49,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
   type Ref,
   type RefObject,
@@ -165,6 +166,7 @@ export interface LayersPanelMoveIntent {
 export interface LayersPanelLabels {
   title: string;
   screens: string;
+  resizeScreens: string;
   allScreens: string;
   screenOverview: string;
   addScreen: string;
@@ -368,6 +370,7 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
     screens: t("layersPanel.screens"),
+    resizeScreens: t("layersPanel.resizeScreens"),
     allScreens: t("layersPanel.allScreens"),
     screenOverview: t("designEditor.screenOverview"),
     addScreen: t("layersPanel.addScreen"),
@@ -969,6 +972,12 @@ function layerCanShowBadge(node: LayersPanelNode) {
   );
 }
 
+function clampScreenSectionHeight(nextHeight: number, panelHeight: number) {
+  const maxHeight = panelHeight > 0 ? panelHeight * 0.3 : nextHeight;
+  const minHeight = Math.min(96, maxHeight);
+  return Math.min(maxHeight, Math.max(minHeight, nextHeight));
+}
+
 // PF8: DesignEditor re-renders on many state changes unrelated to the layers
 // tree (drag gestures, zoom, canvas hover, etc). All of LayersPanel's call-site
 // props are already stabilized (useMemo/useCallback/plain state — see
@@ -1048,7 +1057,23 @@ function LayersPanelImpl(
   const expandedIdSet = useMemo(() => new Set(expandedIds), [expandedIds]);
   const lastSelectionAnchorRef = useRef<string | null>(selectedIds[0] ?? null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const layersPanelRef = useRef<HTMLElement>(null);
+  const screenSectionRef = useRef<HTMLDivElement>(null);
+  const screenResizeRef = useRef<{
+    pointerId: number;
+    startY: number;
+    startHeight: number;
+  } | null>(null);
+  const [screenSectionHeight, setScreenSectionHeight] = useState<number | null>(
+    null,
+  );
   const rowElementRefs = useRef(new Map<string, HTMLDivElement>());
+  const screenRowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [screenResizeMetrics, setScreenResizeMetrics] = useState({
+    min: 0,
+    max: 0,
+    now: 0,
+  });
   // L20: edge auto-scroll during a row drag. scrollContainerRef is the
   // scrollable rows list; autoScrollFrameRef holds the active rAF handle (or
   // null when idle); autoScrollDirectionRef holds the current scroll
@@ -1342,6 +1367,46 @@ function LayersPanelImpl(
   const hasAnyRows = roots.length > 0;
   const screenRows = screens ?? files ?? [];
   const shouldShowSearch = searchOpen || Boolean(searchQuery.trim());
+
+  const refreshScreenResizeMetrics = useCallback(() => {
+    const panelHeight = layersPanelRef.current?.getBoundingClientRect().height;
+    const sectionHeight =
+      screenSectionRef.current?.getBoundingClientRect().height;
+    if (!panelHeight || !sectionHeight) return;
+    const max = panelHeight * 0.3;
+    const min = Math.min(96, max);
+    const next = {
+      min: Math.round(min),
+      max: Math.round(max),
+      now: Math.round(Math.min(max, Math.max(min, sectionHeight))),
+    };
+    setScreenResizeMetrics((current) =>
+      current.min === next.min &&
+      current.max === next.max &&
+      current.now === next.now
+        ? current
+        : next,
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    refreshScreenResizeMetrics();
+    const panel = layersPanelRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(refreshScreenResizeMetrics);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [refreshScreenResizeMetrics, screenRows.length, screenSectionHeight]);
+
+  useEffect(() => {
+    if (!activeScreenId || screenOverviewActive) return;
+    const frame = window.requestAnimationFrame(() => {
+      screenRowRefs.current.get(activeScreenId)?.scrollIntoView({
+        block: "nearest",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeScreenId, screenOverviewActive, screenRows]);
   const collapseTargetId = useMemo(() => {
     for (let index = selectedIds.length - 1; index >= 0; index -= 1) {
       const selectedRow = visibleRows.find(
@@ -1421,9 +1486,83 @@ function LayersPanelImpl(
 
   useEffect(() => stopAutoScroll, [stopAutoScroll]);
 
+  const updateScreenSectionHeight = useCallback((nextHeight: number) => {
+    const panelHeight = layersPanelRef.current?.getBoundingClientRect().height;
+    if (!panelHeight) return;
+    setScreenSectionHeight(clampScreenSectionHeight(nextHeight, panelHeight));
+  }, []);
+
+  const handleScreenResizePointerDown = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      const section = screenSectionRef.current;
+      if (!section) return;
+      screenResizeRef.current = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startHeight: section.getBoundingClientRect().height,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    },
+    [],
+  );
+
+  const handleScreenResizePointerMove = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const resize = screenResizeRef.current;
+      if (!resize || resize.pointerId !== event.pointerId) return;
+      updateScreenSectionHeight(
+        resize.startHeight + event.clientY - resize.startY,
+      );
+    },
+    [updateScreenSectionHeight],
+  );
+
+  const stopScreenResize = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (screenResizeRef.current?.pointerId !== event.pointerId) return;
+      screenResizeRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [],
+  );
+
+  const handleScreenResizeKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (
+        event.key !== "ArrowUp" &&
+        event.key !== "ArrowDown" &&
+        event.key !== "Home" &&
+        event.key !== "End"
+      ) {
+        return;
+      }
+      const section = screenSectionRef.current;
+      const panel = layersPanelRef.current;
+      if (!section || !panel) return;
+      const panelHeight = panel.getBoundingClientRect().height;
+      const maxHeight = panelHeight * 0.3;
+      const minHeight = Math.min(96, maxHeight);
+      const currentHeight = section.getBoundingClientRect().height;
+      const nextHeight =
+        event.key === "Home"
+          ? minHeight
+          : event.key === "End"
+            ? maxHeight
+            : currentHeight + (event.key === "ArrowDown" ? 24 : -24);
+      event.preventDefault();
+      updateScreenSectionHeight(nextHeight);
+    },
+    [updateScreenSectionHeight],
+  );
+
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={400}>
       <aside
+        ref={layersPanelRef}
         data-layers-panel
         className={cn(
           // Compact Figma-like density for the layers tree only — leave the
@@ -1435,7 +1574,17 @@ function LayersPanelImpl(
         aria-label={labels.title}
       >
         {screenRows.length > 0 ? (
-          <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] pb-1">
+          <div
+            ref={screenSectionRef}
+            data-screen-section
+            className="flex min-h-0 shrink-0 flex-col overflow-hidden border-b border-[var(--design-editor-panel-divider-color)] pb-1"
+            style={{
+              maxHeight: "30%",
+              ...(screenSectionHeight === null
+                ? {}
+                : { height: `${screenSectionHeight}px` }),
+            }}
+          >
             <div className="flex h-[var(--design-section-height)] items-center justify-between px-2">
               <h2 className="truncate text-[11px] font-semibold text-foreground">
                 {labels.screens}
@@ -1470,37 +1619,65 @@ function LayersPanelImpl(
               </button>
             </div>
             <div className="mx-2 my-1 border-t border-[var(--design-editor-panel-divider-color)]" />
-            <div className="space-y-0 px-1.5">
-              {screenRows.map((screen) => {
-                const isActive =
-                  !screenOverviewActive && screen.id === activeScreenId;
-                return (
-                  <button
-                    key={screen.id}
-                    type="button"
-                    className={cn(
-                      "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[4px] px-[var(--design-baseline-unit)] text-left text-[11px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                      isActive
-                        ? "bg-[var(--design-editor-active-row-color)] text-foreground"
-                        : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
-                    )}
-                    aria-current={isActive ? "page" : undefined}
-                    onClick={() => onScreenSelect?.(screen.id)}
-                    title={screen.filename ?? screen.name}
-                  >
-                    <LayerGlyph node={{ ...screen, type: "file" }} />
-                    <span className="min-w-0 flex-1 truncate">
-                      {screen.name}
-                    </span>
-                    {screen.badge ? (
-                      <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
-                        {screen.badge}
+            <div className="min-h-0 flex-1 overflow-auto px-1.5">
+              <div className="space-y-0">
+                {screenRows.map((screen) => {
+                  const isActive =
+                    !screenOverviewActive && screen.id === activeScreenId;
+                  return (
+                    <button
+                      key={screen.id}
+                      type="button"
+                      ref={(element) => {
+                        if (element)
+                          screenRowRefs.current.set(screen.id, element);
+                        else screenRowRefs.current.delete(screen.id);
+                      }}
+                      className={cn(
+                        "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[4px] px-[var(--design-baseline-unit)] text-left text-[11px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                        isActive
+                          ? "bg-[var(--design-editor-active-row-color)] text-foreground"
+                          : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
+                      )}
+                      aria-current={isActive ? "page" : undefined}
+                      onClick={() => onScreenSelect?.(screen.id)}
+                      title={screen.filename ?? screen.name}
+                    >
+                      <LayerGlyph node={{ ...screen, type: "file" }} />
+                      <span className="min-w-0 flex-1 truncate">
+                        {screen.name}
                       </span>
-                    ) : null}
-                  </button>
-                );
-              })}
+                      {screen.badge ? (
+                        <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
+                          {screen.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+          </div>
+        ) : null}
+
+        {screenRows.length > 0 ? (
+          <div
+            data-screen-section-resizer
+            role="separator"
+            aria-label={labels.resizeScreens}
+            aria-orientation="horizontal"
+            aria-valuemin={screenResizeMetrics.min}
+            aria-valuemax={screenResizeMetrics.max}
+            aria-valuenow={screenResizeMetrics.now}
+            tabIndex={0}
+            className="group relative z-10 h-2 shrink-0 cursor-row-resize touch-none bg-transparent outline-none focus-visible:bg-[var(--design-editor-selection-color)]"
+            onKeyDown={handleScreenResizeKeyDown}
+            onPointerCancel={stopScreenResize}
+            onPointerDown={handleScreenResizePointerDown}
+            onPointerMove={handleScreenResizePointerMove}
+            onPointerUp={stopScreenResize}
+          >
+            <span className="absolute inset-x-2 top-1/2 h-px -translate-y-1/2 bg-[var(--design-editor-panel-divider-color)] transition-colors group-hover:bg-[var(--design-editor-selection-color)]" />
           </div>
         ) : null}
 

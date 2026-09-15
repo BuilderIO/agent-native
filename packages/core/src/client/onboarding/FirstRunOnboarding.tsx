@@ -61,7 +61,10 @@ import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
 import { saveFirstRunOnboardingRole } from "./first-run-status.js";
 import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
-import { useOnboardingPreviewMode } from "./use-preview-mode.js";
+import {
+  useOnboardingPreviewMode,
+  useOnboardingPreviewStep,
+} from "./use-preview-mode.js";
 
 type FirstRunScreen =
   | "intro"
@@ -137,6 +140,7 @@ export function FirstRunOnboarding({
   const t = useT();
   const builderMoreServicesTitleId = React.useId();
   const previewMode = useOnboardingPreviewMode();
+  const previewStep = useOnboardingPreviewStep();
   const {
     firstRun,
     loading,
@@ -145,7 +149,9 @@ export function FirstRunOnboarding({
     completeFirstRun,
     completeFirstRunError,
   } = useOnboarding({ preview: previewMode, initialFirstRun });
-  const [screen, setScreen] = useState<FirstRunScreen>("intro");
+  const [screen, setScreen] = useState<FirstRunScreen>(() =>
+    previewStep === "references" ? "extension" : (previewStep ?? "intro"),
+  );
   const [extensionIndex, setExtensionIndex] = useState(0);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [savingRole, setSavingRole] = useState(false);
@@ -162,6 +168,10 @@ export function FirstRunOnboarding({
     "existing" | "provision"
   >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
+  useEffect(() => {
+    if (!previewMode || !previewStep) return;
+    setScreen(previewStep === "references" ? "extension" : previewStep);
+  }, [previewMode, previewStep]);
   const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const mcpServersQuery = useMcpServers();
   const createMcpServer = useCreateMcpServer();
