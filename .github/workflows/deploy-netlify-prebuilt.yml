@@ -2136,9 +2136,9 @@ jobs:
           fi
           env_json="$(netlify api getEnvVars --data "{\"account_id\":\"$NETLIFY_ACCOUNT_ID\",\"site_id\":\"$NETLIFY_SITE_ID\"}")"
           printf '%s' "$env_json" |
-            RELAY_CONTEXT="$relay_context" node -e '
+            node -e '
               const fs = require("node:fs");
-              const context = process.env.RELAY_CONTEXT;
+              const context = process.argv[1];
               const variables = JSON.parse(fs.readFileSync(0, "utf8"));
               const relay = variables.find(
                 (variable) => variable.key === "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
@@ -2157,7 +2157,7 @@ jobs:
                 );
               }
               console.log("Verified Google OAuth relay secret for " + context + ".");
-            '
+            ' "$relay_context"
 
       - name: Smoke-test the uploaded deploy
         if: >-

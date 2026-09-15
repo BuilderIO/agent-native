@@ -114,7 +114,10 @@ describe("Google callback deploy verification guard", () => {
       /if \[\[ \"\$TARGET\" == \"beta\" && \"\$DEPLOY_MODE\" == \"production\" \]\]/,
     );
     assert.match(step, /relay_context=production/);
-    assert.match(step, /RELAY_CONTEXT=\"\$relay_context\" node/);
+    assert.match(
+      step,
+      /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,
+    );
   });
 });
 
