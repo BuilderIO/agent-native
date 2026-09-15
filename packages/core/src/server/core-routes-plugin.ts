@@ -1768,6 +1768,15 @@ export function matchesSavedHostedAgentProbe(
   );
 }
 
+function isAnthropicManagedAgentsApiUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "api.anthropic.com";
+  } catch {
+    return false;
+  }
+}
+
 type PublicAgentDiscovery = (
   selfAppId?: string,
 ) => Promise<import("./agent-discovery.js").DiscoveredAgent[]>;
@@ -2685,7 +2694,13 @@ export function createCoreRoutesPlugin(
                 return { error: "auth and kind cannot be combined" };
               }
 
-              if (auth || kind) {
+              const requiresSavedConnection =
+                Boolean(auth) ||
+                // The default Anthropic API host is the provider endpoint, so
+                // its ID/key check is safe before the manifest is saved. Any
+                // custom host still needs an existing scoped connection.
+                Boolean(kind && !isAnthropicManagedAgentsApiUrl(urlParam));
+              if (requiresSavedConnection) {
                 const { discoverAgents } = await import("./agent-discovery.js");
                 const savedAgents = await discoverAgents(
                   query.get("selfAppId") ?? undefined,

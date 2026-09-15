@@ -169,6 +169,30 @@ describe("hosted-agent probes", () => {
       ),
     ).toBe(false);
   });
+
+  it("matches a saved managed-agent provider reference", () => {
+    const kind = {
+      provider: "anthropic-managed-agents" as const,
+      agentId: "agt_01",
+      environmentId: "env_01",
+      credentialRef: "ANTHROPIC_API_KEY",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        { url: "https://api.anthropic.com", kind },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        {
+          url: "https://api.anthropic.com",
+          kind: { ...kind, agentId: "agt_other" },
+        },
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("readLegacyCoreRouteInitSettings", () => {
