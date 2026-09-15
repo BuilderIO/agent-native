@@ -388,12 +388,19 @@ const messages = {
     "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
   "errorMessages.builderModelUnauthorized":
     "The provider behind this model rejected the request. Pick a different model, then retry.",
+  "errorMessages.creditsLimitDaily":
+    "You've reached the daily Agent Credits limit for your current plan.",
+  "errorMessages.creditsLimitGeneric":
+    "You've reached the Agent Credits limit for your current plan.",
+  "errorMessages.creditsLimitMonthly":
+    "You've reached the monthly Agent Credits limit for your current plan.",
   "errorMessages.errorPrefix": "Error: {{message}}",
   "errorMessages.gatewayInternalError":
     "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
-  "errorMessages.creditsLimitReached": "You've reached your AI credits limit.",
+  "errorMessages.creditsLimitReached":
+    "You've reached your Agent Credits limit.",
   "errorMessages.inactivityTimeout":
     "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
   "errorMessages.invalidToolSchema":
@@ -416,6 +423,7 @@ const messages = {
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
   "errorMessages.providerTransientRejection":
     "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
+  "errorMessages.seeAgentCreditsLimit": "See your Agent Credits limit",
   "errorMessages.startNewChat": "Start new chat",
   "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
   "feedback.inaccurate": "Inaccurate",

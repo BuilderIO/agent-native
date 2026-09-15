@@ -46,6 +46,11 @@ export function isBuilderCreditsExhaustedMessage(
     normalized.includes("credits limit") ||
     normalized.includes("monthly ai credits") ||
     normalized.includes("daily ai credits") ||
+    // Core's numeric credits copy ("You've used all 25 daily Agent Credits …")
+    // carries none of the phrases above. Matched on the exhaustion clause, not
+    // on a bare "agent credits" substring, which would also swallow unrelated
+    // failures such as "Agent Credits service unavailable".
+    /\bused (?:all|\d+ of)\b[^.]*\bagent credits\b/.test(normalized) ||
     normalized.includes("builder.io plan") ||
     (normalized.includes("builder") && normalized.includes("credits"))
   );

@@ -806,10 +806,9 @@ const messages = {
     apiSetup: "إعداد الذكاء الاصطناعي",
     apiSetupDescription: "اختر كيفية اتصال Clips بالذكاء الاصطناعي.",
     builderEasySetup: "أرصدة Builder.io مجانية",
-    builderAiAvailable:
-      "تتوفر اعتمادات الذكاء الاصطناعي المضمنة والنسخ المُدار لـ Clips.",
+    builderAiAvailable: "تتوفر Agent Credits المضمنة والنسخ المُدار لـ Clips.",
     builderAiDescription:
-      "استخدم Builder.io أولًا لاعتمادات الذكاء الاصطناعي المضمنة وتخزين الكائنات والرفع والنسخ المُدار.",
+      "استخدم Builder.io أولًا لAgent Credits المضمنة وتخزين الكائنات والرفع والنسخ المُدار.",
     providerKeyTitle: "استخدام مفتاح مزود خاص بك",
     providerKeyDescription:
       "اختر Anthropic أو OpenAI أو OpenRouter أو Gemini أو Groq أو Mistral أو Cohere أو Ollama للاستخدام المفوتر من المزود.",

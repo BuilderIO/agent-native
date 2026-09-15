@@ -393,13 +393,19 @@ const messages: AgentChatTranslation = {
     "رفض Builder بيانات الاعتماد المتصلة. أعد الاتصال بـ Builder.io من الإعدادات، ثم أعد المحاولة.",
   "errorMessages.builderModelUnauthorized":
     "رفض المزوّد الذي يشغّل هذا النموذج الطلب. اختر نموذجًا آخر، ثم أعد المحاولة.",
+  "errorMessages.creditsLimitDaily":
+    "لقد وصلت إلى الحد اليومي من Agent Credits في خطتك الحالية.",
+  "errorMessages.creditsLimitGeneric":
+    "لقد وصلت إلى حد Agent Credits في خطتك الحالية.",
+  "errorMessages.creditsLimitMonthly":
+    "لقد وصلت إلى الحد الشهري من Agent Credits في خطتك الحالية.",
   "errorMessages.errorPrefix": "خطأ: {{message}}",
   "errorMessages.gatewayInternalError":
     "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
   "errorMessages.gatewayNoDetails":
     "لم تُرجع بوابة النموذج أي تفاصيل عن الخطأ وتعذّر على المحادثة الاسترداد. انتظر قليلًا ثم أعد المحاولة، أو ابدأ محادثة جديدة إذا استمرت المشكلة.",
   "errorMessages.creditsLimitReached":
-    "لقد وصلت إلى الحد الأقصى لأرصدة الذكاء الاصطناعي.",
+    "لقد وصلت إلى حد Agent Credits الخاص بك.",
   "errorMessages.inactivityTimeout":
     "انتهت مهلة اتصال الوكيل قبل أن يتمكن من الإكمال. يمكنك المتابعة من العمل الجزئي أو إعادة المحاولة.",
   "errorMessages.invalidToolSchema":
@@ -422,6 +428,7 @@ const messages: AgentChatTranslation = {
     "يفرض مزوّد النموذج حاليًا حدًا على معدل طلبات هذه المحادثة. انتظر قليلًا، ثم أعد المحاولة.",
   "errorMessages.providerTransientRejection":
     "رفض مزوّد الذكاء الاصطناعي هذا الطلب مؤقتًا. عادةً ما يُحل هذا خلال دقيقة — أعد المحاولة.",
+  "errorMessages.seeAgentCreditsLimit": "عرض حد Agent Credits الخاص بك",
   "errorMessages.startNewChat": "بدء محادثة جديدة",
   "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
   "feedback.inaccurate": "غير دقيق",

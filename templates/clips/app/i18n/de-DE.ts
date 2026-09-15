@@ -836,9 +836,9 @@ const messages = {
     apiSetupDescription: "Wähle, wie Clips eine Verbindung zur KI herstellt.",
     builderEasySetup: "Kostenlose Builder.io-Credits",
     builderAiAvailable:
-      "Enthaltene KI-Guthaben und verwaltete Transkription sind für Clips verfügbar.",
+      "Enthaltene Agent Credits und verwaltete Transkription sind für Clips verfügbar.",
     builderAiDescription:
-      "Nutze Builder.io zuerst für enthaltene KI-Guthaben, Objektspeicher, Uploads und verwaltete Transkription.",
+      "Nutze Builder.io zuerst für enthaltene Agent Credits, Objektspeicher, Uploads und verwaltete Transkription.",
     providerKeyTitle: "Eigenen Anbieter-Schlüssel verwenden",
     providerKeyDescription:
       "Wähle Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere oder Ollama für anbieterseitig abgerechnete Nutzung.",

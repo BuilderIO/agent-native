@@ -264,8 +264,8 @@ export function ConnectBuilderCard({
   // so the render tree below stays flat.
   const connectedCapabilityText =
     builderEnabled && codeChangeConfigured
-      ? "AI credits and cloud code changes are ready to use."
-      : `AI credits are ready to use. ${CODE_CHANGE_FALLBACK_TEXT}`;
+      ? "Agent Credits and cloud code changes are ready to use."
+      : `Agent Credits are ready to use. ${CODE_CHANGE_FALLBACK_TEXT}`;
   let title: string;
   let subtitle: React.ReactNode;
   if (localCodeChangeRequested) {
@@ -326,7 +326,7 @@ export function ConnectBuilderCard({
     );
   } else {
     title = "Connect Builder.io";
-    subtitle = <>Builder.io's free tier includes AI credits.</>;
+    subtitle = <>Builder.io's free tier includes Agent Credits.</>;
   }
 
   return (

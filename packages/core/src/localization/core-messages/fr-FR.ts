@@ -631,13 +631,19 @@ const messages: AgentChatTranslation = {
     "Builder a rejeté les identifiants connectés. Reconnectez Builder.io dans les paramètres, puis réessayez.",
   "errorMessages.builderModelUnauthorized":
     "Le fournisseur de ce modèle a rejeté la demande. Choisissez un autre modèle, puis réessayez.",
+  "errorMessages.creditsLimitDaily":
+    "Vous avez atteint la limite quotidienne d'Agent Credits de votre offre actuelle.",
+  "errorMessages.creditsLimitGeneric":
+    "Vous avez atteint la limite d'Agent Credits de votre offre actuelle.",
+  "errorMessages.creditsLimitMonthly":
+    "Vous avez atteint la limite mensuelle d'Agent Credits de votre offre actuelle.",
   "errorMessages.errorPrefix": "Erreur : {{message}}",
   "errorMessages.gatewayInternalError":
     "La passerelle du modèle a rencontré une erreur interne avant que l'agent puisse répondre. Réessayez dans un instant et indiquez l'identifiant d'erreur ci-dessous si cela persiste.",
   "errorMessages.gatewayNoDetails":
     "La passerelle du modèle n’a fourni aucun détail sur l’erreur et la discussion n’a pas pu reprendre. Patientez un instant et réessayez. Si le problème persiste, démarrez une nouvelle discussion.",
   "errorMessages.creditsLimitReached":
-    "Vous avez atteint votre limite de crédits IA.",
+    "Vous avez atteint votre limite d'Agent Credits.",
   "errorMessages.inactivityTimeout":
     "La connexion à l’agent a expiré avant la fin. Vous pouvez poursuivre à partir du travail partiel ou réessayer.",
   "errorMessages.invalidToolSchema":
@@ -662,6 +668,7 @@ const messages: AgentChatTranslation = {
     "Le fournisseur du modèle limite temporairement cette discussion. Patientez un instant, puis réessayez.",
   "errorMessages.providerTransientRejection":
     "Le fournisseur d'IA a temporairement refusé cette demande. Cela se résout généralement en moins d'une minute : réessayez.",
+  "errorMessages.seeAgentCreditsLimit": "Voir votre limite d'Agent Credits",
   "errorMessages.startNewChat": "Démarrer une nouvelle discussion",
   "errorMessages.upgradeAtBuilder": "Mettre à niveau sur Builder.io",
   "feedback.inaccurate": "Inexact",

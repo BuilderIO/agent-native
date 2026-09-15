@@ -42,6 +42,7 @@ import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import { parseRetryAfterMs } from "../../shared/retry-after.js";
 import { isInBackgroundFunctionRuntime } from "../durable-background.js";
 import { BUILDER_MODEL_CONFIG } from "../model-config.js";
 import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
@@ -50,6 +51,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
+import {
+  formatCreditsLimitMessage,
+  parseCreditsLimitInfo,
+} from "./credits-limit.js";
 import {
   classifyTerminalErrorCode,
   canonicalizeBuilderGatewayErrorCode,
@@ -707,12 +712,27 @@ async function* emitHttpError(
       opts.requestShape,
     );
 
-  // A bare or otherwise uncoded 402 still means quota on the Builder gateway.
+  // Belt-and-suspenders: a bare or otherwise uncoded 402 still means quota on
+  // the Builder gateway.
   const quotaErrorCode =
     status === 402 && !isCreditsLimitErrorCode(code) ? "http_402" : code;
   if (isCreditsLimitErrorCode(code) || status === 402) {
+    // The gateway's own sentence names neither the allowance nor the reset, and
+    // calls the balance "AI credits" while the page the CTA opens calls it
+    // "Agent Credits". Both are decided in `credits-limit.ts` so every lane
+    // that surfaces this rejection says the same thing.
+    //
+    // NOT `retryAfterMs`: that one is clamped to 60s so a single retry cannot
+    // eat the run budget, and a daily cap clearing at midnight would otherwise
+    // be announced as "resets in about 1 minute".
+    const resetInMs =
+      parseRetryAfterMs(Object.fromEntries(response.headers.entries())) ??
+      undefined;
     yield stop({
-      error: message,
+      error: formatCreditsLimitMessage(
+        parseCreditsLimitInfo(errBody, quotaErrorCode, resetInMs),
+        message,
+      ),
       errorCode: quotaErrorCode,
       upgradeUrl: await buildUpgradeUrl(),
     });

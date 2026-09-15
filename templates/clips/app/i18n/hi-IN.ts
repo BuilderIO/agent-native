@@ -797,9 +797,9 @@ const messages = {
     apiSetupDescription: "चुनें कि Clips AI से कैसे कनेक्ट हो।",
     builderEasySetup: "Builder.io मुफ्त क्रेडिट",
     builderAiAvailable:
-      "Clips के लिए शामिल AI क्रेडिट और मैनेज्ड ट्रांसक्रिप्शन उपलब्ध हैं।",
+      "Clips के लिए शामिल Agent Credits और मैनेज्ड ट्रांसक्रिप्शन उपलब्ध हैं।",
     builderAiDescription:
-      "शामिल AI क्रेडिट, ऑब्जेक्ट स्टोरेज, अपलोड और managed transcription के लिए पहले Builder.io इस्तेमाल करें.",
+      "शामिल Agent Credits, ऑब्जेक्ट स्टोरेज, अपलोड और managed transcription के लिए पहले Builder.io इस्तेमाल करें.",
     providerKeyTitle: "अपनी प्रोवाइडर की लाएँ",
     providerKeyDescription:
       "प्रोवाइडर-बिल्ड उपयोग के लिए Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere या Ollama चुनें।",

@@ -1,5 +1,13 @@
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import {
+  BUILDER_AGENT_CREDITS_DOCS_URL,
+  mentionsCredits,
+  CREDITS_LIMIT_DAILY_MESSAGE,
+  CREDITS_LIMIT_GENERIC_MESSAGE,
+  CREDITS_LIMIT_MONTHLY_MESSAGE,
+  normalizeAgentCreditsTerminology,
+} from "../agent/engine/credits-limit.js";
+import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowMessage,
@@ -32,6 +40,12 @@ export const NEW_CHAT_ACTION_HREF = "agent-native:new-chat";
 const OPEN_BUILDER_SPACE_SETTINGS_LABEL = "Open Builder space settings";
 const START_NEW_CHAT_LABEL = "Start new chat";
 const UPGRADE_AT_BUILDER_LABEL = "Upgrade at builder.io";
+/**
+ * Paired with the upgrade CTA on credits rejections. Upgrading is one answer to
+ * "I am blocked"; the other is knowing what the allowance was and when it comes
+ * back, and only Builder.io's own page can state that per plan.
+ */
+const SEE_AGENT_CREDITS_LIMIT_LABEL = "See your Agent Credits limit";
 const BUILDER_AUTHENTICATION_ERROR =
   "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.";
 /**
@@ -70,7 +84,8 @@ const GATEWAY_INTERNAL_ERROR_MESSAGE =
  */
 const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
   "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
-const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
+const CREDITS_LIMIT_REACHED_MESSAGE =
+  "You've reached your Agent Credits limit.";
 /**
  * The gateway codes a payload it could not parse as `invalid_request`, and
  * that lane deliberately does not retry. Both sentences below therefore have
@@ -110,10 +125,17 @@ export function formatChatErrorText(
   errorCode?: string,
 ): string {
   const normalized = normalizeChatError(errorMessage, errorCode);
-  if (normalized.message === CREDITS_LIMIT_REACHED_MESSAGE) {
-    return upgradeUrl && isSafeUpgradeUrl(upgradeUrl)
-      ? `${normalized.message}\n\n[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`
-      : normalized.message;
+  // Quota is a state, not a fault, so it keeps the calm no-"Error:" treatment
+  // for both the fixed visitor line and the engine's detailed sentence. Two
+  // shapes of the same notice would only invite them to drift apart.
+  if (isCreditsLimitErrorCode(errorCode)) {
+    const ctas = [
+      ...(upgradeUrl && isSafeUpgradeUrl(upgradeUrl)
+        ? [`[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`]
+        : []),
+      `[${SEE_AGENT_CREDITS_LIMIT_LABEL}](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
+    ];
+    return [normalized.message, ...ctas].join("\n\n");
   }
   if (
     !isServerChosenVisitorMessage(normalized.message) &&
@@ -241,6 +263,15 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "The provider returned an HTML error page.",
     "agentChat.errorMessages.providerHtml",
   ],
+  [CREDITS_LIMIT_DAILY_MESSAGE, "agentChat.errorMessages.creditsLimitDaily"],
+  [
+    CREDITS_LIMIT_MONTHLY_MESSAGE,
+    "agentChat.errorMessages.creditsLimitMonthly",
+  ],
+  [
+    CREDITS_LIMIT_GENERIC_MESSAGE,
+    "agentChat.errorMessages.creditsLimitGeneric",
+  ],
   [
     MALFORMED_REQUEST_ATTACHMENT_MESSAGE,
     "agentChat.errorMessages.malformedRequestAttachment",
@@ -255,6 +286,10 @@ const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
   ],
   ["Start new chat", "agentChat.errorMessages.startNewChat"],
   ["Upgrade at builder.io", "agentChat.errorMessages.upgradeAtBuilder"],
+  [
+    SEE_AGENT_CREDITS_LIMIT_LABEL,
+    "agentChat.errorMessages.seeAgentCreditsLimit",
+  ],
 ]);
 
 /** Localize only Core's own normalized error copy; preserve provider details. */
@@ -393,7 +428,20 @@ export function normalizeChatError(
   // Quota is the one safe recovery detail exposed by the Builder-credits lane;
   // other server-selected visitor messages stay opaque below.
   if (isCreditsLimitErrorCode(code)) {
-    return { message: CREDITS_LIMIT_REACHED_MESSAGE };
+    // The credits lane replaces the gateway's text before it reaches the
+    // client, so the fact of the limit is all that is left, and quota is the
+    // one recovery detail safe to name for a visitor who does not own the
+    // account. Every other lane carries the engine's composed sentence, which
+    // names the window, the reset, and the allowance; flattening that to the
+    // fixed line would discard the answer this notice exists to give.
+    const carried = text.trim();
+    if (!mentionsCredits(carried) || isServerChosenVisitorMessage(carried)) {
+      return { message: CREDITS_LIMIT_REACHED_MESSAGE };
+    }
+    const renamed = normalizeAgentCreditsTerminology(carried);
+    return renamed === carried
+      ? { message: carried }
+      : { message: renamed, details: carried };
   }
   // The server-selected visitor message must not reveal owner-only details.
   if (isServerChosenVisitorMessage(text)) return { message: text };

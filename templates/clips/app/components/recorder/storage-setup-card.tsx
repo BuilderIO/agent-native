@@ -52,7 +52,7 @@ export function StorageSetupCard({
   onConfigured,
   title = "Connect storage",
   description = "Store recorded videos with Builder.io or S3-compatible storage.",
-  connectDescription = "Builder.io's free tier includes video storage and AI credits.",
+  connectDescription = "Builder.io's free tier includes video storage and Agent Credits.",
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",

@@ -40,7 +40,7 @@ export default async (nitroApp: any): Promise<void> => {
         kind: "builder-cli-auth",
         label: "Connect Builder.io",
         description:
-          "Builder.io's free tier includes video storage and AI credits.",
+          "Builder.io's free tier includes video storage and Agent Credits.",
         primary: true,
         badge: "free",
         payload: { scope: "browser" },

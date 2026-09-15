@@ -397,12 +397,18 @@ const messages: AgentChatTranslation = {
     "Builder が接続済みの認証情報を拒否しました。設定で Builder.io に再接続してから再試行してください。",
   "errorMessages.builderModelUnauthorized":
     "このモデルのプロバイダーがリクエストを拒否しました。別のモデルを選択して再試行してください。",
+  "errorMessages.creditsLimitDaily":
+    "現在のプランの 1 日あたりの Agent Credits の上限に達しました。",
+  "errorMessages.creditsLimitGeneric":
+    "現在のプランの Agent Credits の上限に達しました。",
+  "errorMessages.creditsLimitMonthly":
+    "現在のプランの月間 Agent Credits の上限に達しました。",
   "errorMessages.errorPrefix": "エラー：{{message}}",
   "errorMessages.gatewayInternalError":
     "エージェントが応答する前にモデルゲートウェイで内部エラーが発生しました。少し待ってから再試行し、繰り返す場合は下のエラー ID を伝えてください。",
   "errorMessages.gatewayNoDetails":
     "モデルゲートウェイからエラーの詳細が返されず、チャットを復旧できませんでした。少し待ってから再試行し、繰り返し発生する場合は新しいチャットを開始してください。",
-  "errorMessages.creditsLimitReached": "AIクレジットの上限に達しました。",
+  "errorMessages.creditsLimitReached": "Agent Credits の上限に達しました。",
   "errorMessages.inactivityTimeout":
     "エージェントとの接続が完了前にタイムアウトしました。途中までの作業から続行するか、再試行できます。",
   "errorMessages.invalidToolSchema":
@@ -426,6 +432,7 @@ const messages: AgentChatTranslation = {
     "現在、モデルプロバイダーがこのチャットのリクエスト数を制限しています。少し待ってから再試行してください。",
   "errorMessages.providerTransientRejection":
     "AIプロバイダーがこのリクエストを一時的に拒否しました。通常は1分以内に解消するので、再試行してください。",
+  "errorMessages.seeAgentCreditsLimit": "Agent Credits の上限を確認",
   "errorMessages.startNewChat": "新しいチャットを開始",
   "errorMessages.upgradeAtBuilder": "Builder.io でアップグレード",
   "feedback.inaccurate": "不正確",

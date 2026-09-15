@@ -630,13 +630,19 @@ const messages: AgentChatTranslation = {
     "Builder rechazó las credenciales conectadas. Vuelve a conectar Builder.io en Ajustes e inténtalo de nuevo.",
   "errorMessages.builderModelUnauthorized":
     "El proveedor de este modelo rechazó la solicitud. Elige otro modelo y vuelve a intentarlo.",
+  "errorMessages.creditsLimitDaily":
+    "Has alcanzado el límite diario de Agent Credits de tu plan actual.",
+  "errorMessages.creditsLimitGeneric":
+    "Has alcanzado el límite de Agent Credits de tu plan actual.",
+  "errorMessages.creditsLimitMonthly":
+    "Has alcanzado el límite mensual de Agent Credits de tu plan actual.",
   "errorMessages.errorPrefix": "Error: {{message}}",
   "errorMessages.gatewayInternalError":
     "La pasarela del modelo tuvo un error interno antes de que el agente pudiera responder. Vuelve a intentarlo en un momento e indica el id de error de abajo si sigue ocurriendo.",
   "errorMessages.gatewayNoDetails":
     "La pasarela del modelo no devolvió detalles del error y el chat no pudo recuperarse. Espera un momento y vuelve a intentarlo. Si el problema continúa, inicia un chat nuevo.",
   "errorMessages.creditsLimitReached":
-    "Has alcanzado el límite de créditos de IA.",
+    "Has alcanzado tu límite de Agent Credits.",
   "errorMessages.inactivityTimeout":
     "La conexión del agente expiró antes de que pudiera finalizar. Puedes continuar desde el trabajo parcial o volver a intentarlo.",
   "errorMessages.invalidToolSchema":
@@ -661,6 +667,7 @@ const messages: AgentChatTranslation = {
     "El proveedor del modelo está limitando temporalmente este chat. Espera un momento y vuelve a intentarlo.",
   "errorMessages.providerTransientRejection":
     "El proveedor de IA rechazó temporalmente esta solicitud. Esto suele resolverse en menos de un minuto: vuelve a intentarlo.",
+  "errorMessages.seeAgentCreditsLimit": "Ver tu límite de Agent Credits",
   "errorMessages.startNewChat": "Iniciar un chat nuevo",
   "errorMessages.upgradeAtBuilder": "Mejorar el plan en Builder.io",
   "feedback.inaccurate": "Impreciso",

@@ -369,12 +369,18 @@ const messages: AgentChatTranslation = {
     "Builder 拒絕了已連線的憑證。請在設定中重新連線至 Builder.io，然後重試。",
   "errorMessages.builderModelUnauthorized":
     "這個模型背後的供應商拒絕了要求。請選擇其他模型後重試。",
+  "errorMessages.creditsLimitDaily":
+    "您已達到目前方案的每日 Agent Credits 上限。",
+  "errorMessages.creditsLimitGeneric":
+    "您已達到目前方案的 Agent Credits 上限。",
+  "errorMessages.creditsLimitMonthly":
+    "您已達到目前方案的每月 Agent Credits 上限。",
   "errorMessages.errorPrefix": "錯誤：{{message}}",
   "errorMessages.gatewayInternalError":
     "模型閘道在代理回答前發生內部錯誤。請稍後重試；若持續發生，請提供下方的錯誤 ID。",
   "errorMessages.gatewayNoDetails":
     "模型閘道未傳回錯誤詳細資訊，聊天無法復原。請稍候再試；如果問題持續發生，請開始新聊天。",
-  "errorMessages.creditsLimitReached": "你已達到 AI 點數額度上限。",
+  "errorMessages.creditsLimitReached": "您已達到 Agent Credits 上限。",
   "errorMessages.inactivityTimeout":
     "代理連線在完成前逾時。您可以從已完成的部分繼續，也可以重試。",
   "errorMessages.invalidToolSchema":
@@ -397,6 +403,7 @@ const messages: AgentChatTranslation = {
     "模型供應商目前正在限制這個聊天的要求頻率。請稍候再試。",
   "errorMessages.providerTransientRejection":
     "AI 供應商暫時拒絕了這個請求。這種情況通常會在一分鐘內恢復,請重試。",
+  "errorMessages.seeAgentCreditsLimit": "查看您的 Agent Credits 上限",
   "errorMessages.startNewChat": "開始新聊天",
   "errorMessages.upgradeAtBuilder": "在 Builder.io 升級",
   "feedback.inaccurate": "不準確",

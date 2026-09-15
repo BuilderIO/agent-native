@@ -620,13 +620,19 @@ const messages: AgentChatTranslation = {
     "O Builder rejeitou as credenciais conectadas. Reconecte Builder.io em Configurações e tente novamente.",
   "errorMessages.builderModelUnauthorized":
     "O provedor por trás deste modelo rejeitou a solicitação. Escolha um modelo diferente e tente novamente.",
+  "errorMessages.creditsLimitDaily":
+    "Você atingiu o limite diário de Agent Credits do seu plano atual.",
+  "errorMessages.creditsLimitGeneric":
+    "Você atingiu o limite de Agent Credits do seu plano atual.",
+  "errorMessages.creditsLimitMonthly":
+    "Você atingiu o limite mensal de Agent Credits do seu plano atual.",
   "errorMessages.errorPrefix": "Erro: {{message}}",
   "errorMessages.gatewayInternalError":
     "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
   "errorMessages.gatewayNoDetails":
     "O gateway do modelo não retornou detalhes do erro, e o chat não pôde ser recuperado. Aguarde um momento e tente novamente. Se o problema persistir, inicie um novo chat.",
   "errorMessages.creditsLimitReached":
-    "Você atingiu o limite de créditos de IA.",
+    "Você atingiu seu limite de Agent Credits.",
   "errorMessages.inactivityTimeout":
     "A conexão com o agente expirou antes da conclusão. Você pode continuar a partir do trabalho parcial ou tentar novamente.",
   "errorMessages.invalidToolSchema":
@@ -650,6 +656,7 @@ const messages: AgentChatTranslation = {
     "O provedor do modelo está limitando temporariamente este chat. Aguarde um momento e tente novamente.",
   "errorMessages.providerTransientRejection":
     "O provedor de IA recusou temporariamente esta solicitação. Isso costuma se resolver em menos de um minuto — tente novamente.",
+  "errorMessages.seeAgentCreditsLimit": "Ver seu limite de Agent Credits",
   "errorMessages.startNewChat": "Iniciar novo chat",
   "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
   "feedback.inaccurate": "Impreciso",

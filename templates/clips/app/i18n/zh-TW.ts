@@ -768,9 +768,9 @@ const messages = {
     apiSetup: "AI 設定",
     apiSetupDescription: "選擇 Clips 連線 AI 的方式。",
     builderEasySetup: "Builder.io 免費額度",
-    builderAiAvailable: "Clips 可使用包含的 AI 額度和託管轉錄。",
+    builderAiAvailable: "Clips 可使用包含的 Agent Credits和託管轉錄。",
     builderAiDescription:
-      "優先使用 Builder.io，可獲得內建 AI 額度、物件儲存、上傳和託管轉錄。",
+      "優先使用 Builder.io，可獲得內建 Agent Credits、物件儲存、上傳和託管轉錄。",
     providerKeyTitle: "使用自己的提供方金鑰",
     providerKeyDescription:
       "選擇 Anthropic、OpenAI、OpenRouter、Gemini、Groq、Mistral、Cohere 或 Ollama，用於按提供方計費的使用。",
