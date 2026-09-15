@@ -5057,6 +5057,7 @@ function DesignEditor() {
           enqueueFrameGeometryDataSave,
           frameGeometrySaveTimerRef,
           id,
+          liveFrameGeometryRef,
           pendingFrameGeometrySaveRef,
           queryClient,
         },
@@ -5216,6 +5217,7 @@ function DesignEditor() {
           applyLinkedContentChanges: (changes, direction) =>
             applyGeometryHistoryContentChangesRef.current(changes, direction),
           lastGeometryCommitAtRef,
+          liveFrameGeometryRef,
           locallyPinnedHeightIdsRef,
           queryClient,
           queueFrameGeometrySave,

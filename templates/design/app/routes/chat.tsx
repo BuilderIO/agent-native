@@ -67,8 +67,8 @@ export default function ChatRoute() {
         scope={scope}
         threadUrlSync={threadUrlSync}
         browserTabId={getBrowserTabId()}
-        showHeader={false}
-        showTabBar={false}
+        showHeader
+        showTabBar
         dynamicSuggestions={false}
         suggestions={[
           t("chat.suggestionLandingPage"),
