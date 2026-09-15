@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 
-import { Command, CommandList } from "@agent-native/toolkit/ui/command";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DateSearchChoice, SearchEmptyOption } from "./ContentCommandSearch";
+import { Command, CommandList } from "./ui/command";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
