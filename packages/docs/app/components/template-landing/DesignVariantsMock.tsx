@@ -85,6 +85,28 @@ const PRODUCT_CARDS = [
   },
 ];
 
+const SUBSCRIPTION_PLANS = [
+  {
+    cadence: "Weekly",
+    price: "$18",
+    ships: "Every Friday",
+    perks: ["Two 250g bags", "Free shipping"],
+  },
+  {
+    cadence: "Biweekly",
+    price: "$16",
+    ships: "Every other Friday",
+    perks: ["Swap roasts anytime", "Free shipping"],
+    featured: true,
+  },
+  {
+    cadence: "Monthly",
+    price: "$14",
+    ships: "First Friday",
+    perks: ["Pause anytime", "Free shipping"],
+  },
+];
+
 const NAV_LINKS = ["Roasts", "Subscriptions", "Story"];
 
 function Wordmark() {
@@ -188,15 +210,32 @@ function VariantBBoard() {
         </div>
       </div>
       <div className="kt-plan-row">
-        {[
-          { cadence: "Weekly", price: "$18" },
-          { cadence: "Biweekly", price: "$16" },
-          { cadence: "Monthly", price: "$14" },
-        ].map((plan) => (
-          <div key={plan.cadence} className="kt-plan">
-            <span className="kt-plan-cadence">{plan.cadence}</span>
-            <span className="kt-plan-price">{plan.price}</span>
-            <span className="kt-plan-meta">per bag</span>
+        {SUBSCRIPTION_PLANS.map((plan) => (
+          <div
+            key={plan.cadence}
+            className={plan.featured ? "kt-plan is-featured" : "kt-plan"}
+          >
+            <span className="kt-plan-head">
+              <span className="kt-plan-cadence">{plan.cadence}</span>
+              {plan.featured ? (
+                <span className="kt-plan-tag">Popular</span>
+              ) : null}
+            </span>
+            <span className="kt-plan-price">
+              {plan.price}
+              <span className="kt-plan-unit">/bag</span>
+            </span>
+            <span className="kt-plan-meta">{plan.ships}</span>
+            <span className="kt-plan-rule" />
+            <span className="kt-plan-perks">
+              {plan.perks.map((perk) => (
+                <span key={perk} className="kt-plan-perk">
+                  <span className="kt-plan-tick" />
+                  {perk}
+                </span>
+              ))}
+            </span>
+            <span className="kt-plan-choose">Choose</span>
           </div>
         ))}
       </div>
@@ -292,10 +331,22 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   ".design-variants-mock .kt-b .kt-subhead { max-width: 380px; }",
   ".design-variants-mock .kt-b .kt-cta { margin-top: 26px; }",
   ".design-variants-mock .kt-plan-row { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 38px 34px 0; }",
-  ".design-variants-mock .kt-plan { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 20px 14px; border: 2px solid var(--kt-line); border-radius: 22px; background: var(--kt-elevated); }",
-  ".design-variants-mock .kt-plan-cadence { color: var(--kt-fg-soft); font-size: 14px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }",
-  ".design-variants-mock .kt-plan-price { font-size: 40px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }",
-  ".design-variants-mock .kt-plan-meta { color: var(--kt-fg-soft); font-size: 14px; }",
+  ".design-variants-mock .kt-plan { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 18px 16px; border: 2px solid var(--kt-line); border-radius: 22px; background: var(--kt-elevated); }",
+  ".design-variants-mock .kt-plan.is-featured { border-color: var(--kt-accent); }",
+  ".design-variants-mock .kt-plan-head { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; }",
+  ".design-variants-mock .kt-plan-cadence { color: var(--kt-fg-soft); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }",
+  ".design-variants-mock .kt-plan-tag { display: inline-flex; align-items: center; padding: 0 8px; border-radius: 999px; background: var(--kt-accent); color: var(--kt-accent-on); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }",
+  // Smaller than the earlier 40px, which made three price figures the loudest
+  // thing on the board and flattened the rest of the card.
+  ".design-variants-mock .kt-plan-price { display: flex; align-items: baseline; gap: 3px; font-size: 28px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }",
+  ".design-variants-mock .kt-plan-unit { color: var(--kt-fg-soft); font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }",
+  ".design-variants-mock .kt-plan-meta { color: var(--kt-fg-soft); font-size: 13px; }",
+  ".design-variants-mock .kt-plan-rule { width: 100%; height: 2px; margin: 4px 0; background: var(--kt-line); }",
+  ".design-variants-mock .kt-plan-perks { display: flex; width: 100%; flex-direction: column; gap: 6px; }",
+  ".design-variants-mock .kt-plan-perk { display: flex; align-items: center; gap: 8px; color: var(--kt-fg-soft); font-size: 13px; font-weight: 500; }",
+  ".design-variants-mock .kt-plan-tick { width: 10px; height: 10px; flex-shrink: 0; border-radius: 999px; border: 2px solid var(--kt-accent); }",
+  ".design-variants-mock .kt-plan-choose { display: flex; width: 100%; height: 34px; align-items: center; justify-content: center; margin-top: 8px; border: 2px solid var(--kt-line); border-radius: 999px; font-size: 14px; font-weight: 700; }",
+  ".design-variants-mock .kt-plan.is-featured .kt-plan-choose { border-color: transparent; background: var(--kt-accent); color: var(--kt-accent-on); }",
   ".design-variants-mock .kt-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; margin: 32px 24px 24px; padding: 22px 26px; border: 2px solid var(--kt-line); border-radius: 26px; background: var(--kt-elevated); }",
   ".design-variants-mock .kt-band-title { font-size: 24px; font-weight: 700; letter-spacing: -0.03em; }",
   ".design-variants-mock .kt-quote { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 34px 48px 0; text-align: center; }",
