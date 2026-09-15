@@ -82,7 +82,10 @@ describe("workspace dev startup", () => {
     expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
   });
 
-  it("starts from a bracketed IPv6 bind host and advertises a valid URL", async () => {
+  it("starts from a bracketed IPv6 bind host and advertises a valid URL", async ({
+    skip,
+  }) => {
+    if (!(await supportsIpv6Loopback())) skip();
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
     handle = await runWorkspaceDev({
@@ -100,7 +103,10 @@ describe("workspace dev startup", () => {
     expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
   });
 
-  it("starts from a bracketed IPv6 wildcard and advertises loopback", async () => {
+  it("starts from a bracketed IPv6 wildcard and advertises loopback", async ({
+    skip,
+  }) => {
+    if (!(await supportsIpv6Loopback())) skip();
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
     let output = "";
@@ -121,7 +127,10 @@ describe("workspace dev startup", () => {
     expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
   });
 
-  it("reserves child ports on IPv4 when the gateway binds IPv6", async () => {
+  it("reserves child ports on IPv4 when the gateway binds IPv6", async ({
+    skip,
+  }) => {
+    if (!(await supportsIpv6Loopback())) skip();
     const occupied = http.createServer();
     await new Promise<void>((resolve, reject) => {
       occupied.once("error", reject);
@@ -864,6 +873,14 @@ describe("workspace dev startup", () => {
     expect(handle.apps[0].restartTimer).toBeUndefined();
   });
 });
+
+async function supportsIpv6Loopback(): Promise<boolean> {
+  const probe = http.createServer();
+  return await new Promise<boolean>((resolve) => {
+    probe.once("error", () => resolve(false));
+    probe.listen(0, "::1", () => probe.close(() => resolve(true)));
+  });
+}
 
 describe("workspace dev helpers", () => {
   it("parses eager mode from args or env", () => {
