@@ -251,16 +251,19 @@ export function updateListEventQueries(
 ) {
   // The "list-events" query key prefix is shared with useOverlayCalendarStatus,
   // which requests `format: "inventory"` and caches an `OverlayStatusResult`
-  // object instead of a `CalendarEvent[]`. Skip anything that isn't the array
-  // shape so a cache walk here never hands a non-array value to an updater
-  // that assumes an events list.
+  // object instead of a `CalendarEvent[]`. Skip those by their params — not by
+  // checking whether the current data is an array — because an inventory
+  // query can sit in the cache with `data === undefined` (still loading, or
+  // reset) and would otherwise get seeded with a `CalendarEvent[]` the first
+  // time this runs.
   const queries = queryClient.getQueriesData<CalendarEvent[]>({
     queryKey: LIST_EVENTS_QUERY_KEY,
   });
 
   for (const [queryKey, data] of queries) {
-    if (data !== undefined && !Array.isArray(data)) continue;
     const params = getListEventsParams(queryKey);
+    if (params?.format === "inventory") continue;
+    if (data !== undefined && !Array.isArray(data)) continue;
     queryClient.setQueryData<CalendarEvent[]>(queryKey, (old) =>
       updater(old, params),
     );
