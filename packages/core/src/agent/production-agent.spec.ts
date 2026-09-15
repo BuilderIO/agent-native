@@ -15,6 +15,12 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import {
+  JPEG_BASE64,
+  PDF_BASE64,
+  pngBase64OfAtLeast,
+  PNG_BASE64,
+} from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -642,12 +648,12 @@ describe("buildUserContentWithAttachments", () => {
             type: "image",
             name: "screen.png",
             contentType: "image/png",
-            data: "data:image/png;base64,aW1hZ2U=",
+            data: `data:image/png;base64,${PNG_BASE64}`,
           },
         ],
       }),
     ).toEqual([
-      { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
+      { type: "image", mediaType: "image/png", data: PNG_BASE64 },
       { type: "text", text: "Describe this" },
     ]);
   });
@@ -661,7 +667,7 @@ describe("buildUserContentWithAttachments", () => {
       type: "image",
       name: "huge.png",
       contentType: "image/png",
-      data: `data:image/png;base64,${"A".repeat(5_000_001)}`,
+      data: `data:image/png;base64,${pngBase64OfAtLeast(5_000_001)}`,
       url: "https://cdn.example.com/huge.png",
     };
     const parts = buildUserContentWithAttachments({
@@ -683,7 +689,7 @@ describe("buildUserContentWithAttachments", () => {
       type: "image",
       name: "camera_photo.jpg",
       contentType: "image/jpeg",
-      data: `data:image/jpeg;base64,${"A".repeat(2_500_000)}`,
+      data: `data:image/jpeg;base64,${pngBase64OfAtLeast(2_500_000)}`,
       storageRequired: true,
     };
     const parts = buildUserContentWithAttachments({
@@ -703,7 +709,7 @@ describe("buildUserContentWithAttachments", () => {
       type: "image",
       name: "enormous.jpg",
       contentType: "image/jpeg",
-      data: `data:image/jpeg;base64,${"A".repeat(5_000_001)}`,
+      data: `data:image/jpeg;base64,${pngBase64OfAtLeast(5_000_001)}`,
       storageRequired: true,
     };
     const parts = buildUserContentWithAttachments({
@@ -724,7 +730,7 @@ describe("buildUserContentWithAttachments", () => {
           type: "image",
           name: "small.png",
           contentType: "image/png",
-          data: "data:image/png;base64,aW1hZ2U=",
+          data: `data:image/png;base64,${PNG_BASE64}`,
         } as any,
       ],
     });
@@ -756,7 +762,7 @@ describe("buildUserContentWithAttachments", () => {
       type: "image",
       name: "screen.png",
       contentType: "image/png",
-      data: "data:image/png;base64,aW1hZ2U=",
+      data: `data:image/png;base64,${PNG_BASE64}`,
     };
     (att as any).url = "https://cdn.example.com/screen.png";
 
@@ -766,9 +772,113 @@ describe("buildUserContentWithAttachments", () => {
         attachments: [att as any],
       }),
     ).toEqual([
-      { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
+      { type: "image", mediaType: "image/png", data: PNG_BASE64 },
       { type: "text", text: "Embed this image" },
     ]);
+  });
+
+  // Reported against Forms and Brain within two hours of each other: a batch of
+  // ordinary files (photo, screenshots, a logo, a statement) ended the turn with
+  // `code: invalid_request` and a bare gateway error ID. Measured against the
+  // live gateway, one block whose bytes do not decode as its declared
+  // `media_type` rejects the ENTIRE request, so every sibling attachment and the
+  // user's own prompt die with it. These cases pin that blast radius to one
+  // attachment.
+  it("relabels an image whose bytes disagree with its browser-supplied type", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [
+        {
+          type: "image",
+          name: "screenshot.jpg",
+          contentType: "image/jpeg",
+          data: `data:image/jpeg;base64,${PNG_BASE64}`,
+        } as any,
+      ],
+    });
+    expect(parts).toContainEqual({
+      type: "image",
+      mediaType: "image/png",
+      data: PNG_BASE64,
+    });
+  });
+
+  it("drops one undecodable image without taking the other attachments with it", () => {
+    const svgBytes = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>',
+      "utf8",
+    ).toString("base64");
+    const parts = buildUserContentWithAttachments({
+      text: "Summarize these",
+      attachments: [
+        {
+          type: "image",
+          name: "company-logo.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${svgBytes}`,
+        } as any,
+        {
+          type: "image",
+          name: "photo.jpg",
+          contentType: "image/jpeg",
+          data: `data:image/jpeg;base64,${JPEG_BASE64}`,
+        } as any,
+        {
+          type: "file",
+          name: "AccountStatement.pdf",
+          contentType: "application/pdf",
+          data: `data:application/pdf;base64,${PDF_BASE64}`,
+        } as any,
+      ],
+    });
+
+    expect(parts.filter((p: any) => p.type === "image")).toEqual([
+      { type: "image", mediaType: "image/jpeg", data: JPEG_BASE64 },
+    ]);
+    expect(parts.some((p: any) => p.type === "file")).toBe(true);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("company-logo.png");
+    expect(text).toContain("Summarize these");
+    expect(text).not.toMatch(/exceeds the/i);
+    expect(text).not.toMatch(/storage-configuration/i);
+  });
+
+  it("does not send a document block for a non-PDF saved under a .pdf name", () => {
+    const zipBytes = Buffer.from("PK\u0003\u0004office-doc").toString("base64");
+    const parts = buildUserContentWithAttachments({
+      text: "Summarize",
+      attachments: [
+        {
+          type: "file",
+          name: "AccountStatement.pdf",
+          contentType: "application/pdf",
+          data: `data:application/pdf;base64,${zipBytes}`,
+        } as any,
+      ],
+    });
+    expect(parts.some((p: any) => p.type === "file")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("AccountStatement.pdf");
+    expect(text).toContain("could not be read as a PDF");
+  });
+
+  it("explains a cut-short upload as incomplete rather than as a bad format", () => {
+    const full = pngBase64OfAtLeast(2_000);
+    const parts = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [
+        {
+          type: "image",
+          name: "partial.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${full.slice(0, Math.floor(full.length / 2))}`,
+        } as any,
+      ],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("incomplete");
+    expect(text).not.toMatch(/unsupported image format/i);
   });
 
   it("uses inline bytes for vision while retaining URL-only references as text", () => {
@@ -779,7 +889,7 @@ describe("buildUserContentWithAttachments", () => {
           type: "image",
           name: "with-bytes.png",
           contentType: "image/png",
-          data: "data:image/png;base64,aW1hZ2U=",
+          data: `data:image/png;base64,${PNG_BASE64}`,
           url: "https://cdn.example.com/with-bytes.png",
         } as any,
         {
@@ -794,7 +904,7 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts).toContainEqual({
       type: "image",
       mediaType: "image/png",
-      data: "aW1hZ2U=",
+      data: PNG_BASE64,
     });
     const text = parts
       .filter((part: any) => part.type === "text")
