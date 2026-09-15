@@ -26,9 +26,13 @@
   const HISTORY_NAVIGATION_DEDUPE_MS = 250;
   const HISTORY_NAVIGATION_WINDOW_MS = 1000;
   const MAX_HISTORY_NAVIGATION_MESSAGES_PER_WINDOW = 20;
+  const CLICK_INPUT_WINDOW_MS = 1000;
+  const MAX_CLICK_INPUT_MESSAGES_PER_WINDOW = 100;
   let historyBridgeToken: string | null = null;
   let historyNavigationWindowStartedAt = 0;
   let historyNavigationCount = 0;
+  let clickInputWindowStartedAt = 0;
+  let clickInputCount = 0;
   let lastHistoryNavigation: { url: string; sentAtMs: number } | null = null;
   const OVERLAY_ROOT_ID = "clips-recorder-overlay-root";
 
@@ -56,6 +60,15 @@
     url?: string,
   ): void {
     if (!recordingActive) return;
+    if (kind === "click" || kind === "input") {
+      const now = Date.now();
+      if (now - clickInputWindowStartedAt >= CLICK_INPUT_WINDOW_MS) {
+        clickInputWindowStartedAt = now;
+        clickInputCount = 0;
+      }
+      if (clickInputCount >= MAX_CLICK_INPUT_MESSAGES_PER_WINDOW) return;
+      clickInputCount += 1;
+    }
     try {
       chrome.runtime.sendMessage(
         {

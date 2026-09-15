@@ -31,6 +31,8 @@ const DEFAULT_CLIPS_BASE_URL = "https://clips.agent-native.com";
 const DEBUGGER_PROTOCOL_VERSION = "1.3";
 const MAX_CONSOLE_LOGS = 400;
 const MAX_NETWORK_REQUESTS = 400;
+const CLICK_INPUT_INGRESS_WINDOW_MS = 1_000;
+const MAX_CLICK_INPUT_INGRESS_PER_WINDOW = 100;
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_URL_LENGTH = 1_000;
 const STORAGE_SETUP_REQUIRED_MESSAGE =
@@ -248,6 +250,8 @@ type CaptureSession = {
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
   interactionEvents: InteractionEvent[];
+  clickInputIngressWindowStartedAtMs: number;
+  clickInputIngressCount: number;
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
 };
 
@@ -1354,6 +1358,8 @@ function createSession(
     consoleLogs: [],
     networkRequests: [],
     interactionEvents: [],
+    clickInputIngressWindowStartedAtMs: 0,
+    clickInputIngressCount: 0,
     pendingNetworkRequests: new Map(),
   };
   sessions.set(sessionId, session);
@@ -2221,6 +2227,8 @@ function beginSessionCapture(
   session.consoleLogs = [];
   session.networkRequests = [];
   session.interactionEvents = [];
+  session.clickInputIngressWindowStartedAtMs = 0;
+  session.clickInputIngressCount = 0;
   if (session.targetUrl) {
     pushInteraction(session, {
       kind: "navigation",
@@ -2356,6 +2364,26 @@ function pushInteraction(
   if (session.interactionEvents.length > 800) {
     session.interactionEvents.splice(0, session.interactionEvents.length - 800);
   }
+}
+
+function allowClickInputIngress(
+  session: CaptureSession,
+  kind: InteractionKind,
+): boolean {
+  if (kind !== "click" && kind !== "input") return true;
+  const now = nowMs();
+  if (
+    now - session.clickInputIngressWindowStartedAtMs >=
+    CLICK_INPUT_INGRESS_WINDOW_MS
+  ) {
+    session.clickInputIngressWindowStartedAtMs = now;
+    session.clickInputIngressCount = 0;
+  }
+  if (session.clickInputIngressCount >= MAX_CLICK_INPUT_INGRESS_PER_WINDOW) {
+    return false;
+  }
+  session.clickInputIngressCount += 1;
+  return true;
 }
 
 function consoleLevel(value: unknown): ConsoleLevel {
@@ -2747,6 +2775,7 @@ async function dispatchRuntimeMessage(
     ) {
       return { ok: false };
     }
+    if (!allowClickInputIngress(session, kind)) return { ok: false };
     const target = (message as { target?: unknown }).target;
     const url = (message as { url?: unknown }).url;
     pushInteraction(session, {

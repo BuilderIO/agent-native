@@ -23,6 +23,9 @@ describe("Clips overlay follow permissions", () => {
       "MAX_HISTORY_NAVIGATION_MESSAGES_PER_WINDOW",
     );
     expect(contentScriptSource).toContain(
+      "MAX_CLICK_INPUT_MESSAGES_PER_WINDOW",
+    );
+    expect(contentScriptSource).toContain(
       "sendDiagnosticNavigation(window.location.href)",
     );
   });
@@ -85,7 +88,9 @@ describe("Clips overlay follow permissions", () => {
     expect(backgroundSource).toContain("sendWithInjectionFallback");
     expect(backgroundSource).toContain("shouldFollowOverlay");
     expect(backgroundSource).toContain("assets/content-history-bridge.js");
-    expect(historyBridgeSource).toContain("crypto.randomUUID()");
+    expect(historyBridgeSource).toContain("webCrypto?.randomUUID");
+    expect(historyBridgeSource).toContain("webCrypto.getRandomValues(bytes)");
     expect(historyBridgeSource).toContain('data.kind === "request-token"');
+    expect(backgroundSource).toContain("MAX_CLICK_INPUT_INGRESS_PER_WINDOW");
   });
 });
