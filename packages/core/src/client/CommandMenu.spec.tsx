@@ -485,4 +485,47 @@ describe("CommandMenu docs group", () => {
 
     expect(document.body.textContent).toContain("open");
   });
+
+  it("yields an opted-in contenteditable shortcut without claiming it", () => {
+    const editorHandled = vi.fn();
+
+    function ShortcutHarness() {
+      const [open, setOpen] = React.useState(false);
+      useCommandMenuShortcut(() => setOpen(true), {
+        allowContentEditable: true,
+        shouldHandleContentEditable: () => false,
+      });
+      return (
+        <>
+          <div
+            contentEditable
+            onKeyDown={(event) => editorHandled(event.defaultPrevented)}
+          >
+            Editor
+          </div>
+          <span>{open ? "open" : "closed"}</span>
+        </>
+      );
+    }
+
+    act(() => {
+      root.render(<ShortcutHarness />);
+    });
+
+    const editor = document.querySelector("[contenteditable=true]");
+    expect(editor).toBeTruthy();
+    const event = new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      editor!.dispatchEvent(event);
+    });
+
+    expect(document.body.textContent).toContain("closed");
+    expect(editorHandled).toHaveBeenCalledWith(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
 });

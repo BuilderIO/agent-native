@@ -823,6 +823,10 @@ const messages = {
     continue: "Weiter",
     continueToGenerate: "Zum Generieren fortfahren",
     designSystem: "Designsystem",
+    designSystemIndexing: "Wird indiziert…",
+    designSystemUnavailable: "Nicht verfügbar",
+    designSystemIndexingNotice:
+      "Dieses Designsystem wird noch indiziert. Wählen Sie ein anderes aus oder warten Sie, bis die Indizierung abgeschlossen ist.",
     referenceDeck: "Referenz-Deck",
     referenceDeckPlaceholder: "Den Stil eines vorhandenen Decks übernehmen",
     referenceDeckNone: "Keins verwenden",
