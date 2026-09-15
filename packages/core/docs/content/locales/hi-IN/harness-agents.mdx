@@ -199,6 +199,11 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 किसके लिए पंजीकृत है यह गिनने के लिए `listAgentHarnesses()` का उपयोग करें
 एक पिकर।
 
+सैंडबॉक्स वाले बिल्ट-इन हार्नेस के लिए, पंजीकरण करते समय `agentOptions.sandbox`
+के माध्यम से सैंडबॉक्स प्रोवाइडर दें। प्रक्रिया पुनः आरंभ होने के बाद रीहाइड्रेशन
+के लिए प्रोवाइडर को `resumeSession` लागू करना होगा; कॉलर द्वारा दी गई `sandbox`
+session केवल शुरुआती निर्माण को कवर करती है।
+
 ## एक मोड़ चलाएँ {#run-a-turn}
 
 `startAgentHarnessRun` एक हार्नेस सत्र को साझा रन-मैनेजर में जोड़ता है
@@ -219,7 +224,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

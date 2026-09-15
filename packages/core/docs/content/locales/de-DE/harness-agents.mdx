@@ -199,6 +199,11 @@ das ist `AiSdkHarnessAdapterOptions` (`label`, `description`,
 `permissionMode`, `harnessOptions` und `agentOptions`). Verwenden Sie `listAgentHarnesses()`, um aufzulisten, wofür registriert ist
 ein Pflücker.
 
+Für integrierte Harnesses mit Sandbox übergeben Sie beim Registrieren einen
+Sandbox-Provider über `agentOptions.sandbox`. Der Provider muss `resumeSession`
+für die Rehydrierung nach einem Prozessneustart implementieren; eine vom Aufrufer
+bereitgestellte `sandbox`-Sitzung gilt nur für die initiale Erstellung.
+
 ## Führe eine Runde aus {#run-a-turn}
 
 `startAgentHarnessRun` überbrückt eine Harness-Sitzung in den gemeinsam genutzten Run-Manager
@@ -219,7 +224,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

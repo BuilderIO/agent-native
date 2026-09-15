@@ -198,6 +198,11 @@ que mapeia para `AiSdkHarnessAdapterOptions` (`label`, `description`,
 `permissionMode`, `harnessOptions` e `agentOptions`). Use `listAgentHarnesses()` para enumerar o que está registrado
 um seletor.
 
+Para harnesses integrados com sandbox, passe um provedor de sandbox por
+`agentOptions.sandbox` ao registrá-los. O provedor deve implementar
+`resumeSession` para a reidratação após a reinicialização do processo; uma sessão
+`sandbox` fornecida pelo chamador cobre apenas a criação inicial.
+
 ## Fazer uma curva {#run-a-turn}
 
 `startAgentHarnessRun` conecta uma sessão de aproveitamento ao gerenciador de execução compartilhado
@@ -218,7 +223,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

@@ -110,6 +110,11 @@ lets you check first.
 `registerBuiltinAgentHarnesses()` also registers the [ACP](#acp) harnesses
 (`acp`, `acp:gemini`, `acp:claude-code`).
 
+For sandboxed built-in harnesses, pass a sandbox provider through
+`agentOptions.sandbox` when registering them. The provider must implement
+`resumeSession` for rehydration after a process restart; a caller-owned
+`sandbox` session only covers initial creation.
+
 ## ACP agents {#acp}
 
 Agent-Native can act as an [ACP](https://agentclientprotocol.com) (Agent Client
@@ -222,7 +227,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

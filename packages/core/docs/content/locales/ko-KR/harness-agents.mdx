@@ -198,6 +198,11 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `listAgentHarnesses()`를 사용하여 등록된 내용을 열거하세요.
 선택기.
 
+샌드박스를 사용하는 기본 하네스는 등록할 때 `agentOptions.sandbox`를 통해
+샌드박스 공급자를 전달하세요. 프로세스 재시작 후 재수화하려면 공급자가
+`resumeSession`을 구현해야 하며, 호출자가 제공한 `sandbox` 세션은 초기
+생성에만 사용됩니다.
+
 ## 턴 실행 {#run-a-turn}
 
 `startAgentHarnessRun`는 하네스 세션을 공유 실행 관리자에 연결합니다.
@@ -218,7 +223,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

@@ -199,6 +199,12 @@ qui correspond à `AiSdkHarnessAdapterOptions` (`label`, `description`,
 `permissionMode`, `harnessOptions` et `agentOptions`). Utilisez `listAgentHarnesses()` pour énumérer ce pour quoi vous êtes enregistré
 un sélecteur.
 
+Pour les harnais intégrés avec bac à sable, transmettez un fournisseur de bac à
+sable via `agentOptions.sandbox` lors de leur enregistrement. Le fournisseur doit
+implémenter `resumeSession` pour la réhydratation après un redémarrage du
+processus ; une session `sandbox` fournie par l'appelant ne couvre que la création
+initiale.
+
 ## Faire un tour {#run-a-turn}
 
 `startAgentHarnessRun` relie une session de harnais au gestionnaire d'exécution partagé
@@ -219,7 +225,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

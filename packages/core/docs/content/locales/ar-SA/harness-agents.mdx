@@ -197,6 +197,11 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `permissionMode`، و`harnessOptions`، و`agentOptions`). استخدم
 `listAgentHarnesses()` لتعداد ما تم تسجيله من أجله منتقي.
 
+بالنسبة إلى أحزمة Agent-Native المضمنة التي تستخدم صندوق حماية، مرر موفر صندوق
+الحماية عبر `agentOptions.sandbox` عند تسجيلها. يجب أن يطبق الموفر
+`resumeSession` لإعادة تهيئة الجلسة بعد إعادة تشغيل العملية؛ جلسة `sandbox` التي
+يملكها المستدعي تغطي الإنشاء الأولي فقط.
+
 ## أجري دورة {#run-a-turn}
 
 `startAgentHarnessRun` بتوصيل جلسة تسخير إلى مدير التشغيل المشترك
@@ -217,7 +222,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

@@ -197,6 +197,10 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `listAgentHarnesses()`枚举注册的内容
 一个选择器。
 
+对于使用沙箱的内置线束，请在注册时通过 `agentOptions.sandbox` 传入沙箱提供程序。
+进程重启后要重新恢复会话，提供程序必须实现 `resumeSession`；调用方提供的
+`sandbox` 会话仅适用于初始创建。
+
 ## 跑一圈 {#run-a-turn}
 
 `startAgentHarnessRun` 将线束会话桥接到共享运行管理器
@@ -217,7 +221,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

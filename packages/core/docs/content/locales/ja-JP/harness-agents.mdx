@@ -199,6 +199,12 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 登録されているものを列挙します。
 ピッカー。
 
+サンドボックスを使用する組み込みハーネスでは、登録時に
+`agentOptions.sandbox` を通じてサンドボックスプロバイダーを渡します。
+プロセス再起動後の再ハイドレーションには、プロバイダーが `resumeSession`
+を実装している必要があります。呼び出し元が渡す `sandbox` セッションは
+初回作成だけを対象とします。
+
 ## ターンを実行する {#run-a-turn}
 
 `startAgentHarnessRun` はハーネス セッションを共有 run-manager にブリッジします
@@ -219,7 +225,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,
