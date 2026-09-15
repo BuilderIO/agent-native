@@ -287,11 +287,24 @@ export async function offboardMember(
       }`,
       args: orgId ? [oldEmail, orgId] : [oldEmail],
     });
-    const sessions = await tx.execute({
-      sql: `DELETE FROM "session" WHERE "userId" IN
-            (SELECT id FROM "user" WHERE LOWER("email") = ?)`,
-      args: [oldEmail],
-    });
+    let revokeSessions = true;
+    if (orgId) {
+      const remainingMemberships = await tx.execute({
+        sql: `SELECT COUNT(*) AS count FROM org_members
+              WHERE LOWER(email) = ? AND org_id <> ?
+                AND federation_removal_pending_at IS NULL`,
+        args: [oldEmail, orgId],
+      });
+      revokeSessions =
+        Number((remainingMemberships.rows[0] as any)?.count ?? 0) === 0;
+    }
+    const sessions = revokeSessions
+      ? await tx.execute({
+          sql: `DELETE FROM "session" WHERE "userId" IN
+                (SELECT id FROM "user" WHERE LOWER("email") = ?)`,
+          args: [oldEmail],
+        })
+      : { rowsAffected: 0 };
     // Delete the membership after all scoped ownership, role, and session
     // cleanup has succeeded. This keeps a retryable membership marker until
     // the last destructive step in the transaction.

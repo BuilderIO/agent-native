@@ -197,6 +197,46 @@ describe("offboardMember", () => {
     ).toEqual([{ email: "old@example.test" }, { email: "new@example.test" }]);
   }, 30_000);
 
+  it("keeps sessions when the member remains active in another organization", async () => {
+    pglite = await createTestPglite();
+    await pglite.exec(`
+      CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
+      CREATE TABLE "session" (id TEXT PRIMARY KEY, "userId" TEXT);
+      CREATE TABLE org_members (
+        id TEXT PRIMARY KEY, org_id TEXT, email TEXT,
+        federation_removal_pending_at BIGINT
+      );
+      CREATE TABLE app_member_roles (id TEXT PRIMARY KEY, org_id TEXT, email TEXT);
+      CREATE TABLE workspace_connection_grants (
+        id TEXT PRIMARY KEY, org_id TEXT, owner_email TEXT, granted_by_email TEXT
+      );
+      CREATE TABLE agent_audit_log (
+        id TEXT PRIMARY KEY, created_at BIGINT, action TEXT, caller TEXT,
+        actor_kind TEXT, actor_email TEXT, org_id TEXT, target_type TEXT,
+        target_id TEXT, status TEXT, summary TEXT, input TEXT,
+        owner_email TEXT, visibility TEXT
+      );
+      INSERT INTO "user" VALUES ('old-id', 'old@example.test'), ('new-id', 'new@example.test');
+      INSERT INTO "session" VALUES ('session-1', 'old-id'), ('session-2', 'old-id');
+      INSERT INTO org_members VALUES
+        ('member-1', 'org-1', 'old@example.test', NULL),
+        ('member-2', 'org-1', 'new@example.test', NULL),
+        ('member-3', 'org-2', 'old@example.test', NULL);
+    `);
+
+    const result = await offboardMember(dbExec(pglite), "old@example.test", {
+      transferTo: "new@example.test",
+      orgId: "org-1",
+    });
+
+    expect(result.revokedSessions).toBe(0);
+    expect(
+      await pglite
+        .prepare('SELECT COUNT(*)::int AS count FROM "session"')
+        .get(),
+    ).toEqual({ count: 2 });
+  }, 30_000);
+
   it("uses the shared identity registry for account-wide cleanup", async () => {
     pglite = await createTestPglite();
     await pglite.exec(`

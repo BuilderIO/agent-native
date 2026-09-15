@@ -1,7 +1,8 @@
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import ConnectRoute, {
   meta,
 } from "@agent-native/dispatch/routes/pages/connect";
-import type { LoaderFunctionArgs } from "react-router";
+import type { ClientLoaderFunction } from "react-router";
 
 async function requireConnectAppsFlag(request: Request): Promise<void> {
   let response: Response;
@@ -30,9 +31,14 @@ async function requireConnectAppsFlag(request: Request): Promise<void> {
 
 // Keep the feature gate client-only. Server loaders are part of the public,
 // shared SSR shell and must not branch on session cookies.
-export async function clientLoader({ request }: LoaderFunctionArgs) {
+export const clientLoader: ClientLoaderFunction = async ({ request }) => {
   await requireConnectAppsFlag(request);
   return null;
+};
+clientLoader.hydrate = true;
+
+export function HydrateFallback() {
+  return <DefaultSpinner />;
 }
 
 export { ConnectRoute as default, meta };
