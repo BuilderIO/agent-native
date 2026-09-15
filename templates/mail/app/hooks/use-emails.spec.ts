@@ -499,4 +499,17 @@ describe("inbox-thread cache rollback on mutation error", () => {
       "context.previous.forEach(([key, data]) =>\n          qc.setQueryData(",
     );
   });
+
+  it("passes per-target account and thread hints to the Move action", () => {
+    const source = emailsHookSource();
+    const start = source.indexOf("export function useMoveEmail()");
+    const end = source.indexOf("export function useSaveDraft()", start);
+    const hook = source.slice(start, end);
+
+    expect(hook).toContain("accountEmails?: string");
+    expect(hook).toContain("threadIds?: string");
+    expect(hook).toContain("accountEmails,");
+    expect(hook).toContain("threadIds,");
+    expect(hook).toContain('callAction("move-email", {');
+  });
 });

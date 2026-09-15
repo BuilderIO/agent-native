@@ -1063,6 +1063,15 @@ export function EmailList({
           id: targets.map((target) => target.latestMessage.id).join(","),
           label: labelId,
           removeLabel: labelParam || undefined,
+          accountEmails: targets
+            .map((target) => target.latestMessage.accountEmail ?? "")
+            .join(","),
+          threadIds: targets
+            .map(
+              (target) =>
+                target.latestMessage.threadId || target.latestMessage.id,
+            )
+            .join(","),
         });
         setSelectedIds(new Set());
         toast(

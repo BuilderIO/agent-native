@@ -1645,15 +1645,27 @@ export function useMoveEmail() {
       id,
       label,
       removeLabel,
+      accountEmail,
+      accountEmails,
+      threadId,
+      threadIds,
     }: {
       id: string;
       label: string;
       removeLabel?: string;
+      accountEmail?: string;
+      accountEmails?: string;
+      threadId?: string;
+      threadIds?: string;
     }) => {
       const result = await callAction("move-email", {
         id,
         label,
         removeLabel,
+        accountEmail,
+        accountEmails,
+        threadId,
+        threadIds,
       });
       if (result.status === "partial")
         throw new MoveEmailPartialFailure(result);

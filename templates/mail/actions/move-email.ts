@@ -75,6 +75,26 @@ export default defineAction({
       .string()
       .optional()
       .describe("Destination label/folder name or ID"),
+    accountEmail: z
+      .string()
+      .optional()
+      .describe("Specific connected account to use"),
+    accountEmails: z
+      .string()
+      .optional()
+      .describe(
+        "Per-id account emails, comma-separated and positionally matched to --id (bulk UI calls only)",
+      ),
+    threadId: z
+      .string()
+      .optional()
+      .describe("Thread ID hint to skip an extra Gmail API round-trip"),
+    threadIds: z
+      .string()
+      .optional()
+      .describe(
+        "Per-id thread ID hints, comma-separated and positionally matched to --id (bulk UI calls only)",
+      ),
     removeLabel: z
       .string()
       .optional()
@@ -92,6 +112,14 @@ export default defineAction({
     const targetLabel = args.label?.trim();
     if (ids.length === 0) throw new Error("--id is required");
     if (!targetLabel) throw new Error("--label is required");
+
+    const threadIdList = args.threadIds?.split(",").map((s) => s.trim());
+    const accountEmailList = args.accountEmails
+      ?.split(",")
+      .map((s) => s.trim());
+    const threadIdFor = (i: number) => threadIdList?.[i] || args.threadId;
+    const accountEmailFor = (i: number) =>
+      (accountEmailList?.[i] || args.accountEmail)?.trim() || undefined;
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -149,14 +177,42 @@ export default defineAction({
     if (accounts.length === 0) throw new Error("No Google account connected.");
 
     const results: { id: string; success: boolean; error?: string }[] = [];
-    for (const id of ids) {
+    const labelsByAccount = new Map<string, GmailLabel[]>();
+    for (let index = 0; index < ids.length; index++) {
+      const id = ids[index];
+      const requestedAccount = accountEmailFor(index);
+      const candidateAccounts = requestedAccount
+        ? accounts.filter(
+            ({ email }) =>
+              email.toLowerCase() === requestedAccount.toLowerCase(),
+          )
+        : accounts;
+
+      if (requestedAccount && candidateAccounts.length === 0) {
+        results.push({
+          id,
+          success: false,
+          error: `Account ${requestedAccount} is not connected for this user`,
+        });
+        continue;
+      }
+
       let success = false;
       const errors: string[] = [];
-      for (const { email, accessToken } of accounts) {
+      for (const { email, accessToken } of candidateAccounts) {
         try {
-          const msg = await gmailGetMessage(accessToken, id, "minimal");
-          const labelData = await gmailListLabels(accessToken);
-          const labels = (labelData.labels ?? []) as GmailLabel[];
+          const resolvedThreadId =
+            threadIdFor(index) ??
+            (await gmailGetMessage(accessToken, id, "minimal")).threadId;
+          if (!resolvedThreadId) throw new Error("Thread not found");
+
+          const accountKey = email.toLowerCase();
+          let labels = labelsByAccount.get(accountKey);
+          if (!labels) {
+            const labelData = await gmailListLabels(accessToken);
+            labels = (labelData.labels ?? []) as GmailLabel[];
+            labelsByAccount.set(accountKey, labels);
+          }
           const addLabelId = resolveLabelId(targetLabel, labels);
           if (!addLabelId) {
             throw new Error(`Label not found: ${targetLabel}`);
@@ -169,11 +225,11 @@ export default defineAction({
           const uniqueRemoveLabelIds = [...new Set(removeLabelIds)];
           await gmailModifyThread(
             accessToken,
-            msg.threadId,
+            resolvedThreadId,
             [addLabelId],
             uniqueRemoveLabelIds,
           );
-          await syncInboxLabelDelta(ownerEmail, email, [msg.threadId], {
+          await syncInboxLabelDelta(ownerEmail, email, [resolvedThreadId], {
             add: [addLabelId],
             remove: uniqueRemoveLabelIds,
           });

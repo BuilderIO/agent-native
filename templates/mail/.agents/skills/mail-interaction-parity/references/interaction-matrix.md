@@ -248,6 +248,11 @@ traffic to any one path.
 - LIST-006 — Select noncontiguous rows, contiguous rows with Shift, select all,
   deselect one, clear selection, then bulk archive, trash, read/unread, star,
   move, label, spam, and snooze.
+  Source and action regression evidence on 2026-09-14 now confirms that Move
+  carries each selected row's account and thread provenance positionally, and
+  the server uses an explicitly selected account without probing another
+  connected mailbox. Paired Superhuman selection/menu behavior and the full
+  multi-account browser replay remain unverified.
 - LIST-007 — Exercise each optimistic mutation before, during, and after a
   delayed request. Verify row removal/state change, count change, focus advance,
   request failure rollback, error message, and refresh reconciliation.
@@ -1044,8 +1049,8 @@ traffic to any one path.
   listener, reads the latest sequence list through a ref, and clears pending
   keys when disabled or unmounted. Regression coverage checks successful
   one-shot dispatch, input exclusion, timeout across rerender, and disable
-  cleanup; a fresh full Mail suite run on 2026-09-14 passes 959 tests across
-  111 files.
+  cleanup; a fresh full Mail suite run on 2026-09-14 passes 963 tests across
+  112 files.
   An earlier disconnected browser pass searched the Mail command palette for
   `shortcut` and found no shortcut-reference entry. A local browser replay on
   2026-09-14 now opens Command with Cmd+K, finds `Shortcuts`, and displays the
@@ -1068,7 +1073,7 @@ traffic to any one path.
   contexts, including either Shift state for the browser key event; the
   Command → Shortcuts reference displays both. Focused list mutation coverage,
   conversation source coverage, and the full Mail suite passed on 2026-09-14
-  (959 tests across 111 files).
+  (963 tests across 112 files).
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

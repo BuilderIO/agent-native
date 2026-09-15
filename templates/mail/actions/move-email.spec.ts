@@ -130,6 +130,110 @@ describe("move-email action", () => {
     );
   });
 
+  it("uses the explicitly selected account without probing another mailbox", async () => {
+    mocks.getAccessTokens.mockResolvedValue([
+      { email: "first@example.com", accessToken: "first-token" },
+      { email: "second@example.com", accessToken: "second-token" },
+    ]);
+    mocks.gmailGetMessage.mockImplementation(async (token, id) => {
+      if (token !== "second-token") throw new Error("wrong mailbox probed");
+      return { id, threadId: `thread-${id}` };
+    });
+
+    const result = await action.run({
+      id: "email-1",
+      label: "Project",
+      accountEmail: "SECOND@EXAMPLE.COM",
+    });
+
+    expect(result).toMatchObject({
+      status: "complete",
+      succeeded: ["email-1"],
+      failed: [],
+    });
+    expect(mocks.gmailGetMessage).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailGetMessage).toHaveBeenCalledWith(
+      "second-token",
+      "email-1",
+      "minimal",
+    );
+    expect(mocks.gmailModifyThread).toHaveBeenCalledWith(
+      "second-token",
+      "thread-email-1",
+      ["Label_1"],
+      ["INBOX"],
+    );
+    expect(mocks.syncInboxLabelDelta).toHaveBeenCalledWith(
+      "owner@example.com",
+      "second@example.com",
+      ["thread-email-1"],
+      { add: ["Label_1"], remove: ["INBOX"] },
+    );
+  });
+
+  it("routes bulk targets to their positional accounts", async () => {
+    mocks.getAccessTokens.mockResolvedValue([
+      { email: "first@example.com", accessToken: "first-token" },
+      { email: "second@example.com", accessToken: "second-token" },
+    ]);
+    mocks.gmailGetMessage.mockImplementation(async (token, id) => ({
+      id,
+      threadId: `${token}-thread`,
+    }));
+
+    const result = await action.run({
+      id: "email-1,email-2",
+      label: "Project",
+      accountEmails: "first@example.com,second@example.com",
+    });
+
+    expect(result).toMatchObject({
+      status: "complete",
+      succeeded: ["email-1", "email-2"],
+      failed: [],
+    });
+    expect(mocks.gmailGetMessage).toHaveBeenNthCalledWith(
+      1,
+      "first-token",
+      "email-1",
+      "minimal",
+    );
+    expect(mocks.gmailGetMessage).toHaveBeenNthCalledWith(
+      2,
+      "second-token",
+      "email-2",
+      "minimal",
+    );
+    expect(mocks.gmailModifyThread).toHaveBeenNthCalledWith(
+      1,
+      "first-token",
+      "first-token-thread",
+      ["Label_1"],
+      ["INBOX"],
+    );
+    expect(mocks.gmailModifyThread).toHaveBeenNthCalledWith(
+      2,
+      "second-token",
+      "second-token-thread",
+      ["Label_1"],
+      ["INBOX"],
+    );
+    expect(mocks.syncInboxLabelDelta).toHaveBeenNthCalledWith(
+      1,
+      "owner@example.com",
+      "first@example.com",
+      ["first-token-thread"],
+      { add: ["Label_1"], remove: ["INBOX"] },
+    );
+    expect(mocks.syncInboxLabelDelta).toHaveBeenNthCalledWith(
+      2,
+      "owner@example.com",
+      "second@example.com",
+      ["second-token-thread"],
+      { add: ["Label_1"], remove: ["INBOX"] },
+    );
+  });
+
   it("throws a typed action failure when every provider attempt fails", async () => {
     mocks.gmailGetMessage.mockRejectedValue(new Error("provider unavailable"));
 
