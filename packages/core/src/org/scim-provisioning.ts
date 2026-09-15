@@ -364,6 +364,16 @@ export function createFrameworkSCIMIdentity(): SCIMIdentity {
           await removeMembershipIfOwned(context.database, mapping, user.email);
         }
       }
+      // A directory deactivation revokes local and connected-app sessions only
+      // when no active SCIM organization remains for the identity. The Better
+      // Auth transaction owns the session rows, so this stays atomic with the
+      // membership mapping cleanup without pretending to cover other app DBs.
+      if (activeOrgIds.size === 0) {
+        await context.database.deleteMany({
+          model: "session",
+          where: [{ field: "userId", value: input.userId }],
+        });
+      }
     },
   };
 }

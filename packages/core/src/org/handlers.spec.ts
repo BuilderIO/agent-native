@@ -12,6 +12,7 @@ const mockRevokeFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockUpdateFederatedOrganizationMemberRole = vi.hoisted(() => vi.fn());
 const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
 const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
+const mockOffboardMember = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -57,6 +58,10 @@ vi.mock("../server/app-url.js", () => ({
 
 vi.mock("../server/auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
+}));
+
+vi.mock("../identity/offboard.js", () => ({
+  offboardMember: (...args: any[]) => mockOffboardMember(...args),
 }));
 
 import { resetAppConfigForTests } from "../app-config/index.js";
@@ -105,6 +110,7 @@ function makeEvent(path: string, body?: unknown) {
 describe("org handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExecute.mockReset();
     resetAppConfigForTests();
     delete process.env.ORG_CREATION;
     delete process.env.AUTH_BOOTSTRAP_ADMINS;
@@ -121,6 +127,12 @@ describe("org handlers", () => {
     mockUpdateFederatedOrganizationMemberRole.mockResolvedValue(false);
     mockEvaluateFeatureFlagStrict.mockResolvedValue(false);
     mockBootstrapAdminOrganization.mockResolvedValue(false);
+    mockOffboardMember.mockResolvedValue({
+      removedMemberships: 1,
+      removedAppRoles: 1,
+      transferredRows: 0,
+      revokedSessions: 0,
+    });
   });
 
   it("blocks direct organization creation in a closed deployment", async () => {
@@ -224,7 +236,9 @@ describe("org handlers", () => {
 
     await expect(
       removeMemberHandler(
-        makeEvent("/_agent-native/org/members/member@example.test"),
+        makeEvent("/_agent-native/org/members/member@example.test", {
+          transferTo: "successor@example.test",
+        }),
       ),
     ).resolves.toEqual({ success: true });
 
@@ -237,9 +251,14 @@ describe("org handlers", () => {
         memberEmail: "member@example.test",
       },
     );
-    expect(mockExecute).toHaveBeenCalledTimes(3);
-    expect(mockExecute.mock.calls[2][0].sql).toContain(
-      "DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?",
+    expect(mockOffboardMember).toHaveBeenCalledWith(
+      expect.anything(),
+      "member@example.test",
+      expect.objectContaining({
+        transferTo: "successor@example.test",
+        orgId: "org-1",
+        actorEmail: "owner@example.test",
+      }),
     );
   });
 
@@ -254,7 +273,9 @@ describe("org handlers", () => {
 
     await expect(
       removeMemberHandler(
-        makeEvent("/_agent-native/org/members/member@example.test"),
+        makeEvent("/_agent-native/org/members/member@example.test", {
+          transferTo: "successor@example.test",
+        }),
       ),
     ).rejects.toMatchObject({ statusCode: 503 });
     expect(mockExecute).toHaveBeenCalledTimes(2);

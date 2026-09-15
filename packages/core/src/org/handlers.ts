@@ -42,6 +42,7 @@ import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
+import { offboardMember } from "../identity/offboard.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
 import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
@@ -1026,6 +1027,15 @@ export const removeMemberHandler = defineEventHandler(
     if (!memberEmail) {
       throw createError({ statusCode: 400, message: "Email is required" });
     }
+    const body: { transferTo?: string } = await readBody<{
+      transferTo?: string;
+    }>(event).catch(() => ({}) as { transferTo?: string });
+    if (!body.transferTo) {
+      throw createError({
+        statusCode: 400,
+        message: "A transferTo successor is required when removing a member",
+      });
+    }
 
     // memberEmail comes from the URL path verbatim; org_members may
     // hold the row with any case. LOWER both sides for the lookup AND
@@ -1098,9 +1108,10 @@ export const removeMemberHandler = defineEventHandler(
     }
 
     try {
-      await e.execute({
-        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
-        args: [ctx.orgId, memberEmailLower],
+      await offboardMember(e, memberEmail, {
+        transferTo: body.transferTo,
+        orgId: ctx.orgId,
+        actorEmail: ctx.email,
       });
     } catch (error) {
       // The durable pending marker keeps this member out of auth lookups until
