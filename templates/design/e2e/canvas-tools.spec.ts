@@ -905,6 +905,7 @@ async function insertTextByClick(
   page: Page,
   shell: Locator,
   text: string,
+  xRatio = 0.32,
 ): Promise<void> {
   const card = shell.locator("[data-screen-card]");
   const cardBox = await card.boundingBox();
@@ -915,7 +916,7 @@ async function insertTextByClick(
     "aria-pressed",
     "true",
   );
-  await page.mouse.click(cardBox.x + cardBox.width * 0.32, cardBox.y + 120);
+  await page.mouse.click(cardBox.x + cardBox.width * xRatio, cardBox.y + 120);
   await replaceActiveText(page, text);
 }
 
@@ -1714,21 +1715,49 @@ test("text insertion keeps the new primitive selected", async ({ page }) => {
 test("click text creates auto-width text and survives reload", async ({
   page,
 }) => {
-  const text = `Auto width text ${Date.now()}`;
+  const text =
+    "A long responsive card title that needs more horizontal room than the final quarter of this screen provides";
 
-  await insertTextByClick(page, screenShell(page), text);
+  await insertTextByClick(page, screenShell(page), text, 0.76);
 
   const primitive = await waitForTextPrimitive(page, "index.html", text);
   expect(primitive.display).toBe("inline-block");
-  expect(primitive.width).toBe("");
-  expect(primitive.height).toBe("");
-  expect(primitive.style).not.toMatch(/(^|;)\s*width\s*:/);
-  expect(primitive.style).not.toMatch(/(^|;)\s*height\s*:/);
+  expect(primitive.width).toBe("max-content");
+  expect(primitive.height).toBe("auto");
+
+  const renderedText = designFrame(page)
+    .locator('[data-an-primitive="text"]')
+    .filter({ hasText: text })
+    .first();
+  const renderedGeometry = await renderedText.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const body = element.ownerDocument.body;
+    return {
+      width: rect.width,
+      height: rect.height,
+      remainingWidth: body.clientWidth - rect.left,
+      lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+    };
+  });
+  expect(renderedGeometry.width).toBeGreaterThan(
+    renderedGeometry.remainingWidth,
+  );
+  expect(renderedGeometry.height).toBeLessThanOrEqual(
+    renderedGeometry.lineHeight + 1,
+  );
 
   await gotoEditor(page, designId);
   await expect
     .poll(async () => fileContent(page, "index.html"), { timeout: 20_000 })
+    .toContain("width: max-content");
+  await expect
+    .poll(async () => fileContent(page, "index.html"), { timeout: 20_000 })
     .toContain(text);
+  await expect(
+    designFrame(page)
+      .locator('[data-an-primitive="text"]')
+      .filter({ hasText: text }),
+  ).toHaveCount(1);
 });
 
 test("typing into a new text layer and clicking out renders it once, in order", async ({
@@ -1757,12 +1786,23 @@ test("typing into a new text layer and clicking out renders it once, in order", 
   await expect
     .poll(
       async () =>
-        countOccurrences(await fileContent(page, "index.html"), "my page"),
-      {
-        timeout: 20_000,
-      },
+        page.evaluate(
+          (html) => {
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            return Array.from(
+              doc.querySelectorAll<HTMLElement>('[data-an-primitive="text"]'),
+            )
+              .filter((element) => element.textContent === "my page")
+              .map((element) => ({
+                text: element.textContent ?? "",
+                layerName: element.getAttribute("data-agent-native-layer-name"),
+              }));
+          },
+          await fileContent(page, "index.html"),
+        ),
+      { timeout: 20_000 },
     )
-    .toBe(1);
+    .toEqual([{ text: "my page", layerName: "my page" }]);
 });
 
 test("new empty text is one atomic undo step and cancel leaves the frame intact", async ({
@@ -1971,6 +2011,11 @@ test("rectangle insertion keeps the new primitive selected", async ({
       y: cardBox.y + cardBox.height * 0.78,
     },
   });
+  await expect(
+    page
+      .getByRole("button", { name: "Open color picker", exact: true })
+      .filter({ hasText: "DADADA" }),
+  ).toBeVisible();
   await expect(
     screenShell(page)
       .frameLocator("iframe[data-screen-iframe-id]")

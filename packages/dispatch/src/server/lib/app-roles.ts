@@ -14,9 +14,9 @@ import { ForbiddenError } from "@agent-native/core/sharing";
 
 import { dispatchAccessDescriptor } from "../../shared/app-roles.js";
 
-let dispatchAccess: AppRoles<"admin"> | undefined;
+let dispatchAccess: AppRoles<"admin", "administer"> | undefined;
 
-function getDispatchAccess(): AppRoles<"admin"> {
+function getDispatchAccess(): AppRoles<"admin", "administer"> {
   return (dispatchAccess ??= defineAppRoles(dispatchAccessDescriptor));
 }
 
@@ -60,7 +60,7 @@ export async function authorizeDispatchAdmin(
     );
   }
   if (membership.role === "owner" || membership.role === "admin") return;
-  await getDispatchAccess().assertAny(["admin"], {
+  await getDispatchAccess().assertPermission(["administer"], {
     userEmail: email,
     orgId,
   });

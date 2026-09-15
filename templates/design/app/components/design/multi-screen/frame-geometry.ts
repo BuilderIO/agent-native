@@ -533,7 +533,6 @@ export function resolveFrameGeometrySync(args: {
     }
     if (persisted && !sameFrameGeometry(existing ?? resolved, resolved)) {
       changed = true;
-      shouldNotifyParent = true;
     }
   });
 

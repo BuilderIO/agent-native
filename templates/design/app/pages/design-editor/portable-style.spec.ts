@@ -1,4 +1,11 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
 /**
  * Regression coverage for the cross-screen alt-drag duplicate bug: a dropped
  * copy carried an unrelated ~50-property computed-style dump (position,
@@ -8,13 +15,10 @@
  * app/pages/design-editor/commands/cross-screen-element-drop.ts (the
  * `applyPortableStyleSnapshotToHtml` call) and editor-chrome.bridge.ts's
  * `collectPortableComputedStyles`, which now diffs against a bare-tag probe
- * before including a property. The diffing itself needs a real browser and
- * can't run here (see portable-style.ts's own DOMParser dependency), so
- * these tests pin the DOM-independent contract: a snapshot's properties are
- * applied to the destination node, and `position` is never one of them.
+ * before including a property. The final tests below exercise actual capture
+ * and rendered application in Chromium; the earlier tests also pin the
+ * DOM-independent apply contract.
  */
-import { describe, expect, it } from "vitest";
-
 import {
   applyPortableStyles,
   applyPortableStyleSnapshotToHtml,
@@ -103,77 +107,6 @@ describe("applyPortableStyleSnapshotToHtml", () => {
     expect(dropped.style.top).toBe("8px");
   });
 
-  it("applies a class-authored width/height to a destination with no source stylesheet, leaving an auto-sized child fluid", () => {
-    // The destination has no `.card` rule at all — same shape as a
-    // cross-screen move (see editor-chrome.bridge.ts's
-    // resolvePortableBoxSizeValue / portable-style-snapshot.bridge.spec.ts
-    // for how the source captures this).
-    const destWithChild = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"></head><body>
-<div data-agent-native-node-id="dropped" style="position:absolute;left:12px;top:8px;">
-  <div data-agent-native-node-id="dropped-child"></div>
-</div>
-</body></html>`;
-    const result = applyPortableStyleSnapshotToHtml(destWithChild, "dropped", {
-      version: 1,
-      rootSourceId: "dropped",
-      nodes: [
-        {
-          sourceId: "dropped",
-          path: [],
-          styles: { width: "320px", height: "200px" },
-        },
-        {
-          // A plain flow/flex child the source capture never assigned a
-          // size to (no matching rule) — nothing here should freeze it.
-          sourceId: "dropped-child",
-          path: [0],
-          styles: {},
-        },
-      ],
-    });
-    const doc = new DOMParser().parseFromString(result, "text/html");
-    const dropped = doc.querySelector(
-      '[data-agent-native-node-id="dropped"]',
-    ) as HTMLElement;
-    const child = doc.querySelector(
-      '[data-agent-native-node-id="dropped-child"]',
-    ) as HTMLElement;
-    expect(dropped.style.width).toBe("320px");
-    expect(dropped.style.height).toBe("200px");
-    expect(child.style.width).toBe("");
-    expect(child.style.height).toBe("");
-  });
-
-  it("applies the snapshot even when source and destination share an identical stylesheet head", () => {
-    // Regression: an earlier `sameStylesheetHead` short-circuit skipped
-    // applying the snapshot whenever source/dest <head> markup matched
-    // exactly. Identical heads don't prove an identical cascade — here both
-    // documents load the SAME `.card { color: white }` rule, but only the
-    // source's <body> carries `.dark`, so the destination's `.card` never
-    // matches and the node would render with the inherited default (near-
-    // black) instead of white if the snapshot were skipped.
-    const sharedHead = `<head><meta charset="UTF-8"><style>.dark .card { color: white; }</style></head>`;
-    const sourceHtml = `<!DOCTYPE html>\n<html lang="en">${sharedHead}<body class="dark"><div class="card" data-agent-native-node-id="dropped"></div></body></html>`;
-    const destHtml = `<!DOCTYPE html>\n<html lang="en">${sharedHead}<body><div class="card" data-agent-native-node-id="dropped" style="position:absolute;left:12px;top:8px;"></div></body></html>`;
-    const result = applyPortableStyleSnapshotToHtml(destHtml, "dropped", {
-      version: 1,
-      rootSourceId: "dropped",
-      nodes: [
-        {
-          sourceId: "dropped",
-          path: [],
-          styles: { color: "rgb(255, 255, 255)" },
-        },
-      ],
-    });
-    const doc = new DOMParser().parseFromString(result, "text/html");
-    const dropped = doc.querySelector(
-      '[data-agent-native-node-id="dropped"]',
-    ) as HTMLElement;
-    expect(dropped.style.color).toBe("rgb(255, 255, 255)");
-  });
-
   it("is a no-op when the snapshot has nothing left after filtering", () => {
     const result = applyPortableStyleSnapshotToHtml(
       DEST_BARE_SCREEN,
@@ -210,5 +143,215 @@ describe("applyPortableStyleSnapshotToHtml", () => {
       undefined,
     );
     expect(result).toBe(DEST_BARE_SCREEN);
+  });
+});
+
+// Exercise the actual source capture and apply functions in Chromium.
+const requireFromDesign = createRequire(
+  path.resolve(process.cwd(), "package.json"),
+);
+const requireFromPlaywright = createRequire(
+  requireFromDesign.resolve("@playwright/test"),
+);
+const { chromium } = requireFromPlaywright("playwright");
+const { transformSync } = requireFromDesign("esbuild");
+const SPEC_DIR = path.dirname(fileURLToPath(import.meta.url));
+const BRIDGE_SOURCE =
+  process.env.PORTABLE_CAPTURE_SOURCE ||
+  path.resolve(
+    SPEC_DIR,
+    "../../components/design/bridge/editor-chrome.bridge.ts",
+  );
+const PORTABLE_STYLE_SOURCE =
+  process.env.PORTABLE_STYLE_MODULE_SOURCE ||
+  path.join(SPEC_DIR, "portable-style.ts");
+const CAPTURE_START = "var PORTABLE_STYLE_PROPERTIES = [";
+const CAPTURE_END = "// Raw authored (not computed)";
+
+function extractCapture(sourcePath: string): string {
+  const source = readFileSync(sourcePath, "utf8");
+  const start = source.indexOf(CAPTURE_START);
+  const end = source.indexOf(CAPTURE_END, start);
+  if (start < 0 || end < 0)
+    throw new Error(`Typed OM capture block not found in ${sourcePath}`);
+  return transformSync(source.slice(start, end), { loader: "ts" }).code;
+}
+
+function loadPortableStyleSource(): string {
+  return transformSync(readFileSync(PORTABLE_STYLE_SOURCE, "utf8"), {
+    loader: "ts",
+    format: "cjs",
+  }).code;
+}
+
+describe("portable-style source capture and rendered Chromium behavior", () => {
+  let browser: any;
+  let page: any;
+  let captureSource: string;
+  let portableStyleSource: string;
+
+  beforeAll(async () => {
+    captureSource = extractCapture(BRIDGE_SOURCE);
+    portableStyleSource = loadPortableStyleSource();
+    browser = await chromium.launch({ headless: true });
+    page = await browser.newPage({ viewport: { width: 400, height: 800 } });
+  });
+
+  afterAll(async () => browser?.close());
+
+  async function capture(rootSelector: string) {
+    return page.evaluate(
+      ({
+        captureSource,
+        rootSelector,
+      }: {
+        captureSource: string;
+        rootSelector: string;
+      }) => {
+        const collect = new Function(
+          "window",
+          "document",
+          "dndLog",
+          "getSourceId",
+          "getSelector",
+          "isDocumentRootElement",
+          `${captureSource}\nreturn collectPortableStyleSnapshot;`,
+        )(
+          window,
+          document,
+          () => undefined,
+          (el: Element) => el.id || undefined,
+          (el: Element) => el.tagName.toLowerCase(),
+          () => false,
+        );
+        return collect(document.querySelector(rootSelector));
+      },
+      { captureSource, rootSelector },
+    );
+  }
+
+  async function apply(
+    html: string,
+    nodeId: string,
+    snapshot: unknown,
+    sourceHtml?: string,
+  ) {
+    return page.evaluate(
+      ({
+        portableStyleSource,
+        html,
+        nodeId,
+        snapshot,
+        sourceHtml,
+      }: {
+        portableStyleSource: string;
+        html: string;
+        nodeId: string;
+        snapshot: unknown;
+        sourceHtml?: string;
+      }) => {
+        const moduleObject: {
+          exports: Record<string, (...args: any[]) => string>;
+        } = { exports: {} };
+        new Function("module", "exports", portableStyleSource)(
+          moduleObject,
+          moduleObject.exports,
+        );
+        // Supplying the legacy fourth argument makes this regression fail on
+        // the old head-equality short-circuit. The new three-argument API
+        // ignores it; the real drop caller no longer supplies it.
+        return sourceHtml === undefined
+          ? moduleObject.exports.applyPortableStyleSnapshotToHtml(
+              html,
+              nodeId,
+              snapshot,
+            )
+          : moduleObject.exports.applyPortableStyleSnapshotToHtml(
+              html,
+              nodeId,
+              snapshot,
+              sourceHtml,
+            );
+      },
+      { portableStyleSource, html, nodeId, snapshot, sourceHtml },
+    );
+  }
+
+  it("carries inherited appearance when matching head markup has different body context", async () => {
+    const head = `<head><style>.dark .card { color: white; }</style></head>`;
+    const sourceHtml = `<!doctype html><html>${head}<body class="dark"><div class="card" data-agent-native-node-id="dropped"></div></body></html>`;
+    const destHtml = `<!doctype html><html>${head}<body><div class="card" data-agent-native-node-id="dropped" style="position:absolute;left:12px;top:8px"></div></body></html>`;
+    await page.setContent(sourceHtml);
+    const snapshot = await capture('[data-agent-native-node-id="dropped"]');
+    expect(snapshot.nodes[0].styles.color).toBe("rgb(255, 255, 255)");
+    const applied = await apply(destHtml, "dropped", snapshot, sourceHtml);
+    await page.setContent(applied);
+    const rendered = await page
+      .locator('[data-agent-native-node-id="dropped"]')
+      .evaluate((el: Element) => getComputedStyle(el).color);
+    expect(rendered).toBe("rgb(255, 255, 255)");
+    expect(
+      await page
+        .locator('[data-agent-native-node-id="dropped"]')
+        .evaluate((el: Element) => (el as HTMLElement).style.position),
+    ).toBe("absolute");
+  });
+
+  it("keeps auto, percent, and calc responsive to a breakpoint-driven containing block; rem is canonical px", async () => {
+    const html = `<!doctype html><html><head><style>
+      html { font-size: 16px; }
+      .responsive { width: 80vw; }
+      @media (min-width: 600px) { .responsive { width: 60vw; } }
+      .percent { width: 50%; }
+      .calculated { width: calc(100% - 20px); }
+      .rem-size { width: 10rem; }
+    </style></head><body><div class="responsive"><section id="dropped" data-agent-native-node-id="dropped">
+      <div id="percent" class="percent"></div><div id="calculated" class="calculated"></div>
+      <div id="natural-auto"></div><div id="rem" class="rem-size"></div>
+    </section></div></body></html>`;
+    await page.setViewportSize({ width: 400, height: 800 });
+    await page.setContent(html);
+    const snapshot = await capture("#dropped");
+    const byId = new Map<string, { styles: Record<string, string> }>(
+      snapshot.nodes.map((node: any) => [node.sourceId, node]),
+    );
+    expect(byId.get("percent")?.styles.width).toBe("50%");
+    expect(byId.get("calculated")?.styles.width).toBe("calc(100% - 20px)");
+    expect(byId.get("natural-auto")?.styles).not.toHaveProperty("width");
+    expect(byId.get("rem")?.styles.width).toBe("160px");
+
+    const applied = await apply(html, "dropped", snapshot);
+    await page.setContent(applied);
+    const widthsAt = async (width: number) => {
+      await page.setViewportSize({ width, height: 800 });
+      return page.evaluate(() =>
+        Object.fromEntries(
+          ["dropped", "percent", "calculated", "natural-auto", "rem"].map(
+            (id) => {
+              const el = document.getElementById(id)!;
+              return [id, Math.round(el.getBoundingClientRect().width)];
+            },
+          ),
+        ),
+      );
+    };
+    const narrow = await widthsAt(400);
+    const wide = await widthsAt(800);
+    expect(narrow).toMatchObject({
+      dropped: 320,
+      percent: 160,
+      calculated: 300,
+      "natural-auto": 320,
+      rem: 160,
+    });
+    expect(wide).toMatchObject({
+      dropped: 480,
+      percent: 240,
+      calculated: 460,
+      "natural-auto": 480,
+      rem: 160,
+    });
+    // This proves relative values still respond to container/viewport sizing;
+    // it does not promise replay of future stylesheet declaration changes.
   });
 });

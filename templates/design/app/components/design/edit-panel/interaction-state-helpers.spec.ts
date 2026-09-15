@@ -30,6 +30,14 @@ describe("authoredStyleValue", () => {
     expect(authoredStyleValue(element, "color")).toBe("blue");
   });
 
+  it("keeps authored line-height units ahead of computed pixel values", () => {
+    const element = makeElement({
+      computedStyles: { lineHeight: "24px" },
+      inlineStyles: { lineHeight: "30%" },
+    });
+    expect(authoredStyleValue(element, "lineHeight")).toBe("30%");
+  });
+
   it("treats an authored 'auto' inline value as unset (empty string)", () => {
     const element = makeElement({ inlineStyles: { left: "auto" } });
     expect(authoredStyleValue(element, "left")).toBe("");
@@ -199,8 +207,10 @@ describe("patchAuthoredInlineStyles", () => {
     ).toBeUndefined();
   });
 
-  it("ignores properties the snapshot never carries", () => {
-    expect(patchAuthoredInlineStyles({}, { color: "red" })).toEqual({});
+  it("carries supported color while ignoring properties outside the snapshot", () => {
+    expect(
+      patchAuthoredInlineStyles({}, { color: "red", fontWeight: "700" }),
+    ).toEqual({ color: "red" });
   });
 
   it("keeps unrelated authored values", () => {

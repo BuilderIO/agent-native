@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
 import type { PeerCapabilities } from "./agent-capabilities.js";
 import type { DiscoveredAgent } from "./agent-discovery.js";
 import { probePeerAgent, type PeerProbeDeps } from "./agent-peer-probe.js";
@@ -81,6 +82,25 @@ describe("probePeerAgent", () => {
     expect(result.reachable).toBe(true);
     expect(result.authorized).toBe(false);
     expect(result.authError).toBe("401");
+  });
+
+  it("maps typed credential rejection from the no-op call to auth-rejected", async () => {
+    const deps = makeDeps({
+      createClient: () => ({
+        getTask: async () => {
+          throw new RemoteAgentCredentialRejectedError({ status: 403 });
+        },
+      }),
+    });
+
+    const result = await probePeerAgent(agent, deps);
+
+    expect(result).toMatchObject({
+      reachable: true,
+      authorized: false,
+      cardStatus: "auth-rejected",
+      authError: "403",
+    });
   });
 
   it("reports authorized:true when the no-op call comes back as task-not-found", async () => {

@@ -69,6 +69,7 @@ import * as Y from "yjs";
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
 const collabTestControl = vi.hoisted(() => ({
   corruptNextValidatedApply: false,
+  peerContentBeforeNextValidatedApply: null as string | null,
 }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -118,9 +119,18 @@ vi.mock("@agent-native/core/collab", () => ({
     newText: string,
     _fieldName?: string,
     _requestSource?: string,
-    options?: { validateSnapshot?: (snapshot: string) => void },
+    options?: {
+      validateBase?: (base: string) => void;
+      validateSnapshot?: (snapshot: string) => void;
+    },
   ) => {
     const doc = getOrCreateDoc(docId);
+    if (collabTestControl.peerContentBeforeNextValidatedApply !== null) {
+      const peerContent = collabTestControl.peerContentBeforeNextValidatedApply;
+      collabTestControl.peerContentBeforeNextValidatedApply = null;
+      applyTextDiff(doc, peerContent);
+    }
+    options?.validateBase?.(doc.getText("content").toString());
     applyTextDiff(doc, newText);
     if (
       collabTestControl.corruptNextValidatedApply &&
@@ -176,6 +186,9 @@ interface FileRow {
   filename: string;
   fileType: string;
   content: string;
+  contentOperationSource: string | null;
+  contentOperationRevision: number | null;
+  contentOperationResultHash: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -187,13 +200,20 @@ const designFilesStore = vi.hoisted(() => ({
 const FILE_ID = "file_shader_container";
 const DESIGN_ID = "design_1";
 
-function seedFile(content: string, updatedAt = "2026-07-06T00:00:00.000Z") {
+function seedFile(
+  content: string,
+  updatedAt = "2026-07-06T00:00:00.000Z",
+  fileType = "html",
+) {
   designFilesStore.rows.set(FILE_ID, {
     id: FILE_ID,
     designId: DESIGN_ID,
     filename: "index.html",
-    fileType: "html",
+    fileType,
     content,
+    contentOperationSource: null,
+    contentOperationRevision: null,
+    contentOperationResultHash: null,
     createdAt: updatedAt,
     updatedAt,
   });
@@ -229,6 +249,9 @@ vi.mock("../server/db/index.js", () => {
       filename: { name: "filename" },
       fileType: { name: "fileType" },
       content: { name: "content" },
+      contentOperationSource: { name: "contentOperationSource" },
+      contentOperationRevision: { name: "contentOperationRevision" },
+      contentOperationResultHash: { name: "contentOperationResultHash" },
       createdAt: { name: "createdAt" },
       updatedAt: { name: "updatedAt" },
     },
@@ -288,6 +311,7 @@ import {
   readLiveSourceFile,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import updateFileAction from "./update-file.js";
 
@@ -357,6 +381,7 @@ function currentFileRef(): FileRow {
 beforeEach(() => {
   collabDocs.docs.clear();
   collabTestControl.corruptNextValidatedApply = false;
+  collabTestControl.peerContentBeforeNextValidatedApply = null;
   designFilesStore.rows.clear();
   seedFile(buildDoc());
 });
@@ -440,6 +465,269 @@ describe("locked-layer write boundaries", () => {
         caller: "frontend",
       } as any),
     ).resolves.toMatchObject({ updated: true });
+  });
+});
+
+describe("verified identity-only source publication", () => {
+  const raw = buildDoc().replace(
+    ' data-agent-native-node-id="an-node-text-1"',
+    "",
+  );
+  const canonical = ensureCodeLayerNodeIdsInHtml(raw, {
+    source: { kind: "design-file", fileId: FILE_ID },
+  }).content;
+  const operationSource = "tab-identity-migration";
+  const operationRevision = 17;
+
+  const publish = (
+    content: string,
+    expectedVersionHash = sourceContentHash(raw),
+  ) =>
+    updateFileAction.run(
+      {
+        id: FILE_ID,
+        content,
+        identityOnly: true,
+        expectedVersionHash,
+        operationSource,
+        operationRevision,
+      } as any,
+      undefined as any,
+    );
+
+  it("accepts only the exact server-derived annotation and stores its operation lineage", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, raw, "content", "seed");
+
+    const result = await publish(canonical);
+
+    expect(result).toMatchObject({
+      id: FILE_ID,
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: canonical,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision,
+      contentOperationResultHash: sourceContentHash(canonical),
+    });
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      canonical,
+    );
+
+    // The retried request still carries the raw preimage hash. Only the exact
+    // content plus persisted operation marker may bypass that stale hash.
+    await expect(publish(canonical)).resolves.toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+
+    const laterUserEdit = canonical.replace(
+      "Hello world",
+      "Hello after migration",
+    );
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: laterUserEdit,
+          syncCollab: true,
+          expectedVersionHash: sourceContentHash(raw),
+          operationSource,
+          operationRevision: operationRevision + 1,
+        } as any,
+        { caller: "frontend" } as any,
+      ),
+    ).resolves.toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(laterUserEdit),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: laterUserEdit,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision + 1,
+      contentOperationResultHash: sourceContentHash(laterUserEdit),
+    });
+  });
+
+  it("repairs SQL when local publication already put canonical bytes in Yjs", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, canonical, "content", "local-preview");
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+
+    await expect(publish(canonical)).resolves.toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: canonical,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision,
+      contentOperationResultHash: sourceContentHash(canonical),
+    });
+  });
+
+  it("allows an exact identity stamp inside a locked legacy subtree while preserving the lock", async () => {
+    const lockedRaw = raw.replace(
+      'data-agent-native-node-id="an-node-container-1"',
+      'data-agent-native-node-id="an-node-container-1" data-agent-native-locked="true"',
+    );
+    const lockedCanonical = ensureCodeLayerNodeIdsInHtml(lockedRaw, {
+      source: { kind: "design-file", fileId: FILE_ID },
+    }).content;
+    seedFile(lockedRaw);
+    await applyText(FILE_ID, lockedRaw, "content", "seed");
+
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: lockedCanonical,
+          identityOnly: true,
+          expectedVersionHash: sourceContentHash(lockedRaw),
+          operationSource,
+          operationRevision,
+        } as any,
+        undefined as any,
+      ),
+    ).resolves.toMatchObject({ updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(lockedCanonical);
+    expect(lockedCanonical).toContain('data-agent-native-locked="true"');
+  });
+
+  it("does not let an older identity revision reset the accepted operation lineage", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, raw, "content", "seed");
+    await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: canonical,
+        identityOnly: true,
+        expectedVersionHash: sourceContentHash(raw),
+        operationSource,
+        operationRevision: operationRevision + 1,
+      } as any,
+      undefined as any,
+    );
+
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: canonical,
+          identityOnly: true,
+          expectedVersionHash: sourceContentHash(canonical),
+          operationSource,
+          operationRevision,
+        } as any,
+        undefined as any,
+      ),
+    ).rejects.toThrow(/newer source operation/i);
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: canonical,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision + 1,
+      contentOperationResultHash: sourceContentHash(canonical),
+    });
+  });
+
+  it("rejects malformed identity-only action shapes before source publication", async () => {
+    seedFile(raw);
+    const validShape = {
+      id: FILE_ID,
+      content: canonical,
+      identityOnly: true,
+      expectedVersionHash: sourceContentHash(raw),
+      operationSource,
+      operationRevision,
+    };
+    const invalidShapes = [
+      { ...validShape, content: undefined },
+      { ...validShape, expectedVersionHash: undefined },
+      { ...validShape, operationRevision: undefined },
+      { ...validShape, filename: "renamed.html" },
+      { ...validShape, fileType: "jsx" },
+      { ...validShape, syncCollab: false },
+    ];
+    for (const shape of invalidShapes) {
+      await expect(
+        updateFileAction.run(shape as any, undefined as any),
+      ).rejects.toThrow(/identity-only updates (require|cannot)/i);
+    }
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+    expect(
+      designFilesStore.rows.get(FILE_ID)!.contentOperationRevision,
+    ).toBeNull();
+  });
+
+  it("rejects script, style, text, lock, and structure edits in the identity-only channel", async () => {
+    const lockedRaw = raw.replace(
+      'data-agent-native-node-id="an-node-container-1"',
+      'data-agent-native-node-id="an-node-container-1" data-agent-native-locked="true"',
+    );
+    const lockedCanonical = ensureCodeLayerNodeIdsInHtml(lockedRaw, {
+      source: { kind: "design-file", fileId: FILE_ID },
+    }).content;
+    const invalid = [
+      canonical.replace("Hello world", "changed text"),
+      canonical.replace("background:#ffffff", "background:#123456"),
+      canonical.replace(
+        "https://cdn.tailwindcss.com",
+        "https://example.com/x.js",
+      ),
+      lockedCanonical.replace(' data-agent-native-locked="true"', ""),
+      canonical.replace(
+        "<p data-agent-native-node-id",
+        "<section data-agent-native-node-id",
+      ),
+    ];
+
+    for (const candidate of invalid) {
+      seedFile(raw);
+      await applyText(FILE_ID, raw, "content", "seed");
+      await expect(publish(candidate)).rejects.toThrow(
+        /identity-only publication/i,
+      );
+      expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+      expect((await readLiveSourceFile(currentFileRef())).content).toBe(raw);
+    }
+  });
+
+  it("rejects a peer edit that lands after identity validation but before the Yjs apply", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, raw, "content", "seed");
+    const peerContent = raw.replace("Hello world", "Peer's newer text");
+    collabTestControl.peerContentBeforeNextValidatedApply = peerContent;
+
+    await expect(publish(canonical)).rejects.toThrow(
+      /changed while the edit was being applied/i,
+    );
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      peerContent,
+    );
+  });
+
+  it("rejects URL-backed and non-HTML files", async () => {
+    const url = "https://preview.example.test";
+    seedFile(url);
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: url,
+          identityOnly: true,
+          expectedVersionHash: sourceContentHash(url),
+          operationSource,
+          operationRevision,
+        } as any,
+        undefined as any,
+      ),
+    ).rejects.toThrow(/inline HTML/i);
+
+    seedFile(raw, "2026-07-06T00:00:00.000Z", "css");
+    await expect(publish(canonical)).rejects.toThrow(/inline HTML/i);
   });
 });
 

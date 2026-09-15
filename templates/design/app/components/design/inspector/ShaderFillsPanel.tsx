@@ -349,6 +349,9 @@ export function ShaderFillsPanel({
         <div
           className="border-t border-border/70 p-2"
           onPointerUp={commitLastPreview}
+          onPointerCancel={() => {
+            dirtyRef.current = false;
+          }}
           onBlur={commitLastPreview}
         >
           <ShaderControls

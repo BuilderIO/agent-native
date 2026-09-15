@@ -469,6 +469,8 @@ interface AppWebviewProps {
   refreshKey?: number;
   /** Emits the guest page's document title so the shell tab can stay current. */
   onTitleChange?: (title: string) => void;
+  /** Emits the guest's current history availability for shell navigation. */
+  onNavigationStateChange?: (state: AppWebviewNavigationState) => void;
   /** Emits the guest page's coarse session state for host-owned UI. */
   onAuthStateChange?: (state: AppWebviewAuthState) => void;
   /** Emits terminal main-frame failures so host-owned overlays can recover. */
@@ -499,6 +501,45 @@ export interface AppWebviewHandle {
   goForward(): void;
   reload(): void;
   toggleAgentSidebar(): void;
+}
+
+export interface AppWebviewNavigationState {
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
+export function readAppWebviewNavigationState(
+  webview: Pick<ElectronWebviewElement, "canGoBack" | "canGoForward">,
+): AppWebviewNavigationState {
+  try {
+    return {
+      canGoBack: webview.canGoBack(),
+      canGoForward: webview.canGoForward(),
+    };
+  } catch {
+    return { canGoBack: false, canGoForward: false };
+  }
+}
+
+export function navigateAppWebviewHistory(
+  webview: Pick<
+    ElectronWebviewElement,
+    "canGoBack" | "canGoForward" | "goBack" | "goForward"
+  > | null,
+  direction: "back" | "forward",
+): boolean {
+  if (!webview) return false;
+  try {
+    if (direction === "back") {
+      if (webview.canGoBack()) webview.goBack();
+    } else if (webview.canGoForward()) {
+      webview.goForward();
+    }
+    return true;
+  } catch (error) {
+    console.warn(`[desktop-navigation] unable to navigate ${direction}`, error);
+    return false;
+  }
 }
 
 /**
@@ -756,6 +797,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       partitionKey,
       refreshKey = 0,
       onTitleChange,
+      onNavigationStateChange,
       onAuthStateChange,
       onMainFrameLoadFailure,
       onDesktopIdentityStatusChange,
@@ -882,6 +924,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const prevDesktopWebviewDeferredRef = useRef(deferDesktopWebviewLoad);
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
+    const onNavigationStateChangeRef = useRef(onNavigationStateChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
     const onMainFrameLoadFailureRef = useRef(onMainFrameLoadFailure);
     const onDesktopIdentityStatusChangeRef = useRef(
@@ -979,6 +1022,19 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       onTitleChangeRef.current = onTitleChange;
     }, [onTitleChange]);
+
+    useEffect(() => {
+      onNavigationStateChangeRef.current = onNavigationStateChange;
+    }, [onNavigationStateChange]);
+
+    useEffect(
+      () => () =>
+        onNavigationStateChangeRef.current?.({
+          canGoBack: false,
+          canGoForward: false,
+        }),
+      [],
+    );
 
     useEffect(() => {
       onAuthStateChangeRef.current = onAuthStateChange;
@@ -1297,11 +1353,21 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         },
         goBack() {
           const wv = webviewRef.current;
-          if (wv?.canGoBack()) wv.goBack();
+          if (!navigateAppWebviewHistory(wv, "back")) {
+            onNavigationStateChangeRef.current?.({
+              canGoBack: false,
+              canGoForward: false,
+            });
+          }
         },
         goForward() {
           const wv = webviewRef.current;
-          if (wv?.canGoForward()) wv.goForward();
+          if (!navigateAppWebviewHistory(wv, "forward")) {
+            onNavigationStateChangeRef.current?.({
+              canGoBack: false,
+              canGoForward: false,
+            });
+          }
         },
         reload() {
           const wv = webviewRef.current;
@@ -1309,7 +1375,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           try {
             wv.reloadIgnoringCache();
           } catch {
-            wv.reload();
+            try {
+              wv.reload();
+            } catch {
+              onNavigationStateChangeRef.current?.({
+                canGoBack: false,
+                canGoForward: false,
+              });
+            }
           }
         },
         toggleAgentSidebar() {
@@ -1430,6 +1503,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           });
         });
       };
+      const emitNavigationState = () => {
+        if (disposed) return;
+        onNavigationStateChangeRef.current?.(readAppWebviewNavigationState(wv));
+      };
 
       onAuthStateChangeRef.current?.("unknown");
 
@@ -1463,6 +1540,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
         emitCurrentTitleSoon();
+        emitNavigationState();
         emitAuthState();
       };
       const reportGuestFailure = (details: {
@@ -1472,6 +1550,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (disposed || loadFailureRef.current) return;
         loadFailureRef.current = true;
         authProbeSequenceRef.current += 1;
+        onNavigationStateChangeRef.current?.({
+          canGoBack: false,
+          canGoForward: false,
+        });
         setError(true);
         setIsLoading(false);
         onMainFrameLoadFailureRef.current?.(details);
@@ -1487,6 +1569,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         applyGuestSurfaceVisibility();
         syncGuestAppChatSidebar(true);
         emitCurrentTitleSoon();
+        emitNavigationState();
         emitAuthState();
       };
       const onFailed = (e: Event) => {
@@ -1543,6 +1626,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           loadFailureRef.current = false;
           setError(false);
           setSlowLoad(false);
+          emitNavigationState();
           return;
         }
         if (!loadFailureRef.current) setSlowLoad(false);

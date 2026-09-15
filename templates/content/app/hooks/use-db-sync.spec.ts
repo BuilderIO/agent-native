@@ -557,6 +557,68 @@ describe("contentActionInvalidatePredicate", () => {
     },
   );
 
+  it.each(["/home", "/settings", "/trash", "/page/document-1"])(
+    "reveals externally created pages in the document list on %s",
+    (pathname) => {
+      const predicate = contentActionInvalidatePredicate(pathname);
+      const event = [{ source: "action", key: "create-document" }];
+
+      expect(
+        predicate({ queryKey: ["action", "list-documents", undefined] }, event),
+      ).toBe(true);
+      for (const queryName of [
+        "get-content-database",
+        "query-content-database-items",
+      ]) {
+        const filesQuery = {
+          queryKey: ["action", queryName, { databaseId: "personal-files" }],
+          isActive: () => true,
+          meta: { contentDatabaseSystemRole: "files" },
+        };
+        expect(predicate(filesQuery, event)).toBe(true);
+        expect(predicate({ ...filesQuery, isActive: () => false }, event)).toBe(
+          false,
+        );
+      }
+      expect(
+        predicate(
+          {
+            queryKey: [
+              "action",
+              "query-content-database-items",
+              { databaseId: "unrelated-collection" },
+            ],
+            isActive: () => true,
+            meta: { contentDatabaseSystemRole: null },
+          },
+          event,
+        ),
+      ).toBe(false);
+      expect(
+        predicate(
+          { queryKey: ["action", "list-trashed-documents", undefined] },
+          event,
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("preserves document invalidation in a coalesced creation batch", () => {
+    const predicate = contentActionInvalidatePredicate("/page/document-1");
+    expect(
+      predicate(
+        {
+          queryKey: ["action", "get-document", { id: "document-1" }],
+          isActive: () => true,
+        },
+        [
+          { source: "action", key: "create-document" },
+          { source: "action", key: "edit-document" },
+        ],
+      ),
+    ).toBe(true);
+  });
+
   it("refreshes only the active personal-view query for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
     const personalViewQuery = {

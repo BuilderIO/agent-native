@@ -54,6 +54,7 @@ import {
   HELP,
   LOCAL_FILES_REFERENCE_MD,
   REWIND_SKILL_MD,
+  TURN_INTO_APP_ATTACHMENTS_REFERENCE_MD,
   TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD,
   TURN_INTO_APP_OPENAI_YAML,
   TURN_INTO_APP_SKILL_MD,
@@ -444,6 +445,7 @@ export const BUILT_IN_APP_SKILLS = {
     skillName: "turn-into-app",
     extraFiles: {
       "turn-into-app": {
+        "references/attachments.md": TURN_INTO_APP_ATTACHMENTS_REFERENCE_MD,
         "references/fresh-project.md": TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD,
         "references/spreadsheet-source.md":
           TURN_INTO_APP_SPREADSHEET_SOURCE_REFERENCE_MD,

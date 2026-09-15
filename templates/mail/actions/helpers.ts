@@ -139,91 +139,22 @@ export async function resolveOwnerEmail(): Promise<string> {
 // OAuth access-token helpers (fetch-based, no googleapis dependency)
 // ---------------------------------------------------------------------------
 
-import {
-  listOAuthAccountsByOwner,
-  saveOAuthTokens,
-} from "@agent-native/core/oauth-tokens";
-
-import {
-  createOAuth2Client,
-  gmailListLabels,
-} from "../server/lib/google-api.js";
-import { getClients, getOAuth2Credentials } from "../server/lib/google-auth.js";
-
-interface TokenRecord {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}
-
-/**
- * Get a valid access token for a single account, refreshing if expired.
- */
-async function resolveAccessToken(
-  accountId: string,
-  tokens: TokenRecord,
-): Promise<string> {
-  const now = Date.now();
-  // Refresh if expiry_date is set and within 60 seconds of expiring
-  if (
-    tokens.refresh_token &&
-    tokens.expiry_date &&
-    tokens.expiry_date < now + 60_000
-  ) {
-    const { clientId, clientSecret } = await getOAuth2Credentials(accountId);
-    const oauth = createOAuth2Client(clientId, clientSecret, "");
-    const refreshed = await oauth.refreshToken(tokens.refresh_token);
-    const updated = {
-      ...tokens,
-      access_token: refreshed.access_token,
-      expiry_date: now + refreshed.expires_in * 1000,
-    };
-    await saveOAuthTokens(
-      "google",
-      accountId,
-      updated as unknown as Record<string, unknown>,
-    );
-    return refreshed.access_token;
-  }
-  return tokens.access_token;
-}
+import { gmailListLabels } from "../server/lib/google-api.js";
+import { getClientsWithErrors } from "../server/lib/google-auth.js";
 
 /**
  * Get access tokens for the current user's connected Google accounts.
  * Returns an array of { email, accessToken } with refreshed tokens.
  */
-export async function getAccessTokens(): Promise<
-  Array<{ email: string; accessToken: string }>
-> {
-  const ownerEmail = await resolveOwnerEmail();
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-
-  // No per-user OAuth rows — the owner may still be connected through the
-  // managed workspace Gmail grant. getClients already carries that exact
-  // fallback (see getClientsWithErrors), so reuse it instead of
-  // re-resolving the workspace connection here.
-  if (accounts.length === 0) {
-    const managedClients = await getClients(ownerEmail);
-    return managedClients.map(({ email, accessToken }) => ({
-      email,
-      accessToken,
-    }));
+export async function getAccessTokens(
+  ownerEmail?: string,
+): Promise<Array<{ email: string; accessToken: string }>> {
+  const resolvedOwnerEmail = ownerEmail ?? (await resolveOwnerEmail());
+  const { clients, errors } = await getClientsWithErrors(resolvedOwnerEmail);
+  if (clients.length === 0 && errors.length > 0) {
+    throw new Error("Unable to resolve a connected Gmail account.");
   }
-
-  const results: Array<{ email: string; accessToken: string }> = [];
-
-  for (const account of accounts) {
-    const tokens = account.tokens as unknown as TokenRecord;
-    if (!tokens?.access_token) continue;
-    try {
-      const accessToken = await resolveAccessToken(account.accountId, tokens);
-      results.push({ email: account.accountId, accessToken });
-    } catch {
-      // Skip accounts that fail to refresh
-    }
-  }
-
-  return results;
+  return clients.map(({ email, accessToken }) => ({ email, accessToken }));
 }
 
 /**

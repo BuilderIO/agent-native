@@ -1,0 +1,18 @@
+---
+title: संगठन, टीमें और अनुमतियाँ
+description: संगठन संदर्भ, टीम और ऐप भूमिकाएँ तथा संसाधन पहुँच प्रबंधित करें।
+---
+
+# संगठन, टीमें और अनुमतियाँ
+
+संगठन team membership और tenant boundary तय करता है। Workspace apps और deployment config को समूहित करता है, लेकिन संगठन का विकल्प नहीं है। Server को permissions जाँचनी चाहिए। UI में button छिपाना authorization नहीं है।
+
+## भूमिकाओं के तीन दायरे
+
+- संगठन के `owner`, `admin` और `member` roles टीम प्रबंधन नियंत्रित करते हैं।
+- App roles एक app के भीतर की क्षमताएँ नियंत्रित करते हैं। किसी सदस्य के कई app roles हो सकते हैं।
+- Resource roles `viewer`, `editor` और `admin` एक row तक पहुँच नियंत्रित करते हैं।
+
+App code में roles और permission keys घोषित होते हैं। Admin टीम पेज से सदस्य के पूरे role set को बदल सकता है और घोषित permissions को roles से जोड़ सकता है। Override न होने पर app defaults लागू होते हैं। Invitation में app roles पहले से दिए जा सकते हैं। App admin को organization admin अधिकार नहीं मिलते।
+
+आमंत्रण और config के लिए [प्रशासित डिप्लॉयमेंट](/docs/administered-deployments) देखें। डेटा पहुँच के लिए [डेटा स्कोपिंग](/docs/security#data-scoping) देखें।

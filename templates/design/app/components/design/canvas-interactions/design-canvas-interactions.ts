@@ -125,6 +125,18 @@ export const DESIGN_CANVAS_SHORTCUTS: readonly CanvasShortcut[] = [
     code: "BracketLeft",
     modifiers: ["primary", "alt"],
   },
+  {
+    command: "bring-to-front",
+    key: "]",
+    code: "BracketRight",
+    modifiers: ["ctrl", "shift"],
+  },
+  {
+    command: "send-to-back",
+    key: "[",
+    code: "BracketLeft",
+    modifiers: ["ctrl", "shift"],
+  },
 ];
 
 /** Shared semantic lookup used by Design's live hotkey shell. */

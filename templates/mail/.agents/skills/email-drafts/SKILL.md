@@ -3,8 +3,8 @@ name: email-drafts
 description: >-
   Create, edit, and send email drafts through compose-{id} application state,
   manage-draft, and send-email. Use when composing, replying, forwarding,
-  attaching files, applying signatures/writing style, or checking open/click
-  tracking on sent mail.
+  attaching files, applying signatures/writing style, choosing Send + Mark Done,
+  or checking open/click tracking on sent mail.
 ---
 
 # Email Drafts
@@ -92,6 +92,11 @@ If the user asks both to change the durable style and to draft an email, update
 the settings first, then create the separately requested draft using the
 confirmed settings. A style-setting request alone must leave compose state
 unchanged.
+
+Autocomplete is a separate presentation preference; it changes inline compose
+suggestions and never changes generated draft text. Only change it when the user
+explicitly asks to enable or disable autocomplete. Read the current settings
+first, update only `autocompleteEnabled`, and re-read to verify persistence.
 
 ## How It Works
 
@@ -218,6 +223,16 @@ It branches on whether the user has a connected Google account:
   one can fetch the original message, and uses that account as the sender if
   `account` wasn't explicit.
 
+### Send + Mark Done
+
+`get-mail-settings.sendAndArchive` controls whether ordinary reply sends also
+mark the source thread Done. An explicit Send + Mark Done request takes
+precedence when the preference is off. For action-based sends, call
+`send-email` first and only call `archive-email` for the original reply message
+after the send succeeds. If archiving then fails, report that the reply was sent
+but the thread was not marked Done; never retry the send to recover the archive
+failure. This preference does not apply to new messages or forwards.
+
 ## Scheduled Sends
 
 Scheduled sends use job ids prefixed `scheduled-`; `send-scheduled-email-now`
@@ -225,8 +240,13 @@ and `cancel-scheduled-email` both strip that prefix internally before looking
 up the job — pass the id as shown to the user either way.
 
 Use `create-scheduled-send` to create one from an agent call. It is approval
-gated like `send-email` and is not a page-local WebMCP tool. `create-scheduled-job`
-is the page-local action for snoozes.
+gated like `send-email` and is not a page-local WebMCP tool. Its `payload` must
+include `to`, `subject`, and `body`; it may also include `cc`, `bcc`, the
+selected `accountEmail`, reply/thread ids, and previously uploaded attachments.
+The top-level `accountEmail` and `threadId` identify the selected sender and
+thread, while the same fields in `payload` are persisted for the worker. Pass a
+future epoch-millisecond `runAt` and use only a connected account resolved for
+the current owner. `create-scheduled-job` is the page-local action for snoozes.
 
 ## Snippets
 

@@ -50,8 +50,11 @@ describe("host-computed edits must not suppress the canvas repaint", () => {
       ),
       "utf8",
     );
+    expect(bridge).toMatch(
+      /var requiresFullDocumentMorph =\s*Boolean\(forceFullDocument\) \|\| hasSourceProvenance;/,
+    );
     expect(bridge).toContain(
-      "!forceFullDocument &&\n      nextHeadHtml === currentHeadHtml &&",
+      "!requiresFullDocumentMorph &&\n      nextHeadHtml === currentHeadHtml &&",
     );
   });
 

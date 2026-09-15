@@ -2,7 +2,10 @@ import {
   DEFAULT_BIG_NUDGE_PX,
   DEFAULT_SMALL_NUDGE_PX,
 } from "@shared/canvas-math";
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerSource,
+} from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
 
@@ -420,6 +423,7 @@ function isRenderedBlockDisplay(display: string | null | undefined): boolean {
 
 export interface ResolveElementNudgeIntentArgs {
   content: string;
+  source?: CodeLayerSource;
   selectedElement: ElementInfo;
   direction: NudgeDirection;
   largeStep: boolean;
@@ -440,7 +444,9 @@ export function resolveElementNudgeIntent(
   }) as { kind: "translate"; dx: number; dy: number };
 
   if (!args.content) return translate;
-  const projection = buildCodeLayerProjection(args.content);
+  const projection = buildCodeLayerProjection(args.content, {
+    ...(args.source ? { source: args.source } : {}),
+  });
   const node = resolveCodeLayerNodeFromElementInfo(
     projection,
     args.selectedElement,

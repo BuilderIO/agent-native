@@ -2,6 +2,7 @@ import {
   agentNativePath,
   appApiPath,
 } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconExternalLink,
@@ -355,8 +356,15 @@ export function NotionButton() {
                           <button
                             className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent"
                             onClick={() => {
-                              void navigator.clipboard.writeText(redirectUri);
-                              toast.success(t("sidebar.copied"));
+                              void writeClipboardText(redirectUri).then(
+                                (copied) => {
+                                  if (copied) {
+                                    toast.success(t("sidebar.copied"));
+                                    return;
+                                  }
+                                  toast.error(t("empty.genericError"));
+                                },
+                              );
                             }}
                           >
                             {t("sidebar.copy")}

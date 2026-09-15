@@ -133,15 +133,17 @@ async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
-for (const { theme, canvasHex, boardTextColor } of [
+for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
   {
     theme: "dark",
     canvasHex: "1A1A1A",
+    expectedCanvasRgb: "26,26,26",
     boardTextColor: "rgb(255, 255, 255)",
   },
   {
     theme: "light",
     canvasHex: "EBEBEB",
+    expectedCanvasRgb: "235,235,235",
     boardTextColor: "currentcolor",
   },
 ] as const) {
@@ -179,7 +181,8 @@ for (const { theme, canvasHex, boardTextColor } of [
       // Read the actual rendered canvas colour before any edit, rather than
       // hardcoding a palette literal — a rendered-vs-token mismatch is a
       // separate bug from the flash this test exists to catch.
-      const canvasRgb = await pixelAt(page, sampleX, sampleY);
+      const initialCanvasRgb = await pixelAt(page, sampleX, sampleY);
+      expect(initialCanvasRgb).toBe(expectedCanvasRgb);
 
       const canvasSection = page
         .locator("section.design-sidebar-section")
@@ -209,7 +212,9 @@ for (const { theme, canvasHex, boardTextColor } of [
         "Rectangle",
       );
 
-      await expect.poll(() => pixelAt(page, sampleX, sampleY)).toBe(canvasRgb);
+      await expect
+        .poll(() => pixelAt(page, sampleX, sampleY))
+        .toBe(initialCanvasRgb);
 
       // Board text keys off the same canvas colour: white on a dark canvas,
       // inherited on a light one, where white would be unreadable.

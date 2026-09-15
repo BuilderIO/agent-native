@@ -299,6 +299,7 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleTouchCancel = useCallback(() => {
     resetSwipe();
+    didSwipeRef.current = false;
   }, [resetSwipe]);
 
   // Suppress click fired at the end of a swipe.
@@ -653,7 +654,9 @@ export const EmailListItem = memo(function EmailListItem({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {isUnread ? "Mark read" : "Mark unread"}
+                  {isUnread
+                    ? t("mail.actions.markRead")
+                    : t("mail.actions.markUnread")}
                 </TooltipContent>
               </Tooltip>
             )}

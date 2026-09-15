@@ -56,6 +56,35 @@ export function __resetDomainMatchCacheForTests(): void {
   noDomainMatchCache.clear();
 }
 
+/** Whether the email's verified domain is configured for automatic org join. */
+export async function hasAutoJoinDomainMatch(
+  rawEmail: string,
+): Promise<boolean> {
+  const email = rawEmail.trim().toLowerCase();
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain || isFreeEmailProvider(domain)) return false;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT 1 FROM organizations
+            WHERE LOWER(allowed_domain) = ?
+            LIMIT 1`,
+      args: [domain],
+    });
+    return rows.length > 0;
+  } catch (error) {
+    const candidate = error as { code?: unknown; message?: unknown };
+    if (
+      candidate.code === "42P01" ||
+      /no such table: ["'`]?organizations|relation ["'`]?organizations["'`]? does not exist/i.test(
+        String(candidate.message ?? error),
+      )
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export interface AutoJoinDomainOptions {
   /**
    * The signup hook should not clobber an org selected by an invite flow, but
