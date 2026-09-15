@@ -1,0 +1,209 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { resolveConnectorSecret } from "../connectors/credentials.js";
+import {
+  addReaction,
+  authTest,
+  getChannelHistory,
+  hasReaction,
+  getTeamInfo,
+  getThread,
+  postThreadReply,
+} from "../connectors/slack.js";
+import { createSlackReader, isAgentNativeSlackUserName } from "./slack-client";
+
+vi.mock("../connectors/slack.js", () => ({
+  addReaction: vi.fn(),
+  authTest: vi.fn(),
+  getChannelHistory: vi.fn(),
+  hasReaction: vi.fn(),
+  getTeamInfo: vi.fn(),
+  getThread: vi.fn(),
+  postThreadReply: vi.fn(),
+}));
+
+vi.mock("../connectors/credentials.js", () => ({
+  resolveConnectorSecret: vi.fn(),
+}));
+
+const mockedGetChannelHistory = vi.mocked(getChannelHistory);
+const mockedAuthTest = vi.mocked(authTest);
+const mockedHasReaction = vi.mocked(hasReaction);
+const mockedGetTeamInfo = vi.mocked(getTeamInfo);
+const mockedGetThread = vi.mocked(getThread);
+const mockedAddReaction = vi.mocked(addReaction);
+const mockedPostThreadReply = vi.mocked(postThreadReply);
+const mockedResolveConnectorSecret = vi.mocked(resolveConnectorSecret);
+
+beforeEach(() => {
+  mockedAuthTest.mockReset().mockResolvedValue({
+    userId: "U-agent-native",
+    userName: "agent-native",
+    teamId: "T1",
+    teamName: "Builder",
+  });
+  mockedGetChannelHistory.mockReset().mockResolvedValue({
+    messages: [],
+    has_more: false,
+  });
+  mockedGetTeamInfo.mockReset().mockResolvedValue({
+    id: "T1",
+    name: "Builder",
+    domain: "builder",
+  });
+  mockedGetThread.mockReset().mockResolvedValue({
+    messages: [],
+    has_more: false,
+  });
+  mockedAddReaction.mockReset().mockResolvedValue({
+    added: true,
+    already_present: false,
+  });
+  mockedHasReaction.mockReset().mockResolvedValue({ present: false });
+  mockedPostThreadReply.mockReset().mockResolvedValue({
+    channel: "C123",
+    ts: "1.2",
+  });
+  mockedResolveConnectorSecret.mockReset().mockResolvedValue("xoxb-test");
+});
+
+describe("createSlackReader", () => {
+  it("injects the workspace resolver with the explicit job identity", async () => {
+    const reader = createSlackReader({
+      ownerEmail: "Owner@Example.com",
+      orgId: "org-1",
+    });
+
+    await reader.getChannelHistory("primary", "C123", 100);
+    const tokenResolver = mockedGetChannelHistory.mock.calls[0]?.[4];
+
+    expect(tokenResolver).toEqual(expect.any(Function));
+    await tokenResolver?.("primary");
+    expect(mockedResolveConnectorSecret).toHaveBeenCalledWith(
+      "SLACK_BOT_TOKEN",
+      "Owner@Example.com",
+      { orgId: "org-1" },
+    );
+
+    await reader.getTeamInfo("secondary");
+    const secondaryResolver = mockedGetTeamInfo.mock.calls[0]?.[1];
+    await secondaryResolver?.("secondary");
+    expect(mockedResolveConnectorSecret).toHaveBeenLastCalledWith(
+      "SLACK_BOT_TOKEN_2",
+      "Owner@Example.com",
+      { orgId: "org-1" },
+    );
+  });
+
+  it("reports a missing workspace credential with setup guidance", async () => {
+    mockedResolveConnectorSecret.mockResolvedValue(undefined);
+    const reader = createSlackReader({ ownerEmail: "owner@example.com" });
+
+    await reader.getChannelHistory("primary", "C123");
+    const tokenResolver = mockedGetChannelHistory.mock.calls[0]?.[4];
+
+    await expect(tokenResolver?.("primary")).rejects.toThrow(
+      "Connect Slack in Settings → Messaging",
+    );
+  });
+
+  it("rejects a Slack credential that is not the Agent-Native bot", async () => {
+    mockedAuthTest.mockResolvedValue({
+      userId: "U-other",
+      userName: "other-bot",
+      teamId: "T1",
+      teamName: "Builder",
+    });
+    const reader = createSlackReader({ ownerEmail: "owner@example.com" });
+
+    await expect(reader.getChannelHistory("primary", "C123")).rejects.toThrow(
+      "not @agent-native",
+    );
+    expect(mockedGetChannelHistory).not.toHaveBeenCalled();
+  });
+
+  it("accepts the Slack bot username without the hyphen Slack drops", async () => {
+    mockedAuthTest.mockResolvedValue({
+      userId: "U-agent-native",
+      userName: "agentnative",
+      teamId: "T1",
+      teamName: "Builder",
+    });
+    const reader = createSlackReader({ ownerEmail: "owner@example.com" });
+
+    await expect(
+      reader.getChannelHistory("primary", "C123"),
+    ).resolves.toBeDefined();
+    expect(mockedGetChannelHistory).toHaveBeenCalled();
+  });
+
+  it("rejects hyphen-padded lookalikes of the Agent-Native bot handle", async () => {
+    mockedAuthTest.mockResolvedValue({
+      userId: "U-agent-native",
+      userName: "agent--native",
+      teamId: "T1",
+      teamName: "Builder",
+    });
+    const reader = createSlackReader({ ownerEmail: "owner@example.com" });
+
+    await expect(reader.getChannelHistory("primary", "C123")).rejects.toThrow(
+      "not @agent-native",
+    );
+    expect(mockedGetChannelHistory).not.toHaveBeenCalled();
+  });
+
+  it("treats only the two supported Slack bot handles as Agent-Native", () => {
+    expect(isAgentNativeSlackUserName("@agent-native")).toBe(true);
+    expect(isAgentNativeSlackUserName("agentnative")).toBe(true);
+    expect(isAgentNativeSlackUserName("agent--native")).toBe(false);
+    expect(isAgentNativeSlackUserName("agent-native-")).toBe(false);
+    expect(isAgentNativeSlackUserName("other-bot")).toBe(false);
+  });
+
+  it("exposes bounded thread reads and the two typed write methods", async () => {
+    const reader = createSlackReader({ ownerEmail: "owner@example.com" });
+
+    await reader.getThread("primary", "C123", "10.1", 50, "cursor-1");
+    await reader.addReaction("primary", "C123", "10.1", "robot_face");
+    await reader.postThreadReply("primary", "C123", "10.1", "Acknowledged");
+    await reader.hasReaction("primary", "C123", "10.1", "robot_face");
+
+    const threadResolver = mockedGetThread.mock.calls[0]?.[5];
+    const reactionResolver = mockedAddReaction.mock.calls[0]?.[4];
+    const replyResolver = mockedPostThreadReply.mock.calls[0]?.[4];
+    expect(threadResolver).toEqual(expect.any(Function));
+    expect(reactionResolver).toEqual(expect.any(Function));
+    expect(replyResolver).toEqual(expect.any(Function));
+    expect(mockedGetThread).toHaveBeenCalledWith(
+      "primary",
+      "C123",
+      "10.1",
+      50,
+      "cursor-1",
+      threadResolver,
+    );
+    expect(mockedAddReaction).toHaveBeenCalledWith(
+      "primary",
+      "C123",
+      "10.1",
+      "robot_face",
+      reactionResolver,
+    );
+    expect(mockedPostThreadReply).toHaveBeenCalledWith(
+      "primary",
+      "C123",
+      "10.1",
+      "Acknowledged",
+      replyResolver,
+    );
+    const hasResolver = mockedHasReaction.mock.calls[0]?.[4];
+    expect(hasResolver).toEqual(expect.any(Function));
+    expect(mockedHasReaction).toHaveBeenCalledWith(
+      "primary",
+      "C123",
+      "10.1",
+      "robot_face",
+      hasResolver,
+    );
+  });
+});

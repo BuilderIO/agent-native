@@ -1,0 +1,402 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { isConditionalFieldVisible } from "@shared/conditional";
+import {
+  getFormCompletionMode,
+  getFormCompletionRefreshSeconds,
+  type FormField,
+  type FormSettings,
+} from "@shared/types";
+import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
+import { useState, useMemo, useEffect } from "react";
+import { useParams } from "react-router";
+import { toast } from "sonner";
+
+import { FieldRenderer } from "@/components/builder/FieldRenderer";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { usePublicForm, useSubmitForm } from "@/hooks/use-forms";
+import { normalizeFields } from "@/lib/normalize-fields";
+import { cn } from "@/lib/utils";
+
+function safeRedirectUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+
+  try {
+    const url = new URL(trimmed, window.location.origin);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.href;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+export function FormFillPage() {
+  const t = useT();
+  const params = useParams();
+  const slug = params["*"] || "";
+  const { data: form, isLoading, error } = usePublicForm(slug);
+  const submitForm = useSubmitForm();
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(form?.title, "Form")} — Forms`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [form?.title]);
+
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [captchaToken, setCaptchaToken] = useState<string | undefined>();
+  const [submitted, setSubmitted] = useState(false);
+  const [embedded, setEmbedded] = useState(false);
+  const [honeypot, setHoneypot] = useState("");
+  const pageLoadTime = useState(() => Date.now())[0];
+
+  useEffect(() => {
+    try {
+      const inIframe = window.self !== window.top;
+      const forced = new URLSearchParams(window.location.search).has("embed");
+      setEmbedded(inIframe || forced);
+    } catch {
+      setEmbedded(true);
+    }
+  }, []);
+
+  const fields: FormField[] = useMemo(
+    () => normalizeFields(form?.fields),
+    [form?.fields],
+  );
+  const settings: FormSettings = form?.settings || {};
+  const completionMode = getFormCompletionMode(settings);
+  const completionRefreshSeconds = getFormCompletionRefreshSeconds(
+    settings.completionRefreshSeconds,
+  );
+
+  useEffect(() => {
+    if (!submitted || completionMode !== "message_then_refresh") return;
+    const timeout = window.setTimeout(
+      () => window.location.reload(),
+      completionRefreshSeconds * 1000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [submitted, completionMode, completionRefreshSeconds]);
+
+  // Scale fields render the slider at their minimum even before the user
+  // interacts, so seed that displayed default into form state. Otherwise a
+  // required scale field left untouched fails validation despite looking set.
+  useEffect(() => {
+    const scaleDefaults: Record<string, number> = {};
+    for (const field of fields) {
+      if (field.type === "scale") {
+        scaleDefaults[field.id] = field.validation?.min ?? 1;
+      }
+    }
+    if (Object.keys(scaleDefaults).length === 0) return;
+    setValues((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [id, def] of Object.entries(scaleDefaults)) {
+        if (next[id] === undefined) {
+          next[id] = def;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [fields]);
+
+  // Evaluate conditional visibility
+  const visibleFields = useMemo(() => {
+    return fields.filter((field) => isConditionalFieldVisible(field, values));
+  }, [fields, values]);
+
+  function handleChange(fieldId: string, value: unknown) {
+    setValues((prev) => ({ ...prev, [fieldId]: value }));
+  }
+
+  function validate(): string | null {
+    for (const field of visibleFields) {
+      if (field.required) {
+        const val = values[field.id];
+        if (
+          val === undefined ||
+          val === null ||
+          val === "" ||
+          (Array.isArray(val) && val.length === 0)
+        ) {
+          return `${field.label} is required`;
+        }
+      }
+      if (field.validation) {
+        const val = values[field.id];
+        const hasNumericValue =
+          val !== undefined &&
+          val !== null &&
+          val !== "" &&
+          !Number.isNaN(Number(val));
+        if (
+          hasNumericValue &&
+          field.validation.min !== undefined &&
+          Number(val) < field.validation.min
+        ) {
+          return (
+            field.validation.message ||
+            `${field.label} must be at least ${field.validation.min}`
+          );
+        }
+        if (
+          hasNumericValue &&
+          field.validation.max !== undefined &&
+          Number(val) > field.validation.max
+        ) {
+          return (
+            field.validation.message ||
+            `${field.label} must be at most ${field.validation.max}`
+          );
+        }
+        if (field.validation.pattern && typeof val === "string") {
+          const regex = new RegExp(field.validation.pattern);
+          if (!regex.test(val)) {
+            return field.validation.message || `${field.label} is invalid`;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const err = validate();
+    if (err) {
+      toast.error(err);
+      return;
+    }
+
+    submitForm.mutate(
+      {
+        formId: form.id,
+        data: Object.fromEntries(
+          visibleFields
+            .filter((field) => values[field.id] !== undefined)
+            .map((field) => [field.id, values[field.id]]),
+        ),
+        captchaToken,
+        _hp: honeypot,
+        _t: pageLoadTime,
+      },
+      {
+        onSuccess: () => {
+          if (completionMode === "redirect" && settings.redirectUrl) {
+            const redirectUrl = safeRedirectUrl(settings.redirectUrl);
+            if (redirectUrl) {
+              window.location.assign(redirectUrl);
+              return;
+            }
+          }
+          if (completionMode === "refresh") {
+            window.location.reload();
+            return;
+          }
+          setSubmitted(true);
+        },
+        onError: (err: any) => {
+          toast.error(err?.error || t("publicForm.failedSubmit"));
+        },
+      },
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-muted/30 px-4 py-10">
+        <div className="mx-auto max-w-xl space-y-6 rounded-2xl border border-border/80 bg-background p-5 shadow-sm sm:p-8">
+          <div className="space-y-3">
+            <Skeleton className="h-8 w-2/3" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+          <div className="space-y-5 pt-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-10 w-full rounded-md" />
+              </div>
+            ))}
+          </div>
+          <Skeleton className="h-10 w-32 rounded-md" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !form) {
+    return (
+      <div
+        className={cn(
+          "flex min-h-screen items-center justify-center p-4",
+          embedded ? "bg-background" : "bg-muted/30",
+        )}
+      >
+        <div
+          className={cn(
+            "text-center",
+            !embedded &&
+              "max-w-md rounded-2xl border border-border/80 bg-background p-8 shadow-sm sm:p-10",
+          )}
+        >
+          <h1 className="text-2xl font-semibold mb-2">
+            {t("publicForm.formNotFound")}
+          </h1>
+          <p className="text-muted-foreground mb-4">
+            {t("publicForm.removedOrClosed")}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.reload()}
+            className="min-h-10 gap-2 transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
+          >
+            <IconRefresh className="h-3.5 w-3.5" />
+            {t("publicForm.tryAgain")}
+          </Button>
+        </div>
+        {!embedded && <PoweredByBadge />}
+      </div>
+    );
+  }
+
+  if (submitted) {
+    return (
+      <div
+        className={cn(
+          "flex min-h-screen items-center justify-center p-4",
+          embedded ? "bg-background" : "bg-muted/30",
+        )}
+      >
+        <div
+          className={cn(
+            "max-w-md text-center",
+            !embedded &&
+              "rounded-2xl border border-border/80 bg-background p-8 shadow-sm sm:p-10",
+          )}
+        >
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600/10">
+            <IconCircleCheck className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <h1 className="text-2xl font-semibold mb-2">
+            {t("publicForm.responseSubmitted")}
+          </h1>
+          <p className="text-muted-foreground">
+            {settings.successMessage ||
+              "Thank you! Your response has been recorded."}
+          </p>
+        </div>
+        {!embedded && <PoweredByBadge />}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex min-h-screen items-center justify-center p-3 sm:p-4 py-8 sm:py-12",
+        embedded ? "bg-background" : "bg-muted/30",
+      )}
+    >
+      <div
+        className={cn(
+          "w-full max-w-2xl",
+          !embedded &&
+            "rounded-2xl border border-border/80 bg-background p-5 shadow-sm sm:p-8",
+        )}
+      >
+        {!embedded && (
+          <div className="mb-3 flex justify-end">
+            <ThemeToggle className="h-10 w-10 transition-[scale,background-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none" />
+          </div>
+        )}
+        {/* Form header */}
+        <div className={embedded ? "mb-5" : "mb-6 sm:mb-8"}>
+          <h1
+            className={
+              embedded
+                ? "text-lg font-semibold"
+                : "text-2xl sm:text-3xl font-semibold"
+            }
+          >
+            {form.title}
+          </h1>
+          {form.description && (
+            <p
+              className={cn(
+                "mt-2 text-muted-foreground",
+                embedded && "text-sm",
+              )}
+            >
+              {form.description}
+            </p>
+          )}
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit}>
+          {/* Honeypot: bots fill this, humans don't see it. */}
+          <input
+            type="text"
+            name="website"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+            tabIndex={-1}
+            aria-hidden="true"
+            className="absolute -left-[9999px] opacity-0 pointer-events-none"
+            autoComplete="off"
+          />
+          <div className="space-y-6">
+            {visibleFields.map((field) => (
+              <FieldRenderer
+                key={field.id}
+                field={field}
+                value={values[field.id]}
+                onChange={(v) => handleChange(field.id, v)}
+              />
+            ))}
+
+            {visibleFields.length === 0 && (
+              <p className="text-center text-muted-foreground py-8">
+                {t("publicForm.noFields")}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-6">
+            <Turnstile onVerify={setCaptchaToken} />
+          </div>
+
+          <Button
+            type="submit"
+            className="mt-4 min-h-11 w-full transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none sm:w-auto"
+            size="lg"
+            disabled={submitForm.isPending}
+          >
+            {submitForm.isPending
+              ? "Submitting..."
+              : settings.submitText || "Submit"}
+          </Button>
+        </form>
+      </div>
+
+      {!embedded && <PoweredByBadge />}
+    </div>
+  );
+}

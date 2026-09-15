@@ -1,0 +1,307 @@
+import type {
+  CodeLayerNode,
+  CodeLayerTreeNode,
+  MoveNodeEditIntent,
+} from "@shared/code-layer";
+import {
+  applyVisualEdit,
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "@shared/code-layer";
+import type { Dispatch, RefObject, SetStateAction } from "react";
+
+import type { ElementInfo } from "@/components/design/types";
+import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import {
+  elementInfoFromCodeLayerNode,
+  findCodeLayerSiblingOrder,
+  preferredCodeLayerSelector,
+} from "@/pages/design-editor/code-layer-state";
+import type { DesignFile } from "@/pages/design-editor/types";
+
+export interface ChangeSelectedZIndexArgs {
+  activeFile: DesignFile;
+  applyLocalContentUpdate: (
+    nextContent: string,
+    options?: {
+      refreshPreview?: boolean;
+      skipPreview?: boolean;
+      forcePreviewFullDocument?: boolean;
+      immediateSave?: boolean;
+      persist?: boolean;
+      recordHistory?: boolean;
+      historyBeforeContent?: string;
+      updatedAt?: string;
+      clipboardMutation?: ClipboardContentMutationPublication;
+    },
+  ) => void;
+  canEditDesign: boolean;
+  codeLayerOwnerByNodeIdRef: RefObject<
+    Map<
+      string,
+      {
+        fileId: string;
+        node: CodeLayerNode;
+        tree: CodeLayerTreeNode[];
+        runtimeOnly: boolean;
+      }
+    >
+  >;
+  commitVisualStyles: (
+    selector: string,
+    styles: Record<string, string>,
+    options?: {
+      runtimeApplied?: boolean;
+      elementInfo?: ElementInfo;
+      originalStyles?: Record<string, string>;
+    },
+  ) => void;
+  getFreshActiveContent: () => string;
+  selectedElement: ElementInfo | null;
+  selectedLayerIdsState: string[];
+  setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
+}
+
+interface InFlowZIndexContext {
+  /** Bounds a negative index so it cannot escape behind an ancestor. */
+  parentSelector?: string;
+  /** Lowest paint level among the siblings the layer must get behind. */
+  siblingFloor: number;
+  /** Positioning the target would re-resolve these children's left/top. */
+  hasPositionedDescendant: boolean;
+}
+
+function inFlowZIndexContext(
+  content: string,
+  targetId: string,
+): InFlowZIndexContext {
+  const projection = buildCodeLayerProjection(content);
+  const byId = new Map(projection.nodes.map((node) => [node.id, node]));
+  const siblingOrder = findCodeLayerSiblingOrder(
+    buildCodeLayerTree(projection),
+    targetId,
+  );
+
+  // An unpositioned sibling paints at the auto level, so 0 is the floor to beat
+  // even when no sibling declares a z-index.
+  let siblingFloor = 0;
+  for (const siblingId of siblingOrder?.siblingIds ?? []) {
+    if (siblingId === targetId) continue;
+    const declared = Number.parseInt(
+      byId.get(siblingId)?.style["z-index"] ?? "",
+      10,
+    );
+    if (Number.isFinite(declared)) {
+      siblingFloor = Math.min(siblingFloor, declared);
+    }
+  }
+
+  let hasPositionedDescendant = false;
+  const pending = [...(byId.get(targetId)?.children ?? [])];
+  while (pending.length > 0) {
+    const node = byId.get(pending.pop()!);
+    if (!node) continue;
+    const position = node.layout.position ?? node.style.position;
+    if (position === "absolute" || position === "fixed") {
+      hasPositionedDescendant = true;
+      break;
+    }
+    pending.push(...node.children);
+  }
+
+  const parent = siblingOrder?.parentId
+    ? byId.get(siblingOrder.parentId)
+    : undefined;
+  return {
+    parentSelector: parent ? preferredCodeLayerSelector(parent) : undefined,
+    siblingFloor,
+    hasPositionedDescendant,
+  };
+}
+
+export function runChangeSelectedZIndex(
+  {
+    activeFile,
+    applyLocalContentUpdate,
+    canEditDesign,
+    codeLayerOwnerByNodeIdRef,
+    commitVisualStyles,
+    getFreshActiveContent,
+    selectedElement,
+    selectedLayerIdsState,
+    setSelectedElement,
+  }: ChangeSelectedZIndexArgs,
+  mode: "forward" | "front" | "backward" | "back",
+) {
+  if (!canEditDesign) return;
+  const selector = selectedElement?.selector;
+  if (!selector) return;
+  const currentSelectedElement = selectedElement;
+
+  const zIndexFallback = (context?: InFlowZIndexContext) => {
+    const current = Number.parseInt(
+      currentSelectedElement.computedStyles.zIndex || "",
+      10,
+    );
+    const base = Number.isFinite(current) ? current : 0;
+    const floor = context?.siblingFloor ?? 0;
+    const next =
+      mode === "front"
+        ? 999
+        : mode === "back"
+          ? // Below every sibling, and never raising a layer already lower.
+            Math.min(base, floor - 1)
+          : mode === "forward"
+            ? base + 1
+            : base - 1;
+    // A negative index escapes to the nearest stacking-context ancestor and can
+    // land behind an opaque background, hiding the layer outright. Isolating
+    // the parent bounds it; with no parent, a weaker move is the safer one.
+    if (next < 0 && context?.parentSelector) {
+      commitVisualStyles(context.parentSelector, { isolation: "isolate" });
+    }
+    const safeNext = next < 0 && !context?.parentSelector ? 0 : next;
+    commitVisualStyles(selector, {
+      position:
+        currentSelectedElement.computedStyles.position === "static"
+          ? "relative"
+          : currentSelectedElement.computedStyles.position || "relative",
+      zIndex: String(safeNext),
+    });
+  };
+
+  // Reordering markup is a pure paint-order change only for an element that
+  // takes no space. An in-flow element moves on screen too — that is why a
+  // bare `Ctrl+[` displaced a rectangle 97px down the frame.
+  const position = (
+    currentSelectedElement.inlineStyles?.position ||
+    currentSelectedElement.computedStyles.position ||
+    ""
+  ).toLowerCase();
+  const outOfFlow = position === "absolute" || position === "fixed";
+
+  const targetId =
+    selectedLayerIdsState.length === 1 ? selectedLayerIdsState[0] : undefined;
+  if (!targetId || !activeFile) {
+    zIndexFallback();
+    return;
+  }
+  const baseContent = getFreshActiveContent();
+  if (!outOfFlow) {
+    const context = inFlowZIndexContext(baseContent, targetId);
+    // Positioning a static container hands it a containing block, so its
+    // absolutely positioned children re-resolve and jump — the very thing this
+    // path exists to avoid. A flex/grid item needs no positioning at all.
+    const isFlexOrGridItem =
+      currentSelectedElement.isFlexChild ||
+      /flex|grid/.test(currentSelectedElement.parentDisplay ?? "");
+    const wouldMoveChildren =
+      (!position || position === "static") &&
+      !isFlexOrGridItem &&
+      context.hasPositionedDescendant;
+    if (!wouldMoveChildren) {
+      zIndexFallback(context);
+      return;
+    }
+    // Otherwise fall through: shifting the layer beats relocating its children.
+  }
+  const owner = codeLayerOwnerByNodeIdRef.current.get(targetId);
+  if (!owner || owner.fileId !== activeFile.id) {
+    zIndexFallback();
+    return;
+  }
+  const tree = buildCodeLayerTree(buildCodeLayerProjection(baseContent));
+  const siblingOrder = findCodeLayerSiblingOrder(tree, targetId);
+  if (!siblingOrder || siblingOrder.siblingIds.length < 2) {
+    // Nothing to reorder against (only child, or unresolved) — z-index
+    // is the only lever left.
+    zIndexFallback();
+    return;
+  }
+  const { siblingIds, index, parentId } = siblingOrder;
+  const lastIndex = siblingIds.length - 1;
+
+  // Already at the requested end of the stack — no-op.
+  if (
+    (mode === "front" && index === lastIndex) ||
+    (mode === "back" && index === 0) ||
+    (mode === "forward" && index === lastIndex) ||
+    (mode === "backward" && index === 0)
+  ) {
+    return;
+  }
+
+  let editIntent: MoveNodeEditIntent | null = null;
+  if (mode === "forward") {
+    // Move DOM-after the next sibling (paints one step higher).
+    const nextSiblingId = siblingIds[index + 1];
+    if (nextSiblingId) {
+      editIntent = {
+        kind: "moveNode",
+        target: { nodeId: targetId },
+        anchor: { nodeId: nextSiblingId },
+        placement: "after",
+      };
+    }
+  } else if (mode === "backward") {
+    // Move DOM-before the previous sibling (paints one step lower).
+    const prevSiblingId = siblingIds[index - 1];
+    if (prevSiblingId) {
+      editIntent = {
+        kind: "moveNode",
+        target: { nodeId: targetId },
+        anchor: { nodeId: prevSiblingId },
+        placement: "before",
+      };
+    }
+  } else if (mode === "front") {
+    if (parentId) {
+      editIntent = {
+        kind: "moveNode",
+        target: { nodeId: targetId },
+        anchor: { nodeId: parentId },
+        placement: "inside",
+      };
+    } else {
+      const lastSiblingId = siblingIds[lastIndex];
+      if (lastSiblingId) {
+        editIntent = {
+          kind: "moveNode",
+          target: { nodeId: targetId },
+          anchor: { nodeId: lastSiblingId },
+          placement: "after",
+        };
+      }
+    }
+  } else {
+    const firstSiblingId = siblingIds[0];
+    if (firstSiblingId) {
+      editIntent = {
+        kind: "moveNode",
+        target: { nodeId: targetId },
+        anchor: { nodeId: firstSiblingId },
+        placement: "before",
+      };
+    }
+  }
+
+  if (!editIntent) {
+    zIndexFallback();
+    return;
+  }
+
+  const patch = applyVisualEdit(baseContent, editIntent);
+  if (patch.result.status !== "applied") {
+    zIndexFallback();
+    return;
+  }
+  applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
+  const movedNode = patch.projection.nodes.find(
+    (n) =>
+      n.dataAttributes["data-agent-native-node-id"] === targetId ||
+      n.id === targetId,
+  );
+  if (movedNode) {
+    setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
+  }
+}

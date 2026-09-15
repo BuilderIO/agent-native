@@ -1,0 +1,153 @@
+---
+title: "Dispatch"
+description: "Dispatch는 작업 공간 제어 플레인입니다: 중앙 받은 편지함, 앱 간 오케스트레이션, 비밀 금고, Slack/Telegram 통합, 예약된 작업."
+---
+
+# Dispatch
+
+Dispatch는 다중 앱 작업 공간을 조율된 상태로 유지하기 위해 다른 Agent-Native 앱과 함께 실행하는 앱입니다: 모든 채널을 위한 하나의 받은 편지함, 하나의 비밀 금고, 그리고 스스로 모든 일을 처리하려 하는 대신 각 요청을 알맞은 전문 앱으로 라우팅하는 하나의 에이전트. 이는 작업 공간을 운영하는 사람을 위한 것이지, 단일 독립형 앱을 만드는 사람을 위한 것이 아닙니다.
+
+<Callout tone="info">
+
+**참조:** Dispatch가 무엇을 하는지, 언제 필요한지에 대한 개념적 개요는 [Dispatch](/docs/dispatch)를 참조하세요. 이 페이지는 템플릿별 참조 문서입니다.
+
+</Callout>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65b2b76a0dec44dbbbaec738e5512228?alt=media&token=f5ad219e-c566-43b2-90ca-a51c72d9a607&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Dispatch 개요, 받은 편지함, 앱 런처를 둘러보는 짧은 화면 녹화입니다."
+  caption="Dispatch 간단히 둘러보기."
+  autoplay={true}
+  loop={true}
+/>
+
+여러 앱으로 구성된 [다중 앱 작업 공간](/docs/multi-app-workspace)을 운영하고 있다면, Dispatch가 그 접착제 역할을 합니다.
+
+## Dispatch 실전 활용 {#in-practice}
+
+### Slack의 질문이 분석 메모가 되기까지
+
+한 채널의 메시지가 완전히 다른 앱의 변경 사항으로 이어질 수 있습니다. 누구도 정보를 손으로 복사할 필요가 없습니다.
+
+<Sequence>
+
+### **#marketing** 채널에 핵심 고객 관련 업데이트가 올라옵니다
+
+### :blue: **Dispatch**가 메시지를 확인하고 분석 메모로 인식합니다
+
+### 해당 고객에 대한 메모가 **분석**에 추가됩니다
+
+</Sequence>
+
+### 월요일 보고서가 다른 앱에서 데이터를 가져옵니다
+
+예약된 작업은 다른 앱의 데이터를 별도로 복사해 둘 필요가 없습니다. 실행될 때마다 그냥 요청하면 됩니다.
+
+<Sequence>
+
+### 예약된 작업이 매주 월요일 오전 7시에 **깨어납니다**
+
+### :blue: **Dispatch**가 분석 에이전트에게 지난주 가입자 수를 요청합니다
+
+### 요약이 팀에게 **이메일로 발송**됩니다
+
+</Sequence>
+
+### 할인 거래가 다른 두 팀의 승인을 받습니다
+
+하나의 승인이 완료되기까지 여러 앱과 팀을 거칠 수 있습니다. Dispatch가 각 요청과 응답을 중계하므로, 누구도 진행을 위해 자신의 앱을 벗어날 필요가 없습니다.
+
+<Sequence>
+
+### **영업 담당자**가 CRM에서 할인 승인을 요청합니다
+
+### :blue: **Dispatch**가 재무팀 에이전트에게 정책 범위 내인지 확인합니다
+
+### **재무팀**이 자체 앱에서 이를 승인합니다
+
+### :blue: **Dispatch**가 법무팀 에이전트에게 계약 조건 확인을 요청합니다
+
+### **법무팀**이 조항 하나를 지적하며 수정을 요청합니다
+
+### :blue: **Dispatch**가 수정 사항을 영업 담당자에게 전달합니다
+
+</Sequence>
+
+## 대체하는 것 {#what-it-replaces}
+
+<Comparison>
+
+### 이전
+
+- Slack 봇, 이메일 받은 편지함, 지원용 이메일 별칭이 각각 수작업으로 서로 다른 앱에 연결되어 있음
+- `.env` 파일과 그 안의 모든 키 사본이 앱마다 중복됨
+- 반복되는 작업마다 앱별로 cron 작업이나 관리자 스크립트가 필요함
+- 무엇이 변경되었는지, 누가 승인했는지, 앱이 LLM 호출에 얼마를 쓰고 있는지 한눈에 볼 수 있는 곳이 없음
+
+### 이후
+
+- 받은 편지함 하나: Slack, Teams, Discord, Telegram, WhatsApp, 이메일이 모두 동일한 에이전트에 도달함
+- 금고 하나: 모든 자격 증명을 한 번만 저장하고, 필요한 앱에 부여하거나 동기화함
+- 예약된 작업, 꿈의 메모리 검토 루프, 관리자 승인을 위한 장소 하나
+- 모든 앱에 걸친 감사 내역, 사용량, 스레드 디버깅을 위한 운영자 콘솔 하나
+
+</Comparison>
+
+<Callout tone="success">
+
+**Dispatch가 다음 앱을 대신 만들어 줄 수 있습니다.** 채팅에서 필요한 것을 설명하세요. 예를 들어 "고객 온보딩을 추적하는 앱을 만들어 줘"라고 요청하면, Dispatch는 기존 앱에 화면을 더 붙이는 대신 `apps/` 아래에 완전히 새로운 형제 앱을 시작합니다. 로컬과 호스팅 배포 모두에서 실제로 어떻게 작동하는지는 [앱 생성 전달](/docs/template-dispatch-developers#app-creation)을 참조하세요.
+
+</Callout>
+
+## 무엇을 하는가 {#what-it-does}
+
+- **중앙 받은 편지함.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp, 이메일이 모두 한 곳으로 모입니다. Dispatch는 이를 분류하여 직접 처리하거나 위임합니다. [중앙 받은 편지함과 라우팅](/docs/template-dispatch-features#central-inbox-and-routing)을 참조하세요.
+- **제어 플레인 셸.** 채팅, 프로젝트, 실행, 작업 공간 앱, 에이전트, 자동화가 하나의 운영 셸 안에 있으며, 일회성 대시보드 대신 상태 중심의 목록과 드릴다운을 제공합니다.
+- **전문가가 아닌 오케스트레이터.** Dispatch는 이메일 앱이나 분석 앱이 되려고 하지 _않습니다_. 누군가 "지난주 가입자를 요약해 줘"라고 요청하면, Dispatch는 A2A를 통해 분석 에이전트를 호출하고 그 답변을 반환합니다.
+- **비밀 금고와 재사용 가능한 통합.** API 키, OAuth 토큰, 공급자 계정을 한 번만 저장하고 필요한 앱에 부여합니다. 요청/승인 흐름과 감사 추적이 함께 제공됩니다. [자격 증명과 통합](/docs/template-dispatch-features#credentials-and-integrations)을 참조하세요.
+- **작업 공간 리소스.** 전역 skills, 가드레일 지침, 사용자 지정 에이전트 프로필, 참조 리소스, HTTP MCP 서버를 Dispatch에서 한 번만 만들 수 있습니다. 모든 앱용 리소스는 복사 단계 없이 런타임에 모든 앱에 상속되며, 선택된 권한 부여는 앱별 예외를 처리합니다.
+- **예약된 작업과 꿈.** 앱 간 예약된 작업이 이곳에 있으며, 최근 실행을 검토해 메모리, skill, 지침 개선을 제안하는 검토 루프도 함께 제공됩니다. [자동화와 예약된 작업](/docs/template-dispatch-features#automations-and-scheduled-jobs)과 [꿈과 승인](/docs/template-dispatch-features#dreams-and-approvals)을 참조하세요.
+- **승인 흐름.** 저장된 전달 대상, 모든 앱용 작업 공간 리소스, 공유 또는 팀 전체 꿈 메모리 제안과 같이 지속적인 변경 사항은 적용되기 전에 다른 관리자의 승인이 필요할 수 있습니다.
+- **채팅으로 새 앱 만들기.** 필요한 내용을 평범한 문장으로 설명하면, Dispatch는 기존 앱에 화면 하나를 더 추가하는 대신 실제로 독립된 형제 앱을 스캐폴딩합니다.
+
+## 사용 시기 {#when-to-use}
+
+다음과 같은 경우 Dispatch를 사용하세요:
+
+- 작업 공간에 에이전트 기반 앱이 **두 개 이상** 있고, 이들을 조율할 하나의 장소를 원하는 경우.
+- 앱별 권한 부여와 감사 추적이 가능한 **중앙 집중식 비밀 관리**가 필요한 경우.
+- Slack, Teams, Discord, Telegram, WhatsApp, 이메일을 알맞은 도메인 에이전트로 라우팅하는 **메시징 허브**를 원하는 경우.
+- 여러 앱에서 데이터를 가져오는 **예약된 작업**을 원하는 경우.
+
+단일 앱 스캐폴드라면 건너뛰고, [채팅 템플릿](/docs/template-chat)이나 도메인 템플릿을 직접 사용하세요.
+
+라이브 데모: [dispatch.agent-native.com](https://dispatch.agent-native.com).
+
+## 일상적으로 하게 되는 일 {#what-youll-do}
+
+- **채널 연결하기.** Slack, Microsoft Teams, Discord, Telegram, WhatsApp, 이메일 등 연결 단계는 [채널 연결하기](/docs/template-dispatch-features#connecting-a-channel)를 참조하세요.
+- **비밀을 저장하고 공급자를 한 번만 연결하기.** 작업 공간의 다른 모든 앱은 자체 사본을 갖는 대신 금고나 공유 연결에서 가져다 씁니다. [자격 증명과 통합](/docs/template-dispatch-features#credentials-and-integrations)을 참조하세요.
+- **회사 컨텍스트를 전역으로 유지하기.** 페르소나, 포지셔닝, 회사 정보, 가드레일을 Dispatch 리소스에 한 번만 입력한 다음, 특정 앱이나 사용자에 대해 작업 공간 → 앱/조직 → 개인 순서로 적용되는 스택을 미리 볼 수 있습니다.
+- **예약된 작업 설정하기.** "매주 월요일 오전 7시에 분석 에이전트에게 지난주 가입자를 물어보고 요약을 이메일로 보내줘." [자동화와 예약된 작업](/docs/template-dispatch-features#automations-and-scheduled-jobs)을 참조하세요.
+- **꿈 제안 검토하기.** Dispatch의 메모리 검토 루프가 이전 실행을 살펴보고, 작업 공간이 기억하는 내용에 대해 근거를 갖춘 변경 사항을 제안합니다.
+- **지속적인 변경 사항 통제하기.** 저장된 대상, 모든 앱용 작업 공간 리소스, 공유 꿈 제안은 적용 전에 다른 관리자의 승인이 필요하도록 설정할 수 있습니다. [승인 흐름](/docs/template-dispatch-features#approval-flow)을 참조하세요.
+- **운영자 콘솔 확인하기.** 모니터링, 데이터베이스 관리, 스레드 디버깅, 감사 내역, 사용량 지표가 모두 한곳에 모여 있습니다. [운영자 콘솔 한눈에 보기](/docs/template-dispatch-features#operator-console-at-a-glance)를 참조하세요.
+- **채팅으로 새 앱 만들기.** 필요한 것을 요청하면 Dispatch가 기존 앱을 키우는 대신 새로운 형제 앱을 스캐폴딩합니다.
+
+## 시작하기 {#get-started}
+
+```bash
+npx @agent-native/core@latest create my-platform
+# Dispatch는 자동으로 포함됩니다. Dispatch만 사용하려면 Chat 선택을 해제하거나, 함께 생성할 도메인 앱을 선택하세요
+```
+
+Dispatch는 거의 항상 조율할 앱들과 함께 작업 공간에 스캐폴딩됩니다. 조율할 대상이 없는 제어 플레인은 그저 빈 받은 편지함일 뿐입니다. 의존성 설치, 개발 서버 실행, 첫 계정 생성 방법은 [시작하기](/docs/getting-started)를 참조하세요.
+
+## 다음 단계
+
+- [**기능**](/docs/template-dispatch-features) — 각 기능 영역과 영역별 설정 단계
+- [**에이전트와 대화하기**](/docs/template-dispatch-agent) — 작업별 프롬프트와 에이전트가 화면을 보는 방식
+- [**다중 앱 작업 공간에서의 Dispatch**](/docs/template-dispatch-integrations) — 다른 앱이 Dispatch에 연결되는 방식과 Dispatch가 이들을 검색하는 방식
+- [**Dispatch 개발자 가이드**](/docs/template-dispatch-developers) — 패키지/앱 분리 구조, 스캐폴딩, 커스터마이징 방법
+- [**Dispatch 액션 및 데이터 참조**](/docs/template-dispatch-reference) — 전체 액션 목록, 데이터베이스 스키마, 라우트 목록
+- [**다중 앱 작업 공간**](/docs/multi-app-workspace) — 여러 앱과 함께 Dispatch 실행하기

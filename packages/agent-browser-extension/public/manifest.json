@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "short_name": "__MSG_extensionShortName__",
+  "version": "0.1.0",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_title": "__MSG_actionTitle__"
+  },
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel.html"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "debugger",
+    "nativeMessaging",
+    "scripting",
+    "sidePanel",
+    "storage",
+    "tabs"
+  ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https: http://localhost:* http://127.0.0.1:*"
+  },
+  "externally_connectable": {
+    "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"]
+  }
+}

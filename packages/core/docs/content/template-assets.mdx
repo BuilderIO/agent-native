@@ -1,0 +1,141 @@
+---
+title: "Assets"
+description: "An agent-native digital asset manager and cross-agent generation service for brand-consistent media."
+---
+
+# Assets
+
+Assets is a workspace for creating and managing brand-consistent media, especially when image or video models have a clear advantage. It organizes uploads and generated results into libraries and folders, lets teams collect approved references for product shots, logos, social images, photorealistic scenes, and other media to use in a Design composition or elsewhere, then routes generation through the agent chat so every asset can be reviewed and refined.
+
+<WireframeBlock id="doc-block-assets1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Launch brand</h1><span class='wf-pill accent'>Blog heroes</span><span class='wf-pill'>Product shots</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Create brand media</strong><div class='wf-box'>Three homepage hero options using the approved logo and product references.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Web export</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Reference set</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo safe</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+When you open the app, the selected library, prompt, references, and generated candidates stay in one workspace. The agent can browse, search, generate, refine, and export every asset through the same actions the UI uses.
+
+<Diagram id="doc-block-assets2" title="Generate, review, reuse" summary={"References and prompts feed a generate-and-choose session; chosen assets land in a library and flow out to other apps via the picker or A2A."}>
+
+```html
+<div class="diagram-assets">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      References<br /><small class="diagram-muted"
+        >logos, product shots, style</small
+      >
+    </div>
+    <div class="diagram-node">
+      Prompt<br /><small class="diagram-muted">chat or Generate controls</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Generation session</span
+    ><small class="diagram-muted"
+      >image &amp; video candidates · audit log</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Library</span
+    ><small class="diagram-muted">chosen, brand-consistent assets</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Picker<br /><small class="diagram-muted">iframe / MCP App</small>
+    </div>
+    <div class="diagram-node">
+      A2A<br /><small class="diagram-muted">Slides · Design · Content</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-assets {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-assets .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-assets .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-assets .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Assets vs Design
+
+Use **Design** for most visual work. Start there for landing pages, ads, diagrams, and other compositions when you need HTML/CSS, precise layout, editable structure, or design-tool import/export.
+
+Use **Assets** when image or video models are better suited to the job and the result can be used as media rather than edited piece by piece. This includes photorealistic or pixel-based imagery, product shots, social images, and video. Hand-drawn or Excalidraw-style diagrams can be an exception when you want the generated image as-is.
+
+The intended workflow is to start in Design and let the Design agent delegate supporting image generation to Assets when a PNG or other media asset is the right fit. Use the result in the Design composition or in another app.
+
+## When to pick it
+
+- **Your team needs reusable visual direction**, not one-off generic media prompts — collect approved logos, product shots, and style examples so generations stay on brand.
+- **You want generated media reviewed and refined**, with a full audit log of prompts, models, references, and lineage for every run.
+- **Other apps need an asset picker or generator** — Slides, Design, Content, a blog editor, or a site builder can embed the picker or call Assets over A2A.
+- **You want brand media available from your coding agent** — Codex, Claude Code, Claude, or ChatGPT can generate and pick assets without leaving the chat.
+
+## What you can do with it
+
+- **Create asset libraries.** Group reference images, videos, canonical logos, style notes, palettes, folders, and generated output by brand, campaign, product, or category.
+- **Generate, refine, and review through chat or a library** — candidates, feedback, designer handoff, and the admin audit log all live in [Generating, refining, and reviewing assets](/docs/template-assets-generation).
+- **Build a preset once and let everyone else run it** — a locked prompt template, model, aspect ratio, reference board, and logo policy, so a marketer just pastes a brief and tags the preset. See [Presets: design once, run everywhere](/docs/template-assets-presets).
+- **Use Assets from another app or agent** — embed the picker, call Assets over A2A or MCP, reuse governed Creative Context, or install the Assets skill in a coding agent. See [Using Assets from other apps and agents](/docs/template-assets-integrations).
+- **Create your own app from the template and extend it** — the SQL schema, access control, and extension points live in [Assets — architecture and data model](/docs/template-assets-developers).
+
+## Getting started
+
+Live demo: [assets.agent-native.com](https://assets.agent-native.com).
+
+1. **Create a library.** Add the brand, campaign, product, or content stream you
+   want to manage.
+2. **Upload references.** Add approved logos, product shots, style examples, or
+   existing videos so the agent has concrete material to work from.
+3. **Generate a media asset from chat or a library.** Ask for a product shot,
+   social image, photorealistic scene, image-based diagram, or video variant.
+   For a landing page, ad, or other editable composition, start in Design and
+   use Assets for supporting media. Assets stores the prompt, references,
+   model, status, and lineage for review.
+4. **Use the asset elsewhere.** Copy the export, embed the picker in another
+   app, or let another agent call Assets over A2A.
+
+To run your own copy: `npx @agent-native/core@latest create my-assets --standalone --template assets`. See [Getting started](/docs/getting-started) for the rest of the local setup.
+
+## Useful prompts
+
+- "Generate three blog hero options using the Acme product references."
+- "Create a square social image in the launch-campaign style."
+- "Find all approved assets for the onboarding redesign."
+- "Turn this uploaded diagram into a cleaner product explainer image."
+- "Create a video storyboard and save the best frame set to this library."
+
+## What's next
+
+- [**Presets: design once, run everywhere**](/docs/template-assets-presets) — the designer/marketer contract behind repeatable output
+- [**Generating, refining, and reviewing assets**](/docs/template-assets-generation) — candidates, feedback, designer handoff, and the audit log
+- [**Using Assets from other apps and agents**](/docs/template-assets-integrations) — the embedded picker, A2A, Creative Context, and coding-agent install
+- [**Assets — architecture and data model**](/docs/template-assets-developers) — the SQL schema, access control, and action reference
+- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model
+- [**A2A Protocol**](/docs/a2a-protocol) — how other apps call Assets
+- [**Sharing & Privacy**](/docs/sharing) — library-level access control
