@@ -140,10 +140,22 @@ describe("framework SCIM identity bridge", () => {
       { ...state, active: false, sources: [] },
       { database },
     );
-    expect(rows.orgMember).toHaveLength(0);
-    expect(rows.orgScimMembership).toHaveLength(0);
+    expect(rows.orgMember).toHaveLength(1);
+    expect(rows.orgMember[0].federationRemovalPendingAt).toEqual(
+      expect.any(Number),
+    );
+    expect(rows.orgScimMembership).toHaveLength(1);
     expect(rows.appMemberRole).toHaveLength(0);
+    expect(rows.agentAuditLog).toHaveLength(1);
+    expect(rows.agentAuditLog[0]).toMatchObject({
+      action: "org.member.scim-removal-pending",
+      status: "pending",
+      orgId: "org-1",
+    });
     expect(rows.user).toHaveLength(1);
+
+    await identity.reconcileUser!(state, { database });
+    expect(rows.orgMember[0].federationRemovalPendingAt).toBeNull();
   });
 
   it("does not remove a manually-owned membership on deactivation", async () => {

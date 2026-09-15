@@ -28,11 +28,8 @@ async function requireConnectAppsFlag(request: Request): Promise<void> {
     throw new Response(null, { status: 404 });
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  await requireConnectAppsFlag(request);
-  return null;
-}
-
+// Keep the feature gate client-only. Server loaders are part of the public,
+// shared SSR shell and must not branch on session cookies.
 export async function clientLoader({ request }: LoaderFunctionArgs) {
   await requireConnectAppsFlag(request);
   return null;

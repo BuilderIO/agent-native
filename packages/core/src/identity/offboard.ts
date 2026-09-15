@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { ensureAuditTables } from "../audit/store.js";
 import type { DbExec } from "../db/client.js";
-import { IDENTITY_REKEY_COLUMNS, type IdentityColumn } from "./rekey.js";
+import {
+  assertIdentityColumnRows,
+  IDENTITY_REKEY_COLUMNS,
+  type IdentityColumn,
+} from "./rekey.js";
 
 export type OffboardMemberOptions = {
   transferTo: string;
@@ -55,6 +59,25 @@ export async function offboardMember(
           : "Transfer target does not exist",
       );
 
+    // Validate the complete identity surface before any destructive query.
+    // Reusing the rekey guard keeps offboarding from silently skipping a new
+    // identity-bearing column and leaving a partial transfer behind.
+    const schema = await tx.execute({
+      sql: `SELECT table_name, column_name FROM information_schema.columns
+            WHERE table_schema = 'public'
+            ORDER BY table_name, column_name`,
+    });
+    assertIdentityColumnRows(schema.rows as Array<Record<string, unknown>>);
+    const tableColumns = new Map<string, Set<string>>();
+    for (const row of schema.rows) {
+      const table = String(row.table_name ?? "");
+      const column = String(row.column_name ?? "");
+      if (!table || !column) continue;
+      const columns = tableColumns.get(table) ?? new Set<string>();
+      columns.add(column);
+      tableColumns.set(table, columns);
+    }
+
     // Grants are revocations, not ownership that should follow the successor.
     // They must be removed before the owner_email transfer below; otherwise a
     // grant owned by the departing member but created by somebody else would
@@ -67,24 +90,9 @@ export async function offboardMember(
       args: orgId ? [oldEmail, oldEmail, orgId] : [oldEmail, oldEmail],
     });
 
-    const schema = await tx.execute({
-      sql: `SELECT table_name, column_name FROM information_schema.columns
-            WHERE table_schema = 'public'
-            ORDER BY table_name, column_name`,
-    });
-    const tableColumns = new Map<string, Set<string>>();
-    for (const row of schema.rows) {
-      const table = String(row.table_name ?? "");
-      const column = String(row.column_name ?? "");
-      if (!table || !column) continue;
-      const columns = tableColumns.get(table) ?? new Set<string>();
-      columns.add(column);
-      tableColumns.set(table, columns);
-    }
-
-    // The registry is shared with identity rekey so new owner columns cannot
-    // silently bypass offboarding. The information_schema sweep retains the
-    // extension escape hatch used by rekey for app-owned owner_email tables.
+    // The registry is shared with identity rekey. The information_schema
+    // sweep retains the extension escape hatch used by rekey for app-owned
+    // owner_email tables.
     const ownerEntries = new Map<string, IdentityColumn>();
     for (const entry of IDENTITY_REKEY_COLUMNS) {
       if (entry.column === "owner_email") ownerEntries.set(entry.table, entry);

@@ -125,6 +125,10 @@ screens vary. Follow the current provider documentation for the exact field
 names and validate the round trip before requiring SSO or assigning the full
 directory.
 
+SCIM deactivation marks a provisioned membership as pending and removes its
+app roles immediately. An administrator must choose a successor to complete
+ownership transfer; completion writes the immutable audit event.
+
 ## Isolation and deployment choice
 
 Organization data is isolated through request-scoped access helpers such as

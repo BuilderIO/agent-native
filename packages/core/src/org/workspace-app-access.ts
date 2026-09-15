@@ -67,16 +67,40 @@ function workspaceAppsActionUrl(base: string): URL | null {
   }
 }
 
-function workspaceAppsFromResponse(value: unknown): Array<{ id?: unknown }> {
-  if (Array.isArray(value)) return value as Array<{ id?: unknown }>;
+function workspaceAppsFromResponse(
+  value: unknown,
+): Array<{ id?: unknown; orgEnabled?: unknown; org_enabled?: unknown }> {
+  if (Array.isArray(value)) {
+    return value as Array<{
+      id?: unknown;
+      orgEnabled?: unknown;
+      org_enabled?: unknown;
+    }>;
+  }
   if (
     value &&
     typeof value === "object" &&
     Array.isArray((value as { apps?: unknown }).apps)
   ) {
-    return (value as { apps: Array<{ id?: unknown }> }).apps;
+    return (
+      value as {
+        apps: Array<{
+          id?: unknown;
+          orgEnabled?: unknown;
+          org_enabled?: unknown;
+        }>;
+      }
+    ).apps;
   }
   return [];
+}
+
+function workspaceAppIsDisabled(app: {
+  orgEnabled?: unknown;
+  org_enabled?: unknown;
+}): boolean {
+  const value = app.orgEnabled ?? app.org_enabled;
+  return value === false || value === 0 || value === "false" || value === "0";
 }
 
 /**
@@ -144,7 +168,8 @@ async function hostedWorkspaceAppAccess(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await response.json().catch(() => null),
     );
-    if (apps.some((app) => app.id === appId)) return true;
+    const matchingApp = apps.find((app) => app.id === appId);
+    if (matchingApp) return !workspaceAppIsDisabled(matchingApp);
 
     const claimUrl = new URL(url);
     claimUrl.pathname = claimUrl.pathname.replace(
@@ -183,7 +208,8 @@ async function hostedWorkspaceAppAccess(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await refreshedResponse.json().catch(() => null),
     );
-    return refreshedApps.some((app) => app.id === appId);
+    const refreshedApp = refreshedApps.find((app) => app.id === appId);
+    return refreshedApp ? !workspaceAppIsDisabled(refreshedApp) : false;
   } catch (error) {
     console.error("[workspace-app-access] registry access check failed", error);
     return false;
@@ -425,9 +451,9 @@ export async function isWorkspaceAppAccessAllowed(
     const canClaimCallerOrg =
       !resourceOrgId && !ownerEmail && app.visibility === "org" && !!orgId;
 
+    if (sameOrg && !orgEnabled) return false;
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
     if ((!sameOrg && !canClaimCallerOrg) || !orgId) return false;
-    if (sameOrg && !orgEnabled) return false;
 
     const member = await loadWorkspaceOrgMember(db, orgId, email);
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {

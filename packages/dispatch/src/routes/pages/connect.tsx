@@ -37,6 +37,11 @@ function MarketplaceAppRow({ app }: { app: MarketplaceApp }) {
         <div className="truncate text-xs text-muted-foreground">
           {app.description}
         </div>
+        {canConnect ? (
+          <div className="text-xs text-muted-foreground">
+            {t("dispatch.pages.connectAppGrant")}
+          </div>
+        ) : null}
       </div>
       {canConnect ? (
         <Button size="sm" variant="outline" asChild>

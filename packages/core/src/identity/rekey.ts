@@ -188,18 +188,9 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
 const IDENTITY_COLUMN_PATTERN =
   /^(?:email|[a-z0-9]+_email|[a-z0-9_]*scope_id|updated_by|invited_by|created_by|owner|principal_id|session_id|user_id)$/i;
 
-async function assertIdentityColumnsRegistered(
-  db: IdentityRekeyDb,
-): Promise<void> {
-  const rows = await db.unsafe(
-    `SELECT table_name, column_name FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND (column_name = 'email' OR column_name LIKE '%\\_email' ESCAPE '\\'
-            OR column_name = 'scope_id'
-            OR column_name LIKE '%\\_scope\\_id' ESCAPE '\\'
-            OR column_name IN ('updated_by', 'invited_by', 'created_by', 'owner', 'principal_id', 'session_id', 'user_id'))
-     ORDER BY table_name, column_name`,
-  );
+export function assertIdentityColumnRows(
+  rows: readonly Record<string, unknown>[],
+): void {
   const registered = new Set(
     IDENTITY_REKEY_COLUMNS.map(({ table, column }) => `${table}.${column}`),
   );
@@ -216,6 +207,21 @@ async function assertIdentityColumnsRegistered(
       `${key} looks identity-bearing but is not registered for rekey; refusing to run an incomplete identity migration.`,
     );
   }
+}
+
+export async function assertIdentityColumnsRegistered(
+  db: IdentityRekeyDb,
+): Promise<void> {
+  const rows = await db.unsafe(
+    `SELECT table_name, column_name FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND (column_name = 'email' OR column_name LIKE '%\\_email' ESCAPE '\\'
+            OR column_name = 'scope_id'
+            OR column_name LIKE '%\\_scope\\_id' ESCAPE '\\'
+            OR column_name IN ('updated_by', 'invited_by', 'created_by', 'owner', 'principal_id', 'session_id', 'user_id'))
+     ORDER BY table_name, column_name`,
+  );
+  assertIdentityColumnRows(rows);
 }
 
 const quote = (value: string) => {

@@ -173,6 +173,30 @@ describe("offboardMember", () => {
     ).toEqual({ owner_email: "old@example.test" });
   }, 30_000);
 
+  it("refuses an unregistered identity column before changing the roster", async () => {
+    pglite = await createTestPglite();
+    await pglite.exec(`
+      CREATE TABLE org_members (
+        id TEXT PRIMARY KEY, org_id TEXT, email TEXT,
+        federation_removal_pending_at BIGINT
+      );
+      CREATE TABLE future_members (id TEXT PRIMARY KEY, created_by TEXT);
+      INSERT INTO org_members VALUES
+        ('member-1', 'org-1', 'old@example.test', NULL),
+        ('member-2', 'org-1', 'new@example.test', NULL);
+    `);
+
+    await expect(
+      offboardMember(dbExec(pglite), "old@example.test", {
+        transferTo: "new@example.test",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow("future_members.created_by looks identity-bearing");
+    expect(
+      await pglite.prepare("SELECT email FROM org_members ORDER BY id").all(),
+    ).toEqual([{ email: "old@example.test" }, { email: "new@example.test" }]);
+  }, 30_000);
+
   it("uses the shared identity registry for account-wide cleanup", async () => {
     pglite = await createTestPglite();
     await pglite.exec(`
