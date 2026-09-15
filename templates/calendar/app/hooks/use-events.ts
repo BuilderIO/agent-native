@@ -15,6 +15,7 @@ import { nanoid } from "nanoid";
 import { useMemo } from "react";
 
 import type { CalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
+import { isEventVisibleForDeclinedPreference } from "@/lib/calendar-view-preferences";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import {
   isSharedCalendarDemo,
@@ -623,6 +624,21 @@ export function findEventByCurrentOrReplacedId(
   selectedEvent: CalendarEvent,
 ): CalendarEvent | undefined {
   return findCalendarEventForSelection(events, selectedEvent);
+}
+
+export function findVisibleSelectedEvent(
+  events: CalendarEvent[],
+  selectedEvent: CalendarEvent,
+  showDeclinedEvents: boolean,
+): CalendarEvent | undefined {
+  const currentEvent =
+    findEventByCurrentOrReplacedId(events, selectedEvent) ?? selectedEvent;
+  return isEventVisibleForDeclinedPreference(
+    currentEvent.responseStatus,
+    showDeclinedEvents,
+  )
+    ? currentEvent
+    : undefined;
 }
 
 export function useDeleteEvent() {
