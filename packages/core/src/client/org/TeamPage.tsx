@@ -76,6 +76,7 @@ import {
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
+import { canInviteOrgMembers } from "../../org/permissions.js";
 import type { DomainMatchOrg, OrgRole } from "../../org/types.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
@@ -1109,9 +1110,7 @@ export function MembersTableCard({
     () => new Set(),
   );
   const [bulkActionKey, setBulkActionKey] = useState(0);
-  const canInvite =
-    emailConfigured !== false &&
-    (currentUserRole === "owner" || currentUserRole === "admin");
+  const canInvite = canInviteOrgMembers(currentUserRole, emailConfigured);
   const updateGroupMembers = useActionMutation(
     "bulk-update-workspace-user-groups",
   );

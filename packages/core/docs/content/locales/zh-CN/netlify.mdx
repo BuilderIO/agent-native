@@ -28,6 +28,8 @@ NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
+首次生产部署前，请在 Netlify 站点环境变量中设置 `DATABASE_URL` 和稳定的 `BETTER_AUTH_SECRET`。不要依赖本地开发使用的 PGlite 数据库；`DATABASE_URL` 必须指向部署函数可以访问的持久 PostgreSQL 数据库。
+
 对于工作区,通过运行以下命令从同一个 Netlify 站点部署每个应用:
 
 ```bash

@@ -93,7 +93,7 @@ A **서피스**는 사용자(또는 다른 시스템)가 앱과 상호작용하�
 전체 앱 시작점으로는 [Chat 템플릿](/docs/template-chat)을 사용하세요:
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 가장 간단한 전체 페이지 채팅:
@@ -408,7 +408,7 @@ export function AppShell({ children }) {
 가장 작은 브라우저 없는 로컬 경로는 스캐폴드와 하나의 액션입니다:
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 cd my-agent
 pnpm install
 ```
@@ -508,7 +508,7 @@ VM 복제 또는 장기 실행 샌드박스 체크아웃을 기본 클라우드 
 자동화 우선 세션과 실행은 영구 객체입니다. 공유 가능성은 단계적으로 구현해야 합니다: 먼저 읽기/공유 링크를 통해 팀원이 정리된 프롬프트, 출력, 실행 상태를 검사할 수 있게 하고; 그다음 권한이 있는 쓰기 가능한 협업을 통해 실행 계속, 액션 승인, 일정 편집, 구성 변경이 명시적 접근 확인을 거치도록 하세요.
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 가장 간단한 전체 페이지 채팅:

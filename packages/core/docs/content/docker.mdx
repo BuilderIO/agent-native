@@ -22,9 +22,6 @@ corepack enable
 pnpm install
 ```
 
-Copy the production image example below into `my-app/Dockerfile`. Then, from
-the app root, build and run the image:
-
 For a local Postgres-backed stack, use Docker Compose. The [self-hosted Chat
 fixture](https://www.agent-native.com/examples/self-hosted-chat/docker-compose.yml)
 includes the app and database services. It is for local development, not an
@@ -34,6 +31,8 @@ internet-facing production deployment.
 
 Use a persistent external database. Do not copy the local `data/` directory
 into the image.
+
+Copy this production image example into `my-app/Dockerfile`:
 
 ```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build

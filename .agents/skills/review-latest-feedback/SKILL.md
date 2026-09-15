@@ -39,16 +39,26 @@ subjective preferences. Breakage is never skipped. **Open - no reply** is a last
 resort after working the defect and finding neither a fix nor a useful question;
 document why.
 
-Release your eye for every terminal disposition: **Fixed**, **Shipped**,
-**Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**, or
-**Abandoned - no answer in 4 days**. **Merged - release pending** is
-non-terminal: the source merged, but release delivery and rerun remain. Only
-**In progress**, pending **Clarification needed**, and **Merged - release
-pending** retain it. **Clustered** closes a duplicate row.
+### Authoritative disposition vocabulary
 
-**Releasing means add `✅`, not delete `👀`.** Slack exposes
-`add_reaction`/`get_reactions`, not removal, so `✅` is the durable release
-marker. Only `👀` without it is open, matching the Phase 1 cursor.
+Use exactly one of these dispositions in every ledger row. Do not invent a
+synonym in the recap or Slack reply:
+
+- **Terminal, release the workflow's eye:** **Fixed**, **Shipped**, **Live
+  verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
+  **Clustered**, or **Abandoned - no answer in 4 days**.
+- **Evidence-limited or still active, retain the workflow's eye:** **Verified
+  locally**, **Built - live unverified**, **Deployed - live unverified**,
+  **Not reproducible - attempted**, **In progress**, **Asked**, **Clarification
+  needed**, **Blocked on reporter**, or **Merged - release pending**.
+- **Foreign ownership, preserve the other workflow's eye:** **Owned elsewhere**.
+
+**Merged - release pending** is non-terminal: the source merged, but release
+delivery and the published rerun remain. **Clustered** closes a duplicate row;
+it does not erase the duplicate's ledger entry.
+
+Releasing means add `✅`, not delete `👀`. Only the terminal dispositions above
+release this workflow's eye. A foreign workflow eye is never changed.
 
 Release only this workflow's eye. A foreign workflow eye is ownership, even
 stale: do not release, duplicate, or reply over it. Record **Owned elsewhere**
@@ -534,7 +544,7 @@ Upvoted items in scope: N (built: N)
 
 | Tracker row / source item | Reporter | Disposition | Repro and expected vs actual | Pre / post result | Runtime / build / live evidence | Docs locales | Replied? | Eye |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [Slack thread](...) | ... | Verified locally / Built - live unverified / Deployed - live unverified / Live verified / Merged - release pending / In progress / Asked / Open - no reply / Clustered / Resolved elsewhere / Skipped / Abandoned - no answer in 4 days / Owned elsewhere | command or click sequence; expected / actual | before: ...; after: ... | source / tests / build / deploy / URL | updated / not applicable / pending | yes / no | held by me / held by other / released with `✅` |
+| 18 / [Slack thread](...) | ... | <one disposition from the authoritative list above> | command or click sequence; expected / actual | before: ...; after: ... | source / tests / build / deploy / URL | updated / not applicable / pending | yes / no | held by me / held by other / released with `✅` |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

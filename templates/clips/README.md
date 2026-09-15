@@ -26,7 +26,7 @@ it can read the transcript and see timestamped frames without the raw video.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-clips --standalone --template clips
+npx --yes @agent-native/core@latest create my-clips --standalone --template clips
 cd my-clips
 pnpm install
 pnpm dev
