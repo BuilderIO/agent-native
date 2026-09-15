@@ -42,10 +42,11 @@ author and draft state:
  - For remaining human PRs, read the current review summary to determine
    whether the PR already has a current, non-dismissed `APPROVED` review.
 
- - Ignore human PRs that already have a current, non-dismissed `APPROVED`
-   review. This exclusion applies even when the PR has newer commits,
-   comments, reviews, or check results; do not re-review it or add it to the
-   recap.
+ - Ignore human PRs only when their current, non-dismissed `APPROVED` review
+   targets the current PR head and no newer commit, comment, review, or check
+   result exists. A current-head approval does not suppress re-review after a
+   later event; do not add the PR to the recap unless that re-review changes
+   its disposition.
 
 Only the remaining non-draft, unapproved human PRs enter the ordinary
 evidence sweep below. Eligible Liam PRs with only older-head approvals also
