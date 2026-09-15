@@ -904,6 +904,7 @@ function DatabaseTable({
     document.id,
     databaseRequestItemLimit,
     tableQuery,
+    { systemRole: document.database?.systemRole },
   );
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns

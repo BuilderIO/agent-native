@@ -367,7 +367,8 @@ describe("document sidebar layout", () => {
       "return { databaseId: expanded ? databaseId : null, enabled: ready }",
     );
     expect(sidebar).toContain("deferredFilesDatabase.databaseId");
-    expect(sidebar).toContain("{ enabled: deferredFilesDatabase.enabled }");
+    expect(sidebar).toContain("enabled: deferredFilesDatabase.enabled");
+    expect(sidebar).toContain('systemRole: "files"');
     expect(hooks).toContain(
       "isContentDatabaseByIdQueryEnabled(databaseId, options)",
     );

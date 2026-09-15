@@ -566,20 +566,20 @@ describe("contentActionInvalidatePredicate", () => {
       expect(
         predicate({ queryKey: ["action", "list-documents", undefined] }, event),
       ).toBe(true);
-      expect(
-        predicate(
-          {
-            queryKey: [
-              "action",
-              "get-content-database",
-              { databaseId: "personal-files" },
-            ],
-            isActive: () => true,
-            state: { data: { database: { systemRole: "files" } } },
-          },
-          event,
-        ),
-      ).toBe(true);
+      for (const queryName of [
+        "get-content-database",
+        "query-content-database-items",
+      ]) {
+        const filesQuery = {
+          queryKey: ["action", queryName, { databaseId: "personal-files" }],
+          isActive: () => true,
+          meta: { contentDatabaseSystemRole: "files" },
+        };
+        expect(predicate(filesQuery, event)).toBe(true);
+        expect(predicate({ ...filesQuery, isActive: () => false }, event)).toBe(
+          false,
+        );
+      }
       expect(
         predicate(
           {
@@ -589,7 +589,7 @@ describe("contentActionInvalidatePredicate", () => {
               { databaseId: "unrelated-collection" },
             ],
             isActive: () => true,
-            state: { data: { database: { systemRole: null } } },
+            meta: { contentDatabaseSystemRole: null },
           },
           event,
         ),
@@ -602,6 +602,22 @@ describe("contentActionInvalidatePredicate", () => {
       ).toBe(false);
     },
   );
+
+  it("preserves document invalidation in a coalesced creation batch", () => {
+    const predicate = contentActionInvalidatePredicate("/page/document-1");
+    expect(
+      predicate(
+        {
+          queryKey: ["action", "get-document", { id: "document-1" }],
+          isActive: () => true,
+        },
+        [
+          { source: "action", key: "create-document" },
+          { source: "action", key: "edit-document" },
+        ],
+      ),
+    ).toBe(true);
+  });
 
   it("refreshes only the active personal-view query for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");

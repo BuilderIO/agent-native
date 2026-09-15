@@ -478,7 +478,7 @@ function WorkspaceSidebarItem({
   );
   const filesDatabase = useContentDatabaseById(
     deferredFilesDatabase.databaseId,
-    { enabled: deferredFilesDatabase.enabled },
+    { enabled: deferredFilesDatabase.enabled, systemRole: "files" },
   );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
