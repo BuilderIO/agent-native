@@ -956,12 +956,16 @@ traffic to any one path.
   Send + Mark Done among broader search matches; Mail showed only its three
   compose-safe actions plus Ask AI, with Spam/Block/Mute/Snooze absent. Mail's
   Schedule send action opened its existing presets/date picker; Cmd+Shift+L
-  opened the same picker. Superhuman's Send Later opened a natural-language
-  date field with suggestions, which Mail does not yet match. Escape closed
-  both test composers/pickers without choosing a send time; the Mail test draft
-  was discarded and the prior draft restored. No email was sent. Starting
-  states differed because Mail had a pre-existing draft; other SETTINGS-001
-  contexts remain open.
+  opened the same picker. Mail also exposes a natural-language date field with
+  suggestions: `schedule-date.spec.ts` and `SendLaterButton.test.tsx` cover
+  relative/day-part/weekday parsing, preview without scheduling, invalid input,
+  keyboard selection, native-picker fallback, and two-step Escape. Superhuman's
+  paired replay exposed its corresponding natural-language scheduler; exact
+  grammar, suggestion ordering, and matched visual states still need a paired
+  replay. Escape closed both test composers/pickers without choosing a send
+  time; the Mail test draft was discarded and the prior draft restored. No
+  email was sent. Starting states differed because Mail had a pre-existing
+  draft; other SETTINGS-001 contexts remain open.
 - SETTINGS-002 — Open shortcut reference and hover every action. Confirm the
   displayed shortcut is the one that actually runs. Compare US QWERTY with the
   documented Belgian/French/German alternatives for Search, Trash, Tab, snippet,
