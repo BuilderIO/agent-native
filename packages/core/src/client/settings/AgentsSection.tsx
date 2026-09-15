@@ -245,7 +245,7 @@ function HostedAgentFields({
   const credentialLabel = selectedCredentialRef
     ? (credentialOptions.find((option) => option.key === selectedCredentialRef)
         ?.label ?? selectedCredentialRef)
-    : t("agents.chooseCredential");
+    : t("agentChat.agents.chooseCredential");
 
   return (
     <details
@@ -253,27 +253,27 @@ function HostedAgentFields({
       className="mt-1 rounded border border-border/70 bg-accent/20 px-2 py-1.5"
     >
       <summary className="cursor-pointer text-[10px] font-medium text-foreground">
-        {t("agents.hostedAgent")}
+        {t("agentChat.agents.hostedAgent")}
       </summary>
       <div className="mt-2 flex flex-col gap-1.5">
         <TextField
           value={cardUrl}
           onChange={onCardUrlChange}
-          aria-label={t("agents.cardUrl")}
-          placeholder={t("agents.cardUrlPlaceholder")}
+          aria-label={t("agentChat.agents.cardUrl")}
+          placeholder={t("agentChat.agents.cardUrlPlaceholder")}
           className="w-full text-[11px]"
         />
         <Picker
           mode="select"
           value={authType}
           onChange={(value) => updateAuthType(String(value))}
-          aria-label={t("agents.authType")}
+          aria-label={t("agentChat.agents.authType")}
           options={[
-            { value: "none", label: t("agents.authNone") },
-            { value: "bearer", label: t("agents.authBearer") },
+            { value: "none", label: t("agentChat.agents.authNone") },
+            { value: "bearer", label: t("agentChat.agents.authBearer") },
             {
               value: "oauth-client-credentials",
-              label: t("agents.authClientCredentials"),
+              label: t("agentChat.agents.authClientCredentials"),
             },
           ]}
           className="text-[11px]"
@@ -285,7 +285,7 @@ function HostedAgentFields({
             </span>
             <NewKeyMenu
               options={credentialOptions}
-              label={t("agents.chooseCredential")}
+              label={t("agentChat.agents.chooseCredential")}
               onPick={(option) => updateCredentialRef(option.key)}
               onCustom={(name) => {
                 if (name) updateCredentialRef(name);
@@ -301,8 +301,8 @@ function HostedAgentFields({
               onChange={(value) =>
                 onAuthChange({ ...oauthAuth, tokenUrl: value })
               }
-              aria-label={t("agents.tokenUrl")}
-              placeholder={t("agents.tokenUrl")}
+              aria-label={t("agentChat.agents.tokenUrl")}
+              placeholder={t("agentChat.agents.tokenUrl")}
               className="w-full text-[11px]"
             />
             <TextField
@@ -310,15 +310,15 @@ function HostedAgentFields({
               onChange={(value) =>
                 onAuthChange({ ...oauthAuth, clientId: value })
               }
-              aria-label={t("agents.clientId")}
-              placeholder={t("agents.clientId")}
+              aria-label={t("agentChat.agents.clientId")}
+              placeholder={t("agentChat.agents.clientId")}
               className="w-full text-[11px]"
             />
             <TextField
               value={oauthAuth.scope ?? ""}
               onChange={(value) => onAuthChange({ ...oauthAuth, scope: value })}
-              aria-label={t("agents.scope")}
-              placeholder={t("agents.scope")}
+              aria-label={t("agentChat.agents.scope")}
+              placeholder={t("agentChat.agents.scope")}
               className="w-full text-[11px]"
             />
           </>
@@ -944,7 +944,10 @@ export function AgentsSection() {
           .map((secret) => ({
             key: secret.key,
             label: secret.label,
-            hint: secret.source === "vault" ? t("agents.vault") : undefined,
+            hint:
+              secret.source === "vault"
+                ? t("agentChat.agents.vault")
+                : undefined,
           }));
         setCredentialOptions(options);
       })
@@ -1070,7 +1073,7 @@ export function AgentsSection() {
     const id = name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
     const normalizedAuth = normalizeHostedAuth(auth);
     if (auth && !normalizedAuth) {
-      throw new Error(t("agents.authIncomplete"));
+      throw new Error(t("agentChat.agents.authIncomplete"));
     }
     const normalizedCardUrl = cardUrl.trim() || undefined;
     const optimisticAgent: AgentInfo = {
@@ -1136,7 +1139,7 @@ export function AgentsSection() {
   const handleSave = async (agent: AgentInfo) => {
     const normalizedAuth = normalizeHostedAuth(agent.auth);
     if (agent.auth && !normalizedAuth) {
-      throw new Error(t("agents.authIncomplete"));
+      throw new Error(t("agentChat.agents.authIncomplete"));
     }
     const previousAgents = agents;
     setAgents((current) =>
@@ -1338,10 +1341,10 @@ export function AgentsSection() {
                       if (!status) return null;
                       const label =
                         status === "reachable"
-                          ? t("agents.statusReachable")
+                          ? t("agentChat.agents.statusReachable")
                           : status === "auth-rejected"
-                            ? t("agents.statusAuthRejected")
-                            : t("agents.statusNoJsonRpc");
+                            ? t("agentChat.agents.statusAuthRejected")
+                            : t("agentChat.agents.statusNoJsonRpc");
                       return (
                         <span
                           className={`shrink-0 text-[10px] ${
