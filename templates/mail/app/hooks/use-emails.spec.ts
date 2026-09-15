@@ -493,6 +493,50 @@ describe("inbox-thread cache rollback on mutation error", () => {
       expect(hook).toContain("onMutate:");
       expect(hook).toContain("findInboxThreadIdByMessageId(qc, id)");
       expect(hook).toContain("clearInboxThreadRemoval(qc, threadId)");
+      expect(hook).toContain("restoreInboxThreadRemovals(qc");
+    }
+  });
+
+  it("keeps bulk Gmail rollbacks scoped to the items that failed", () => {
+    const source = emailsHookSource();
+    const bulkHooks = [
+      [
+        "export function useBulkArchiveEmails()",
+        "export function useBulkTrashEmails()",
+        [
+          "enqueueBulkGmailMutation",
+          "BulkGmailMutationFailure",
+          "reconcilePartialInboxMutation",
+          "restoreBulkRemovedEmails",
+        ],
+      ],
+      [
+        "export function useBulkToggleStar()",
+        "export function useBulkMarkRead()",
+        [
+          "enqueueBulkGmailMutation",
+          "resolveBulkThreadIds(qc, targets)",
+          "BulkGmailMutationFailure",
+          "restoreBulkEmailField",
+          "reconcilePartialInboxMutation",
+        ],
+      ],
+      [
+        "export function useBulkMarkRead()",
+        "export function useMoveEmail()",
+        [
+          "enqueueBulkGmailMutation",
+          "resolveBulkThreadIds(qc, targets)",
+          "BulkGmailMutationFailure",
+          "restoreBulkEmailField",
+          "reconcilePartialInboxMutation",
+        ],
+      ],
+    ] as const;
+
+    for (const [start, end, markers] of bulkHooks) {
+      const hook = source.slice(source.indexOf(start), source.indexOf(end));
+      for (const marker of markers) expect(hook).toContain(marker);
     }
   });
 

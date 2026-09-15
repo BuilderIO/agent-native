@@ -61,7 +61,6 @@ import {
   unsuppressThread,
   type AccountError,
 } from "@/hooks/use-emails";
-import { clearInboxThreadRemoval } from "@/hooks/use-inbox-threads";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   useDeleteScheduledJob,
@@ -734,7 +733,6 @@ export function EmailList({
 
       const undo = () => {
         for (const key of threadKeys) {
-          clearInboxThreadRemoval(queryClient, key);
           unsuppressThread(key);
         }
         queryClient.setQueriesData<InfiniteEmails>(
@@ -854,7 +852,6 @@ export function EmailList({
 
       const undo = () => {
         for (const key of threadKeys) {
-          clearInboxThreadRemoval(queryClient, key);
           unsuppressThread(key);
         }
         queryClient.setQueriesData<InfiniteEmails>(
@@ -1002,6 +999,7 @@ export function EmailList({
         targets: toMarkUnread.map((t) => ({
           id: t.latestMessage.id,
           accountEmail: t.latestMessage.accountEmail,
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
         })),
         isRead: false,
       });
@@ -1042,6 +1040,7 @@ export function EmailList({
         targets: targets.map((t) => ({
           id: t.latestMessage.id,
           accountEmail: t.latestMessage.accountEmail,
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
         })),
         isRead: false,
       });
@@ -1534,7 +1533,6 @@ export function EmailList({
       onArchived?.(id);
 
       const undo = () => {
-        clearInboxThreadRemoval(queryClient, tid);
         unsuppressThread(tid);
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },

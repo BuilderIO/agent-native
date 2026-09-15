@@ -13,6 +13,7 @@ import {
   mergeInboxThreadPages,
   removeInboxThreadsOptimistic,
   resolveInboxTabId,
+  restoreInboxThreadRemovals,
   restoreInboxThreadsOptimistic,
   settleInboxMutationIfObserved,
   snapshotInboxThreads,
@@ -490,6 +491,18 @@ describe("synced inbox mutation consistency", () => {
     expect(
       applyInboxMutationOverlay(qc, refetched as any).items,
     ).toContainEqual(expect.objectContaining({ threadId: "t1" }));
+  });
+
+  it("restores a removal journal when an undo action fails", () => {
+    const qc = makeClient(seedResult());
+    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+
+    const snapshot = clearInboxThreadRemoval(qc, "t1");
+    restoreInboxThreadRemovals(qc, snapshot);
+
+    expect(
+      applyInboxMutationOverlay(qc, seedResult() as any).items,
+    ).not.toContainEqual(expect.objectContaining({ threadId: "t1" }));
   });
 
   it("keeps a removal journal through a stale refetch and retires it after evidence", () => {

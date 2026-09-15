@@ -191,6 +191,13 @@ type InboxMutation =
       timestamp: number;
     };
 
+type InboxRemovalMutation = Extract<InboxMutation, { kind: "remove" }>;
+export type InboxThreadRemovalSnapshot = Array<{
+  id: string;
+  mutation: InboxRemovalMutation;
+  threadId: string;
+}>;
+
 type InboxMutationInput =
   | Omit<Extract<InboxMutation, { kind: "remove" }>, "id" | "timestamp">
   | Omit<Extract<InboxMutation, { kind: "read" }>, "id" | "timestamp">
@@ -332,13 +339,52 @@ export function settleInboxMutationIfObserved(
 }
 
 /** Drop only the optimistic removals for one thread, used by archive undo. */
-export function clearInboxThreadRemoval(qc: QueryClient, threadId: string) {
+export function clearInboxThreadRemoval(
+  qc: QueryClient,
+  threadId: string,
+): InboxThreadRemovalSnapshot {
   const journal = inboxMutationJournal(qc);
+  const snapshot: InboxThreadRemovalSnapshot = [];
   for (const [id, mutation] of journal) {
-    if (mutation.kind !== "remove") continue;
+    if (mutation.kind !== "remove" || !mutation.threadIds.includes(threadId)) {
+      continue;
+    }
+    snapshot.push({ id, mutation, threadId });
     const threadIds = mutation.threadIds.filter((value) => value !== threadId);
     if (threadIds.length === 0) journal.delete(id);
     else journal.set(id, { ...mutation, threadIds });
+  }
+  return snapshot;
+}
+
+export function restoreInboxThreadRemovals(
+  qc: QueryClient,
+  snapshot: InboxThreadRemovalSnapshot,
+) {
+  const journal = inboxMutationJournal(qc);
+  for (const { id, mutation, threadId } of snapshot) {
+    const current = journal.get(id);
+    if (current?.kind === "remove") {
+      if (!current.threadIds.includes(threadId)) {
+        journal.set(id, {
+          ...current,
+          threadIds: [...current.threadIds, threadId],
+          observedThreadIds: current.observedThreadIds.includes(threadId)
+            ? current.observedThreadIds
+            : mutation.observedThreadIds.includes(threadId)
+              ? [...current.observedThreadIds, threadId]
+              : current.observedThreadIds,
+        });
+      }
+      continue;
+    }
+    journal.set(id, {
+      ...mutation,
+      threadIds: [threadId],
+      observedThreadIds: mutation.observedThreadIds.includes(threadId)
+        ? [threadId]
+        : [],
+    });
   }
 }
 
