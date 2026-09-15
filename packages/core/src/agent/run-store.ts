@@ -66,6 +66,11 @@ export const RUN_STALE_MS = 15_000;
  * tag a private thread's event as owned by that ambient identity and hand it to
  * them through the owner fast path.
  *
+ * Both identity sources are request-scoped. The agent-chat POST never sets
+ * `userEmail` on the store — it resolves the authenticated owner onto the run
+ * context in `prepareRun` — so reading `userEmail` alone leaves the turn that
+ * this tray exists to show without a caller, and therefore without an event.
+ *
  * A transition with no request behind it announces nothing. Emitting it
  * unowned would look harmless — the resource tags still gate delivery — but an
  * event that misses the owner fast path falls to `scheduleAccessCheck`, which
@@ -80,7 +85,8 @@ export const RUN_STALE_MS = 15_000;
  */
 function bumpRunsPoll(threadId: string): void {
   try {
-    const caller = getRequestContext()?.userEmail?.trim();
+    const ctx = getRequestContext();
+    const caller = (ctx?.userEmail ?? ctx?.run?.owner)?.trim();
     if (!caller) return;
     recordChange({
       source: "runs",

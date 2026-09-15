@@ -272,6 +272,116 @@ describe("RunsTray polling", () => {
     expect(String(stopCalls[0][0])).toContain("/runs/chat-run-1/abort");
   });
 
+  it("does not offer Stop on a shared run the caller cannot abort", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/agent-chat/runs/list")) {
+        return Response.json({
+          status: "ok",
+          runs: [
+            {
+              id: "chat-run-shared",
+              kind: "chat",
+              source: "agent-chat",
+              sourceLabel: "Chat",
+              title: "Someone else's turn",
+              status: "running",
+              goalId: "agent-chat",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-shared" },
+              metadata: { threadId: "thread-shared", canStop: false },
+            },
+          ],
+        });
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RunsTray pollMs={0} hideWhenIdle={false} showRecent />);
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[aria-label="1 active run"]'),
+        ).toBeTruthy(),
+      );
+    });
+    const trigger = document.querySelector('[aria-label="1 active run"]');
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(document.body.textContent).toContain("Someone else's turn");
+    expect(
+      document.querySelector('[aria-label="Stop Someone else\'s turn"]'),
+    ).toBeNull();
+  });
+
+  // A legacy progress run is dismissed on the server. If that DELETE fails the
+  // row must come back, so the session-local filter must not have claimed it.
+  it("restores a legacy run when its dismissal request fails", async () => {
+    const now = new Date().toISOString();
+    const legacyRun = {
+      id: "legacy-run-1",
+      owner: "user@example.com",
+      title: "Legacy progress run",
+      percent: null,
+      status: "succeeded",
+      startedAt: now,
+      updatedAt: now,
+      completedAt: now,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: any) => {
+      const url = String(input);
+      if (init?.method === "DELETE") return new Response("", { status: 500 });
+      if (url.includes("/agent-chat/runs/list")) {
+        return Response.json({ status: "ok", runs: [] });
+      }
+      return Response.json([legacyRun]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RunsTray pollMs={0} hideWhenIdle={false} showRecent />);
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[aria-label="Recent runs"]'),
+        ).toBeTruthy(),
+      );
+    });
+    const trigger = document.querySelector('[aria-label="Recent runs"]');
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(document.body.textContent).toContain("Legacy progress run");
+
+    const hide = document.querySelector(
+      '[aria-label="Hide Legacy progress run"]',
+    );
+    await act(async () => {
+      hide?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("Legacy progress run"),
+      );
+    });
+  });
+
   // Hide has no server-side dismissal for background or chat rows, and their
   // listings keep returning finished work, so without a session-local record
   // the row comes straight back on the next refresh.

@@ -190,9 +190,15 @@ function useRunsTrayState({
   const dismissRun = useCallback(
     async (runId: string) => {
       const existing = runs.find((run) => run.id === runId);
-      dismissedRef.current.add(runId);
       setRuns((current) => current.filter((run) => run.id !== runId));
-      if (existing && isBackgroundRun(existing)) return;
+      if (existing && isBackgroundRun(existing)) {
+        // No server-side dismissal for these, so the session has to remember.
+        // Legacy progress runs are deleted on the server instead, and must not
+        // be recorded here: a failed DELETE re-lists them, and a filtered id
+        // would stay invisible for the rest of the session with no way back.
+        dismissedRef.current.add(runId);
+        return;
+      }
       try {
         const res = await fetch(
           agentNativePath(`/_agent-native/runs/${runId}`),
@@ -729,7 +735,13 @@ function RunRow({
   const formatDate = formatters.formatDate.bind(formatters);
   const threadId = getRunThreadId(run);
   const isRunning = run.status === "running";
-  const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));
+  // `canStop: false` means the server knows this caller's abort would 404 (a
+  // shared viewer). Absent means the surface never reported one, which is the
+  // case for every Agent Teams and harness row, so absence must stay stoppable.
+  const canStop =
+    isRunning &&
+    (isAgentTeamRun(run) || isBackgroundRun(run)) &&
+    run.metadata?.canStop !== false;
   const backgroundStatus = getBackgroundStatus(run);
 
   return (

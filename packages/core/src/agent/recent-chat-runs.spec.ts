@@ -212,6 +212,44 @@ describe("listRecentChatRuns", () => {
     expect(runs.map((run) => run.id)).toContain("run-live");
   });
 
+  it("keeps a long turn visible at the moment it completes", async () => {
+    // Retention prunes on completion time, so this row is still stored. A
+    // window measured from `started_at` would drop it the instant it finishes
+    // — precisely when the user looks for it.
+    await createThread("thread-long", "Long haul");
+    await insertRun("run-long", "thread-long", "turn-long");
+    await pglite.query(`UPDATE agent_runs SET started_at = ? WHERE id = ?`, [
+      Date.now() - 30 * 60 * 60 * 1000,
+      "run-long",
+    ]);
+    await updateRunStatus("run-long", "completed");
+
+    const runs = await listRecentChatRuns({ ownerEmail: OWNER });
+
+    expect(runs.map((run) => run.id)).toEqual(["run-long"]);
+    expect(runs[0].status).toBe("completed");
+  });
+
+  it("marks a shared thread's run unstoppable for the sharee", async () => {
+    // /runs/:id/abort requires editor and answers a viewer with 404, so Stop
+    // would only produce an optimistic cancel that snaps back.
+    await createThread("thread-mine", "Mine");
+    await insertRun("run-mine", "thread-mine", "turn-mine");
+    await createThread("thread-shared", "Shared with me", OTHER);
+    await pglite.query(
+      `INSERT INTO chat_thread_shares (id, resource_id, principal_type, principal_id, role)
+       VALUES (?, ?, ?, ?, ?)`,
+      ["share-stop", "thread-shared", "user", OWNER, "viewer"],
+    );
+    await insertRun("run-shared", "thread-shared", "turn-shared");
+
+    const runs = await listRecentChatRuns({ ownerEmail: OWNER });
+    const byId = new Map(runs.map((run) => [run.id, run]));
+
+    expect(byId.get("run-mine")?.metadata.canStop).toBe(true);
+    expect(byId.get("run-shared")?.metadata.canStop).toBe(false);
+  });
+
   it("keeps a still-running turn visible past the recent window", async () => {
     await createThread("thread-old", "Old but alive");
     await insertRun("run-old", "thread-old", "turn-old");

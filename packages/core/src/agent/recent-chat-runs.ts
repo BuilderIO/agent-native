@@ -12,9 +12,9 @@ import { getDbExec } from "../db/client.js";
 import { ensureRunTables } from "./run-store.js";
 
 /**
- * A terminal run older than this is no longer "recent". Bounds the scan, and
- * matches the pruning window that already removes completed rows after ~1 day.
- * Running rows are always included regardless of age.
+ * A run that finished longer ago than this is no longer "recent". Measured
+ * from completion, matching the retention sweep that removes terminal rows
+ * ~1 day after `completed_at`. Running rows are included regardless of age.
  */
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -62,6 +62,7 @@ interface ChatRunRow {
   dispatch_mode: string | null;
   title: string | null;
   preview: string | null;
+  is_owner: boolean | number | string | null;
 }
 
 function toWireStatus(status: string): ChatRunStatus {
@@ -77,6 +78,11 @@ function toWireStatus(status: string): ChatRunStatus {
       // as a failure rather than silently as a clean completion.
       return "errored";
   }
+}
+
+/** Postgres returns booleans as `true`; PGlite and SQLite may answer 1 or "t". */
+function isTruthyFlag(value: boolean | number | string | null): boolean {
+  return value === true || value === 1 || value === "t" || value === "1";
 }
 
 function toMillis(value: number | string | null): number | null {
@@ -116,14 +122,23 @@ export async function listRecentChatRuns({
   const normalizedLimit = Math.min(Math.max(Math.floor(limit) || 1, 1), 50);
   await ensureRunTables();
   const access = chatThreadAccessSql(ownerEmail, orgId);
+  const normalizedEmail = ownerEmail.trim().toLowerCase();
   const client = getDbExec();
   // Over-fetch so collapsing continuation chunks and dropping threads owned by
   // another surface can still fill `normalizedLimit` rows.
   const scanLimit = Math.min(normalizedLimit * 4, 200);
+  // `is_owner` drives the tray's Stop button. This listing deliberately spans
+  // shared threads, but `/runs/:id/abort` requires editor access and answers a
+  // viewer with 404, so offering them Stop only produces an optimistic
+  // cancellation that snaps back on the next refresh. Thread ownership is the
+  // role signal available here without a per-row share lookup; it is
+  // deliberately conservative, and an editor who loses the tray button can
+  // still stop the turn from the conversation itself.
   const columns = `agent_runs.id, agent_runs.thread_id, agent_runs.turn_id, agent_runs.status,
                    agent_runs.started_at, agent_runs.completed_at, agent_runs.heartbeat_at,
                    agent_runs.last_progress_at, agent_runs.terminal_reason, agent_runs.error_code,
-                   agent_runs.dispatch_mode, chat_threads.title, chat_threads.preview`;
+                   agent_runs.dispatch_mode, chat_threads.title, chat_threads.preview,
+                   (LOWER(chat_threads.owner_email) = ?) AS is_owner`;
   const from = `FROM agent_runs
                 JOIN chat_threads ON chat_threads.id = agent_runs.thread_id`;
 
@@ -142,16 +157,27 @@ export async function listRecentChatRuns({
               AND agent_runs.status = 'running'
             ORDER BY agent_runs.started_at DESC
             LIMIT ?`,
-      args: [...access.args, scanLimit],
+      args: [normalizedEmail, ...access.args, scanLimit],
     }),
     client.execute({
+      // Recency is measured from when the work finished, matching both the
+      // retention sweep and the `updatedAt` the tray sorts on. Measuring from
+      // `started_at` drops a turn that ran longer than the window at the exact
+      // moment it completes — the point at which the user most expects to see
+      // it. `completed_at` is null while a row is still going, so the fallback
+      // keeps in-flight rows from other dispatch paths in range.
       sql: `SELECT ${columns}
             ${from}
             WHERE ${access.sql}
-              AND agent_runs.started_at >= ?
+              AND COALESCE(agent_runs.completed_at, agent_runs.started_at) >= ?
             ORDER BY agent_runs.started_at DESC
             LIMIT ?`,
-      args: [...access.args, Date.now() - RECENT_WINDOW_MS, scanLimit],
+      args: [
+        normalizedEmail,
+        ...access.args,
+        Date.now() - RECENT_WINDOW_MS,
+        scanLimit,
+      ],
     }),
   ]);
 
@@ -223,6 +249,7 @@ function toChatRun(row: ChatRunRow): ChatBackgroundRun {
     metadata: {
       threadId: row.thread_id,
       turnId: row.turn_id,
+      canStop: isTruthyFlag(row.is_owner),
       dispatchMode: row.dispatch_mode,
       terminalReason: row.terminal_reason,
       errorCode: row.error_code,

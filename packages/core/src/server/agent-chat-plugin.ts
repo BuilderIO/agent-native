@@ -5645,7 +5645,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            await markTurnAborted(threadId, turnId, reason);
+            await runWithRequestContext({ userEmail: owner, orgId }, () =>
+              markTurnAborted(threadId, turnId, reason),
+            );
             return { ok: true };
           }
 
@@ -5787,10 +5789,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Recovery starts as soon as this response resolves, so wait for
             // the cross-isolate abort + terminal event to be durable. Returning
             // early lets Retry collide with the still-running row.
-            await abortRunDurably(runId, reason);
-            if (USER_STOP_ABORT_REASONS.has(reason)) {
-              await abortTurnDurably(runId, reason);
-            }
+            //
+            // Wrapped in the caller's context like the /stop branch above: the
+            // durable abort writes announce the transition on the `runs` poll
+            // source, and that notifier only trusts a request-scoped identity.
+            // Without this the tray that pressed Stop waits for its next poll.
+            await runWithRequestContext(
+              { userEmail: owner, orgId },
+              async () => {
+                await abortRunDurably(runId, reason);
+                if (USER_STOP_ABORT_REASONS.has(reason)) {
+                  await abortTurnDurably(runId, reason);
+                }
+              },
+            );
             return { ok: true };
           }
 

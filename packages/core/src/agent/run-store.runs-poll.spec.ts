@@ -58,11 +58,17 @@ vi.mock("../db/client.js", () => ({
 }));
 
 let requestUser: string | undefined;
+let runContextOwner: string | undefined;
 let hasRequestStore = true;
 const AMBIENT_DEPLOY_USER = "deploy-bot@example.com";
 vi.mock("../server/request-context.js", () => ({
   getRequestContext: () =>
-    hasRequestStore ? { userEmail: requestUser } : undefined,
+    hasRequestStore
+      ? {
+          userEmail: requestUser,
+          ...(runContextOwner ? { run: { owner: runContextOwner } } : {}),
+        }
+      : undefined,
   // Mirrors the real fallback so a regression back to this getter is caught:
   // with no request store it answers with the deployment-wide identity.
   getRequestUserEmail: () =>
@@ -125,6 +131,7 @@ beforeEach(async () => {
   committedAt = 0;
   tick = 0;
   requestUser = OWNER;
+  runContextOwner = undefined;
   hasRequestStore = true;
   rawClient.execute.mockClear();
 });
@@ -148,8 +155,26 @@ describe("runs poll notifications", () => {
     });
   });
 
+  it("falls back to the run context owner, as the agent-chat POST leaves", async () => {
+    // The chat POST resolves the authenticated owner onto the run context in
+    // prepareRun and never sets `userEmail` on the store. Reading `userEmail`
+    // alone leaves the very turn this tray exists to show unannounced.
+    requestUser = undefined;
+    runContextOwner = OWNER;
+    await insertRun("run-prepared", "thread-1", "turn-prepared");
+    await settle();
+
+    expect(runsEvents()).toHaveLength(1);
+    expect(runsEvents()[0]).toMatchObject({
+      owner: OWNER,
+      resourceType: "chat_thread",
+      resourceId: "thread-1",
+    });
+  });
+
   it("stays silent when the request has no authenticated user", async () => {
     requestUser = undefined;
+    runContextOwner = undefined;
     await insertRun("run-orphan", "thread-1", "turn-orphan");
     await settleQuiet();
 
