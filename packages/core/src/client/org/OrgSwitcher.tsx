@@ -483,7 +483,7 @@ export function OrgSwitcher({
           align="start"
           sideOffset={6}
           collisionPadding={12}
-          className={`${POPOVER_CONTENT_CLASS} ${mode === "list" ? "" : "w-64"}`}
+          className={`${POPOVER_CONTENT_CLASS} w-64 max-w-[calc(100vw-1.5rem)]`}
           onOpenAutoFocus={(e) => {
             // Don't auto-focus the first item — feels heavy on a switcher.
             if (mode === "list") e.preventDefault();
@@ -543,7 +543,7 @@ export function OrgSwitcher({
                   aria-disabled="true"
                 >
                   <IconUser className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate flex-1 text-start">
+                  <span className="min-w-0 truncate flex-1 text-start">
                     Personal ({personalLabel})
                   </span>
                 </div>
@@ -569,7 +569,7 @@ export function OrgSwitcher({
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconBriefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate flex-1 text-start">
+                  <span className="min-w-0 truncate flex-1 text-start">
                     {o.orgName}
                   </span>
                   {o.orgId === org.orgId && (
@@ -586,7 +586,7 @@ export function OrgSwitcher({
                     <div key={inv.id} className="px-2.5 py-1.5 text-xs">
                       <div className="flex items-center gap-2">
                         <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate flex-1 text-foreground">
+                        <span className="min-w-0 truncate flex-1 text-foreground">
                           {inv.orgName}
                         </span>
                         <button
@@ -639,7 +639,7 @@ export function OrgSwitcher({
                         className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
                       >
                         <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate flex-1 text-foreground">
+                        <span className="min-w-0 truncate flex-1 text-foreground">
                           {match.orgName}
                         </span>
                         <button
