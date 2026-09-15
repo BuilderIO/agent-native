@@ -93,10 +93,7 @@ import {
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import { cn } from "@/lib/utils";
-import {
-  probeVideoMetadata,
-  resolveVideoMimeType,
-} from "@/lib/video-metadata";
+import { probeVideoMetadata, resolveVideoMimeType } from "@/lib/video-metadata";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -2879,21 +2876,6 @@ export default function RecordRoute() {
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
   const rememberedRecorderOptions = pendingStartOptsRef.current;
-  // The requested `displaySurface` is only a hint — the user picks the real
-  // surface in the browser's native dialog and can even switch it mid-recording
-  // (`surfaceSwitching: include`). Prefer the surface the engine resolved from
-  // the live track, falling back to the requested one only when the browser
-  // doesn't expose the resolved value (Firefox/Safari are partial).
-  const effectiveDisplaySurface =
-    resolvedDisplaySurface ?? rememberedRecorderOptions?.displaySurface ?? null;
-  // Full-screen capture records this tab's own bubble, which the composite
-  // already bakes into the video — hide the live overlay while recording so it
-  // doesn't appear twice. Countdown isn't recorded; window/tab captures don't
-  // include the overlay, so both keep it.
-  const hideBubbleForFullScreenCapture =
-    effectiveDisplaySurface === "monitor" &&
-    recordingMode === "screen+camera" &&
-    uiState === "recording";
 
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
   // sidebar back-affordance. Source picking gets its own explicit Cancel
@@ -3052,18 +3034,19 @@ export default function RecordRoute() {
         </div>
       )}
 
-      {/* Camera bubble — shown during countdown (for framing) and recording.
-          Hidden during uploading/compressing, and during full-screen recording
-          so it isn't captured on top of the composited bubble. */}
+      {/* Camera bubble — shown bottom-left during countdown (for framing) and
+          recording for every screen+camera capture, including full-screen.
+          Hidden during uploading/compressing. On a full-screen capture the
+          recorder tab's own overlay can be caught in the frame while it's
+          foreground, but the authoritative bubble the viewer sees is the one
+          the engine composites into the recording — and the user leaves this
+          tab as soon as they switch to the window they're capturing. */}
       {showCameraBubble && (
         <CameraBubble
           stream={cameraStream}
           size={cameraSize}
           onSizeChange={handleCameraSizeChange}
-          hidden={
-            (uiState !== "recording" && uiState !== "countdown") ||
-            hideBubbleForFullScreenCapture
-          }
+          hidden={uiState !== "recording" && uiState !== "countdown"}
         />
       )}
 
