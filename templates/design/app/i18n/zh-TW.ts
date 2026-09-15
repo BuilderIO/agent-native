@@ -521,6 +521,7 @@ const messages = {
     componentInstances: {
       selectLayer: "選取圖層",
       goToMain: "前往主要元件",
+      restore: "還原元件",
       swap: "交換實例",
       detach: "卸離實例",
       searchComponents: "搜尋元件…",

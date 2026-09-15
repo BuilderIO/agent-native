@@ -15,9 +15,23 @@ const FIXTURE = `<body>
   <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha"></div>
 </body>`;
 
+const ABSOLUTE_FIXTURE = `<body>
+  <div data-agent-native-node-id="absolute" style="position:absolute;left:1px;top:2px"></div>
+</body>`;
+
+function nodeIdFor(fixture: string, rawId: string): string {
+  return buildCodeLayerProjection(fixture).nodes.find(
+    (node) => node.dataAttributes["data-agent-native-node-id"] === rawId,
+  )!.id;
+}
+
 function alphaId(): string {
-  return buildCodeLayerProjection(FIXTURE).nodes.find(
-    (node) => node.dataAttributes["data-agent-native-node-id"] === "alpha",
+  return nodeIdFor(FIXTURE, "alpha");
+}
+
+function absoluteId(): string {
+  return buildCodeLayerProjection(ABSOLUTE_FIXTURE).nodes.find(
+    (node) => node.dataAttributes["data-agent-native-node-id"] === "absolute",
   )!.id;
 }
 
@@ -53,6 +67,23 @@ function mountBoardIframe(rect: { width: number; height: number }): void {
   layer.append(iframe);
   document.body.append(layer);
   stubIframeLayoutSize(iframe, rect);
+}
+
+function stubRect(
+  element: Element,
+  rect: { left: number; top: number; width: number; height: number },
+): void {
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    bottom: rect.top + rect.height,
+    height: rect.height,
+    left: rect.left,
+    right: rect.left + rect.width,
+    top: rect.top,
+    width: rect.width,
+    x: rect.left,
+    y: rect.top,
+    toJSON: () => rect,
+  } as DOMRect);
 }
 
 describe("collectLiveSizeHints", () => {
@@ -121,5 +152,75 @@ describe("collectLiveSizeHints", () => {
     );
 
     expect(hints[alphaId()]).toEqual({ width: 200, height: 80 });
+  });
+
+  it("adds parent-content-relative offsets from the active iframe layout", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.setAttribute("data-screen-iframe-id", "active.html");
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    doc.body.innerHTML = `<main style="border-left:2px solid black;border-top:3px solid black;padding:10px">
+  <div data-agent-native-node-id="alpha"></div>
+</main>`;
+    const parent = doc.querySelector("main")!;
+    const element = doc.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(25);
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(14);
+    stubRect(parent, { left: 100, top: 200, width: 220, height: 120 });
+    stubRect(element, {
+      left: 130,
+      top: 250,
+      width: 25.5,
+      height: 14.3984,
+    });
+    Object.defineProperty(parent, "scrollLeft", {
+      configurable: true,
+      value: 4,
+    });
+    Object.defineProperty(parent, "scrollTop", {
+      configurable: true,
+      value: 5,
+    });
+
+    const projection = buildCodeLayerProjection(FIXTURE);
+    const hints = collectLiveSizeHints(
+      [alphaId()],
+      projection,
+      "active.html",
+      undefined,
+    );
+
+    expect(hints[alphaId()]).toEqual({
+      width: 25.5,
+      height: 14.3984,
+      left: 32,
+      top: 52,
+    });
+  });
+
+  it("keeps integer freeform dimensions for transformed absolute targets", () => {
+    mountScreenIframe("active.html", { width: 60, height: 24 });
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      '[data-screen-iframe-id="active.html"]',
+    )!;
+    const element = iframe.contentDocument!.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    element.dataset.agentNativeNodeId = "absolute";
+    element.style.position = "absolute";
+    stubRect(element, { left: 100, top: 200, width: 90, height: 36 });
+
+    const projection = buildCodeLayerProjection(ABSOLUTE_FIXTURE);
+    const hints = collectLiveSizeHints(
+      [absoluteId()],
+      projection,
+      "active.html",
+      undefined,
+    );
+
+    expect(hints[absoluteId()]).toEqual({ width: 60, height: 24 });
   });
 });

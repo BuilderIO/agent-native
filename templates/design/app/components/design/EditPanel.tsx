@@ -91,7 +91,6 @@ import {
   inspectorObjectTitle,
   isContainerElement,
   isTextElement,
-  TEXT_TAGS,
   commitElementMinMax,
 } from "./edit-panel/element-classification";
 import {
@@ -452,6 +451,8 @@ interface EditPanelProps {
   componentInstanceHasLocalOverrides?: boolean;
   /** Reset local component overrides through the editor's mutation queue. */
   onResetComponentInstanceOverrides?: (nodeId: string) => void;
+  /** Restore a deleted linked component through the editor's mutation queue. */
+  onRestoreComponent?: (nodeId: string) => void;
   /** Increment to open the selected component's Swap instance picker. */
   componentSwapPickerRequest?: number;
   /**
@@ -1142,7 +1143,7 @@ function CodeInspectPanel({
 function elementTypeIcon(element: ElementInfo) {
   if (elementIsComponentSelection(element)) return IconComponents;
   const tag = normalizedElementTagName(element.tagName);
-  if (TEXT_TAGS.has(tag)) return IconText;
+  if (isTextElement(element)) return IconText;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
   if (tag === "svg" || tag === "path") return IconVector;
   if (tag === "button" || tag === "a") return IconComponents;
@@ -1674,7 +1675,7 @@ function InspectorTabsHeader({
   const t = useT();
 
   return (
-    <div className="h-10 min-w-0 shrink-0 border-b border-border/90 px-2 py-1">
+    <div className="h-12 min-w-0 shrink-0 border-b border-border/90 px-2 py-2">
       <InspectorGrid className="h-full items-center" layout="header-actions">
         <InspectorGridCell span={24}>
           <Tabs
@@ -2410,6 +2411,7 @@ export const EditPanel = memo(function EditPanel({
   componentDetailsReady = true,
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
+  onRestoreComponent,
   componentSwapPickerRequest,
   sourceCapabilities = [],
   onCreateComponent,
@@ -3032,6 +3034,11 @@ export const EditPanel = memo(function EditPanel({
                   onResetOverrides={
                     onResetComponentInstanceOverrides
                       ? () => onResetComponentInstanceOverrides(componentNodeId)
+                      : undefined
+                  }
+                  onRestoreComponent={
+                    onRestoreComponent
+                      ? () => onRestoreComponent(componentNodeId)
                       : undefined
                   }
                   onComponentPropApplied={onComponentPropApplied}

@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
 
 const detailsData = {
   name: "Button",
+  isMain: false,
+  canRestore: false,
   sourceType: "inline",
   observedProps: [{ name: "variant", value: "solid" }],
   persistedVariants: { variant: ["solid", "outline"] },
@@ -84,7 +86,21 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: { children?: ReactNode }) => children,
 }));
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children }: { children?: ReactNode }) => children,
+  Button: ({
+    children,
+    "aria-label": label,
+    disabled,
+    onClick,
+  }: {
+    children?: ReactNode;
+    "aria-label"?: string;
+    disabled?: boolean;
+    onClick?: () => void;
+  }) => (
+    <button aria-label={label} disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
+  ),
 }));
 vi.mock("@/components/ui/label", () => ({
   Label: ({ children }: { children?: ReactNode }) => children,
@@ -135,6 +151,161 @@ describe("ComponentSection source readiness", () => {
     mocks.refetch.mockClear();
     mocks.mutations.length = 0;
     mocks.triggerVariantCommit = false;
+    detailsData.isMain = false;
+    detailsData.canRestore = false;
+  });
+
+  it("shows instance operations only for instances", async () => {
+    const { container, root } = await mount();
+    const render = () =>
+      root.render(<ComponentSection designId="design_1" nodeId="node_1" />);
+    await act(async () => render());
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.componentInstances.swap"]',
+      ),
+    ).not.toBeNull();
+    detailsData.isMain = true;
+    await act(async () => render());
+    for (const operation of ["goToMain", "swap", "detach"]) {
+      expect(
+        container.querySelector(
+          `[aria-label="designEditor.componentInstances.${operation}"]`,
+        ),
+      ).toBeNull();
+    }
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("shows Restore component and keeps the other instance operations", async () => {
+    const { container, root } = await mount();
+    const onRestoreComponent = vi.fn();
+    detailsData.canRestore = true;
+    await act(async () =>
+      root.render(
+        <ComponentSection
+          designId="design_1"
+          nodeId="node_1"
+          onRestoreComponent={onRestoreComponent}
+        />,
+      ),
+    );
+
+    const restoreButton = container.querySelector<HTMLButtonElement>(
+      '[aria-label="designEditor.componentInstances.restore"]',
+    );
+    expect(restoreButton).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.componentInstances.goToMain"]',
+      ),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.componentInstances.swap"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.componentInstances.detach"]',
+      ),
+    ).not.toBeNull();
+    restoreButton?.click();
+    expect(onRestoreComponent).toHaveBeenCalledOnce();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("prefers the replayed source archive over stale component details", async () => {
+    const { container, root } = await mount();
+    const onRestoreComponent = vi.fn();
+    const archive = encodeURIComponent(
+      JSON.stringify({
+        schemaVersion: 1,
+        versionId: "version_1",
+        fileId: "screen_1",
+        componentId: "component_1",
+        mainNodeId: "main_1",
+        sourceVersionHash: "hash_1",
+      }),
+    );
+    detailsData.canRestore = false;
+
+    await act(async () =>
+      root.render(
+        <ComponentSection
+          designId="design_1"
+          fileId="screen_1"
+          nodeId="node_1"
+          activeContent={`<button data-agent-native-component="Button" data-agent-native-node-id="node_1" data-agent-native-component-ref="component_1" data-agent-native-component-archive="${archive}"></button>`}
+          onRestoreComponent={onRestoreComponent}
+        />,
+      ),
+    );
+
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.componentInstances.restore"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.componentInstances.goToMain"]',
+      ),
+    ).toBeNull();
+
+    detailsData.canRestore = true;
+    await act(async () =>
+      root.render(
+        <ComponentSection
+          designId="design_1"
+          fileId="screen_1"
+          nodeId="node_1"
+          activeContent='<button data-agent-native-component="Button" data-agent-native-node-id="node_1" data-agent-native-component-ref="component_1"></button>'
+          onRestoreComponent={onRestoreComponent}
+        />,
+      ),
+    );
+
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.componentInstances.goToMain"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("does not restore from a malformed replay archive", async () => {
+    const { container, root } = await mount();
+    detailsData.canRestore = true;
+    await act(async () =>
+      root.render(
+        <ComponentSection
+          designId="design_1"
+          fileId="screen_1"
+          nodeId="node_1"
+          activeContent='<button data-agent-native-component="Button" data-agent-native-node-id="node_1" data-agent-native-component-ref="component_1" data-agent-native-component-archive="%7B%7D"></button>'
+        />,
+      ),
+    );
+
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.componentInstances.restore"]',
+      ),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.componentInstances.goToMain"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
   });
 
   it("holds the metadata read during optimistic selection, then fetches when accepted", async () => {

@@ -446,6 +446,7 @@ const enUS = {
     componentInstances: {
       selectLayer: "Select layer",
       goToMain: "Go to main component",
+      restore: "Restore component",
       swap: "Swap instance",
       detach: "Detach instance",
       searchComponents: "Search components…",

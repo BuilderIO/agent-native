@@ -1,7 +1,9 @@
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
+  type CodeLayerNode,
   type CodeLayerProjection,
+  type WrapNodeSizeHint,
 } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -38,6 +40,11 @@ import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-po
 import { buildActiveFileNodeIdSet } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import {
+  dispatchLinkedComponentStructure,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+
 /**
  * Live-rendered width/height per target node id, keyed for
  * computeAbsoluteUnionBounds's size-hint fallback. wrapNodes (the
@@ -54,8 +61,8 @@ export function collectLiveSizeHints(
   projection: CodeLayerProjection,
   activeIframeId: string,
   boardFileId: string | undefined,
-): Record<string, { width: number; height: number }> {
-  const hints: Record<string, { width: number; height: number }> = {};
+): Record<string, WrapNodeSizeHint> {
+  const hints: Record<string, WrapNodeSizeHint> = {};
   if (typeof document === "undefined") return hints;
   // Only the active file's own iframe can legitimately contain these node
   // ids (they came from parsing the active file's own source) — querying
@@ -118,13 +125,84 @@ export function collectLiveSizeHints(
     const width = element.offsetWidth;
     const height = element.offsetHeight;
     if (width > 0 && height > 0) {
-      hints[node.id] = { width, height };
+      // Keep the existing integer layout dimensions for absolute/fixed
+      // targets. Their hints feed the freeform union fallback, where a
+      // transformed client rect would incorrectly enlarge the frame.
+      if (isOutOfFlowHintTarget(node)) {
+        hints[node.id] = { width, height };
+        continue;
+      }
+      const position = measureParentRelativePosition(element, iframeWindow);
+      hints[node.id] = position
+        ? {
+            width: position.width,
+            height: position.height,
+            left: position.left,
+            top: position.top,
+          }
+        : { width, height };
     }
   }
   return hints;
 }
 
+function isOutOfFlowHintTarget(node: CodeLayerNode): boolean {
+  const position = node.style.position?.toLowerCase();
+  if (position) return position === "absolute" || position === "fixed";
+  return node.classes.some((token) => {
+    const parts = token.split(":");
+    const utility = parts[parts.length - 1]?.replace(/^!/, "");
+    return utility === "absolute" || utility === "fixed";
+  });
+}
+
+/**
+ * Match measureFreeformGeometry's padding-box coordinate convention while
+ * staying scoped to the active preview document. Client rects keep parent
+ * transforms and scrolling in the same coordinate space as the child; the
+ * border inset converts the parent's border box to its positioning origin.
+ */
+function measureParentRelativePosition(
+  element: HTMLElement,
+  iframeWindow: Window,
+): { left: number; top: number; width: number; height: number } | null {
+  const parent = element.parentElement;
+  if (!parent) return null;
+  const childRect = element.getBoundingClientRect();
+  const parentRect = parent.getBoundingClientRect();
+  if (
+    childRect.width <= 0 ||
+    childRect.height <= 0 ||
+    ![childRect.left, childRect.top, parentRect.left, parentRect.top].every(
+      Number.isFinite,
+    )
+  ) {
+    return null;
+  }
+  const parentStyle = iframeWindow.getComputedStyle(parent);
+  const borderLeft = Number.parseFloat(parentStyle.borderLeftWidth || "0");
+  const borderTop = Number.parseFloat(parentStyle.borderTopWidth || "0");
+  const left =
+    childRect.left +
+    parent.scrollLeft -
+    parentRect.left -
+    (Number.isFinite(borderLeft) ? borderLeft : 0);
+  const top =
+    childRect.top +
+    parent.scrollTop -
+    parentRect.top -
+    (Number.isFinite(borderTop) ? borderTop : 0);
+  return Number.isFinite(left) &&
+    Number.isFinite(childRect.width) &&
+    Number.isFinite(childRect.height) &&
+    childRect.width > 0 &&
+    childRect.height > 0
+    ? { left, top, width: childRect.width, height: childRect.height }
+    : null;
+}
+
 export interface FrameSelectionArgs {
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
@@ -158,6 +236,7 @@ export interface FrameSelectionArgs {
 
 export function runFrameSelection({
   activeBreakpointWidthState,
+  applyLinkedComponentEdit,
   activeFile,
   applyLocalContentUpdate,
   boardFileId,
@@ -196,6 +275,23 @@ export function runFrameSelection({
     activeIframeId,
     boardFileId,
   );
+  if (
+    dispatchLinkedComponentStructure({
+      content: baseContent,
+      source,
+      intents: [
+        {
+          kind: "wrapNodes",
+          targetIds: nodeIds,
+          autoLayout: false,
+          wrapperKind: "frame",
+          sizeHints,
+        },
+      ],
+      applyLinkedComponentEdit,
+    })
+  )
+    return;
   const patch = applyVisualEdit(
     baseContent,
     {

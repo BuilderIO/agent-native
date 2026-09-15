@@ -1153,6 +1153,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // caller re-passing the same command object) never re-run the fit — only a
   // genuine nonce change should move the camera.
   const lastCameraCommandNonceRef = useRef<number | null>(null);
+  // A camera command writes the imperative camera before its controlled zoom
+  // reaches this component. Keep that write distinct from the automatic
+  // lineup fit so a stale controlled prop cannot undo a pending command on an
+  // unrelated screen/selection render.
+  const lastCameraCommandZoomRef = useRef<number | null>(null);
   const pendingChromeSettleRef = useRef(false);
   const chromeSettleTimerRef = useRef<number | null>(null);
   const [chromeSettling, setChromeSettling] = useState(false);
@@ -1580,6 +1585,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     selectedDraftIdsRef.current = selectedDraftIds;
   }, [selectedDraftIds]);
 
+  // This synchronization belongs to a changed controlled zoom value. A
+  // screen/selection change can also expose a stale controlled prop after the
+  // automatic lineup fit, so keep the legacy reconciliation triggers while a
+  // pending camera command explicitly owns its imperative zoom.
   useEffect(() => {
     // zoomRef.current is the canvas's own last-known zoom, kept in sync
     // synchronously by every internal zoom path (wheel/pinch commitView,
@@ -1591,6 +1600,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // Only compensate when this is a genuinely external change (toolbar
     // buttons, keyboard shortcuts) that never touched zoomRef/panRef.
     const previousZoom = zoomRef.current;
+    const pendingCameraZoom = lastCameraCommandZoomRef.current;
+    if (pendingCameraZoom !== null && zoom === pendingCameraZoom) {
+      lastCameraCommandZoomRef.current = null;
+      if (zoom === previousZoom) return;
+      // The command already applied the matching pan imperatively. Reconcile
+      // the controlled zoom without applying a second anchor compensation.
+      setCanvasZoom(zoom);
+      zoomRef.current = zoom;
+      lastReportedZoomRef.current = zoom;
+      recomputePenPointerForViewChangeRef.current();
+      return;
+    }
+    if (
+      pendingCameraZoom !== null &&
+      cameraCommand &&
+      lastCameraCommandNonceRef.current === cameraCommand.nonce
+    ) {
+      // The command owns the camera until its zoom reaches the controlled
+      // prop. An unrelated render must not replay that stale prop.
+      return;
+    }
+    if (pendingCameraZoom !== null) lastCameraCommandZoomRef.current = null;
     if (zoom === previousZoom) return;
     // External zoom changes otherwise anchor at world origin (0,0) since
     // only canvasZoom is updated here — content visibly jumps diagonally
@@ -1680,7 +1711,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // P18: an externally-driven zoom change (toolbar/keyboard) also moves
     // the canvas-space mapping the pen ghost preview was computed from.
     recomputePenPointerForViewChangeRef.current();
-  }, [zoom, activeId, renderedScreens, selectedIds]);
+  }, [
+    activeId,
+    cameraCommand,
+    recomputePenPointerForViewChangeRef,
+    renderedScreens,
+    selectedIds,
+    zoom,
+  ]);
 
   useEffect(() => {
     const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
@@ -8069,6 +8107,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
       camera.x += chromeInsetLeft;
       zoomRef.current = camera.zoom;
+      lastCameraCommandZoomRef.current = camera.zoom;
       panRef.current = { x: camera.x, y: camera.y };
       applyViewToDom();
       scheduleViewCommit();
@@ -9251,7 +9290,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     <div
       ref={surfaceRef}
       tabIndex={-1}
-      className="relative h-full w-full select-none overflow-hidden outline-none"
+      className="relative h-full w-full select-none overflow-clip outline-none"
       onMouseDownCapture={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setAltHoverMeasurement(null)}

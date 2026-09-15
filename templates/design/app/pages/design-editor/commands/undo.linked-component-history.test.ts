@@ -836,7 +836,7 @@ it.each(["rejected", "no-op", "committed", "intervening edit"])(
       state.args,
     );
     const reserveContentHistory = editorCallback(
-      /reserveContentHistory: (\(\) => \{[\s\S]*?\n        \}),\n        waitForHostWrites:/,
+      /reserveContentHistory: (\([^)]*\) => \{[\s\S]*?\n        \}),\n        waitForHostWrites:/,
       {
         ...state.args,
         reserveLinkedComponentContentHistory,

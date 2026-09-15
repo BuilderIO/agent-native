@@ -32,8 +32,9 @@ export const TEXT_TAGS = new Set([
 export function inspectorObjectTitle(element: ElementInfo): string {
   const componentName = componentNameForElementInfo(element);
   if (componentName) return componentName;
+  if (element.isGroup) return "Group";
   const tag = normalizedElementTagName(element.tagName);
-  if (TEXT_TAGS.has(tag)) return "Text";
+  if (isTextElement(element)) return "Text";
   return tag;
 }
 
@@ -197,6 +198,7 @@ function hasExplicitTextIdentity(element: ElementInfo): boolean {
  * children show the full Auto layout section the same way does.
  */
 export function isContainerElement(element: ElementInfo): boolean {
+  if (element.isGroup === true) return false;
   // T-tool text primitives are divs and use `display:flex` for vertical text
   // alignment, but they are still leaf text layers rather than auto-layout
   // containers, so check text identity before the flex/container shortcuts
@@ -472,6 +474,7 @@ export function inferElementSizing(
   // when available so the Inspector preserves the user's sizing intent
   // instead of relabeling a Hug/Fill layer as Fixed after layout resolves.
   const authoredSize = element.inlineStyles?.[property]?.trim().toLowerCase();
+  const hasAuthoredSize = Boolean(authoredSize);
   const size = authoredSize || styles[property];
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);
@@ -486,6 +489,18 @@ export function inferElementSizing(
     (isCrossFlexAxis && alignSelf === "stretch")
   ) {
     return "fill";
+  }
+  // A selection payload with inlineStyles has a source-level answer for the
+  // property even when the property is absent. An auto-layout container with
+  // no authored dimension hugs its contents; its computed px measurement is
+  // only the browser's resolved result. Older/hover payloads omit
+  // inlineStyles, so keep their conservative computed-style fallback.
+  if (
+    !hasAuthoredSize &&
+    element.inlineStyles !== undefined &&
+    (element.isFlexContainer || element.isGridContainer)
+  ) {
+    return "hug";
   }
   if (size === "auto" || size === "fit-content" || size === "max-content") {
     return "hug";

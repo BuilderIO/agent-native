@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["ko-KR"],
   designEditor: {
     ...messagesByLocale["ko-KR"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["ko-KR"].designEditor.componentInstances,
+      restore: "컴포넌트 복원",
+    },
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 검토 댓글을 추가할 수 있음",
     toasts: {

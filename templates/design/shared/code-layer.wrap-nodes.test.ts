@@ -49,6 +49,94 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(redIdx).toBeGreaterThan(-1);
     expect(blueIdx).toBeGreaterThan(redIdx);
   });
+
+  it("uses measured flow geometry for an intrinsic text child", () => {
+    const content = `<body style="display:flex;flex-direction:column;width:43.6px">
+  <div data-agent-native-node-id="title" style="width:max-content;height:auto;display:inline-block;margin:3px 4px 5px 6px;inset:2px">Title</div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["title"],
+      sizeHints: { title: { width: 25, height: 14.4, left: 6, top: 3 } },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(patch.content);
+    const wrapper = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-group-wrapper"] === "true",
+    );
+    const child = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "title",
+    );
+    expect(wrapper?.style).toMatchObject({
+      position: "relative",
+      width: "25px",
+      height: "14.4px",
+    });
+    expect(child?.style).toMatchObject({
+      position: "absolute",
+      left: "0px",
+      top: "0px",
+      width: "max-content",
+      height: "auto",
+    });
+    expect(child?.style.margin).toBeUndefined();
+    expect(child?.style.inset).toBeUndefined();
+  });
+
+  it("rebases multiple measured flow children from the union origin", () => {
+    const content = `<body style="display:flex;flex-direction:column">
+  <div data-agent-native-node-id="first" style="display:inline-block;width:max-content">First</div>
+  <div data-agent-native-node-id="second" style="display:inline-block;width:max-content">Second</div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["first", "second"],
+      sizeHints: {
+        first: { width: 25, height: 14, left: 8, top: 10 },
+        second: { width: 35, height: 18, left: 12, top: 32 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(patch.content);
+    const wrapper = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-group-wrapper"] === "true",
+    );
+    const first = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "first",
+    );
+    const second = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "second",
+    );
+    expect(wrapper?.style).toMatchObject({
+      position: "relative",
+      width: "39px",
+      height: "40px",
+    });
+    expect(first?.style).toMatchObject({ left: "0px", top: "0px" });
+    expect(second?.style).toMatchObject({ left: "4px", top: "22px" });
+  });
+
+  it("keeps the source-only flow wrapper when a measured offset is missing", () => {
+    const content = `<body style="display:flex;flex-direction:column">
+  <div data-agent-native-node-id="title" style="display:inline-block;width:max-content">Title</div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["title"],
+      sizeHints: { title: { width: 25, height: 14 } },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapper = buildCodeLayerProjection(patch.content).nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-group-wrapper"] === "true",
+    );
+    expect(wrapper?.style).toEqual({});
+  });
 });
 
 describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {

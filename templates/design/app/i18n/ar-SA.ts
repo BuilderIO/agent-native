@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["ar-SA"],
   designEditor: {
     ...messagesByLocale["ar-SA"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["ar-SA"].designEditor.componentInstances,
+      restore: "استعادة المكوّن",
+    },
     commenterRoleLabel: "معلّق",
     commenterRoleDescription: "يمكنه العرض وإضافة تعليقات المراجعة",
     toasts: {

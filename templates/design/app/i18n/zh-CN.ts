@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["zh-CN"],
   designEditor: {
     ...messagesByLocale["zh-CN"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["zh-CN"].designEditor.componentInstances,
+      restore: "恢复组件",
+    },
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加审阅评论",
     toasts: {

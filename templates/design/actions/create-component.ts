@@ -54,13 +54,18 @@ import {
   mapCodeLayerSourceOffsetThroughEdits,
   resolveCodeLayerTarget,
 } from "../shared/code-layer.js";
-import type { CodeLayerNode, CodeLayerSource } from "../shared/code-layer.js";
+import type {
+  CodeLayerNode,
+  CodeLayerProjection,
+  CodeLayerSource,
+} from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
   COMPONENT_ID_ATTR,
   COMPONENT_NAME_ATTR,
   COMPONENT_PROP_PREFIX,
   COMPONENT_REF_ATTR,
+  linkedComponentRootForNode,
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
@@ -73,6 +78,32 @@ import { designSourceTypeFromData } from "../shared/source-mode.js";
 export interface ComponentAttributeStamp {
   name: string;
   value: string;
+}
+
+export interface CreateComponentSourceExpectation {
+  currentContent: string;
+  expectedVersionHash: string;
+}
+
+/** A linked component owns its descendants; they cannot become nested mains. */
+export function isLinkedComponentDescendant(
+  node: CodeLayerNode,
+  projection: CodeLayerProjection,
+): boolean {
+  const root = linkedComponentRootForNode(node, projection);
+  return Boolean(root && root.id !== node.id);
+}
+
+/** Compare the editor's planned source with the live source before a stamp. */
+export function createComponentSourceMatches(
+  live: { content: string; versionHash: string },
+  expected?: CreateComponentSourceExpectation,
+): boolean {
+  return (
+    expected === undefined ||
+    (expected.currentContent === live.content &&
+      expected.expectedVersionHash === live.versionHash)
+  );
 }
 
 /** Attributes that commonly carry variant-like meaning on an element. */
@@ -258,8 +289,24 @@ export default defineAction({
       .string()
       .optional()
       .describe("Design file id; defaults to index.html"),
+    source: z
+      .object({
+        currentContent: z
+          .string()
+          .describe("Exact source preimage the editor planned against."),
+        expectedVersionHash: z
+          .string()
+          .describe("Hash of the live source preimage."),
+      })
+      .optional()
+      .describe(
+        "Optional editor preimage used to reject a stale component promotion.",
+      ),
   }),
-  run: async ({ designId, nodeId, selector, name, fileId }, context) => {
+  run: async (
+    { designId, nodeId, selector, name, fileId, source },
+    context,
+  ) => {
     if (!nodeId && !selector) {
       throw new Error(
         "Provide either nodeId or selector for the element to promote.",
@@ -339,6 +386,18 @@ export default defineAction({
     };
     const live = await readLiveSourceFile(workspaceFile);
     const originalHtml = live.content;
+    if (!createComponentSourceMatches(live, source)) {
+      return {
+        designId,
+        sourceType,
+        persisted: false,
+        conflict: true,
+        error:
+          "The design source changed while Create Component was being prepared. Refresh and retry.",
+        fileId: file.id,
+        filename: file.filename,
+      };
+    }
 
     // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
@@ -364,6 +423,11 @@ export default defineAction({
           `Searched ${projection.nodes.length} projection nodes for ` +
           `${nodeId ? `nodeId "${nodeId}"` : `selector "${selector ?? ""}"`}. ` +
           `Run get-code-layer-projection to list current node ids and selectors.`,
+      );
+    }
+    if (isLinkedComponentDescendant(resolution.node, projection)) {
+      throw new Error(
+        "Detach this linked component before promoting one of its descendants as a component main.",
       );
     }
     if (resolution.node.dataAttributes[COMPONENT_REF_ATTR] !== undefined) {
@@ -420,13 +484,24 @@ export default defineAction({
     const contentChanged = changed || ensured.changed;
 
     // ── Persist ──────────────────────────────────────────────────────────────
+    let persistedReceipt: {
+      versionHash: string;
+      changed: boolean;
+      updatedAt: string;
+    } | null = null;
     if (contentChanged) {
-      await writeInlineSourceFile({
+      persistedReceipt = await writeInlineSourceFile({
         designId: file.designId,
         file: workspaceFile,
         content: patchedContent,
         expectedVersionHash: live.versionHash,
       });
+
+      if (!persistedReceipt.changed) {
+        throw new Error(
+          "Create Component did not receive a changed source from the persistence boundary.",
+        );
+      }
 
       agentUpdateSelection(file.id, {
         selection: agentSelectionDescriptor(
@@ -455,6 +530,30 @@ export default defineAction({
       filename: file.filename,
       bytesBefore: originalHtml.length,
       bytesAfter: patchedContent.length,
+      updatedAt: persistedReceipt?.updatedAt,
+      changes:
+        contentChanged && persistedReceipt
+          ? [
+              {
+                fileId: file.id,
+                before: originalHtml,
+                after: patchedContent,
+                beforeVersionHash: live.versionHash,
+                afterVersionHash: persistedReceipt.versionHash,
+                updatedAt: persistedReceipt.updatedAt,
+              },
+            ]
+          : [],
+      sourceBases:
+        contentChanged && persistedReceipt
+          ? [
+              {
+                fileId: file.id,
+                versionHash: persistedReceipt.versionHash,
+                updatedAt: persistedReceipt.updatedAt,
+              },
+            ]
+          : undefined,
       note: contentChanged
         ? "Element promoted to a component instance and persisted via the deterministic HTML-patch path."
         : "No change applied — the element could not be annotated (missing source span).",

@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["de-DE"],
   designEditor: {
     ...messagesByLocale["de-DE"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["de-DE"].designEditor.componentInstances,
+      restore: "Komponente wiederherstellen",
+    },
     commenterRoleLabel: "Kommentator",
     commenterRoleDescription: "Kann ansehen und Prüfkommentare hinzufügen",
     toasts: {

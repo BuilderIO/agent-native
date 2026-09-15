@@ -1,3 +1,5 @@
+import type { EditIntent } from "@shared/code-layer";
+import type { ComponentDeletionGeometry } from "@shared/component-archive";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { RefObject } from "react";
 
@@ -5,6 +7,7 @@ import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state"
 import type {
   ContentHistoryChange,
   ContentHistoryReservation,
+  GeometryHistorySelection,
 } from "@/pages/design-editor/history";
 
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
@@ -22,7 +25,19 @@ export type LinkedComponentEdit =
     }
   | { kind: "textContent"; value: string }
   | { kind: "layerName"; value: string }
-  | { kind: "resetOverrides" };
+  | { kind: "resetOverrides" }
+  | { kind: "deleteMain"; deletionGeometry?: ComponentDeletionGeometry }
+  | { kind: "restoreMain" }
+  | {
+      kind: "structure";
+      before: string;
+      after: string;
+      selectionNodeIds?: string[];
+    }
+  | {
+      kind: "structure";
+      intents: EditIntent[];
+    };
 
 export interface LinkedComponentEditPayload {
   designId: string;
@@ -49,6 +64,10 @@ export interface LinkedComponentActionResult {
   error?: string;
   ctaRequired?: boolean;
   ctaMessage?: string;
+  selection?: {
+    fileId: string;
+    nodeIds: string[];
+  };
   changes?: LinkedComponentActionChange[];
   sourceBases?: Array<{
     fileId: string;
@@ -86,11 +105,42 @@ export interface LinkedComponentMutationQueueArgs {
       updatedAt: string;
     },
   ) => ApplyFileContentUpdateResult;
-  reserveContentHistory: () => ContentHistoryReservation;
+  applySelection?: (
+    selection: NonNullable<LinkedComponentActionResult["selection"]>,
+  ) => GeometryHistorySelection | void;
+  reserveContentHistory: (
+    selectionBefore?: GeometryHistorySelection,
+  ) => ContentHistoryReservation;
   waitForHostWrites: (fileIds: string[]) => Promise<void>;
   syncUndoRedoState: () => void;
   refreshAfterConflict: () => void | Promise<unknown>;
   reportFailure: (message: string) => void;
+}
+
+export interface LinkedComponentSourceMutationRequest<
+  TResult extends LinkedComponentActionResult = LinkedComponentActionResult,
+> {
+  fileId: string;
+  selectionBefore?: GeometryHistorySelection;
+  run: (source: { content: string; versionHash: string }) => Promise<TResult>;
+  validate: (
+    result: TResult,
+    source: {
+      fileId: string;
+      content: string;
+      versionHash: string;
+    },
+  ) => LinkedComponentActionChange | null;
+  onApplied?: () => void;
+}
+
+export interface LinkedComponentSourceMutationOutcome<
+  TResult extends LinkedComponentActionResult,
+> {
+  result: TResult;
+  historyRecorded: boolean;
+  change?: LinkedComponentActionChange;
+  hostSync: "skipped" | "accepted" | "deferred" | "refused";
 }
 
 interface QueueBatch {
@@ -209,6 +259,40 @@ function validateActionResult(
     throw new Error("The linked component action did not confirm persistence.");
   }
   return changes;
+}
+
+function validateActionSelection(
+  batch: QueueBatch,
+  selection: unknown,
+): NonNullable<LinkedComponentActionResult["selection"]> | undefined {
+  if (selection === undefined) return undefined;
+  if (typeof selection !== "object") {
+    throw new Error(
+      "The linked component action returned an invalid durable selection.",
+    );
+  }
+  const candidate = selection as {
+    fileId?: unknown;
+    nodeIds?: unknown;
+  };
+  if (
+    typeof candidate.fileId !== "string" ||
+    candidate.fileId.trim().length === 0 ||
+    !batch.fileIds.includes(candidate.fileId) ||
+    !Array.isArray(candidate.nodeIds) ||
+    candidate.nodeIds.some(
+      (nodeId) => typeof nodeId !== "string" || nodeId.trim().length === 0,
+    ) ||
+    new Set(candidate.nodeIds).size !== candidate.nodeIds.length
+  ) {
+    throw new Error(
+      "The linked component action returned an invalid durable selection.",
+    );
+  }
+  return {
+    fileId: candidate.fileId,
+    nodeIds: candidate.nodeIds as string[],
+  };
 }
 
 function assertEditorSourceUnchanged(
@@ -347,7 +431,7 @@ export function createLinkedComponentMutationQueue(
       if (acknowledgedContent.get(change.fileId) !== change.after) record();
     }
   };
-  const schedule = (run: () => Promise<void>): Promise<void> => {
+  const schedule = <T>(run: () => Promise<T>): Promise<T> => {
     queued += 1;
     args.syncUndoRedoState();
     const operation = chain.then(run).finally(() => {
@@ -358,8 +442,142 @@ export function createLinkedComponentMutationQueue(
       }
       args.syncUndoRedoState();
     });
-    chain = operation.catch(() => {});
+    chain = operation.then(
+      () => undefined,
+      () => undefined,
+    );
     return operation;
+  };
+  type MutationPreparation<TResult extends LinkedComponentActionResult> = {
+    result: TResult;
+    changes: LinkedComponentActionChange[];
+    skip?: boolean;
+    nextSourceBases: Map<
+      string,
+      { fileId: string; versionHash: string; updatedAt: string }
+    >;
+  };
+  const runQueuedMutation = async <TResult extends LinkedComponentActionResult>(
+    selectionBefore: GeometryHistorySelection | undefined,
+    reservationRef: { current: ContentHistoryReservation | undefined },
+    prepare: (activeBatch: QueueBatch) => Promise<MutationPreparation<TResult>>,
+    onApplied?: () => void,
+  ): Promise<LinkedComponentSourceMutationOutcome<TResult>> => {
+    let changes: LinkedComponentActionChange[] = [];
+    let confirmed = false;
+    try {
+      if (failure) throw failure;
+      reservationRef.current ??= args.reserveContentHistory(selectionBefore);
+      const activeBatch = (batch ??= await startBatch());
+      assertEditorSourceUnchanged(args, activeBatch);
+      observing = true;
+      const preparation = await prepare(activeBatch);
+      changes = preparation.changes;
+      if (preparation.skip) {
+        reservationRef.current.cancel();
+        reservationRef.current = undefined;
+        return {
+          result: preparation.result,
+          historyRecorded: false,
+          hostSync: "skipped",
+        };
+      }
+      for (const change of changes)
+        acknowledgedContent.set(
+          change.fileId,
+          args.canonicalizeSourceContent(change.fileId, change.after),
+        );
+      const historyChanges = changes.map(({ fileId, before, after }) => ({
+        fileId,
+        before: args.canonicalizeSourceContent(fileId, before),
+        after: args.canonicalizeSourceContent(fileId, after),
+      }));
+      // A committed server operation stays in history even if local publication must recover.
+      reservationRef.current.commit(historyChanges);
+      confirmed = true;
+      const selection = validateActionSelection(
+        activeBatch,
+        preparation.result.selection,
+      );
+      assertEditorSourceUnchanged(args, activeBatch, changes);
+      await args.waitForHostWrites(activeBatch.fileIds);
+      assertEditorSourceUnchanged(args, activeBatch, changes);
+      let hostSync: "accepted" | "deferred" = "accepted";
+      for (const change of changes) {
+        const applied = args.applyFileContentUpdate(
+          change.fileId,
+          change.after,
+          {
+            persist: false,
+            recordHistory: false,
+            historyBeforeContent: change.before,
+            sourceBaseContent: change.before,
+            updatedAt: change.updatedAt,
+          },
+        );
+        if (applied.status === "deferred") {
+          hostSync = "deferred";
+          await args.waitForHostWrites([change.fileId]);
+          if (
+            args.getContent(change.fileId) !==
+            args.canonicalizeSourceContent(change.fileId, change.after)
+          ) {
+            throw new Error(
+              "The saved linked component update has not reached the editor.",
+            );
+          }
+        } else if (applied.status !== "accepted") {
+          throw new Error(
+            "The editor refused the saved linked component update.",
+          );
+        }
+        activeBatch.content.set(change.fileId, change.after);
+      }
+      activeBatch.sourceBases = preparation.nextSourceBases;
+      if (selection && args.applySelection) {
+        const selectionAfter = args.applySelection(selection);
+        if (selectionAfter) {
+          // Keep the reservation's pre-action selection for Undo while
+          // replacing only its Redo snapshot after replay resolves the
+          // newly created or promoted durable nodes.
+          reservationRef.current.commit(historyChanges, selectionAfter);
+        }
+      }
+      onApplied?.();
+      return {
+        result: preparation.result,
+        historyRecorded: true,
+        change: changes.length === 1 ? changes[0] : undefined,
+        hostSync,
+      };
+    } catch (error) {
+      if (!confirmed) reservationRef.current?.cancel();
+      if (!failure) {
+        failure = error instanceof Error ? error : new Error(String(error));
+        // Release before refreshing: canonical reconciliation may itself enqueue a save.
+        releaseBatch();
+        const message = failure.message;
+        try {
+          await args.refreshAfterConflict();
+          if (
+            confirmed &&
+            changes.length > 0 &&
+            changes.every(
+              (change) =>
+                args.getContent(change.fileId) ===
+                args.canonicalizeSourceContent(change.fileId, change.after),
+            )
+          ) {
+            failure = null;
+          }
+        } finally {
+          args.reportFailure(message);
+        }
+      }
+      throw error;
+    } finally {
+      drainExternalCheckpoints(changes);
+    }
   };
   return {
     hasPending: () => queued > 0,
@@ -377,111 +595,132 @@ export function createLinkedComponentMutationQueue(
       fileId: string,
       nodeId: string,
       edit: LinkedComponentEdit,
+      selectionBefore?: GeometryHistorySelection,
+      onApplied?: () => void,
     ): Promise<void> => {
       // Edits after an Undo barrier reserve only after that Undo has consumed its entry.
-      let reservation =
-        barriers === 0 ? args.reserveContentHistory() : undefined;
+      const reservationRef = {
+        current:
+          barriers === 0
+            ? args.reserveContentHistory(selectionBefore)
+            : undefined,
+      };
       if (queued === 0) failure = null;
-      return schedule(async () => {
-        let changes: LinkedComponentActionChange[] = [];
-        let confirmed = false;
-        try {
-          if (failure) throw failure;
-          reservation ??= args.reserveContentHistory();
-          batch ??= await startBatch();
-          assertEditorSourceUnchanged(args, batch);
-          observing = true;
-          const result = await args.invokeAction({
-            designId: args.designId,
-            fileId,
-            nodeId,
-            edit,
-            source: {
-              expectedFiles: batch.fileIds.map((id) => ({
-                fileId: id,
-                versionHash: batch!.sourceBases.get(id)!.versionHash,
-              })),
-            },
-          });
-          changes = validateActionResult(batch, result);
-          for (const change of changes)
-            acknowledgedContent.set(
-              change.fileId,
-              args.canonicalizeSourceContent(change.fileId, change.after),
-            );
-          // A committed server operation stays in history even if local publication must recover.
-          reservation.commit(
-            changes.map(({ fileId, before, after }) => ({
+      return schedule(() =>
+        runQueuedMutation(
+          selectionBefore,
+          reservationRef,
+          async (activeBatch) => {
+            const result = await args.invokeAction({
+              designId: args.designId,
               fileId,
-              before: args.canonicalizeSourceContent(fileId, before),
-              after: args.canonicalizeSourceContent(fileId, after),
-            })),
-          );
-          confirmed = true;
-          assertEditorSourceUnchanged(args, batch, changes);
-          await args.waitForHostWrites(batch.fileIds);
-          assertEditorSourceUnchanged(args, batch, changes);
-          for (const change of changes) {
-            const applied = args.applyFileContentUpdate(
-              change.fileId,
-              change.after,
-              {
-                persist: false,
-                recordHistory: false,
-                historyBeforeContent: change.before,
-                sourceBaseContent: change.before,
-                updatedAt: change.updatedAt,
+              nodeId,
+              edit,
+              source: {
+                expectedFiles: activeBatch.fileIds.map((id) => ({
+                  fileId: id,
+                  versionHash: activeBatch.sourceBases.get(id)!.versionHash,
+                })),
               },
-            );
-            if (applied.status === "deferred") {
-              await args.waitForHostWrites([change.fileId]);
-              if (
-                args.getContent(change.fileId) !==
-                args.canonicalizeSourceContent(change.fileId, change.after)
-              ) {
-                throw new Error(
-                  "The saved linked component update has not reached the editor.",
-                );
-              }
-            } else if (applied.status !== "accepted") {
+            });
+            return {
+              result,
+              changes: validateActionResult(activeBatch, result),
+              nextSourceBases: new Map(
+                result.sourceBases!.map((base) => [base.fileId, base]),
+              ),
+            };
+          },
+          onApplied,
+        ),
+      ).then(() => undefined);
+    },
+    enqueueSourceMutation: <TResult extends LinkedComponentActionResult>(
+      request: LinkedComponentSourceMutationRequest<TResult>,
+    ): Promise<LinkedComponentSourceMutationOutcome<TResult>> => {
+      const reservationRef = {
+        current:
+          barriers === 0
+            ? args.reserveContentHistory(request.selectionBefore)
+            : undefined,
+      };
+      if (queued === 0) failure = null;
+      return schedule(() =>
+        runQueuedMutation(
+          request.selectionBefore,
+          reservationRef,
+          async (activeBatch) => {
+            const before = activeBatch.content.get(request.fileId);
+            const sourceBase = activeBatch.sourceBases.get(request.fileId);
+            if (before === undefined || !sourceBase) {
               throw new Error(
-                "The editor refused the saved linked component update.",
+                "The source mutation target is not an available HTML file.",
               );
             }
-            batch.content.set(change.fileId, change.after);
-          }
-          batch.sourceBases = new Map(
-            result.sourceBases!.map((base) => [base.fileId, base]),
-          );
-        } catch (error) {
-          if (!confirmed) reservation?.cancel();
-          if (!failure) {
-            failure = error instanceof Error ? error : new Error(String(error));
-            // Release before refreshing: canonical reconciliation may itself enqueue a save.
-            releaseBatch();
-            const message = failure.message;
-            try {
-              await args.refreshAfterConflict();
-              if (
-                confirmed &&
-                changes.length > 0 &&
-                changes.every(
-                  (change) =>
-                    args.getContent(change.fileId) ===
-                    args.canonicalizeSourceContent(change.fileId, change.after),
-                )
-              ) {
-                failure = null;
+            const source = {
+              content: before,
+              versionHash: sourceBase.versionHash,
+            };
+            const result = await request.run(source);
+            const validatedChange = request.validate(result, {
+              fileId: request.fileId,
+              ...source,
+            });
+            if (result.persisted !== true) {
+              if (validatedChange || (result.changes?.length ?? 0) > 0) {
+                throw new Error(
+                  "The source mutation returned changes without confirming persistence.",
+                );
               }
-            } finally {
-              args.reportFailure(message);
+              return {
+                result,
+                changes: [],
+                skip: true,
+                nextSourceBases: activeBatch.sourceBases,
+              };
             }
-          }
-          throw error;
-        } finally {
-          drainExternalCheckpoints(changes);
-        }
-      });
+            if (!validatedChange) {
+              throw new Error(
+                "The source mutation returned a stale or invalid persisted file change.",
+              );
+            }
+            const returnedSourceBases = result.sourceBases ?? [];
+            if (
+              returnedSourceBases.length !== 1 ||
+              returnedSourceBases[0]?.fileId !== request.fileId
+            ) {
+              throw new Error(
+                "The source mutation returned a different source file set.",
+              );
+            }
+            const normalizedResult: LinkedComponentActionResult = {
+              ...result,
+              sourceBases: activeBatch.fileIds.map((fileId) =>
+                fileId === request.fileId
+                  ? returnedSourceBases[0]!
+                  : activeBatch.sourceBases.get(fileId)!,
+              ),
+            };
+            const changes = validateActionResult(activeBatch, normalizedResult);
+            if (changes.length !== 1 || changes[0]?.fileId !== request.fileId) {
+              throw new Error(
+                "The source mutation returned a different source file set.",
+              );
+            }
+            return {
+              result,
+              changes,
+              nextSourceBases: new Map(
+                normalizedResult.sourceBases!.map((base) => [
+                  base.fileId,
+                  base,
+                ]),
+              ),
+            };
+          },
+          request.onApplied,
+        ),
+      );
     },
     deferHistoryChange: (run: () => void): boolean => {
       if (barriers === 0) return false;

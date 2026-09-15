@@ -16,6 +16,10 @@ import {
   type ComponentInstance,
 } from "./component-model";
 import type { TailwindBreakpointPrefix } from "./design-state.js";
+import {
+  ensureGroupRuntime,
+  MEASURED_FLOW_GROUP_ATTR,
+} from "./group-runtime.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
 import {
   getPropertyClasses,
@@ -550,6 +554,14 @@ export interface MoveNodeEditIntent {
  *
  * Returns "unsupported" if the targets don't share a common parent.
  */
+export interface WrapNodeSizeHint {
+  width: number;
+  height: number;
+  /** Parent-content-relative border-box position for an in-flow target. */
+  left?: number;
+  top?: number;
+}
+
 export interface WrapNodesEditIntent {
   kind: "wrapNodes";
   targetIds: string[];
@@ -557,14 +569,15 @@ export interface WrapNodesEditIntent {
   /** Defaults to a Group; auto-layout always creates a Frame. */
   wrapperKind?: "group" | "frame";
   /**
-   * Live-rendered width/height per projected target node id, used only as a fallback
-   * when a target's inline style has position/left/top but no explicit
-   * width/height (see computeAbsoluteUnionBounds). Optional: callers with no
-   * live DOM to measure (server-side edits, tests) simply omit it and get
-   * the previous behavior. A unique authored node id is also accepted for
+   * Live-rendered dimensions per projected target node id. Width/height are
+   * used as a fallback when an absolutely positioned target omits its own
+   * dimensions. left/top are parent-content-relative positions used to keep
+   * an in-flow group at its measured size while rebasing its direct children.
+   * Callers without live DOM measurements simply omit the hint and retain the
+   * source-only behavior. A unique authored node id is also accepted for
    * direct API callers; ambiguous authored ids are never hint aliases.
    */
-  sizeHints?: Record<string, { width: number; height: number }>;
+  sizeHints?: Record<string, WrapNodeSizeHint>;
 }
 
 /** Create an editable SVG-backed Boolean Subtract from supported shape siblings. */
@@ -6028,6 +6041,36 @@ const FLEX_ITEM_STRIP_PROPS = [
 ] as const;
 
 /**
+ * Properties whose old flow placement would be counted twice after a direct
+ * child is pinned to its measured position inside a new relative wrapper.
+ */
+const MEASURED_FLOW_REBASE_STRIP_PROPS = [
+  "position",
+  "left",
+  "top",
+  "right",
+  "bottom",
+  "inset",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "margin-block",
+  "margin-block-start",
+  "margin-block-end",
+  "margin-inline",
+  "margin-inline-start",
+  "margin-inline-end",
+] as const;
+
+/**
  * Strip absolute-positioning properties from a child's inline style, applying
  * the edit directly to the html string at the child element's source spans.
  * Returns the updated html string.
@@ -6144,6 +6187,30 @@ function stripFlexItemStylingFromChild(
 }
 
 /**
+ * Pin a flow child to its measured border-box position inside a relative
+ * wrapper. Margins and inset values contributed to the measured position in
+ * the old parent, so retaining them would offset the child a second time.
+ */
+function rebaseMeasuredFlowChild(
+  html: string,
+  child: ParsedElement,
+  left: number,
+  top: number,
+): string {
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  removeStyleDeclarations(declarations, MEASURED_FLOW_REBASE_STRIP_PROPS);
+  setStyleDeclaration(declarations, "position", "absolute");
+  setStyleDeclaration(declarations, "left", formatMeasuredPixel(left));
+  setStyleDeclaration(declarations, "top", formatMeasuredPixel(top));
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+}
+
+/**
  * L7: sequential "<baseName> N" naming. Counts existing layer names already
  * matching "<baseName>" or "<baseName> <number>" in the projection (via
  * data-agent-native-layer-name / layerName) and returns the next unused
@@ -6209,7 +6276,7 @@ function computeAbsoluteUnionBounds(
    * would otherwise return null and leave the wrapper with no geometry at
    * all (a frame that doesn't enclose its own content).
    */
-  sizeHints?: ReadonlyMap<ParsedElement, { width: number; height: number }>,
+  sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
 ): AbsoluteUnionBounds | null {
   let minLeft = Infinity;
   let minTop = Infinity;
@@ -6231,6 +6298,58 @@ function computeAbsoluteUnionBounds(
     minTop = Math.min(minTop, top);
     maxRight = Math.max(maxRight, left + width);
     maxBottom = Math.max(maxBottom, top + height);
+  }
+
+  if (
+    !Number.isFinite(minLeft) ||
+    !Number.isFinite(minTop) ||
+    !Number.isFinite(maxRight) ||
+    !Number.isFinite(maxBottom)
+  ) {
+    return null;
+  }
+
+  return {
+    left: minLeft,
+    top: minTop,
+    width: maxRight - minLeft,
+    height: maxBottom - minTop,
+  };
+}
+
+/**
+ * Compute a measured union for targets that currently participate in their
+ * parent's flow. The wrapper stays in that flow slot, so its parent-relative
+ * origin is deliberately not written to the wrapper; only its dimensions are
+ * persisted and each direct child is rebased into that local origin.
+ */
+function computeMeasuredFlowBounds(
+  elements: ParsedElement[],
+  sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
+): AbsoluteUnionBounds | null {
+  let minLeft = Infinity;
+  let minTop = Infinity;
+  let maxRight = -Infinity;
+  let maxBottom = -Infinity;
+
+  for (const element of elements) {
+    if (isOutOfFlowElement(element)) return null;
+    const hint = sizeHints?.get(element);
+    if (
+      !hint ||
+      !Number.isFinite(hint.left) ||
+      !Number.isFinite(hint.top) ||
+      !Number.isFinite(hint.width) ||
+      !Number.isFinite(hint.height) ||
+      hint.width < 0 ||
+      hint.height < 0
+    ) {
+      return null;
+    }
+    minLeft = Math.min(minLeft, hint.left!);
+    minTop = Math.min(minTop, hint.top!);
+    maxRight = Math.max(maxRight, hint.left! + hint.width);
+    maxBottom = Math.max(maxBottom, hint.top! + hint.height);
   }
 
   if (
@@ -6297,10 +6416,7 @@ function applyWrapNodes(
   // Resolve selected projection identities exactly; the authored ID fallback
   // is only for legacy callers whose ID is unique in this projection.
   const targetElements: ParsedElement[] = [];
-  const sizeHintsByElement = new Map<
-    ParsedElement,
-    { width: number; height: number }
-  >();
+  const sizeHintsByElement = new Map<ParsedElement, WrapNodeSizeHint>();
   const authoredNodeIdCounts = new Map<string, number>();
   for (const node of build.projection.nodes) {
     const authoredNodeId = node.dataAttributes["data-agent-native-node-id"];
@@ -6385,6 +6501,10 @@ function applyWrapNodes(
     targetElements,
     sizeHintsByElement,
   );
+  const measuredFlowGeometry =
+    !autoLayout && !targetGeometry
+      ? computeMeasuredFlowBounds(targetElements, sizeHintsByElement)
+      : null;
 
   // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
@@ -6411,6 +6531,18 @@ function applyWrapNodes(
           -targetGeometry.top,
         );
       }
+    } else if (measuredFlowGeometry) {
+      const hint = sizeHintsByElement.get(el);
+      const fragElements = parseHtmlElements(frag);
+      const root = fragElements.find((fe) => fe.parentIndex === undefined);
+      if (hint && root) {
+        frag = rebaseMeasuredFlowChild(
+          frag,
+          root,
+          hint.left! - measuredFlowGeometry.left,
+          hint.top! - measuredFlowGeometry.top,
+        );
+      }
     }
     return frag;
   });
@@ -6428,12 +6560,20 @@ function applyWrapNodes(
       : autoLayoutStyle
     : targetGeometry
       ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
-      : null;
+      : measuredFlowGeometry
+        ? `position: relative; width: ${formatMeasuredPixel(measuredFlowGeometry.width)}; height: ${formatMeasuredPixel(measuredFlowGeometry.height)};`
+        : null;
   const wrapperStyleAttr = wrapperStyle ? ` style="${wrapperStyle}"` : "";
   const wrapperKindAttr = wrapperIsFrame
     ? ' data-an-primitive="frame"'
     : ' data-agent-native-group="true"';
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${wrapperStyleAttr}>`;
+  const hasMeasuredGroupRuntime = Boolean(
+    measuredFlowGeometry && !wrapperIsFrame,
+  );
+  const measuredFlowAttr = hasMeasuredGroupRuntime
+    ? ` ${MEASURED_FLOW_GROUP_ATTR}="true"`
+    : "";
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${measuredFlowAttr}${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
@@ -6464,6 +6604,7 @@ function applyWrapNodes(
   const insertAt = lastTargetStart - bytesRemovedBefore;
 
   result = `${result.slice(0, insertAt)}${wrapperContent}${result.slice(insertAt)}`;
+  if (hasMeasuredGroupRuntime) result = ensureGroupRuntime(result);
 
   return {
     content: result,
@@ -6874,6 +7015,10 @@ function parsePixelLength(value: string | undefined): number | null {
   if (!match) return null;
   const parsed = Number(match[1]);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatMeasuredPixel(value: number): string {
+  return `${Number(value.toFixed(4))}px`;
 }
 
 /**
@@ -7769,6 +7914,7 @@ function applyVisualEditUnsafe(
   intent: EditIntent,
   options: {
     source?: CodeLayerSource;
+    allowMainComponentStructure?: boolean;
     moveNode?: {
       destinationIsFlow?: boolean;
       sourceWasIgnoredInFlow?: boolean;
@@ -7826,7 +7972,7 @@ function applyVisualEditUnsafe(
     structureTargets.some((node) => {
       if (!node) return false;
       if (
-        intent.kind === "deleteNode" &&
+        (intent.kind === "deleteNode" || intent.kind === "unwrap") &&
         initial.projection.nodes.some(
           (candidate) =>
             Object.prototype.hasOwnProperty.call(
@@ -7846,9 +7992,13 @@ function applyVisualEditUnsafe(
           : initial.projection.nodes.find(
               (parent) => parent.id === node.parentId,
             );
+      const linkedRoot = affectedParent
+        ? linkedComponentRootForNode(affectedParent, initial.projection)
+        : null;
       return (
-        affectedParent &&
-        linkedComponentRootForNode(affectedParent, initial.projection)
+        linkedRoot &&
+        (!options.allowMainComponentStructure ||
+          !linkedRoot.dataAttributes[COMPONENT_ID_ATTR])
       );
     })
   ) {
@@ -8189,9 +8339,16 @@ function applyVisualEditUnsafe(
             (node) => node.id === anchorResolution.node!.parentId,
           );
     if (
-      [sourceParent, destinationParentNode].some(
-        (node) => node && linkedComponentRootForNode(node, initial.projection),
-      )
+      [sourceParent, destinationParentNode].some((node) => {
+        const linkedRoot = node
+          ? linkedComponentRootForNode(node, initial.projection)
+          : null;
+        return (
+          linkedRoot &&
+          (!options.allowMainComponentStructure ||
+            !linkedRoot.dataAttributes[COMPONENT_ID_ATTR])
+        );
+      })
     ) {
       return {
         content: html,
@@ -8300,6 +8457,8 @@ export function applyVisualEdit(
   intent: EditIntent,
   options: {
     source?: CodeLayerSource;
+    /** Only the atomic linked-component action may publish this transform. */
+    allowMainComponentStructure?: boolean;
     moveNode?: {
       destinationIsFlow?: boolean;
       sourceWasIgnoredInFlow?: boolean;

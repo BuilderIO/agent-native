@@ -593,6 +593,11 @@ import { runCommitVisualStyles } from "./design-editor/commands/commit-visual-st
 import { runConfirmMakeReal } from "./design-editor/commands/confirm-make-real";
 import { runCopyAsFigmaSvg } from "./design-editor/commands/copy-as-figma-svg";
 import { runCopySelection } from "./design-editor/commands/copy-selection";
+import {
+  createComponentActionChange,
+  runCreateComponent,
+  type CreateComponentActionResult,
+} from "./design-editor/commands/create-component";
 import { runCreatePrimitive } from "./design-editor/commands/create-primitive";
 import { runCreateScreenFrame } from "./design-editor/commands/create-screen-frame";
 import { runCrossScreenElementDrop } from "./design-editor/commands/cross-screen-element-drop";
@@ -632,6 +637,7 @@ import {
   type LinkedComponentEdit,
   type LinkedComponentMutationQueueArgs,
 } from "./design-editor/commands/linked-component-mutation";
+import { resolveLinkedComponentSelection } from "./design-editor/commands/linked-component-structure";
 import { runModeChange } from "./design-editor/commands/mode-change";
 import { runNudgeSelection } from "./design-editor/commands/nudge-selection";
 import {
@@ -3555,6 +3561,7 @@ function DesignEditor() {
   // §6.4 breakpoint mutations — wired to MultiScreenCanvas + BreakpointBar
   const addBreakpointMutation = useActionMutation("add-breakpoint");
   const removeBreakpointMutation = useActionMutation("remove-breakpoint");
+  const updateBreakpointMutation = useActionMutation("update-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
   );
@@ -3595,7 +3602,6 @@ function DesignEditor() {
   const [breakpointFramesHidden, setBreakpointFramesHidden] = useState(false);
 
   // §6.1 — promote a selection into a reusable component instance.
-  const createComponentMutation = useActionMutation("create-component");
   // §6.1 — jump to a component instance's source (selects the root + navigates).
   const openComponentSourceMutation = useActionMutation(
     "open-component-source",
@@ -6137,6 +6143,7 @@ function DesignEditor() {
         canvasFrameGeometryById: exportCanvasFrameGeometryById,
         boardContentBounds,
         boardFileId,
+        includeResponsivePreviews: true,
       });
       const bounds = getFrameGroupBounds(frames);
       // 56px matches the overview grid's own screen-to-screen gap
@@ -8129,6 +8136,14 @@ function DesignEditor() {
     if (selectedElement.componentName?.trim()) return true;
     return codeLayerNodeLooksLikeComponent(selectedCodeLayerNode);
   }, [selectedCodeLayerNode, selectedElement]);
+  const selectedElementInsideComponent = useMemo(() => {
+    if (!selectedCodeLayerNode) return false;
+    const root = linkedComponentRootForNode(
+      selectedCodeLayerNode,
+      activeCodeLayerProjection,
+    );
+    return Boolean(root && root.id !== selectedCodeLayerNode.id);
+  }, [activeCodeLayerProjection, selectedCodeLayerNode]);
 
   useEffect(() => {
     clearShaderFillPreview();
@@ -8359,58 +8374,59 @@ function DesignEditor() {
 
   const handleCreateComponent = useCallback(
     (name: string) => {
-      if (!id || !selectedElement) return;
+      if (
+        !canEditDesign ||
+        !id ||
+        !activeFileId ||
+        !selectedElement ||
+        selectedElementInsideComponent
+      ) return;
+      const current = linkedComponentMutationQueueRef.current;
+      if (current?.designId !== id) return;
       const nodeId = selectedElementLayerId ?? undefined;
       const selector = selectedCanvasSelector ?? selectedElement.selector;
-      createComponentMutation.mutate(
+      void runCreateComponent(
         {
+          canEditDesign,
           designId: id,
-          nodeId,
-          selector,
-          name,
-          fileId: activeFileId ?? undefined,
-        } as any,
-        {
-          onSuccess: () => {
-            void queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
-            toast.success(t("designEditor.toasts.componentCreated"));
-          },
-          onError: () => {
-            toast.error(t("designEditor.toasts.componentCreateFailed"));
+          fileId: activeFileId,
+          selectionBefore: captureCurrentSelection(),
+          createComponent: (request) =>
+            callAction<CreateComponentActionResult>(
+              "create-component",
+              request,
+            ),
+          mutationTransaction: {
+            enqueue: (request) =>
+              current.queue.enqueueSourceMutation({
+                ...request,
+                validate: createComponentActionChange,
+              }),
           },
         },
-      );
-
-      // Follow-up: ask the Design agent to extract props and replace repeated
-      // instances with this component. The deterministic annotate above is the
-      // core; this is an enhancement that runs in the agent chat.
-      sendToDesignAgentChat({
-        message: `Extract props for the "${name}" component and replace repeated instances on this design with it.`,
-        context: [
-          `Design id: "${id}".`,
-          selectedElement.selector
-            ? `Component root selector: ${selectedElement.selector}.`
-            : "",
-          nodeId ? `Component root node id: ${nodeId}.` : "",
-          `The element was just annotated with data-agent-native-component="${name}".`,
-          "Call view-screen first, then use get-code-layer-projection to find repeated instances, and apply-visual-edit / apply-component-prop-edit to converge them on this component with data-agent-native-prop-* props.",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        submit: true,
-        openSidebar: true,
-      });
+        { nodeId, selector, name },
+      )
+        .then((outcome) => {
+          if (!outcome) return;
+          if (!outcome.historyRecorded) {
+            toast.error(t("designEditor.toasts.componentCreateFailed"));
+            return;
+          }
+          if (outcome.hostSync === "accepted") {
+            toast.success(t("designEditor.toasts.componentCreated"));
+          }
+        })
+        .catch(() => {});
     },
     [
+      canEditDesign,
+      captureCurrentSelection,
       id,
       selectedElement,
       selectedElementLayerId,
       selectedCanvasSelector,
       activeFileId,
-      createComponentMutation,
-      queryClient,
+      selectedElementInsideComponent,
       t,
     ],
   );
@@ -8427,7 +8443,8 @@ function DesignEditor() {
       !canEditDesign ||
       !id ||
       !selectedElement ||
-      selectedElementAlreadyComponent
+      selectedElementAlreadyComponent ||
+      selectedElementInsideComponent
     ) {
       return;
     }
@@ -8437,6 +8454,7 @@ function DesignEditor() {
     id,
     selectedElement,
     selectedElementAlreadyComponent,
+    selectedElementInsideComponent,
     handleCreateComponent,
     defaultComponentName,
   ]);
@@ -8881,13 +8899,44 @@ function DesignEditor() {
           ),
         applyFileContentUpdate: (fileId, content, options) =>
           applyFileContentUpdate(fileId, content, options),
-        reserveContentHistory: () => {
+        applySelection: (selection) => {
+          const cached = queryClient.getQueryData<{ files: DesignFile[] }>([
+            "action",
+            "get-design",
+            { id },
+          ]);
+          const file = cached?.files.find(
+            (file) => file.id === selection.fileId,
+          );
+          if (typeof file?.content !== "string") {
+            throw new Error(
+              "The saved component file is unavailable for selection.",
+            );
+          }
+          const { snapshot, nodes } = resolveLinkedComponentSelection({
+            ...selection,
+            content: file.content,
+            previous: captureCurrentSelection(),
+          });
+          flushSync(() => {
+            restoreSelectionSnapshot(snapshot);
+            setSelectedElement(
+              nodes.length === 1
+                ? elementInfoFromCodeLayerNode(nodes[0]!)
+                : null,
+            );
+            pendingOverviewLayerSelectionRef.current =
+              nodes.length === 1 ? nodes[0]!.id : null;
+          });
+          return snapshot;
+        },
+        reserveContentHistory: (selectionBefore) => {
           undoManagerRef.current?.stopCapturing();
           const reservation = reserveLinkedComponentContentHistory({
             stack: contentUndoStackRef,
             selections: contentUndoSelectionStackRef,
             order: historyOrderRef,
-            selection: captureCurrentSelection(),
+            selection: selectionBefore ?? captureCurrentSelection(),
             after: contentHistorySelectionAfterRef,
             clearRedoStacks,
           });
@@ -8940,7 +8989,10 @@ function DesignEditor() {
         invokeAction: (payload) => currentRuntime().invokeAction(payload),
         applyFileContentUpdate: (fileId, content, options) =>
           currentRuntime().applyFileContentUpdate(fileId, content, options),
-        reserveContentHistory: () => currentRuntime().reserveContentHistory(),
+        applySelection: (selection) =>
+          currentRuntime().applySelection?.(selection),
+        reserveContentHistory: (selectionBefore) =>
+          currentRuntime().reserveContentHistory(selectionBefore),
         waitForHostWrites: (fileIds) =>
           currentRuntime().waitForHostWrites(fileIds),
         syncUndoRedoState: () => currentRuntimeIfActive()?.syncUndoRedoState(),
@@ -8952,7 +9004,13 @@ function DesignEditor() {
     };
   }
   const applyLinkedComponentEdit = useCallback(
-    (fileId: string, nodeId: string, edit: LinkedComponentEdit) => {
+    (
+      fileId: string,
+      nodeId: string,
+      edit: LinkedComponentEdit,
+      selectionBefore?: GeometryHistorySelection,
+      onApplied?: () => void,
+    ) => {
       const current = linkedComponentMutationQueueRef.current;
       if (!id || current?.designId !== id) {
         toast.error(t("designEditor.patchProof.selectorMissing"), {
@@ -8960,7 +9018,9 @@ function DesignEditor() {
         });
         return;
       }
-      void current.queue.enqueue(fileId, nodeId, edit).catch(() => {});
+      void current.queue
+        .enqueue(fileId, nodeId, edit, selectionBefore, onApplied)
+        .catch(() => {});
     },
     [id, t],
   );
@@ -11802,6 +11862,7 @@ function DesignEditor() {
         {
           activeCanvasSourceType,
           activeFile,
+          applyLinkedComponentEdit,
           applyLocalContentUpdate,
           canEditDesign,
           getFreshActiveContent,
@@ -11819,6 +11880,7 @@ function DesignEditor() {
     [
       activeFile,
       activeCanvasSourceType,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
       getFreshActiveContent,
@@ -11842,6 +11904,31 @@ function DesignEditor() {
     [codeLayerSourceForScreen, files, getScreenContent],
   );
 
+  // U14: paste/duplicate re-stamp data-agent-native-node-id on the clone but
+  // previously never remapped motion tracks, so a duplicated/pasted animated
+  // layer silently lost its animation (the compiled CSS still targeted the
+  // OLD node id). Clones any track whose targetNodeId is in nodeIdMap onto
+  // the new id. Only meaningful when targetFileId's timeline is the one
+  // currently loaded into motionTracks state (tracks aren't kept per-file).
+  const remapMotionTracksForClone = useCallback(
+    (nodeIdMap: Map<string, string>, targetFileId: string) => {
+      if (nodeIdMap.size === 0) return;
+      if (previousMotionFileIdRef.current !== targetFileId) return;
+      setMotionTracks((current) => {
+        const cloned = current
+          .filter((track) => nodeIdMap.has(track.targetNodeId))
+          .map((track) => ({
+            ...track,
+            targetNodeId: nodeIdMap.get(track.targetNodeId)!,
+          }));
+        if (cloned.length === 0) return current;
+        return [...current, ...cloned];
+      });
+      setMotionTracksDirty(true);
+    },
+    [],
+  );
+
   const handleVisualDuplicateChange = useCallback(
     (
       selector: string,
@@ -11858,11 +11945,14 @@ function DesignEditor() {
       runVisualDuplicateChange(
         {
           activeFile,
+          applyLinkedComponentEdit,
+          selectionBefore: captureCurrentSelection(),
           componentLinks: activeFile
             ? componentCloneContextForFile(activeFile.id)
             : undefined,
           applyLocalContentUpdate,
           canEditDesign,
+          remapMotionTracksForClone,
           getFreshActiveContent,
           selectedElement,
           selectedLayerIdsState,
@@ -11877,6 +11967,8 @@ function DesignEditor() {
         details,
       ),
     [
+      remapMotionTracksForClone,
+      applyLinkedComponentEdit,
       activeFile,
       applyLocalContentUpdate,
       canEditDesign,
@@ -12010,6 +12102,7 @@ function DesignEditor() {
       runScreenVisualStructureChange(
         {
           activeFile,
+          applyLinkedComponentEdit,
           applyFileContentUpdate,
           canEditDesign,
           designSourceType,
@@ -12038,6 +12131,7 @@ function DesignEditor() {
       handleVisualStructureChange,
       overviewScreens,
       recordPendingLiveStructureEdit,
+      applyLinkedComponentEdit,
       t,
     ],
   );
@@ -12059,8 +12153,11 @@ function DesignEditor() {
       runScreenVisualDuplicateChange(
         {
           activeFile,
+          applyLinkedComponentEdit,
+          selectionBefore: captureCurrentSelection(),
           applyFileContentUpdate,
           canEditDesign,
+          remapMotionTracksForClone,
           componentLinksForFile: componentCloneContextForFile,
           getScreenContent,
           handleVisualDuplicateChange,
@@ -12073,6 +12170,8 @@ function DesignEditor() {
         details,
       ),
     [
+      remapMotionTracksForClone,
+      applyLinkedComponentEdit,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
@@ -12189,31 +12288,6 @@ function DesignEditor() {
   const getCanvasScreenClipboardEntries = useCallback(() => {
     return copiedScreenEntriesRef.current ?? [];
   }, []);
-
-  // U14: paste/duplicate re-stamp data-agent-native-node-id on the clone but
-  // previously never remapped motion tracks, so a duplicated/pasted animated
-  // layer silently lost its animation (the compiled CSS still targeted the
-  // OLD node id). Clones any track whose targetNodeId is in nodeIdMap onto
-  // the new id. Only meaningful when targetFileId's timeline is the one
-  // currently loaded into motionTracks state (tracks aren't kept per-file).
-  const remapMotionTracksForClone = useCallback(
-    (nodeIdMap: Map<string, string>, targetFileId: string) => {
-      if (nodeIdMap.size === 0) return;
-      if (previousMotionFileIdRef.current !== targetFileId) return;
-      setMotionTracks((current) => {
-        const cloned = current
-          .filter((track) => nodeIdMap.has(track.targetNodeId))
-          .map((track) => ({
-            ...track,
-            targetNodeId: nodeIdMap.get(track.targetNodeId)!,
-          }));
-        if (cloned.length === 0) return current;
-        return [...current, ...cloned];
-      });
-      setMotionTracksDirty(true);
-    },
-    [],
-  );
 
   // Adopts a marker payload found in the live rich clipboard into this tab's
   // in-memory clipboard refs (see U4).
@@ -12385,6 +12459,8 @@ function DesignEditor() {
       runPasteSelection(
         {
           activeFile,
+          applyLinkedComponentEdit,
+          selectionBefore: captureCurrentSelection(),
           designId: id,
           applyFileContentUpdate,
           applyLocalContentUpdate,
@@ -12421,6 +12497,7 @@ function DesignEditor() {
         position,
       ),
     [
+      applyLinkedComponentEdit,
       activeFile,
       id,
       applyFileContentUpdate,
@@ -12851,6 +12928,8 @@ function DesignEditor() {
     () =>
       runDuplicateSelection({
         activeFile,
+        applyLinkedComponentEdit,
+        selectionBefore: captureCurrentSelection(),
         designId: id,
         applyFileContentUpdate,
         applyLocalContentUpdate,
@@ -12874,6 +12953,7 @@ function DesignEditor() {
         viewModeRef,
       }),
     [
+      applyLinkedComponentEdit,
       activeFile,
       id,
       applyFileContentUpdate,
@@ -12902,6 +12982,8 @@ function DesignEditor() {
         activeBreakpointWidthStateRef,
         activeCanvasSourceType,
         activeFile,
+        boardFileId,
+        boardSelectionWorldBounds: boardSelectionWorldBoundsRef.current,
         applyFileContentUpdate,
         applyLocalContentUpdate,
         canEditDesign,
@@ -12931,6 +13013,7 @@ function DesignEditor() {
       activeBreakpointUpperBoundPx,
       activeCanvasSourceType,
       activeFile,
+      boardFileId,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       canEditDesign,
@@ -13023,8 +13106,11 @@ function DesignEditor() {
   const handleGroupSelection = useCallback(
     () =>
       runGroupSelection({
+        activeBreakpointWidthState,
         activeFile,
+        applyLinkedComponentEdit,
         applyLocalContentUpdate,
+        boardFileId,
         canEditDesign,
         codeLayerOwnerByNodeIdRef,
         contentHistorySelectionAfterRef,
@@ -13040,8 +13126,11 @@ function DesignEditor() {
         undoManagerRef,
       }),
     [
+      activeBreakpointWidthState,
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
+      boardFileId,
       canEditDesign,
       files,
       getFreshActiveContent,
@@ -13092,6 +13181,7 @@ function DesignEditor() {
       runFrameSelection({
         activeBreakpointWidthState,
         activeFile,
+        applyLinkedComponentEdit,
         applyLocalContentUpdate,
         boardFileId,
         canEditDesign,
@@ -13109,6 +13199,7 @@ function DesignEditor() {
     [
       activeBreakpointWidthState,
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
@@ -13942,6 +14033,7 @@ function DesignEditor() {
     () =>
       runUngroupSelection({
         activeFile,
+        applyLinkedComponentEdit,
         applyLocalContentUpdate,
         canEditDesign,
         codeLayerOwnerByNodeIdRef,
@@ -13955,6 +14047,7 @@ function DesignEditor() {
       }),
     [
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
       files,
@@ -14485,6 +14578,7 @@ function DesignEditor() {
       runChangeSelectedZIndex(
         {
           activeFile,
+          applyLinkedComponentEdit,
           applyLocalContentUpdate,
           canEditDesign,
           codeLayerOwnerByNodeIdRef,
@@ -14498,6 +14592,7 @@ function DesignEditor() {
       ),
     [
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
       commitVisualStyles,
@@ -14566,6 +14661,7 @@ function DesignEditor() {
       runNudgeSelection(
         {
           activeFile,
+          applyLinkedComponentEdit,
           applyLocalContentUpdate,
           boardFileId,
           boardFrameGeometry,
@@ -14592,6 +14688,7 @@ function DesignEditor() {
     [
       activeCanvasSourceType,
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       boardFileId,
       boardFrameGeometry,
@@ -20506,6 +20603,7 @@ function DesignEditor() {
           contentUndoStackRef,
           contentHistorySelectionAfterRef,
           activeFile,
+          applyLinkedComponentEdit,
           applyFileContentUpdate,
           boardFileId,
           canEditDesign,
@@ -20554,6 +20652,7 @@ function DesignEditor() {
       recordLocalContentHistoryEntry,
       remapMotionTracksForClone,
       sendRuntimeLayerMoveSemanticHandoff,
+      applyLinkedComponentEdit,
       t,
       visualScreenFileIds,
     ],
@@ -21787,25 +21886,8 @@ function DesignEditor() {
     ],
   );
   // BP-DEEP v2 item 6 — "Change width" in the per-breakpoint "…" menu.
-  // There is no update-breakpoint action, so a width change is expressed
-  // through the existing action surface as add + (re-target) + remove
-  // (breakpoint ids are width-derived definitions, not referenced by scoped
-  // overrides — those are plain max-width media rules in the document, keyed
-  // by px value).
-  //
-  // Order matters: ADD the new width first, re-target the active edit scope
-  // to it if the changed breakpoint was active, and only THEN remove the old
-  // breakpoint. This is deliberately the reverse of remove-then-add. Under
-  // the old remove-first order, if the changed breakpoint was the active
-  // edit target and the add failed (or was merely slow), edits stayed scoped
-  // to an orphaned width — a @media bound that no longer existed as a
-  // breakpoint, with no frame rendering it. Adding first means a failed add
-  // aborts before anything is removed: the old breakpoint stays fully intact
-  // (in the set and, if it was active, still targeted), so there is no
-  // window where the edit scope points at a width with no backing
-  // breakpoint. `add-breakpoint` silently ignores duplicate widths and
-  // assigns the new breakpoint its own id, so there's no transient
-  // duplicate-width conflict with the old breakpoint still present.
+  // The action updates the existing definition in place, so a width change
+  // cannot expose an intermediate add/remove state or lose the active id.
   const handleBreakpointChangeWidth = useCallback(
     (breakpointId: string, widthPx: number) => {
       if (!id) return;
@@ -21819,50 +21901,40 @@ function DesignEditor() {
         return;
       }
       const label = breakpointLabelForWidth(widthPx);
-      void (async () => {
-        let addedBreakpointId: string | undefined;
-        try {
-          const addResult = await addBreakpointMutation.mutateAsync({
-            designId: id,
-            label,
-            widthPx,
+      void updateBreakpointMutation
+        .mutateAsync({
+          designId: id,
+          breakpointId,
+          label,
+          widthPx,
+        })
+        .then((result) => {
+          if (!result?.updated) {
+            toast.error(t("common.genericError"), {
+              description:
+                result?.reason ?? t("designEditor.breakpointBar.changeWidth"),
+            });
+            return;
+          }
+          if (activeBreakpointWidthStateRef.current === existing.widthPx) {
+            handleBreakpointBarSelect(widthPx, breakpointId);
+          }
+        })
+        .catch((error) => {
+          toast.error(t("common.genericError"), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t("designEditor.breakpointBar.changeWidth"),
           });
-          addedBreakpointId = addResult.breakpointSet.breakpoints.find(
-            (breakpoint) => breakpoint.widthPx === widthPx,
-          )?.id;
-          if (!addedBreakpointId) return;
-        } catch {
-          // Add failed: abort before touching the old breakpoint. The old
-          // width stays in the set and, if it was the active edit target,
-          // stays targeted — no orphaned scope.
-          return;
-        }
-        if (
-          activeBreakpointWidthStateRef.current === existing.widthPx &&
-          addedBreakpointId
-        ) {
-          handleBreakpointBarSelect(widthPx, addedBreakpointId);
-        }
-        try {
-          await removeBreakpointMutation.mutateAsync({
-            designId: id,
-            breakpointId,
-          });
-        } catch {
-          // The new width is already added (and, if applicable, already the
-          // active target); the old breakpoint lingering in the set on a
-          // failed remove is a harmless extra frame, not an orphaned scope.
-          // Server state stays the source of truth; the design query refetch
-          // reconciles it.
-        }
-      })();
+        });
     },
     [
       id,
       designBreakpoints,
-      removeBreakpointMutation,
-      addBreakpointMutation,
       handleBreakpointBarSelect,
+      t,
+      updateBreakpointMutation,
     ],
   );
 
@@ -22041,7 +22113,9 @@ function DesignEditor() {
       baseWidthPx={activeScreenBaseWidthPx}
       canEdit={canEditDesign}
       mutationPending={
-        addBreakpointMutation.isPending || removeBreakpointMutation.isPending
+        addBreakpointMutation.isPending ||
+        removeBreakpointMutation.isPending ||
+        updateBreakpointMutation.isPending
       }
       showAllFrames={!breakpointFramesHidden}
       onShowAllFramesChange={(value) => setBreakpointFramesHidden(!value)}
@@ -23052,10 +23126,17 @@ function DesignEditor() {
               kind: "resetOverrides",
             })
         : undefined,
+    onRestoreComponent:
+      id && activeFile?.id
+        ? (nodeId: string) =>
+            applyLinkedComponentEdit(activeFile.id, nodeId, {
+              kind: "restoreMain",
+            })
+        : undefined,
     sourceCapabilities,
     selectedElementAlreadyComponent,
     onCreateComponent:
-      id && selectedElement && !selectedElementAlreadyComponent
+      id && selectedElement && !selectedElementAlreadyComponent && !selectedElementInsideComponent
         ? handleCreateComponent
         : undefined,
     defaultComponentName,
@@ -23593,7 +23674,7 @@ function DesignEditor() {
             canCreateComponent={
               canEditDesign &&
               Boolean(selectedElement) &&
-              !selectedElementAlreadyComponent
+              !selectedElementAlreadyComponent && !selectedElementInsideComponent
             }
             canReprompt={
               canEditDesign &&
@@ -24096,7 +24177,8 @@ function DesignEditor() {
                         onAddBreakpoint={handleOverviewAddBreakpoint}
                         breakpointMutationPending={
                           addBreakpointMutation.isPending ||
-                          removeBreakpointMutation.isPending
+                          removeBreakpointMutation.isPending ||
+                          updateBreakpointMutation.isPending
                         }
                         onActiveBreakpointChange={
                           handleOverviewActiveBreakpointChange

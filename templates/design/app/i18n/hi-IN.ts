@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["hi-IN"],
   designEditor: {
     ...messagesByLocale["hi-IN"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["hi-IN"].designEditor.componentInstances,
+      restore: "कॉम्पोनेंट पुनर्स्थापित करें",
+    },
     commenterRoleLabel: "टिप्पणीकार",
     commenterRoleDescription: "समीक्षा टिप्पणियाँ देख और जोड़ सकते हैं",
     toasts: {

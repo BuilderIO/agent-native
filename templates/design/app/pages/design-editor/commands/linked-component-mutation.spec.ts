@@ -77,7 +77,11 @@ function queueArgs(overrides: Partial<LinkedComponentMutationQueueArgs> = {}) {
     invokeAction: vi.fn(async () => ({ persisted: false })),
     applyFileContentUpdate,
     reserveContentHistory: () => ({
-      commit: (changes) => recordContentHistoryEntry({ changes }),
+      commit: (changes, selectionAfter) =>
+        recordContentHistoryEntry({
+          changes,
+          ...(selectionAfter ? { selectionAfter } : {}),
+        }),
       cancel: vi.fn(),
     }),
     waitForHostWrites: async () => {},
@@ -97,6 +101,115 @@ function queueArgs(overrides: Partial<LinkedComponentMutationQueueArgs> = {}) {
 }
 
 describe("linked component mutation queue", () => {
+  it("runs a one-file source mutation through the shared save gate", async () => {
+    const before = "main-v0";
+    const after = `${before}-created`;
+    const setup = queueArgs();
+    const change = {
+      fileId: "file-main",
+      before,
+      after,
+      beforeVersionHash: sourceContentHash(before),
+      afterVersionHash: sourceContentHash(after),
+      updatedAt: "saved-create",
+    };
+    const result: LinkedComponentActionResult = {
+      persisted: true,
+      changes: [change],
+      sourceBases: [
+        {
+          fileId: change.fileId,
+          versionHash: change.afterVersionHash,
+          updatedAt: change.updatedAt,
+        },
+      ],
+    };
+    const run = vi.fn(
+      async (source: { content: string; versionHash: string }) => {
+        expect(source).toEqual({
+          content: before,
+          versionHash: sourceContentHash(before),
+        });
+        return result;
+      },
+    );
+    const validate = vi.fn(
+      (received: LinkedComponentActionResult, source: { fileId: string }) => {
+        expect(received).toBe(result);
+        expect(source.fileId).toBe("file-main");
+        return received.changes?.[0] ?? null;
+      },
+    );
+    const queue = createLinkedComponentMutationQueue(setup.args);
+
+    const outcome = await queue.enqueueSourceMutation({
+      fileId: "file-main",
+      run,
+      validate,
+    });
+
+    expect(outcome).toMatchObject({
+      result,
+      historyRecorded: true,
+      change,
+      hostSync: "accepted",
+    });
+    expect(validate).toHaveBeenCalledWith(
+      result,
+      expect.objectContaining({
+        fileId: "file-main",
+        content: before,
+        versionHash: sourceContentHash(before),
+      }),
+    );
+    expect(setup.applyFileContentUpdate).toHaveBeenCalledWith(
+      "file-main",
+      after,
+      expect.objectContaining({
+        persist: false,
+        recordHistory: false,
+        historyBeforeContent: before,
+        sourceBaseContent: before,
+        updatedAt: "saved-create",
+      }),
+    );
+    expect(setup.recordContentHistoryEntry).toHaveBeenCalledOnce();
+  });
+
+  it("cancels a source mutation reservation when the action declines", async () => {
+    const setup = queueArgs({
+      invokeAction: vi.fn(async () => ({
+        ctaRequired: true,
+        ctaMessage: "Bridge write required.",
+      })),
+    });
+    const commit = vi.fn();
+    const cancel = vi.fn();
+    setup.args.reserveContentHistory = vi.fn(() => ({ commit, cancel }));
+    const queue = createLinkedComponentMutationQueue(setup.args);
+    const run = vi.fn(async () => ({
+      persisted: false,
+      ctaRequired: true,
+    }));
+    const validate = vi.fn(() => null);
+
+    const outcome = await queue.enqueueSourceMutation({
+      fileId: "file-main",
+      run,
+      validate,
+    });
+
+    expect(outcome).toMatchObject({
+      historyRecorded: false,
+      hostSync: "skipped",
+      result: { ctaRequired: true },
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(commit).not.toHaveBeenCalled();
+    expect(setup.applyFileContentUpdate).not.toHaveBeenCalled();
+    expect(setup.reportFailure).not.toHaveBeenCalled();
+  });
+
   it("reports an action CTA before requiring source bases and cancels its reservation", async () => {
     const setup = queueArgs({
       invokeAction: vi.fn(async () => ({
@@ -266,6 +379,78 @@ describe("linked component mutation queue", () => {
     );
   });
 
+  it("composes rapid semantic structure edits against the latest source bases", async () => {
+    const firstResponse = deferred<LinkedComponentActionResult>();
+    const secondResponse = deferred<LinkedComponentActionResult>();
+    const firstCall = deferred<LinkedComponentEditPayload>();
+    const secondCall = deferred<LinkedComponentEditPayload>();
+    const setup = queueArgs();
+    let structureCall = 0;
+    setup.args.invokeAction = vi.fn((payload: LinkedComponentEditPayload) => {
+      structureCall += 1;
+      if (structureCall === 1) {
+        firstCall.resolve(payload);
+        return firstResponse.promise;
+      }
+      secondCall.resolve(payload);
+      return secondResponse.promise;
+    });
+    const queue = createLinkedComponentMutationQueue(setup.args);
+    const initial = new Map(setup.content);
+    const afterFirst = new Map([
+      ["file-main", "main-structure-v1"],
+      ["file-copy", "copy-structure-v1"],
+    ]);
+    const afterSecond = new Map([
+      ["file-main", "main-structure-v2"],
+      ["file-copy", "copy-structure-v2"],
+    ]);
+    const first = queue.enqueue("file-main", "main-root", {
+      kind: "structure",
+      intents: [
+        {
+          kind: "wrapNodes",
+          targetIds: ["layer-a", "layer-b"],
+        },
+      ],
+    });
+    const second = queue.enqueue("file-main", "main-root", {
+      kind: "structure",
+      intents: [
+        {
+          kind: "moveNode",
+          target: { nodeId: "layer-a" },
+          anchor: { nodeId: "layer-b" },
+          placement: "after",
+        },
+      ],
+    });
+    const firstPayload = await firstCall.promise;
+    expect(firstPayload.source.expectedFiles).toEqual(
+      [...initial.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([fileId, content]) => ({
+          fileId,
+          versionHash: sourceContentHash(content),
+        })),
+    );
+    firstResponse.resolve(resultFor(initial, afterFirst, "saved-structure-v1"));
+    const secondPayload = await secondCall.promise;
+    expect(secondPayload.source.expectedFiles).toEqual(
+      [...afterFirst.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([fileId, content]) => ({
+          fileId,
+          versionHash: sourceContentHash(content),
+        })),
+    );
+    secondResponse.resolve(
+      resultFor(afterFirst, afterSecond, "saved-structure-v2"),
+    );
+    await Promise.all([first, second]);
+    expect(setup.content).toEqual(afterSecond);
+  });
+
   it("keeps later edits behind an Undo barrier and keeps idle dispatch synchronous", async () => {
     const response = deferred<LinkedComponentActionResult>();
     const called = deferred<void>();
@@ -397,6 +582,128 @@ describe("linked component mutation queue", () => {
       { fileId: "file-main", before: "main-v0", after: "main-v1" },
       { fileId: "file-copy", before: "copy-v0", after: "copy-v1" },
     ]);
+  });
+
+  it("applies a returned durable selection after replay and updates Redo history", async () => {
+    const setup = queueArgs();
+    const initial = new Map(setup.content);
+    const after = new Map([
+      ["file-main", "main-structure-v1"],
+      ["file-copy", "copy-structure-v1"],
+    ]);
+    const events: string[] = [];
+    const commit = vi.fn();
+    const selectionAfter = {
+      activeFileId: "file-main",
+      selectedLayerIds: ["wrapper-durable"],
+      overviewSelectedScreenIds: [],
+      sourceContentByFileId: Object.fromEntries(after),
+    };
+    setup.args.reserveContentHistory = vi.fn(() => ({
+      commit,
+      cancel: vi.fn(),
+    }));
+    setup.args.invokeAction = vi.fn(async () => ({
+      ...resultFor(initial, after, "saved-structure"),
+      selection: { fileId: "file-main", nodeIds: ["wrapper-durable"] },
+    }));
+    setup.args.applyFileContentUpdate = vi.fn((fileId, content) => {
+      events.push(`replay:${fileId}`);
+      setup.content.set(fileId, content);
+      return { status: "accepted" as const, content, nodeIdMap: new Map() };
+    });
+    setup.args.applySelection = vi.fn((selection) => {
+      events.push(`selection:${selection.nodeIds.join(",")}`);
+      expect(setup.content).toEqual(after);
+      return selectionAfter;
+    });
+
+    const queue = createLinkedComponentMutationQueue(setup.args);
+    await queue.enqueue(
+      "file-main",
+      "main-root",
+      {
+        kind: "structure",
+        intents: [
+          {
+            kind: "wrapNodes",
+            targetIds: ["layer-a", "layer-b"],
+          },
+        ],
+      },
+      undefined,
+      () => events.push("applied"),
+    );
+
+    expect(events).toEqual([
+      "replay:file-main",
+      "replay:file-copy",
+      "selection:wrapper-durable",
+      "applied",
+    ]);
+    expect(commit).toHaveBeenCalledTimes(2);
+    expect(commit).toHaveBeenNthCalledWith(1, [
+      { fileId: "file-main", before: "main-v0", after: "main-structure-v1" },
+      { fileId: "file-copy", before: "copy-v0", after: "copy-structure-v1" },
+    ]);
+    expect(commit).toHaveBeenNthCalledWith(
+      2,
+      [
+        {
+          fileId: "file-main",
+          before: "main-v0",
+          after: "main-structure-v1",
+        },
+        {
+          fileId: "file-copy",
+          before: "copy-v0",
+          after: "copy-structure-v1",
+        },
+      ],
+      selectionAfter,
+    );
+  });
+
+  it("keeps confirmed history when the action returns malformed selection metadata", async () => {
+    const setup = queueArgs();
+    const initial = new Map(setup.content);
+    const after = new Map([
+      ["file-main", "main-v1"],
+      ["file-copy", "copy-v1"],
+    ]);
+    const commit = vi.fn();
+    const cancel = vi.fn();
+    const onApplied = vi.fn();
+    setup.args.reserveContentHistory = vi.fn(() => ({ commit, cancel }));
+    setup.args.invokeAction = vi.fn(async () => ({
+      ...resultFor(initial, after, "saved-v1"),
+      selection: { fileId: "file-main", nodeIds: ["", ""] },
+    }));
+    const queue = createLinkedComponentMutationQueue(setup.args);
+    const result = await Promise.allSettled([
+      queue.enqueue(
+        "file-main",
+        "main-root",
+        {
+          kind: "structure",
+          intents: [
+            {
+              kind: "deleteNode",
+              target: { nodeId: "layer-a" },
+            },
+          ],
+        },
+        undefined,
+        onApplied,
+      ),
+    ]);
+
+    expect(result[0]?.status).toBe("rejected");
+    expect(commit).toHaveBeenCalledOnce();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(onApplied).not.toHaveBeenCalled();
+    expect(setup.applyFileContentUpdate).not.toHaveBeenCalled();
+    expect(setup.refreshAfterConflict).toHaveBeenCalledOnce();
   });
 
   it("does not apply a queued Undo to older history when the linked edit rejects", async () => {

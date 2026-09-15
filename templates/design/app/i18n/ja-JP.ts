@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["ja-JP"],
   designEditor: {
     ...messagesByLocale["ja-JP"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["ja-JP"].designEditor.componentInstances,
+      restore: "コンポーネントを復元",
+    },
     commenterRoleLabel: "コメント投稿者",
     commenterRoleDescription: "閲覧してレビューコメントを追加できます",
     toasts: {
