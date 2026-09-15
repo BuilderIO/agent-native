@@ -1488,12 +1488,13 @@ export function DesignCanvas({
     bridgeKey: string;
     message: string;
   } | null>(null);
-  // Set on unmount so the async /health probe (and its escalation re-arm
-  // timer) never touches state after this component is gone.
-  const isUnmountedRef = useRef(false);
+  // Clears the escalation re-arm timer on unmount so it can't fire and
+  // schedule a fetch after this component is gone. (A stray fetch would be a
+  // no-op anyway — every /health probe checkpoint is generation-guarded via
+  // bridgeRegistrationAttemptGenerationRef, see handleSuspectedBridgeRestart
+  // — but there's no reason to let the timer fire in the first place.)
   useEffect(
     () => () => {
-      isUnmountedRef.current = true;
       if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
         window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
         liveEditSameInstanceRearmTimerRef.current = undefined;
@@ -1883,12 +1884,12 @@ export function DesignCanvas({
     }, delay);
   }, []);
   // Invalidates any registration attempt still in flight when THIS effect
-  // instance unmounts — deliberately NOT reusing the shared isUnmountedRef
-  // for this: that ref is a one-way flag that never resets, so under
-  // StrictMode's dev-only mount→cleanup→mount replay it would stay stuck
-  // true after the first (intentionally discarded) cleanup and permanently
-  // block every later, genuinely-live attempt. Bumping the generation
-  // counter here instead only invalidates the specific attempt that was in
+  // instance unmounts — deliberately not a one-way "isUnmounted" flag: that
+  // shape never resets, so under StrictMode's dev-only mount→cleanup→mount
+  // replay it would stay stuck true after the first (intentionally
+  // discarded) cleanup and permanently block every later, genuinely-live
+  // attempt. Bumping the generation counter here instead only invalidates
+  // the specific attempt that was in
   // flight at THIS cleanup; the next mount's own attempt captures a fresh
   // generation and is unaffected.
   useEffect(
@@ -2137,6 +2138,13 @@ export function DesignCanvas({
     // attemptBridgeRegistration or the unmount-cleanup effect above) — this
     // guards every mutating branch below against silently tearing down or
     // re-registering that newer, unrelated registration.
+    // Deliberately not gated on a one-way "isUnmounted" flag: that shape
+    // never resets, so it would stay stuck true after StrictMode's dev-only
+    // mount→cleanup→mount replay and silently stop every later health probe
+    // from ever resolving (see attemptBridgeRegistration's identical fix
+    // above). The dedicated unmount-cleanup effect there bumps this same
+    // counter on a real
+    // unmount, which isHealthProbeCurrent() already covers correctly.
     const healthProbeGeneration =
       bridgeRegistrationAttemptGenerationRef.current;
     const isHealthProbeCurrent = () =>
@@ -2146,7 +2154,7 @@ export function DesignCanvas({
       const payload = (await response.json().catch(() => null)) as {
         bridgeInstanceId?: string;
       } | null;
-      if (isUnmountedRef.current || !isHealthProbeCurrent()) return;
+      if (!isHealthProbeCurrent()) return;
       const responseBridgeInstanceId =
         payload && typeof payload.bridgeInstanceId === "string"
           ? payload.bridgeInstanceId
@@ -2234,13 +2242,7 @@ export function DesignCanvas({
         }
         liveEditSameInstanceRearmTimerRef.current = window.setTimeout(() => {
           liveEditSameInstanceRearmTimerRef.current = undefined;
-          if (
-            isUnmountedRef.current ||
-            bridgeReadyRef.current ||
-            !isHealthProbeCurrent()
-          ) {
-            return;
-          }
+          if (bridgeReadyRef.current || !isHealthProbeCurrent()) return;
           void handleSuspectedBridgeRestart();
         }, nextDelay);
         return;
@@ -2266,7 +2268,7 @@ export function DesignCanvas({
         message: t("designCanvas.localBridge.connectionNotConfirmed"),
       });
     } catch (error) {
-      if (isUnmountedRef.current || !isHealthProbeCurrent()) return;
+      if (!isHealthProbeCurrent()) return;
       // /health itself is unreachable (network error / thrown before a
       // response) — the dev server process is actually down, not just slow.
       // This destructive path (tear down + surface the error) is justified.
