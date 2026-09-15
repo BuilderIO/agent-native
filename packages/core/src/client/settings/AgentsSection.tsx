@@ -5,6 +5,11 @@ import {
 } from "@agent-native/toolkit/design-system";
 import { ButtonBase as ToolkitButtonBase } from "@agent-native/toolkit/ui/button";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui/collapsible";
+import {
   IconPlus,
   IconTrash,
   IconX,
@@ -14,6 +19,7 @@ import {
   IconExternalLink,
   IconRefresh,
   IconTopologyRing2,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
@@ -222,6 +228,9 @@ function HostedAgentFields({
   credentialOptions: NewKeyOption[];
 }) {
   const t = useT();
+  const [open, setOpen] = useState(() => Boolean(cardUrl.trim() || auth));
+  const shouldOpen = Boolean(cardUrl.trim() || auth);
+  useEffect(() => setOpen(shouldOpen), [shouldOpen]);
   const authType: HostedAgentAuthType = auth?.type ?? "none";
   const oauthAuth =
     auth?.type === "oauth-client-credentials" ? auth : undefined;
@@ -269,14 +278,24 @@ function HostedAgentFields({
     : t("agentChat.agents.chooseCredential");
 
   return (
-    <details
-      open={Boolean(cardUrl.trim() || auth)}
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
       className="mt-1 rounded border border-border/70 bg-accent/20 px-2 py-1.5"
     >
-      <summary className="cursor-pointer text-[10px] font-medium text-foreground">
-        {t("agentChat.agents.hostedAgent")}
-      </summary>
-      <div className="mt-2 flex flex-col gap-1.5">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-2 text-start text-[10px] font-medium text-foreground"
+        >
+          {t("agentChat.agents.hostedAgent")}
+          <IconChevronDown
+            size={12}
+            className={`shrink-0 transition-transform${open ? " rotate-180" : ""}`}
+          />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2 flex flex-col gap-1.5">
         <TextField
           value={cardUrl}
           onChange={onCardUrlChange}
@@ -344,8 +363,8 @@ function HostedAgentFields({
             />
           </>
         )}
-      </div>
-    </details>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

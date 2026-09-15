@@ -27,49 +27,7 @@ import type {
   Part,
   Task,
 } from "./types.js";
-
-/**
- * A workspace serves every app from one gateway on loopback, so sibling A2A
- * targets are private addresses by construction and the SSRF guard cannot tell
- * them apart from an attack. Trust only origins this deployment configured for
- * itself — never a value that arrived on a request.
- */
-function workspacePrivateOrigins(): string[] {
-  const config = getAppConfig();
-  // No trimming or blank-dropping here: the config layer trims string values
-  // and `a2a.allowedOrigins` rejects empty entries, so the only thing left to
-  // drop is an unset optional.
-  const origins = [
-    config.workspace.gatewayUrl,
-    config.app.url,
-    ...config.a2a.allowedOrigins,
-  ].filter((value): value is string => value !== undefined);
-
-  // The gateway also hands each child the sibling manifest, and siblings are
-  // reached on their own loopback ports rather than through the gateway.
-  const raw = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      const apps = Array.isArray(parsed?.apps)
-        ? parsed.apps
-        : Array.isArray(parsed)
-          ? parsed
-          : [];
-      for (const app of apps) {
-        const url = app?.url ?? app?.origin ?? app?.baseUrl;
-        if (typeof url === "string" && url) origins.push(url);
-        const port = app?.port;
-        if (typeof port === "number" && Number.isFinite(port)) {
-          origins.push(`http://127.0.0.1:${port}`);
-        }
-      }
-    } catch {
-      // A malformed manifest must not disable the SSRF guard.
-    }
-  }
-  return origins;
-}
+import { workspacePrivateOrigins } from "./workspace-private-origins.js";
 
 const DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_A2A_DISCOVERY_TIMEOUT_MS = 3_000;
