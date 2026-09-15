@@ -493,6 +493,48 @@ describe("markdown clipboard parsing", () => {
     }
   });
 
+  it.each([
+    ["**bold**after", "bold"],
+    ["*italic*after", "italic"],
+  ])(
+    "recognizes inline Markdown followed by text: %s",
+    (markdown, markName) => {
+      const editor = createFullEditor();
+      try {
+        const slice = parseMarkdownClipboardSlice(editor, markdown);
+        expect(slice).not.toBeNull();
+        editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+        expect(
+          editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name,
+        ).toBe(markName);
+        expect(editor.state.doc.textContent).toBe(markdown.replace(/\*/g, ""));
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    ["- first\n- second", "bulletList"],
+    ["1. first\n2. second", "orderedList"],
+    ["> first\n> second", "blockquote"],
+    ["```ts\nconst value = 1;\n```", "codeBlock"],
+  ])("parses standalone block Markdown: %s", (markdown, nodeName) => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === nodeName,
+        ),
+      ).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it.each(["Formula: 2*3*4", "Use * asterisk * literally"])(
     "keeps ordinary asterisk text literal: %s",
     (text) => {
@@ -701,6 +743,34 @@ describe("markdown clipboard parsing", () => {
         ),
       ).not.toThrow();
       expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves line breaks inside rich inline code HTML", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code>first<br>second</code></p>");
+    clipboardData.setData("text/plain", "first\nsecond");
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.childCount).toBe(3);
+      expect(editor.state.doc.firstChild?.child(1).type.name).toBe("hardBreak");
+      expect(editor.state.doc.firstChild?.child(0).marks[0]?.type.name).toBe(
+        "code",
+      );
+      expect(editor.state.doc.firstChild?.child(2).marks[0]?.type.name).toBe(
+        "code",
+      );
     } finally {
       editor.destroy();
     }

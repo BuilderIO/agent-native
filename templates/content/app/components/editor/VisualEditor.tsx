@@ -235,12 +235,7 @@ function hasDelimitedText(text: string, delimiter: string): boolean {
       continue;
     }
 
-    if (
-      index > start + delimiter.length &&
-      before &&
-      !/\s/.test(before) &&
-      (!after || /[\s).,!?:;\]}"']/.test(after))
-    ) {
+    if (index > start + delimiter.length && before && !/\s/.test(before)) {
       return true;
     }
   }
@@ -273,6 +268,22 @@ function hasMarkdownLink(text: string): boolean {
   return false;
 }
 
+function hasUnambiguousBlockMarkdown(text: string): boolean {
+  if (/^\s*[-*_]{3,}\s*$/m.test(text)) return true;
+  if (/^\s*```[^\n]*\n[\s\S]*^\s*```\s*$/m.test(text)) return true;
+  if (/^\s*- \[[ x]\]\s+\S/m.test(text)) return true;
+  if (/^\s*\|?.+\|.+\|?\s*\n\s*\|?\s*:?-{3,}/m.test(text)) return true;
+
+  let listLines = 0;
+  let quoteLines = 0;
+  for (const line of text.split("\n")) {
+    if (/^\s*(?:[-*+]\s+|\d+\.\s+)\S/.test(line)) listLines++;
+    if (/^\s*>\s+\S/.test(line)) quoteLines++;
+    if (listLines >= 2 || quoteLines >= 2) return true;
+  }
+  return false;
+}
+
 function looksLikeMarkdown(text: string): boolean {
   // Need at least 2 matching patterns to avoid false positives
   let matches = 0;
@@ -282,8 +293,12 @@ function looksLikeMarkdown(text: string): boolean {
       if (matches >= 2) return true;
     }
   }
-  // Single heading at the start is a strong enough signal on its own
-  if (matches === 1 && /^#{1,6}\s+\S/m.test(text)) return true;
+  // A heading or an unambiguous/repeated block construct is sufficient alone.
+  if (
+    matches === 1 &&
+    (/^#{1,6}\s+\S/m.test(text) || hasUnambiguousBlockMarkdown(text))
+  )
+    return true;
   return (
     hasDelimitedText(text, "**") ||
     hasDelimitedText(text, "*") ||
@@ -435,10 +450,19 @@ const MarkdownPasteDetection = Extension.create({
               if (div.querySelector("code")) {
                 const protectedCode: string[] = [];
                 div.querySelectorAll("code").forEach((code) => {
-                  const text = code.textContent ?? "";
-                  if (!text) return;
-                  const index = protectedCode.push(text) - 1;
-                  code.textContent = `\uE000${index}\uE001`;
+                  const protectTextNodes = (node: Node) => {
+                    for (const child of Array.from(node.childNodes)) {
+                      if (child.nodeType === Node.TEXT_NODE) {
+                        const text = child.textContent ?? "";
+                        if (!text) continue;
+                        const index = protectedCode.push(text) - 1;
+                        child.textContent = `\uE000${index}\uE001`;
+                      } else {
+                        protectTextNodes(child);
+                      }
+                    }
+                  };
+                  protectTextNodes(code);
                 });
                 const parsed = ProseMirrorDOMParser.fromSchema(
                   editor.schema,
