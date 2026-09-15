@@ -8,7 +8,7 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 
 import { sentryVitePlugin } from "@sentry/vite-plugin";
-import type { Plugin } from "vite";
+import type { Plugin, ResolvedConfig } from "vite";
 
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 
@@ -92,39 +92,80 @@ function createUploadedSourceMapCleanupPlugin(): Plugin {
   };
 }
 
+function resolvedClientBuildId(config: ResolvedConfig): string {
+  const definedBuildId = config.define?.__AGENT_NATIVE_BUILD_ID__;
+  if (typeof definedBuildId !== "string") return "development";
+  const buildId: unknown = JSON.parse(definedBuildId);
+  return typeof buildId === "string" && buildId.trim()
+    ? buildId.trim()
+    : "development";
+}
+
 // Safe to always include in the plugins array regardless of `vite build` vs
 // `vite dev` — `@sentry/vite-plugin`'s hooks only act during a real Rollup
 // build.
 export function createSentrySourceMapUploadPlugin(
   env: Record<string, string | undefined> = process.env,
 ): Plugin[] {
-  const config = resolveSentrySourceMapUploadConfig(env);
-  if (!config) return [];
-  const uploadPlugins = sentryVitePlugin({
-    org: config.org,
-    project: config.project,
-    authToken: config.authToken,
-    url: config.url,
-    telemetry: false,
-    release: {
-      // inject: false — client/analytics.ts already sets `release` itself;
-      // letting the plugin also inject its own git-SHA-based release would
-      // create a second, divergent source of truth for the same field.
-      name: config.release,
-      inject: false,
-    },
-    // A source-map upload is optional observability work. The cleanup plugin
-    // still removes maps when this handler returns, so a bad token cannot
-    // block the deploy or publish source contents.
-    errorHandler: (error) => {
-      const message = (
-        error instanceof Error ? error.message : String(error)
-      ).replaceAll(config.authToken, "[redacted]");
-      console.warn(
-        `Sentry source map upload failed; continuing without publishing source maps: ${message}`,
-      );
-    },
-  }) as Plugin[];
+  const initialConfig = resolveSentrySourceMapUploadConfig(env);
+  if (!initialConfig) return [];
 
-  return [...uploadPlugins, createUploadedSourceMapCleanupPlugin()];
+  let uploadPlugin: Plugin | undefined;
+  const proxyPlugin: Plugin = {
+    name: "sentry-vite-plugin",
+    enforce: "pre",
+    configResolved(config) {
+      const uploadConfig = resolveSentrySourceMapUploadConfig({
+        ...env,
+        DEPLOY_ID: undefined,
+        AGENT_NATIVE_BUILD_ID: resolvedClientBuildId(config),
+      })!;
+      const sentryPlugin = sentryVitePlugin({
+        org: uploadConfig.org,
+        project: uploadConfig.project,
+        authToken: uploadConfig.authToken,
+        url: uploadConfig.url,
+        telemetry: false,
+        release: {
+          // inject: false — client/analytics.ts already sets `release` itself;
+          // letting the plugin also inject its own git-SHA-based release would
+          // create a second, divergent source of truth for the same field.
+          name: uploadConfig.release,
+          inject: false,
+        },
+        // A source-map upload is optional observability work. The cleanup plugin
+        // still removes maps when this handler returns, so a bad token cannot
+        // block the deploy or publish source contents.
+        errorHandler: (error) => {
+          const message = (
+            error instanceof Error ? error.message : String(error)
+          ).replaceAll(uploadConfig.authToken, "[redacted]");
+          console.warn(
+            `Sentry source map upload failed; continuing without publishing source maps: ${message}`,
+          );
+        },
+      }) as Plugin | Plugin[];
+      uploadPlugin = Array.isArray(sentryPlugin)
+        ? sentryPlugin[0]
+        : sentryPlugin;
+    },
+    buildStart(options) {
+      const hook = uploadPlugin?.buildStart;
+      if (typeof hook === "function") return hook.call(this, options);
+    },
+    renderChunk(code, chunk, outputOptions, meta) {
+      const hook = uploadPlugin?.renderChunk;
+      if (typeof hook === "function") {
+        return hook.call(this, code, chunk, outputOptions, meta);
+      }
+    },
+    writeBundle(outputOptions, bundle) {
+      const hook = uploadPlugin?.writeBundle;
+      if (typeof hook === "function") {
+        return hook.call(this, outputOptions, bundle);
+      }
+    },
+  };
+
+  return [proxyPlugin, createUploadedSourceMapCleanupPlugin()];
 }
