@@ -69,9 +69,10 @@ describe("slideContrastWarning", () => {
     });
   });
 
-  it("leaves a slide that names its own canvas to that canvas", async () => {
-    // `bg-slate-900` carries no CSS value here. Inheriting over it would audit
-    // the slide against a canvas it does not render on.
+  it("measures a slide against the Tailwind utility canvas it names", async () => {
+    // A named utility carries no CSS value in the markup, so the audit has to
+    // resolve what it paints; inheriting over it would measure a canvas the
+    // slide does not render on.
     expect(
       await slideContrastWarning({
         html: lightText,
@@ -79,6 +80,13 @@ describe("slideContrastWarning", () => {
         designSystemId: "ds-light",
       }),
     ).toBeNull();
+
+    const warning = await slideContrastWarning({
+      html: lightText,
+      background: "bg-white",
+      designSystemId: "ds-dark",
+    });
+    expect(warning).toContain("unreadable as written");
     expect(mockRun).not.toHaveBeenCalled();
   });
 

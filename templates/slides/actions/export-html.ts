@@ -24,8 +24,8 @@ import {
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
 import {
-  backgroundCssValue,
   DEFAULT_SLIDE_BACKGROUND,
+  tailwindBackgroundCssValue,
   resolveSlideBackground,
 } from "../shared/slide-background.js";
 
@@ -73,109 +73,6 @@ function safeCssToken(
   return !finalValue || /var\(\s*--/i.test(finalValue)
     ? fallback
     : finalValue.slice(0, 240) || fallback;
-}
-
-const STANDALONE_TAILWIND_BACKGROUNDS: Record<string, string> = {
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-black": "#000000",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-white": "#FFFFFF",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-slate-900": "#0F172A",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-slate-950": "#020617",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-gray-900": "#111827",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-zinc-900": "#18181B",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-neutral-900": "#171717",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-stone-900": "#1C1917",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-red-500": "#EF4444",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-orange-500": "#F97316",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-amber-500": "#F59E0B",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-yellow-400": "#FACC15",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-lime-500": "#84CC16",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-green-500": "#22C55E",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-emerald-500": "#10B981",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-teal-500": "#14B8A6",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-cyan-500": "#06B6D4",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-sky-500": "#0EA5E9",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-blue-500": "#3B82F6",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-indigo-500": "#6366F1",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-indigo-950": "#1E1B4B",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-violet-500": "#8B5CF6",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-purple-600": "#9333EA",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-fuchsia-500": "#D946EF",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-pink-500": "#EC4899",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-rose-500": "#F43F5E",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-slate-700": "#334155",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-slate-800": "#1E293B",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-zinc-50": "#FAFAFA",
-  // guard:allow-raw-color - standalone Tailwind background compatibility
-  "bg-gray-100": "#F3F4F6",
-};
-
-const TAILWIND_GRADIENT_DIRECTIONS: Record<string, string> = {
-  "bg-gradient-to-t": "to top",
-  "bg-gradient-to-tr": "to top right",
-  "bg-gradient-to-r": "to right",
-  "bg-gradient-to-br": "to bottom right",
-  "bg-gradient-to-b": "to bottom",
-  "bg-gradient-to-bl": "to bottom left",
-  "bg-gradient-to-l": "to left",
-  "bg-gradient-to-tl": "to top left",
-};
-
-function standaloneBackgroundCssValue(value: string): string {
-  const cssValue = backgroundCssValue(value);
-  if (cssValue) return cssValue;
-  const classes = value.split(/\s+/);
-  const solidBackground = classes.find(
-    (className) => STANDALONE_TAILWIND_BACKGROUNDS[className],
-  );
-  if (solidBackground) return STANDALONE_TAILWIND_BACKGROUNDS[solidBackground];
-  const direction = classes.find(
-    (className) => TAILWIND_GRADIENT_DIRECTIONS[className],
-  );
-  if (direction) {
-    const stops = classes
-      .filter((className) => /^(?:from|via|to)-/.test(className))
-      .map((className) => {
-        const [, color, shade] =
-          className.match(/^(?:from|via|to)-([\w]+)-([\d]+)$/) ?? [];
-        return color && shade
-          ? STANDALONE_TAILWIND_BACKGROUNDS[`bg-${color}-${shade}`]
-          : undefined;
-      })
-      .filter((stop): stop is string => Boolean(stop));
-    if (stops.length >= 2) {
-      return `linear-gradient(${TAILWIND_GRADIENT_DIRECTIONS[direction]}, ${stops.join(", ")})`;
-    }
-  }
-  return STANDALONE_TAILWIND_BACKGROUNDS[value] ?? DEFAULT_SLIDE_BACKGROUND;
 }
 
 function isDarkStandaloneBackground(value: string): boolean {
@@ -237,7 +134,7 @@ function standaloneDesignSystemVars(
   const colors = designSystem?.colors;
   const typography = designSystem?.typography;
   const borders = designSystem?.borders;
-  const standaloneBackground = standaloneBackgroundCssValue(slideBackground);
+  const standaloneBackground = standaloneBackgroundCss(slideBackground);
   const safeBackground = safeCssToken(
     standaloneBackground,
     DEFAULT_SLIDE_BACKGROUND,
@@ -294,7 +191,7 @@ function buildStandaloneHtml(
         slide.background,
         designSystem,
       );
-      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
+      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCss(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
       return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideContent(slide.content)}</section>`;
     })
     .join("\n");
@@ -670,4 +567,8 @@ function isServerless(): boolean {
     process.cwd() === "/var/task" ||
     process.cwd().startsWith("/var/task/"),
   );
+}
+
+function standaloneBackgroundCss(value: string): string {
+  return tailwindBackgroundCssValue(value) ?? DEFAULT_SLIDE_BACKGROUND;
 }

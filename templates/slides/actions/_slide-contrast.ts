@@ -3,7 +3,7 @@ import {
   formatSlideContrastWarning,
 } from "@agent-native/core/shared";
 
-import { backgroundCssValue } from "../shared/slide-background.js";
+import { backgroundContrastValue } from "../shared/slide-background.js";
 import { inheritedSlideCanvas } from "./_design-system-canvas.js";
 
 /**
@@ -25,7 +25,7 @@ export async function slideContrastWarning({
   background?: string | null;
   designSystemId?: string | null;
 }): Promise<string | null> {
-  const declared = background ? backgroundCssValue(background) : null;
+  const declared = backgroundContrastValue(background ?? undefined);
   const report = findUnreadableTextColors({ html, slideBackground: declared });
   // A slide that names its own canvas is already checked against it. That
   // includes a canvas this module cannot parse (a named utility): inheriting

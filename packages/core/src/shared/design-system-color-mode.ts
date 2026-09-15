@@ -501,8 +501,16 @@ export function designSystemColorModeFromData(
   if (!record) return null;
 
   const colors = asRecord(record.colors);
-  if (colors) {
-    const mode = designSystemColorMode(colors as DesignSystemColorTokens);
+  // The renderer resolves a slide that declares no background from
+  // `slideDefaults.background` before `colors.background`, so a system whose
+  // slide canvas differs from its palette background must be read the same
+  // way here or the audit measures a canvas nothing renders on.
+  const slideCanvas = asRecord(record.slideDefaults)?.background;
+  if (colors || slideCanvas !== undefined) {
+    const mode = designSystemColorMode({
+      ...(colors as DesignSystemColorTokens | null),
+      ...(slideCanvas !== undefined ? { background: slideCanvas } : {}),
+    });
     if (mode) return mode;
   }
 

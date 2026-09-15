@@ -138,6 +138,19 @@ describe("designSystemColorModeFromData", () => {
     expect(designSystemColorModeFromData(data)?.mode).toBe("dark");
   });
 
+  it("prefers the slide canvas over the palette background", () => {
+    // The renderer resolves an omitted slide background from slideDefaults
+    // first, so a system whose deck canvas differs from its palette must be
+    // read the same way or the audit measures a canvas nothing renders on.
+    const mode = designSystemColorModeFromData({
+      colors: { background: "#FFFFFF", text: "#EDEFF3" },
+      slideDefaults: { background: "#101318" },
+    });
+
+    expect(mode?.mode).toBe("dark");
+    expect(mode?.background).toBe("#101318");
+  });
+
   it("reads a Builder-proxied flat tokenValues record", () => {
     expect(
       designSystemColorModeFromData({

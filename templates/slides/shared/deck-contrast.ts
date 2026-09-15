@@ -1,6 +1,6 @@
 import { findUnreadableTextColors } from "@agent-native/core/shared";
 
-import { backgroundCssValue } from "./slide-background.js";
+import { backgroundContrastValue } from "./slide-background.js";
 
 export interface ContrastCheckedSlide {
   id: string;
@@ -57,7 +57,7 @@ export function deckContrastCoverage(
     const { unreadable } = findUnreadableTextColors({
       html,
       slideBackground: slide.background
-        ? backgroundCssValue(slide.background)
+        ? backgroundContrastValue(slide.background)
         : (inheritedBackground ?? null),
     });
     if (unreadable.length > 0) {
