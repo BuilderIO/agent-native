@@ -237,7 +237,7 @@ export function referencedSameOriginAssetUrls(
   const documentUrl = new URL(baseUrl);
   let resolutionBaseUrl = documentUrl;
   const baseHref = html.match(
-    /<base\b[^>]*\bhref=["']([^"']+)["'][^>]*>/i,
+    /<base\b[^>]*(?:^|\s)href=["']([^"']+)["'][^>]*>/i,
   )?.[1];
   if (baseHref) {
     try {
@@ -251,7 +251,7 @@ export function referencedSameOriginAssetUrls(
   for (const match of html.matchAll(/<(link|script)\b[^>]*>/gi)) {
     const tag = match[0];
     const tagName = match[1].toLowerCase();
-    const rel = tag.match(/\brel=["']([^"']+)["']/i)?.[1] ?? "";
+    const rel = tag.match(/(?:^|\s)rel=["']([^"']+)["']/i)?.[1] ?? "";
     const attribute =
       tagName === "script"
         ? "src"
@@ -262,7 +262,7 @@ export function referencedSameOriginAssetUrls(
     if (!attribute) continue;
 
     const value = tag.match(
-      new RegExp(`\\b${attribute}=["']([^"']+)["']`, "i"),
+      new RegExp(`(?:^|\\s)${attribute}=["']([^"']+)["']`, "i"),
     )?.[1];
     if (!value || value.startsWith("#") || value.startsWith("data:")) {
       continue;

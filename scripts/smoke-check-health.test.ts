@@ -11,7 +11,9 @@ describe("deployed HTML asset probe", () => {
         <link rel="modulepreload" href="/assets/entry.js">
         <link rel="stylesheet" href="/assets/app.css">
         <link rel="modulepreload" href="/assets/entry.js">
+        <link rel="stylesheet" data-href="/assets/lazy.css">
         <script type="module" src="/assets/entry.js"></script>
+        <script data-src="/assets/lazy.js"></script>
         <script src="https://cdn.example.test/pixel.js"></script>
         <script>window.inline = true</script>
       `,
