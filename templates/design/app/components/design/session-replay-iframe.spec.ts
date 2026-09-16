@@ -27,6 +27,7 @@ describe("Design session replay iframe wiring", () => {
 
   it("keeps URL fallback frames live while preserving opaque srcdoc frames", () => {
     const multiScreenCanvas = source("./MultiScreenCanvas.tsx");
+    const designCanvas = source("./DesignCanvas.tsx");
     expect(
       getDesignCanvasIframeSandbox({
         externalPreview: true,
@@ -38,6 +39,8 @@ describe("Design session replay iframe wiring", () => {
     expect(
       getDesignCanvasIframeSandbox({ externalPreview: false, readOnly: true }),
     ).not.toContain("allow-same-origin");
+    expect(designCanvas).toContain("externalPreviewPendingOrigin ? null");
+    expect(multiScreenCanvas).toContain("externalPreviewPendingOrigin ? null");
     const iframeBlock = (marker: string, endMarker: string) => {
       const start = multiScreenCanvas.lastIndexOf(
         "<iframe",

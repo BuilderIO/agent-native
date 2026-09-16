@@ -1,4 +1,17 @@
 import { isBuilderPreviewUrl } from "@shared/builder-preview-url";
+import { useSyncExternalStore } from "react";
+
+const subscribeToBrowserOrigin = () => () => {};
+const getBrowserOrigin = () => window.location.origin;
+const getServerOrigin = () => null;
+
+export function useBrowserOrigin(): string | null {
+  return useSyncExternalStore(
+    subscribeToBrowserOrigin,
+    getBrowserOrigin,
+    getServerOrigin,
+  );
+}
 
 export function liveEditEndpointUrl(
   bridgeUrl: string,

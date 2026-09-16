@@ -112,7 +112,10 @@ import {
   resolveStableContentSizeSample,
   type ContentSizeSample,
 } from "./design-canvas/content-size-report";
-import { getDesignCanvasIframeSandbox } from "./design-canvas/external-preview";
+import {
+  getDesignCanvasIframeSandbox,
+  useBrowserOrigin,
+} from "./design-canvas/external-preview";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { roundGeo, trace, type TraceArea } from "./design-trace";
@@ -11517,8 +11520,10 @@ const Screen = memo(function Screen({
   onEditBreakpoint,
 }: ScreenProps) {
   const t = useT();
+  const browserOrigin = useBrowserOrigin();
   const display = screenDisplayName(screen, metadata);
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
+  const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const previewViewport = getScreenPreviewViewport(metadata, geometry);
   const suppressNextClick = useRef(false);
   // Overview viewport culling (PF22): mounting only. Unmounting a culled screen
@@ -11937,7 +11942,8 @@ const Screen = memo(function Screen({
               </div>
             ))
           ) : (
-            (screenContent ?? (
+            (screenContent ??
+            (externalPreviewPendingOrigin ? null : (
               <iframe
                 {...{
                   [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
@@ -11951,6 +11957,7 @@ const Screen = memo(function Screen({
                   externalPreview: Boolean(previewUrl),
                   readOnly: true,
                   previewUrl,
+                  parentOrigin: browserOrigin ?? undefined,
                 })}
                 // Visible includes the generous overscan band, so eager load
                 // here prewarms the document before it crosses the raw
@@ -11976,7 +11983,7 @@ const Screen = memo(function Screen({
                 }}
                 title={screen.filename}
               />
-            ))
+            )))
           )}
           {layoutGridBoardSize > 0 ? (
             <span
@@ -12329,6 +12336,8 @@ function BreakpointPreviewRow({
   canEdit?: boolean;
 }) {
   const t = useT();
+  const browserOrigin = useBrowserOrigin();
+  const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const frameActionLabel = t("designEditor.modes.interact");
   const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
@@ -12715,7 +12724,7 @@ function BreakpointPreviewRow({
                   </div>
                 ) : editableContent ? (
                   editableContent
-                ) : (
+                ) : externalPreviewPendingOrigin ? null : (
                   <iframe
                     // Distinct id per breakpoint sub-frame — the primary iframe
                     // above uses the bare screen id, so without a suffix here
@@ -12741,6 +12750,7 @@ function BreakpointPreviewRow({
                       externalPreview: Boolean(previewUrl),
                       readOnly: true,
                       previewUrl,
+                      parentOrigin: browserOrigin ?? undefined,
                     })}
                     onLoad={() => {
                       getBootStartCallback?.(

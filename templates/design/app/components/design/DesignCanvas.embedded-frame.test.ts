@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { isElementInfoPayload } from "./design-canvas/element-payload";
@@ -12,6 +14,7 @@ import {
   resolveLiveEditPreviewUrl,
   sanitizeLocalhostSourceSnapshotHtml,
   shouldFetchExternalSourceSnapshot,
+  useBrowserOrigin,
 } from "./design-canvas/external-preview";
 
 describe("DesignCanvas embedded frame backgrounds", () => {
@@ -216,6 +219,14 @@ window.__vite_plugin_react_preamble_installed__ = true;
 });
 
 describe("DesignCanvas iframe sandbox policy", () => {
+  it("withholds the parent origin during server rendering", () => {
+    function OriginProbe() {
+      return createElement("span", null, useBrowserOrigin() ?? "server");
+    }
+
+    expect(renderToString(createElement(OriginProbe))).toContain("server");
+  });
+
   it("allows prototype print and download controls in every preview mode", () => {
     for (const args of [
       { externalPreview: false, readOnly: false },
