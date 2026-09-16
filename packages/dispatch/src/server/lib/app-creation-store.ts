@@ -172,6 +172,11 @@ interface FinalizeWorkspaceAppsOptions {
   persist?: boolean;
 }
 
+interface WorkspaceAppRecordResult {
+  apps: WorkspaceAppSummary[];
+  unresolvedIds: ReadonlySet<string>;
+}
+
 interface WorkspaceAppDiscovery {
   apps: WorkspaceAppSummary[];
   authoritative: boolean;
@@ -1278,7 +1283,7 @@ function appRecordTimestamp(value: string | null | undefined): number {
 async function ensureWorkspaceAppRecords(
   apps: WorkspaceAppSummary[],
   options: { reconcile?: boolean; persist?: boolean } = {},
-): Promise<WorkspaceAppSummary[]> {
+): Promise<WorkspaceAppRecordResult> {
   const readyApps = apps.filter(
     (app) => app.status !== "pending" && !app.isDispatch,
   );
@@ -1288,7 +1293,9 @@ async function ensureWorkspaceAppRecords(
   // word of a manifest no authoritative registry confirmed.
   const shouldPersist = options.persist !== false;
   const shouldReconcile = options.reconcile === true && shouldPersist;
-  if (!shouldReconcile && readyApps.length === 0) return apps;
+  if (!shouldReconcile && readyApps.length === 0) {
+    return { apps, unresolvedIds: new Set() };
+  }
 
   const orgId = currentOrgId();
   const metadata = await readWorkspaceAppMetadataSettings();
@@ -1302,6 +1309,7 @@ async function ensureWorkspaceAppRecords(
       orgEnabled: boolean;
     }
   >();
+  const unresolvedIds: string[] = [];
 
   try {
     const existingRecords = new Map<
@@ -1332,7 +1340,6 @@ async function ensureWorkspaceAppRecords(
       }
     }
 
-    const unresolvedIds: string[] = [];
     for (const app of readyApps) {
       const existing = existingRecords.get(app.id);
       if (!existing) {
@@ -1454,7 +1461,7 @@ async function ensureWorkspaceAppRecords(
 
     if (unresolvedIds.length > 0) {
       console.warn(
-        `[dispatch] unverified workspace app read has no access record for ${unresolvedIds.length} app(s); hidden from this response: ${unresolvedIds.join(", ")}`,
+        `[dispatch] unverified workspace app read has no access record for ${unresolvedIds.length} app(s); included from the deployment manifest without an ACL decision: ${unresolvedIds.join(", ")}`,
       );
     }
 
@@ -1487,25 +1494,29 @@ async function ensureWorkspaceAppRecords(
     }
   } catch (error) {
     console.warn("[dispatch] workspace app access records unavailable", error);
-    return apps;
+    return { apps, unresolvedIds: new Set() };
   }
 
-  return apps.map((app) => {
-    const record = records.get(app.id);
-    const owner = record?.ownerEmail.trim() || null;
-    return record
-      ? {
-          ...app,
-          visibility: record.visibility,
-          owner,
-          orgEnabled: record.orgEnabled,
-        }
-      : app;
-  });
+  return {
+    apps: apps.map((app) => {
+      const record = records.get(app.id);
+      const owner = record?.ownerEmail.trim() || null;
+      return record
+        ? {
+            ...app,
+            visibility: record.visibility,
+            owner,
+            orgEnabled: record.orgEnabled,
+          }
+        : app;
+    }),
+    unresolvedIds: new Set(unresolvedIds),
+  };
 }
 
 async function filterWorkspaceAppsByAccess(
   apps: WorkspaceAppSummary[],
+  options: { allowUnresolvedIds?: ReadonlySet<string> } = {},
 ): Promise<WorkspaceAppSummary[]> {
   let userEmail: string;
   try {
@@ -1573,7 +1584,15 @@ async function filterWorkspaceAppsByAccess(
             { userEmail, orgId },
             { skipResourceBody: true },
           );
-          return { app, allowed: Boolean(access) };
+          // A denied registry read cannot create a row for a fresh manifest
+          // app, but it also must not make that deployment-owned inventory
+          // disappear. Existing rows still require their normal ACL result.
+          return {
+            app,
+            allowed:
+              Boolean(access) ||
+              options.allowUnresolvedIds?.has(app.id) === true,
+          };
         } catch (error) {
           // Rolling deployments may discover an app before the additive access
           // migrations have run. A missing schema is not an authorization
@@ -2070,15 +2089,16 @@ export async function listWorkspaceApps(
     // Reconcile from the complete manifest. Archive and audience filters only
     // control the response; treating hidden apps as absent deletes their rows.
     const annotated = await applyArchivedAndPending(apps);
-    const recorded = await ensureWorkspaceAppRecords(annotated, {
-      reconcile,
-      persist,
-    });
+    const { apps: recorded, unresolvedIds } = await ensureWorkspaceAppRecords(
+      annotated,
+      { reconcile, persist },
+    );
     const listed = options.includeArchived
       ? recorded
       : recorded.filter((app) => !app.archived);
     const visible = await filterWorkspaceAppsByAccess(
       filterAppsByAudience(listed, options.audience),
+      { allowUnresolvedIds: unresolvedIds },
     );
     return maybeIncludeAgentCards(visible, options);
   };

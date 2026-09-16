@@ -471,6 +471,7 @@ describe("listWorkspaceApps", () => {
     async (status) => {
       const fetchMock = vi.fn(async () => new Response("denied", { status }));
       vi.stubGlobal("fetch", fetchMock);
+      mocks.resolveAccess.mockResolvedValue(null);
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.stubEnv("A2A_SECRET", "test-a2a-secret");
       vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
@@ -489,6 +490,11 @@ describe("listWorkspaceApps", () => {
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining(
           `workspace apps gateway denied the registry read with HTTP ${status}`,
+        ),
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "included from the deployment manifest without an ACL decision",
         ),
       );
       warn.mockRestore();
