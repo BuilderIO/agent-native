@@ -12,6 +12,8 @@
  * It must stay free of React, Nitro, and database imports.
  */
 
+import { parseFragment } from "parse5";
+
 import type { BoardObjectEntry } from "./board-objects.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
 
@@ -35,13 +37,12 @@ const DEFAULT_LINE_STROKE = "#000000";
 const DEFAULT_LINE_STROKE_WIDTH_PX = 1;
 
 function getHtmlAttributeValue(tag: string, name: string): string {
-  const match = tag.match(
-    new RegExp(
-      `\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>]+))`,
-      "i",
-    ),
+  const element = parseFragment(tag).childNodes[0];
+  if (!element || !("attrs" in element)) return "";
+  return (
+    element.attrs.find((attribute) => attribute.name === name.toLowerCase())
+      ?.value ?? ""
   );
-  return match?.[1] ?? match?.[2] ?? match?.[3] ?? "";
 }
 
 // ---------------------------------------------------------------------------

@@ -823,7 +823,8 @@ function readInheritedValue(
   }
   return (
     resolveLayerNameAttribute((attribute) => {
-      const value = node.dataAttributes[attribute];
+      const value =
+        node.dataAttributes[attribute] ?? node.attributes[attribute];
       return typeof value === "string" ? value : null;
     })?.value ?? null
   );
