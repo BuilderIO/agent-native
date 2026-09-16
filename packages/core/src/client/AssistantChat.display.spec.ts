@@ -2766,12 +2766,16 @@ describe("chat submit and stop hardening", () => {
     const resetIndex = submitSource.indexOf(
       "resetRetainedTextStreamingState(effectiveContinuationTurnId);",
     );
+    const firstQueueBranchIndex = submitSource.indexOf(
+      'if (isRunning && intent === "immediate")',
+    );
     const optimisticIndex = submitSource.indexOf("markOptimisticRunning();");
 
     expect(submitStart).toBeGreaterThan(-1);
     expect(submitEnd).toBeGreaterThan(submitStart);
     expect(submitSource).toContain("if (!hideUserMessage)");
     expect(resetIndex).toBeGreaterThan(-1);
+    expect(resetIndex).toBeLessThan(firstQueueBranchIndex);
     expect(resetIndex).toBeLessThan(optimisticIndex);
   });
 

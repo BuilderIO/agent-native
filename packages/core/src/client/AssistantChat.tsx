@@ -5788,6 +5788,9 @@ const AssistantChatInner = forwardRef<
       const effectiveContinuationTurnId =
         continuationTurnId ??
         (actionScope ? generateAgentChatTurnId() : undefined);
+      if (!hideUserMessage) {
+        resetRetainedTextStreamingState(effectiveContinuationTurnId);
+      }
       if (isRunning && intent === "immediate") {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
@@ -5845,9 +5848,6 @@ const AssistantChatInner = forwardRef<
           },
         ]);
       } else {
-        if (!hideUserMessage) {
-          resetRetainedTextStreamingState(effectiveContinuationTurnId);
-        }
         markOptimisticRunning();
         try {
           appendThreadMessage({
