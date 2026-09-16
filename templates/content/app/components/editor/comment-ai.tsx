@@ -31,6 +31,19 @@ const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "refreshing",
 ]);
 const ACTIVE_REQUEST_REFETCH_INTERVAL_MS = 2_000;
+const UNAVAILABLE_CONFIRMATION_COUNT = 3;
+
+export function shouldReconcileCommentAiSnapshot(
+  snapshot: BackgroundAgentSessionSnapshot,
+  consecutiveUnavailable: number,
+) {
+  if (["queued", "running"].includes(snapshot.status)) return false;
+  if (snapshot.status !== "unavailable") return true;
+  return (
+    !snapshot.transportError &&
+    consecutiveUnavailable >= UNAVAILABLE_CONFIRMATION_COUNT
+  );
+}
 
 export function commentAiRequestsRefetchInterval(
   data: unknown,
@@ -89,15 +102,25 @@ export function useCommentAiRequests(
   const requestsRef = useRef(requests);
   requestsRef.current = requests;
   const startingRef = useRef(new Set<string>());
+  const unavailableCountsRef = useRef(new Map<string, number>());
   const [startingThreadIds, setStartingThreadIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
 
   const reconcileSnapshot = useCallback(
     async (snapshot: BackgroundAgentSessionSnapshot) => {
-      if (["queued", "running", "unavailable"].includes(snapshot.status)) {
-        return;
+      const receiptKey = `${snapshot.threadId}\0${snapshot.turnId}`;
+      const unavailableCount =
+        snapshot.status === "unavailable" && !snapshot.transportError
+          ? (unavailableCountsRef.current.get(receiptKey) ?? 0) + 1
+          : 0;
+      if (unavailableCount > 0) {
+        unavailableCountsRef.current.set(receiptKey, unavailableCount);
+      } else {
+        unavailableCountsRef.current.delete(receiptKey);
       }
+      if (!shouldReconcileCommentAiSnapshot(snapshot, unavailableCount)) return;
+      unavailableCountsRef.current.delete(receiptKey);
       await callAction("reconcile-comment-ai-session", {
         operationId: snapshot.operationId,
         threadId: snapshot.threadId,

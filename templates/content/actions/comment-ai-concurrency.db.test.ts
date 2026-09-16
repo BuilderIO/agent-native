@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { createThread, runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -128,6 +129,62 @@ afterAll(() => {
 });
 
 describe("comment AI operation isolation", () => {
+  it("reconciles legacy cross-user active rows before enforcing the global source guard", async () => {
+    await getDbExec().execute(
+      "DROP INDEX IF EXISTS comment_ai_requests_active_comment_idx",
+    );
+    const now = new Date().toISOString();
+    const base = {
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      threadId: ROOT_A,
+      rootCommentId: ROOT_A,
+      fieldId: "body",
+      intent: "reply",
+      status: "queued",
+      threadDigest: "digest",
+      snapshotJson: "[]",
+      baseRevision: "revision",
+      suggestionRevision: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await getDb()
+      .insert(schema.commentAiRequests)
+      .values([
+        { ...base, id: OP_A, requesterEmail: OWNER },
+        { ...base, id: OP_B, requesterEmail: OTHER_USER },
+      ]);
+
+    await getDbExec().execute(`WITH ranked_active AS (
+      SELECT id, ROW_NUMBER() OVER (
+        PARTITION BY document_id, root_comment_id
+        ORDER BY created_at ASC, id ASC
+      ) AS active_rank
+      FROM comment_ai_requests
+      WHERE status IN ('queued', 'running', 'refreshing')
+    )
+    UPDATE comment_ai_requests AS request
+    SET status = 'needs-review', error_code = 'operation_failed',
+        error = 'Another Ask AI operation was already active for this comment during the concurrency upgrade',
+        updated_at = CURRENT_TIMESTAMP
+    FROM ranked_active
+    WHERE request.id = ranked_active.id AND ranked_active.active_rank > 1`);
+    await getDbExec()
+      .execute(`CREATE UNIQUE INDEX comment_ai_requests_active_comment_idx
+      ON comment_ai_requests (document_id, root_comment_id)
+      WHERE status IN ('queued', 'running', 'refreshing')`);
+
+    const rows = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .orderBy(schema.commentAiRequests.id);
+    expect(rows.map((row) => [row.id, row.status, row.errorCode])).toEqual([
+      [OP_A, "queued", null],
+      [OP_B, "needs-review", "operation_failed"],
+    ]);
+  });
+
   it("starts two comments concurrently with distinct operation and agent thread ids", async () => {
     const [first, second] = await Promise.all([
       asUser(() => commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A))),

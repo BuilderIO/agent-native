@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   commentAiRequestsRefetchInterval,
+  shouldReconcileCommentAiSnapshot,
   CommentAiThreadActions,
   type CommentAiController,
   useCommentAiRequests,
@@ -321,5 +322,28 @@ describe("comment AI controls", () => {
       }),
     ).toBe(false);
     expect(commentAiRequestsRefetchInterval(undefined)).toBe(false);
+  });
+});
+
+describe("comment AI session reconciliation", () => {
+  const snapshot = {
+    operationId: "operation-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    status: "unavailable" as const,
+  };
+
+  it("keeps transport uncertainty recoverable", () => {
+    expect(
+      shouldReconcileCommentAiSnapshot(
+        { ...snapshot, transportError: "acknowledgement timed out" },
+        10,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires repeated authoritative absence before review", () => {
+    expect(shouldReconcileCommentAiSnapshot(snapshot, 2)).toBe(false);
+    expect(shouldReconcileCommentAiSnapshot(snapshot, 3)).toBe(true);
   });
 });

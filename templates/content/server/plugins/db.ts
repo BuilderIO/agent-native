@@ -1145,6 +1145,21 @@ export const runContentMigrations = runMigrations(
         WHERE submitted_thread_digest IS NULL;
       UPDATE comment_ai_requests SET submitted_snapshot_json = snapshot_json
         WHERE submitted_snapshot_json IS NULL;
+      WITH ranked_active AS (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY document_id, root_comment_id
+          ORDER BY created_at ASC, id ASC
+        ) AS active_rank
+        FROM comment_ai_requests
+        WHERE status IN ('queued', 'running', 'refreshing')
+      )
+      UPDATE comment_ai_requests AS request
+      SET status = 'needs-review',
+          error_code = 'operation_failed',
+          error = 'Another Ask AI operation was already active for this comment during the concurrency upgrade',
+          updated_at = CURRENT_TIMESTAMP
+      FROM ranked_active
+      WHERE request.id = ranked_active.id AND ranked_active.active_rank > 1;
       CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_requests_active_comment_idx
         ON comment_ai_requests (document_id, root_comment_id)
         WHERE status IN ('queued', 'running', 'refreshing');
