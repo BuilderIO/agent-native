@@ -3301,9 +3301,9 @@ export default function SlideEditor({
   );
 
   const commitMultiObjectChange = useCallback(
-    (objectIds: string[]) => {
+    (objectIds: string[], serializedContent?: string) => {
       pendingMultiSelectionResyncRef.current = { objectIds, paths: [] };
-      const html = readCurrentSlideContentHtml();
+      const html = serializedContent ?? readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
     },
     [readCurrentSlideContentHtml],
@@ -6538,15 +6538,125 @@ export default function SlideEditor({
               ) as HTMLElement | null,
           )
           .filter((el): el is HTMLElement => el !== null);
-        if (elements.some((element) => !isPersistedFreeformObject(element))) {
+        const roots = elements.filter(
+          (element) =>
+            !elements.some(
+              (candidate) =>
+                candidate !== element && candidate.contains(element),
+            ),
+        );
+        if (roots.length === 0) return;
+
+        const promotions: Array<{
+          element: HTMLElement;
+          originalClassName: string;
+          originalStyle: string | null;
+          originalObjectId: string | null;
+          originalContentEditable: string | null;
+          originalEditingBlock: string | null;
+          restoreMarkdownTree?: () => void;
+        }> = [];
+        let promotionsRestored = false;
+        const removeFreeformLayoutSpacer = (element: HTMLElement) => {
+          const objectId = element.getAttribute("data-slide-object-id");
+          if (!objectId) return;
+          const owner = element.parentElement ?? element.ownerDocument;
+          owner
+            .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+            .forEach((spacer) => {
+              if (
+                spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+              ) {
+                spacer.remove();
+              }
+            });
+        };
+        const restorePromotions = () => {
+          if (promotionsRestored) return;
+          promotionsRestored = true;
+          for (const promotion of promotions) {
+            removeFreeformLayoutSpacer(promotion.element);
+          }
+          const restoredMarkdownTrees = new Set<() => void>();
+          for (const promotion of promotions) {
+            const restoreMarkdownTree = promotion.restoreMarkdownTree;
+            if (
+              restoreMarkdownTree &&
+              !restoredMarkdownTrees.has(restoreMarkdownTree)
+            ) {
+              restoredMarkdownTrees.add(restoreMarkdownTree);
+              restoreMarkdownTree();
+            }
+          }
+          for (const promotion of promotions) {
+            const {
+              element,
+              originalClassName,
+              originalStyle,
+              originalObjectId,
+              originalContentEditable,
+              originalEditingBlock,
+            } = promotion;
+            element.className = originalClassName;
+            if (originalStyle === null) element.removeAttribute("style");
+            else element.setAttribute("style", originalStyle);
+            if (originalContentEditable === null) {
+              element.removeAttribute("contenteditable");
+            } else {
+              element.setAttribute("contenteditable", originalContentEditable);
+            }
+            if (originalEditingBlock === null) {
+              element.removeAttribute("data-editing-block");
+            } else {
+              element.setAttribute("data-editing-block", originalEditingBlock);
+            }
+            if (originalObjectId) {
+              element.setAttribute("data-slide-object-id", originalObjectId);
+            } else {
+              element.removeAttribute("data-slide-object-id");
+            }
+          }
+        };
+        for (const element of roots) {
+          const originalClassName = element.className;
+          const originalStyle = element.getAttribute("style");
+          const originalObjectId = element.getAttribute("data-slide-object-id");
+          const originalContentEditable =
+            element.getAttribute("contenteditable");
+          const originalEditingBlock =
+            element.getAttribute("data-editing-block");
+          const frozen = freezeElementForFreeformSelection(element);
+          if (!frozen) {
+            restorePromotions();
+            return;
+          }
+          promotions.push({
+            element,
+            originalClassName,
+            originalStyle,
+            originalObjectId,
+            originalContentEditable,
+            originalEditingBlock,
+            restoreMarkdownTree: frozen.restoreMarkdownTree,
+          });
+          if (!isPersistedFreeformObject(frozen.element)) {
+            restorePromotions();
+            return;
+          }
+        }
+
+        const members = collectMovableSlideObjects(roots, getObjectGeometry);
+        if (members.length !== roots.length) {
+          restorePromotions();
           return;
         }
-        const members = collectMovableSlideObjects(elements, getObjectGeometry);
-        if (members.length === 0) return;
         const fmdSlide = members[0].element.closest(
           ".fmd-slide",
         ) as HTMLElement | null;
-        if (!fmdSlide) return;
+        if (!fmdSlide) {
+          restorePromotions();
+          return;
+        }
         const positioningLayer =
           Array.from(fmdSlide.children).find(
             (child): child is HTMLElement =>
@@ -6567,12 +6677,38 @@ export default function SlideEditor({
               ) !== containingBlock,
           )
         ) {
+          restorePromotions();
           return;
         }
         e.preventDefault();
         applySlideObjectMoveDelta(members, dx, dy, applyObjectGeometry);
+        for (const promotion of promotions) {
+          preserveSlideObjectLayoutSpacer(promotion.element);
+        }
+        const html = readCurrentSlideContentHtml();
+        if (html === null) {
+          restorePromotions();
+          return;
+        }
+        for (const promotion of promotions) {
+          removeFreeformLayoutSpacer(promotion.element);
+        }
+        const restoredMarkdownTrees = new Set<() => void>();
+        for (const promotion of promotions) {
+          const restoreMarkdownTree = promotion.restoreMarkdownTree;
+          if (
+            restoreMarkdownTree &&
+            !restoredMarkdownTrees.has(restoreMarkdownTree)
+          ) {
+            restoredMarkdownTrees.add(restoreMarkdownTree);
+            restoreMarkdownTree();
+          }
+        }
         refreshMultiSelectionRects(multiSelection);
-        commitMultiObjectChange(members.map((member) => member.objectId));
+        commitMultiObjectChange(
+          members.map((member) => member.objectId),
+          html,
+        );
         return;
       }
 
