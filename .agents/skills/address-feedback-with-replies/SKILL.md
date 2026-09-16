@@ -49,31 +49,20 @@ the exact parent for manual cleanup and leave the thread otherwise untouched.
 New messages must pass the clear-bug gate before any external write.
 
 Use the disposition-specific release contract from `review-latest-feedback`:
-`✅` is reserved for **Fixed**, **Shipped**, or **Live verified** after all
-four verification bars hold; `:no_entry_sign:` closes other terminal states
-without claiming a product fix. When reopening or re-claiming an item, remove
-this workflow's stale release marker before adding `👀`; if reaction removal is
-unavailable, use full enumeration with reaction metadata and do not trust the
-optimized negative-marker cursor; do not re-add or retain `👀` beside the
-stale marker, and claim the item only after the marker is removed.
+`✅` is only for **Fixed**, **Shipped**, or **Live verified** after all four
+bars; other terminal states use `:no_entry_sign:`. On reopen or re-claim,
+remove this workflow's stale marker before adding `👀`. If removal is
+unavailable, use full reaction-aware enumeration, do not place `👀` beside the
+stale marker, and claim only after cleanup.
 
-Every clear-bug parent or upvoted improvement that receives `👀`
-enters the reply ledger. The reaction is not a reply or completion marker.
-Before finishing, re-read each claimed item and verify the invoking identity
-posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
-recorded **Live verified**, **Verified locally**, **Built - live unverified**,
-**Deployed - live unverified**, **Not reproducible - attempted**, **Asked**,
-**Blocked on reporter**, or **Merged - release pending** in the ledger, or
-recorded **Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**,
-or **Abandoned - no answer in 4 days** with a concrete reason and its
-disposition-specific release marker. Record **Owned elsewhere** when another
-valid workflow identity holds the eye; do not mutate that reaction. An
-expired question leaves the ledger with its `:no_entry_sign:` release marker and no reply owed.
-**Clarification needed** may retain the eye only while the targeted question is
-pending. **In progress** requires
-concrete existing ownership or active fixing and must be revisited; a bot
-forward, another person's reply, or `👀` alone does not qualify. Mistaken
-out-of-scope eyes use the cleanup rule above, not a new reply.
+Every eyed clear-bug or upvoted item enters the ledger; the eye is not
+completion. Before finishing, re-read each claim and verify a reply of
+**Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or a
+recorded disposition from the complete vocabulary below. Evidence-limited
+states retain the eye; terminal states need their disposition-specific marker.
+Record **Owned elsewhere** for a foreign eye without changing it. Pending
+clarification keeps the eye; **In progress** needs real ownership and a revisit.
+Mistaken out-of-scope eyes use the cleanup rule.
 
 ## Prerequisites
 
