@@ -380,9 +380,9 @@ tested commit/build, sibling fingerprint results, and runtime layer (`local`,
 `source-only`, `built`, `deployed`, `observed-live`).
 
 If the full bar was not exercised, use **Verified locally**, **Built - live
-unverified**, **Deployed - live unverified**, **Live verified**, **Not
-reproducible - attempted**, **Blocked on reporter**, **Merged - release
-pending**, or **Clustered**. Never
+unverified**, **Deployed - live unverified**, **Not reproducible - attempted**,
+**Asked**, **Blocked on reporter**, **Merged - release pending**, or
+**Clustered**. **Live verified** is valid only after all four bars hold. Never
 promote `handled`/`completed`, reactions, source tests, or unchanged live state
 to **Fixed**. Repeats require a new failing pre-change reproduction and the
 earlier false claim.
