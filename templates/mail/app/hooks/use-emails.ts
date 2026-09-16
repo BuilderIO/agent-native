@@ -500,7 +500,11 @@ function isSuppressedInView(
   // must stop hiding it from Trash once a later trash put it there. Older
   // claims stay in the map purely so their own rollback stays scoped.
   const destination = newest.destination;
-  if (destination?.label && destination.label === label) return false;
+  // A label tab is fetched as view "all" with that label, so `views` alone
+  // cannot tell bare All Mail from a label-scoped query. Only the destination
+  // label may reveal a thread in a label list; otherwise archiving or moving
+  // out of a label would leave it listed in the label it just left.
+  if (label) return destination?.label !== label;
   return !destination?.views?.includes(view);
 }
 
