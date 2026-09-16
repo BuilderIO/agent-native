@@ -4,6 +4,7 @@ import {
 } from "@shared/code-layer";
 
 import {
+  bridgeSourceIdForCodeLayerNode,
   collapsedElementText,
   resolveCodeLayerTargetFromBridge,
 } from "./code-layer-state";
@@ -18,6 +19,8 @@ export type RuntimeStructureVerificationFailure =
   | "missing-subject"
   | "ambiguous-subject"
   | "subject-still-present"
+  | "missing-replacement"
+  | "ambiguous-replacement"
   | "missing-anchor"
   | "ambiguous-anchor"
   | "wrong-parent"
@@ -29,12 +32,12 @@ export interface RuntimeStructureVerificationResult {
   failure?: RuntimeStructureVerificationFailure;
 }
 
-type RuntimeStructureNodeRole = "subject" | "anchor";
+type RuntimeStructureNodeRole = "subject" | "replacement" | "anchor";
 
 interface RuntimeStructureNodeResolution {
   node?: CodeLayerNode;
   failure?: RuntimeStructureVerificationFailure;
-  matchedBy?: "identity" | "signature";
+  matchedBy?: "identity" | "selector" | "signature";
 }
 
 function runtimeStructureResolutionFailure(
@@ -42,9 +45,13 @@ function runtimeStructureResolutionFailure(
   role: RuntimeStructureNodeRole,
 ): RuntimeStructureVerificationFailure {
   if (status === "ambiguous") {
-    return role === "subject" ? "ambiguous-subject" : "ambiguous-anchor";
+    if (role === "subject") return "ambiguous-subject";
+    if (role === "replacement") return "ambiguous-replacement";
+    return "ambiguous-anchor";
   }
-  return role === "subject" ? "missing-subject" : "missing-anchor";
+  if (role === "subject") return "missing-subject";
+  if (role === "replacement") return "missing-replacement";
+  return "missing-anchor";
 }
 
 function runtimeStructureNodeMatchesSignature(
@@ -78,18 +85,27 @@ function resolveRuntimeStructureNode(args: {
     args.sourceId ?? undefined,
   );
   if (direct.status === "resolved") {
+    const matchedBy =
+      args.sourceId &&
+      bridgeSourceIdForCodeLayerNode(direct.node) === args.sourceId
+        ? "identity"
+        : "selector";
     if (
       !args.signature ||
       runtimeStructureNodeMatchesSignature(direct.node, args.signature)
     ) {
-      return { node: direct.node, matchedBy: "identity" };
+      return { node: direct.node, matchedBy };
     }
     // A live identity is stronger evidence than a stale content signature.
     // Do not let an unrelated sibling with the old signature validate this
     // edit while the original runtime node is still present but changed.
     return {
       failure:
-        args.role === "subject" ? "subject-still-present" : "missing-anchor",
+        args.role === "subject"
+          ? "subject-still-present"
+          : args.role === "replacement"
+            ? "missing-replacement"
+            : "missing-anchor",
     };
   }
 
@@ -128,7 +144,14 @@ function resolveRuntimeStructureNodeByIdentity(args: {
     args.sourceId ?? undefined,
   );
   if (direct.status === "resolved") {
-    return { node: direct.node, matchedBy: "identity" };
+    return {
+      node: direct.node,
+      matchedBy:
+        args.sourceId &&
+        bridgeSourceIdForCodeLayerNode(direct.node) === args.sourceId
+          ? "identity"
+          : "selector",
+    };
   }
   return {
     failure: runtimeStructureResolutionFailure(
@@ -211,12 +234,12 @@ export function verifyPendingStructureRuntime(
       selector: edit.replacementSelector,
       sourceId: edit.replacementSourceId,
       signature: edit.replacementSignature,
-      role: "subject",
+      role: "replacement",
     });
     if (!replacementResolution.node) {
       return {
         ok: false,
-        failure: replacementResolution.failure ?? "missing-subject",
+        failure: replacementResolution.failure ?? "missing-replacement",
       };
     }
 
@@ -229,14 +252,16 @@ export function verifyPendingStructureRuntime(
     if (subjectIdentityResolution.failure === "ambiguous-subject") {
       return { ok: false, failure: "ambiguous-subject" };
     }
-    if (
-      subjectIdentityResolution.node &&
-      subjectIdentityResolution.node.id !== replacementResolution.node.id
-    ) {
-      return { ok: false, failure: "subject-still-present" };
-    }
     if (subjectIdentityResolution.node) {
-      return { ok: false, failure: "subject-still-present" };
+      const sameNode =
+        subjectIdentityResolution.node.id === replacementResolution.node.id;
+      const replacementIsProvenByPosition =
+        sameNode &&
+        subjectIdentityResolution.matchedBy === "selector" &&
+        replacementResolution.matchedBy === "selector";
+      if (!replacementIsProvenByPosition) {
+        return { ok: false, failure: "subject-still-present" };
+      }
     }
 
     const subjectMatches = projection.nodes.filter((node) =>
@@ -244,23 +269,25 @@ export function verifyPendingStructureRuntime(
         ? runtimeStructureNodeMatchesSignature(node, edit.subjectSignature)
         : false,
     );
-    const remainingSubjectMatches =
-      replacementResolution.matchedBy === "identity"
-        ? subjectMatches.filter(
-            (node) => node.id !== replacementResolution.node!.id,
-          )
-        : subjectMatches;
-    if (remainingSubjectMatches.length > 1) {
-      return { ok: false, failure: "ambiguous-subject" };
-    }
-    if (remainingSubjectMatches.length === 1) {
-      return { ok: false, failure: "subject-still-present" };
-    }
-    if (
-      replacementResolution.matchedBy !== "identity" &&
-      subjectMatches.some((node) => node.id === replacementResolution.node!.id)
-    ) {
-      return { ok: false, failure: "ambiguous-subject" };
+    const replacementIsUniquelyLocated =
+      replacementResolution.matchedBy === "identity" ||
+      replacementResolution.matchedBy === "selector";
+    const remainingSubjectMatches = replacementIsUniquelyLocated
+      ? subjectMatches.filter(
+          (node) => node.id !== replacementResolution.node!.id,
+        )
+      : subjectMatches;
+    const replacementIsProvenByPosition =
+      subjectIdentityResolution.node?.id === replacementResolution.node.id &&
+      subjectIdentityResolution.matchedBy === "selector" &&
+      replacementResolution.matchedBy === "selector";
+    if (!replacementIsProvenByPosition) {
+      if (remainingSubjectMatches.length > 1) {
+        return { ok: false, failure: "ambiguous-subject" };
+      }
+      if (remainingSubjectMatches.length === 1) {
+        return { ok: false, failure: "subject-still-present" };
+      }
     }
     return { ok: true };
   }

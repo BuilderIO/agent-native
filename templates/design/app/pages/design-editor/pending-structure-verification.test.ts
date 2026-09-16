@@ -335,7 +335,34 @@ describe("verifyPendingStructureRuntime", () => {
     });
   });
 
-  it("fails closed when a same-shaped replacement has no stable identity", () => {
+  it("accepts an identity-less same-shaped replacement at a unique structural position", () => {
+    const sameShapeSignature = {
+      tag: "section",
+      text: "Same",
+      classes: [],
+    };
+    const replaceEdit = edit({
+      selector: "main > section:nth-of-type(2)",
+      sourceId: null,
+      insertedHtml: "<section>Same</section>",
+      replaced: true,
+      replacementSelector: "main > section:nth-of-type(2)",
+      replacementSourceId: null,
+      subjectSignature: sameShapeSignature,
+      replacementSignature: sameShapeSignature,
+    });
+    expect(
+      verifyPendingStructureRuntime(
+        `<!doctype html><body><main>
+          <section>Same</section>
+          <section>Same</section>
+        </main></body>`,
+        replaceEdit,
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("fails closed when an identity-less replacement selector is ambiguous", () => {
     const sameShapeSignature = {
       tag: "section",
       text: "Same",
@@ -343,20 +370,23 @@ describe("verifyPendingStructureRuntime", () => {
     };
     const replaceEdit = edit({
       selector: '[data-agent-native-node-id="old-subject"]',
-      sourceId: "old-subject",
+      sourceId: null,
       insertedHtml: "<section>Same</section>",
       replaced: true,
       replacementSelector: "section",
-      replacementSourceId: "missing-replacement",
+      replacementSourceId: null,
       subjectSignature: sameShapeSignature,
       replacementSignature: sameShapeSignature,
     });
     expect(
       verifyPendingStructureRuntime(
-        `<!doctype html><body><section>Same</section></body>`,
+        `<!doctype html><body><main>
+          <section>Same</section>
+          <section>Same</section>
+        </main></body>`,
         replaceEdit,
       ),
-    ).toEqual({ ok: false, failure: "subject-still-present" });
+    ).toEqual({ ok: false, failure: "ambiguous-replacement" });
   });
 
   it("requires every affected screen relationship", () => {

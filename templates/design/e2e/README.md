@@ -63,8 +63,21 @@ corepack pnpm --dir templates/design exec tsx scripts/visual-edit-runtime-proof.
 
 Set `VISUAL_EDIT_EDITOR_URL` to inspect an existing design instead of creating
 and deleting a temporary one. Authenticated sign-in/sign-out propagation remains
-a separate manual proof because the harness must not receive a real account's
-credentials; attach the signed-out and signed-in screenshots from that run.
+a separate local proof that uses a throwaway auth-enabled Slides database and a
+fresh bridge process, never a real account's credentials:
+
+```bash
+VISUAL_EDIT_AUTH_SLIDES_URL=http://localhost:8086 \
+VISUAL_EDIT_AUTH_BRIDGE_URL=http://127.0.0.1:7334 \
+VISUAL_EDIT_AUTH_BRIDGE_TOKEN=visual-edit-auth-proof-token-fresh \
+corepack pnpm --dir templates/design exec tsx scripts/visual-edit-auth-runtime-proof.ts
+```
+
+The auth harness opens `/sign-in`, `/home`, and `/settings`, verifies the
+signed-out and signed-in frame sets, performs an authenticated structure drag
+and `get-visual-edit-prompt` call, signs out from a settings frame, and checks
+that all three frames return to signed-out state. It writes the artifact and
+screenshots to `.tmp/visual-edit-proof/`.
 
 ## Driving your REAL, logged-in Chrome (chrome-devtools-mcp)
 
