@@ -282,7 +282,11 @@ export default defineAction({
     "For map entries such as canvasFrames, use dataOperations " +
     "with explicit set/delete paths instead of a full data snapshot. " +
     "Dimensions and positions (x, y, width, height, rotation, z) are " +
-    "numbers. String values are rejected.",
+    "numbers. String values are rejected. Renderable screens created by " +
+    "create-file or generate-design are auto-placed, so omit canvasFrames " +
+    "unless intentionally placing or moving a frame. Full placement objects " +
+    "must provide complete numeric geometry; path-addressed updates may change " +
+    "individual numeric fields.",
   schema: z
     .object({
       id: z.string().describe("Design ID"),

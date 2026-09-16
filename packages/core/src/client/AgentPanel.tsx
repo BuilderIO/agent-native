@@ -614,8 +614,11 @@ export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
   return cliTabs.length > 1;
 }
 
-export function shouldShowAgentPanelModeButtons(isSidebar: boolean) {
-  return !isSidebar;
+export function shouldShowAgentPanelModeButtons(
+  isSidebar: boolean,
+  chatOnly = false,
+) {
+  return !isSidebar && !chatOnly;
 }
 
 export function shouldShowAgentPanelFullViewAction(
@@ -2308,7 +2311,10 @@ function AgentPanelInner({
                     );
                   })}
                 </div>
-              ) : shouldShowAgentPanelModeButtons(Boolean(onCollapse)) ? (
+              ) : shouldShowAgentPanelModeButtons(
+                  Boolean(onCollapse),
+                  chatOnly,
+                ) ? (
                 renderModeButtons(mode)
               ) : null}
             </div>
@@ -2579,7 +2585,7 @@ function AgentPanelInner({
       <AgentPanelSettingsNavigation onOpenSettings={onOpenSettings} />
       <div
         className={cn(
-          "agent-panel-root agent-kit-density flex flex-1 flex-col min-h-0 h-full antialiased",
+          "agent-panel-root agent-kit-density flex flex-1 flex-col min-h-0 min-w-0 h-full antialiased",
           className,
         )}
         style={{

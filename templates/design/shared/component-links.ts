@@ -21,6 +21,7 @@ import {
   COMPONENT_SOURCE_NODE_ID_ATTR,
 } from "./component-model";
 import { ensureGroupRuntime } from "./group-runtime";
+import { resolveLayerNameAttribute } from "./layer-name.js";
 
 const NODE_ID_ATTR = "data-agent-native-node-id";
 
@@ -820,8 +821,13 @@ function readInheritedValue(
   if (edit.kind === "textContent") {
     return readCodeLayerNodeTextContent(document.content, node);
   }
-  const value = node.dataAttributes[LAYER_NAME_ATTR];
-  return value === undefined ? null : value;
+  return (
+    resolveLayerNameAttribute((attribute) => {
+      const value =
+        node.dataAttributes[attribute] ?? node.attributes[attribute];
+      return typeof value === "string" ? value : null;
+    })?.value ?? null
+  );
 }
 
 function readOverrides(node: CodeLayerNode): ComponentOverride[] | null {

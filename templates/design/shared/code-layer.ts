@@ -7265,8 +7265,9 @@ function applyBooleanSubtract(
       operand.sourceNode.dataAttributes["data-agent-native-node-id"] ??
       operand.sourceNode.id;
     const name =
-      attributeValue(operand.element, "data-agent-native-layer-name") ??
-      operand.sourceNode.layerName;
+      resolveLayerNameAttribute((attribute) =>
+        attributeValue(operand.element, attribute),
+      )?.value ?? operand.sourceNode.layerName;
     const localLeft = operand.left - minLeft;
     const localTop = operand.top - minTop;
     const strokeInset = operand.strokeWidth / 2;

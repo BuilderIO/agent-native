@@ -418,6 +418,15 @@ const editor = {
   registryBlockUnreadable: "सहेजा गया ब्लॉक स्रोत पढ़ा नहीं जा सकता।",
   blocksFieldRevisionConflict:
     "यह ब्लॉक फ़ील्ड कहीं और बदल गया है। आपका संपादन सहेजा नहीं गया; अब नवीनतम संस्करण दिखाया जा रहा है।",
+  reconcileConflict: "यह पेज कहीं और बदल गया है। आपके संपादन अभी तक सहेजे नहीं गए हैं।",
+  reconcileFailed:
+    "नवीनतम बदलावों को जोड़ा नहीं जा सका। आपके संपादन अभी तक सहेजे नहीं गए हैं।",
+  reconcileSaveFailed: "आपके संपादन सहेजे नहीं जा सके। समीक्षा करें और फिर से कोशिश करें।",
+  reconcileSaving: "आपके संपादन सहेजे जा रहे हैं…",
+  reconcileReview: "बदलावों की समीक्षा करें",
+  reconcileReviewStale:
+    "सहेजा गया संस्करण फिर से बदल गया है। सहेजने से पहले नवीनतम टेक्स्ट की समीक्षा करें।",
+  reconcileRefresh: "नवीनतम संस्करण की समीक्षा करें",
   collabConnectingReadOnly:
     "लाइव संपादक कनेक्ट हो रहा है। केवल-पठन स्नैपशॉट दिखाया जा रहा है।",
   liveDocumentSaveBeforeSyncFailed:
@@ -804,6 +813,9 @@ const rawLiterals = {
     previewDraftSavedToHistory: "आपके बदलाव वर्शन इतिहास में सहेजे गए",
     previewDraftSavedSeparately: "आपके बदलाव अलग पेज के रूप में सहेजे गए",
     previewDraftOpenSavedPage: "पेज खोलें",
+    previewDraftMoreOptions: "ज़्यादा विकल्प",
+    previewDraftViewFullVersions: "पूरे वर्शन देखें",
+    previewDraftShowChanges: "बदलाव देखें",
     previewDraftConflict:
       "यह ड्राफ़्ट पेज के नए वर्शन से मेल नहीं खाता। इसे बहाल नहीं किया गया।",
     restorePreviewDraft: "ड्राफ़्ट बहाल करें",

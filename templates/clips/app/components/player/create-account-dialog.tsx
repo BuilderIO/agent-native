@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import { isQaTestEmail } from "@agent-native/core/shared";
 import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
@@ -177,7 +178,7 @@ export function AccountGateDialog({
 
   const startGoogleSignup = async () => {
     if (googleBusy || submitting) return;
-    const popup = window.open("", "_blank", "width=640,height=760");
+    const popup = openOAuthPopup({ features: "width=640,height=760" });
     if (!popup) {
       setErrorMessage(copy.failedToConnect);
       return;

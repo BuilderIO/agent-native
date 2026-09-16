@@ -48,6 +48,7 @@ export interface ScreenVisualStructureChangeArgs {
       replacementSelector?: string;
       replacementSourceId?: string;
       replacementElementInfo?: ElementInfo;
+      replacementSnapshotHtml?: string;
     },
   ) => boolean | "pending";
   overviewScreens: OverviewScreen[];
@@ -71,6 +72,7 @@ export interface ScreenVisualStructureChangeArgs {
       replacementSelector?: string;
       replacementSourceId?: string;
       replacementElementInfo?: ElementInfo;
+      replacementSnapshotHtml?: string;
       removed?: true;
     },
   ) => void;
@@ -117,6 +119,7 @@ export function runScreenVisualStructureChange(
     replacementSelector?: string;
     replacementSourceId?: string;
     replacementElementInfo?: ElementInfo;
+    replacementSnapshotHtml?: string;
   },
 ) {
   if (screenId === activeFile?.id) {

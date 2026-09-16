@@ -1,5 +1,20 @@
 # @agent-native/dispatch
 
+## 0.38.0
+
+### Minor Changes
+
+- 99e1584: Expose the opt-in labs flag for the Connect Apps surface.
+
+### Patch Changes
+
+- bd9b451: Infer a root home route for workspace apps that do not define a `/home` route, and keep local and autonomous app discovery aligned with the deployed registry.
+- Release all public npm packages with a patch version bump.
+- c9cb7de: Remove retired Macros app references from dispatch and toolkit surfaces.
+- Updated dependencies
+- Updated dependencies [c9cb7de]
+  - @agent-native/toolkit@0.20.2
+
 ## 0.37.0
 
 ### Minor Changes
@@ -984,11 +999,5 @@
 ### Patch Changes
 
 - c440e50: Route Turn Into App requests from Claude Web, ChatGPT Web, and web Projects to Builder through Dispatch instead of building in the host sandbox.
-
-## 0.20.0
-
-### Minor Changes
-
-- 1d5bab1: Simplify the Dispatch Admin overview and Apps catalog with shared icon cards, app colors, and lighter progressive disclosure.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
