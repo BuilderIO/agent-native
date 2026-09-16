@@ -357,12 +357,14 @@ import {
   isPortableStyleSnapshot,
 } from "./multi-screen/cross-screen-drop";
 import {
+  admitBootBudget,
   clampFrameGeometryToViewport,
   computeBoundedScreenCullState,
   getScreenContentCullState,
   getOverscannedViewportCanvasBounds,
   isFrameWithinOverscannedViewport,
   type OverscannedViewportBounds,
+  type LiveScreenBootStatus,
   type ScreenCullTier,
 } from "./multi-screen/culling";
 import {
@@ -562,6 +564,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   layoutGrids,
   onZoomChange,
   renderScreenContent,
+  screenSnapshotsById,
   renderBreakpointContent,
   onScreenSelectionChange,
   selectAllRequest,
@@ -1172,6 +1175,33 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const liveScreenIdsRef = useRef<Set<string>>(new Set());
   const lastVisibleEpochByScreenIdRef = useRef<Map<string, number>>(new Map());
   const cullAccessEpochRef = useRef(0);
+  const bootStatusByScreenIdRef = useRef<Map<string, LiveScreenBootStatus>>(
+    new Map(),
+  );
+  const bootTimeoutByScreenIdRef = useRef<Map<string, number>>(new Map());
+  const bridgeReadyCallbackByScreenIdRef = useRef<Map<string, () => void>>(
+    new Map(),
+  );
+  const [bootStatusRevision, setBootStatusRevision] = useState(0);
+  const markScreenBootReady = useCallback((screenId: string) => {
+    const status = bootStatusByScreenIdRef.current.get(screenId);
+    if (status === "ready") return;
+    const timeoutId = bootTimeoutByScreenIdRef.current.get(screenId);
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    bootTimeoutByScreenIdRef.current.delete(screenId);
+    bootStatusByScreenIdRef.current.set(screenId, "ready");
+    setBootStatusRevision((revision) => revision + 1);
+  }, []);
+  const getScreenBootReadyCallback = useCallback(
+    (screenId: string) => {
+      const existing = bridgeReadyCallbackByScreenIdRef.current.get(screenId);
+      if (existing) return existing;
+      const callback = () => markScreenBootReady(screenId);
+      bridgeReadyCallbackByScreenIdRef.current.set(screenId, callback);
+      return callback;
+    },
+    [markScreenBootReady],
+  );
   const wheelGestureFilteredIframesRef = useRef<HTMLElement[]>([]);
   // Paint suppression is resolved imperatively against the live camera, so its
   // inputs live in refs readable from applyViewToDom's render-free tick.
@@ -1193,7 +1223,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastVisibleEpochByScreenIdRef.current.delete(id);
       }
     }
+    for (const id of bootStatusByScreenIdRef.current.keys()) {
+      if (liveScreenIds.has(id)) continue;
+      const timeoutId = bootTimeoutByScreenIdRef.current.get(id);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      bootTimeoutByScreenIdRef.current.delete(id);
+      bootStatusByScreenIdRef.current.delete(id);
+      bridgeReadyCallbackByScreenIdRef.current.delete(id);
+    }
   }, [screens]);
+  useEffect(
+    () => () => {
+      for (const timeoutId of bootTimeoutByScreenIdRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      bootTimeoutByScreenIdRef.current.clear();
+      bootStatusByScreenIdRef.current.clear();
+      bridgeReadyCallbackByScreenIdRef.current.clear();
+    },
+    [],
+  );
 
   // Track the pannable surface's own on-screen size for culling's viewport
   // bounds (getOverscannedViewportCanvasBounds). Only the surface's *size*
@@ -9109,6 +9158,62 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     protectedLiveScreenIds,
     surfaceSize,
   ]);
+  const liveBootCandidates = useMemo(
+    () =>
+      Array.from(liveScreenIdsRef.current).filter((screenId) => {
+        const frame = canvasFrames.find(({ screen }) => screen.id === screenId);
+        return Boolean(frame && isRunningAppSourceType(frame.metadata.source));
+      }),
+    [canvasFrames, screenCullTierById],
+  );
+  const bootAdmittedScreenIds = useMemo(
+    () =>
+      admitBootBudget({
+        candidates: liveBootCandidates,
+        bootStatusById: bootStatusByScreenIdRef.current,
+        protectedIds: protectedLiveScreenIds,
+      }),
+    [bootStatusRevision, liveBootCandidates, protectedLiveScreenIds],
+  );
+  useEffect(() => {
+    let changed = false;
+    for (const screenId of bootAdmittedScreenIds) {
+      if (bootStatusByScreenIdRef.current.has(screenId)) continue;
+      bootStatusByScreenIdRef.current.set(screenId, "booting");
+      const timeoutId = window.setTimeout(
+        () => markScreenBootReady(screenId),
+        8_000,
+      );
+      bootTimeoutByScreenIdRef.current.set(screenId, timeoutId);
+      changed = true;
+    }
+    if (changed) setBootStatusRevision((revision) => revision + 1);
+  }, [bootAdmittedScreenIds, markScreenBootReady]);
+  useEffect(() => {
+    let changed = false;
+    for (const screenId of bootStatusByScreenIdRef.current.keys()) {
+      if (liveScreenIdsRef.current.has(screenId)) continue;
+      const timeoutId = bootTimeoutByScreenIdRef.current.get(screenId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      bootTimeoutByScreenIdRef.current.delete(screenId);
+      bootStatusByScreenIdRef.current.delete(screenId);
+      changed = true;
+    }
+    if (changed) setBootStatusRevision((revision) => revision + 1);
+  }, [screenCullTierById]);
+  const bootDeferredScreenIds = useMemo(
+    () =>
+      new Set(
+        canvasFrames
+          .filter(
+            ({ screen, metadata }) =>
+              isRunningAppSourceType(metadata.source) &&
+              !bootAdmittedScreenIds.has(screen.id),
+          )
+          .map(({ screen }) => screen.id),
+      ),
+    [bootAdmittedScreenIds, canvasFrames],
+  );
   // No dependency array on purpose: any render can mount, unmount, or reorder a
   // screen's content wrapper, and a wrapper React just mounted carries none of
   // the suppression state this owns.
@@ -9197,6 +9302,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ? "culled"
           : baseTier;
       if (tier === "placeholder" || tier === "evicted") return;
+      if (bootDeferredScreenIds.has(screen.id)) return;
       next.set(
         screen.id,
         getCachedScreenContentNode(
@@ -9205,6 +9311,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           metadata,
           geometry,
           renderScreenContent,
+          isRunningAppSourceType(metadata.source)
+            ? {
+                onBootReady: getScreenBootReadyCallback(screen.id),
+              }
+            : undefined,
         ),
       );
     });
@@ -9216,6 +9327,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [
     canvasFrames,
     exportPreviewScreenId,
+    bootDeferredScreenIds,
+    getScreenBootReadyCallback,
     renderScreenContent,
     screenCullTierById,
   ]);
@@ -9547,6 +9660,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               measuredIframeHeights={measuredIframeHeights}
               locked={lockedScreenIdSet.has(screen.id)}
               screenContent={screenContentById.get(screen.id)}
+              bootDeferred={bootDeferredScreenIds.has(screen.id)}
+              snapshotHtml={screenSnapshotsById?.[screen.id]?.html}
               renderBreakpointContent={renderBreakpointContent}
               cullTier={cullTier}
               isExportPreview={isExportPreview}
@@ -11008,6 +11123,8 @@ interface ScreenProps {
   chromeScale: number;
   chromeSettling: boolean;
   screenContent?: ReactNode;
+  bootDeferred: boolean;
+  snapshotHtml?: string;
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
   /** Overview viewport culling tier (PF22) — see computeScreenCullTier.
    *  "visible": render screenContent normally. "culled": screenContent (if
@@ -11094,6 +11211,8 @@ const Screen = memo(function Screen({
   onStartResize,
   onStartRotate,
   screenContent,
+  bootDeferred,
+  snapshotHtml,
   renderBreakpointContent,
   cullTier,
   isExportPreview,
@@ -11175,6 +11294,30 @@ const Screen = memo(function Screen({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen.content]);
+
+  const deferredSnapshot =
+    bootDeferred && snapshotHtml ? (
+      <iframe
+        data-screen-snapshot
+        aria-hidden="true"
+        tabIndex={-1}
+        sandbox=""
+        srcDoc={snapshotHtml}
+        className="pointer-events-none border-0"
+        style={{
+          width: previewViewport.viewportWidth,
+          height: previewViewport.viewportHeight,
+          transform:
+            previewViewport.scale === 1
+              ? undefined
+              : `scale(${previewViewport.scale})`,
+          transformOrigin: "top left",
+          backgroundColor: "white",
+          colorScheme: "light",
+        }}
+        title={`${screen.filename} snapshot`}
+      />
+    ) : null;
 
   const updateDirectHover = useCallback((next: boolean) => {
     setDirectlyHovered((current) => (current === next ? current : next));
@@ -11472,59 +11615,59 @@ const Screen = memo(function Screen({
               screenRootComputedStyles?.borderBottomLeftRadius,
           }}
         >
-          {!shouldMountContent ? (
-            // Tier A/evicted (PF22 + bounded follow-up): no live browsing
-            // context is mounted. Render inert chrome-only filler that keeps
-            // the same wrapper geometry as real content so selection, drag,
-            // marquee, and measurement math stay unaffected. The content
-            // descriptor remains cached for direct revisit restoration.
-            <div
-              data-screen-placeholder
-              aria-hidden="true"
-              className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground"
-            >
-              <span className="max-w-[80%] truncate px-2 text-center !text-[11px] font-medium">
-                {display}
-              </span>
-            </div>
-          ) : (
-            (screenContent ?? (
-              <iframe
-                {...{
-                  [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
-                    ? undefined
-                    : "",
-                }}
-                data-screen-iframe-id={screen.id}
-                src={previewUrl}
-                srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                sandbox="allow-scripts"
-                // Visible includes the generous overscan band, so eager load
-                // here prewarms the document before it crosses the raw
-                // viewport edge. Warm hidden iframes are already loaded.
-                loading={
-                  isExportPreview || cullTier === "visible" ? "eager" : "lazy"
-                }
-                className="pointer-events-none border-0"
-                style={{
-                  width: previewViewport.viewportWidth,
-                  height: previewViewport.viewportHeight,
-                  // Untouched same-aspect overview thumbnails may scale uniformly.
-                  // User-resized frames use their real iframe viewport so
-                  // responsive layouts recompute instead of getting stretched.
-                  transform:
-                    previewViewport.scale === 1
+          {!shouldMountContent || bootDeferred
+            ? (deferredSnapshot ?? (
+                // Tier A/evicted (PF22 + bounded follow-up): no live browsing
+                // context is mounted. Render inert chrome-only filler that keeps
+                // the same wrapper geometry as real content so selection, drag,
+                // marquee, and measurement math stay unaffected. The content
+                // descriptor remains cached for direct revisit restoration.
+                <div
+                  data-screen-placeholder
+                  aria-hidden="true"
+                  className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground"
+                >
+                  <span className="max-w-[80%] truncate px-2 text-center !text-[11px] font-medium">
+                    {display}
+                  </span>
+                </div>
+              ))
+            : (screenContent ?? (
+                <iframe
+                  {...{
+                    [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
                       ? undefined
-                      : `scale(${previewViewport.scale})`,
-                  transformOrigin: "top left",
-                  backgroundColor: "white",
-                  colorScheme: "light",
-                  ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
-                }}
-                title={screen.filename}
-              />
-            ))
-          )}
+                      : "",
+                  }}
+                  data-screen-iframe-id={screen.id}
+                  src={previewUrl}
+                  srcDoc={previewUrl ? undefined : srcdocWithHitTest}
+                  sandbox="allow-scripts"
+                  // Visible includes the generous overscan band, so eager load
+                  // here prewarms the document before it crosses the raw
+                  // viewport edge. Warm hidden iframes are already loaded.
+                  loading={
+                    isExportPreview || cullTier === "visible" ? "eager" : "lazy"
+                  }
+                  className="pointer-events-none border-0"
+                  style={{
+                    width: previewViewport.viewportWidth,
+                    height: previewViewport.viewportHeight,
+                    // Untouched same-aspect overview thumbnails may scale uniformly.
+                    // User-resized frames use their real iframe viewport so
+                    // responsive layouts recompute instead of getting stretched.
+                    transform:
+                      previewViewport.scale === 1
+                        ? undefined
+                        : `scale(${previewViewport.scale})`,
+                    transformOrigin: "top left",
+                    backgroundColor: "white",
+                    colorScheme: "light",
+                    ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+                  }}
+                  title={screen.filename}
+                />
+              ))}
           {layoutGridBoardSize > 0 ? (
             <span
               data-layout-grid={screen.id}
@@ -11617,6 +11760,7 @@ const Screen = memo(function Screen({
           penActive={penActive}
           creationToolActive={creationToolActive}
           cullTier={cullTier}
+          bootDeferred={bootDeferred}
           chromeScale={chromeScale}
           chromeSettling={chromeSettling}
           onPick={onPick}
@@ -11683,6 +11827,8 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
       next.measuredIframeHeights,
     ) &&
     prev.screenContent === next.screenContent &&
+    prev.bootDeferred === next.bootDeferred &&
+    prev.snapshotHtml === next.snapshotHtml &&
     prev.renderBreakpointContent === next.renderBreakpointContent &&
     prev.cullTier === next.cullTier &&
     prev.isExportPreview === next.isExportPreview &&
@@ -11784,6 +11930,7 @@ function BreakpointPreviewRow({
   penActive,
   creationToolActive,
   cullTier,
+  bootDeferred,
   chromeScale,
   chromeSettling,
   onPick,
@@ -11832,6 +11979,7 @@ function BreakpointPreviewRow({
    *  previews stay iframe-free, warm offscreen previews remain mounted but
    *  hidden, and visible previews render normally. */
   cullTier: ScreenCullTier;
+  bootDeferred: boolean;
   chromeScale: number;
   chromeSettling: boolean;
   /** BP-DEEP item 5 — click-to-target: picking a breakpoint frame picks its
@@ -11902,13 +12050,15 @@ function BreakpointPreviewRow({
               ),
           });
         const isActive = activeBreakpointWidth === widthPx;
-        const editableContent = renderBreakpointContent?.(screen, metadata, {
-          widthPx,
-          viewportHeight: naturalHeight,
-          displayWidth: frameWidth,
-          displayHeight: frameHeight,
-          active: isActive,
-        });
+        const editableContent = bootDeferred
+          ? undefined
+          : renderBreakpointContent?.(screen, metadata, {
+              widthPx,
+              viewportHeight: naturalHeight,
+              displayWidth: frameWidth,
+              displayHeight: frameHeight,
+              active: isActive,
+            });
         const currentOffsetX = offsetX;
         offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
         const showBreakpointWidth =
@@ -12227,7 +12377,7 @@ function BreakpointPreviewRow({
                   borderBottomLeftRadius: rootStyles?.borderBottomLeftRadius,
                 }}
               >
-                {!shouldMountContent ? (
+                {!shouldMountContent || bootDeferred ? (
                   <div
                     data-breakpoint-placeholder
                     aria-hidden="true"

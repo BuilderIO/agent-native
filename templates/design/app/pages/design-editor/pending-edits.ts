@@ -35,6 +35,43 @@ import {
 } from "./react-semantic-handoff";
 import { camelStyleProperty } from "./style-utils";
 
+export interface RuntimeStructureNodeSignature {
+  tag: string;
+  text: string;
+  classes: string[];
+  component?: string;
+}
+
+export function normalizeRuntimeStructureClasses(
+  values: readonly string[],
+): string[] {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  ).sort();
+}
+
+export function normalizeRuntimeStructureText(
+  value: string | null | undefined,
+): string {
+  // The code-layer projection collapses text before it reaches this matcher;
+  // keep this cap below that projection's 157-character snippet ceiling.
+  return value?.replace(/\s+/g, " ").trim().slice(0, 120) ?? "";
+}
+
+export function runtimeStructureNodeSignature(args: {
+  info?: Pick<ElementInfo, "tagName" | "textContent" | "classes"> | null;
+  sourceAnchor?: ReactSourceAnchor;
+}): RuntimeStructureNodeSignature | undefined {
+  if (!args.info?.tagName) return undefined;
+  const component = args.sourceAnchor?.component?.trim();
+  return {
+    tag: args.info.tagName.trim().toLowerCase(),
+    text: normalizeRuntimeStructureText(args.info.textContent),
+    classes: normalizeRuntimeStructureClasses(args.info.classes),
+    ...(component ? { component } : {}),
+  };
+}
+
 export interface PendingVisualStyleEdit {
   screenId: string;
   filename: string;
@@ -253,9 +290,11 @@ export interface PendingLiveStructureEdit {
   selector: string;
   sourceId?: string | null;
   sourceAnchor?: ReactSourceAnchor;
+  subjectSignature?: RuntimeStructureNodeSignature;
   anchorSelector: string;
   anchorSourceId?: string | null;
   anchorSourceAnchor?: ReactSourceAnchor;
+  anchorSignature?: RuntimeStructureNodeSignature;
   /**
    * Project-relative route module reported by the localhost manifest. A
    * top-level canvas insert targets the live document body, which intentionally
@@ -666,11 +705,12 @@ export function pendingStructureEditSourcePaths(
   const required = [
     ...(edit.insertedHtml && !edit.replaced
       ? []
-      : [edit.sourceAnchor?.relPath]),
+      : [edit.sourceAnchor?.relPath ?? edit.sourceAnchor?.ownerRelPath]),
     ...(edit.removed || edit.replaced
       ? []
       : [
           edit.anchorSourceAnchor?.relPath ??
+            edit.anchorSourceAnchor?.ownerRelPath ??
             (edit.insertedHtml ? edit.routeSourceFile : undefined),
         ]),
   ];
@@ -1205,6 +1245,9 @@ export function formatPendingVisualStylePrompt(args: {
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+      ...(edit.subjectSignature
+        ? { subjectSignature: edit.subjectSignature }
+        : {}),
       // A removal has no anchor; emitting empty anchor fields alongside a
       // meaningless placement reads as a half-captured move.
       ...(edit.removed || edit.replaced
@@ -1221,6 +1264,9 @@ export function formatPendingVisualStylePrompt(args: {
             anchorSourceAnchor: redactReactSourceAnchor(
               edit.anchorSourceAnchor,
             ),
+            ...(edit.anchorSignature
+              ? { anchorSignature: edit.anchorSignature }
+              : {}),
             placement: edit.placement,
           }),
       ...(edit.dropMode ? { dropMode: edit.dropMode } : {}),

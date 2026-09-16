@@ -887,6 +887,8 @@ export function remapLegacyCodeLayerNodeId(
 }
 
 export function collapsedElementText(value: string | null | undefined): string {
+  // Runtime structure signatures cap the normalized result at 120 characters;
+  // this shared projection step must preserve the prefix before that cap.
   return value?.replace(/\s+/g, " ").trim() ?? "";
 }
 

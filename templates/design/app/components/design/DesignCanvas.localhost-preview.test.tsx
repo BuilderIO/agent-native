@@ -60,6 +60,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       });
     });
     const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    const onBootReady = vi.fn();
     let resolveRegistration!: (response: Response) => void;
     const registration = new Promise<Response>((resolve) => {
       resolveRegistration = resolve;
@@ -78,6 +79,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
           previewToken="registration-preview-token"
+          onBootReady={onBootReady}
           zoom={100}
           deviceFrame="none"
           editMode
@@ -113,6 +115,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       "iframe[data-design-preview-iframe]",
     );
     expect(liveIframe?.hasAttribute("srcdoc")).toBe(false);
+
+    await act(async () => {
+      liveIframe?.dispatchEvent(new Event("load"));
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       window.dispatchEvent(
