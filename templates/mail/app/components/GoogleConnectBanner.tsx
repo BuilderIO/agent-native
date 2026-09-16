@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import {
   IconMail,
   IconX,
@@ -178,7 +179,7 @@ export function GoogleConnectBanner({
       desktop: "1",
       flow_id: flowId,
     });
-    const popup = window.open("", "_blank");
+    const popup = openOAuthPopup();
     if (!popup) {
       setDesktopAuthIssue({
         code: "popup_blocked",

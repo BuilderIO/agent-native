@@ -11,6 +11,7 @@ import type {
   AgentNativeDeploymentEnvironment,
   AgentNativeConfig,
 } from "../config.js";
+import { getAppStatus } from "../shared/app-status.js";
 import {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
@@ -413,6 +414,7 @@ function ProductionEnvironmentBadge({
 export interface EnvironmentBadgeProps {
   placement?: EnvironmentBadgePlacement;
   showProduction?: boolean;
+  appId?: string;
   badgeText?: string;
   collapsed?: boolean;
   className?: string;
@@ -427,6 +429,7 @@ export interface EnvironmentBadgeProps {
 export function EnvironmentBadge({
   placement = "fixed",
   showProduction = true,
+  appId,
   badgeText,
   collapsed,
   className,
@@ -441,7 +444,10 @@ export function EnvironmentBadge({
   const environment = resolveEnvironmentChannel(config, hostname);
   const targets = resolveEnvironmentTargets(hostname);
   const resolvedBadgeText =
-    badgeText ?? config.deployment?.badgeText ?? config.badgeText ?? "alpha";
+    badgeText ??
+    config.deployment?.badgeText ??
+    config.badgeText ??
+    getAppStatus(appId);
 
   useEffect(() => {
     setHydrated(true);

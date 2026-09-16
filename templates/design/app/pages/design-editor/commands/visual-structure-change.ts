@@ -72,6 +72,8 @@ export interface VisualStructureChangeArgs {
       replaced?: true;
       replacementSelector?: string;
       replacementSourceId?: string;
+      replacementElementInfo?: ElementInfo;
+      replacementSnapshotHtml?: string;
       removed?: true;
     },
   ) => void;
@@ -112,6 +114,8 @@ export function runVisualStructureChange(
     replaced?: true;
     replacementSelector?: string;
     replacementSourceId?: string;
+    replacementElementInfo?: ElementInfo;
+    replacementSnapshotHtml?: string;
   },
 ) {
   dndHostLog("persist:begin", {

@@ -67,6 +67,19 @@ describe("TemplateShowcase", () => {
     }
   });
 
+  it("badges every app card with its status", () => {
+    const { container } = renderShowcase();
+
+    const cards = Array.from(
+      container.querySelectorAll<HTMLAnchorElement>("a.app-carousel-card"),
+    );
+    expect(cards).toHaveLength(EXPECTED_APP_HREFS.length);
+    for (const card of cards) {
+      const heading = within(card).getByRole("heading");
+      expect(heading.textContent).toMatch(/(alpha|beta)$/);
+    }
+  });
+
   it("ends the track with a bonus card that is not itself a link", () => {
     const { container } = renderShowcase();
 

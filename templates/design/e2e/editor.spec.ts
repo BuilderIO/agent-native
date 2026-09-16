@@ -1,3 +1,4 @@
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { test, expect } from "@playwright/test";
 
 import {
@@ -18,6 +19,23 @@ import {
 } from "./helpers";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
+async function setCreativeContextLab(
+  page: import("@playwright/test").Page,
+  enabled: boolean,
+) {
+  const response = await page.request.post(
+    `${new URL(page.url()).origin}/_agent-native/actions/set-lab`,
+    {
+      data: { key: CREATIVE_CONTEXT_LIBRARY_LAB.key, enabled },
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  expect(
+    response.ok(),
+    `set-lab returned ${response.status()}: ${await response.text()}`,
+  ).toBe(true);
+}
 
 /**
  * Cmd/Ctrl+click deep-selects the raw hit under the pointer, skipping the
@@ -100,6 +118,21 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
       exact: true,
     }),
   ).toBeVisible();
+  await expect(
+    agentPanel.getByRole("button", { name: "Chat", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    agentPanel.getByRole("button", { name: "Workspace", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    agentPanel.getByRole("button", { name: "Workspace mode", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    agentPanel.getByRole("button", { name: "Share", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    agentPanel.getByRole("button", { name: "Collapse sidebar", exact: true }),
+  ).toBeVisible();
 
   await agentPanel
     .getByRole("button", { name: "New chat", exact: true })
@@ -115,91 +148,148 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
   await cdpScreenshot(page, testInfo.outputPath("design-agent-header.png"));
 });
 
-test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
+test("agent rail stays contained at a narrow viewport", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page
-    .getByRole("button", { name: /^share(?: \(.+\))?$/i })
-    .first()
+    .locator('[data-design-chrome-region="workspace-rail"]')
+    .getByRole("button", { name: "Agent", exact: true })
     .click();
 
-  const shareOptions = page.locator(
-    '[role="tablist"][aria-label="Share options"]',
-  );
-  await expect(shareOptions).toBeVisible();
+  const agentPanel = page.locator("[data-design-agent-panel]");
+  await expect(agentPanel).toBeVisible();
+  const panelBox = await agentPanel.boundingBox();
+  expect(panelBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(334);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await cdpScreenshot(page, testInfo.outputPath("design-agent-narrow.png"));
+});
 
-  const tabListBox = await shareOptions.boundingBox();
-  expect(tabListBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    420,
-  );
-  expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    42,
-  );
+test("designs list shared sidebar stays contained at normal and narrow widths", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
 
-  const sendTab = page.getByRole("tab", { name: "Send to agent" });
-  const sendTabBox = await sendTab.boundingBox();
-  expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    36,
-  );
-
-  const contextTab = page.getByRole("tab", { name: "Context", exact: true });
-  await expect(contextTab).toBeVisible();
-  await contextTab.click();
+  await page.getByRole("button", { name: "Toggle agent", exact: true }).click();
+  const sidebar = page.locator('[data-agent-sidebar-state="open"]');
+  await expect(sidebar).toBeVisible();
   await expect(
-    page.getByRole("region", { name: "Creative context" }),
-  ).toBeVisible();
-  await cdpScreenshot(page, testInfo.outputPath("share-dialog-context.png"));
-
-  await sendTab.click();
-  await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
-  const copyPromptButton = page.getByRole("button", {
-    name: "Copy agent prompt",
-  });
-  await expect(copyPromptButton).toBeVisible();
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: new URL(page.url()).origin,
-  });
-  await copyPromptButton.click();
-  await expect(
-    page.getByText("Agent prompt copied", { exact: true }),
+    sidebar.getByRole("button", { name: "New chat", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("Clipboard blocked", { exact: true }),
-  ).toHaveCount(0);
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
-    "Build this design as production code: E2E Seed Design",
-  );
-
-  const popover = page
-    .locator("[data-radix-popper-content-wrapper]")
-    .filter({ has: shareOptions })
-    .first();
-  const popoverBox = await popover.boundingBox();
-  expect(popoverBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    650,
-  );
-
-  await page.getByRole("tab", { name: "Share link" }).click();
-  await page.getByRole("combobox", { name: "General access" }).click();
-  await expect(
-    page.getByRole("option", { name: /Organization/ }),
+    sidebar.getByRole("button", {
+      name: "Agent panel options",
+      exact: true,
+    }),
   ).toBeVisible();
-  await expect(shareOptions).toBeVisible();
-  const accessMenu = page
-    .locator("[data-radix-popper-content-wrapper]")
-    .filter({ has: page.getByRole("option", { name: /Organization/ }) })
-    .last();
-  await expect(accessMenu).toBeVisible();
-  const sharePopoverZ = Number.parseInt(
-    (await popover.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
-    10,
-  );
-  const accessMenuZ = Number.parseInt(
-    (await accessMenu.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
-    10,
-  );
-  expect(accessMenuZ).toBeGreaterThan(sharePopoverZ);
-  await page.keyboard.press("Escape");
+  await cdpScreenshot(page, testInfo.outputPath("designs-list-normal.png"));
 
-  await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(390);
+  await cdpScreenshot(page, testInfo.outputPath("designs-list-narrow.png"));
+});
+
+test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
+  await setCreativeContextLab(page, true);
+  try {
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+
+    await page
+      .getByRole("button", { name: /^share(?: \(.+\))?$/i })
+      .first()
+      .click();
+
+    const shareOptions = page.locator(
+      '[role="tablist"][aria-label="Share options"]',
+    );
+    await expect(shareOptions).toBeVisible();
+
+    const tabListBox = await shareOptions.boundingBox();
+    expect(tabListBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      420,
+    );
+    expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      42,
+    );
+
+    const sendTab = page.getByRole("tab", { name: "Send to agent" });
+    const sendTabBox = await sendTab.boundingBox();
+    expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      36,
+    );
+
+    const contextTab = page.getByRole("tab", { name: "Context", exact: true });
+    await expect(contextTab).toBeVisible();
+    await contextTab.click();
+    await expect(
+      page.getByRole("region", { name: "Creative context" }),
+    ).toBeVisible();
+    await cdpScreenshot(page, testInfo.outputPath("share-dialog-context.png"));
+
+    await sendTab.click();
+    await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
+    const copyPromptButton = page.getByRole("button", {
+      name: "Copy agent prompt",
+    });
+    await expect(copyPromptButton).toBeVisible();
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
+      });
+    await copyPromptButton.click();
+    await expect(
+      page.getByText("Agent prompt copied", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Clipboard blocked", { exact: true }),
+    ).toHaveCount(0);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+      "Build this design as production code: E2E Seed Design",
+    );
+
+    const popover = page
+      .locator("[data-radix-popper-content-wrapper]")
+      .filter({ has: shareOptions })
+      .first();
+    const popoverBox = await popover.boundingBox();
+    expect(popoverBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      650,
+    );
+
+    await page.getByRole("tab", { name: "Share link" }).click();
+    await page.getByRole("combobox", { name: "General access" }).click();
+    await expect(
+      page.getByRole("option", { name: /Organization/ }),
+    ).toBeVisible();
+    await expect(shareOptions).toBeVisible();
+    const accessMenu = page
+      .locator("[data-radix-popper-content-wrapper]")
+      .filter({ has: page.getByRole("option", { name: /Organization/ }) })
+      .last();
+    await expect(accessMenu).toBeVisible();
+    const sharePopoverZ = Number.parseInt(
+      (await popover.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
+      10,
+    );
+    const accessMenuZ = Number.parseInt(
+      (await accessMenu.evaluate((node) => getComputedStyle(node).zIndex)) ||
+        "0",
+      10,
+    );
+    expect(accessMenuZ).toBeGreaterThan(sharePopoverZ);
+    await page.keyboard.press("Escape");
+
+    await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
+  } finally {
+    await setCreativeContextLab(page, false);
+  }
 });
 
 test("right rail actions row keeps the Share button inside the panel", async ({

@@ -439,6 +439,17 @@ const editor = {
   registryBlockUnreadable: "Não foi possível ler a origem salva do bloco.",
   blocksFieldRevisionConflict:
     "Este campo de blocos foi alterado em outro lugar. Sua edição não foi salva; a versão mais recente agora está sendo exibida.",
+  reconcileConflict:
+    "Esta página foi alterada em outro lugar. Suas edições ainda não foram salvas.",
+  reconcileFailed:
+    "Não foi possível combinar as alterações mais recentes. Suas edições ainda não foram salvas.",
+  reconcileSaveFailed:
+    "Não foi possível salvar suas edições. Revise e tente novamente.",
+  reconcileSaving: "Salvando suas edições…",
+  reconcileReview: "Revisar alterações",
+  reconcileReviewStale:
+    "A versão salva foi alterada novamente. Revise o texto mais recente antes de salvar.",
+  reconcileRefresh: "Revisar versão mais recente",
   collabConnectingReadOnly:
     "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
   liveDocumentSaveBeforeSyncFailed:
@@ -834,6 +845,9 @@ const rawLiterals = {
     previewDraftSavedSeparately:
       "Suas edições foram salvas como página separada",
     previewDraftOpenSavedPage: "Abrir página",
+    previewDraftMoreOptions: "Mais opções",
+    previewDraftViewFullVersions: "Ver versões completas",
+    previewDraftShowChanges: "Mostrar alterações",
     previewDraftConflict:
       "Este rascunho está em conflito com uma versão mais recente da página. Ele não foi restaurado.",
     restorePreviewDraft: "Restaurar rascunho",

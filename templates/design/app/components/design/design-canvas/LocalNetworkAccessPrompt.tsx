@@ -32,6 +32,7 @@ export function LocalNetworkAccessPrompt({
   // deliberately hedged copy, never a diagnosed permission claim. See
   // classifyBridgeRegistrationFailure's doc comment for why.
   const isConfirmedUnreachable = kind === "unreachable";
+  const isStalePreviewToken = kind === "stalePreviewToken";
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
       <div className="pointer-events-auto relative flex w-full max-w-[22rem] flex-col items-start gap-3 rounded-lg border bg-card p-4 shadow-md">
@@ -50,7 +51,7 @@ export function LocalNetworkAccessPrompt({
           </span>
         </Button>
         <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent">
-          {isConfirmedUnreachable ? (
+          {isConfirmedUnreachable || isStalePreviewToken ? (
             <IconPlugConnectedX className="size-4 text-accent-foreground" />
           ) : (
             <IconPlugConnected className="size-4 text-accent-foreground" />
@@ -59,16 +60,20 @@ export function LocalNetworkAccessPrompt({
         <div className="flex flex-col gap-0.5 pr-4">
           <div className="text-sm font-medium text-foreground">
             {
-              isConfirmedUnreachable
-                ? "Local dev server unreachable" /* i18n-ignore local dev connect card title */
-                : "Can't reach your local dev server" /* i18n-ignore local dev connect card title */
+              isStalePreviewToken
+                ? "Reconnect this screen" /* i18n-ignore stale local dev preview token title */
+                : isConfirmedUnreachable
+                  ? "Local dev server unreachable" /* i18n-ignore local dev connect card title */
+                  : "Can't reach your local dev server" /* i18n-ignore local dev connect card title */
             }
           </div>
           <div className="text-xs text-muted-foreground">
             {
-              isConfirmedUnreachable
-                ? "Is it still running?" /* i18n-ignore local dev connect card body */
-                : "Your browser may need permission to connect to localhost — or the dev server may be offline." /* i18n-ignore local dev connect card body */
+              isStalePreviewToken
+                ? "The local bridge restarted, so this screen's preview token is stale. Run design connect again, then click Retry." /* i18n-ignore stale local dev preview token body */
+                : isConfirmedUnreachable
+                  ? "Is it still running?" /* i18n-ignore local dev connect card body */
+                  : "Your browser may need permission to connect to localhost — or the dev server may be offline." /* i18n-ignore local dev connect card body */
             }
           </div>
         </div>
@@ -81,7 +86,7 @@ export function LocalNetworkAccessPrompt({
           {
             connecting
               ? "Connecting…" /* i18n-ignore local dev connect card button, transient */
-              : isConfirmedUnreachable
+              : isStalePreviewToken || isConfirmedUnreachable
                 ? "Retry" /* i18n-ignore local dev connect card button */
                 : "Connect" /* i18n-ignore local dev connect card button */
           }

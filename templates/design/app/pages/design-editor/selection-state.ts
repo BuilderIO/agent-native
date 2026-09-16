@@ -553,11 +553,15 @@ export function resolveMarqueeAdditive(
   return Boolean(intent?.additive || intent?.range || intent?.shiftKey);
 }
 
-/** Clear element context only when a selected review thread changes screens. */
+/** Clear stale element context when review focus changes screens or the board. */
 export function shouldClearSelectionForReviewThreadTarget(args: {
   activeFileId?: string | null;
   targetId?: string | null;
+  boardFileId?: string | null;
 }): boolean {
+  if (args.targetId === null) {
+    return Boolean(args.boardFileId && args.activeFileId !== args.boardFileId);
+  }
   return Boolean(args.targetId && args.targetId !== args.activeFileId);
 }
 

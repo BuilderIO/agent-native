@@ -183,6 +183,27 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "接続可能",
   "agents.statusAuthRejected": "認証拒否",
   "agents.statusNoJsonRpc": "JSON-RPC なし",
+  "agents.directoryTab": "エージェントディレクトリ",
+  "agents.directoryPageHint":
+    "エージェントバックエンドを見つけてワークスペースに接続します。",
+  "agents.directorySearch": "プロバイダーを検索",
+  "agents.directoryProviders": "プロバイダー",
+  "agents.directoryManual": "URL で追加",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "マネージド API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint":
+    "A2A 経由で Foundry エージェントを接続します。",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "A2A 経由で Gemini Enterprise エージェントを接続します。",
+  "agents.directoryAnthropic": "Anthropic 管理エージェント",
+  "agents.directoryAnthropicHint": "Anthropic のセッションと承認を接続します。",
+  "agents.directoryNoMatches": "検索に一致するプロバイダーはありません。",
+  "agents.directoryRegistry": "グローバル A2A レジストリ",
+  "agents.directoryRegistryHint":
+    "公開 Agent Card を参照し、接続前に確認してください。",
+  "agents.directoryBrowse": "レジストリを開く",
   "common.saveFailed": "保存に失敗しました",
   "common.saveFailedStatus": "保存に失敗しました（{{status}}）",
   "common.saving": "保存中...",

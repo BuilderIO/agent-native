@@ -18,6 +18,7 @@ import {
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
@@ -142,7 +143,12 @@ export default function GenericTemplatePage() {
             {t("common.freeAndOpenSource")}
           </span>
         }
-        title={t("templateDetail.title", { name: template.name })}
+        title={
+          <span className="inline-flex flex-wrap items-center gap-3">
+            {t("templateDetail.title", { name: template.name })}
+            <AppStatusBadge appId={template.slug} />
+          </span>
+        }
         customizeTemplate={template}
         description={<p className="m-0">{description}</p>}
         headingAction={
