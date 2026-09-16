@@ -121,6 +121,67 @@ describe("runGeometryCommit", () => {
     expect(geometryUndoStackRef.current[1]?.before).toEqual(afterPointer);
   });
 
+  it("keeps keyboard nudges for different selections separate", () => {
+    const geometryUndoStackRef = { current: [] as GeometryHistoryEntry[] };
+    const historyOrderRef = { current: [] as UndoRedoOrderKind[] };
+    const liveFrameGeometryRef = {
+      current: {
+        screenA: { x: 0, y: 0, width: 400, height: 400 },
+        screenB: { x: 500, y: 0, width: 400, height: 400 },
+      },
+    };
+    const lastGeometryCommitAtRef = { current: 0 };
+    const lastGeometryCommitSourceRef = {
+      current: null as "pointer" | "keyboard" | null,
+    };
+    let selectedScreenId = "screenA";
+    const captureCurrentSelection = (): GeometryHistorySelection => ({
+      overviewSelectedScreenIds: [selectedScreenId],
+      selectedLayerIds: [],
+      activeFileId: null,
+    });
+    const commitArgs = {
+      boardFileId: undefined,
+      captureCurrentSelection,
+      clearRedoStacks: vi.fn(),
+      designDataJsonRef: { current: {} },
+      geometryUndoStackRef,
+      historyOrderRef,
+      id: "design",
+      lastGeometryCommitAtRef,
+      lastGeometryCommitSourceRef,
+      liveFrameGeometryRef,
+      locallyPinnedHeightIdsRef: { current: new Set<string>() },
+      queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
+      queueFrameGeometrySave: vi.fn(),
+      syncUndoRedoState: vi.fn(),
+      writeFrameGeometrySnapshot: vi.fn(),
+    };
+    const before = liveFrameGeometryRef.current;
+    const afterScreenA = {
+      ...before,
+      screenA: { ...before.screenA, x: 1 },
+    };
+    const afterScreenB = {
+      ...afterScreenA,
+      screenB: { ...afterScreenA.screenB, x: 501 },
+    };
+
+    vi.spyOn(Date, "now").mockReturnValueOnce(1000).mockReturnValueOnce(1100);
+    runGeometryCommit(commitArgs, before, afterScreenA, {
+      source: "keyboard",
+    });
+    selectedScreenId = "screenB";
+    runGeometryCommit(commitArgs, afterScreenA, afterScreenB, {
+      source: "keyboard",
+    });
+    vi.restoreAllMocks();
+
+    expect(geometryUndoStackRef.current).toHaveLength(2);
+    expect(historyOrderRef.current).toEqual(["geometry", "geometry"]);
+    expect(geometryUndoStackRef.current[1]?.before).toEqual(afterScreenA);
+  });
+
   it("preserves fractional frame geometry when a K-scale target has no style changes", () => {
     const before = {
       screen: { x: 0, y: 0, width: 400, height: 400 },

@@ -20,6 +20,7 @@ import type {
   GeometryHistorySelection,
 } from "@/pages/design-editor/history";
 import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
+import { selectionHistorySnapshotsEqual } from "@/pages/design-editor/selection-state";
 
 export interface GeometryCommitArgs {
   boardFileId: string | undefined;
@@ -144,10 +145,12 @@ export function runGeometryCommit(
   // happen to land within the same 800ms window — those are discrete
   // user actions and each must be its own undo step, matching Figma.
   // Pointer gestures and keyboard nudges both use this shared callback, so
-  // track the previous source as well as the current one. A keyboard nudge
-  // after a pointer gesture is a separate undo step even inside the window.
+  // track the previous source and selection as well as the current ones. A
+  // keyboard nudge after a pointer gesture or selection change is a separate
+  // undo step even inside the window.
   const source = options?.source ?? "pointer";
   const now = Date.now();
+  const selectionAfter = captureCurrentSelection();
   const lastEntry =
     geometryUndoStackRef.current[geometryUndoStackRef.current.length - 1];
   const continuesLastGesture =
@@ -155,6 +158,8 @@ export function runGeometryCommit(
     lastGeometryCommitSourceRef.current === "keyboard" &&
     lastEntry &&
     now - lastGeometryCommitAtRef.current < 800 &&
+    lastEntry.selectionAfter !== undefined &&
+    selectionHistorySnapshotsEqual(lastEntry.selectionAfter, selectionAfter) &&
     geometrySnapshotsEqual(lastEntry.after, beforeSnapshot);
   lastGeometryCommitAtRef.current = now;
   lastGeometryCommitSourceRef.current = source;
@@ -166,7 +171,6 @@ export function runGeometryCommit(
   // otherwise a held arrow key would keep overwriting selectionBefore
   // with the selection at the START of each individual tick instead of
   // the whole gesture's actual starting selection.
-  const selectionAfter = captureCurrentSelection();
   if (continuesLastGesture) {
     geometryUndoStackRef.current = [
       ...geometryUndoStackRef.current.slice(0, -1),
