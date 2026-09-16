@@ -1552,6 +1552,9 @@ function DesignEditor() {
           ? { status: "absent" }
           : { status: "unavailable", reason: markerResult.reason },
       );
+      if (markerResult.status === "cleared") {
+        setPendingEditSessionRecoveryMarker({ status: "absent" });
+      }
     }
     if (stagedHandoffStartTimerRef.current !== undefined) {
       window.clearTimeout(stagedHandoffStartTimerRef.current);
@@ -16527,6 +16530,8 @@ function DesignEditor() {
       const result = clearPendingEditSessionMarker(id);
       if (result.status === "unavailable") {
         setPendingEditSessionMarker(result);
+      } else {
+        setPendingEditSessionRecoveryMarker({ status: "absent" });
       }
     }
   }, [id, pendingVisualEditCount]);
