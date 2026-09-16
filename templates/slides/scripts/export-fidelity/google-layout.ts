@@ -43,12 +43,16 @@ export function extractGoogleSlideLayout(slideNumber: number): string[] {
     const m = t.getScreenCTM();
     if (!m) continue;
     const x = Number(t.getAttribute("x")) || 0;
+    // Transform the whole point, not just x: Google keeps each line's offset in
+    // the element's own transform today, so `y` is usually 0 and dropping its
+    // terms happens to land right — until a run carries one.
+    const y = Number(t.getAttribute("y")) || 0;
     const bb = t.getBoundingClientRect();
     const runs = byShape.get(id) ?? [];
     runs.push({
       text: t.textContent || "",
-      x: (m.a * x + m.e - f.left) * k,
-      base: (m.b * x + m.f - f.top) * k,
+      x: (m.a * x + m.c * y + m.e - f.left) * k,
+      base: (m.b * x + m.d * y + m.f - f.top) * k,
       right: (bb.right - f.left) * k,
     });
     byShape.set(id, runs);

@@ -42,7 +42,20 @@ for (const file of readdirSync(anDir)
     readFileSync(path.join(anDir, file), "utf8"),
   );
   const pool = google.filter((entry) => entry.slide === slide);
-  if (!pool.length) continue;
+  const slideLines = (texts as { lines: unknown[] }[]).reduce(
+    (sum, text) => sum + text.lines.length,
+    0,
+  );
+  // A slide missing from the readback is an extraction that stopped early, not
+  // a slide that matched: counting it clean is how a half-finished run passes.
+  if (!pool.length) {
+    lines += slideLines;
+    unmatched += slideLines;
+    console.log(
+      `slide ${slide}: NO GOOGLE ROWS — ${slideLines} line(s) counted unmatched`,
+    );
+    continue;
+  }
   const rows: string[] = [];
   for (const text of texts) {
     for (const line of text.lines) {
@@ -117,3 +130,14 @@ const at = (values: number[], p: number) => {
 console.log(
   `\nlines ${lines}, unmatched ${unmatched}, break mismatches ${breakMismatches}; |dy| median ${at(dys, 0.5).toFixed(2)} p95 ${at(dys, 0.95).toFixed(2)} max ${at(dys, 1).toFixed(2)}; |dx| median ${at(dxs, 0.5).toFixed(2)} p95 ${at(dxs, 0.95).toFixed(2)} max ${at(dxs, 1).toFixed(2)}`,
 );
+
+// `dys` and `dxs` are pushed together, so one index is one line.
+const outOfTolerance = dys.filter(
+  (value, index) => Math.abs(value) > 1.5 || Math.abs(dxs[index]) > 1.5,
+).length;
+if (unmatched || breakMismatches || outOfTolerance) {
+  console.log(
+    `FAIL: ${unmatched} unmatched, ${breakMismatches} break mismatch(es), ${outOfTolerance} line(s) over 1.5px`,
+  );
+  process.exitCode = 1;
+}
