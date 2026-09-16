@@ -130,12 +130,13 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   already has an `👀` reaction from anyone, preserve that fact as an existing
   investigation marker, but do not treat it as a disposition or suppression
   signal. After classifying the parent, re-read the complete thread and, for
-  an actionable in-scope item, require a verified feedback-ledger disposition
-  and reaction state - **Fixed**, **Shipped**, **Live verified**, **Resolved elsewhere**,
+  an actionable in-scope item, require one disposition and reaction state:
+  **Fixed**, **Shipped**, or **Live verified** with `✅`; **Resolved elsewhere**,
   **Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, or
-  **Open - no reply** after this workflow's eye has been released with its
-  disposition-specific marker;
-  **In progress** or **Clarification needed** while this workflow's eye is
+  **Open - no reply** with `:no_entry_sign:`; or **Verified locally**, **Built
+  - live unverified**, **Deployed - live unverified**, **Not reproducible -
+  attempted**, **In progress**, **Asked**, **Clarification needed**, **Blocked
+  on reporter**, or **Merged - release pending** while this workflow's eye is
   held. Silent terminal states do not require a Slack reply; never manufacture
   one just to satisfy this handoff check. An eye-only or stale eye-only item
   remains actionable for that handoff check. For items

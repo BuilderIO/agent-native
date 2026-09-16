@@ -61,7 +61,9 @@ Every clear-bug parent or upvoted improvement that receives `👀`
 enters the reply ledger. The reaction is not a reply or completion marker.
 Before finishing, re-read each claimed item and verify the invoking identity
 posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
-recorded **Live verified** in the ledger, or
+recorded **Live verified**, **Verified locally**, **Built - live unverified**,
+**Deployed - live unverified**, **Not reproducible - attempted**, **Asked**,
+**Blocked on reporter**, or **Merged - release pending** in the ledger, or
 recorded **Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**,
 or **Abandoned - no answer in 4 days** with a concrete reason and its
 disposition-specific release marker. Record **Owned elsewhere** when another
@@ -141,11 +143,14 @@ Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
 
 A tracked clear-bug or authorized upvoted improvement receives at most one
-disposition per run. Active dispositions are **In progress** and
-**Clarification needed**; terminal dispositions are **Fixed**, **Shipped**,
-**Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**, and
-**Abandoned - no answer in 4 days**, each with the required evidence and eye
-state and disposition-specific release marker. An already-eyed item later
+disposition per run. Evidence-limited active dispositions are **Verified
+locally**, **Built - live unverified**, **Deployed - live unverified**, **Not
+reproducible - attempted**, **In progress**, **Asked**, **Clarification
+needed**, **Blocked on reporter**, and **Merged - release pending**; they
+retain the workflow's eye. Terminal dispositions are **Fixed**, **Shipped**,
+**Live verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
+**Clustered**, and **Abandoned - no answer in 4 days**, each with the required
+evidence and disposition-specific release marker. An already-eyed item later
 found to be out of scope gets a `:no_entry_sign:` release marker and no new
 reply; if
 this workflow already replied, delete that reply when safe or edit it to one
