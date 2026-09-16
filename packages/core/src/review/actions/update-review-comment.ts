@@ -55,10 +55,14 @@ export default defineAction({
       Boolean(actionCtx?.userEmail) &&
       normalizeEmail(comment.authorEmail) ===
         normalizeEmail(actionCtx?.userEmail);
+    const changesContent =
+      args.body !== undefined || args.mentions !== undefined;
     if (
       !access ||
       !roleSatisfies(access.role, "commenter") ||
-      (!isAuthor && !roleSatisfies(access.role, "editor"))
+      (changesContent
+        ? !isAuthor
+        : !isAuthor && !roleSatisfies(access.role, "editor"))
     ) {
       throw new ForbiddenError("Not allowed to update this review comment");
     }

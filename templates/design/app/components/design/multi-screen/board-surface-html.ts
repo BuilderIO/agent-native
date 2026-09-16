@@ -22,6 +22,13 @@ export function shouldRenderEmptyBoardReviewCanvas(args: {
   );
 }
 
+export function shouldRenderOverviewReviewCanvas(args: {
+  boardFileId?: string;
+  boardFileContent?: string;
+}): boolean {
+  return !args.boardFileId || args.boardFileContent === undefined;
+}
+
 /**
  * `color-scheme` is load-bearing, not cosmetic. Chrome paints an opaque base
  * behind a frame whose scheme disagrees with its embedder, and that base sits

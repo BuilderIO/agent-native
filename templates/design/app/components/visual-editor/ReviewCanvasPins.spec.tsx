@@ -353,6 +353,56 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     ).toBeNull();
   });
 
+  it("lets a successful unread mutation reveal refreshed server state", async () => {
+    mocks.discussion.canSetThreadPreferences = true;
+    mocks.discussion.threadPreferences = {
+      "thread-1": { muted: false, unread: true },
+    };
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+    const mutationOptions = mocks.unreadMutate.mock.calls[0]?.[1] as {
+      onSuccess?: () => void;
+    };
+    await act(async () => mutationOptions.onSuccess?.());
+    mocks.discussion.threadPreferences = {
+      "thread-1": { muted: false, unread: false },
+    };
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    expect(
+      document
+        .querySelector<HTMLButtonElement>("[data-review-pin]")
+        ?.getAttribute("data-review-unread"),
+    ).toBeNull();
+  });
+
   it("moves one empty draft and persists only after feedback is entered", async () => {
     await act(async () => {
       root.render(
@@ -702,6 +752,53 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     reviewComments = reviewComments.map((entry) => ({ ...entry }));
     await act(async () => root.render(renderBoard()));
     expect(mocks.callAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a failed migration anchor after an external board-anchor update", async () => {
+    const legacyAnchor = { point: { xPct: 25, yPct: 50 } };
+    reviewComments = [
+      {
+        ...comment,
+        canDelete: true,
+        targetId: null,
+        anchor: legacyAnchor,
+      },
+    ];
+    mocks.callAction.mockRejectedValueOnce(new Error("temporary failure"));
+    const renderBoard = () => (
+      <ReviewCanvasPins
+        active={false}
+        onClose={vi.fn()}
+        canvasSelector=".review-test-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId={null}
+        boardGeometry={{ x: 0, y: 0, width: 800, height: 600 }}
+        canPost
+        canResolve
+      />
+    );
+
+    await act(async () => root.render(renderBoard()));
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    reviewComments = [
+      {
+        ...reviewComments[0],
+        anchor: {
+          point: { xPct: 75, yPct: 25 },
+          worldPoint: { x: 600, y: 150 },
+        },
+      },
+    ];
+    await act(async () => root.render(renderBoard()));
+
+    const popover = document.querySelector<HTMLElement>(
+      "[data-review-popover]",
+    );
+    expect(popover?.style.left).toBe("600px");
+    expect(popover?.style.top).toBe("150px");
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
   });
 
   it("waits for board migration permission before marking it complete", async () => {

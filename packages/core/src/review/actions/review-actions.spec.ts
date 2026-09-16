@@ -37,6 +37,9 @@ const reactToReviewCommentAction = (
 const setReviewThreadUnreadAction = (
   await import("./set-review-thread-unread.js")
 ).default;
+const setReviewThreadsUnreadAction = (
+  await import("./set-review-threads-unread.js")
+).default;
 const setReviewThreadMutedAction = (
   await import("./set-review-thread-muted.js")
 ).default;
@@ -311,11 +314,68 @@ describe("review actions", () => {
           resourceType: "doc",
           resourceId: "public",
           commentId: root.id,
+          body: "Editor overwrite",
+        },
+        { userEmail: EDITOR_EMAIL },
+      ),
+    ).rejects.toThrow(/Not allowed/);
+    await expect(
+      updateReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
           body: "Nope",
         },
         { userEmail: "outsider@example.com" },
       ),
     ).rejects.toThrow();
+  });
+
+  it("marks multiple review threads read in one authorized action", async () => {
+    const first = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "First",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+    });
+    const second = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Second",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+    });
+    const result = await setReviewThreadsUnreadAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        threadIds: [first.threadId, second.threadId],
+        unread: false,
+      },
+      { userEmail: EDITOR_EMAIL },
+    );
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ threadId: first.threadId, unread: false }),
+        expect.objectContaining({ threadId: second.threadId, unread: false }),
+      ]),
+    );
+  });
+
+  it("returns a typed not-found error when a bulk thread is outside the resource", async () => {
+    await expect(
+      setReviewThreadsUnreadAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          threadIds: ["missing-thread"],
+          unread: false,
+        },
+        { userEmail: EDITOR_EMAIL },
+      ),
+    ).rejects.toMatchObject({ statusCode: 404, errorCode: "not_found" });
   });
 
   it("allows anonymous public reads and redacts ownership and identity metadata", async () => {

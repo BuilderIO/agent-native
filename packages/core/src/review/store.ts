@@ -260,6 +260,53 @@ export async function setReviewThreadPreference(input: {
   };
 }
 
+export async function setReviewThreadUnreadPreferences(input: {
+  threadIds: string[];
+  userEmail: string;
+  unread: boolean;
+  resource: { resourceType: string; resourceId: string };
+}) {
+  await ensureReviewTables();
+  const threadIds = [...new Set(input.threadIds)];
+  if (!threadIds.length) return [];
+  const client = getDbExec();
+  const placeholders = threadIds.map(() => "?").join(",");
+  const roots = await client.execute({
+    sql: `SELECT thread_id FROM agent_review_comments WHERE resource_type = ? AND resource_id = ? AND parent_comment_id IS NULL AND status <> 'deleted' AND thread_id IN (${placeholders})`,
+    args: [
+      input.resource.resourceType,
+      input.resource.resourceId,
+      ...threadIds,
+    ],
+  });
+  if (
+    new Set(roots.rows.map((row) => String(row.thread_id))).size !==
+    threadIds.length
+  ) {
+    throw new Error("Review thread not found");
+  }
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: `INSERT INTO agent_review_thread_preferences (thread_id,user_email,muted,unread,updated_at) VALUES ${threadIds.map(() => "(?,?,?,?,?)").join(",")} ON CONFLICT (thread_id,user_email) DO UPDATE SET unread = excluded.unread, updated_at = excluded.updated_at`,
+    args: threadIds.flatMap((threadId) => [
+      threadId,
+      input.userEmail,
+      0,
+      input.unread ? 1 : 0,
+      now,
+    ]),
+  });
+  const rows = await client.execute({
+    sql: `SELECT thread_id,muted,unread FROM agent_review_thread_preferences WHERE user_email = ? AND thread_id IN (${placeholders})`,
+    args: [input.userEmail, ...threadIds],
+  });
+  return rows.rows.map((row) => ({
+    threadId: String(row.thread_id),
+    muted: Boolean(row.muted),
+    unread: Boolean(row.unread),
+  }));
+}
+
 // The caller supplies comments already authorized by the resource access check.
 export async function getReviewDiscussionStateForComments(
   comments: Pick<ReviewComment, "id" | "threadId">[],
@@ -510,7 +557,6 @@ export async function queryReviewComments(
         comment.target_id = ?
         OR (
           comment.parent_comment_id IS NOT NULL
-          AND comment.target_id IS NULL
           AND comment.thread_id IN (
             SELECT root.thread_id
               FROM agent_review_comments AS root

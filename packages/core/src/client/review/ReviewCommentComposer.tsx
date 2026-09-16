@@ -132,8 +132,20 @@ export function ReviewCommentComposer({
   };
   const insertMention = (mention: ReviewMention) => {
     const mentionText = `@${mention.label}`;
+    let nextValue: string;
     if (mentionTriggerIndex === null) {
-      appendText(mentionText);
+      const start = textareaRef.current?.selectionStart ?? value.length;
+      const end = textareaRef.current?.selectionEnd ?? start;
+      const before = value.slice(0, start);
+      const separator = before && !/\s$/.test(before) ? " " : "";
+      nextValue = `${before}${separator}${mentionText}${value.slice(end)}`;
+      requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        const nextCaret = start + separator.length + mentionText.length;
+        textarea.focus();
+        textarea.setSelectionRange(nextCaret, nextCaret);
+      });
     } else {
       const naturalTokenEnd = (() => {
         const whitespaceIndex = value
@@ -147,11 +159,9 @@ export function ReviewCommentComposer({
         naturalTokenEnd,
         mentionTokenEndRef.current ?? naturalTokenEnd,
       );
-      updateValue(
-        `${value.slice(0, mentionTriggerIndex)}${mentionText}${value.slice(
-          tokenEnd,
-        )}`,
-      );
+      nextValue = `${value.slice(0, mentionTriggerIndex)}${mentionText}${value.slice(
+        tokenEnd,
+      )}`;
       requestAnimationFrame(() => {
         const textarea = textareaRef.current;
         if (!textarea) return;
@@ -160,14 +170,19 @@ export function ReviewCommentComposer({
         textarea.setSelectionRange(nextCaret, nextCaret);
       });
     }
+    updateValue(nextValue);
+    const nextMentions = mentions.filter((current) =>
+      nextValue.includes(`@${current.label}`),
+    );
     if (
-      !mentions.some(
+      !nextMentions.some(
         (current) =>
           current.email === mention.email && current.label === mention.label,
       )
     ) {
-      onMentionsChange?.([...mentions, mention]);
+      nextMentions.push(mention);
     }
+    onMentionsChange?.(nextMentions);
     resetMention();
   };
   const submit = (resolutionTarget: ReviewResolutionTarget) => {

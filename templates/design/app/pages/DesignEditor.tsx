@@ -312,7 +312,10 @@ import {
   MotionDock,
   type MotionDockTrack,
 } from "@/components/design/MotionDock";
-import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/board-surface-html";
+import {
+  getBoardSurfaceContentBounds,
+  shouldRenderOverviewReviewCanvas,
+} from "@/components/design/multi-screen/board-surface-html";
 import {
   deviceViewportFloorForWidth,
   getCanonicalScreenStack,
@@ -24525,7 +24528,11 @@ function DesignEditor() {
                         renderScreenContent={renderScreenContent}
                         renderBreakpointContent={renderBreakpointContent}
                       />
-                      {id ? (
+                      {id &&
+                      shouldRenderOverviewReviewCanvas({
+                        boardFileId,
+                        boardFileContent,
+                      }) ? (
                         <ReviewCanvasPins
                           active={pinMode}
                           hidden={commentsHidden}

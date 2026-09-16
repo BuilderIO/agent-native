@@ -947,7 +947,7 @@ export function ReviewCanvasPins({
     (thread: ReviewThread, unread: boolean) => {
       if (!discussion?.canSetThreadPreferences || setUnread.isPending) return;
       const threadId = thread.root.threadId;
-      const previousUnread = threadIsUnread(threadId);
+      const previousOptimisticUnread = optimisticUnread[threadId];
       setOptimisticUnread((current) => ({ ...current, [threadId]: unread }));
       setUnread.mutate(
         {
@@ -957,11 +957,23 @@ export function ReviewCanvasPins({
           unread,
         },
         {
+          onSuccess: () => {
+            setOptimisticUnread((current) => {
+              if (!(threadId in current)) return current;
+              const next = { ...current };
+              delete next[threadId];
+              return next;
+            });
+          },
           onError: () => {
-            setOptimisticUnread((current) => ({
-              ...current,
-              [threadId]: previousUnread,
-            }));
+            setOptimisticUnread((current) => {
+              if (previousOptimisticUnread !== undefined) {
+                return { ...current, [threadId]: previousOptimisticUnread };
+              }
+              const next = { ...current };
+              delete next[threadId];
+              return next;
+            });
             toast.error(t("review.postFailed"));
           },
         },
@@ -972,7 +984,7 @@ export function ReviewCanvasPins({
       resourceId,
       resourceType,
       setUnread,
-      threadIsUnread,
+      optimisticUnread,
       t,
     ],
   );
@@ -1171,13 +1183,15 @@ export function ReviewCanvasPins({
       commentId: string;
       anchor: DesignReviewAnchor;
     }> = [];
+    const staleOptimisticThreadIds: string[] = [];
     for (const thread of threads) {
       const threadId = thread.root.threadId;
       const parsed = parseReviewAnchor(thread.root.anchor);
-      if (
-        !parsed ||
-        (parsed.worldPoint && (!parsed.region || parsed.worldRegion))
-      ) {
+      const hasPersistedWorldAnchor = Boolean(
+        parsed?.worldPoint && (!parsed.region || parsed.worldRegion),
+      );
+      if (!parsed || hasPersistedWorldAnchor) {
+        if (hasPersistedWorldAnchor) staleOptimisticThreadIds.push(threadId);
         continue;
       }
       if (migratedBoardAnchorIdsRef.current.has(threadId)) continue;
@@ -1194,10 +1208,17 @@ export function ReviewCanvasPins({
           anchor: nextAnchor,
         });
     }
+    if (staleOptimisticThreadIds.length) {
+      setOptimisticAnchors((current) => {
+        const next = { ...current };
+        for (const threadId of staleOptimisticThreadIds) delete next[threadId];
+        return next;
+      });
+    }
     if (!migrations.length) return;
     migrationInFlightRef.current = true;
     void (async () => {
-      let allSucceeded = true;
+      const successfulThreadIds: string[] = [];
       try {
         for (const migration of migrations) {
           migratedBoardAnchorIdsRef.current.add(migration.threadId);
@@ -1208,14 +1229,29 @@ export function ReviewCanvasPins({
               commentId: migration.commentId,
               anchor: migration.anchor,
             });
+            successfulThreadIds.push(migration.threadId);
           } catch {
             // Keep the local anchor for stable rendering, but allow a later
             // review refresh to retry persistence after a transient failure.
-            allSucceeded = false;
             migratedBoardAnchorIdsRef.current.delete(migration.threadId);
           }
         }
-        if (allSucceeded) await comments.refetch?.();
+        if (successfulThreadIds.length && comments.refetch) {
+          try {
+            await comments.refetch();
+            setOptimisticAnchors((current) => {
+              const next = { ...current };
+              for (const threadId of successfulThreadIds) delete next[threadId];
+              return next;
+            });
+          } catch (error) {
+            // Keep the local anchor until a later refresh can reconcile it.
+            console.warn(
+              "[ReviewCanvasPins] board-anchor refresh failed",
+              error,
+            );
+          }
+        }
       } finally {
         migrationInFlightRef.current = false;
       }
@@ -1919,6 +1955,14 @@ export function ReviewCanvasPins({
           anchor: nextAnchor,
         },
         {
+          onSuccess: () => {
+            setOptimisticAnchors((current) => {
+              if (!(thread.root.threadId in current)) return current;
+              const next = { ...current };
+              delete next[thread.root.threadId];
+              return next;
+            });
+          },
           onError: () => {
             setOptimisticAnchors((current) => {
               const next = { ...current };

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getBoardSurfaceContentBounds,
+  shouldRenderOverviewReviewCanvas,
   shouldRenderEmptyBoardReviewCanvas,
 } from "./board-surface-html";
 import { getBoardSurfaceRenderGeometry } from "./overview-layout";
@@ -61,5 +62,20 @@ describe("board surface rendering", () => {
         reviewTargetId: null,
       }),
     ).toBe(false);
+  });
+
+  it("leaves board-root review pins to the board owner once its content loads", () => {
+    expect(
+      shouldRenderOverviewReviewCanvas({
+        boardFileId: "board",
+        boardFileContent: "<html><body></body></html>",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRenderOverviewReviewCanvas({
+        boardFileId: "board",
+      }),
+    ).toBe(true);
+    expect(shouldRenderOverviewReviewCanvas({})).toBe(true);
   });
 });

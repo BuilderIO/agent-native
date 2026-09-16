@@ -559,6 +559,7 @@ export const hitTestBridgeScript: string = `"use strict";
           "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
         )) {
           identifiedAncestor = current;
+          break;
         }
         current = current.parentElement;
       }

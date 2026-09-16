@@ -901,6 +901,7 @@
         )
       ) {
         identifiedAncestor = current;
+        break;
       }
       current = current.parentElement;
     }

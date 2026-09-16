@@ -1,12 +1,17 @@
+// @vitest-environment happy-dom
+
 import type { ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
-import type { ReactNode } from "react";
+import { act } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   latestPanelProps: null as Record<string, unknown> | null,
   unreadMutate: vi.fn(),
+  bulkUnreadMutate: vi.fn(),
   resolveMutate: vi.fn(),
   reviewState: {
     data: {
@@ -28,6 +33,10 @@ vi.mock("@agent-native/core/client/review", () => ({
     mutate: mocks.unreadMutate,
     isPending: false,
   }),
+  useSetReviewThreadsUnread: () => ({
+    mutate: mocks.bulkUnreadMutate,
+    isPending: false,
+  }),
   useReviewComments: () => mocks.reviewState,
   useResolveReviewThread: () => ({
     mutate: mocks.resolveMutate,
@@ -44,7 +53,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button {...props}>{children}</button>
+  ),
 }));
 
 vi.mock("@/components/ui/input", () => ({
@@ -83,6 +94,7 @@ describe("ReviewCommentsPanel capabilities", () => {
   beforeEach(() => {
     mocks.latestPanelProps = null;
     mocks.unreadMutate.mockReset();
+    mocks.bulkUnreadMutate.mockReset();
     mocks.reviewState.data.comments = [];
     mocks.reviewState.data.discussion.threadPreferences = {};
   });
@@ -196,6 +208,44 @@ describe("ReviewCommentsPanel capabilities", () => {
       expect.any(Object),
     );
     expect(onSelectThread).toHaveBeenCalledWith(thread);
+  });
+
+  it("marks all unread threads with one bulk mutation", async () => {
+    mocks.reviewState.data.comments = [
+      { threadId: "thread-1", parentCommentId: null } as ReviewComment,
+      { threadId: "thread-2", parentCommentId: null } as ReviewComment,
+    ];
+    mocks.reviewState.data.discussion.threadPreferences = {
+      "thread-1": { muted: false, unread: true },
+      "thread-2": { muted: false, unread: true },
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<ReviewCommentsPanel designId="design-1" canComment />);
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="review.markAllRead"]')
+          ?.click();
+      });
+      expect(mocks.bulkUnreadMutate).toHaveBeenCalledTimes(1);
+      expect(mocks.bulkUnreadMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceType: "design",
+          resourceId: "design-1",
+          threadIds: expect.arrayContaining(["thread-1", "thread-2"]),
+          unread: false,
+        }),
+        expect.any(Object),
+      );
+      expect(mocks.unreadMutate).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
   });
 
   it("counts root unread preferences and sorts unread threads first", () => {

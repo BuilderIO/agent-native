@@ -87,6 +87,13 @@ export interface SetReviewThreadUnreadInput {
   unread: boolean;
 }
 
+export interface SetReviewThreadsUnreadInput {
+  resourceType: string;
+  resourceId: string;
+  threadIds: string[];
+  unread: boolean;
+}
+
 export interface SetReviewThreadMutedInput {
   resourceType: string;
   resourceId: string;
@@ -121,6 +128,20 @@ export function useSetReviewThreadUnread() {
     ReviewThreadPreference & { threadId: string },
     SetReviewThreadUnreadInput
   >("set-review-thread-unread", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
+export function useSetReviewThreadsUnread() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    Array<ReviewThreadPreference & { threadId: string }>,
+    SetReviewThreadsUnreadInput
+  >("set-review-threads-unread", {
     skipActionQueryInvalidation: true,
     onSuccess: () =>
       queryClient.invalidateQueries({

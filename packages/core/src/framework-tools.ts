@@ -365,6 +365,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "send-review-thread-to-agent": "review",
   "react-to-review-comment": "review",
   "set-review-thread-unread": "review",
+  "set-review-threads-unread": "review",
   "set-review-thread-muted": "review",
   "create-resource-suggestion": "review",
   "update-resource-suggestion": "review",

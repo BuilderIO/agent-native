@@ -5,6 +5,7 @@ import {
   useResolveReviewThread,
   useReviewComments,
   useSetReviewThreadUnread,
+  useSetReviewThreadsUnread,
   type ReviewThread,
 } from "@agent-native/core/client/review";
 import type {
@@ -76,6 +77,7 @@ export function ReviewCommentsPanel({
   const [onlyCurrentPage, setOnlyCurrentPage] = useState(false);
   const [sortBy, setSortBy] = useState<ReviewThreadSort>("date");
   const setUnread = useSetReviewThreadUnread();
+  const setUnreadBulk = useSetReviewThreadsUnread();
   const resolveThread = useResolveReviewThread();
   const reviewState = useReviewComments({
     resourceType: "design",
@@ -152,7 +154,12 @@ export function ReviewCommentsPanel({
   );
   const setThreadUnread = useCallback(
     (thread: ReviewThread, unread: boolean) => {
-      if (!canSetThreadPreferences || setUnread.isPending) return;
+      if (
+        !canSetThreadPreferences ||
+        setUnread.isPending ||
+        setUnreadBulk.isPending
+      )
+        return;
       setUnread.mutate(
         {
           resourceType: "design",
@@ -163,22 +170,33 @@ export function ReviewCommentsPanel({
         { onError: () => toast.error(t("common.genericError")) },
       );
     },
-    [canSetThreadPreferences, designId, setUnread, t],
+    [canSetThreadPreferences, designId, setUnread, setUnreadBulk, t],
   );
   const markAllRead = useCallback(() => {
-    if (!canSetThreadPreferences || setUnread.isPending) return;
-    for (const threadId of unreadThreadIds) {
-      setUnread.mutate(
-        {
-          resourceType: "design",
-          resourceId: designId,
-          threadId,
-          unread: false,
-        },
-        { onError: () => toast.error(t("common.genericError")) },
-      );
-    }
-  }, [canSetThreadPreferences, designId, setUnread, t, unreadThreadIds]);
+    if (
+      !canSetThreadPreferences ||
+      setUnread.isPending ||
+      setUnreadBulk.isPending ||
+      unreadThreadIds.size === 0
+    )
+      return;
+    setUnreadBulk.mutate(
+      {
+        resourceType: "design",
+        resourceId: designId,
+        threadIds: [...unreadThreadIds],
+        unread: false,
+      },
+      { onError: () => toast.error(t("common.genericError")) },
+    );
+  }, [
+    canSetThreadPreferences,
+    designId,
+    setUnread,
+    setUnreadBulk,
+    t,
+    unreadThreadIds,
+  ]);
   const threadSort = useCallback(
     (left: ReviewThread, right: ReviewThread) =>
       compareReviewThreads(left, right, sortBy, reviewPreferences ?? {}),

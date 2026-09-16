@@ -147,4 +147,59 @@ describe("ReviewCommentComposer actions", () => {
     act(() => submit?.click());
     expect(submittedMentions).toEqual([mention]);
   });
+
+  it("drops a replaced mention from submitted metadata", () => {
+    let submittedMentions: unknown;
+    const alice = { label: "Alice", email: "alice@example.com" };
+    const bob = { label: "Bob", email: "bob@example.com" };
+    function Harness() {
+      const [value, setValue] = useState("@Alice");
+      const [mentions, setMentions] = useState([alice]);
+      return (
+        <ReviewCommentComposer
+          value={value}
+          onChange={setValue}
+          onSubmit={() => {
+            submittedMentions = mentions;
+          }}
+          mentions={mentions}
+          onMentionsChange={setMentions}
+          mentionOptions={[alice, bob]}
+          showCommentTools
+        />
+      );
+    }
+
+    act(() => root.render(<Harness />));
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).toBeTruthy();
+    act(() => {
+      textarea!.setSelectionRange(0, 6);
+      textarea!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "@", bubbles: true }),
+      );
+    });
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(textarea!),
+        "value",
+      )?.set;
+      setter?.call(textarea, "@bo");
+      textarea!.setSelectionRange(3, 3);
+      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const bobOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Bob"));
+    expect(bobOption).toBeTruthy();
+    act(() => bobOption?.click());
+
+    const submit = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Comment"),
+    );
+    act(() => submit?.click());
+    expect(submittedMentions).toEqual([bob]);
+  });
 });
