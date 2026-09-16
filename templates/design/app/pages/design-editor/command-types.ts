@@ -21,6 +21,15 @@ export type DesignCanvasEmbeddedFrame = {
   contentOffsetY?: number;
 };
 
+/**
+ * Whether a text commit actually reached a writable surface. The host-side
+ * fallback consumes this instead of re-reading the source: a live-snapshot
+ * write lands in `liveScreenSnapshotsById`, which `getScreenContent` does not
+ * read, so a readback classified an ACCEPTED write as lost and reported the
+ * user's text unrecoverable.
+ */
+export type TextCommitStatus = "accepted" | "refused";
+
 export interface LiveScreenSnapshot {
   url: string;
   html: string;

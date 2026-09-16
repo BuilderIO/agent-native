@@ -649,6 +649,7 @@ import { runPasteOverSelection } from "./design-editor/commands/paste-over-selec
 import { runPasteSelection } from "./design-editor/commands/paste-selection";
 import { runPasteToReplace } from "./design-editor/commands/paste-to-replace";
 import { runPastedImageFiles } from "./design-editor/commands/pasted-image-files";
+import { runPendingTextHostCommit } from "./design-editor/commands/pending-text-host-commit";
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
@@ -12205,25 +12206,20 @@ function DesignEditor() {
   // and read through a ref, so no render leaves a creation without one.
   const pendingTextHostCommitRef = useRef({
     commitText: handleScreenTextContentChange,
-    readContent: getScreenContent,
   });
   pendingTextHostCommitRef.current = {
     commitText: handleScreenTextContentChange,
-    readContent: getScreenContent,
   };
   useEffect(
     () =>
-      registerPendingTextHostCommit((screenId, nodeId, text) => {
-        const selector = `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`;
-        const { commitText, readContent } = pendingTextHostCommitRef.current;
-        commitText(screenId, selector, text);
-        // Read back from the source it wrote: a commit that missed the node has
-        // to surface as a failure, never be assumed to have landed.
-        const written = new DOMParser()
-          .parseFromString(readContent(screenId), "text/html")
-          .querySelector(selector);
-        return written !== null && written.textContent?.trim() === text.trim();
-      }),
+      registerPendingTextHostCommit((screenId, nodeId, text) =>
+        runPendingTextHostCommit(
+          pendingTextHostCommitRef.current.commitText,
+          screenId,
+          nodeId,
+          text,
+        ),
+      ),
     [],
   );
 

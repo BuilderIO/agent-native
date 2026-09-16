@@ -67,7 +67,9 @@ function buildArgs(
       confirm: () => {},
     }),
     getScreenContent: () => stored,
-    handleTextContentChange: () => {},
+    // The active-file path reports its own acceptance now; this fixture never
+    // takes that branch, but the shape has to match the contract.
+    handleTextContentChange: () => "accepted",
     liveScreenSnapshotsById: {},
     overviewScreens: [],
     recordPendingLiveTextEdit: () => {},
@@ -141,7 +143,7 @@ describe("runScreenTextContentChange refused publication", () => {
       }),
     };
 
-    runScreenTextContentChange(
+    const status = runScreenTextContentChange(
       refused,
       SCREEN_ID,
       `[data-agent-native-node-id="t1"]`,
@@ -151,6 +153,7 @@ describe("runScreenTextContentChange refused publication", () => {
     // Nothing published, so the creation still owns its pending history — and
     // the typed text is still owed. Consuming the record here left it in
     // neither the source nor the undo stack.
+    expect(status).toBe("refused");
     expect(confirm).not.toHaveBeenCalled();
     expect(getContent()).toBe(content);
   });
@@ -175,7 +178,7 @@ describe("runScreenTextContentChange rejected live-snapshot write", () => {
       }),
     };
 
-    runScreenTextContentChange(
+    const status = runScreenTextContentChange(
       rejected,
       SCREEN_ID,
       `[data-agent-native-node-id="t1"]`,
@@ -183,6 +186,60 @@ describe("runScreenTextContentChange rejected live-snapshot write", () => {
     );
 
     // The source is unchanged, so the creation still owns its pending history.
+    expect(status).toBe("refused");
     expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe("runScreenTextContentChange acceptance after a source transition", () => {
+  it("reports an accepted live-snapshot write as accepted, with no source readback", () => {
+    // The state a confirm-make-real / source mutation actually leaves behind.
+    // The snapshot was captured while the screen was localhost
+    // (DesignCanvas.tsx:2615, gated on sourceType === "localhost" at :2544).
+    // DesignEditor prunes liveScreenSnapshotsById only when a FILE ID
+    // disappears (DesignEditor.tsx:4513-4527) — never when sourceType changes —
+    // so flipping the metadata to fusion keeps the entry. Model that prune here
+    // rather than assuming it: the id survives, so the snapshot survives.
+    const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text">Before</div></body>`;
+    const capturedWhileLocalhost = { [SCREEN_ID]: { html: content } as never };
+    const liveFileIds = new Set([SCREEN_ID]);
+    const retainedAfterTransition = Object.fromEntries(
+      Object.entries(capturedWhileLocalhost).filter(([fileId]) =>
+        liveFileIds.has(fileId),
+      ),
+    );
+    expect(retainedAfterTransition[SCREEN_ID]).toBeDefined();
+
+    const { args } = buildArgs(content, true);
+    const confirm = vi.fn();
+    const getScreenContent = vi.fn(() => content);
+    const transitioned: ScreenTextContentChangeArgs = {
+      ...args,
+      getScreenContent,
+      // Metadata now says fusion, so the localhost early return no longer
+      // fires and the write goes to the retained snapshot.
+      overviewScreens: [{ id: SCREEN_ID, sourceType: "fusion" } as never],
+      liveScreenSnapshotsById: retainedAfterTransition,
+      updateLiveScreenSnapshotContent: () => true,
+      prepareTextCreationFinalization: () => ({
+        isCreationCommit: true,
+        historyHandled: true,
+        confirm,
+      }),
+    };
+
+    const status = runScreenTextContentChange(
+      transitioned,
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "Standalone",
+    );
+
+    // The write landed in the snapshot map. getScreenContent cannot see that,
+    // so a readback-based verdict called this accepted write lost, retried it,
+    // and finally reported the user's text unrecoverable.
+    expect(status).toBe("accepted");
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(getScreenContent).not.toHaveBeenCalled();
   });
 });

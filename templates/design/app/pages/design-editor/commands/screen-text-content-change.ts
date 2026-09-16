@@ -19,7 +19,10 @@ import {
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
-import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import type {
+  LiveScreenSnapshot,
+  TextCommitStatus,
+} from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
@@ -73,7 +76,7 @@ export interface ScreenTextContentChangeArgs {
     value: string,
     elementInfo?: ElementInfo,
     details?: { html?: string; originalValue?: string; originalHtml?: string },
-  ) => void;
+  ) => TextCommitStatus;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   overviewScreens: OverviewScreen[];
   recordPendingLiveTextEdit: (
@@ -126,12 +129,11 @@ export function runScreenTextContentChange(
     originalValue?: string;
     originalHtml?: string;
   },
-) {
+): TextCommitStatus {
   if (screenId === activeFile?.id) {
-    handleTextContentChange(selector, value, elementInfo, details);
-    return;
+    return handleTextContentChange(selector, value, elementInfo, details);
   }
-  if (!canEditDesign) return;
+  if (!canEditDesign) return "refused";
   const overviewScreen = overviewScreens.find(
     (screen) => screen.id === screenId,
   );
@@ -142,7 +144,9 @@ export function runScreenTextContentChange(
     setActiveFileId(screenId);
     setActiveTool("move");
     setMode("edit");
-    return;
+    // Queued against the running app: the edit is accepted, it simply lands
+    // through the live bridge rather than a source write.
+    return "accepted";
   }
   const liveSnapshot = liveScreenSnapshotsById[screenId];
   const baseContent = liveSnapshot?.html ?? getScreenContent(screenId);
@@ -166,7 +170,7 @@ export function runScreenTextContentChange(
       toast.error(t("designEditor.patchProof.selectorMissing"), {
         duration: 4000,
       });
-      return;
+      return "refused";
     }
     applyLinkedComponentEdit(screenId, durableNodeId, {
       kind: "textContent",
@@ -175,7 +179,7 @@ export function runScreenTextContentChange(
     setActiveFileId(screenId);
     setActiveTool("move");
     setMode("edit");
-    return;
+    return "accepted";
   }
   const isEmpty = value.trim().length === 0;
   const removedContent =
@@ -206,7 +210,7 @@ export function runScreenTextContentChange(
       ),
       { duration: 4000 },
     );
-    return;
+    return "refused";
   }
   const nextProjection = buildCodeLayerProjection(nextContent, { source });
   const layerNamingNode = targetNode
@@ -252,7 +256,7 @@ export function runScreenTextContentChange(
         recordHistory: !finalizedCreation.historyHandled,
       })
     ) {
-      return;
+      return "refused";
     }
   } else {
     publication = applyFileContentUpdate(screenId, contentToApply, {
@@ -262,7 +266,7 @@ export function runScreenTextContentChange(
     // A refused publication never wrote this text. Finalizing before it landed
     // consumed the creation's pending history and left the typed text nowhere:
     // keep the record so the retry still coalesces into one undo step.
-    if (publication.status !== "accepted") return;
+    if (publication.status !== "accepted") return "refused";
   }
   finalizedCreation.confirm();
   setActiveFileId(screenId);
@@ -273,7 +277,7 @@ export function runScreenTextContentChange(
   if (removedContent) {
     setSelectedElement(null);
     setSelectedLayerIdsState([]);
-    return;
+    return "accepted";
   }
   const submittedProjection = buildCodeLayerProjection(contentToApply, {
     source,
@@ -310,4 +314,5 @@ export function runScreenTextContentChange(
         }
       : previous;
   });
+  return "accepted";
 }
