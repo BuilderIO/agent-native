@@ -416,7 +416,7 @@ describe("update-design data concurrency", () => {
       dataOperations: [
         {
           op: "set",
-          path: ["canvasFrames", "frame-a", "label"],
+          path: ["canvasFrames", "missing-frame", "label"],
           value: "Home",
         },
       ],
