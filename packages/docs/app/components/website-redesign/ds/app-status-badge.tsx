@@ -4,7 +4,7 @@ import { getAppStatus, type AppStatus } from "@agent-native/core/shared";
 // footer, homepage); app landing pages carry the docs --fg/--bg pair instead.
 // Both flip with the theme, so the fallback keeps one inverse badge everywhere.
 const BADGE_CLASS = [
-  "inline-flex shrink-0 items-center overflow-hidden rounded-[6px] px-2 py-[3px]",
+  "ml-2 inline-flex shrink-0 items-center overflow-hidden rounded-[6px] px-2 py-0.5",
   "font-[family-name:var(--b-font-sans)] text-[10px] font-semibold uppercase leading-none tracking-[0.08em]",
   "bg-[var(--b-text-primary,var(--fg))] text-[var(--b-bg-page,var(--bg))]",
 ].join(" ");
