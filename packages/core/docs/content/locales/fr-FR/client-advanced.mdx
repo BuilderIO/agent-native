@@ -98,6 +98,36 @@ Les cinq fonctions lèvent une exception en cas d'échec de la requête, de rép
 
 `requestSource` est couramment défini sur `TAB_ID`, une constante simple que chaque modèle exporte depuis `app/lib/tab-id.ts` : une courte chaîne aléatoire qui reste la même pendant la durée de vie d'un onglet et diffère entre les onglets. Associer `requestSource: TAB_ID` sur une écriture avec `useDbSync({ ignoreSource: TAB_ID })` côté lecture est la façon dont un onglet évite de relancer sa propre écriture tout en continuant à réagir à tout le reste. Voir [Conscience du contexte](/docs/context-awareness#jitter-prevention) pour le parcours complet.
 
+## Sessions d’agent isolées en arrière-plan {#isolated-background-agent-sessions}
+
+Utilisez `startBackgroundAgentSession()` lorsque chaque appel exige un nouveau
+thread stable sans ajouter d’onglet visible ou masqué, d’état de barre latérale
+ni d’entrée dans le panneau des exécutions. La route authentifiée normale du
+chat et le gestionnaire d’exécution partagé continuent de gérer la persistance,
+les outils, les nouvelles tentatives et l’exécution durable hébergée.
+
+```ts
+import { startBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
+
+const session = startBackgroundAgentSession({
+  message: "Analyze this import and create any missing records",
+  instructions: `Import batch id: ${batchId}`,
+  scope: { type: "import-batch", id: batchId },
+  model: "gpt-5.6-sol",
+  effort: "medium",
+});
+
+await session.accepted;
+const latest = await session.status();
+session.open({ prefill: "Show me what changed" });
+```
+
+Le handle fournit immédiatement `operationId`, `threadId` et `turnId`.
+`accepted` attend l’acceptation, `completion` suit le flux de réponse et
+`status()` lit séparément l’état durable. `cancel()` arrête le tour. Pour
+réessayer après un accusé de réception perdu, transmettez à nouveau les valeurs
+`operationId` et `threadId` d’origine.
+
 ## sendToAgentChat : envois en arrière-plan {#background-send}
 
 Utilisez `background: true` lorsqu'une action UI doit lancer un véritable travail

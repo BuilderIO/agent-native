@@ -143,4 +143,26 @@ describe("peer capability card caching", () => {
       },
     );
   });
+
+  it("does not probe hosted providers that have no inbound A2A card", async () => {
+    const managed = {
+      id: "anthropic-research",
+      name: "Anthropic Research",
+      description: "Research",
+      url: "https://api.anthropic.com",
+      color: "#2563eb",
+      kind: {
+        provider: "anthropic-managed-agents" as const,
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    };
+
+    const result = await loadCapabilities(managed);
+
+    expect(result.skills).toEqual([]);
+    expect(result.cardDescription).toContain("native adapter");
+    expect(getAgentCard).not.toHaveBeenCalled();
+  });
 });

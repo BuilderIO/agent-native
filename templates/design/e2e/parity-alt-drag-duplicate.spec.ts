@@ -139,6 +139,74 @@ async function openOverview(page: Page, designId: string, screens: number) {
     .toBe(true);
 }
 
+async function zoomOutToBoardDropPoint(page: Page) {
+  const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+  await zoomControl.click();
+  await page.getByRole("menuitem", { name: "Zoom to 50%" }).click();
+  await expect(zoomControl).toHaveText("50%");
+  return page.evaluate(() => {
+    const canvas = document.querySelector(
+      "[data-multi-screen-canvas-world]",
+    )?.parentElement;
+    if (!canvas) return null;
+    const canvasBounds = canvas.getBoundingClientRect();
+    const iframeBounds = Array.from(
+      document.querySelectorAll("iframe[data-screen-iframe-id]"),
+    ).map((iframe) => iframe.getBoundingClientRect());
+    const shellBounds = Array.from(
+      document.querySelectorAll("[data-screen-shell]"),
+    ).map((shell) => shell.getBoundingClientRect());
+    const contains = (rect: DOMRect, x: number, y: number) =>
+      x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    for (let y = canvasBounds.top + 48; y < canvasBounds.bottom - 48; y += 64) {
+      for (
+        let x = canvasBounds.left + 48;
+        x < canvasBounds.right - 48;
+        x += 64
+      ) {
+        if (
+          iframeBounds.some((rect) => contains(rect, x, y)) ||
+          shellBounds.some((rect) => contains(rect, x, y))
+        ) {
+          continue;
+        }
+        const hit = document.elementFromPoint(x, y);
+        if (
+          !hit ||
+          hit.closest(
+            '[data-design-chrome-region="left-panel"], [data-design-chrome-region="right-panel"]',
+          )
+        ) {
+          continue;
+        }
+        return {
+          x,
+          y,
+          canvasBounds: {
+            left: canvasBounds.left,
+            top: canvasBounds.top,
+            right: canvasBounds.right,
+            bottom: canvasBounds.bottom,
+          },
+          iframeBounds: iframeBounds.map(({ left, top, right, bottom }) => ({
+            left,
+            top,
+            right,
+            bottom,
+          })),
+          shellBounds: shellBounds.map(({ left, top, right, bottom }) => ({
+            left,
+            top,
+            right,
+            bottom,
+          })),
+        };
+      }
+    }
+    return null;
+  });
+}
+
 // Excludes aria-level="1" rows: those are the screen/frame roots (e.g.
 // "Home"), not the elements inside them.
 async function layerNames(page: Page): Promise<string[]> {
@@ -468,16 +536,33 @@ test.describe("alt-drag duplicate (overview)", () => {
     const { designId, fileIds } = await createDesign(request, NAMED_HTML);
     try {
       await openOverview(page, designId, 1);
-      const card = (await page
-        .locator("[data-screen-card]")
-        .first()
-        .boundingBox())!;
+      const dropPoint = await zoomOutToBoardDropPoint(page);
+      if (!dropPoint) throw new Error("no unobstructed board drop point");
+      const contains = (rect: {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+      }) =>
+        dropPoint.x >= rect.left &&
+        dropPoint.x <= rect.right &&
+        dropPoint.y >= rect.top &&
+        dropPoint.y <= rect.bottom;
+      expect(dropPoint.x).toBeGreaterThan(dropPoint.canvasBounds.left);
+      expect(dropPoint.x).toBeLessThan(dropPoint.canvasBounds.right);
+      expect(dropPoint.y).toBeGreaterThan(dropPoint.canvasBounds.top);
+      expect(dropPoint.y).toBeLessThan(dropPoint.canvasBounds.bottom);
+      expect(dropPoint.iframeBounds.some(contains)).toBe(false);
+      expect(dropPoint.shellBounds.some(contains)).toBe(false);
       const iframe = page.locator("iframe[data-screen-iframe-id]").first();
       await expect(iframe).toBeVisible();
-      const iframeBox = (await iframe.boundingBox())!;
-      const scale = iframeBox.width / 1280;
-      const sourceX = iframeBox.x + 100 * scale + (100 * scale) / 2;
-      const sourceY = iframeBox.y + 100 * scale + (60 * scale) / 2;
+      const source = iframe
+        .contentFrame()
+        .locator('[data-agent-native-node-id="rect"]');
+      await expect(source).toBeVisible();
+      const sourceBox = (await source.boundingBox())!;
+      const sourceX = sourceBox.x + sourceBox.width / 2;
+      const sourceY = sourceBox.y + sourceBox.height / 2;
 
       // Select the element first with a plain click.
       await page.mouse.dblclick(sourceX, sourceY);
@@ -485,14 +570,10 @@ test.describe("alt-drag duplicate (overview)", () => {
       await page.mouse.click(sourceX, sourceY);
       await page.waitForTimeout(500);
 
-      // Drop point well below/right of the screen frame, on empty board canvas.
-      const dropX = card.x + card.width + 150;
-      const dropY = card.y + card.height + 150;
-
       await page.mouse.move(sourceX, sourceY);
       await page.keyboard.down("Alt");
       await page.mouse.down();
-      await page.mouse.move(dropX, dropY, { steps: 24 });
+      await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
       await page.waitForTimeout(300);
       await page.mouse.up();
       await page.keyboard.up("Alt");
@@ -558,6 +639,81 @@ test.describe("alt-drag duplicate (overview)", () => {
       expect(warningVisible).toBe(false);
       // The copy must actually have landed on the board, not vanished.
       expect(boardCopyCount).toBeGreaterThan(0);
+
+      // A board copy is runtime-only until its pending source edit is
+      // applied, so the Layers projection may not contain it yet. Verify the
+      // real bridge -> host selection round trip instead: Escape clears the
+      // optimistic drag selection, then a real pointer click must select the
+      // clone and restore the host-level board SelectionBox for its runtime id.
+      const boardIframe = page
+        .locator("[data-board-surface-layer] iframe")
+        .first();
+      await expect(boardIframe).toBeVisible();
+      const boardFrame = boardIframe.contentFrame();
+      const boardCopy = boardFrame.locator(
+        "body > [data-agent-native-node-id]",
+      );
+      await expect(boardCopy).toHaveCount(1);
+      const copyId = await boardCopy.getAttribute("data-agent-native-node-id");
+      expect(copyId).toBeTruthy();
+      const copyBox = await boardCopy.boundingBox();
+      expect(copyBox).not.toBeNull();
+
+      await page.keyboard.press("Escape");
+      await expect
+        .poll(
+          async () => {
+            const entries = await page.evaluate(
+              () => (window as any).__designTrace?.entries?.() ?? [],
+            );
+            const selectionEntries = entries.filter(
+              (entry: { event?: string; data?: { hasSelection?: boolean } }) =>
+                entry.event === "selection-changed",
+            );
+            return selectionEntries.at(-1)?.data?.hasSelection ?? null;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(false);
+      const clickPoint = {
+        x: copyBox!.x + copyBox!.width / 2,
+        y: copyBox!.y + copyBox!.height / 2,
+      };
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              ({ x, y }) =>
+                Boolean(
+                  document
+                    .elementFromPoint(x, y)
+                    ?.closest("[data-board-surface-layer]"),
+                ),
+              clickPoint,
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      await page.mouse.click(clickPoint.x, clickPoint.y);
+      const readSelectedSelector = async () => {
+        const entries = await page.evaluate(
+          () => (window as any).__designTrace?.entries?.() ?? [],
+        );
+        const selectionEntries = entries.filter(
+          (entry: { event?: string; data?: { hasSelection?: boolean } }) =>
+            entry.event === "selection-changed" &&
+            entry.data?.hasSelection === true,
+        );
+        return selectionEntries.at(-1)?.data?.element ?? null;
+      };
+      await expect
+        .poll(readSelectedSelector, { timeout: 10_000 })
+        .toContain(copyId!);
+      const selectedSelector = await readSelectedSelector();
+      expect(selectedSelector).toContain(copyId!);
+      await expect(
+        page.locator("[data-board-object-selection-box]"),
+      ).toHaveCount(1);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }

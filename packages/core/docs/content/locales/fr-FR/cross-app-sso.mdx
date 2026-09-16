@@ -133,4 +133,8 @@ l'authentification locale normale.
 - [Sécurité et portée des données](/docs/security)
 - [Espaces de travail multi-applications](/docs/multi-app-workspace)
 
-La connexion d’entreprise avec OIDC ou SAML est différente de la fédération d’identité entre applications. Le [guide des déploiements administrés](/docs/administered-deployments) décrit le modèle d’entreprise. La connexion navigateur avec Agent-Native reste supprimée.
+La connexion d’entreprise avec OIDC ou SAML est différente de la fédération d’identité entre applications. Le [guide des déploiements administrés](/docs/administered-deployments) décrit le modèle d’entreprise. Lorsque `browser.identity-sso` est activé, l’application tente une vérification silencieuse `prompt=none` et conserve le formulaire local comme solution de secours. Voir le [design Cross-App Connect](/docs/cross-app-connect-design).
+
+## Guide de déploiement du SSO d’identité dans le navigateur
+
+Activez d’abord `browser.identity-sso` pour une seule adresse de test. Connectez-vous à Dispatch, déconnectez-vous de l’application cible et vérifiez la sonde silencieuse au chargement. Répétez sans session du hub et confirmez que `login_required` revient au formulaire local avant d’élargir le groupe. Une révocation unique des sessions existantes peut être nécessaire au premier déploiement.

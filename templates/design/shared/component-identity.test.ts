@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCodeLayerProjection, buildCodeLayerTree } from "./code-layer";
-import { isComponentInstance } from "./component-model";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_REF_ATTR,
+  isComponentInstance,
+  isComponentInstanceForInstanceActions,
+} from "./component-model";
 
 // The decoys from the real "Design system demo" screen. Each is an ordinary
 // styled element; none carries data-agent-native-component.
@@ -63,5 +68,28 @@ describe("component identity is the annotation, not a guess at the class name", 
     expect(
       buildCodeLayerProjection(html).nodes.filter(isComponentInstance),
     ).toHaveLength(1);
+  });
+});
+
+describe("instance-only component operations", () => {
+  it("exclude a canonical main while allowing linked and legacy roots", () => {
+    const projection = buildCodeLayerProjection(
+      `<body>
+        <div data-agent-native-node-id="main" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="cmp-card">Main</div>
+        <div data-agent-native-node-id="ref" data-agent-native-component="Card" ${COMPONENT_REF_ATTR}="cmp-card">Reference</div>
+        <div data-agent-native-node-id="legacy" data-agent-native-component="Card">Legacy</div>
+        <div data-agent-native-node-id="invalid" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="" ${COMPONENT_REF_ATTR}="cmp-card">Invalid</div>
+      </body>`,
+    );
+    const node = (nodeId: string) =>
+      projection.nodes.find(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] === nodeId,
+      )!;
+
+    expect(isComponentInstanceForInstanceActions(node("main"))).toBe(false);
+    expect(isComponentInstanceForInstanceActions(node("ref"))).toBe(true);
+    expect(isComponentInstanceForInstanceActions(node("legacy"))).toBe(true);
+    expect(isComponentInstanceForInstanceActions(node("invalid"))).toBe(false);
   });
 });

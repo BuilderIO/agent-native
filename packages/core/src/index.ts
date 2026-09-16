@@ -2,6 +2,7 @@
 // Import everything from "@agent-native/core".
 
 export * from "./config.js";
+export * from "./authorization/index.js";
 
 // Agent (production mode)
 export {
@@ -156,6 +157,7 @@ export {
   type JsonSchema,
 } from "./automation/index.js";
 export {
+  CONNECT_APPS_FLAG,
   defineFeatureFlag,
   defineFeatureFlags,
   evaluateFeatureFlag,

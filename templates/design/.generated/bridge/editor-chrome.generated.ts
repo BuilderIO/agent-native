@@ -2178,6 +2178,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     function hasStableOwnSource(el) {
       return !!(el && !isDocumentRootElement(el) && getSourceId(el));
     }
+    function isRuntimeOnlyClone(el) {
+      var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
+      return !!cloneRoot && !isSourceOwned(cloneRoot);
+    }
     function repeatTemplateOwning(node) {
       var parent = node.parentElement;
       if (!parent) return null;
@@ -2858,6 +2862,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       "display",
       "overflow",
       "lineHeight",
+      "letterSpacing",
+      "gridTemplateColumns",
+      "gridTemplateRows",
+      "gridAutoFlow",
+      "flexDirection",
+      "flexWrap",
+      "columnGap",
+      "rowGap",
+      "justifyContent",
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "alignItems",
+      "alignContent",
+      "justifyItems",
+      "gap",
+      "padding",
       "webkitBoxOrient",
       "webkitLineClamp",
       "--agent-native-truncate-original-display",
@@ -2878,6 +2900,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (typeof value === "string" && value !== "") {
           styles[property] = value;
         }
+      });
+      return styles;
+    }
+    function collectAuthoredSizeStyles(el) {
+      var computedStyleMap = el.computedStyleMap;
+      if (typeof computedStyleMap !== "function") return void 0;
+      var map = computedStyleMap.call(el);
+      var styles = {};
+      ["width", "height"].forEach(function(property) {
+        var value = map.get(property);
+        if (value == null) return;
+        var cssText = String(value).trim();
+        if (cssText) styles[property] = cssText;
       });
       return styles;
     }
@@ -3218,9 +3253,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parentAutoLayout = autoLayoutParentInfo(el);
       var designParent = designParentForElement(el);
       var parentStyles = designParent ? window.getComputedStyle(designParent) : null;
+      var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
-      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
+      var runtimeOnlyClone = isRuntimeOnlyClone(el);
+      var sourceBacked = !runtimeOnlyClone && (hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el));
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+      var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+      var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
       var pendingNodeId = "";
       if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
       // a template clone has no counterpart in source HTML, so no host
@@ -3286,6 +3325,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        runtimeSelector: runtimeSelector || void 0,
+        runtimeSourceId: runtimeSourceId || void 0,
         repeat: repeatInstanceInfo(el) || void 0,
         hasOwnText: hasOwnTextContent(el),
         wholeTextStyleRoot: isWholeTextStyleRoot(el),
@@ -3294,6 +3335,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         classes: Array.from(el.classList),
         computedStyles: collectElementComputedStyles(el, cs, paintCs),
         inlineStyles: collectElementInlineStyles(el),
+        authoredSizeStyles,
         primitiveKind: el.getAttribute("data-an-primitive") || void 0,
         isGroup: el.getAttribute("data-agent-native-group") === "true",
         vectorStrokeCanAlign: vectorStrokeCanAlign(el),
@@ -3343,19 +3385,33 @@ export const editorChromeBridgeScript: string = `"use strict";
         postScreenRootStyleSnapshot();
       });
     }
-    function getLightElementInfo(el) {
+    function getLightElementInfo(el, includePendingNodeId = false) {
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
-      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
+      var runtimeOnlyClone = isRuntimeOnlyClone(el);
+      var sourceBacked = !runtimeOnlyClone && (hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el));
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+      var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+      var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
       var parentStyles = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var cs = window.getComputedStyle(el);
+      var pendingNodeId = "";
+      if (includePendingNodeId && !getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && !isTemplateCloneElement(el)) {
+        pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
+        if (!pendingNodeId) {
+          pendingNodeId = freshRuntimeNodeId("pending");
+          el.setAttribute("data-an-pending-node-id", pendingNodeId);
+        }
+      }
       return {
         tagName: el.tagName.toLowerCase(),
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        runtimeSelector: runtimeSelector || void 0,
+        runtimeSourceId: runtimeSourceId || void 0,
+        pendingNodeId: pendingNodeId || void 0,
         selector: getSelector(el),
         classes: Array.from(el.classList),
         computedStyles: {},
@@ -3446,10 +3502,33 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "none" || cs.visibility === "hidden";
     }
-    function collectSelectableElementInfos(deep) {
-      return collectSelectableElements(deep).map(function(target) {
+    function readSelectablePoint(raw) {
+      if (raw === void 0 || raw === null) return null;
+      var point = raw;
+      if (typeof point.x !== "number" || typeof point.y !== "number" || !isFinite(point.x) || !isFinite(point.y)) {
+        throw new Error(
+          "agent-native:collect-selectable-rects received a malformed atPoint"
+        );
+      }
+      return { x: point.x, y: point.y };
+    }
+    function collectSelectableElementInfos(deep, atPoint) {
+      var targets = collectSelectableElements(deep);
+      if (atPoint) {
+        targets = targets.filter(function(el) {
+          return documentSpaceBoundsContainPoint(el, atPoint);
+        });
+      }
+      return targets.map(function(target) {
         return getElementInfo(target);
       });
+    }
+    function documentSpaceBoundsContainPoint(el, point) {
+      var bounds = selectableBounds(el);
+      var scrollX = window.scrollX || window.pageXOffset || 0;
+      var scrollY = window.scrollY || window.pageYOffset || 0;
+      var tolerance = 1;
+      return point.x >= bounds.left + scrollX - tolerance && point.x <= bounds.right + scrollX + tolerance && point.y >= bounds.top + scrollY - tolerance && point.y <= bounds.bottom + scrollY + tolerance;
     }
     var shieldOverlay = document.createElement("div");
     shieldOverlay.setAttribute("data-agent-native-edit-overlay", "shield");
@@ -3511,7 +3590,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var handle = document.createElement("span");
       handle.setAttribute("data-agent-native-edit-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : pos === "e" || pos === "w" ? "ew-resize" : pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize";
-      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + cursor + ";";
+      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" + cursor + ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -3758,6 +3837,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       parentAutoLayoutOverlay.style.display = "none";
     }
     function updateParentAutoLayoutOverlay(el) {
+      if (el?.getAttribute("data-an-primitive") === "frame") {
+        hideParentAutoLayoutOverlay();
+        return;
+      }
       var parent = el && el.parentElement;
       if (!parent || parent === document.body || parent === document.documentElement) {
         hideParentAutoLayoutOverlay();
@@ -3825,9 +3908,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       pendingBeginTextEdit = null;
     }
-    function postTextEditPending(nodeId, pending) {
+    function postTextEditPending(nodeId, pending, reason) {
       window.parent.postMessage(
-        { type: "text-edit-pending", nodeId, pending },
+        {
+          type: "text-edit-pending",
+          nodeId,
+          pending,
+          reason
+        },
+        "*"
+      );
+    }
+    function postTextEditInsertResult(nodeId, inserted) {
+      window.parent.postMessage(
+        {
+          type: "text-edit-insert-result",
+          nodeId,
+          inserted
+        },
         "*"
       );
     }
@@ -3958,7 +4056,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "multi-selection-handle"
         );
         handle.setAttribute("data-corner", pos);
-        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
+        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
         if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
         if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -4034,15 +4132,41 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (pos.indexOf("e") !== -1) handle.style.right = -4 * sx + "px";
       });
     }
+    var passiveSelectionOverlayPoolStyle = "default";
+    function syncPassiveSelectionOverlayPool(count, style) {
+      if (style !== passiveSelectionOverlayPoolStyle) {
+        removePassiveSelectionOverlays();
+        passiveSelectionOverlayPoolStyle = style;
+      }
+      while (passiveSelectionOverlays.length > count) {
+        var extra = passiveSelectionOverlays.pop();
+        if (extra && extra.parentNode) extra.parentNode.removeChild(extra);
+      }
+      while (passiveSelectionOverlays.length < count) {
+        passiveSelectionOverlays.push(makePassiveSelectionOverlay(style));
+      }
+    }
+    function samePassiveSelectionElements(current, next) {
+      if (current.length !== next.length) return false;
+      for (var index = 0; index < current.length; index += 1) {
+        if (current[index] !== next[index]) return false;
+      }
+      return true;
+    }
     function setPassiveSelectionElements(elements, style = "default") {
-      passiveSelectionEls = elements.filter(function(el, index, all) {
+      var nextPassiveEls = elements.filter(function(el, index, all) {
         return el && el !== selectedEl && document.documentElement.contains(el) && all.indexOf(el) === index;
       });
-      removePassiveSelectionOverlays();
-      passiveSelectionEls.forEach(function(el) {
-        var overlay = makePassiveSelectionOverlay(style);
-        passiveSelectionOverlays.push(overlay);
-        positionOverlay(overlay, el);
+      if (style === passiveSelectionOverlayPoolStyle && passiveSelectionOverlays.length === nextPassiveEls.length && samePassiveSelectionElements(passiveSelectionEls, nextPassiveEls)) {
+        passiveSelectionEls = nextPassiveEls;
+        positionMultiSelectionBounds();
+        return;
+      }
+      passiveSelectionEls = nextPassiveEls;
+      syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
+      passiveSelectionEls.forEach(function(el, index) {
+        var overlay = passiveSelectionOverlays[index];
+        if (overlay) positionOverlay(overlay, el);
       });
       positionMultiSelectionBounds();
     }
@@ -4957,11 +5081,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var paddingRight = readPx(cs.paddingRight);
       var paddingBottom = readPx(cs.paddingBottom);
       var paddingLeft = readPx(cs.paddingLeft);
-      var sx = chromeScaleX();
-      var sy = chromeScaleY();
       var line = chromeLineScale();
-      var hLineWidth = Math.max(6, Math.min(18, rect.width * 0.12)) * sx;
-      var vLineHeight = Math.max(6, Math.min(18, rect.height * 0.12)) * sy;
+      var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
       var innerLeft = borderLeft;
       var innerTop = borderTop;
       var innerWidth = Math.max(1, rect.width - borderLeft - borderRight);
@@ -4983,9 +5104,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               height: paddingTop
             },
             line: {
-              x: rect.width / 2 - hLineWidth / 2,
+              x: rect.width / 2 - tickLength / 2,
               y: innerTop + paddingTop / 2 - line / 2,
-              width: hLineWidth,
+              width: tickLength,
               height: line
             }
           })
@@ -5008,9 +5129,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               height: paddingBottom
             },
             line: {
-              x: rect.width / 2 - hLineWidth / 2,
+              x: rect.width / 2 - tickLength / 2,
               y: rect.height - borderBottom - paddingBottom / 2 - line / 2,
-              width: hLineWidth,
+              width: tickLength,
               height: line
             }
           })
@@ -5034,9 +5155,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             line: {
               x: innerLeft + paddingLeft / 2 - line / 2,
-              y: rect.height / 2 - vLineHeight / 2,
+              y: rect.height / 2 - tickLength / 2,
               width: line,
-              height: vLineHeight
+              height: tickLength
             }
           })
         );
@@ -5059,9 +5180,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             line: {
               x: rect.width - borderRight - paddingRight / 2 - line / 2,
-              y: rect.height / 2 - vLineHeight / 2,
+              y: rect.height / 2 - tickLength / 2,
               width: line,
-              height: vLineHeight
+              height: tickLength
             }
           })
         );
@@ -5072,11 +5193,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var children = visibleLayoutChildren(el);
       if (children.length < 2) return [];
       var handles = [];
-      var sx = chromeScaleX();
-      var sy = chromeScaleY();
       var line = chromeLineScale();
-      var hLineWidth = 8 * sx;
-      var vLineHeight = 8 * sy;
+      var tickLength = 8 * line;
       var isFlex = cs.display === "flex" || cs.display === "inline-flex";
       var isGrid = cs.display === "grid" || cs.display === "inline-grid";
       if (!isFlex && !isGrid) return handles;
@@ -5112,9 +5230,9 @@ export const editorChromeBridgeScript: string = `"use strict";
                 region: { x: a.right, y: top, width: gap, height },
                 line: {
                   x: a.right + gap / 2 - line / 2,
-                  y: top + height / 2 - vLineHeight / 2,
+                  y: top + height / 2 - tickLength / 2,
                   width: line,
-                  height: vLineHeight
+                  height: tickLength
                 }
               })
             );
@@ -5132,9 +5250,9 @@ export const editorChromeBridgeScript: string = `"use strict";
                 value: cssGap,
                 region: { x: left, y: a.bottom, width, height: gap },
                 line: {
-                  x: left + width / 2 - hLineWidth / 2,
+                  x: left + width / 2 - tickLength / 2,
                   y: a.bottom + gap / 2 - line / 2,
-                  width: hLineWidth,
+                  width: tickLength,
                   height: line
                 }
               })
@@ -5716,7 +5834,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
       if (!placedRotatedLocalBox) {
-        var rect = el.getBoundingClientRect();
+        var rect = overlay === selectionOverlay ? el.getBoundingClientRect() : void 0;
         var box = selectableBounds(el);
         overlay.style.display = "block";
         overlay.style.top = box.top + "px";
@@ -6701,6 +6819,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function clearActiveMarqueeSelection() {
       if (!activeMarqueeSelection) return;
+      if (activeMarqueeSelection.moveFrame != null) {
+        window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
+        activeMarqueeSelection.moveFrame = null;
+      }
       document.removeEventListener(
         activeMarqueeSelection.move,
         activeMarqueeSelection.onMove,
@@ -6736,13 +6858,31 @@ export const editorChromeBridgeScript: string = `"use strict";
     function rectsIntersect(a, b) {
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
-    function postElementMarqueeSelect(elements, additive, e, final) {
+    function postElementMarqueeSelect(elements, additive, e, final, infoCache, lightInfoCache) {
+      var primaryIndex = elements.length - 1;
+      function lightInfo(el) {
+        if (!lightInfoCache) return getLightElementInfo(el, true);
+        var cached = lightInfoCache.get(el);
+        if (cached === void 0) {
+          cached = getLightElementInfo(el, true);
+          lightInfoCache.set(el, cached);
+        }
+        return cached;
+      }
       window.parent.postMessage(
         {
           type: "agent-native:layer-marquee-selection",
           phase: "change",
-          payload: elements.map(function(el) {
-            return getElementInfo(el);
+          payload: elements.map(function(el, index) {
+            if (!final) return lightInfo(el);
+            if (index !== primaryIndex) return lightInfo(el);
+            if (!infoCache) return getElementInfo(el);
+            var cached = infoCache.get(el);
+            if (cached === void 0) {
+              cached = getElementInfo(el);
+              infoCache.set(el, cached);
+            }
+            return cached;
           }),
           intent: {
             additive,
@@ -6775,22 +6915,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
       if (!activeMarqueeSelection.candidates) {
-        activeMarqueeSelection.candidates = collectSelectableElements(
-          activeMarqueeSelection.deep
-        );
+        var collected = collectSelectableElements(activeMarqueeSelection.deep);
+        activeMarqueeSelection.candidates = collected;
+        activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
       }
-      var hitElements = activeMarqueeSelection.candidates.filter(function(el) {
-        var bounds = selectableBounds(el);
+      var candidates = activeMarqueeSelection.candidates;
+      var candidateBounds = activeMarqueeSelection.candidateBounds || [];
+      var hitElements = [];
+      for (var index = 0; index < candidates.length; index += 1) {
+        var bounds = candidateBounds[index];
+        if (!bounds) continue;
         if (bounds.left <= rect.left && bounds.top <= rect.top && bounds.right >= rect.right && bounds.bottom >= rect.bottom) {
-          return false;
+          continue;
         }
-        return rectsIntersect(rect, {
-          left: bounds.left,
-          top: bounds.top,
-          right: bounds.right,
-          bottom: bounds.bottom
-        });
-      });
+        if (rectsIntersect(rect, bounds)) {
+          hitElements.push(candidates[index]);
+        }
+      }
       var primary = hitElements[hitElements.length - 1] || null;
       if (primary) {
         selectedEl = primary;
@@ -6800,11 +6941,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSelectionOverlay();
       }
       setPassiveSelectionElements(hitElements);
+      var lastReported = activeMarqueeSelection.lastReportedElements;
+      var sameHitSet = !!lastReported && lastReported.length === hitElements.length && hitElements.every(function(el, index2) {
+        return lastReported[index2] === el;
+      });
+      if (!final && sameHitSet) return;
+      activeMarqueeSelection.lastReportedElements = hitElements;
       postElementMarqueeSelect(
         hitElements,
         activeMarqueeSelection.additive,
         e,
-        final
+        final,
+        activeMarqueeSelection.infoCache,
+        activeMarqueeSelection.lightInfoCache
       );
     }
     function beginMarqueeSelection(e) {
@@ -6813,6 +6962,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       clearActiveMarqueeSelection();
       var events = dragEventNames(e);
       var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+      function flushMarqueeMove() {
+        var session = activeMarqueeSelection;
+        if (!session) return;
+        if (session.moveFrame != null) {
+          window.cancelAnimationFrame(session.moveFrame);
+          session.moveFrame = null;
+        }
+        var ev = session.pendingMoveEvent;
+        if (!ev) return;
+        session.pendingMoveEvent = null;
+        updateMarqueeSelection(ev);
+      }
       function onMove(ev) {
         if (!activeMarqueeSelection) return;
         if (!activeMarqueeSelection.moved && Math.hypot(
@@ -6826,12 +6987,26 @@ export const editorChromeBridgeScript: string = `"use strict";
           suppressNextShieldClickBriefly();
         }
         stopNativeInteraction(ev);
-        updateMarqueeSelection(ev);
+        activeMarqueeSelection.pendingMoveEvent = ev;
+        if (activeMarqueeSelection.moveFrame != null) return;
+        activeMarqueeSelection.moveFrame = window.requestAnimationFrame(
+          function() {
+            if (!activeMarqueeSelection) return;
+            activeMarqueeSelection.moveFrame = null;
+            flushMarqueeMove();
+          }
+        );
       }
       function onUp(ev) {
         var didMove = Boolean(activeMarqueeSelection?.moved);
         if (didMove) {
           stopNativeInteraction(ev);
+          if (activeMarqueeSelection && activeMarqueeSelection.moveFrame != null) {
+            window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
+            activeMarqueeSelection.moveFrame = null;
+          }
+          if (activeMarqueeSelection)
+            activeMarqueeSelection.pendingMoveEvent = null;
           updateMarqueeSelection(ev, true);
           suppressNextShieldClickBriefly();
         }
@@ -6844,6 +7019,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         additive,
         deep: Boolean(e && (e.metaKey || e.ctrlKey)),
         moved: false,
+        infoCache: /* @__PURE__ */ new Map(),
+        lightInfoCache: /* @__PURE__ */ new Map(),
+        moveFrame: null,
+        pendingMoveEvent: null,
         pointerId: e.pointerId,
         move: events.move,
         up: events.up,
@@ -7678,8 +7857,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return clampSpacingValue(originValue + delta);
     }
-    function applySpacingDragValue(target, handle, value, mirrorOpposite) {
+    var paddingProperties = [
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft"
+    ];
+    function applySpacingDragValue(target, handle, value, mirrorOpposite, syncAllPadding) {
       if (!target || !handle) return;
+      if (handle.kind === "padding" && syncAllPadding) {
+        for (var i = 0; i < 4; i += 1) {
+          target.style[paddingProperties[i]] = value + "px";
+        }
+        return;
+      }
       target.style[handle.property] = value + "px";
       if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
         target.style[handle.oppositeProperty] = value + "px";
@@ -7700,8 +7891,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var dragEl = selectedEl;
       var originValue = handle.value;
-      var originInlineValue = dragEl.style[handle.property];
-      var originInlineOppositeValue = handle.oppositeProperty ? dragEl.style[handle.oppositeProperty] : "";
+      var originInlinePaddingValues = {};
+      for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+        var paddingProperty = paddingProperties[paddingIndex];
+        originInlinePaddingValues[paddingProperty] = dragEl.style[paddingProperty];
+      }
+      var syncAllPadding = !!e.shiftKey;
       var startX = e.clientX;
       var startY = e.clientY;
       lastSpacingPointerPoint = { x: startX, y: startY };
@@ -7709,17 +7904,40 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingDrag = {
         handle,
         currentValue: originValue,
-        mirrorOpposite: !!e.altKey
+        mirrorOpposite: !!e.altKey,
+        syncAllPadding,
+        touchedAllPadding: syncAllPadding
       };
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        originValue,
+        !!e.altKey,
+        syncAllPadding
+      );
       updateSpacingOverlay(selectedEl);
       showSpacingBadgeForHandle(handle, originValue);
-      function updateSpacingDragMirrorState(mirrorOpposite) {
+      function updateSpacingDragState(mirrorOpposite, syncAllPadding2) {
         if (!spacingDrag) return;
-        if (spacingDrag.mirrorOpposite === mirrorOpposite) return;
+        if (spacingDrag.mirrorOpposite === mirrorOpposite && spacingDrag.syncAllPadding === syncAllPadding2) {
+          return;
+        }
+        var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding2;
+        if (syncAllPadding2) {
+          applySpacingDragValue(
+            dragEl,
+            handle,
+            spacingDrag.currentValue,
+            mirrorOpposite,
+            true
+          );
+        }
         spacingDrag = {
           handle,
           currentValue: spacingDrag.currentValue,
-          mirrorOpposite
+          mirrorOpposite,
+          syncAllPadding: syncAllPadding2,
+          touchedAllPadding
         };
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -7733,9 +7951,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function restoreSpacingDragValue() {
         if (dragEl && document.documentElement.contains(dragEl)) {
-          dragEl.style[handle.property] = originInlineValue;
-          if (handle.oppositeProperty) {
-            dragEl.style[handle.oppositeProperty] = originInlineOppositeValue;
+          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
+            var paddingProperty2 = paddingProperties[paddingIndex2];
+            dragEl.style[paddingProperty2] = originInlinePaddingValues[paddingProperty2];
           }
           selectedEl = dragEl;
           positionOverlay(selectionOverlay, dragEl);
@@ -7754,8 +7972,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           cancelSpacingDrag();
           return;
         }
-        if (ev.key !== "Alt") return;
-        updateSpacingDragMirrorState(!!ev.altKey);
+        if (ev.key !== "Alt" && ev.key !== "Shift") return;
+        updateSpacingDragState(!!ev.altKey, !!ev.shiftKey);
       }
       function onMove(ev) {
         if (!dragEl || !document.documentElement.contains(dragEl)) return;
@@ -7767,13 +7985,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           ev.clientX,
           ev.clientY
         );
+        var syncAllPadding2 = !!ev.shiftKey;
+        var touchedAllPadding = spacingDrag && spacingDrag.touchedAllPadding || syncAllPadding2;
         spacingDrag = {
           handle,
           currentValue: nextValue,
-          mirrorOpposite: !!ev.altKey
+          mirrorOpposite: !!ev.altKey,
+          syncAllPadding: syncAllPadding2,
+          touchedAllPadding
         };
         lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
-        applySpacingDragValue(dragEl, handle, nextValue, !!ev.altKey);
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          nextValue,
+          !!ev.altKey,
+          syncAllPadding2
+        );
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, nextValue);
       }
@@ -7786,13 +8014,28 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var finalValue = spacingDrag ? spacingDrag.currentValue : originValue;
         var mirrorOpposite = spacingDrag ? spacingDrag.mirrorOpposite : !!ev.altKey;
-        applySpacingDragValue(dragEl, handle, finalValue, mirrorOpposite);
+        var syncAllPadding2 = spacingDrag ? spacingDrag.syncAllPadding : !!ev.shiftKey;
+        var touchedAllPadding = spacingDrag ? spacingDrag.touchedAllPadding : syncAllPadding2;
+        var commitAllPadding = handle.kind === "padding" && (syncAllPadding2 || touchedAllPadding);
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          finalValue,
+          mirrorOpposite,
+          commitAllPadding
+        );
         selectedEl = dragEl;
         spacingDrag = null;
         var styles = {};
-        styles[handle.property] = finalValue + "px";
-        if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
-          styles[handle.oppositeProperty] = finalValue + "px";
+        if (commitAllPadding) {
+          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
+            styles[paddingProperties[paddingIndex2]] = finalValue + "px";
+          }
+        } else {
+          styles[handle.property] = finalValue + "px";
+          if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
+            styles[handle.oppositeProperty] = finalValue + "px";
+          }
         }
         postVisualStyleChange(styles);
         positionOverlay(selectionOverlay, dragEl);
@@ -7860,13 +8103,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       postTextEditingState(suspended.target, false, suspended.selector, false);
     }
     function insertPlainTextAtSelection(text) {
-      if (!text) return;
+      if (!text) return false;
       if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
-        document.execCommand("insertText", false, text);
-        return;
+        var executed = false;
+        try {
+          executed = document.execCommand("insertText", false, text) === true;
+        } catch (_err) {
+          executed = false;
+        }
+        if (executed) return true;
       }
       var selection = window.getSelection ? window.getSelection() : null;
-      if (!selection || selection.rangeCount === 0) return;
+      if (!selection || selection.rangeCount === 0) return false;
       var range = selection.getRangeAt(0);
       range.deleteContents();
       var textNode = document.createTextNode(text);
@@ -7875,6 +8123,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       range.setEndAfter(textNode);
       selection.removeAllRanges();
       selection.addRange(range);
+      return textNode.isConnected === true;
     }
     function insertLineBreak() {
       if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
@@ -10220,7 +10469,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalSelectedEl = selectedEl;
       var duplicatedForDrag = false;
       var duplicatedSourceNodeIdMap;
+      var duplicateGrabOffset = null;
       if (e.altKey && selectedEl && selectedEl !== document.body && selectedEl !== document.documentElement) {
+        var grabbedRect = selectedEl.getBoundingClientRect();
         var clone = selectedEl.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
         selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
@@ -10228,8 +10479,23 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectedEl = clone;
         duplicatedForDrag = true;
         gestureEl = clone;
+        var insertedRect = clone.getBoundingClientRect();
+        duplicateGrabOffset = {
+          x: grabbedRect.left - insertedRect.left,
+          y: grabbedRect.top - insertedRect.top
+        };
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
+      }
+      function dragGrabRect(el) {
+        var rect = el.getBoundingClientRect();
+        if (!duplicateGrabOffset || el !== gestureEl) return rect;
+        return new DOMRect(
+          rect.left + duplicateGrabOffset.x,
+          rect.top + duplicateGrabOffset.y,
+          rect.width,
+          rect.height
+        );
       }
       var groupEls = duplicatedForDrag || e.altKey ? [gestureEl] : collectMoveGroupMembers(gestureEl);
       if (groupEls.indexOf(gestureEl) === -1) groupEls = [gestureEl];
@@ -10316,7 +10582,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               el.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.18)";
               el.style.pointerEvents = "none";
             }
-            el.style.transform = "translate(" + dx + "px, " + dy + "px)" + (snap.authoredTransform ? " " + snap.authoredTransform : "");
+            var liftDx = dx + (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+            var liftDy = dy + (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
+            el.style.transform = "translate(" + liftDx + "px, " + liftDy + "px)" + (snap.authoredTransform ? " " + snap.authoredTransform : "");
           });
         }, clearReorderLift2 = function() {
           reorderLiftedMembers.forEach(function(snap) {
@@ -10735,7 +11003,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, containerIsSimplePacked = containerIsSimplePacked2, reorderMainGap = reorderMainGap2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
-          return member.getBoundingClientRect();
+          return dragGrabRect(member);
         });
         var reorderOrigins = groupEls.map(function(member) {
           return {
@@ -10745,7 +11013,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             prevInlinePositionStyles: snapshotInlinePositionStyles(member)
           };
         });
-        var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+        var reorderGestureStartRect = dragGrabRect(reorderEl);
         var reorderLastTargetKey = null;
         var keepCurrentFlowParent = bridgeSpaceKeyPressed;
         var reorderIgnoresAutoLayout = Boolean(e.ctrlKey || e.metaKey);
@@ -10766,7 +11034,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
         crossScreenClaimedByHost = false;
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
-        var reorderRect = reorderEl.getBoundingClientRect();
+        var reorderRect = dragGrabRect(reorderEl);
         var reorderPointerStart = pointerStartParam || e;
         var reorderPointerOffset = {
           x: reorderPointerStart.clientX - reorderRect.left,
@@ -10786,6 +11054,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
         }
         var reorderLiftedMembers = [];
+        if (duplicateGrabOffset && (duplicateGrabOffset.x !== 0 || duplicateGrabOffset.y !== 0)) {
+          applyReorderLift2(0, 0);
+          positionOverlay(selectionOverlay, selectedEl);
+        }
         var reorderCommittedTarget = null;
         var reorderCommittedSlot = null;
         var reorderCommittedAt = 0;
@@ -11000,11 +11272,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           showConstraintGuides(dragEl);
         }
-        showTransformBadge(
-          Math.round(nextLeft) + ", " + Math.round(nextTop),
-          ev.clientX,
-          ev.clientY
-        );
         refreshOverlays();
       }
       function restoreSourceDragPosition() {
@@ -12448,9 +12715,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
             var pendingKey = e.key || "";
             if (pendingKey === "Escape") {
+              if (pendingBeginTextEdit.buffer) {
+                pendingBeginTextEdit.commitImmediately = true;
+                stopNativeInteraction(e);
+                return;
+              }
               var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
               cancelPendingBeginTextEdit();
-              postTextEditPending(abandonedPendingNodeId, false);
+              postTextEditPending(abandonedPendingNodeId, false, "escape");
               stopNativeInteraction(e);
               return;
             }
@@ -12558,7 +12830,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (pendingBeginTextEdit) {
           var canceledPendingNodeId = pendingBeginTextEdit.nodeId;
           cancelPendingBeginTextEdit();
-          postTextEditPending(canceledPendingNodeId, false);
+          postTextEditPending(canceledPendingNodeId, false, "pointerdown");
         }
         if (!activeTextEditEl) return;
         if (exitStaleTextEditSession()) return;
@@ -12707,7 +12979,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (pendingBeginTextEdit) {
         var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
         cancelPendingBeginTextEdit();
-        postTextEditPending(supersededPendingNodeId, false);
+        postTextEditPending(supersededPendingNodeId, false, "superseded");
       }
       if (activeTextEditEl && finishActiveTextEdit) finishActiveTextEdit(true);
       clearSuspendedTextEditRange();
@@ -13107,31 +13379,48 @@ export const editorChromeBridgeScript: string = `"use strict";
         resumeBookmark
       );
     }
+    var PENDING_BEGIN_TEXT_EDIT_MS = 5e3;
     function pumpPendingBeginTextEdit() {
       if (!pendingBeginTextEdit) return;
       var entry = pendingBeginTextEdit;
       var node = queryBeginTextEditNode(entry.nodeId, entry.repeat);
       if (node) {
         pendingBeginTextEdit = null;
+        if (activeTextEditEl) {
+          if (entry.buffer) postTextEditInsertResult(entry.nodeId, false);
+        }
         if (!activeTextEditEl) {
           activateProgrammaticTextEdit(node, entry.force);
-          if (entry.buffer && activeTextEditEl === node) {
-            insertPlainTextAtSelection(entry.buffer);
+          var replayLanded = false;
+          if (entry.buffer) {
+            replayLanded = activeTextEditEl === node && insertPlainTextAtSelection(entry.buffer);
+            postTextEditInsertResult(entry.nodeId, replayLanded);
+          }
+          if (entry.commitImmediately) {
+            if (activeTextEditEl === node && finishActiveTextEdit && (replayLanded || !entry.buffer)) {
+              finishActiveTextEdit(true);
+              node.blur();
+              postTextEditPending(entry.nodeId, false, "committed");
+            } else {
+              postTextEditPending(entry.nodeId, false, "not-taken");
+            }
           }
         }
         return;
       }
       if (Date.now() > entry.deadline) {
         pendingBeginTextEdit = null;
-        postTextEditPending(entry.nodeId, false);
+        postTextEditPending(entry.nodeId, false, "deadline");
         return;
       }
       entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
     }
-    function scheduleBeginTextEditRetry(nodeId, repeat, force) {
+    function scheduleBeginTextEditRetry(nodeId, repeat, force, insertText, commitImmediately) {
       if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === nodeId && sameBeginTextEditRepeat(pendingBeginTextEdit.repeat, repeat)) {
         pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
-        pendingBeginTextEdit.deadline = Date.now() + 2e3;
+        pendingBeginTextEdit.deadline = Date.now() + PENDING_BEGIN_TEXT_EDIT_MS;
+        if (insertText) pendingBeginTextEdit.buffer += insertText;
+        if (commitImmediately) pendingBeginTextEdit.commitImmediately = true;
         return;
       }
       cancelPendingBeginTextEdit();
@@ -13139,9 +13428,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         nodeId,
         repeat,
         force,
-        deadline: Date.now() + 2e3,
+        commitImmediately: commitImmediately === true,
+        deadline: Date.now() + PENDING_BEGIN_TEXT_EDIT_MS,
         raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
-        buffer: ""
+        buffer: insertText || ""
       };
     }
     shieldOverlay.addEventListener("dblclick", beginTextEditingFromEvent, true);
@@ -13388,6 +13678,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         designCanvasContentOffsetY = Number.isFinite(nextContentOffsetY) ? nextContentOffsetY : 0;
         return;
       }
+      if (e.data.type === "agent-native:cancel-text-edit") {
+        var cancelScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
+        var cancelNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        if (!cancelNodeId) return;
+        if (cancelScreenId && cancelScreenId !== designCanvasScreenId) return;
+        if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === cancelNodeId) {
+          cancelPendingBeginTextEdit();
+          postTextEditPending(cancelNodeId, false, "superseded");
+        }
+        if (activeTextEditEl && getSourceId(activeTextEditEl) === cancelNodeId && (activeTextEditEl.textContent || "").trim() === "" && finishActiveTextEdit) {
+          finishActiveTextEdit(false);
+        }
+        return;
+      }
       if (e.data.type === "begin-text-edit") {
         var forceBeginTextEdit = e.data.force === true;
         if ((readOnly || !textEditingEnabled) && !forceBeginTextEdit) return;
@@ -13395,24 +13699,51 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!nodeId) return;
         var beginTextEditRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
         if (e.data.repeat !== void 0 && !beginTextEditRepeat) return;
+        var beginInsertText = typeof e.data.insertText === "string" ? e.data.insertText : "";
+        var beginCommitImmediately = e.data.commitImmediately === true;
         var textTarget = queryBeginTextEditNode(nodeId, beginTextEditRepeat);
         if (!textTarget) {
           scheduleBeginTextEditRetry(
             nodeId,
             beginTextEditRepeat,
-            forceBeginTextEdit
+            forceBeginTextEdit,
+            beginInsertText,
+            beginCommitImmediately
           );
           postTextEditPending(nodeId, true);
           return;
         }
         cancelPendingBeginTextEdit();
         activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
+        var tookTarget = activeTextEditEl === textTarget;
+        var beginInsertLanded = false;
+        if (beginInsertText) {
+          beginInsertLanded = tookTarget && insertPlainTextAtSelection(beginInsertText);
+          postTextEditInsertResult(nodeId, beginInsertLanded);
+        }
+        if (beginCommitImmediately) {
+          if (tookTarget && finishActiveTextEdit && (beginInsertLanded || !beginInsertText)) {
+            finishActiveTextEdit(true);
+            textTarget.blur();
+            postTextEditPending(nodeId, false, "committed");
+          } else {
+            postTextEditPending(nodeId, false, "not-taken");
+          }
+        }
         return;
       }
       if (e.data.type === "text-edit-insert-text") {
         var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
-        if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
+        var bufferedNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        if (!bufferedText) return;
+        if (!activeTextEditEl || !isTextEditElConnected()) {
+          postTextEditInsertResult(bufferedNodeId, false);
           return;
+        }
+        if (bufferedNodeId && getSourceId(activeTextEditEl) !== bufferedNodeId) {
+          postTextEditInsertResult(bufferedNodeId, false);
+          return;
+        }
         var bufferedActive = document.activeElement;
         if (!bufferedActive || bufferedActive !== activeTextEditEl && !activeTextEditEl.contains(bufferedActive)) {
           try {
@@ -13424,8 +13755,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           activeTextEditEl,
           true
         );
-        insertPlainTextAtSelection(bufferedText);
+        var bufferedInserted = insertPlainTextAtSelection(bufferedText);
         if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
+        postTextEditInsertResult(bufferedNodeId, bufferedInserted);
         return;
       }
       if (e.data.type === "set-editor-chrome-scale") {
@@ -13583,7 +13915,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           {
             type: "agent-native:selectable-rects-result",
             correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
-            payload: collectSelectableElementInfos(Boolean(e.data.deep))
+            payload: collectSelectableElementInfos(
+              Boolean(e.data.deep),
+              readSelectablePoint(e.data.atPoint)
+            )
           },
           "*"
         );

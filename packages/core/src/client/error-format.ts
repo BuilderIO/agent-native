@@ -72,6 +72,17 @@ const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
   "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
 const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
 /**
+ * A password-protected PDF still has a valid PDF signature, so it survives
+ * upload and any byte-format sniffing — the provider only discovers it's
+ * unreadable once it tries to decrypt the content. The raw rejection names
+ * the wire field (`pdf.source.base64.data`), which means nothing to a reader
+ * who just attached a bank statement; say what actually broke instead. This
+ * is checked ahead of the generic malformed-request classification below so
+ * the more specific, more actionable copy wins.
+ */
+const ATTACHMENT_PASSWORD_PROTECTED_MESSAGE =
+  "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.";
+/**
  * The gateway codes a payload it could not parse as `invalid_request`, and
  * that lane deliberately does not retry. Both sentences below therefore have
  * to carry the recovery, because nothing downstream will try again.
@@ -168,6 +179,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   [
     CREDITS_LIMIT_REACHED_MESSAGE,
     "agentChat.errorMessages.creditsLimitReached",
+  ],
+  [
+    ATTACHMENT_PASSWORD_PROTECTED_MESSAGE,
+    "agentChat.errorMessages.attachmentPasswordProtected",
   ],
   [
     "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
@@ -368,6 +383,14 @@ export function isProviderAuthenticationError(
   );
 }
 
+// Matches both the raw provider envelope and the already-unwrapped
+// error.message text the gateway forwards, since a password-protected
+// attachment can reach this function in either shape depending on whether
+// the rejection happened before or during streaming.
+function isPasswordProtectedAttachmentError(text: string): boolean {
+  return /password[- ]?protected/i.test(text) && /\bpdf\b/i.test(text);
+}
+
 function isConnectionError(text: string, errorCode?: string): boolean {
   const code = normalizeErrorCode(errorCode);
   return (
@@ -420,6 +443,17 @@ export function normalizeChatError(
     isBuilderGatewayInternalErrorMessage(text)
   ) {
     return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
+  }
+
+  // A password-protected PDF still has a valid signature, so it survives
+  // upload and reaches the provider before failing — the provider's raw
+  // wire-field name (pdf.source.base64.data) means nothing to the reader who
+  // just attached a bank statement.
+  if (
+    isPasswordProtectedAttachmentError(text) ||
+    (providerMessage && isPasswordProtectedAttachmentError(providerMessage))
+  ) {
+    return { message: ATTACHMENT_PASSWORD_PROTECTED_MESSAGE, details: text };
   }
 
   if (code === "builder_auth_error") {

@@ -19,7 +19,11 @@ import {
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
-import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import type {
+  LiveScreenSnapshot,
+  TextCommitStatus,
+} from "@/pages/design-editor/command-types";
+import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
@@ -58,11 +62,14 @@ export interface TextContentChangeArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
-  finalizePendingTextCreation: (
+  /** Decides whether this write is the creation's first commit BEFORE the
+   *  content is applied, and hands back a `confirm` the caller runs only once
+   *  that publication is accepted. */
+  prepareTextCreationFinalization: (
     fileId: string,
     nodeIds: readonly (string | null | undefined)[],
     finalContent: string,
-  ) => boolean;
+  ) => PendingTextCreationFinalization;
   getFreshActiveContent: () => string;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   recordPendingLiveTextEdit: (
@@ -91,9 +98,9 @@ export function runTextContentChange(
     applyLinkedComponentEdit,
     applyLocalContentUpdate,
     canEditDesign,
-    finalizePendingTextCreation,
     getFreshActiveContent,
     liveScreenSnapshotsById,
+    prepareTextCreationFinalization,
     recordPendingLiveTextEdit,
     setActiveTool,
     setMode,
@@ -110,9 +117,9 @@ export function runTextContentChange(
     originalValue?: string;
     originalHtml?: string;
   },
-) {
-  if (!canEditDesign) return;
-  if (!activeFile) return;
+): TextCommitStatus {
+  if (!canEditDesign) return "refused";
+  if (!activeFile) return "refused";
   if (activeCanvasSourceType === "localhost") {
     recordPendingLiveTextEdit(
       activeFile.id,
@@ -123,7 +130,8 @@ export function runTextContentChange(
     );
     setActiveTool("move");
     setMode("edit");
-    return;
+    // Queued against the running app: accepted, just not via a source write.
+    return "accepted";
   }
   const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
   const source = activeLiveSnapshot
@@ -161,7 +169,7 @@ export function runTextContentChange(
       });
       setActiveTool("move");
       setMode("edit");
-      return;
+      return "accepted";
     }
     if (edit.status === "refused") {
       trace("structure", "repeat-item-refused", {
@@ -175,7 +183,7 @@ export function runTextContentChange(
             : "designEditor.toasts.repeatListNotEditable",
         ),
       );
-      return;
+      return "refused";
     }
   }
   if (
@@ -189,7 +197,7 @@ export function runTextContentChange(
       toast.error(t("designEditor.patchProof.selectorMissing"), {
         duration: 4000,
       });
-      return;
+      return "refused";
     }
     applyLinkedComponentEdit(activeFile.id, durableNodeId, {
       kind: "textContent",
@@ -197,7 +205,7 @@ export function runTextContentChange(
     });
     setActiveTool("move");
     setMode("edit");
-    return;
+    return "accepted";
   }
   const isEmpty = value.trim().length === 0;
   const removedContent =
@@ -228,7 +236,7 @@ export function runTextContentChange(
       ),
       { duration: 4000 },
     );
-    return;
+    return "refused";
   }
   const nextProjection = buildCodeLayerProjection(nextContent, { source });
   const nextNode = targetNode
@@ -255,7 +263,7 @@ export function runTextContentChange(
         defaultTextLayerName(value),
       ) ?? nextContent)
     : nextContent;
-  const finalizedCreation = finalizePendingTextCreation(
+  const finalizedCreation = prepareTextCreationFinalization(
     activeFile.id,
     [
       elementInfo?.sourceId,
@@ -264,19 +272,32 @@ export function runTextContentChange(
     ],
     namedContent,
   );
-  const contentToApply = finalizedCreation ? namedContent : nextContent;
+  const contentToApply = finalizedCreation.isCreationCommit
+    ? namedContent
+    : nextContent;
   let publication: ApplyLocalContentUpdateResult | null = null;
   if (activeLiveSnapshot) {
-    updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
-      recordHistory: !finalizedCreation,
-    });
+    // A snapshot that vanished, or an integrity check that rejected this edit,
+    // leaves the source unchanged — consuming the creation's pending history
+    // here would spend it on a write that never happened.
+    if (
+      !updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
+        recordHistory: !finalizedCreation.historyHandled,
+      })
+    ) {
+      return "refused";
+    }
   } else {
     publication = applyLocalContentUpdate(contentToApply, {
       skipPreview: true,
-      recordHistory: !finalizedCreation,
+      recordHistory: !finalizedCreation.historyHandled,
     });
-    if (publication.status !== "accepted") return;
+    // A refused publication never wrote this text. Finalizing before it landed
+    // consumed the creation's pending history and left the typed text nowhere:
+    // keep the record so the retry still coalesces into one undo step.
+    if (publication.status !== "accepted") return "refused";
   }
+  finalizedCreation.confirm();
   // T8: committing text editing should return to the move tool (matches
   // the creation path, which already does this), not re-arm the text
   // tool — re-arming it meant every subsequent click anywhere on the
@@ -286,7 +307,7 @@ export function runTextContentChange(
   if (removedContent) {
     setSelectedElement(null);
     setSelectedLayerIdsState([]);
-    return;
+    return "accepted";
   }
   let selectedNode = nextNode;
   if (publication) {
@@ -326,4 +347,5 @@ export function runTextContentChange(
         }
       : previous;
   });
+  return "accepted";
 }

@@ -1059,7 +1059,18 @@ export function runCrossScreenElementDrop(
       historyBeforeContent: rawDestContent,
     },
   );
-  if (targetPublication.status !== "accepted") return;
+  if (targetPublication.status !== "accepted") {
+    const rollback = applyFileContentUpdate(sourceScreenId, sourceContent, {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      historyBeforeContent: sourcePublication.content,
+    });
+    if (rollback.status !== "accepted") {
+      toast.error(t("designEditor.toasts.saveConflict"));
+    }
+    return;
+  }
 
   // History must replay the bytes the publisher accepted. Canonical identity
   // publication may stamp IDs into submitted HTML, and the post-action

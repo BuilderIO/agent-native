@@ -68,8 +68,19 @@ const messages: AgentChatTranslation = {
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI क्रेडिट और क्लाउड कोड बदलाव उपयोग के लिए तैयार हैं।",
+  "onboarding.builderReadyCreditsOnly":
+    "AI क्रेडिट उपयोग के लिए तैयार हैं। क्लाउड कोड संपादन के लिए Background Agent सेटिंग्स में Builder प्रोजेक्ट आवश्यक है।",
+  "onboarding.openBackgroundAgentSettings": "Background Agent सेटिंग्स खोलें",
   "onboarding.capability.llm.keySummary": "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
   "onboarding.capability.fileStorage.keySummary": "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.fileStorage.title": "फ़ाइल स्टोरेज चुनें",
+  "onboarding.fileStorage.description":
+    "प्रबंधित Builder स्टोरेज चुनें या अपने S3-संगत बकेट के लिए कस्टम स्टोरेज कुंजियों का उपयोग करें।",
+  "onboarding.fileStorage.custom": "कस्टम स्टोरेज कुंजियों का उपयोग करें",
+  "onboarding.fileStorage.customDescription":
+    "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
   "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
   "onboarding.capability.voiceInput.keySummary":
     "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
@@ -134,6 +145,19 @@ const messages: AgentChatTranslation = {
   "common.retry": "फिर से प्रयास करें",
   "common.save": "सहेजें",
   "agents.hostedAgent": "होस्ट किया गया एजेंट",
+  "agents.provider": "प्रदाता",
+  "agents.providerA2A": "A2A एजेंट (Foundry, Gemini या कस्टम)",
+  "agents.providerAnthropic": "Anthropic द्वारा प्रबंधित एजेंट",
+  "agents.agentId": "एजेंट ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "एनवायरनमेंट ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API बेस URL (वैकल्पिक)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "Anthropic Managed Agents फ़ील्ड पूरे करें।",
+  "agents.managedAgentCheck": "चैट से डेलीगेट करने पर कनेक्शन की जाँच की जाती है।",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent सहेजा गया। चैट से इसे डेलीगेट करें।",
   "agents.cardUrl": "एजेंट कार्ड URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "प्रमाणीकरण",
@@ -380,6 +404,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
   "errorMessages.agentConnection":
     "एजेंट का कनेक्शन बाधित हो गया। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
+  "errorMessages.attachmentPasswordProtected":
+    "यह PDF पासवर्ड-सुरक्षित है, इसलिए इसे पढ़ा नहीं जा सकता। पासवर्ड सुरक्षा हटाएँ या संबंधित टेक्स्ट पेस्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderAuthentication":
     "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग्स में Builder.io को दोबारा कनेक्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderModelUnauthorized":

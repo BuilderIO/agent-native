@@ -19,6 +19,7 @@ import type { DesignClipboardScreenEntry } from "@/lib/design-import";
 import {
   extractLayerPosition,
   insertClonedHtmlLayers,
+  planLinkedComponentStructureClone,
   prepareClonedHtmlLayersForLiveInsert,
   portableStyleSnapshotForPasteTarget,
 } from "@/pages/design-editor/clone-and-pen-edit";
@@ -35,12 +36,17 @@ import {
   type UndoRedoOrderKind,
 } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
-import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
+import {
+  MAX_DESIGN_UNDO_STACK,
+  type GeometryHistorySelection,
+} from "@/pages/design-editor/history";
 import {
   resolvePastePlacementForSelection,
   resolvePasteSourceAnchor,
 } from "@/pages/design-editor/paste-placement";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
 
 /** Inset for a copy whose original parent is gone, so it lands on screen. */
 const ORPHANED_PASTE_INSET = 24;
@@ -92,6 +98,7 @@ function commonClipboardSourceParentNodeId(
 
 export interface PasteSelectionArgs {
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   designId: string | undefined;
   applyFileContentUpdate: (
     fileId: string,
@@ -158,6 +165,7 @@ export interface PasteSelectionArgs {
     nodeIdMap: Map<string, string>,
     targetFileId: string,
   ) => void;
+  selectionBefore?: GeometryHistorySelection;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   selectInsertedLayers: (
     screenId: string,
@@ -182,6 +190,7 @@ export async function runPasteSelection(
   {
     activeFile,
     designId,
+    applyLinkedComponentEdit,
     applyFileContentUpdate,
     applyLocalContentUpdate,
     boardFileId,
@@ -203,6 +212,7 @@ export async function runPasteSelection(
     publishAuthoritativeClipboardMutation,
     refreshClipboardFromSystemClipboard,
     remapMotionTracksForClone,
+    selectionBefore,
     runtimeStructureInsertRevisionRef,
     selectInsertedLayers,
     selectedCanvasSelector,
@@ -536,6 +546,37 @@ export async function runPasteSelection(
     return publication;
   };
 
+  const dispatchLinkedClone = (
+    options: Parameters<typeof insertClonedHtmlLayers>[2],
+  ): boolean => {
+    if (!applyLinkedComponentEdit) return false;
+    if (isShaderWriteInFlight(targetFileId)) {
+      toast.error(t("designEditor.toasts.saveConflict"), {
+        id: `design-source-shader-conflict:${targetFileId}`,
+      });
+      return true;
+    }
+    const plan = planLinkedComponentStructureClone(
+      baseContent,
+      layerHtmls,
+      options,
+    );
+    if (!plan) return false;
+    applyLinkedComponentEdit(
+      targetFileId,
+      plan.targetNodeId,
+      {
+        kind: "structure",
+        before: plan.mainBefore,
+        after: plan.mainAfter,
+        selectionNodeIds: plan.selectionNodeIds,
+      },
+      selectionBefore,
+      () => remapMotionTracksForClone(plan.nodeIdMap, targetFileId),
+    );
+    return true;
+  };
+
   const selectAcceptedInsertedLayers = (
     submittedContent: string,
     rootNodeIds: string[],
@@ -601,7 +642,7 @@ export async function runPasteSelection(
           pasteCascadeRef.current * 16,
         )
       : undefined;
-    const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
+    const cloneOptions = {
       onUnsupportedStructure,
       targetSelectors: pasteBackIntoSourceParent
         ? (sourceParentSelectors ?? [selector])
@@ -614,7 +655,16 @@ export async function runPasteSelection(
       styleSnapshots,
       managedStyleSnapshots,
       componentLinks,
-    });
+    };
+    if (dispatchLinkedClone(cloneOptions)) {
+      pasteCascadeRef.current += 1;
+      return;
+    }
+    const result = insertClonedHtmlLayers(
+      baseContent,
+      layerHtmls,
+      cloneOptions,
+    );
     if (structureUnsupported) return;
     if (result) {
       pasteCascadeRef.current += 1;
@@ -761,7 +811,7 @@ export async function runPasteSelection(
           space: "visual" as const,
         };
   });
-  const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
+  const cloneOptions = {
     onUnsupportedStructure,
     positions,
     styleSnapshots,
@@ -778,7 +828,12 @@ export async function runPasteSelection(
             placement: "inside" as const,
           }
         : {}),
-  });
+  };
+  if (dispatchLinkedClone(cloneOptions)) {
+    if (!position) pasteCascadeRef.current += 1;
+    return;
+  }
+  const result = insertClonedHtmlLayers(baseContent, layerHtmls, cloneOptions);
   if (structureUnsupported) return;
   if (!result) {
     trace("structure", "paste-refused", {

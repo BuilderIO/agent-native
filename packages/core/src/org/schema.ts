@@ -102,6 +102,7 @@ export const workspaceApps = table("workspace_apps", {
   })
     .notNull()
     .default("org"),
+  orgEnabled: boolean("org_enabled").notNull().default(true),
   name: text("name").notNull(),
   description: text("description"),
   path: text("path").notNull(),

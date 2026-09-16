@@ -93,7 +93,7 @@ search: "代理應用程式 豐富對話 原生對話 UI 完整應用程式 自�
 若要快速建立完整應用程式，請使用 [Chat template](/docs/template-chat)：
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 最簡單的全頁對話：
@@ -407,7 +407,7 @@ export function AppShell({ children }) {
 最小的無瀏覽器本地路徑是一個鷹架加上一個 action：
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 cd my-agent
 pnpm install
 ```

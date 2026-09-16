@@ -74,6 +74,12 @@ describe("public remote-agent discovery", () => {
         clientId: "client-id",
         clientSecretRef: "FOUNDRY_SECRET",
       },
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_01",
+        environmentId: "env_01",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
     });
 
     expect(publicAgent).toEqual({
@@ -84,6 +90,7 @@ describe("public remote-agent discovery", () => {
       cardUrl: "https://agent.example.test/card",
     });
     expect("auth" in publicAgent).toBe(false);
+    expect("kind" in publicAgent).toBe(false);
   });
 
   it("omits hosted-agent auth from the HTTP listing response", async () => {
@@ -158,6 +165,30 @@ describe("hosted-agent probes", () => {
           url: "https://attacker.example.test",
           cardUrl: "https://attacker.example.test/card",
           auth,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("matches a saved managed-agent provider reference", () => {
+    const kind = {
+      provider: "anthropic-managed-agents" as const,
+      agentId: "agt_01",
+      environmentId: "env_01",
+      credentialRef: "ANTHROPIC_API_KEY",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        { url: "https://api.anthropic.com", kind },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        {
+          url: "https://api.anthropic.com",
+          kind: { ...kind, agentId: "agt_other" },
         },
       ),
     ).toBe(false);

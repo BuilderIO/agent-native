@@ -533,7 +533,7 @@ describe("verified identity-only source publication", () => {
           id: FILE_ID,
           content: laterUserEdit,
           syncCollab: true,
-          expectedVersionHash: sourceContentHash(raw),
+          expectedVersionHash: sourceContentHash(canonical),
           operationSource,
           operationRevision: operationRevision + 1,
         } as any,
@@ -549,6 +549,62 @@ describe("verified identity-only source publication", () => {
       contentOperationRevision: operationRevision + 1,
       contentOperationResultHash: sourceContentHash(laterUserEdit),
     });
+  });
+
+  it("rejects a higher same-source revision built from a stale full-document snapshot", async () => {
+    const base = buildDoc();
+    const afterReparent = base.replace(
+      "Hello world",
+      '<section data-parent="card">Hello world</section>',
+    );
+    const staleAutoLayout = base.replace(
+      "background:#ffffff;",
+      "background:#ffffff;display:flex;gap:10px;",
+    );
+    const composedAutoLayout = afterReparent.replace(
+      "background:#ffffff;",
+      "background:#ffffff;display:flex;gap:10px;",
+    );
+    const rapidSource = "tab-rapid-structure";
+
+    seedFile(base);
+    await applyText(FILE_ID, base, "content", "seed");
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: afterReparent,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(base),
+        operationSource: rapidSource,
+        operationRevision: 1,
+      } as never),
+    ).resolves.toMatchObject({ updated: true });
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: staleAutoLayout,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(base),
+        operationSource: rapidSource,
+        operationRevision: 2,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/i);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(afterReparent);
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: composedAutoLayout,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(afterReparent),
+        operationSource: rapidSource,
+        operationRevision: 2,
+      } as never),
+    ).resolves.toMatchObject({ updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      composedAutoLayout,
+    );
   });
 
   it("repairs SQL when local publication already put canonical bytes in Yjs", async () => {

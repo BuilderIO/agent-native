@@ -73,6 +73,7 @@ function createHarness() {
     canonicalizeSourceContent: canonicalize,
     flushPendingSaves: vi.fn(),
     hasPendingSave: () => false,
+    getPendingSave: () => undefined,
     fileSaveChainsRef,
     pendingFileSavesRef: { current: {} },
     invokeAction: vi.fn(async () => ({ persisted: false })),
@@ -84,6 +85,11 @@ function createHarness() {
         content: canonicalize(fileId, next),
         nodeIdMap: new Map(),
       };
+    }),
+    getCurrentSelection: () => ({
+      activeFileId: FILE_ID,
+      selectedLayerIds: [],
+      overviewSelectedScreenIds: [],
     }),
     reserveContentHistory,
     waitForHostWrites: vi.fn(async () => {}),

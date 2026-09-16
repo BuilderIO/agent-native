@@ -26,9 +26,7 @@ description: "ثبِّت مهارات Agent-Native Plan (/visual-plan، و/visua
 <div class="diagram-routes">
   <div class="diagram-col">
     <div class="diagram-node">
-      CLI العام<br /><small class="diagram-muted"
-        >skills add visual-plan</small
-      >
+      CLI العام<br /><small class="diagram-muted">skills add visual-plan</small>
     </div>
     <div class="diagram-node">
       مكوّن Claude Code الإضافي<br /><small class="diagram-muted"
@@ -36,7 +34,9 @@ description: "ثبِّت مهارات Agent-Native Plan (/visual-plan، و/visua
       >
     </div>
     <div class="diagram-node">
-      مكوّن Codex الإضافي<br /><small class="diagram-muted">codex plugin add</small>
+      مكوّن Codex الإضافي<br /><small class="diagram-muted"
+        >codex plugin add</small
+      >
     </div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -155,16 +155,16 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
     <span class="diagram-pill accent">افتراضي · مستضاف</span
     ><strong>النشر إلى تطبيق Plan</strong
     ><small class="diagram-muted"
-      >موصل MCP &rarr; قاعدة بيانات مستضافة &rarr; روابط مشاركة، وتعليقات،
-      وسجل، ولقطات شاشة</small
+      >موصل MCP &rarr; قاعدة بيانات مستضافة &rarr; روابط مشاركة، وتعليقات، وسجل،
+      ولقطات شاشة</small
     >
   </div>
   <div class="diagram-card">
     <span class="diagram-pill warn">خصوصية الملفات المحلية</span
     ><strong>كتابة MDX على القرص</strong
     ><small class="diagram-muted"
-      >plan.mdx + canvas.mdx + prototype.mdx &rarr; جسر localhost &rarr;
-      تقرأ واجهة Plan المستضافة المصدر المحلي. لا كتابة في قاعدة البيانات حتى
+      >plan.mdx + canvas.mdx + prototype.mdx &rarr; جسر localhost &rarr; تقرأ
+      واجهة Plan المستضافة المصدر المحلي. لا كتابة في قاعدة البيانات حتى
       <code>publish-visual-plan</code>.</small
     >
   </div>

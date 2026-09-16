@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { coalesceMarqueeSelectionHistory } from "./layer-marquee-selection-change";
 
 describe("coalesceMarqueeSelectionHistory", () => {
-  it("records nothing on intermediate ticks and exactly one {before, after} entry on the final tick", () => {
+  it("records exactly one history entry for each consecutive gesture", () => {
     // Mirrors a real marquee: mousedown selects nothing (0), then three
     // mousemove ticks grow the hit-set as the rect crosses A, then A+B,
     // before the mouseup (final) tick settles on the actual drop selection.
@@ -27,8 +29,26 @@ describe("coalesceMarqueeSelectionHistory", () => {
     // above would push its own history entry (4 undo steps for one drag).
     expect(recorded.filter(Boolean)).toHaveLength(1);
     expect(recorded[3]).toEqual({ before: [], after: ["a", "b"] });
-    // pendingBefore resets so the NEXT gesture starts fresh.
+    const nextRecorded = [
+      coalesceMarqueeSelectionHistory(pendingBefore, false, ["a", "b"], ["c"]),
+      coalesceMarqueeSelectionHistory(pendingBefore, true, ["c"], ["c", "d"]),
+    ];
+    expect(nextRecorded.filter(Boolean)).toHaveLength(1);
+    expect(nextRecorded[1]).toEqual({
+      before: ["a", "b"],
+      after: ["c", "d"],
+    });
     expect(pendingBefore.current).toBeNull();
+  });
+
+  it("forwards the bridge final marker into marquee history", () => {
+    const source = readFileSync(
+      new URL("../../DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf("const handleScreenElementMarqueeSelect");
+    const end = source.indexOf("const handleElementMarqueeSelect", start);
+    expect(source.slice(start, end)).toContain("final: intent?.final === true");
   });
 
   it("captures the gesture's start selection even when the first reported tick already changed it", () => {

@@ -20,6 +20,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+import {
+  componentDeletionGeometrySchema,
+  type ComponentDeletionGeometry,
+} from "../../shared/component-archive.js";
 import { getDb, schema } from "../db/index.js";
 import { withSourceFileWriteLock } from "../source-workspace.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
@@ -52,6 +56,7 @@ export interface ParsedDesignVersionSnapshot {
   tweaks?: unknown;
   appliedTweaks?: unknown;
   resolvedCssVars?: unknown;
+  deletionGeometry?: ComponentDeletionGeometry;
   capturedAt?: string;
   chatContext?: DesignVersionChatContext;
 }
@@ -260,6 +265,17 @@ export function parseDesignVersionSnapshot(
     parsed.appliedTweaks = value.appliedTweaks;
   if (value.resolvedCssVars !== undefined)
     parsed.resolvedCssVars = value.resolvedCssVars;
+  if (value.deletionGeometry !== undefined) {
+    const deletionGeometry = componentDeletionGeometrySchema.safeParse(
+      value.deletionGeometry,
+    );
+    if (!deletionGeometry.success) {
+      throw new Error(
+        "Design version snapshot has invalid component deletion geometry.",
+      );
+    }
+    parsed.deletionGeometry = deletionGeometry.data;
+  }
   if (typeof value.capturedAt === "string")
     parsed.capturedAt = value.capturedAt;
   parsed.chatContext = parseChatContext(value.chatContext);
@@ -475,6 +491,7 @@ async function captureDesignVersion(
   options: {
     label: string;
     chatContext?: DesignVersionChatContext;
+    deletionGeometry?: ComponentDeletionGeometry;
   },
   access: DesignAccess,
 ): Promise<{ id: string; createdAt: string; label: string }> {
@@ -517,6 +534,7 @@ async function captureDesignVersion(
     tweaks: liveSnapshot.tweaks,
     appliedTweaks: liveSnapshot.appliedTweaks,
     resolvedCssVars: liveSnapshot.resolvedCssVars,
+    deletionGeometry: options.deletionGeometry,
   };
   const db = getDb();
   const [latest] = await db
@@ -563,6 +581,7 @@ async function captureDesignVersion(
         tweaks: previous.tweaks,
         appliedTweaks: previous.appliedTweaks,
         resolvedCssVars: previous.resolvedCssVars,
+        deletionGeometry: previous.deletionGeometry,
       };
       if (
         chatContextCompatible &&
@@ -604,6 +623,9 @@ async function captureDesignVersion(
     resolvedCssVars: liveSnapshot.resolvedCssVars,
     capturedAt: createdAt,
     ...(options.chatContext ? { chatContext: options.chatContext } : {}),
+    ...(options.deletionGeometry
+      ? { deletionGeometry: options.deletionGeometry }
+      : {}),
   });
   let uploadedBlob: PrivateBlobHandle | null = null;
   let storedSnapshot = snapshot;
@@ -634,6 +656,9 @@ async function captureDesignVersion(
       fileCount: liveSnapshot.files.length,
       capturedAt: createdAt,
       ...(options.chatContext ? { chatContext: options.chatContext } : {}),
+      ...(options.deletionGeometry
+        ? { deletionGeometry: options.deletionGeometry }
+        : {}),
       blob,
     });
   }
@@ -703,7 +728,11 @@ export async function withDesignVersionLock<T>(
 
 export async function createDesignVersionSnapshot(
   designId: string,
-  options: { label: string; chatContext?: DesignVersionChatContext },
+  options: {
+    label: string;
+    chatContext?: DesignVersionChatContext;
+    deletionGeometry?: ComponentDeletionGeometry;
+  },
 ) {
   return withDesignVersionLock(designId, async () => {
     const access = await assertAccess("design", designId, "editor");

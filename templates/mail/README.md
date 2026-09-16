@@ -25,7 +25,7 @@ view you're in and which thread is open, so "archive this" just works.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-mail --standalone --template mail
+npx --yes @agent-native/core@latest create my-mail --standalone --template mail
 cd my-mail
 pnpm install
 pnpm dev

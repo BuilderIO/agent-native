@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import type {
   BrowserDiagnosticConsoleLog,
   BrowserDiagnosticNetworkRequest,
+  BrowserDiagnosticTimelineEvent,
   BrowserDiagnosticsData,
 } from "@shared/browser-diagnostics";
 import {
@@ -437,6 +438,106 @@ function NetworkGroupRow({
   );
 }
 
+function timelineKindLabel(
+  t: ReturnType<typeof useT>,
+  event: BrowserDiagnosticTimelineEvent,
+): string {
+  if (event.kind === "console") return t("browserDiagnostics.consoleSource");
+  if (event.kind === "network") {
+    return event.phase === "request"
+      ? t("browserDiagnostics.requestStarted")
+      : t("browserDiagnostics.responseReceived");
+  }
+  if (event.kind === "navigation") return t("browserDiagnostics.navigation");
+  if (event.kind === "click") return t("browserDiagnostics.click");
+  if (event.kind === "input") return t("browserDiagnostics.input");
+  return t("browserDiagnostics.scroll");
+}
+
+function timelineDetail(event: BrowserDiagnosticTimelineEvent): string {
+  if (event.kind === "console") {
+    return `${event.level}: ${event.message.split("\n", 1)[0]}`;
+  }
+  if (event.kind === "network") {
+    const status = event.status ?? (event.error ? "ERR" : "");
+    return `${event.method} ${shortUrl(event.url)}${status ? ` · ${status}` : ""}`;
+  }
+  return event.url ?? event.target ?? event.kind;
+}
+
+function BrowserDiagnosticsTimelineRow({
+  event,
+  durationMs,
+  onSeek,
+}: {
+  event: BrowserDiagnosticTimelineEvent;
+  durationMs: number;
+  onSeek: (ms: number) => void;
+}) {
+  const t = useT();
+  return (
+    <div
+      className="flex min-h-9 items-center gap-2 border-b border-border/70 px-4 py-1.5 last:border-b-0"
+      data-browser-diagnostic-timeline-row
+    >
+      <span className="grid size-5 shrink-0 place-items-center rounded-md border border-border text-muted-foreground">
+        <IconInfoCircle className="size-3" aria-hidden="true" />
+      </span>
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+        <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
+          {timelineKindLabel(t, event)}
+        </span>
+        <span className="min-w-0 truncate font-mono text-xs">
+          {timelineDetail(event)}
+        </span>
+      </span>
+      <DiagnosticTimeButton
+        elapsedMs={event.elapsedMs}
+        durationMs={durationMs}
+        onSeek={onSeek}
+      />
+    </div>
+  );
+}
+
+function BrowserDiagnosticsTimelineSection({
+  events,
+  durationMs,
+  onSeek,
+}: {
+  events: BrowserDiagnosticTimelineEvent[];
+  durationMs: number;
+  onSeek: (ms: number) => void;
+}) {
+  const t = useT();
+  return (
+    <AccordionItem
+      value="timeline"
+      className="border-border/70"
+      data-browser-diagnostics-section="timeline"
+    >
+      <AccordionTrigger className="min-h-10 px-4 py-2 text-xs hover:no-underline [&>svg]:size-3.5">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate">{t("browserDiagnostics.timeline")}</span>
+          <span className="rounded-md border border-border px-1.5 py-px font-mono text-[10px] font-normal tabular-nums text-muted-foreground">
+            {events.length}
+          </span>
+        </span>
+      </AccordionTrigger>
+      <AccordionContent className="pb-0">
+        {events.map((event, index) => (
+          <BrowserDiagnosticsTimelineRow
+            key={`${event.elapsedMs}-${event.kind}-${index}`}
+            event={event}
+            durationMs={durationMs}
+            onSeek={onSeek}
+          />
+        ))}
+      </AccordionContent>
+    </AccordionItem>
+  );
+}
+
 function BrowserDiagnosticsSection({
   view,
   label,
@@ -550,6 +651,7 @@ export function BrowserDiagnosticsPanel({
     }),
     [diagnostics],
   );
+  const timeline = diagnostics.timeline ?? [];
   const source = captureSource(diagnostics);
   const hasFailures =
     diagnostics.summary.consoleErrorCount > 0 ||
@@ -622,7 +724,18 @@ export function BrowserDiagnosticsPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Accordion type="single" defaultValue="issues" collapsible>
+        <Accordion
+          type="single"
+          defaultValue={timeline.length ? "timeline" : "issues"}
+          collapsible
+        >
+          {timeline.length ? (
+            <BrowserDiagnosticsTimelineSection
+              events={timeline}
+              durationMs={durationMs}
+              onSeek={onSeek}
+            />
+          ) : null}
           {sections.map((section) => (
             <BrowserDiagnosticsSection
               key={section.id}
