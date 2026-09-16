@@ -654,7 +654,7 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {showChildLayoutControls && !isBlock && activeFlow !== "grid" ? (
-          <InspectorGrid className="items-start" layout="pair-flow">
+          <InspectorGrid className="items-start">
             <InspectorGridCell span={14}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
@@ -774,7 +774,7 @@ export function AutoLayoutMatrix({
               /* Unlinked state: expand to 4 separate T / R / B / L fields */
               <InspectorGrid className="items-center" layout="field-action">
                 <InspectorGridCell span={24}>
-                  <InspectorGrid className="items-center" layout="pair-flow">
+                  <InspectorGrid className="items-center">
                     <InspectorGridCell span={14}>
                       <PaddingField
                         icon={IconBorderTop}

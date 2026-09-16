@@ -22,6 +22,25 @@ const value: AutoLayoutMatrixValue = {
 const noop = () => {};
 
 describe("AutoLayoutMatrix", () => {
+  it("keeps auto-layout pairs on the canonical inspector grid", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value: { ...value, paddingLinked: false },
+        showChildLayoutControls: true,
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).not.toContain('data-inspector-layout="pair-flow"');
+    expect(markup).toContain('data-inspector-layout="columns"');
+  });
+
   it("hides child layout controls when the selection has no children", () => {
     const markup = renderToStaticMarkup(
       createElement(AutoLayoutMatrix, {
