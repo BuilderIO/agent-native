@@ -28,6 +28,9 @@ export const MAX_USER_REGEX_LENGTH = 512;
 /** Longest value fed to a user-authored pattern. */
 export const MAX_USER_REGEX_INPUT_LENGTH = 4096;
 
+/** Largest finite repetition count accepted for a capped input. */
+const MAX_USER_REGEX_REPEAT = MAX_USER_REGEX_INPUT_LENGTH;
+
 /** Nesting depth beyond which the analyzer stops trusting its own reading. */
 const MAX_GROUP_DEPTH = 12;
 
@@ -646,6 +649,24 @@ function walk(
   return null;
 }
 
+function findOversizedQuantifier(branches: RegexAtom[][]): string | null {
+  for (const branch of branches) {
+    for (const atom of branch) {
+      if (
+        atom.min > MAX_USER_REGEX_REPEAT ||
+        (Number.isFinite(atom.max) && atom.max > MAX_USER_REGEX_REPEAT)
+      ) {
+        return `finite repetition count for \`${atom.source}\` exceeds ${MAX_USER_REGEX_REPEAT}`;
+      }
+      if (atom.kind === "group") {
+        const nested = findOversizedQuantifier(atom.branches ?? []);
+        if (nested) return nested;
+      }
+    }
+  }
+  return null;
+}
+
 function containsBackreference(branches: RegexAtom[][]): boolean {
   return branches.some((branch) =>
     branch.some(
@@ -712,6 +733,10 @@ export function analyzeRegexSource(
       reason:
         "pattern uses constructs this validator cannot analyze for catastrophic backtracking",
     };
+  }
+  const oversizedQuantifier = findOversizedQuantifier(branches);
+  if (oversizedQuantifier) {
+    return { safe: false, reason: oversizedQuantifier };
   }
   // `i` with `u` folds `ſ` onto `s`, and `s` lets `.` cover a newline an
   // alternative also matches — both turn a disjoint reading into an ambiguous
@@ -797,7 +822,14 @@ export function testUserRegex(
       reason: `value is ${value.length} characters; the limit for pattern checks is ${MAX_USER_REGEX_INPUT_LENGTH}`,
     };
   }
-  return compiled.regex.test(value)
-    ? { status: "match" }
-    : { status: "no-match" };
+  try {
+    return compiled.regex.test(value)
+      ? { status: "match" }
+      : { status: "no-match" };
+  } catch (error) {
+    return {
+      status: "unevaluated",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

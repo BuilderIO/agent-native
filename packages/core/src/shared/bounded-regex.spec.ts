@@ -194,6 +194,15 @@ describe("analyzeRegexSource", () => {
     if (!verdict.safe) expect(verdict.reason).toContain("string alternatives");
   });
 
+  it("rejects finite repetitions larger than the input cap", () => {
+    const source = "^(a?){5000000}$";
+    const verdict = analyzeRegexSource(source);
+    expect(verdict.safe).toBe(false);
+    if (!verdict.safe) expect(verdict.reason).toContain("finite repetition");
+    expect(compileUserRegex(source).status).toBe("unsafe");
+    expect(testUserRegex(source, "").status).toBe("unevaluated");
+  });
+
   it("refuses to clear a pattern it cannot parse", () => {
     expect(analyzeRegexSource("^(unclosed").safe).toBe(false);
   });

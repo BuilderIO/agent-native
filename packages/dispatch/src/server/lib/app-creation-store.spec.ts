@@ -467,7 +467,7 @@ describe("listWorkspaceApps", () => {
   });
 
   it.each([401, 403])(
-    "serves the deployment manifest when the hosted registry denies the read (%i)",
+    "does not expose manifest apps without ACL rows when the hosted registry denies the read (%i)",
     async (status) => {
       const fetchMock = vi.fn(async () => new Response("denied", { status }));
       vi.stubGlobal("fetch", fetchMock);
@@ -485,7 +485,7 @@ describe("listWorkspaceApps", () => {
         () => listWorkspaceApps({ includeAgentCards: false }),
       );
 
-      expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+      expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining(
@@ -493,9 +493,7 @@ describe("listWorkspaceApps", () => {
         ),
       );
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "included from the deployment manifest without an ACL decision",
-        ),
+        expect.stringContaining("hidden from this response"),
       );
       warn.mockRestore();
     },
