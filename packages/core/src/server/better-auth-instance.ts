@@ -991,6 +991,11 @@ const pgAuthSchema = {
     privateKey: pgText("private_key").notNull(),
     createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
     expiresAt: pgTimestamp("expires_at", { withTimezone: true }),
+    // Better Auth writes both on every minted key, and the Drizzle adapter
+    // rejects a create whose fields are missing here: without them the app
+    // cannot mint a signing key at all.
+    alg: pgText("alg"),
+    crv: pgText("crv"),
   }),
   // Better Auth's opt-in SSO/SCIM plugins use these model keys. Keep their
   // Drizzle schema here even when the plugins are disabled so enabling either

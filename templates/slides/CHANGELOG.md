@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-16
+
+### Fixed
+
+- Content-only agent edits now preserve the slide's existing backgrounds and styling.
+
 ## 2026-09-15
 
 ### Improved

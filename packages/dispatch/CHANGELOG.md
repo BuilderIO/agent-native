@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.38.1
+
+### Patch Changes
+
+- c9e5889: Fix `import-agent-pack`, `import-agent`, and `connect-external-agent` throwing an unhandled 500 when given invalid input (a non-agent-pack file, malformed JSON, a malformed endpoint URL, or a duplicate destination). These now return a clean, actionable validation error instead.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [901376b]
+- Updated dependencies [b35949b]
+- Updated dependencies [116c315]
+- Updated dependencies
+  - @agent-native/toolkit@0.20.3
+
 ## 0.38.0
 
 ### Minor Changes
@@ -993,11 +1005,5 @@
 
 - 6071f7d: Provision and reuse the connected Builder workspace project automatically for hosted Turn Into App requests.
 - 6071f7d: Keep language selection in Settings instead of the Dispatch header.
-
-## 0.20.1
-
-### Patch Changes
-
-- c440e50: Route Turn Into App requests from Claude Web, ChatGPT Web, and web Projects to Builder through Dispatch instead of building in the host sandbox.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
