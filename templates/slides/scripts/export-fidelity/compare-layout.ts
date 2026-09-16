@@ -80,15 +80,26 @@ for (const file of readdirSync(anDir)
         );
       }
       const dy = match.base - line.baseline;
-      const centred = text.align === "center";
-      const dx = centred
-        ? (match.x + match.right) / 2 - (line.x + line.right) / 2
-        : match.x - line.x;
+      // Measure the edge the alignment holds. Google sets its own glyph widths,
+      // so the free edge of a line moves on its own and would read as a
+      // position error that is not one.
+      const anchor =
+        text.align === "center"
+          ? "centre"
+          : text.align === "right" || text.align === "end"
+            ? "right"
+            : "left";
+      const dx =
+        anchor === "centre"
+          ? (match.x + match.right) / 2 - (line.x + line.right) / 2
+          : anchor === "right"
+            ? match.right - line.right
+            : match.x - line.x;
       dys.push(dy);
       dxs.push(dx);
       if (Math.abs(dy) > 1.5 || Math.abs(dx) > 1.5) {
         rows.push(
-          `  OFF dy ${dy.toFixed(1)} ${centred ? "dCentre" : "dx"} ${dx.toFixed(1)} "${line.text.slice(0, 30)}" (${text.font.family} ${text.font.sizePx}px lh ${text.font.lineHeightPx} ls ${text.font.letterSpacingPx} ${text.align})`,
+          `  OFF dy ${dy.toFixed(1)} d${anchor} ${dx.toFixed(1)} "${line.text.slice(0, 30)}" (${text.font.family} ${text.font.sizePx}px lh ${text.font.lineHeightPx} ls ${text.font.letterSpacingPx} ${text.align})`,
         );
       }
     }

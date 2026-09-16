@@ -1651,7 +1651,12 @@ const TRANSPARENT_COLOR = /^(?:transparent|rgba\([^)]*,\s*0(?:\.0+)?\))$/;
  * `box-sizing`, so the boxes the geometry passes pinned stay where they are.
  */
 export function materializeCompositeBorders(root: HTMLElement) {
-  for (const element of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+  // The slide root carries its own border into the export, and is not part of
+  // its own `querySelectorAll`.
+  for (const element of [
+    root,
+    ...Array.from(root.querySelectorAll<HTMLElement>("*")),
+  ]) {
     const style = window.getComputedStyle(element);
     const edges = BORDER_SIDES.map((side) => ({
       color: style.getPropertyValue(`border-${side}-color`),

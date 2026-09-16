@@ -1239,4 +1239,18 @@ describe("materializeCompositeBorders", () => {
     expect(barsOf(card)).toHaveLength(0);
     expect(card.style.getPropertyValue("border-bottom-width")).toBe("1px");
   });
+
+  it("redraws a rule on the export root, which its own query does not return", () => {
+    document.body.innerHTML =
+      '<div style="position: relative; border-top-width: 2px; border-top-style: solid; border-top-color: rgb(0, 255, 0)"><p>Slide</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+
+    materializeCompositeBorders(root);
+
+    expect(root.style.getPropertyValue("border-top-width")).toMatch(/^0(px)?$/);
+    expect(root.style.getPropertyValue("padding-top")).toBe("2px");
+    const [bar] = barsOf(root);
+    expect(bar.style.height).toBe("2px");
+    expect(bar.style.backgroundColor).toBe("rgb(0, 255, 0)");
+  });
 });
