@@ -105,6 +105,10 @@ import {
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import {
+  isExplicitLocalDeployEnvironment,
+  resolveDeployEnvironment,
+} from "./deploy-environment.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
   renderChangeEmailConfirmationEmail,
@@ -397,7 +401,169 @@ export async function trackSignupEvent({
 // Persistent auth secret
 // ---------------------------------------------------------------------------
 
-let inMemoryDevAuthSecret: string | undefined;
+/** Persists the generated dev secret next to `dev-server.json`, gitignored. */
+export const DEV_AUTH_SECRET_PATH = path.join(
+  ".agent-native",
+  "dev-auth-secret",
+);
+
+/**
+ * A persisted dev auth secret exists but cannot be used, or cannot be
+ * persisted. Deliberately not caught anywhere: a local dev runtime that
+ * cannot keep a stable session-signing secret fails the boot loudly instead
+ * of silently rotating sessions on every restart.
+ */
+export class DevAuthSecretFileError extends Error {
+  constructor(
+    message: string,
+    readonly reason:
+      | "unreadable"
+      | "empty"
+      | "unsafe"
+      | "create-failed"
+      | "race-unreadable",
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = "DevAuthSecretFileError";
+  }
+}
+
+type DevAuthSecretFileRead =
+  | { status: "absent" }
+  | { status: "ok"; value: string };
+
+function readDevAuthSecretFile(filePath: string): DevAuthSecretFileRead {
+  let descriptor: number | undefined;
+  let content: string;
+  try {
+    const pathStat = fs.lstatSync(filePath);
+    if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+      throw new DevAuthSecretFileError(
+        `The persisted local dev auth secret at ${filePath} must be a regular file, not a symlink or special file. Delete it to generate a safe replacement.`,
+        "unsafe",
+      );
+    }
+    if (process.platform !== "win32" && (pathStat.mode & 0o077) !== 0) {
+      throw new DevAuthSecretFileError(
+        `The persisted local dev auth secret at ${filePath} is accessible to other users. Set its permissions to 0600 or delete it.`,
+        "unsafe",
+      );
+    }
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+    const openedStat = fs.fstatSync(descriptor);
+    if (
+      !openedStat.isFile() ||
+      openedStat.dev !== pathStat.dev ||
+      openedStat.ino !== pathStat.ino
+    ) {
+      throw new DevAuthSecretFileError(
+        `The persisted local dev auth secret at ${filePath} changed while it was being opened. Delete it to generate a safe replacement.`,
+        "unsafe",
+      );
+    }
+    content = fs.readFileSync(descriptor, "utf8");
+  } catch (error) {
+    if (error instanceof DevAuthSecretFileError) throw error;
+    const code = (error as NodeJS.ErrnoException)?.code;
+    // ENOTDIR means no file can exist at this path — route it to the create
+    // step, which fails loudly with the real cause.
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return { status: "absent" };
+    }
+    throw new DevAuthSecretFileError(
+      `The persisted local dev auth secret at ${filePath} exists but could not be read. Fix its permissions or delete it.`,
+      "unreadable",
+      { cause: error },
+    );
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+  const value = content.trim();
+  if (!value) {
+    throw new DevAuthSecretFileError(
+      `The persisted local dev auth secret at ${filePath} is empty. Delete the file to generate a fresh one.`,
+      "empty",
+    );
+  }
+  return { status: "ok", value };
+}
+
+/**
+ * Read the persisted local dev secret from
+ * `<appRoot>/.agent-native/dev-auth-secret` (gitignored), creating it
+ * exclusively on first use. Existing files are reused verbatim and never
+ * overwritten, and the secret value is never logged.
+ *
+ * Throws `DevAuthSecretFileError` — never degrades — when the file exists
+ * but is unreadable or empty, when it cannot be created, or when the file a
+ * concurrent creator left behind cannot be read back. Absence is the only
+ * non-throwing "create it" outcome.
+ */
+export function resolvePersistedDevAuthSecret(
+  appRoot: string,
+  generateSecret: () => string,
+): string {
+  const filePath = path.join(appRoot, DEV_AUTH_SECRET_PATH);
+  const existing = readDevAuthSecretFile(filePath);
+  if (existing.status === "ok") return existing.value;
+
+  const secret = generateSecret();
+  const dir = path.dirname(filePath);
+  const tempPath = path.join(
+    dir,
+    `${path.basename(filePath)}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`,
+  );
+  let createdTemp = false;
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Stage the full value in an exclusive same-directory temp file, then
+    // hard-link it into place: `link` fails with EEXIST instead of following
+    // or overwriting whatever sits at the final path, and a reader of that
+    // path only ever sees complete content.
+    fs.writeFileSync(tempPath, `${secret}\n`, { flag: "wx", mode: 0o600 });
+    createdTemp = true;
+    try {
+      fs.linkSync(tempPath, filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
+        // Another process won the creation race — reuse its secret.
+        const winner = readDevAuthSecretFile(filePath);
+        if (winner.status === "ok") return winner.value;
+        throw new DevAuthSecretFileError(
+          `Another process created the dev auth secret at ${filePath} but it could not be read back.`,
+          "race-unreadable",
+          { cause: error },
+        );
+      }
+      throw new DevAuthSecretFileError(
+        `Could not persist the local dev auth secret at ${filePath}.`,
+        "create-failed",
+        { cause: error },
+      );
+    }
+  } catch (error) {
+    if (error instanceof DevAuthSecretFileError) throw error;
+    throw new DevAuthSecretFileError(
+      `Could not persist the local dev auth secret at ${filePath}.`,
+      "create-failed",
+      { cause: error },
+    );
+  } finally {
+    if (createdTemp) {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+        // coercion-ok: best-effort cleanup of only the temp file this
+        // invocation created; the persisted secret is already in place.
+      }
+    }
+  }
+  return secret;
+}
 
 /**
  * Resolve the Better Auth signing secret.
@@ -409,7 +575,10 @@ let inMemoryDevAuthSecret: string | undefined;
  *      bootable without reusing the raw A2A key as a cookie-signing key.
  *   3. Existing `.env.local` values in the template cwd — read-only
  *      compatibility for projects that already configured this secret.
- *   4. Generate a per-process in-memory random 32-byte hex in development.
+ *   4. Generate a random 32-byte hex secret in local development and persist
+ *      it at `<cwd>/.agent-native/dev-auth-secret` (mode 0600, created
+ *      exclusively) so sessions survive dev-server restarts. Persistence
+ *      failures throw rather than degrade.
  *
  * Why this matters: before this helper existed, missing `BETTER_AUTH_SECRET`
  * fell through to `GOOGLE_CLIENT_SECRET` / `ACCESS_TOKEN` / a hardcoded
@@ -420,10 +589,13 @@ let inMemoryDevAuthSecret: string | undefined;
  * to sign in again. We still read explicit env configuration, but never
  * auto-write a generated secret into env files.
  */
-function resolveAuthSecret(): string {
+function resolveAuthSecret(appRoot = process.cwd()): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
   const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
   if (workspaceDerivedSecret) return workspaceDerivedSecret;
+
+  const deployEnvironment = resolveDeployEnvironment();
+  const explicitlyLocal = isExplicitLocalDeployEnvironment();
 
   // In production, beyond the workspace A2A-derived fallback above, never
   // auto-generate or use legacy fallbacks. A generated secret invalidates every
@@ -431,7 +603,10 @@ function resolveAuthSecret(): string {
   // aren't persistent), and the legacy hardcoded fallback is identical across
   // every deploy that hits it — both are serious enough to fail the boot loudly
   // so the deployer notices.
-  if (process.env.NODE_ENV === "production") {
+  if (
+    deployEnvironment !== "local" ||
+    (process.env.NODE_ENV === "production" && !explicitlyLocal)
+  ) {
     const report = getRuntimeConfigReport(
       process.env,
       { authEnabled: true, databaseRequired: false },
@@ -447,23 +622,17 @@ function resolveAuthSecret(): string {
   // SECURITY (audit 09 LOW-2): the previous fallback chain
   // (`GOOGLE_CLIENT_SECRET || ACCESS_TOKEN || hardcoded`) reused
   // cross-purpose secrets and a public hardcoded literal as the cookie
-  // HMAC. Dropped entirely — better to mint an ephemeral secret than to
-  // re-use a Google client secret or a known string.
-  const existing = readEnvLocalSecret(
-    path.resolve(process.cwd(), ".env.local"),
-  );
+  // HMAC. Dropped entirely — local development gets a dedicated generated
+  // secret rather than reusing a Google client secret or a known string.
+  const existing = readEnvLocalSecret(path.resolve(appRoot, ".env.local"));
   if (existing) return existing;
 
-  if (!inMemoryDevAuthSecret) {
-    inMemoryDevAuthSecret = crypto.randomBytes(32).toString("hex");
-    console.warn(
-      "[agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral " +
-        "in-memory development secret. Sessions will reset every time this " +
-        "process restarts. Set BETTER_AUTH_SECRET in your environment to keep " +
-        "sessions valid across restarts.",
-    );
-  }
-  return inMemoryDevAuthSecret;
+  // The persisted file is the dev-session contract: a process-local secret
+  // would silently sign everyone out on every restart. Persistence failures
+  // throw (see DevAuthSecretFileError) rather than rotating the key.
+  return resolvePersistedDevAuthSecret(appRoot, () =>
+    crypto.randomBytes(32).toString("hex"),
+  );
 }
 
 function readEnvLocalSecret(envLocalPath: string): string | undefined {

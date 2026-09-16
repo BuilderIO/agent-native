@@ -22,6 +22,44 @@ const value: AutoLayoutMatrixValue = {
 const noop = () => {};
 
 describe("AutoLayoutMatrix", () => {
+  it("keeps gap and unlinked padding on fixed inspector grid geometry", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value,
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).toMatch(
+      /data-inspector-layout="pair-flow"[^>]*>[\s\S]*?data-inspector-span="13"[\s\S]*?data-inspector-span="13"/,
+    );
+    expect(markup).toMatch(
+      /<input(?=[^>]*aria-label="Gap")(?=[^>]*class="[^"]*h-6[^"]*")[^>]*>/,
+    );
+
+    const unlinkedMarkup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value: { ...value, paddingLinked: false },
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+    expect(unlinkedMarkup).toMatch(
+      /data-inspector-layout="pair"[^>]*>[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="2"[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="2"[\s\S]*?data-inspector-span="11"/,
+    );
+  });
+
   it("hides child layout controls when the selection has no children", () => {
     const markup = renderToStaticMarkup(
       createElement(AutoLayoutMatrix, {

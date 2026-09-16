@@ -642,6 +642,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
   const zoomRef = useRef(zoom);
+  const latestControlledZoomRef = useRef(zoom);
+  latestControlledZoomRef.current = zoom;
   const lastReportedZoomRef = useRef(zoom);
   const lineupRecenterCameraRef = useRef({
     x: panRef.current.x,
@@ -8342,6 +8344,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       const rect = surfaceRef.current?.getBoundingClientRect();
       if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+      // If the user changed the controlled zoom while this command waited for
+      // the overview surface to become measurable, that newer action owns the
+      // camera. Acknowledge the stale fit without applying it or scheduling a
+      // delayed commit that could overwrite the user's zoom.
+      if (latestControlledZoomRef.current !== zoom) {
+        lastCameraCommandNonceRef.current = cameraCommand.nonce;
+        resizeObserver?.disconnect();
+        return true;
+      }
       // Fit against the width actually free of the left/right chrome
       // overlays (see chromeInsetLeft/Right's doc), then shift the result
       // right by chromeInsetLeft — getCameraForBounds centers within
@@ -8369,7 +8380,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       camera.x += chromeInsetLeft;
       zoomRef.current = camera.zoom;
       lastCameraCommandZoomRef.current = camera.zoom;
-      lastCameraCommandControlledZoomRef.current = zoom;
+      lastCameraCommandControlledZoomRef.current =
+        latestControlledZoomRef.current;
       panRef.current = { x: camera.x, y: camera.y };
       applyViewToDom();
       scheduleViewCommit();

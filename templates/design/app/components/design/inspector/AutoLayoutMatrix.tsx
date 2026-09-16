@@ -39,6 +39,8 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
   INSPECTOR_GRID_PAIR_SPAN,
   InspectorGrid,
   InspectorGridCell,
@@ -778,8 +780,8 @@ export function AutoLayoutMatrix({
               /* Unlinked state: expand to 4 separate T / R / B / L fields */
               <InspectorGrid className="items-center" layout="field-action">
                 <InspectorGridCell span={24}>
-                  <InspectorGrid className="items-center" layout="pair-flow">
-                    <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+                  <InspectorGrid className="items-center" layout="pair">
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderTop}
                         ariaLabel={copy.paddingTop}
@@ -791,7 +793,11 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderRight}
                         ariaLabel={copy.paddingRight}
@@ -806,7 +812,7 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderBottom}
                         ariaLabel={copy.paddingBottom}
@@ -821,7 +827,11 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderLeft}
                         ariaLabel={copy.paddingLeft}
