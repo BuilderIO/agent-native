@@ -426,7 +426,7 @@ function subscribeToSuppression(listener: () => void) {
 /** Suppress a thread from appearing in views it was removed from. */
 export function suppressThread(
   threadId: string,
-  action: "archive" | "trash" | "spam" | "block" | "mute" | "snooze",
+  action: "archive" | "trash" | "spam" | "block" | "mute" | "snooze" | "move",
 ) {
   suppressedThreads.set(threadId, { action, timestamp: Date.now() });
   notifySuppressionListeners();
@@ -2104,7 +2104,7 @@ export function useMoveEmail() {
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      const previous = qc.getQueriesData<InfiniteEmails>({
+      const cached = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       const ids = id
@@ -2112,7 +2112,7 @@ export function useMoveEmail() {
         .map((value) => value.trim())
         .filter(Boolean);
       const threadIdsByEmailId: Record<string, string> = {};
-      const targetEmails = previous.flatMap(([, data]) =>
+      const targetEmails = cached.flatMap(([, data]) =>
         flattenInfiniteEmails(data),
       );
       for (const emailId of ids) {
@@ -2123,15 +2123,16 @@ export function useMoveEmail() {
           emailId;
       }
       const threadIds = new Set(Object.values(threadIdsByEmailId));
-      for (const threadId of threadIds) invalidateCachedThread(threadId);
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((email) => !threadIds.has(email.threadId || email.id)),
-        ),
-      );
+      for (const threadId of threadIds) {
+        invalidateCachedThread(threadId);
+        // Suppress per thread rather than snapshotting the legacy cache: a
+        // snapshot restore also reverts whatever landed after this move
+        // started, which is how an overlapping move gets resurrected.
+        suppressThread(threadId, "move");
+      }
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIds);
       return {
-        previous,
+        threadIds: [...threadIds],
         threadIdsByEmailId,
         inboxMutationId,
       };
@@ -2144,23 +2145,16 @@ export function useMoveEmail() {
             (id) => context.threadIdsByEmailId[id] || id,
           ),
         );
-        context.previous.forEach(([key, data]) =>
-          qc.setQueryData(
-            key,
-            mapInfiniteEmails(data, (emails) =>
-              emails.filter(
-                (email) => !succeededThreadIds.has(email.threadId || email.id),
-              ),
-            ),
-          ),
-        );
+        for (const threadId of context.threadIds) {
+          if (!succeededThreadIds.has(threadId)) unsuppressThread(threadId);
+        }
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         return;
       }
+      for (const threadId of context.threadIds) unsuppressThread(threadId);
       if (context.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
-      context.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: (_data, _error, _variables, context) =>
       delayedInvalidate(

@@ -561,9 +561,31 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(hook).toContain(
       "reconcilePartialInboxMutation(qc, context, succeededThreadIds)",
     );
-    expect(hook).toContain(
-      "context.previous.forEach(([key, data]) =>\n          qc.setQueryData(",
+    expect(hook).toContain('suppressThread(threadId, "move")');
+    expect(hook).toContain("unsuppressThread(threadId)");
+    // Restoring the whole ["emails"] snapshot here would also revert a move
+    // that completed while this one was still pending.
+    expect(hook).not.toContain("previous.forEach");
+  });
+
+  it("keeps a later mutation hidden when an earlier move rolls back", () => {
+    suppressThread("thread-moved", "move");
+    suppressThread("thread-archived-later", "archive");
+
+    // The move failed for its own thread only; an archive that landed while it
+    // was still pending must stay hidden.
+    unsuppressThread("thread-moved");
+
+    const visible = filterSuppressedThreads(
+      [
+        makeEmail("msg-moved", "thread-moved"),
+        makeEmail("msg-archived-later", "thread-archived-later"),
+      ],
+      "inbox",
     );
+
+    expect(visible.map((email) => email.id)).toEqual(["msg-moved"]);
+    unsuppressThread("thread-archived-later");
   });
 
   it("rolls spam, block, and mute back per thread instead of by snapshot", () => {
