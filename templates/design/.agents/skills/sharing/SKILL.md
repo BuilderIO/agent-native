@@ -262,7 +262,7 @@ When retrofitting an existing resource table:
 
 Sharing doesn't apply to:
 
-- **Personal-data apps** (mail, macros) — user-scoped by design.
+- **Personal-data apps** (mail) — user-scoped by design.
 - **External source-of-truth apps** (issues → Jira, recruiting → Greenhouse) — ACL lives in the upstream system.
 - **Demo/boilerplate** (starter) — no resources.
 

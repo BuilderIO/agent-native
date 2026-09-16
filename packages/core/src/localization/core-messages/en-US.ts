@@ -399,6 +399,8 @@ const messages = {
   "error.stopped": "The agent stopped before finishing",
   "errorMessages.agentConnection":
     "The agent connection was interrupted. Check your connection and retry.",
+  "errorMessages.attachmentPasswordProtected":
+    "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.",
   "errorMessages.builderAuthentication":
     "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
   "errorMessages.builderModelUnauthorized":

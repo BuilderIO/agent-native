@@ -635,6 +635,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} Zeilen",
   "errorMessages.agentConnection":
     "Die Verbindung zum Agenten wurde unterbrochen. Prüfe deine Verbindung und versuche es erneut.",
+  "errorMessages.attachmentPasswordProtected":
+    "Diese PDF-Datei ist passwortgeschützt und kann nicht gelesen werden. Entferne den Passwortschutz oder füge den relevanten Text ein und versuche es erneut.",
   "errorMessages.builderAuthentication":
     "Builder hat die verbundenen Anmeldedaten abgelehnt. Verbinde Builder.io in den Einstellungen erneut und versuche es dann noch einmal.",
   "errorMessages.builderModelUnauthorized":

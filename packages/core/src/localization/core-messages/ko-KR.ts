@@ -395,6 +395,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "에이전트가 완료 전에 중지되었습니다",
   "errorMessages.agentConnection":
     "에이전트 연결이 중단되었습니다. 연결을 확인한 후 다시 시도하세요.",
+  "errorMessages.attachmentPasswordProtected":
+    "이 PDF는 비밀번호로 보호되어 있어 읽을 수 없습니다. 비밀번호 보호를 해제하거나 관련 텍스트를 붙여넣은 후 다시 시도하세요.",
   "errorMessages.builderAuthentication":
     "Builder가 연결된 자격 증명을 거부했습니다. 설정에서 Builder.io를 다시 연결한 후 다시 시도하세요.",
   "errorMessages.builderModelUnauthorized":

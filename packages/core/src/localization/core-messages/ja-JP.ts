@@ -407,6 +407,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
     "エージェントとの接続が中断されました。接続を確認して再試行してください。",
+  "errorMessages.attachmentPasswordProtected":
+    "このPDFはパスワードで保護されているため読み取れません。パスワード保護を解除するか、関連するテキストを貼り付けてから再試行してください。",
   "errorMessages.builderAuthentication":
     "Builder が接続済みの認証情報を拒否しました。設定で Builder.io に再接続してから再試行してください。",
   "errorMessages.builderModelUnauthorized":

@@ -2179,6 +2179,70 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     ]);
   });
 
+  // Regression test: a click anywhere in a tab's close-button hit zone used to
+  // close it even though nothing was visibly clickable there. Each tab must
+  // render its own labeled close button, and switching tabs must never fire
+  // the close handler for the tab that was clicked to switch to.
+  it("renders a labeled close button per tab and only closes the tab whose close button is clicked", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [makeThread("thread-1"), makeThread("thread-2")];
+    window.localStorage.setItem(
+      openTabsStorageKey("close-button-test"),
+      JSON.stringify(["thread-1", "thread-2"]),
+    );
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="close-button-test" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const closeButtons = () =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label="Close tab"]',
+        ),
+      );
+    expect(closeButtons()).toHaveLength(2);
+
+    // The reported bug was a hit zone that stayed clickable while invisible
+    // (opacity alone does not disable pointer-events). jsdom/happy-dom does
+    // not compute real hover-driven hit-testing for a plain `.click()` call,
+    // so guard the actual CSS invariant directly: the close button must be
+    // non-interactive by default and only regain pointer-events together
+    // with becoming visible, scoped to a real ancestor of the button.
+    const styleText = container.querySelector("style")?.textContent ?? "";
+    expect(styleText).toContain(
+      ".agent-tab-close{opacity:0;pointer-events:none}",
+    );
+    expect(styleText).toContain(
+      ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}",
+    );
+    const closeButtonGroupAncestor =
+      closeButtons()[0].closest(".agent-tab-group");
+    expect(closeButtonGroupAncestor?.contains(closeButtons()[0])).toBe(true);
+
+    // The switch button is a separate element from the close button, so
+    // clicking it must never remove the tab.
+    const secondTabSwitchButton = container.querySelectorAll<HTMLButtonElement>(
+      ".agent-tab > button:first-child",
+    )[1];
+    expect(secondTabSwitchButton).toBeTruthy();
+    act(() => {
+      secondTabSwitchButton.click();
+    });
+    expect(closeButtons()).toHaveLength(2);
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+
+    // Clicking the explicit, labeled close button removes only that tab.
+    act(() => {
+      closeButtons()[1].click();
+    });
+    expect(closeButtons()).toHaveLength(1);
+  });
+
   it("migrates legacy open tabs and sub-agent metadata into this browser tab", async () => {
     const storageKey = "legacy-tab-migration-test";
     const child = makeThread("thread-child");
