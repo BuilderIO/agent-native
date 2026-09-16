@@ -7,6 +7,7 @@ import { FACTORY_ALIGNMENT_REVISION } from "../triage/review-skill-alignment.js"
 import type { FactoryAutomationConfig } from "./factory-automation-config.js";
 import {
   normalizeUserPrompt,
+  OPTIONAL_DESTINATION_FRONTMATTER_FIELDS,
   readAlignmentRevision,
   readConfigSavedAt,
   readFactoryAutomationConfig,
@@ -47,6 +48,31 @@ export function snapshotFromAutomationResource(
   };
 }
 
+/**
+ * `""` and `null` both mean "not set" for the optional destination fields
+ * (slackChannelId, repository, sentry*), but they're different JS values.
+ * A save always resends every field, including these as `""` when they're
+ * unset rather than omitting them, while a freshly-read config always
+ * reports `null` for an absent one (`readFactoryAutomationConfig`). Without
+ * this normalization, comparing the two would see a spurious "change" on
+ * every save that didn't touch these fields at all, bumping the version for
+ * nothing. This intentionally only affects the comparison — the values
+ * written to frontmatter (`""` clears the line, `null` leaves it alone) must
+ * stay exactly as the save action already computes them.
+ */
+function normalizeConfigForIdentity(
+  config: FactoryAutomationConfig,
+): FactoryAutomationConfig {
+  const normalized = { ...config };
+  for (const key of OPTIONAL_DESTINATION_FRONTMATTER_FIELDS) {
+    const value = normalized[key as keyof FactoryAutomationConfig];
+    if (!value) {
+      (normalized as Record<string, unknown>)[key] = null;
+    }
+  }
+  return normalized;
+}
+
 export function snapshotContentIdentity(
   snapshot: Pick<
     FactoryAutomationSnapshot,
@@ -56,7 +82,7 @@ export function snapshotContentIdentity(
   return JSON.stringify({
     userPrompt: snapshot.userPrompt,
     displayName: snapshot.displayName,
-    config: snapshot.config,
+    config: normalizeConfigForIdentity(snapshot.config),
   });
 }
 

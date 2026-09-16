@@ -451,7 +451,7 @@ export function readFactoryAutomationConfig(
   };
 }
 
-const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
+export const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
   "slackChannelId",
   "slackChannelName",
   "repository",

@@ -163,6 +163,33 @@ describe("save-factory-automation", () => {
     expect(saved).not.toContain("slackChannelName:");
   });
 
+  it("does not bump the version when an already-unset optional field is resent as an empty string", async () => {
+    // The form always resends every field, including unset optional
+    // destination fields as "" rather than omitting them. A freshly-read
+    // config reports these as null, so "" vs null must not look like a
+    // real change — otherwise every resave (e.g. toggling enabled alone)
+    // would bump the version for nothing.
+    const { default: action } = await import("./save-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-slack-feedback",
+        prompt: "Observe Slack.",
+        slackChannelId: "C123",
+        slackChannelName: "",
+        repository: "",
+        sentryOrgSlug: "",
+        sentryProjectSlug: "",
+        sentryEnvironment: "",
+        enabled: true,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, promptVersion: 0 });
+    expect(insertValuesMock).not.toHaveBeenCalled();
+  });
+
   it("rejects disabled saves that clear the channel without clearIdentityFields", async () => {
     const { default: action } = await import("./save-factory-automation.js");
     await expect(
