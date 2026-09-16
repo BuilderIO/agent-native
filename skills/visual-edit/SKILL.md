@@ -73,7 +73,10 @@ The same action is available from Design's empty-canvas context menu.
 - The editor page registers a stable page-local WebMCP tool named
   `get-visual-edit-prompt`. Call it after canvas edits to retrieve the latest
   bounded source instructions instead of copying stale chat text. It returns
-  `status: "empty"` when there is nothing to apply.
+  `status: "empty"` when there is nothing to apply. If a previous editor
+  session ended with unapplied edits, it returns `status: "session-ended"`
+  with the pending count; `status: "unknown"` means the session marker
+  could not be read and must not be treated as an empty result.
 - The skill enters through local `pnpm action open-visual-edit`. When that CLI
   has no account session, the action uses a stable, workspace-scoped local
   principal to register the bridge, create/reuse the local design, and place

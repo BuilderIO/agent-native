@@ -1,12 +1,26 @@
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerNode,
+} from "@shared/code-layer";
 
-import { resolveCodeLayerNodeFromBridge } from "./code-layer-state";
-import type { PendingLiveStructureEdit } from "./pending-edits";
+import {
+  collapsedElementText,
+  resolveCodeLayerNodeFromBridge,
+  resolveCodeLayerTargetFromBridge,
+} from "./code-layer-state";
+import {
+  normalizeRuntimeStructureClasses,
+  normalizeRuntimeStructureText,
+  type PendingLiveStructureEdit,
+  type RuntimeStructureNodeSignature,
+} from "./pending-edits";
 
 export type RuntimeStructureVerificationFailure =
   | "missing-subject"
+  | "ambiguous-subject"
   | "subject-still-present"
   | "missing-anchor"
+  | "ambiguous-anchor"
   | "wrong-parent"
   | "wrong-order"
   | "wrong-drop-mode";
@@ -14,6 +28,98 @@ export type RuntimeStructureVerificationFailure =
 export interface RuntimeStructureVerificationResult {
   ok: boolean;
   failure?: RuntimeStructureVerificationFailure;
+}
+
+type RuntimeStructureNodeRole = "subject" | "anchor";
+
+interface RuntimeStructureNodeResolution {
+  node?: CodeLayerNode;
+  failure?: RuntimeStructureVerificationFailure;
+}
+
+function runtimeStructureNodeMatchesSignature(
+  node: CodeLayerNode,
+  signature: RuntimeStructureNodeSignature,
+): boolean {
+  const component = (
+    node.componentInstance?.name ??
+    node.dataAttributes["data-agent-native-component"]
+  )?.trim();
+  return (
+    node.tag.toLowerCase() === signature.tag &&
+    normalizeRuntimeStructureText(collapsedElementText(node.textSnippet)) ===
+      signature.text &&
+    normalizeRuntimeStructureClasses(node.classes).join("\0") ===
+      normalizeRuntimeStructureClasses(signature.classes).join("\0") &&
+    (!signature.component || !component || component === signature.component)
+  );
+}
+
+function resolveRuntimeStructureNode(args: {
+  projection: { nodes: CodeLayerNode[] };
+  selector?: string;
+  sourceId?: string | null;
+  signature?: RuntimeStructureNodeSignature;
+  role: RuntimeStructureNodeRole;
+}): RuntimeStructureNodeResolution {
+  const direct = resolveCodeLayerTargetFromBridge(
+    args.projection,
+    args.selector,
+    args.sourceId ?? undefined,
+  );
+  if (
+    direct.status === "resolved" &&
+    (!args.signature ||
+      runtimeStructureNodeMatchesSignature(direct.node, args.signature))
+  ) {
+    return { node: direct.node };
+  }
+
+  if (!args.signature) {
+    return {
+      failure:
+        direct.status === "ambiguous"
+          ? args.role === "subject"
+            ? "ambiguous-subject"
+            : "ambiguous-anchor"
+          : args.role === "subject"
+            ? "missing-subject"
+            : "missing-anchor",
+    };
+  }
+
+  const matches = args.projection.nodes.filter((node) =>
+    runtimeStructureNodeMatchesSignature(node, args.signature!),
+  );
+  if (matches.length === 1) return { node: matches[0] };
+  return {
+    failure:
+      matches.length > 1
+        ? args.role === "subject"
+          ? "ambiguous-subject"
+          : "ambiguous-anchor"
+        : args.role === "subject"
+          ? "missing-subject"
+          : "missing-anchor",
+  };
+}
+
+function runtimeStructureNodeForNoOp(
+  projection: { nodes: CodeLayerNode[] },
+  selector: string,
+  sourceId: string | null | undefined,
+  signature: RuntimeStructureNodeSignature | undefined,
+  role: RuntimeStructureNodeRole,
+): CodeLayerNode | null {
+  return (
+    resolveRuntimeStructureNode({
+      projection,
+      selector,
+      sourceId,
+      signature,
+      role,
+    }).node ?? null
+  );
 }
 
 /**
@@ -26,19 +132,27 @@ export function verifyPendingStructureRuntime(
   edit: PendingLiveStructureEdit,
 ): RuntimeStructureVerificationResult {
   const projection = buildCodeLayerProjection(snapshotHtml);
-  const subject = resolveCodeLayerNodeFromBridge(
+  const subjectResolution = resolveRuntimeStructureNode({
     projection,
-    edit.selector,
-    edit.sourceId ?? undefined,
-  );
+    selector: edit.selector,
+    sourceId: edit.sourceId,
+    signature: edit.subjectSignature,
+    role: "subject",
+  });
+  const subject = subjectResolution.node;
   if (edit.replaced) {
+    const originalSubject = resolveCodeLayerNodeFromBridge(
+      projection,
+      edit.selector,
+      edit.sourceId ?? undefined,
+    );
     const replacement = resolveCodeLayerNodeFromBridge(
       projection,
       edit.replacementSelector ?? "",
       edit.replacementSourceId ?? undefined,
     );
     if (!replacement) return { ok: false, failure: "missing-subject" };
-    return subject
+    return originalSubject
       ? { ok: false, failure: "subject-still-present" }
       : { ok: true };
   }
@@ -47,17 +161,35 @@ export function verifyPendingStructureRuntime(
   // asked for, and the apply flow would sit in awaiting-runtime until it
   // timed out on a source write that actually succeeded.
   if (edit.removed) {
-    return subject
+    const originalSubject = resolveCodeLayerNodeFromBridge(
+      projection,
+      edit.selector,
+      edit.sourceId ?? undefined,
+    );
+    return originalSubject
       ? { ok: false, failure: "subject-still-present" }
       : { ok: true };
   }
-  if (!subject) return { ok: false, failure: "missing-subject" };
-  const anchor = resolveCodeLayerNodeFromBridge(
+  if (!subject) {
+    return {
+      ok: false,
+      failure: subjectResolution.failure ?? "missing-subject",
+    };
+  }
+  const anchorResolution = resolveRuntimeStructureNode({
     projection,
-    edit.anchorSelector,
-    edit.anchorSourceId ?? undefined,
-  );
-  if (!anchor) return { ok: false, failure: "missing-anchor" };
+    selector: edit.anchorSelector,
+    sourceId: edit.anchorSourceId,
+    signature: edit.anchorSignature,
+    role: "anchor",
+  });
+  const anchor = anchorResolution.node;
+  if (!anchor) {
+    return {
+      ok: false,
+      failure: anchorResolution.failure ?? "missing-anchor",
+    };
+  }
 
   if (edit.placement === "inside") {
     if (subject.parentId !== anchor.id) {
@@ -97,6 +229,44 @@ export function verifyPendingStructureRuntime(
   }
 
   return { ok: true };
+}
+
+export function isPendingStructureDropNoOp(
+  snapshotHtml: string | undefined,
+  edit: PendingLiveStructureEdit,
+): boolean {
+  if (!snapshotHtml || edit.insertedHtml || edit.replaced || edit.removed) {
+    return false;
+  }
+  const projection = buildCodeLayerProjection(snapshotHtml);
+  const subject = runtimeStructureNodeForNoOp(
+    projection,
+    edit.selector,
+    edit.sourceId,
+    edit.subjectSignature,
+    "subject",
+  );
+  const anchor = runtimeStructureNodeForNoOp(
+    projection,
+    edit.anchorSelector,
+    edit.anchorSourceId,
+    edit.anchorSignature,
+    "anchor",
+  );
+  if (!subject || !anchor) return false;
+  if (edit.placement === "inside") return subject.parentId === anchor.id;
+  if (subject.parentId !== anchor.parentId) return false;
+  const siblings = subject.parentId
+    ? (projection.nodes.find((node) => node.id === subject.parentId)
+        ?.children ?? [])
+    : projection.nodes.filter((node) => !node.parentId).map((node) => node.id);
+  const subjectIndex = siblings.indexOf(subject.id);
+  const anchorIndex = siblings.indexOf(anchor.id);
+  return (
+    subjectIndex >= 0 &&
+    anchorIndex >= 0 &&
+    subjectIndex - anchorIndex === (edit.placement === "before" ? -1 : 1)
+  );
 }
 
 export function verifyPendingStructuresRuntime(

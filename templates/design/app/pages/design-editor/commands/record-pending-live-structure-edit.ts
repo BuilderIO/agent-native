@@ -21,7 +21,9 @@ import {
   pendingLiveStructureEditsMatch,
   projectRelativeSourcePath,
   reactSourceAnchorForPendingEdit,
+  runtimeStructureNodeSignature,
 } from "@/pages/design-editor/pending-edits";
+import { isPendingStructureDropNoOp } from "@/pages/design-editor/pending-structure-verification";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface RecordPendingLiveStructureEditArgs {
@@ -88,7 +90,6 @@ export function runRecordPendingLiveStructureEdit(
   },
 ) {
   if (!canEditDesign) return;
-  cancelPendingStructureVerification("conflict");
   const screen = files.find((file) => file.id === screenId);
   const overviewScreen = overviewScreens.find(
     (candidate) => candidate.id === screenId,
@@ -162,6 +163,23 @@ export function runRecordPendingLiveStructureEdit(
     requestId: details?.requestId,
     updatedAt: Date.now(),
   };
+  nextEdit.subjectSignature = runtimeStructureNodeSignature({
+    info: elementInfo,
+    sourceAnchor: nextEdit.sourceAnchor,
+  });
+  nextEdit.anchorSignature = runtimeStructureNodeSignature({
+    info: details?.anchorElementInfo,
+    sourceAnchor: nextEdit.anchorSourceAnchor,
+  });
+  if (
+    isPendingStructureDropNoOp(
+      runtimeLayerSnapshotsById[screenId]?.html,
+      nextEdit,
+    )
+  ) {
+    return;
+  }
+  cancelPendingStructureVerification("conflict");
   const structureRedoReplay = pendingStructureRedoReplayRef.current;
   const replaysUndoneStructure = Boolean(
     structureRedoReplay &&

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PendingLiveStructureEdit } from "./pending-edits";
 import {
+  isPendingStructureDropNoOp,
   partitionPendingStructuresRuntime,
   verifyPendingStructureRuntime,
   verifyPendingStructuresRuntime,
@@ -69,6 +70,136 @@ describe("verifyPendingStructureRuntime", () => {
     expect(
       verifyPendingStructureRuntime(html, edit({ placement: "after" })),
     ).toEqual({ ok: false, failure: "wrong-order" });
+  });
+
+  it("falls back to unique signatures when HMR changes sibling ids and tags", () => {
+    const html = `<!doctype html><body><main>
+      <button data-agent-native-node-id="new-anchor">Create</button>
+      <h2 data-agent-native-node-id="new-subject">No decks yet</h2>
+    </main></body>`;
+    expect(
+      verifyPendingStructureRuntime(
+        html,
+        edit({
+          selector: '[data-agent-native-node-id="old-subject"]',
+          sourceId: "old-subject",
+          anchorSelector: '[data-agent-native-node-id="old-anchor"]',
+          anchorSourceId: "old-anchor",
+          placement: "after",
+          subjectSignature: {
+            tag: "h2",
+            text: "No decks yet",
+            classes: [],
+            component: "EmptyState",
+          },
+          anchorSignature: {
+            tag: "button",
+            text: "Create",
+            classes: [],
+            component: "EmptyState",
+          },
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("uses signatures to follow same-type keyless siblings after a swap", () => {
+    const html = `<!doctype html><body><main>
+      <div data-agent-native-node-id="new-anchor">Second</div>
+      <div data-agent-native-node-id="new-subject">First</div>
+    </main></body>`;
+    expect(
+      verifyPendingStructureRuntime(
+        html,
+        edit({
+          selector: '[data-agent-native-node-id="old-subject"]',
+          sourceId: "old-subject",
+          anchorSelector: '[data-agent-native-node-id="old-anchor"]',
+          anchorSourceId: "old-anchor",
+          placement: "after",
+          subjectSignature: { tag: "div", text: "First", classes: [] },
+          anchorSignature: { tag: "div", text: "Second", classes: [] },
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("refuses an ambiguous signature instead of guessing a sibling", () => {
+    const html = `<!doctype html><body><main>
+      <div data-agent-native-node-id="new-one">Duplicate</div>
+      <div data-agent-native-node-id="new-two">Duplicate</div>
+      <button data-agent-native-node-id="new-anchor">Anchor</button>
+    </main></body>`;
+    expect(
+      verifyPendingStructureRuntime(
+        html,
+        edit({
+          selector: '[data-agent-native-node-id="old-subject"]',
+          sourceId: "old-subject",
+          subjectSignature: { tag: "div", text: "Duplicate", classes: [] },
+        }),
+      ),
+    ).toEqual({ ok: false, failure: "ambiguous-subject" });
+  });
+
+  it("does not treat a look-alike as a removed subject", () => {
+    const html = `<!doctype html><body>
+      <button data-agent-native-node-id="new-button">Delete</button>
+    </body>`;
+    expect(
+      verifyPendingStructureRuntime(
+        html,
+        edit({
+          selector: '[data-agent-native-node-id="old-button"]',
+          sourceId: "old-button",
+          removed: true,
+          subjectSignature: { tag: "button", text: "Delete", classes: [] },
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("deduplicates repeated class tokens before matching a signature", () => {
+    const html = `<!doctype html><body><main>
+      <div data-agent-native-node-id="new-subject" class="a a b">Subject</div>
+      <div data-agent-native-node-id="anchor">Anchor</div>
+    </main></body>`;
+    expect(
+      verifyPendingStructureRuntime(
+        html,
+        edit({
+          selector: '[data-agent-native-node-id="old-subject"]',
+          sourceId: "old-subject",
+          anchorSelector: '[data-agent-native-node-id="anchor"]',
+          anchorSourceId: "anchor",
+          placement: "before",
+          subjectSignature: {
+            tag: "div",
+            text: "Subject",
+            classes: ["a", "b"],
+          },
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("recognizes a drop that already has the requested order as a no-op", () => {
+    const html = `<!doctype html><body><main>
+      <div data-agent-native-node-id="subject">First</div>
+      <div data-agent-native-node-id="anchor">Second</div>
+    </main></body>`;
+    expect(
+      isPendingStructureDropNoOp(
+        html,
+        edit({
+          selector: '[data-agent-native-node-id="subject"]',
+          sourceId: "subject",
+          anchorSelector: '[data-agent-native-node-id="anchor"]',
+          anchorSourceId: "anchor",
+          placement: "before",
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("proves a replacement by the new identity and the old identity's absence", () => {

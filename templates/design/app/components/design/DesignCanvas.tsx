@@ -515,6 +515,10 @@ interface DesignCanvasProps {
     nodeCount: number;
     documentId?: string;
   }) => void;
+  /** Called once when this document has a usable runtime bridge. */
+  onBridgeReady?: () => void;
+  /** Called once when the live document finishes its browser load. */
+  onBootReady?: () => void;
   onScreenRootComputedStyles?: (computedStyles: Record<string, string>) => void;
   onRuntimeVerificationSnapshot?: (snapshot: {
     requestId: number;
@@ -1243,6 +1247,8 @@ export function DesignCanvas({
   externalSnapshotHtml,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
+  onBridgeReady,
+  onBootReady,
   onScreenRootComputedStyles,
   onRuntimeVerificationSnapshot,
   fusionUrl,
@@ -1410,6 +1416,7 @@ export function DesignCanvas({
   // bridge and thus never post ready) and flush in order.
   const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
+  const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
@@ -2833,6 +2840,7 @@ export function DesignCanvas({
       // has already run and posted its own new ready message; resetting on
       // `load` would incorrectly clobber that just-arrived ready signal.
       bridgeReadyRef.current = false;
+      bootReadyRef.current = false;
       pendingOneShotMessagesRef.current = [];
       setRenderedDocument({
         content,
@@ -3103,6 +3111,7 @@ export function DesignCanvas({
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
+    bootReadyRef.current = false;
   }
   // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
   // an onLoad that already fired would strand a spinner over finished content.
@@ -3239,6 +3248,7 @@ export function DesignCanvas({
       // nothing. Re-derive readiness here so the queue always drains.
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
+        onBridgeReady?.();
         setReadyIframeDocumentIdentity(iframeDocumentIdentity);
         flushPendingOneShotMessages();
       }
@@ -3283,6 +3293,7 @@ export function DesignCanvas({
         }
         lateLiveEditReadyRecoveryRef.current = null;
         bridgeReadyRef.current = true;
+        onBridgeReady?.();
         setReadyIframeDocumentIdentity(iframeDocumentIdentity);
         // A confirmed ready handshake proves this bridgeInstanceId/key pair
         // is genuinely live — clear the suspected-restart attempt counter so
@@ -3897,6 +3908,7 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onRuntimeLayerSnapshot,
+    onBridgeReady,
     onScreenRootComputedStyles,
     onRuntimeVerificationSnapshot,
     onElementMarqueeSelect,
@@ -4141,11 +4153,25 @@ export function DesignCanvas({
       if (!shouldUseIframeLoadReadyFallback(usesLiveEditEditorBridge)) return;
       if (bridgeReadyRef.current) return;
       bridgeReadyRef.current = true;
+      onBridgeReady?.();
       flushPendingOneShotMessages();
     }
     iframe.addEventListener("load", handleLoadReadyFallback);
     return () => iframe.removeEventListener("load", handleLoadReadyFallback);
-  }, [flushPendingOneShotMessages, usesLiveEditEditorBridge]);
+  }, [flushPendingOneShotMessages, onBridgeReady, usesLiveEditEditorBridge]);
+
+  useEffect(() => {
+    if (!onBootReady || !externalPreviewUrl) return;
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const handleLoad = () => {
+      if (bootReadyRef.current) return;
+      bootReadyRef.current = true;
+      onBootReady();
+    };
+    iframe.addEventListener("load", handleLoad);
+    return () => iframe.removeEventListener("load", handleLoad);
+  }, [externalPreviewUrl, iframeDocumentIdentity, onBootReady]);
 
   useEffect(() => {
     if (clearSelectionRequest === undefined) return;
@@ -4972,6 +4998,7 @@ export function DesignCanvas({
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
       bridgeReadyRef.current = false;
+      bootReadyRef.current = false;
       pendingOneShotMessagesRef.current = [];
       setRenderedDocument({
         content: runtimeReplacementContent,
