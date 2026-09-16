@@ -151,6 +151,7 @@ describe("slide text targets", () => {
 
     expect(shouldStampBuilderId(group)).toBe(true);
     expect(shouldStampBuilderId(text)).toBe(true);
+    expect(shouldTraverseSlideLayerChildren(group)).toBe(true);
     expect(findSmartBlock(text, root)).toBe(text);
     expect(findSmartBlock(group, root)).toBeNull();
     expect(group.style.display).toBe("flex");
