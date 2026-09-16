@@ -438,6 +438,22 @@ describe("update-design data concurrency", () => {
     );
   });
 
+  it("preserves legacy empty frames during unrelated map updates", async () => {
+    mocks.state.row.data = JSON.stringify({
+      canvasFrames: { "legacy-frame": {} },
+      lastPrompt: "old",
+    });
+
+    await action.run({
+      id: "design-1",
+      dataOperations: [{ op: "set", path: ["lastPrompt"], value: "new" }],
+    } as never);
+
+    const persisted = JSON.parse(mocks.state.row.data!);
+    expect(persisted.canvasFrames["legacy-frame"]).toEqual({});
+    expect(persisted.lastPrompt).toBe("new");
+  });
+
   it("rejects array frames through the action schema and legacy snapshots without writing", async () => {
     const before = { ...mocks.state.row };
     const input = {

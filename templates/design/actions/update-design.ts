@@ -237,10 +237,16 @@ function applyDataOperations(
   return JSON.stringify(root);
 }
 
-function validatePersistedDataSnapshot(raw: string): void {
+function validatePersistedDataSnapshot(
+  raw: string,
+  touchedMaps?: ReadonlySet<string>,
+): void {
   const parsed = JSON.parse(raw);
   if (!isRecord(parsed)) return;
   for (const [key, value] of Object.entries(parsed)) {
+    if (touchedMaps && key === "canvasFrames" && !touchedMaps.has(key)) {
+      continue;
+    }
     const message = numericDesignDataWriteError([key], value);
     if (message) throw new Error(message);
   }
@@ -469,7 +475,14 @@ export default defineAction({
       // Validate the complete post-operation snapshot. Nested set/delete
       // operations can otherwise leave an empty canvas frame after the
       // per-value numeric checks have passed.
-      validatePersistedDataSnapshot(nextData);
+      const touchedMaps = dataOperations
+        ? new Set(dataOperations.map((operation) => operation.path[0]))
+        : new Set(
+            isRecord(JSON.parse(data!))
+              ? Object.keys(JSON.parse(data!))
+              : [],
+          );
+      validatePersistedDataSnapshot(nextData, touchedMaps);
 
       // Compare-and-swap on the exact data snapshot. Transactions at the
       // default isolation level do not make a read-merge-write safe: two
