@@ -117,14 +117,14 @@ function resolveRuntimeStructureNodeBySignature(args: {
   projection: { nodes: CodeLayerNode[] };
   signature?: RuntimeStructureNodeSignature;
   role: RuntimeStructureNodeRole;
-  excludedNodeIds?: ReadonlySet<string>;
+  excludedNode?: CodeLayerNode;
 }): RuntimeStructureNodeResolution {
   if (!args.signature) {
     return { failure: runtimeStructureResolutionFailure("absent", args.role) };
   }
   const matches = args.projection.nodes.filter(
     (node) =>
-      !args.excludedNodeIds?.has(node.id) &&
+      node !== args.excludedNode &&
       runtimeStructureNodeMatchesSignature(node, args.signature!),
   );
   if (matches.length === 1) {
@@ -163,25 +163,22 @@ function verifyRuntimeStructureSubjectAbsent(
     return { ok: false, failure: "subject-still-present" };
   }
 
-  // A signature/position match cannot distinguish unchanged old content
-  // from a same-shaped replacement. Only its independently resolved new
-  // identity lets us exclude that node from the old-content search.
-  const replacementIdentity = edit.replacementSourceId
-    ? resolveCodeLayerTargetFromBridge(
-        projection,
-        undefined,
-        edit.replacementSourceId,
-      )
-    : undefined;
+  // Signature-only fallback cannot distinguish unchanged old content. A
+  // unique identity or selector independently resolves the replacement;
+  // captured document evidence still has to prove the resulting structure.
+  const replacementTarget = resolveCodeLayerTargetFromBridge(
+    projection,
+    edit.replacementSourceId ? undefined : edit.replacementSelector,
+    edit.replacementSourceId ?? undefined,
+  );
   const signature = resolveRuntimeStructureNodeBySignature({
     projection,
     signature: edit.subjectSignature,
     role: "subject",
-    excludedNodeIds:
-      replacement &&
-      replacementIdentity?.status === "resolved" &&
-      replacementIdentity.node === replacement
-        ? new Set([replacement.id])
+    excludedNode:
+      replacementTarget.status === "resolved" &&
+      replacementTarget.node === replacement
+        ? replacement
         : undefined,
   });
   if (signature.failure === "ambiguous-subject") {

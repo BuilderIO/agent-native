@@ -435,7 +435,7 @@ describe("verifyPendingStructureRuntime", () => {
       failure: "subject-still-present",
     },
     {
-      name: "rejects a positional replacement with the old signature despite a missing source id",
+      name: "accepts a unique selector-only same-shaped replacement when old source identity is absent",
       html: "<section>Replacement</section>",
       overrides: {
         selector: "main > section:nth-of-type(1)",
@@ -443,7 +443,17 @@ describe("verifyPendingStructureRuntime", () => {
         replacementSourceId: null,
         replacementSelector: "main > section:nth-of-type(1)",
       },
-      failure: "subject-still-present",
+    },
+    {
+      name: "requires evidence for a unique selector-only same-shaped replacement",
+      html: "<section>Replacement</section>",
+      overrides: {
+        subjectSignature: replacementSignature,
+        replacementSourceId: null,
+        replacementSelector: "main > section:nth-of-type(1)",
+        replacementSnapshotSignature: undefined,
+      },
+      failure: "missing-replacement-evidence",
     },
     {
       name: "accepts a distinct stable replacement after the identity-less old selector disappears",
