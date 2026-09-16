@@ -1840,8 +1840,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return !(isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]"));
     }
-    function serializeRuntimeLayerSnapshot() {
-      if (!document.body) return null;
+    function serializeRuntimeLayerSnapshot(excludedRoot) {
+      if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
       var snapshotComputedProperties = [
         "box-sizing",
         "display",
@@ -1931,7 +1931,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var index = 0; index < sourceNodes.length && index < cloneNodes.length; index += 1) {
         var sourceNode = sourceNodes[index];
         var cloneNode = cloneNodes[index];
-        if (!isRuntimeLayerVisualNode(sourceNode)) {
+        if (excludedRoot?.contains(sourceNode) || !isRuntimeLayerVisualNode(sourceNode)) {
           cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
           continue;
         }
@@ -2026,8 +2026,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       inlineSnapshotComputedStyle(document.body, cloneBody);
       cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
       var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>";
-      if (html.length > 2e6) return null;
+      if (html.length > 2e6)
+        return { ok: false, reason: "snapshot-too-large" };
       return {
+        ok: true,
         html,
         nodeCount,
         documentId: runtimeDocumentId
@@ -2043,7 +2045,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       runtimeLayerSnapshotTimer = null;
       runtimeLayerSnapshotMaxTimer = null;
       var snapshot = serializeRuntimeLayerSnapshot();
-      if (!snapshot || snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+      if (!snapshot.ok) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-error",
+            payload: snapshot
+          },
+          "*"
+        );
+        return;
+      }
+      if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       window.parent.postMessage(
         {
@@ -2363,7 +2375,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!descendIntoGroup) {
         var group = target;
         while (group && !isDocumentRootElement(group)) {
-          var groupName = group.getAttribute && group.getAttribute("data-agent-native-layer-name") || group.getAttribute && group.getAttribute("data-layer-name") || "";
+          var groupName = layerNameForElement(group);
           var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
           var legacyNodeId = group.getAttribute && group.getAttribute("data-agent-native-node-id");
           var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(groupName.trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
@@ -2469,13 +2481,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function layerNameForElement(el) {
       if (!el || !el.getAttribute) return "";
-      var canonical = el.getAttribute("data-agent-native-layer-name");
-      if (canonical && canonical.trim) {
-        var trimmedCanonical = canonical.trim();
-        if (trimmedCanonical) return trimmedCanonical;
+      var attributes = [
+        "data-agent-native-layer-name",
+        "data-layer-name",
+        "layer-name"
+      ];
+      for (var i = 0; i < attributes.length; i += 1) {
+        var value = el.getAttribute(attributes[i]);
+        var trimmed = value && value.trim ? value.trim() : "";
+        if (trimmed) return trimmed;
       }
-      var legacy = el.getAttribute("data-layer-name");
-      return legacy && legacy.trim ? legacy.trim() : "";
+      return "";
     }
     function elementLooksLikeComponent(el) {
       if (!el || !el.getAttribute || !el.tagName) return false;
@@ -2866,6 +2882,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       "gridTemplateColumns",
       "gridTemplateRows",
       "gridAutoFlow",
+      "flexDirection",
+      "flexWrap",
+      "columnGap",
+      "rowGap",
+      "justifyContent",
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "alignItems",
+      "alignContent",
+      "justifyItems",
+      "gap",
+      "padding",
       "webkitBoxOrient",
       "webkitLineClamp",
       "--agent-native-truncate-original-display",
@@ -9725,7 +9755,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
       publishSourceDocumentProvenance(void 0, true);
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml, replaced) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml) {
       if (!el || !target || !target.anchor) return;
       dndLog("post:structure-change", {
         el: getSelector(el),
@@ -9756,6 +9786,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           // element the source file has never contained.
           insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
           replaced: replaced === true ? true : void 0,
+          replacementSnapshotHtml,
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el),
@@ -14227,6 +14258,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           var replaceNextSibling = insertAnchor.nextSibling;
           replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+          var replacementSnapshot = serializeRuntimeLayerSnapshot(insertAnchor);
+          if (!replacementSnapshot.ok) {
+            parsedInsertEl.remove();
+            rejectInsert("replacement-" + replacementSnapshot.reason);
+            return;
+          }
           selectedEl = parsedInsertEl;
           positionOverlay(selectionOverlay, selectedEl);
           refreshOverlays();
@@ -14240,7 +14277,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               prevNextSibling: replaceNextSibling
             },
             parsedInsertEl.outerHTML,
-            true
+            true,
+            replacementSnapshot.html
           );
           replaceParent.removeChild(insertAnchor);
           refreshOverlays();
@@ -14544,6 +14582,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "data-agent-native-component",
           "data-agent-native-layer-name",
           "data-layer-name",
+          "layer-name",
           "data-an-primitive",
           "data-component-name",
           "data-source-column",
@@ -14577,6 +14616,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         attributeFilter: [
           "data-agent-native-layer-name",
           "data-layer-name",
+          "layer-name",
           "data-an-primitive",
           "class",
           "style"

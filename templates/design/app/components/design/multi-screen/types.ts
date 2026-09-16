@@ -1,3 +1,5 @@
+import type { ReviewThread } from "@agent-native/core/client/review";
+import type { ReviewComment } from "@agent-native/core/review";
 import type {
   DistanceGuideBand,
   EqualGapGuide,
@@ -198,6 +200,26 @@ export interface MultiScreenCanvasProps {
   directlyHoveredScreenId?: string | null;
   previewDeviceFrame?: DeviceFrameType;
   activeTool?: MultiScreenCanvasTool;
+  /** Review overlays shared by screen frames and the overview board. */
+  reviewResourceId?: string;
+  reviewPinMode?: boolean;
+  reviewCommentsHidden?: boolean;
+  reviewCanPost?: boolean;
+  reviewCanResolve?: boolean;
+  /** Optional review target override; null scopes comments to the board. */
+  reviewTargetId?: string | null;
+  reviewFocusRequest?: {
+    nonce: number;
+    anchor: unknown;
+    targetId?: string | null;
+    threadId?: string;
+  } | null;
+  reviewCurrentUserEmail?: string | null;
+  onExitReviewPinMode?: () => void;
+  onDispatchCommentToAgent?: (comment: ReviewComment) => void;
+  onSendThreadToAgent?: (thread: ReviewThread) => void;
+  reviewSendingThreadId?: string | null;
+  reviewDesignTitle?: string;
   toolProps?: CanvasToolProps;
   onActiveToolChange?: (tool: MultiScreenCanvasTool) => void;
   /** Routes empty-board clicks to the active overview comment composer. */

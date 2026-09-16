@@ -52,6 +52,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
+  buildReviewThreads,
   useReviewComments,
   useSendReviewThreadToAgent,
   type ReviewThread,
@@ -311,7 +312,10 @@ import {
   MotionDock,
   type MotionDockTrack,
 } from "@/components/design/MotionDock";
-import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/board-surface-html";
+import {
+  getBoardSurfaceContentBounds,
+  shouldRenderOverviewReviewCanvas,
+} from "@/components/design/multi-screen/board-surface-html";
 import {
   deviceViewportFloorForWidth,
   getCanonicalScreenStack,
@@ -356,7 +360,11 @@ import {
   ResponsiveInteractBar,
   ResponsiveInteractExitButton,
 } from "@/components/design/ResponsiveInteractBar";
-import { type ReviewCommentsPanelProps } from "@/components/design/ReviewCommentsPanel";
+import { reviewThreadIdFromHash } from "@/components/design/review-link";
+import {
+  getUnreadReviewThreadIds,
+  type ReviewCommentsPanelProps,
+} from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
@@ -1699,9 +1707,11 @@ function DesignEditor() {
   const [reviewFocusRequest, setReviewFocusRequest] = useState<{
     nonce: number;
     anchor: unknown;
-    targetId?: string;
+    targetId?: string | null;
+    threadId?: string;
   } | null>(null);
   const reviewFocusNonceRef = useRef(0);
+  const openedReviewHashRef = useRef<string | null>(null);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
   const layersRevealedForFirstCreateRef = useRef(false);
@@ -1711,7 +1721,7 @@ function DesignEditor() {
   const initialUrlSelectionHydratedForIdRef = useRef<string | null>(null);
   // Figma's 56px workspace rail (plus its 1px divider) and 280px Layers/Pages
   // pane place the content divider at x=337. Keep that total while honoring
-  // resizable 220–420px content range.
+  // the resizable 220–420px content range, with 320px reserved for Agent chat.
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
@@ -3475,23 +3485,19 @@ function DesignEditor() {
     {
       resourceType: "design",
       resourceId: id ?? "",
-      includeResolved: false,
+      includeResolved: true,
       limit: 500,
     },
     { enabled: Boolean(id) && !shellMode },
   );
   const reviewComments = reviewResult.data?.comments ?? [];
-  const reviewOpenThreadIds = useMemo(
+  const reviewUnreadCount = useMemo(
     () =>
-      new Set(
-        reviewComments
-          .filter(
-            (comment) =>
-              comment.status === "open" && comment.parentCommentId === null,
-          )
-          .map((comment) => comment.threadId),
-      ),
-    [reviewComments],
+      getUnreadReviewThreadIds(
+        reviewComments,
+        reviewResult.data?.discussion?.threadPreferences ?? {},
+      ).size,
+    [reviewComments, reviewResult.data?.discussion?.threadPreferences],
   );
   const reviewAgentQueueThreadIds = useMemo(
     () =>
@@ -3509,8 +3515,6 @@ function DesignEditor() {
     [reviewComments],
   );
   const persistedReviewSummary = readDesignReviewSummary(reviewResult.data);
-  const reviewOpenCount =
-    persistedReviewSummary?.openCount ?? reviewOpenThreadIds.size;
   const reviewAgentQueueCount =
     persistedReviewSummary?.agentQueueCount ?? reviewAgentQueueThreadIds.size;
   const sendReviewThreadToAgent = useSendReviewThreadToAgent();
@@ -7824,6 +7828,7 @@ function DesignEditor() {
         replacementSelector?: string;
         replacementSourceId?: string;
         replacementElementInfo?: ElementInfo;
+        replacementSnapshotHtml?: string;
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
@@ -9533,6 +9538,7 @@ function DesignEditor() {
         shouldClearSelectionForReviewThreadTarget({
           activeFileId: activeFile?.id,
           targetId,
+          boardFileId,
         })
       ) {
         setSelectedElement(null);
@@ -9541,15 +9547,16 @@ function DesignEditor() {
         setHoveredElementScreenId(null);
         setOverviewClearSelectionRequest((request) => request + 1);
       }
-      if (targetId) {
+      const boardTarget = targetId === null;
+      if (targetId || boardTarget) {
         // Review is editing context on the infinite canvas. Selecting a thread
         // reveals its screen there; it must not revive the removed focused
         // non-Interact view.
         viewModeRef.current = "overview";
         setViewMode("overview");
-        setActiveFileId(targetId);
-        setOverviewSelectedScreenIds([targetId]);
-        setSelectedLayerIdsState([targetId]);
+        setActiveFileId(boardTarget ? (boardFileId ?? null) : targetId);
+        setOverviewSelectedScreenIds(boardTarget ? [] : [targetId]);
+        setSelectedLayerIdsState(boardTarget ? [] : [targetId]);
         setMode("edit");
       }
       setActiveInspectorTab("comments");
@@ -9557,11 +9564,32 @@ function DesignEditor() {
       setReviewFocusRequest({
         nonce: reviewFocusNonceRef.current,
         anchor: thread.root.anchor,
-        targetId: targetId ?? undefined,
+        targetId,
+        threadId: thread.root.threadId,
       });
     },
-    [activeFile?.id],
+    [activeFile?.id, boardFileId],
   );
+
+  useEffect(() => {
+    if (!id || reviewResult.isLoading) return;
+    const threadId = reviewThreadIdFromHash(location.hash);
+    if (!threadId) return;
+    const hashKey = `${id}:${threadId}`;
+    if (openedReviewHashRef.current === hashKey) return;
+    const thread = buildReviewThreads(reviewComments).find(
+      (candidate) => candidate.root.threadId === threadId,
+    );
+    if (!thread) return;
+    openedReviewHashRef.current = hashKey;
+    handleReviewThreadSelect(thread);
+  }, [
+    handleReviewThreadSelect,
+    id,
+    location.hash,
+    reviewComments,
+    reviewResult.isLoading,
+  ]);
 
   const reviewCommentsPanelProps = useMemo<
     ReviewCommentsPanelProps | undefined
@@ -9571,6 +9599,9 @@ function DesignEditor() {
         ? {
             designId: id,
             canComment: canCommentDesign,
+            currentUserEmail: session?.email,
+            currentTargetId:
+              activeFile?.id === boardFileId ? null : activeFile?.id,
             canResolve: canEditDesign,
             canDeleteComment: (comment) =>
               canEditDesign ||
@@ -9588,6 +9619,7 @@ function DesignEditor() {
     [
       canCommentDesign,
       canEditDesign,
+      activeFile?.id,
       handleReviewThreadSelect,
       handleSendReviewThreadToAgent,
       id,
@@ -12061,6 +12093,7 @@ function DesignEditor() {
         replacementSelector?: string;
         replacementSourceId?: string;
         replacementElementInfo?: ElementInfo;
+        replacementSnapshotHtml?: string;
       },
     ) =>
       runVisualStructureChange(
@@ -12303,6 +12336,7 @@ function DesignEditor() {
         replacementSelector?: string;
         replacementSourceId?: string;
         replacementElementInfo?: ElementInfo;
+        replacementSnapshotHtml?: string;
       },
     ) =>
       runScreenVisualStructureChange(
@@ -14430,6 +14464,11 @@ function DesignEditor() {
 
   const handleRuntimeStructureInsertRejected = useCallback(
     (reason: string) => {
+      if (reason.startsWith("verification-")) {
+        cancelPendingStructureVerification("conflict");
+        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+        return;
+      }
       // Never swallow this: a rejected insert leaves nothing on screen and
       // nothing in the pending list, so a silent return is indistinguishable
       // from the drop never having happened.
@@ -14438,7 +14477,7 @@ function DesignEditor() {
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
-    [t],
+    [cancelPendingStructureVerification, t],
   );
 
   const handleCutSelection = useCallback(async () => {
@@ -15907,12 +15946,13 @@ function DesignEditor() {
   );
 
   const handlePinToolToggle = useCallback(() => {
-    if (!activeFile || !canCommentDesign) return;
+    if (!canCommentDesign) return;
     if (pinMode) {
       handleExitReviewCommentMode();
       return;
     }
     setCommentsHidden(false);
+    setActiveInspectorTab("comments");
     // Comment pins are an editing overlay on the infinite canvas, not a third
     // focused view. If invoked from Interact, leave it before arming the pin.
     if (viewMode !== "overview") {
@@ -15923,7 +15963,6 @@ function DesignEditor() {
     setPinMode(true);
     setDrawMode(false);
   }, [
-    activeFile,
     canCommentDesign,
     enterOverviewFromZoom,
     handleExitReviewCommentMode,
@@ -21781,6 +21820,13 @@ function DesignEditor() {
           commentPinsHidden={commentsHidden || !screenIsActive}
           onExitPinMode={handleExitReviewCommentMode}
           designId={id}
+          reviewCanPost={canCommentDesign}
+          reviewCanResolve={canEditDesign}
+          reviewCurrentUserEmail={session?.email}
+          reviewFocusRequest={reviewFocusRequest}
+          onDispatchCommentToAgent={handleDispatchCommentToAgent}
+          onSendThreadToAgent={handleSendReviewThreadToAgent}
+          reviewSendingThreadId={reviewSendingThreadId}
           designTitle={design?.title}
           commentContextId={`${id}:${screen.id}`}
           commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(screen.filename)}`}
@@ -21827,6 +21873,7 @@ function DesignEditor() {
       overviewCanvasZoom,
       mode,
       canEditDesign,
+      canCommentDesign,
       activeTool,
       pinMode,
       commentsHidden,
@@ -21859,6 +21906,11 @@ function DesignEditor() {
       cssVarValues,
       id,
       design?.title,
+      session?.email,
+      reviewFocusRequest,
+      handleDispatchCommentToAgent,
+      handleSendReviewThreadToAgent,
+      reviewSendingThreadId,
       repromptDraftRequest,
       handleRepromptDraftConsumed,
       handleExitReviewCommentMode,
@@ -23354,7 +23406,10 @@ function DesignEditor() {
   const leftContentWidth =
     activeLeftPanel === "code"
       ? Math.max(leftSidebarWidth, 640)
-      : Math.max(Math.min(leftSidebarWidth, 420), 220);
+      : Math.max(
+          Math.min(leftSidebarWidth, 420),
+          activeLeftPanel === "agent" ? 320 : 220,
+        );
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
   // These focused surfaces need a clear viewport beside the absolute rail.
   const leftChromeOverlayInset = leftSidebarVisible
@@ -23519,7 +23574,7 @@ function DesignEditor() {
     statesPanelProps,
     reviewPanelProps: resolvedReviewPanelProps,
     reviewCommentsPanelProps,
-    reviewCommentsCount: reviewOpenCount,
+    reviewCommentsCount: reviewUnreadCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     alignSelectionDisabled: !alignAvailability.canAlign,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
@@ -23668,7 +23723,7 @@ function DesignEditor() {
               <div
                 data-design-agent-panel
                 className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  "min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
                   activeLeftPanel === "agent" ? "flex" : "hidden",
                 )}
               >
@@ -23677,7 +23732,9 @@ function DesignEditor() {
                 ) : canEditDesign ? (
                   <AgentChatSurface
                     mode="panel"
-                    className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
+                    className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
+                    chatOnly={true}
+                    onCollapse={() => setActiveLeftPanel(null)}
                     storageKey={DESIGN_CHAT_STORAGE_KEY}
                     emptyStateText={t("chat.emptyState")}
                     suggestions={designAgentSuggestions}
@@ -24418,6 +24475,19 @@ function DesignEditor() {
                         directlyHoveredScreenId={hoveredScreenRootId}
                         previewDeviceFrame={deviceFrame}
                         activeTool={activeTool}
+                        reviewResourceId={id}
+                        reviewPinMode={pinMode}
+                        reviewCommentsHidden={commentsHidden}
+                        reviewCanPost={canCommentDesign}
+                        reviewCanResolve={canEditDesign}
+                        reviewTargetId={null}
+                        reviewCurrentUserEmail={session?.email}
+                        reviewFocusRequest={reviewFocusRequest}
+                        onExitReviewPinMode={handleExitReviewCommentMode}
+                        onDispatchCommentToAgent={handleDispatchCommentToAgent}
+                        onSendThreadToAgent={handleSendReviewThreadToAgent}
+                        reviewSendingThreadId={reviewSendingThreadId}
+                        reviewDesignTitle={design?.title}
                         onActiveToolChange={handleOverviewActiveToolChange}
                         onCommentPin={
                           canCommentDesign
@@ -24601,7 +24671,11 @@ function DesignEditor() {
                         screenSnapshotsById={liveScreenSnapshotsById}
                         renderBreakpointContent={renderBreakpointContent}
                       />
-                      {id ? (
+                      {id &&
+                      shouldRenderOverviewReviewCanvas({
+                        boardFileId,
+                        boardFileContent,
+                      }) ? (
                         <ReviewCanvasPins
                           active={pinMode}
                           hidden={commentsHidden}
@@ -24857,6 +24931,7 @@ function DesignEditor() {
                         designId={id}
                         reviewCanPost={canCommentDesign}
                         reviewCanResolve={canEditDesign}
+                        reviewCurrentUserEmail={session?.email}
                         reviewFocusRequest={reviewFocusRequest}
                         onDispatchCommentToAgent={
                           canEditDesign

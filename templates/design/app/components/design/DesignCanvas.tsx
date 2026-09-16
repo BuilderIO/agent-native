@@ -82,6 +82,10 @@ import { shaderFillPreviewBridgeScript } from "../../../.generated/bridge/shader
 import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-runtime.generated";
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
+import type {
+  ReviewAnchorWorldPoint,
+  ReviewBoardGeometry,
+} from "../../../shared/review-anchor";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
@@ -99,6 +103,7 @@ import {
 import {
   isComputedStyleMap,
   isElementInfoPayload,
+  parseRuntimeSnapshotHtml,
 } from "./design-canvas/element-payload";
 import {
   embeddedContentOffsetCss,
@@ -694,6 +699,7 @@ interface DesignCanvasProps {
       replacementSelector?: string;
       replacementSourceId?: string;
       replacementElementInfo?: ElementInfo;
+      replacementSnapshotHtml?: string;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -755,6 +761,14 @@ interface DesignCanvasProps {
   reviewCanPost?: boolean;
   /** Whether the current viewer may resolve review threads. */
   reviewCanResolve?: boolean;
+  /** Override the review target; null scopes comments to the board surface. */
+  reviewTargetId?: string | null;
+  /** Current finite board window used to resolve stable board-world anchors. */
+  reviewBoardGeometry?: ReviewBoardGeometry | null;
+  /** Re-centers the overview camera on a stable board-world review anchor. */
+  onReviewFocusBoardPoint?: (point: ReviewAnchorWorldPoint) => boolean | void;
+  /** Current viewer email used for author-only comment editing. */
+  reviewCurrentUserEmail?: string | null;
   /** A panel-driven request to focus an anchored review comment. */
   reviewFocusRequest?: ReviewFocusRequest | null;
   /** Dispatch a newly created agent-targeted comment to the local agent chat. */
@@ -1342,6 +1356,10 @@ export function DesignCanvas({
   designId,
   reviewCanPost = false,
   reviewCanResolve = false,
+  reviewTargetId,
+  reviewBoardGeometry,
+  onReviewFocusBoardPoint,
+  reviewCurrentUserEmail,
   reviewFocusRequest,
   onDispatchCommentToAgent,
   onSendThreadToAgent,
@@ -3282,24 +3300,34 @@ export function DesignCanvas({
           allowedOrigins: canvasBridgeAllowedOrigins,
         });
       if (trustedRuntimeVerificationFrame) {
+        if (e.data?.type === "agent-native:runtime-layer-snapshot-error") {
+          onRuntimeStructureInsertRejected?.(
+            e.data.payload?.reason === "snapshot-too-large"
+              ? "verification-snapshot-too-large"
+              : "verification-snapshot-unavailable",
+          );
+          return;
+        }
         if (e.data?.type !== "agent-native:runtime-layer-snapshot") return;
         const payload = e.data.payload;
-        if (
-          payload &&
-          typeof payload.html === "string" &&
-          payload.html.length <= 2_000_000 &&
-          Number.isFinite(payload.nodeCount)
-        ) {
-          onRuntimeVerificationSnapshot?.({
-            requestId: runtimeVerificationRequest.requestId,
-            html: payload.html,
-            nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
-            documentId:
-              typeof payload.documentId === "string"
-                ? payload.documentId
-                : undefined,
-          });
+        const snapshot = parseRuntimeSnapshotHtml(payload?.html);
+        if (!snapshot.ok || !Number.isFinite(payload?.nodeCount)) {
+          onRuntimeStructureInsertRejected?.(
+            snapshot.ok
+              ? "verification-snapshot-unavailable"
+              : `verification-${snapshot.reason}`,
+          );
+          return;
         }
+        onRuntimeVerificationSnapshot?.({
+          requestId: runtimeVerificationRequest.requestId,
+          html: snapshot.html,
+          nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
+          documentId:
+            typeof payload.documentId === "string"
+              ? payload.documentId
+              : undefined,
+        });
         return;
       }
       const lateReadyRecovery =
@@ -3577,6 +3605,21 @@ export function DesignCanvas({
         });
         const requestId =
           typeof e.data.requestId === "string" ? e.data.requestId : undefined;
+        const replacementSnapshot = replaced
+          ? parseRuntimeSnapshotHtml(e.data.replacementSnapshotHtml)
+          : undefined;
+        if (replacementSnapshot?.ok === false) {
+          if (requestId) {
+            iframeRef.current?.contentWindow?.postMessage(
+              { type: "visual-structure-ack", requestId, applied: false },
+              "*",
+            );
+          }
+          onRuntimeStructureInsertRejected?.(
+            `replacement-${replacementSnapshot.reason}`,
+          );
+          return;
+        }
         const sourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : undefined;
         const anchorSourceId =
@@ -3651,6 +3694,9 @@ export function DesignCanvas({
                     replaced: true as const,
                     replacementSelector: selector,
                     replacementSourceId: sourceId,
+                    replacementSnapshotHtml: replacementSnapshot?.ok
+                      ? replacementSnapshot.html
+                      : undefined,
                     replacementElementInfo: isElementInfoPayload(e.data.payload)
                       ? e.data.payload
                       : undefined,
@@ -6292,9 +6338,17 @@ export function DesignCanvas({
         canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
         resourceType="design"
         resourceId={designId}
-        targetId={screenId ?? commentContextId ?? ""}
+        targetId={
+          reviewTargetId !== undefined
+            ? reviewTargetId
+            : (screenId ?? commentContextId ?? null)
+        }
+        screenId={screenId}
+        boardGeometry={reviewBoardGeometry}
+        onFocusBoardPoint={onReviewFocusBoardPoint}
         canPost={reviewCanPost}
         canResolve={reviewCanResolve}
+        currentUserEmail={reviewCurrentUserEmail}
         focusRequest={reviewFocusRequest}
         onDispatchCommentToAgent={onDispatchCommentToAgent}
         onSendThreadToAgent={onSendThreadToAgent}

@@ -9,11 +9,11 @@ import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
 /**
- * Figma parity — Pan/Zoom, mouse-driven only (spec §14). Keyboard zoom keys
- * (Shift+0/1/2, Shift+/-) are peer-owned; this file only proves plain wheel
+ * Figma parity — Pan/Zoom (spec §14). Mouse-driven cases prove plain wheel
  * pan, shift+wheel horizontal pan, cmd/ctrl+wheel zoom-at-cursor,
- * middle-mouse drag pan, space+drag pan, that panning never selects/moves
- * elements, and that the zoom readout tracks the real canvas scale.
+ * middle-mouse drag pan, space+drag pan, and that panning never selects/moves
+ * elements. The final regression covers toolbar and keyboard zoom racing a
+ * fit command while the readout tracks the real canvas scale.
  *
  * See templates/design/.claude/skills/design-editor-architecture/SKILL.md
  * ("prove the gesture, not just the outcome") and
@@ -22,6 +22,7 @@ import { appPath } from "./helpers";
  */
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Pan zoom</title></head>
@@ -408,6 +409,53 @@ test("the zoom level readout updates after a cmd/ctrl+wheel zoom", async ({
     await expect
       .poll(async () => (await readout.textContent())?.trim())
       .not.toBe(before);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("toolbar and keyboard zoom updates survive a pending fit without refresh", async ({
+  page,
+  request,
+}) => {
+  const { designId } = await createDesign(request);
+  try {
+    await openOverview(page, designId);
+    const readout = zoomReadout(page);
+    const before = await worldTransform(page);
+    const beforeScale = before?.scale ?? null;
+    const beforeLabel = (await readout.textContent())?.trim();
+    expect(beforeScale).not.toBeNull();
+    expect(beforeLabel).toMatch(/^\d+%$/);
+
+    // Shift+1 schedules the camera command; the keyboard zoom must win before
+    // the command's debounced commit can write its fit camera back.
+    await page.keyboard.press("Shift+1");
+    await page.keyboard.press(`${MOD}+=`);
+    await expect
+      .poll(async () => (await worldTransform(page))?.scale ?? null, {
+        timeout: 2_000,
+      })
+      .toBeGreaterThan(beforeScale!);
+    const afterKeyboardScale = (await worldTransform(page))?.scale ?? null;
+    const afterKeyboardLabel = (await readout.textContent())?.trim();
+    expect(afterKeyboardScale).toBeGreaterThan(beforeScale!);
+    expect(afterKeyboardLabel).not.toBe(beforeLabel);
+
+    // The toolbar uses the same controlled path. Verify its visible transform
+    // and readout update without reloading the editor.
+    await readout.click();
+    await page.getByRole("menuitem", { name: "Zoom out" }).click();
+    await expect
+      .poll(async () => (await worldTransform(page))?.scale ?? null, {
+        timeout: 2_000,
+      })
+      .toBeLessThan(afterKeyboardScale!);
+    await expect
+      .poll(async () => (await readout.textContent())?.trim(), {
+        timeout: 2_000,
+      })
+      .not.toBe(afterKeyboardLabel);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

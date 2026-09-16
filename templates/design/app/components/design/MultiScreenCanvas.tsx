@@ -96,6 +96,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { ReviewCanvasPins } from "@/components/visual-editor/ReviewCanvasPins";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
@@ -254,6 +255,7 @@ import {
   getBoardSurfaceRenderContent,
   getBoardSurfaceStaticPreviewContent,
   hasBoardSurfaceContent,
+  shouldRenderEmptyBoardReviewCanvas,
 } from "./multi-screen/board-surface-html";
 import {
   getDraftCreationTool,
@@ -539,6 +541,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   directlyHoveredScreenId,
   previewDeviceFrame = "none",
   activeTool,
+  reviewResourceId,
+  reviewPinMode = false,
+  reviewCommentsHidden = false,
+  reviewCanPost = false,
+  reviewCanResolve = false,
+  reviewTargetId,
+  reviewFocusRequest,
+  reviewCurrentUserEmail,
+  onExitReviewPinMode,
+  onDispatchCommentToAgent,
+  onSendThreadToAgent,
+  reviewSendingThreadId,
+  reviewDesignTitle,
   toolProps,
   onActiveToolChange,
   onCommentPin,
@@ -807,6 +822,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ? boardFileContent
     : undefined;
   const boardHasSurfaceContent = boardSurfaceHtml !== undefined;
+  const boardReviewGeometry = boardSurfaceRenderGeometry ?? {
+    x: 0,
+    y: 0,
+    width: 8192,
+    height: 8192,
+  };
+  const renderEmptyBoardReviewCanvas = shouldRenderEmptyBoardReviewCanvas({
+    hasSurfaceContent: boardHasSurfaceContent,
+    reviewPinMode,
+    reviewCommentsHidden,
+    reviewTargetId,
+  });
   const boardStaticPreviewContent = useMemo(() => {
     if (
       !boardFrameGeometry ||
@@ -1168,6 +1195,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // lineup fit so a stale controlled prop cannot undo a pending command on an
   // unrelated screen/selection render.
   const lastCameraCommandZoomRef = useRef<number | null>(null);
+  const lastCameraCommandControlledZoomRef = useRef<number | null>(null);
   const pendingChromeSettleRef = useRef(false);
   const chromeSettleTimerRef = useRef<number | null>(null);
   const [chromeSettling, setChromeSettling] = useState(false);
@@ -1729,8 +1757,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // buttons, keyboard shortcuts) that never touched zoomRef/panRef.
     const previousZoom = zoomRef.current;
     const pendingCameraZoom = lastCameraCommandZoomRef.current;
+    const pendingCameraControlledZoom =
+      lastCameraCommandControlledZoomRef.current;
     if (pendingCameraZoom !== null && zoom === pendingCameraZoom) {
       lastCameraCommandZoomRef.current = null;
+      lastCameraCommandControlledZoomRef.current = null;
       if (zoom === previousZoom) return;
       // The command already applied the matching pan imperatively. Reconcile
       // the controlled zoom without applying a second anchor compensation.
@@ -1743,13 +1774,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (
       pendingCameraZoom !== null &&
       cameraCommand &&
-      lastCameraCommandNonceRef.current === cameraCommand.nonce
+      lastCameraCommandNonceRef.current === cameraCommand.nonce &&
+      zoom === pendingCameraControlledZoom
     ) {
       // The command owns the camera until its zoom reaches the controlled
       // prop. An unrelated render must not replay that stale prop.
       return;
     }
-    if (pendingCameraZoom !== null) lastCameraCommandZoomRef.current = null;
+    if (pendingCameraZoom !== null) {
+      lastCameraCommandZoomRef.current = null;
+      lastCameraCommandControlledZoomRef.current = null;
+    }
     if (zoom === previousZoom) return;
     // External zoom changes otherwise anchor at world origin (0,0) since
     // only canvasZoom is updated here — content visibly jumps diagonally
@@ -8249,6 +8284,34 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   applyViewToDomRef.current = applyViewToDom;
   scheduleViewCommitRef.current = scheduleViewCommit;
 
+  const focusBoardReviewPoint = useCallback(
+    (point: Point): boolean => {
+      const surface = surfaceRef.current;
+      const rect = surface?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+      const scale = Math.max(0.0001, canvasZoom / 100);
+      const leftInset = Math.min(rect.width, Math.max(0, chromeInsetLeft));
+      const rightInset = Math.min(rect.width, Math.max(0, chromeInsetRight));
+      const centerX = (leftInset + rect.width - rightInset) / 2;
+      const centerY = rect.height / 2;
+      const next = {
+        x: centerX - (SURFACE_PADDING + point.x) * scale,
+        y: centerY - (SURFACE_PADDING + point.y) * scale,
+      };
+      panRef.current = next;
+      lineupRecenterCameraRef.current = {
+        x: next.x,
+        y: next.y,
+        zoom: canvasZoom,
+      };
+      setPan(next);
+      applyViewToDomRef.current();
+      scheduleViewCommitRef.current();
+      return true;
+    },
+    [canvasZoom, chromeInsetLeft, chromeInsetRight],
+  );
+
   // Imperative camera command (Figma's Shift+1/Shift+2 zoom-to-fit /
   // zoom-to-selection). MultiScreenCanvas owns pan internally, so this is the
   // one external control path for pan+zoom together: the caller passes
@@ -8305,6 +8368,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       camera.x += chromeInsetLeft;
       zoomRef.current = camera.zoom;
       lastCameraCommandZoomRef.current = camera.zoom;
+      lastCameraCommandControlledZoomRef.current = zoom;
       panRef.current = { x: camera.x, y: camera.y };
       applyViewToDom();
       scheduleViewCommit();
@@ -9787,11 +9851,66 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   onTextContentChange={onBoardTextContentChange}
                   onTextEditingStateChange={onBoardTextEditingStateChange}
                   onElementDblClickText={onBoardElementDblClickText}
+                  pinMode={reviewPinMode}
+                  commentPinsHidden={reviewCommentsHidden}
+                  onExitPinMode={onExitReviewPinMode}
+                  designId={reviewResourceId}
+                  reviewCanPost={reviewCanPost}
+                  reviewCanResolve={reviewCanResolve}
+                  reviewTargetId={reviewTargetId ?? null}
+                  reviewBoardGeometry={boardGeo}
+                  onReviewFocusBoardPoint={focusBoardReviewPoint}
+                  reviewCurrentUserEmail={reviewCurrentUserEmail}
+                  reviewFocusRequest={reviewFocusRequest}
+                  onDispatchCommentToAgent={onDispatchCommentToAgent}
+                  onSendThreadToAgent={onSendThreadToAgent}
+                  reviewSendingThreadId={reviewSendingThreadId}
+                  designTitle={reviewDesignTitle}
+                  commentContextId={
+                    reviewResourceId
+                      ? `${reviewResourceId}:${boardFileId}`
+                      : undefined
+                  }
                   tweakValues={{}}
                 />
               </div>
             );
           })()}
+
+        {renderEmptyBoardReviewCanvas &&
+        boardFileId &&
+        boardFileContent !== undefined &&
+        reviewResourceId ? (
+          <div
+            data-board-review-canvas
+            style={{
+              ...getBoardSurfaceLayerStyle({
+                geometry: boardReviewGeometry,
+                interactive: false,
+              }),
+              zIndex: 1,
+            }}
+          >
+            <ReviewCanvasPins
+              active={reviewPinMode}
+              hidden={reviewCommentsHidden}
+              onClose={() => onExitReviewPinMode?.()}
+              canvasSelector="[data-board-review-canvas]"
+              resourceType="design"
+              resourceId={reviewResourceId}
+              targetId={reviewTargetId ?? null}
+              boardGeometry={boardReviewGeometry}
+              canPost={reviewCanPost ?? false}
+              canResolve={reviewCanResolve ?? false}
+              currentUserEmail={reviewCurrentUserEmail}
+              focusRequest={reviewFocusRequest}
+              onFocusBoardPoint={focusBoardReviewPoint}
+              onDispatchCommentToAgent={onDispatchCommentToAgent}
+              onSendThreadToAgent={onSendThreadToAgent}
+              sendingThreadId={reviewSendingThreadId}
+            />
+          </div>
+        ) : null}
 
         {canvasFrames.map(({ screen, metadata, geometry }) => {
           const baseCullTier = screenCullTierById.get(screen.id) ?? "visible";
