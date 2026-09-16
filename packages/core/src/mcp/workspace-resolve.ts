@@ -136,7 +136,6 @@ function probePort(port: number, timeoutMs = 600): Promise<boolean> {
 async function fetchGatewayApps(
   gatewayUrl: string,
   expectedRoot?: string,
-  allowMissingIdentity = false,
 ): Promise<Array<{ id: string; port: number }> | null> {
   try {
     const res = await fetch(`${gatewayUrl}/_workspace/apps`, {
@@ -145,7 +144,7 @@ async function fetchGatewayApps(
     if (!res.ok) return null;
     if (expectedRoot) {
       const reportedIdentity = res.headers.get("x-agent-native-workspace-id");
-      if (!reportedIdentity && !allowMissingIdentity) return null;
+      if (!reportedIdentity) return null;
       if (
         reportedIdentity &&
         reportedIdentity !== workspaceIdentity(expectedRoot)
@@ -204,13 +203,7 @@ export async function resolveWorkspace(
     // Prefer the gateway's authoritative list (handles port reassignment);
     // fall back to a filesystem scan with the same ordering the gateway uses.
     const gatewayResults = await Promise.all(
-      gatewayCandidates.map((candidate, index) =>
-        fetchGatewayApps(
-          candidate,
-          root,
-          Boolean(configuredGatewayUrl) || index === 0,
-        ),
-      ),
+      gatewayCandidates.map((candidate) => fetchGatewayApps(candidate, root)),
     );
     const gatewayIndex = gatewayResults.findIndex((result) => result !== null);
     const gatewayUrl = gatewayCandidates[Math.max(gatewayIndex, 0)]!;

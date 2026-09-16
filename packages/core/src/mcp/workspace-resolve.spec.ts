@@ -245,21 +245,6 @@ describe("resolveWorkspace — workspace via filesystem fallback (gateway down)"
 });
 
 describe("resolveWorkspace — workspace via gateway list (authoritative)", () => {
-  it("accepts a headerless legacy gateway on the requested port", async () => {
-    const root = buildWorkspace(["mail"]);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        url === "http://127.0.0.1:8080/_workspace/apps"
-          ? new Response(JSON.stringify([{ id: "mail", port: 8155 }]))
-          : new Response("no", { status: 404 }),
-      ),
-    );
-
-    const ws = await resolveWorkspace(root, {});
-    expect(ws.apps[0]?.port).toBe(8155);
-  });
-
   it("prefers the gateway's apps + ports over the filesystem scan", async () => {
     const root = buildWorkspace(["mail", "calendar"]);
     // Gateway reassigns ports and reports a different set than the FS scan.
