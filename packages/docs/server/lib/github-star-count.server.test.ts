@@ -2,28 +2,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const settings = vi.hoisted(() => {
   let value: Record<string, unknown> | null = null;
+  const getSettingImplementation = async () => value;
+  const mutateSettingImplementation = async (
+    _key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  ) => {
+    value = await updater(value);
+    return value;
+  };
+  const putSettingImplementation = async (
+    _key: string,
+    next: Record<string, unknown>,
+  ) => {
+    value = next;
+  };
   return {
     reset: () => {
       value = null;
+      settings.getSetting.mockImplementation(getSettingImplementation);
+      settings.mutateSetting.mockImplementation(mutateSettingImplementation);
+      settings.putSetting.mockImplementation(putSettingImplementation);
     },
     set: (next: Record<string, unknown>) => {
       value = next;
     },
-    getSetting: vi.fn(async () => value),
-    mutateSetting: vi.fn(
-      async (
-        _key: string,
-        updater: (
-          current: Record<string, unknown> | null,
-        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
-      ) => {
-        value = await updater(value);
-        return value;
-      },
-    ),
-    putSetting: vi.fn(async (_key: string, next: Record<string, unknown>) => {
-      value = next;
-    }),
+    getSetting: vi.fn(getSettingImplementation),
+    mutateSetting: vi.fn(mutateSettingImplementation),
+    putSetting: vi.fn(putSettingImplementation),
   };
 });
 
@@ -51,16 +58,28 @@ describe("getGithubStarCount", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns the star count from a successful response", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
+  it("returns without waiting while warming a cold cache", async () => {
+    let resolveFetch!: (response: Response) => void;
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    global.fetch = fetchMock;
+
+    expect(await getGithubStarCount()).toBeNull();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    resolveFetch(
       new Response(JSON.stringify({ stargazers_count: 42 }), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
     );
-
-    expect(await getGithubStarCount()).toBe(42);
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    await vi.waitFor(async () => {
+      expect(await getGithubStarCount()).toBe(42);
+    });
   });
 
   it("returns null and does not throw when the request fails", async () => {
@@ -68,6 +87,10 @@ describe("getGithubStarCount", () => {
     global.fetch = fetchMock;
 
     expect(await getGithubStarCount()).toBeNull();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(settings.putSetting).toHaveBeenCalledTimes(1),
+    );
     expect(await getGithubStarCount()).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -78,6 +101,7 @@ describe("getGithubStarCount", () => {
       .mockResolvedValue(new Response(null, { status: 500 }));
 
     expect(await getGithubStarCount()).toBeNull();
+    await vi.waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
   });
 
   it.each([
@@ -110,13 +134,17 @@ describe("getGithubStarCount", () => {
     vi.setSystemTime(new Date("2026-09-02T17:00:00.000Z"));
 
     expect(await getGithubStarCount()).toBeNull();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     vi.advanceTimersByTime(60_000);
     expect(await getGithubStarCount()).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(60_001);
-    expect(await getGithubStarCount()).toBe(11);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await getGithubStarCount()).toBeNull();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(async () => {
+      expect(await getGithubStarCount()).toBe(11);
+    });
   });
 
   it("serves cached value without refetching within the fresh window", async () => {
@@ -128,9 +156,41 @@ describe("getGithubStarCount", () => {
     );
     global.fetch = fetchMock;
 
-    expect(await getGithubStarCount()).toBe(7);
+    expect(await getGithubStarCount()).toBeNull();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(async () => {
+      expect(await getGithubStarCount()).toBe(7);
+    });
     expect(await getGithubStarCount()).toBe(7);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors the retry deadline when persistence is unavailable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T17:00:00.000Z"));
+    settings.getSetting.mockRejectedValue(new Error("database unavailable"));
+    settings.mutateSetting.mockRejectedValue(new Error("database unavailable"));
+    settings.putSetting.mockRejectedValue(new Error("database unavailable"));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 429,
+        headers: { "retry-after": "120" },
+      }),
+    );
+    global.fetch = fetchMock;
+
+    expect(await getGithubStarCount()).toBeNull();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(settings.putSetting).toHaveBeenCalledTimes(1),
+    );
+
+    expect(await getGithubStarCount()).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(120_001);
+    expect(await getGithubStarCount()).toBeNull();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 
   it("serves the persisted value without refetching within the fresh window", async () => {
@@ -165,7 +225,9 @@ describe("getGithubStarCount", () => {
     global.fetch = fetchMock;
 
     expect(await getGithubStarCount()).toBe(19);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(settings.putSetting).toHaveBeenCalledTimes(1),
+    );
     resetGithubStarCountCacheForTests();
 
     expect(await getGithubStarCount()).toBe(19);
@@ -184,12 +246,18 @@ describe("getGithubStarCount", () => {
       .mockResolvedValueOnce(new Response(null, { status: 429 }));
     global.fetch = fetchMock;
 
-    expect(await getGithubStarCount()).toBe(7);
+    expect(await getGithubStarCount()).toBeNull();
+    await vi.waitFor(async () => {
+      expect(await getGithubStarCount()).toBe(7);
+    });
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 5 * 60_000);
 
     expect(await getGithubStarCount()).toBe(7);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(settings.putSetting).toHaveBeenCalledTimes(2),
+    );
     expect(await getGithubStarCount()).toBe(7);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -208,8 +276,11 @@ describe("getGithubStarCount", () => {
       getGithubStarCount(),
     ]);
 
-    expect(a).toBe(5);
-    expect(b).toBe(5);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(a).toBeNull();
+    expect(b).toBeNull();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(async () => {
+      expect(await getGithubStarCount()).toBe(5);
+    });
   });
 });

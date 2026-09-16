@@ -190,7 +190,8 @@ async function claimRefresh(now: number): Promise<{
     const localCache = cache ?? emptyCache();
     return {
       claimed:
-        localCache.refreshUntil === null || now >= localCache.refreshUntil,
+        (localCache.retryAt === null || now >= localCache.retryAt) &&
+        (localCache.refreshUntil === null || now >= localCache.refreshUntil),
       cache: localCache,
     };
   }
@@ -233,12 +234,14 @@ export async function getGithubStarCount(): Promise<number | null> {
   const current = cache ?? persisted;
   if (current) {
     if (shouldRefresh(current, Date.now())) {
-      if (current.count === null) return refresh();
       void refresh();
     }
     return current.count;
   }
-  return refresh();
+
+  // GitHub is outside the SSR latency budget; warm the cache for the next request.
+  void refresh();
+  return null;
 }
 
 export function resetGithubStarCountCacheForTests(): void {
