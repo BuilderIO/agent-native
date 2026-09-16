@@ -37,6 +37,45 @@ test("comments toolbar opens an anchored composer", async ({ page }) => {
   await expect(commentButton).toBeDisabled();
   await composer.fill("Browser parity check");
   await expect(commentButton).toBeEnabled();
+
+  const tools = page.locator("[data-review-comment-tools]");
+  const mentionButton = tools.getByRole("button", {
+    name: "Mention someone",
+    exact: true,
+  });
+  const attachmentButton = tools.getByRole("button", {
+    name: "Attach image",
+    exact: true,
+  });
+  const sendToAgent = page.getByRole("button", {
+    name: "Send to agent",
+    exact: true,
+  });
+  await expect(mentionButton).toBeVisible();
+  await expect(attachmentButton).toBeVisible();
+  await expect(sendToAgent).toBeVisible();
+  const mentionBox = await mentionButton.boundingBox();
+  const attachmentBox = await attachmentButton.boundingBox();
+  if (!mentionBox || !attachmentBox) {
+    throw new Error("review composer tools have no layout boxes");
+  }
+  expect(
+    Math.abs(
+      mentionBox.y +
+        mentionBox.height / 2 -
+        (attachmentBox.y + attachmentBox.height / 2),
+    ),
+  ).toBeLessThanOrEqual(1);
+  expect(attachmentBox.x).toBeGreaterThanOrEqual(
+    mentionBox.x + mentionBox.width - 1,
+  );
+
+  await composer.fill("Browser ");
+  await composer.press("@");
+  const mentionOption = page.getByRole("menuitem").first();
+  await expect(mentionOption).toBeVisible();
+  await mentionOption.click();
+  await expect(composer).toHaveValue(/Browser @.+/);
   await composer.press("Escape");
   await expect(composer).toBeHidden();
 });

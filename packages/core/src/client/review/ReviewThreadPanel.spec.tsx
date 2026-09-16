@@ -382,6 +382,102 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(container.textContent).not.toContain("Send to agent");
   });
 
+  it("passes selected mentions through a draft submission", () => {
+    const mention = { label: "Alice", email: "alice@example.com" };
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          showHeader={false}
+          showComposerTools
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+
+    const draftComposer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Add a comment..."]',
+    );
+    act(() => {
+      draftComposer?.setSelectionRange(0, 0);
+      draftComposer?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "@", bubbles: true }),
+      );
+    });
+    const mentionItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Alice"));
+    expect(mentionItem).toBeTruthy();
+    act(() => mentionItem?.click());
+
+    const form = draftComposer?.closest("form");
+    act(() =>
+      form?.querySelector<HTMLButtonElement>('button[type="submit"]')?.click(),
+    );
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        targetId: "screen-1",
+        body: "@Alice",
+        mentions: [mention],
+        resolutionTarget: "human",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("passes selected mentions through a reply submission", () => {
+    const mention = { label: "Alice", email: "alice@example.com" };
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          showComposerTools
+          mentionOptions={[mention]}
+          canReply
+        />,
+      );
+    });
+
+    const replyToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Reply",
+    );
+    act(() => replyToggle?.click());
+    const replyComposer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Reply..."]',
+    );
+    act(() => {
+      replyComposer?.setSelectionRange(0, 0);
+      replyComposer?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "@", bubbles: true }),
+      );
+    });
+    const mentionItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Alice"));
+    expect(mentionItem).toBeTruthy();
+    act(() => mentionItem?.click());
+
+    const form = replyComposer?.closest("form");
+    act(() =>
+      form?.querySelector<HTMLButtonElement>('button[type="submit"]')?.click(),
+    );
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        commentId: "comment-1",
+        body: "@Alice",
+        mentions: [mention],
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("fails closed when reply, resolve, and delete capabilities are omitted", () => {
     act(() => {
       root.render(

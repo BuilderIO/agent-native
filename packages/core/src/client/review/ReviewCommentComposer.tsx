@@ -172,7 +172,7 @@ export function ReviewCommentComposer({
         textarea.setSelectionRange(nextCaret, nextCaret);
       });
     }
-    updateValue(nextValue);
+    onChange(nextValue);
     const nextMentions = mentions.filter((current) =>
       nextValue.includes(`@${current.label}`),
     );
@@ -293,6 +293,8 @@ export function ReviewCommentComposer({
           ) {
             const triggerIndex =
               event.currentTarget.selectionStart ?? value.length;
+            const beforeTrigger = value.slice(0, triggerIndex);
+            if (beforeTrigger && !/\s$/.test(beforeTrigger)) return;
             setMentionTriggerIndex(triggerIndex);
             mentionTokenEndRef.current = triggerIndex + 1;
             setMentionSearch("");

@@ -82,6 +82,43 @@ describe("ReviewCommentComposer actions", () => {
     ).not.toBe(tools);
   });
 
+  it("opens typed mentions only at a word boundary", () => {
+    const mention = { label: "Alice", email: "alice@example.com" };
+    const renderComposer = (value: string) => {
+      act(() => {
+        root.render(
+          <ReviewCommentComposer
+            value={value}
+            onChange={() => {}}
+            onSubmit={() => {}}
+            showCommentTools
+            mentionOptions={[mention]}
+          />,
+        );
+      });
+    };
+
+    renderComposer("email");
+    let textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    act(() => {
+      textarea!.setSelectionRange(5, 5);
+      textarea!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "@", bubbles: true }),
+      );
+    });
+    expect(document.querySelector('[role="menuitem"]')).toBeNull();
+
+    renderComposer("email ");
+    textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    act(() => {
+      textarea!.setSelectionRange(6, 6);
+      textarea!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "@", bubbles: true }),
+      );
+    });
+    expect(document.querySelector('[role="menuitem"]')).not.toBeNull();
+  });
+
   it("routes implicit submission to the visible agent action", () => {
     const onSubmit = vi.fn();
     act(() => {

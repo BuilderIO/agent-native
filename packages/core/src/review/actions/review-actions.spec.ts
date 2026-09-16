@@ -332,6 +332,47 @@ describe("review actions", () => {
     ).rejects.toThrow();
   });
 
+  it("persists selected mentions on new comments and replies", async () => {
+    const mention = {
+      label: "Alice",
+      email: "alice@example.com",
+      id: "user-alice",
+    };
+    const root = await createReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        body: "Draft note @Alice",
+        mentions: [mention],
+      },
+      { userEmail: COMMENTER_EMAIL, caller: "frontend" },
+    );
+    const reply = await replyReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        commentId: root.id,
+        body: "Reply note @Alice",
+        mentions: [mention],
+      },
+      { userEmail: COMMENTER_EMAIL, caller: "frontend" },
+    );
+
+    expect(root.mentions).toEqual([mention]);
+    expect(reply.mentions).toEqual([mention]);
+    const persisted = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "public",
+      scope: { userEmail: COMMENTER_EMAIL },
+    });
+    expect(persisted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: root.id, mentions: [mention] }),
+        expect.objectContaining({ id: reply.id, mentions: [mention] }),
+      ]),
+    );
+  });
+
   it("marks multiple review threads read in one authorized action", async () => {
     const first = await insertReviewComment({
       resourceType: "doc",
