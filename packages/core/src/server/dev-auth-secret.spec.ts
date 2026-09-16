@@ -168,6 +168,7 @@ describe("resolvePersistedDevAuthSecret", () => {
       fs.writeFileSync(secretFile(appRoot), "exposed-secret\n", {
         mode: 0o644,
       });
+      fs.chmodSync(secretFile(appRoot), 0o644);
       try {
         resolvePersistedDevAuthSecret(appRoot, () => "replacement");
         expect.unreachable();

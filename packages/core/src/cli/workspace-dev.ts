@@ -97,6 +97,20 @@ const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
   expires: "0",
 };
 
+export function workspaceGatewayUrl(host: string, port: number): string {
+  const bindHost =
+    host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  const advertisedHost =
+    bindHost === "0.0.0.0"
+      ? "127.0.0.1"
+      : bindHost === "::"
+        ? "[::1]"
+        : bindHost.includes(":")
+          ? `[${bindHost}]`
+          : bindHost;
+  return `http://${advertisedHost}:${port}`;
+}
+
 function workspaceOAuthOrigin(
   env: NodeJS.ProcessEnv,
   gatewayUrl: string,
@@ -690,7 +704,7 @@ export async function runWorkspaceDev(
       env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
       DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS,
   );
-  let gatewayUrl = `http://${gatewayHost}:${requestedPort}`;
+  let gatewayUrl = workspaceGatewayUrl(gatewayHost, requestedPort);
 
   const apps = await discoverApps(appsDir, appPortStart);
   if (apps.length === 0) {
@@ -1482,7 +1496,7 @@ export async function runWorkspaceDev(
       const address = server.address();
       const actualPort =
         typeof address === "object" && address ? address.port : port;
-      gatewayUrl = `http://${gatewayHost}:${actualPort}`;
+      gatewayUrl = workspaceGatewayUrl(gatewayHost, actualPort);
       stdout.write(`[workspace] Root: ${root}\n`);
       if (requestedPort > 0 && actualPort !== requestedPort) {
         stdout.write(

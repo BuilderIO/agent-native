@@ -21,6 +21,7 @@ import {
   shouldEagerStartWorkspaceApps,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
+  workspaceGatewayUrl,
   workspacePrewarmConcurrency,
   type WorkspaceDevHandle,
 } from "./workspace-dev.js";
@@ -40,6 +41,15 @@ afterEach(() => {
 });
 
 describe("workspace dev startup", () => {
+  it.each([
+    ["127.0.0.1", "http://127.0.0.1:8080"],
+    ["0.0.0.0", "http://127.0.0.1:8080"],
+    ["::", "http://[::1]:8080"],
+    ["::1", "http://[::1]:8080"],
+  ])("advertises a usable URL for gateway host %s", (host, expected) => {
+    expect(workspaceGatewayUrl(host, 8080)).toBe(expected);
+  });
+
   it("prints the workspace root and usable app URLs", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
