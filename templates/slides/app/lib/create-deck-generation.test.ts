@@ -617,7 +617,9 @@ describe("startDeckGeneration", () => {
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "Source-preserving improvement mode",
     );
-    expect(agentSubmit.mock.calls[0]?.[1]).toContain("Do not call add-slide");
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "Do not use the new-deck add-slide workflow",
+    );
   });
 
   it("lets a hydrated PDF reference, not the generic fallback, steer styling", async () => {
