@@ -73,10 +73,23 @@ const messages: AgentChatTranslation = {
     "Criando ou reutilizando sua conta do Builder.io. Isso geralmente leva alguns segundos.",
   "onboarding.builderConnectionDescription":
     "Conclua a conexão com um clique na nova janela.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Os créditos de IA e as alterações de código na nuvem estão prontos para uso.",
+  "onboarding.builderReadyCreditsOnly":
+    "Os créditos de IA estão prontos para uso. As edições de código na nuvem exigem um projeto Builder nas configurações do agente em segundo plano.",
+  "onboarding.openBackgroundAgentSettings":
+    "Abrir configurações do agente em segundo plano",
   "onboarding.capability.llm.keySummary":
     "Conecte um provedor de IA ou modelo local",
   "onboarding.capability.fileStorage.keySummary":
     "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.fileStorage.title": "Escolha o armazenamento de arquivos",
+  "onboarding.fileStorage.description":
+    "Escolha o armazenamento gerenciado do Builder ou suas próprias chaves para um bucket compatível com S3.",
+  "onboarding.fileStorage.custom":
+    "Usar chaves de armazenamento personalizadas",
+  "onboarding.fileStorage.customDescription":
+    "Configure um bucket compatível com S3 com uma URL pública estável.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
   "onboarding.capability.voiceInput.keySummary":
     "Reconhecimento de voz do navegador ou conversão de fala em texto",
@@ -631,6 +644,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} linhas",
   "errorMessages.agentConnection":
     "A conexão do agente foi interrompida. Verifique sua conexão e tente novamente.",
+  "errorMessages.attachmentPasswordProtected":
+    "Este PDF está protegido por senha e não pode ser lido. Remova a proteção por senha ou cole o texto relevante e tente novamente.",
   "errorMessages.builderAuthentication":
     "O Builder rejeitou as credenciais conectadas. Reconecte Builder.io em Configurações e tente novamente.",
   "errorMessages.builderModelUnauthorized":

@@ -23,6 +23,7 @@ export interface WriteFrameGeometrySnapshotArgs {
   ) => boolean;
   frameGeometrySaveTimerRef: RefObject<number | null>;
   id: string | undefined;
+  liveFrameGeometryRef?: RefObject<CanvasFrameGeometryById>;
   pendingFrameGeometrySaveRef: RefObject<{
     geometryById: CanvasFrameGeometryById;
     previousGeometry: CanvasFrameGeometryById;
@@ -38,6 +39,7 @@ export function runWriteFrameGeometrySnapshot(
     enqueueFrameGeometryDataSave,
     frameGeometrySaveTimerRef,
     id,
+    liveFrameGeometryRef,
     pendingFrameGeometrySaveRef,
     queryClient,
   }: WriteFrameGeometrySnapshotArgs,
@@ -91,6 +93,7 @@ export function runWriteFrameGeometrySnapshot(
     dataOperations,
   );
   designDataJsonRef.current = nextData;
+  if (liveFrameGeometryRef) liveFrameGeometryRef.current = snapshot;
   queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
     if (!old || typeof old !== "object") return old;
     return { ...old, data: JSON.stringify(nextData) };

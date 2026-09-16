@@ -142,7 +142,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return draft!;
   }
 
-  async function renderSelectedFrame(width = 320, selected = true) {
+  async function renderSelectedFrame(
+    width = 320,
+    selected = true,
+    onGeometryCommit = vi.fn(),
+  ) {
     const onGeometryChange = vi.fn();
     await act(async () => {
       root.render(
@@ -163,6 +167,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           }}
           onPick={() => {}}
           onGeometryChange={onGeometryChange}
+          onGeometryCommit={onGeometryCommit}
         />,
       );
     });
@@ -172,7 +177,12 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     const label = frame?.querySelector<HTMLElement>("[data-frame-label]");
     expect(frame).not.toBeNull();
     expect(label).not.toBeNull();
-    return { frame: frame!, label: label!, onGeometryChange };
+    return {
+      frame: frame!,
+      label: label!,
+      onGeometryChange,
+      onGeometryCommit,
+    };
   }
 
   async function expectPortaledReviewTargetDoesNotStartGesture(
@@ -1189,6 +1199,33 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
 
     expect(frame.style.transform).toBe(before.frameTransform);
     expect(selectionBox!.style.transform).toBe(before.boxTransform);
+  });
+
+  it("commits the rotated frame geometry on mouseup", async () => {
+    const onGeometryCommit = vi.fn();
+    await renderSelectedFrame(320, true, onGeometryCommit);
+    const selectionBox = container.querySelector<HTMLElement>(
+      "[data-frame-selection-box]",
+    );
+    const rotateHandle = selectionBox?.querySelector<HTMLElement>(
+      "[data-rotate-handle]",
+    );
+    expect(rotateHandle).not.toBeNull();
+
+    await act(async () => {
+      dispatchMouse(rotateHandle!, "mousedown", 500, 100);
+      dispatchMouse(window, "mousemove", 560, 100);
+      await nextAnimationFrame();
+      dispatchMouse(window, "mouseup", 560, 100);
+    });
+
+    expect(onGeometryCommit).toHaveBeenCalledTimes(1);
+    expect(
+      onGeometryCommit.mock.calls[0]?.[0]?.["screen-a"]?.rotation ?? 0,
+    ).toBe(0);
+    expect(
+      onGeometryCommit.mock.calls[0]?.[1]?.["screen-a"]?.rotation,
+    ).not.toBe(0);
   });
 
   it("resizes a frame and restores it when Escape cancels the drag", async () => {

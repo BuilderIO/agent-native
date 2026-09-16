@@ -21,6 +21,7 @@ import {
   gradientPaint,
   markWrappedLines,
   materializeClipPathShapes,
+  materializeCompositeBorders,
   patchBulletIndentsInPptxBlob,
   pinRenderedFontFamilies,
   pptxExportScale,
@@ -1175,5 +1176,105 @@ describe("widenInPlace", () => {
 
     expect(element.style.marginLeft).toBe("170px");
     expect(element.style.marginRight).toBe("-190px");
+  });
+});
+
+describe("materializeCompositeBorders", () => {
+  const barsOf = (element: HTMLElement) =>
+    Array.from(element.children).filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement && child.style.position === "absolute",
+    );
+
+  it("redraws a one-sided rule as a box and moves its width into the padding", () => {
+    document.body.innerHTML =
+      '<div><p style="padding-bottom: 12px; border-bottom-width: 1px; border-bottom-style: solid; border-bottom-color: rgb(255, 0, 0)">Row</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const row = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(row.style.getPropertyValue("border-bottom-width")).toMatch(
+      /^0(px)?$/,
+    );
+    expect(row.style.getPropertyValue("padding-bottom")).toBe("13px");
+    const [bar] = barsOf(row);
+    expect(bar.style.height).toBe("1px");
+    expect(bar.style.backgroundColor).toBe("rgb(255, 0, 0)");
+    expect(bar.style.getPropertyValue("bottom")).toMatch(/^0(px)?$/);
+  });
+
+  it("leaves a uniform border alone, which already exports as a line", () => {
+    document.body.innerHTML =
+      '<div><p style="border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: rgb(0, 0, 255); border-right-color: rgb(0, 0, 255); border-bottom-color: rgb(0, 0, 255); border-left-color: rgb(0, 0, 255)">Card</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const card = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(barsOf(card)).toHaveLength(0);
+    expect(card.style.getPropertyValue("border-bottom-width")).toBe("1px");
+  });
+
+  it("leaves a dashed rule alone rather than redrawing it solid", () => {
+    document.body.innerHTML =
+      '<div><p style="border-bottom-width: 1px; border-bottom-style: dashed; border-bottom-color: rgb(255, 0, 0)">Row</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const row = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(barsOf(row)).toHaveLength(0);
+    expect(row.style.getPropertyValue("border-bottom-width")).toBe("1px");
+  });
+
+  it("leaves a rounded box alone, whose corners a straight bar cannot follow", () => {
+    document.body.innerHTML =
+      '<div><p style="border-bottom-width: 1px; border-bottom-style: solid; border-bottom-color: rgb(255, 0, 0); border-top-left-radius: 8px">Card</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const card = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(barsOf(card)).toHaveLength(0);
+    expect(card.style.getPropertyValue("border-bottom-width")).toBe("1px");
+  });
+
+  it("leaves adjacent sides that differ alone, since CSS mitres that corner", () => {
+    document.body.innerHTML =
+      '<div><p style="border-top-width: 2px; border-top-style: solid; border-top-color: rgb(255, 0, 0); border-left-width: 1px; border-left-style: solid; border-left-color: rgb(0, 0, 255)">Card</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const card = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(barsOf(card)).toHaveLength(0);
+    expect(card.style.getPropertyValue("border-top-width")).toBe("2px");
+  });
+
+  it("leaves a box holding positioned children alone, since their anchors follow its padding box", () => {
+    document.body.innerHTML =
+      '<div><p style="position: relative; border-bottom-width: 1px; border-bottom-style: solid; border-bottom-color: rgb(255, 0, 0)"><span style="position: absolute; right: 0px">Pinned</span></p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const row = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(row.style.getPropertyValue("border-bottom-width")).toBe("1px");
+    expect(row.querySelector("div")).toBeNull();
+  });
+
+  it("redraws a rule on the export root, which its own query does not return", () => {
+    document.body.innerHTML =
+      '<div style="position: relative; border-top-width: 2px; border-top-style: solid; border-top-color: rgb(0, 255, 0)"><p>Slide</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+
+    materializeCompositeBorders(root);
+
+    expect(root.style.getPropertyValue("border-top-width")).toMatch(/^0(px)?$/);
+    expect(root.style.getPropertyValue("padding-top")).toBe("2px");
+    const [bar] = barsOf(root);
+    expect(bar.style.height).toBe("2px");
+    expect(bar.style.backgroundColor).toBe("rgb(0, 255, 0)");
   });
 });

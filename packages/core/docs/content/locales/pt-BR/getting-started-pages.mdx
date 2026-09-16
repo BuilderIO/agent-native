@@ -15,8 +15,8 @@ persistir dados do domínio.
 
 O servidor de desenvolvimento lê os arquivos de rota ao iniciar. Crie
 `app/routes/text-analyses.tsx` e reinicie `pnpm dev` se ele já estiver em execução.
-A rota estará disponível em
-`http://localhost:8080/text-analyses`.
+Abra a URL local exibida por `pnpm dev` e acrescente `/text-analyses`; a porta
+pode mudar se 8080 já estiver em uso.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -62,7 +62,7 @@ export default function TextAnalysesRoute() {
 `useActionQuery` chama a mesma ação somente leitura usada pelo agente. A página não
 precisa de uma rota de API personalizada, uma segunda camada de dados ou SQL ainda.
 
-Abra `http://localhost:8080/text-analyses` ou peça ao agente:
+Abra a URL local exibida com `/text-analyses` acrescentado ou peça ao agente:
 
 > Navigate to `/text-analyses`.
 
