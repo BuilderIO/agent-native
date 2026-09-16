@@ -149,7 +149,7 @@ export function AgentDirectorySection() {
                     onClick={() => openAgentConnection(provider.provider)}
                     className="mt-4 h-8 justify-between px-2 text-xs"
                   >
-                    {t("common.connect")}
+                    {t("agentChat.common.connect")}
                     <IconArrowUpRight size={14} />
                   </Button>
                 )}
