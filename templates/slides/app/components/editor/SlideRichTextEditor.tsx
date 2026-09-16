@@ -1,5 +1,6 @@
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { Extension } from "@tiptap/core";
+import Bold from "@tiptap/extension-bold";
 import { TextStyle } from "@tiptap/extension-text-style";
 import type { Editor } from "@tiptap/react";
 import {
@@ -47,7 +48,16 @@ const SLIDE_TEXT_CONTAINER_TAGS = new Set([
 
 // A slide text block is one bounded block; StarterKit's trailing paragraph
 // would add an empty line under an edited list that the canvas never shows.
-const SLIDE_STARTER_KIT = { trailingNode: false } as const;
+const SLIDE_STARTER_KIT = { bold: false, trailingNode: false } as const;
+
+// TipTap treats font-weight values from 500 through 900 as bold marks. Slides
+// uses those values for ordinary block typography, so only semantic bold HTML
+// should create a bold mark while entering edit mode.
+export const SlideBold = Bold.extend({
+  parseHTML() {
+    return [{ tag: "strong" }, { tag: "b" }];
+  },
+});
 
 const SLIDE_EDITOR_BLOCK_ATTRIBUTES = ["dir", "data-pptx-paragraph"] as const;
 const SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES = [
@@ -981,7 +991,7 @@ export const SlideRichTextEditor = forwardRef<
       }
       parseValue={false}
       normalizeValue={(nextValue) => nextValue}
-      extraExtensions={[SlideTextStyle, SlideBlockStyle]}
+      extraExtensions={[SlideBold, SlideTextStyle, SlideBlockStyle]}
     />
   );
 });

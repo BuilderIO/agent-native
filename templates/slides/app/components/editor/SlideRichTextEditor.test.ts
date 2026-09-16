@@ -4,9 +4,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Editor } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  SlideBold,
   contentForSlideTextContainer,
   normalizeSlideEditorContent,
   restoreSlideTextContainerContent,
@@ -28,6 +31,28 @@ afterAll(() => {
 });
 
 describe("slide rich text normalization", () => {
+  it("does not infer bold from numeric font weights", () => {
+    const editor = new Editor({
+      extensions: [StarterKit.configure({ bold: false }), SlideBold],
+      content:
+        '<p style="font-weight:500">Regular weight</p><p><strong>Intentional</strong></p>',
+    });
+
+    try {
+      const [regular, explicitBold] = editor.getJSON().content ?? [];
+      expect(regular?.content?.[0]?.marks).toBeUndefined();
+      expect(explicitBold?.content?.[0]?.marks).toEqual([{ type: "bold" }]);
+
+      editor.commands.setTextSelection({ from: 1, to: 15 });
+      expect(editor.commands.toggleBold()).toBe(true);
+      expect(editor.getJSON().content?.[0]?.content?.[0]?.marks).toEqual([
+        { type: "bold" },
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("converts legacy bullet rows without losing row styling", () => {
     const html = normalizeSlideEditorContent(
       '<div><div style="font-size: 24px; color: red"><span>●</span><span>First</span></div><div><span>●</span><span>Second</span></div></div><p></p>',
