@@ -249,7 +249,44 @@ describe("DesignCanvas iframe sandbox policy", () => {
       getDesignCanvasIframeSandbox({
         externalPreview: true,
         readOnly: true,
+        parentOrigin: "https://editor.builderio.xyz",
+        previewUrl: "https://branch.builderio.xyz/forms",
       }),
     ).toContain("allow-same-origin");
+  });
+
+  it("only grants same-origin access to trusted cross-origin preview URLs", () => {
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: true,
+        parentOrigin: "https://editor.builderio.xyz",
+        previewUrl: "https://branch.builderio.xyz/forms",
+      }),
+    ).toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: true,
+        parentOrigin: "https://editor.builderio.xyz",
+        previewUrl: "https://editor.builderio.xyz/forms",
+      }),
+    ).not.toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: true,
+        parentOrigin: "https://editor.builderio.xyz",
+        previewUrl: "https://evil.example/forms",
+      }),
+    ).not.toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: true,
+        parentOrigin: "https://editor.builderio.xyz",
+        previewUrl: "javascript:parent.document.body.innerHTML='pwned'",
+      }),
+    ).not.toContain("allow-same-origin");
   });
 });

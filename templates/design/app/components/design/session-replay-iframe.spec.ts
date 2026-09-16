@@ -28,7 +28,12 @@ describe("Design session replay iframe wiring", () => {
   it("keeps URL fallback frames live while preserving opaque srcdoc frames", () => {
     const multiScreenCanvas = source("./MultiScreenCanvas.tsx");
     expect(
-      getDesignCanvasIframeSandbox({ externalPreview: true, readOnly: true }),
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: true,
+        parentOrigin: "https://editor.builderio.xyz",
+        previewUrl: "https://branch.builderio.xyz/forms",
+      }),
     ).toContain("allow-same-origin");
     expect(
       getDesignCanvasIframeSandbox({ externalPreview: false, readOnly: true }),

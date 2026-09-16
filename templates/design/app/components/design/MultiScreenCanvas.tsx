@@ -11938,6 +11938,7 @@ const Screen = memo(function Screen({
                 sandbox={getDesignCanvasIframeSandbox({
                   externalPreview: Boolean(previewUrl),
                   readOnly: true,
+                  previewUrl,
                 })}
                 // Visible includes the generous overscan band, so eager load
                 // here prewarms the document before it crosses the raw
@@ -12727,6 +12728,7 @@ function BreakpointPreviewRow({
                     sandbox={getDesignCanvasIframeSandbox({
                       externalPreview: Boolean(previewUrl),
                       readOnly: true,
+                      previewUrl,
                     })}
                     onLoad={() => {
                       getBootStartCallback?.(

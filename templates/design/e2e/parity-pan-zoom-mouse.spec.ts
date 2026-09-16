@@ -431,15 +431,22 @@ test("toolbar and keyboard zoom updates survive a pending fit without refresh", 
     // Shift+1 schedules the camera command; the keyboard zoom must win before
     // the command's debounced commit can write its fit camera back.
     await page.keyboard.press("Shift+1");
+    await expect
+      .poll(async () => (await worldTransform(page))?.scale ?? null, {
+        timeout: 2_000,
+      })
+      .not.toBeCloseTo(beforeScale!, 3);
+    const afterFitScale = (await worldTransform(page))?.scale ?? null;
+    expect(afterFitScale).not.toBeNull();
     await page.keyboard.press(`${MOD}+=`);
     await expect
       .poll(async () => (await worldTransform(page))?.scale ?? null, {
         timeout: 2_000,
       })
-      .toBeGreaterThan(beforeScale!);
+      .toBeGreaterThan(afterFitScale!);
     const afterKeyboardScale = (await worldTransform(page))?.scale ?? null;
     const afterKeyboardLabel = (await readout.textContent())?.trim();
-    expect(afterKeyboardScale).toBeGreaterThan(beforeScale!);
+    expect(afterKeyboardScale).toBeGreaterThan(afterFitScale!);
     expect(afterKeyboardLabel).not.toBe(beforeLabel);
 
     // The toolbar uses the same controlled path. Verify its visible transform

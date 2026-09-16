@@ -5988,6 +5988,7 @@ export function DesignCanvas({
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: Boolean(externalPreviewUrl),
             readOnly,
+            previewUrl: externalPreviewUrl,
           })}
           data-design-preview-iframe
           onLoad={(event) => {
@@ -6047,6 +6048,7 @@ export function DesignCanvas({
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: true,
             readOnly: true,
+            previewUrl: runtimeVerificationUrl,
           })}
           data-runtime-verification-iframe
           aria-hidden="true"
