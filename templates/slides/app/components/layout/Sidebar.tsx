@@ -90,6 +90,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
       collapsible={Boolean(onToggleCollapsed)}
       onCollapsedChange={onToggleCollapsed}
       brandName={t("navigation.brand")}
+      appId="slides"
       brandHref="/home"
       items={items}
       secondaryItems={secondaryItems}
