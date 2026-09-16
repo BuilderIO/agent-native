@@ -36,24 +36,18 @@ unblocker - request id, time, screenshot, account, or URL.
 
 ### Checkmark gate
 
-For a defect, `✅` is a verified-closure signal. Add it only when the item has
-the **Fixed**, **Shipped**, or **Live verified** disposition and all four bars
-in Phase 2 hold. Never add it because an item was read, claimed, reviewed,
-handled, assigned, changed in source, covered by a test, or put on a beta/PR
-queue. A suspected fix is not a fix. Other terminal dispositions release with
-`:no_entry_sign:`; that marker means non-fixed workflow closure, not success.
+For a defect, `✅` means verified closure. Use it only for **Fixed**,
+**Shipped**, or **Live verified** after Phase 2's four bars hold. Never use it
+for a read, claim, review, assignment, source change, test, or beta/PR queue.
+A suspected fix is not a fix; other terminal states use `:no_entry_sign:`.
 
-If confidence is missing, keep `👀`, use the narrowest evidence-limited
-disposition, and ask one targeted question or fork whenever the answer would
-unblock the reproduction. Do not call an item fixed, or release its eye with
-either marker, just because the reporter has not supplied enough detail. Age
-alone never turns an unverified defect into a fix: **Abandoned - no answer in 4
-days** is an explicitly non-fixed terminal closure under the age rule below.
+If confidence is missing, retain `👀`, use an evidence-limited disposition, and
+ask one targeted question or fork if it would unblock reproduction. Age never
+upgrades an unverified defect; **Abandoned - no answer in 4 days** is non-fixed.
 
-Use **Skipped** only for non-defects: feature requests, enhancements, or
-subjective preferences. Breakage is never skipped. **Open - no reply** is a last
-resort after working the defect and finding neither a fix nor a useful question;
-document why.
+Use **Skipped** only for non-defects. Breakage is never skipped. **Open - no
+reply** requires working the defect and finding neither a fix nor a useful
+question; document why.
 
 ### Authoritative disposition vocabulary
 
@@ -70,17 +64,13 @@ synonym in the recap or Slack reply:
 - **Foreign ownership, preserve the other workflow's eye:** **Owned elsewhere**.
 
 **Merged - release pending** is non-terminal: the source merged, but release
-delivery and the published rerun remain. **Clustered** closes a duplicate row;
-it does not erase the duplicate's ledger entry.
+delivery and the published rerun remain. **Clustered** closes a duplicate row
+without erasing its row.
 
-The release marker follows the disposition: add `✅` only for **Fixed**,
-**Shipped**, or **Live verified**; add `:no_entry_sign:` for the other terminal
-dispositions. Do not delete `👀` as a substitute. A foreign workflow eye is
-never changed.
-
-Release only this workflow's eye. A foreign workflow eye is ownership, even
-stale: do not release, duplicate, or reply over it. Record **Owned elsewhere**
-and leave it for handoff; preserve it as a blocker when needed.
+Use `✅` only for **Fixed**, **Shipped**, or **Live verified**; use
+`:no_entry_sign:` for other terminal states. Never delete `👀` as a substitute
+or touch a foreign eye; record **Owned elsewhere** and preserve it as a
+blocker when needed.
 
 Enumerate `slack_read_channel` newest backward through `next_cursor` until a
 parent has your open `👀` without either release marker, or is older than 5
@@ -108,27 +98,13 @@ metadata, record the item as unverified/manual cleanup, and do not let the
 optimized negative-marker cursor suppress it; claim it only after the stale
 marker is removed.
 
-Claiming only marks work; it does not investigate or reply, so older open
-questions still outrank newer reports.
+Claiming only marks work; it does not investigate or reply. Search-discovered
+work gets the same eye-first read-back. Release out-of-scope work with
+`:no_entry_sign:`; preserve foreign eyes and stop on unverified reactions.
 
-Phase 1 searches reach past this window. Claim search-discovered work when it
-enters the worklist - eye first, read back, then investigate.
-
-Claim generously, correct cheaply: release out-of-scope work with
-`:no_entry_sign:` as a workflow closure, not a fix claim; record foreign
-ownership and leave its eye; stop on an unverified reaction.
-
-**Never end with an unworked claim.** Give carried-over eyes a disposition or
-release them with that disposition's marker; peers treat an unexplained eye as
-owned.
-
-**The eye means "I have this," not "I owe you a message."** Every item gets a
-recap row; only informative outcomes get a reply, and terminal outcomes release
-the eye.
-
-Claim what the classification rules put in scope. A duplicate is the same
-message, repost, or cross-post. **A fresh symptom after an answer is a repeat:**
-claim and cluster it so Phase 2 can test the prior fix.
+Never end with an unworked claim: give each eye a disposition and marker. Every
+item gets a recap row, but only informative outcomes get a reply. A fresh
+symptom after an answer is a repeat; claim and cluster it for Phase 2.
 
 ### External trackers are evidence, not status
 
@@ -270,24 +246,11 @@ the query also returns ordinary replies and old polls that happen to carry the
 reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
-An upvoted item is a **feature or UX change**, so it is exempt from the
-clear-bug bar and from the demand for observable broken behavior. Everything
-else still applies: it gets the same `👀`, the same fix-altitude gate, the
-same verification, and it counts against the question budget.
-
-The upvote overrides the bug gate, not the ownership map. An upvoted Design or
-Content item still gets built — name Sid or Alice in the recap row so the
-mapped owner is not surprised by a change in their area. Naming them is a
-courtesy, not a gate: do not stall the work waiting for their reply.
-
-Because the upvote already is the product decision, do not ask which variant
-people would prefer. Ship the smallest version that delivers the endorsed
-improvement, and let the reporter react to something real.
-
-For every authorized upvoted improvement, add `👀` before investigation or
-delegation and read it back. Audit it with the clear-bug ledger, using
-**Shipped** or **Open - no reply** as terminal dispositions; the Phase 0 release
-contract applies.
+An upvoted item is a **feature or UX change**: it skips the clear-bug bar but
+keeps the same eye, fix-altitude gate, verification, and question budget. The
+upvote overrides the bug gate, not ownership; name Sid or Alice in the recap
+without waiting for them. Build the smallest endorsed version, do not ask for
+a variant, and audit it as **Shipped** or **Open - no reply** under Phase 0.
 
 Phase 0 already claimed these with `👀`. If this workflow earlier eyed
 something out of scope, release it with `:no_entry_sign:`; do not post a
@@ -533,10 +496,7 @@ Follow the `## Slack identity` contract in `address-feedback-with-replies`:
 confirm the connected profile is the invoking user before the first write, and
 keep that identity for every read, reaction, reply, and read-back.
 
-Resolve the Slack, GitHub, and Sentry tool schemas once at the start of the run
-and reuse them, rather than re-searching the catalog before each call. This is
-minor — 2.6% of exec calls across 40 measured runs, 10% in the worst one — so
-do it and move on; it is not worth a pass of its own.
+Resolve the Slack, GitHub, and Sentry schemas once and reuse them.
 
 For every Slack write: use the exact parent `thread_ts` from a full-thread
 read, never a search-result or adjacent timestamp, and re-read after posting.
