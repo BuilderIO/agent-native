@@ -16,7 +16,10 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
-import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
@@ -649,6 +652,20 @@ function isAbsoluteHttpUrl(value: string): boolean {
 }
 
 /**
+ * First-party app handles are singular or plural by historical accident
+ * ("plan", but "forms"), and an app's own UI rarely agrees with its handle —
+ * the Plan app labels its sidebar, nav state, and skills "Plans". A caller that
+ * writes the other number is naming a real, reachable app, so resolve the
+ * variant instead of reporting the app missing. Returns null where the swap is
+ * meaningless so an empty or `-ss` handle cannot manufacture a candidate.
+ */
+export function agentHandleNumberVariant(handle: string): string | null {
+  const value = handle.trim().toLowerCase();
+  if (!value || value.endsWith("ss")) return null;
+  return value.endsWith("s") ? value.slice(0, -1) : `${value}s`;
+}
+
+/**
  * Look up a single agent by ID or name (case-insensitive).
  */
 export async function findAgent(
@@ -657,7 +674,20 @@ export async function findAgent(
 ): Promise<DiscoveredAgent | undefined> {
   const lower = normalizeAgentId(idOrName);
   const agents = await discoverAgents(selfAppId);
-  return agents.find((a) => a.id === lower || a.name.toLowerCase() === lower);
+  const exact = agents.find(
+    (a) => a.id === lower || a.name.toLowerCase() === lower,
+  );
+  if (exact) return exact;
+
+  const variant = agentHandleNumberVariant(lower);
+  if (!variant) return undefined;
+  const handles = new Set([variant, normalizeAgentId(variant)]);
+  const near = agents.filter(
+    (a) => handles.has(a.id) || handles.has(a.name.toLowerCase()),
+  );
+  // Two apps whose handles differ only by a trailing "s" must fail loudly
+  // rather than have one of them silently chosen for the caller.
+  return near.length === 1 ? near[0] : undefined;
 }
 
 function hostnameFromUrlLike(value: string | undefined): string | null {
@@ -891,13 +921,29 @@ async function readWorkspaceAppsFromFilesystem(
       continue;
     }
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    let configuredHomePath: string | undefined;
+    let inferredHomePath: "/" | undefined;
+    try {
+      configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+      if (configuredHomePath === undefined) {
+        inferredHomePath = inferWorkspaceAppRootHomePath(appDir);
+      }
+    } catch (error) {
+      if (strict) throw error;
+      // A broken app or route tree must not hide healthy sibling agents.
+      console.warn(
+        `[agent-discovery] Could not discover workspace app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
     apps.push({
       id: normalizeAgentId(entry.name),
       name: pkg.displayName || titleCase(entry.name),
       description: pkg.description || "",
       path: `/${entry.name}`,
       homePath: normalizeWorkspaceAppHomePath(
-        await readConfiguredWorkspaceAppHomePath(appDir),
+        configuredHomePath ?? inferredHomePath,
       ),
       isDispatch: normalizeAgentId(entry.name) === "dispatch",
       audience:

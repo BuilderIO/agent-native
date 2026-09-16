@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { buildCodeLayerProjection } from "../shared/code-layer.js";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_REF_ATTR,
+} from "../shared/component-model.js";
 import action, {
   findOpenTagEnd,
+  isSwapSourceCandidate,
   mergeComponentSwapOverrides,
   reassignCopiedDescendantNodeIds,
   setAttributeOnMarkup,
@@ -187,5 +193,25 @@ describe("mergeComponentSwapOverrides", () => {
     expect(result.markup).not.toContain(
       'data-agent-native-node-id="source-root"',
     );
+  });
+});
+
+describe("swap source identity", () => {
+  it("skips canonical mains so their ids cannot be copied into a second root", () => {
+    const projection = buildCodeLayerProjection(
+      `<body>
+        <div data-agent-native-node-id="main" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="cmp-card">Main</div>
+        <div data-agent-native-node-id="ref" data-agent-native-component="Card" ${COMPONENT_REF_ATTR}="cmp-card">Reference</div>
+      </body>`,
+    );
+    const main = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "main",
+    )!;
+    const reference = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "ref",
+    )!;
+
+    expect(isSwapSourceCandidate(main, "Card")).toBe(false);
+    expect(isSwapSourceCandidate(reference, "Card")).toBe(true);
   });
 });

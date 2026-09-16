@@ -6,7 +6,10 @@ import { createFrameworkSCIMIdentity } from "./scim-provisioning.js";
 type Row = Record<string, any>;
 
 /** A small Better Auth adapter double that keeps model rows in memory. */
-function adapterFor(rows: Record<string, Row[]>): any {
+function adapterFor(
+  rows: Record<string, Row[]>,
+  options: { requireDeclaredTables?: boolean } = {},
+): any {
   const matches = (
     row: Row,
     where: Array<{ field: string; value: unknown; mode?: string }>,
@@ -32,6 +35,9 @@ function adapterFor(rows: Record<string, Row[]>): any {
       table(model).filter((row) => matches(row, where)),
     ),
     create: vi.fn(async ({ model, data }: any) => {
+      if (options.requireDeclaredTables && !(model in rows)) {
+        throw new Error(`relation ${model} does not exist`);
+      }
       const row = { ...data, id: data.id ?? `id-${table(model).length + 1}` };
       table(model).push(row);
       return row;
@@ -72,15 +78,19 @@ describe("framework SCIM identity bridge", () => {
     resetAppConfigForTests();
   });
 
-  it("links an existing user, creates one owned membership, and is idempotent", async () => {
+  it("links a user and writes the first audit event with the migration-provisioned table", async () => {
     const rows: Record<string, Row[]> = {
       user: [{ id: "user-1", email: "Jane@Example.com" }],
       frameworkOrganization: [{ id: "org-1", name: "Example" }],
       orgMember: [],
       orgScimMembership: [],
       appMemberRole: [],
+      agentAuditLog: [],
     };
-    const database = adapterFor(rows);
+    // A fresh database has no lazy audit initialization. The strict adapter
+    // models the schema created by org migration 1032 and fails if the SCIM
+    // callback tries to create an undeclared audit relation.
+    const database = adapterFor(rows, { requireDeclaredTables: true });
     const identity = createFrameworkSCIMIdentity();
     const input = {
       connectionId: "connection-1",
@@ -140,10 +150,22 @@ describe("framework SCIM identity bridge", () => {
       { ...state, active: false, sources: [] },
       { database },
     );
-    expect(rows.orgMember).toHaveLength(0);
-    expect(rows.orgScimMembership).toHaveLength(0);
+    expect(rows.orgMember).toHaveLength(1);
+    expect(rows.orgMember[0].federationRemovalPendingAt).toEqual(
+      expect.any(Number),
+    );
+    expect(rows.orgScimMembership).toHaveLength(1);
     expect(rows.appMemberRole).toHaveLength(0);
+    expect(rows.agentAuditLog).toHaveLength(1);
+    expect(rows.agentAuditLog[0]).toMatchObject({
+      action: "org.member.scim-removal-pending",
+      status: "pending",
+      orgId: "org-1",
+    });
     expect(rows.user).toHaveLength(1);
+
+    await identity.reconcileUser!(state, { database });
+    expect(rows.orgMember[0].federationRemovalPendingAt).toBeNull();
   });
 
   it("does not remove a manually-owned membership on deactivation", async () => {
@@ -185,6 +207,61 @@ describe("framework SCIM identity bridge", () => {
     expect(rows.orgMember).toHaveLength(1);
     expect(rows.orgMember[0].id).toBe("manual-member");
     expect(rows.user).toHaveLength(1);
+  });
+
+  it("keeps sessions when a manual membership remains in another organization", async () => {
+    const rows: Record<string, Row[]> = {
+      user: [{ id: "user-1", email: "jane@example.com" }],
+      frameworkOrganization: [
+        { id: "org-scim", name: "SCIM" },
+        { id: "org-manual", name: "Manual" },
+      ],
+      orgMember: [
+        {
+          id: "manual-member",
+          orgId: "org-manual",
+          email: "jane@example.com",
+          role: "member",
+        },
+      ],
+      orgScimMembership: [],
+      appMemberRole: [],
+      session: [{ id: "session-1", userId: "user-1" }],
+    };
+    const database = adapterFor(rows);
+    const identity = createFrameworkSCIMIdentity();
+    const activeState = {
+      userId: "user-1",
+      active: true,
+      sources: [
+        {
+          id: "source-1",
+          connectionId: "connection-1",
+          provisioningDomainId: "org-scim",
+          active: true,
+        },
+      ],
+    } as any;
+
+    await identity.reconcileUser!(activeState, { database });
+    await identity.reconcileUser!(
+      { ...activeState, active: false, sources: [] },
+      { database },
+    );
+
+    expect(rows.session).toHaveLength(1);
+    expect(rows.orgMember).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          orgId: "org-manual",
+          email: "jane@example.com",
+        }),
+        expect.objectContaining({
+          orgId: "org-scim",
+          federationRemovalPendingAt: expect.any(Number),
+        }),
+      ]),
+    );
   });
 
   it("rekeys a mapped membership when the IdP changes the primary email", async () => {
@@ -265,5 +342,51 @@ describe("framework SCIM identity bridge", () => {
     expect(rows.orgMember).toHaveLength(1);
     expect(rows.orgMember[0].id).toBe("manual-member");
     expect(rows.orgScimMembership).toHaveLength(0);
+  });
+
+  it("reuses one mapping after local offboarding deletes the member", async () => {
+    const rows: Record<string, Row[]> = {
+      user: [{ id: "user-1", email: "jane@example.com" }],
+      frameworkOrganization: [{ id: "org-1", name: "Example" }],
+      orgMember: [],
+      orgScimMembership: [],
+      appMemberRole: [],
+    };
+    const database = adapterFor(rows);
+    const identity = createFrameworkSCIMIdentity();
+    const activeState = {
+      userId: "user-1",
+      active: true,
+      sources: [
+        {
+          id: "source-1",
+          connectionId: "connection-1",
+          provisioningDomainId: "org-1",
+          active: true,
+        },
+      ],
+    } as any;
+
+    await identity.reconcileUser!(activeState, { database });
+    const firstMemberId = rows.orgMember[0]!.id;
+    expect(rows.orgScimMembership).toHaveLength(1);
+
+    await identity.reconcileUser!(
+      { ...activeState, active: false, sources: [] },
+      { database },
+    );
+    rows.orgMember.splice(0, 1);
+
+    await identity.reconcileUser!(activeState, { database });
+
+    expect(rows.orgMember).toHaveLength(1);
+    expect(rows.orgMember[0]!.id).not.toBe(firstMemberId);
+    expect(rows.orgScimMembership).toHaveLength(1);
+    expect(rows.orgScimMembership[0]).toMatchObject({
+      orgId: "org-1",
+      userId: "user-1",
+      memberId: rows.orgMember[0]!.id,
+      createdMembership: true,
+    });
   });
 });

@@ -59,12 +59,13 @@ const INTEGRATION_A2A_TOKEN_TTL = "30m";
 const A2A_INVOCATION_EVENT = "$a2a_invocation";
 
 type A2AInvocationStatus = "success" | "pending" | "error";
+type A2AInvocationMode = "message" | "task_poll" | "direct_action";
 
 function trackA2AInvocation(args: {
   invocationId: string;
   callerApp?: string;
   targetApp: string;
-  mode: "message" | "task_poll" | "direct_action";
+  mode: A2AInvocationMode;
   status: A2AInvocationStatus;
   startedAt: number;
   taskId?: string;
@@ -181,6 +182,51 @@ class A2AInvocationError extends Error {
     this.taskId = options.taskId;
     this.errorCode = options.errorCode;
   }
+}
+
+/**
+ * An unresolvable delegation target used to leave this tool as a plain
+ * `Error: ...` string. The agent loop scores a returned string as a SUCCESSFUL
+ * tool call — no `isError`, no loop-breaker entry — and because the return
+ * happened before the tracked call began, no `$a2a_invocation` row was written
+ * either, so the single most common cross-app failure was invisible in logs and
+ * telemetry at once. Handed a "successful" result that merely contains prose,
+ * the model is free to retell it: in production it retold a target it could not
+ * resolve as "The Plans app is temporarily unavailable", inventing an outage
+ * that never happened. Resolution failure is a caller-side naming or
+ * registration fault and never remote downtime, so say so in the message the
+ * model receives.
+ */
+function unresolvableAgentTargetError(
+  requestedAgent: string,
+  available: Array<{ id: string; name: string }>,
+  callerApp: string | undefined,
+  correlation: A2ACorrelationMetadata,
+  mode: A2AInvocationMode,
+): A2AInvocationError {
+  const connected = available.map((a) => a.id).join(", ");
+  console.error(
+    `[call-agent] Unresolvable delegation target "${requestedAgent}" from ${
+      callerApp || "unknown"
+    }. Connected agents: ${connected || "(none)"}`,
+  );
+  trackA2AInvocation({
+    invocationId: randomUUID(),
+    callerApp,
+    targetApp: normalizeAppHandle(requestedAgent) || "unknown",
+    mode,
+    status: "error",
+    startedAt: Date.now(),
+    terminalCode: "agent_not_found",
+    correlation,
+  });
+  return new A2AInvocationError(
+    `No connected agent matches "${requestedAgent}". This is a target-resolution failure, ` +
+      "not an outage: do not describe the app as unavailable, down, or temporarily broken. " +
+      `Connected agents: ${connected || "(none)"}. ` +
+      `Retry with one of those exact ids, or tell the user that "${requestedAgent}" is not connected to this workspace.`,
+    { errorCode: "agent_not_found" },
+  );
 }
 
 function buildMessageIdempotencyKey(
@@ -691,10 +737,15 @@ export async function run(
 
   const agent = await findAgent(agentIdOrName, selfAppId);
   if (!agent) {
-    const available = (await discoverAgents(selfAppId))
-      .map((a) => a.name)
-      .join(", ");
-    return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
+    // Target resolution runs ahead of the action/taskId dispatch below, so all
+    // three modes reach this branch and must report their own.
+    throw unresolvableAgentTargetError(
+      agentIdOrName,
+      await discoverAgents(selfAppId),
+      selfAppId,
+      buildDelegationCorrelation(context, selfAppId),
+      action ? "direct_action" : taskId ? "task_poll" : "message",
+    );
   }
 
   if (!taskId) {

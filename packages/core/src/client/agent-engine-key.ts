@@ -4,8 +4,8 @@
  * Named client helper for storing a bring-your-own provider key (Anthropic,
  * OpenAI, etc.) so the agent chat can run without a Builder connection or an
  * account. The key is persisted by the framework under the matching provider
- * key (e.g. ANTHROPIC_API_KEY) for the current user or org, exactly like the
- * LLM settings panel does — UI code should call this instead of hand-writing
+ * key (e.g. ANTHROPIC_API_KEY) for the active organization, exactly like the
+ * LLM settings panel does - UI code should call this instead of hand-writing
  * a fetch to framework routes.
  */
 
@@ -39,6 +39,7 @@ export interface SaveAgentEngineApiKeyOptions {
   provider?: AgentEngineProvider;
   key?: string;
   apiKey: string;
+  /** @deprecated Agent provider keys are always saved at organization scope. */
   scope?: "user" | "org";
 }
 
@@ -48,6 +49,7 @@ export interface SaveAgentEngineProviderSettingsOptions {
   apiKey?: string;
   baseUrl?: string;
   clearBaseUrl?: boolean;
+  /** @deprecated Agent provider keys are always saved at organization scope. */
   scope?: "user" | "org";
 }
 
@@ -277,7 +279,6 @@ export async function saveAgentEngineProviderSettings({
   apiKey,
   baseUrl,
   clearBaseUrl,
-  scope,
 }: SaveAgentEngineProviderSettingsOptions): Promise<void> {
   const trimmed = apiKey?.trim() ?? "";
   const endpoint = baseUrl?.trim() ?? "";
@@ -295,7 +296,7 @@ export async function saveAgentEngineProviderSettings({
         ...(trimmed ? { value: trimmed } : {}),
         ...(endpoint ? { baseUrl: endpoint } : {}),
         ...(clearBaseUrl ? { clearBaseUrl: true } : {}),
-        scope,
+        scope: "org",
       }),
     },
   );

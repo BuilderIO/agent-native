@@ -134,6 +134,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
     // renders the frame (and its label) underneath the left shell chrome —
     // real-world numbers: a 64px rail + 280px panel overlaps the first
     // screen at the default overview viewport (alt-drag-duplicate-2).
+    await renderScreens([200]);
     const chromeInsetLeft = 344;
     const chromeInsetRight = 60;
     const view = await renderScreens([200], {

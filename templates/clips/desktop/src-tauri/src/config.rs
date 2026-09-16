@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 
+const FEATURE_CONFIG_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegionGuideRect {
@@ -108,6 +110,8 @@ pub enum RewindAgentClipRetention {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeatureConfig {
+    #[serde(default)]
+    pub config_version: u32,
     pub clips_enabled: bool,
     pub meetings_enabled: bool,
     pub voice_enabled: bool,
@@ -115,7 +119,7 @@ pub struct FeatureConfig {
     pub voice_cleanup_enabled: bool,
     #[serde(default = "default_launch_at_login_enabled")]
     pub launch_at_login_enabled: bool,
-    #[serde(default)]
+    #[serde(default = "default_auto_hide_popover_enabled")]
     pub auto_hide_popover_enabled: bool,
     #[serde(default = "default_meeting_transcription_mode")]
     pub meeting_transcription_mode: MeetingTranscriptionMode,
@@ -158,6 +162,10 @@ pub enum LocalRecordingMode {
 }
 
 fn default_launch_at_login_enabled() -> bool {
+    true
+}
+
+fn default_auto_hide_popover_enabled() -> bool {
     true
 }
 
@@ -225,12 +233,13 @@ fn default_rewind_auto_preview_before_sending() -> bool {
 impl Default for FeatureConfig {
     fn default() -> Self {
         Self {
+            config_version: FEATURE_CONFIG_VERSION,
             clips_enabled: true,
             meetings_enabled: true,
             voice_enabled: true,
             voice_cleanup_enabled: default_voice_cleanup_enabled(),
             launch_at_login_enabled: true,
-            auto_hide_popover_enabled: false,
+            auto_hide_popover_enabled: default_auto_hide_popover_enabled(),
             meeting_transcription_mode: default_meeting_transcription_mode(),
             local_recording_mode: LocalRecordingMode::Off,
             show_meeting_widget_enabled: default_show_meeting_widget_enabled(),
@@ -241,6 +250,14 @@ impl Default for FeatureConfig {
             whisper_model_id: default_whisper_model_id(),
         }
     }
+}
+
+fn migrate_feature_config(mut config: FeatureConfig) -> FeatureConfig {
+    if config.config_version < FEATURE_CONFIG_VERSION {
+        config.auto_hide_popover_enabled = true;
+        config.config_version = FEATURE_CONFIG_VERSION;
+    }
+    config
 }
 
 /// Path to the JSON blob that stores the feature config on disk. Lives in the
@@ -269,7 +286,15 @@ fn load_config(app: &AppHandle) -> FeatureConfig {
     let Ok(bytes) = std::fs::read(&path) else {
         return FeatureConfig::default();
     };
-    serde_json::from_slice(&bytes).unwrap_or_default()
+    let config: FeatureConfig = serde_json::from_slice(&bytes).unwrap_or_default();
+    let needs_migration = config.config_version < FEATURE_CONFIG_VERSION;
+    let config = migrate_feature_config(config);
+    if needs_migration {
+        if let Err(err) = save_config(app, &config) {
+            eprintln!("[clips-tray] legacy feature config migration failed: {err}");
+        }
+    }
+    config
 }
 
 /// Persist the feature config to disk (atomic write via temp + rename).
@@ -344,7 +369,11 @@ pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String>
 
 /// Save feature config to disk and emit a change event.
 #[tauri::command]
-pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result<(), String> {
+pub async fn set_feature_config(
+    app: AppHandle,
+    mut config: FeatureConfig,
+) -> Result<(), String> {
+    config.config_version = FEATURE_CONFIG_VERSION;
     if !crate::whisper_model::is_supported_model_id(&config.whisper_model_id) {
         return Err(format!(
             "unsupported Whisper model: {}",
@@ -441,6 +470,38 @@ mod tests {
 
         assert_eq!(config.whisper_model_id, "base");
         assert!(config.voice_cleanup_enabled);
+        assert!(config.auto_hide_popover_enabled);
+
+        let opt_out: FeatureConfig = serde_json::from_value(serde_json::json!({
+            "clipsEnabled": true,
+            "meetingsEnabled": true,
+            "voiceEnabled": true,
+            "autoHidePopoverEnabled": false
+        }))
+        .unwrap();
+        assert!(!opt_out.auto_hide_popover_enabled);
+    }
+
+    #[test]
+    fn feature_config_migration_updates_legacy_default_but_preserves_current_opt_out() {
+        let legacy: FeatureConfig = serde_json::from_value(serde_json::json!({
+            "clipsEnabled": true,
+            "meetingsEnabled": true,
+            "voiceEnabled": true,
+            "autoHidePopoverEnabled": false
+        }))
+        .unwrap();
+        let migrated = migrate_feature_config(legacy);
+
+        assert_eq!(migrated.config_version, FEATURE_CONFIG_VERSION);
+        assert!(migrated.auto_hide_popover_enabled);
+
+        let mut current = FeatureConfig::default();
+        current.auto_hide_popover_enabled = false;
+        let current = migrate_feature_config(current);
+
+        assert_eq!(current.config_version, FEATURE_CONFIG_VERSION);
+        assert!(!current.auto_hide_popover_enabled);
     }
 
     #[test]

@@ -15,6 +15,7 @@ const fileUploadMocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/file-upload", () => fileUploadMocks);
 
+import { buildCodeLayerProjection } from "../../shared/code-layer.js";
 import { convertDecodedFigToEditableHtml as convertShared } from "../../shared/fig-to-frames.js";
 import {
   assertSafeDecodedFigDocument,
@@ -274,6 +275,31 @@ describe("editable .fig conversion", () => {
     expect(result.files[0]!.content).toContain(
       'data-agent-native-layer-name="Card"',
     );
+    expect(result.files[0]!.content).toContain(
+      'data-agent-native-layer-name="Title"',
+    );
+    expect(result.files[0]!.content).not.toMatch(/\s+layer-name\s*=/);
+    const projection = buildCodeLayerProjection(result.files[0]!.content, {
+      source: { kind: "design-file", fileId: "fig-import" },
+    });
+    expect(
+      projection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-layer-name"] === "Card",
+      ),
+    ).toMatchObject({
+      layerName: "Card",
+      layerNameAttribute: "data-agent-native-layer-name",
+    });
+    expect(
+      projection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-layer-name"] === "Title",
+      ),
+    ).toMatchObject({
+      layerName: "Title",
+      layerNameAttribute: "data-agent-native-layer-name",
+    });
     expect(result.files[0]!.content).not.toMatch(/data:[^;]+;base64/i);
     expect(result.warnings).toEqual([]);
     expect(result.stats).toMatchObject({

@@ -48,6 +48,19 @@ const messages = {
     roleOther: "Other",
     skipForNow: "Skip for now",
     saveRoleError: "Could not save your role.",
+    builderReadyWithCodeChanges:
+      "AI credits and cloud code changes are ready to use.",
+    builderReadyCreditsOnly:
+      "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
+    openBackgroundAgentSettings: "Open Background Agent settings",
+    fileStorage: {
+      title: "Choose file storage",
+      description:
+        "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
+      custom: "Use custom storage keys",
+      customDescription:
+        "Configure an S3-compatible bucket with a stable public URL.",
+    },
   },
   settings: {
     title: "Settings",
@@ -1134,6 +1147,13 @@ const messages = {
     askAdminDescription:
       "Ask an administrator for an invitation to join this workspace.",
     appPermissions: "App permissions",
+    applications: "Applications",
+    applicationsEmpty: "No workspace applications are registered yet.",
+    applicationsLoadFailed: "Couldn't load workspace applications.",
+    applicationAccess: "Access for {{name}}",
+    applicationAccessAll: "All members",
+    applicationAccessRestricted: "Restricted",
+    applicationAccessDisabled: "Disabled",
     appRolesOptional: "App roles",
     noAppRolesFound: "No roles found.",
     notAssigned: "Not assigned",
@@ -1225,6 +1245,7 @@ const messages = {
     createGroupForBulk: "Create group",
     changeRole: "Change role",
     removeMember: "Remove member",
+    transferTo: "Transfer ownership to",
     cancel: "Cancel",
     remove: "Remove",
     save: "Save",

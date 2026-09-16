@@ -25,9 +25,11 @@ Chat-spezifischen Plugins, Optionen und Aliase unverändert.
 Für eine Standalone-App bauen Sie die Netlify-Ausgabe und stellen Assets und Funktionen bereit:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+Legen Sie vor dem ersten Production-Deployment `DATABASE_URL` und ein stabiles `BETTER_AUTH_SECRET` in den Umgebungsvariablen der Netlify-Site fest. Verlassen Sie sich nicht auf die lokale PGlite-Datenbank; `DATABASE_URL` muss auf eine dauerhafte PostgreSQL-Datenbank zeigen, die die bereitgestellte Funktion erreichen kann.
 
 Stellen Sie für einen Arbeitsbereich jede App von einer Netlify-Site bereit, indem Sie Folgendes ausführen:
 

@@ -12,6 +12,7 @@ export {
   isTrustedReviewAttachmentUrl,
   type ReviewThread,
   type ReviewCommentCapability,
+  type ReviewCommentFilter,
   type ReviewThreadCapability,
   type ReviewThreadPanelProps,
 } from "./ReviewThreadPanel.js";

@@ -43,6 +43,23 @@ export function patchAuthoredInlineStyles(
   return next;
 }
 
+/**
+ * Drop native width/height hints for an optimistic commit. The host cannot
+ * recompute the winning CSS cascade, so a stale hint must not outrank the
+ * freshly patched inline snapshot until the bridge sends a new selection.
+ */
+export function clearAuthoredSizeStylesForCommit(
+  authoredSizeStyles: ElementInfo["authoredSizeStyles"],
+  committed: Record<string, string>,
+): ElementInfo["authoredSizeStyles"] {
+  if (authoredSizeStyles === undefined) return undefined;
+  const next = { ...authoredSizeStyles };
+  for (const property of ["width", "height"] as const) {
+    if (committed[property] !== undefined) delete next[property];
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
 export function authoredStyleValue(
   element: ElementInfo,
   property: string,

@@ -227,6 +227,7 @@ class AISDKEngine implements AgentEngine {
   readonly label: string;
   readonly defaultModel: string;
   readonly supportedModels: readonly string[];
+  readonly acceptsCustomModels = true;
   readonly preserveCustomModels: boolean;
   readonly capabilities: EngineCapabilities;
 

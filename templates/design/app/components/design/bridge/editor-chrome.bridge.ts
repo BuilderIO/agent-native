@@ -2024,6 +2024,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !!(el && !isDocumentRootElement(el) && getSourceId(el));
   }
 
+  // Portable clone styling retains its marker after persistence. The marker
+  // alone therefore means "clone-shaped", not "runtime-only": a source
+  // document reload stamps its nodes with __anSource, while an optimistic
+  // board insertion remains unclaimed until that source round trip completes.
+  function isRuntimeOnlyClone(el: Element): boolean {
+    var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
+    return !!cloneRoot && !isSourceOwned(cloneRoot);
+  }
+
   // Alpine inserts x-for and x-if instances as direct siblings of their
   // template. Use Alpine's own ownership references rather than guessing from
   // copied IDs, tag shape, or sibling position: any of those can also describe
@@ -3036,6 +3045,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return styles;
   }
 
+  // CSS Typed OM keeps sizing keywords and authored units intact where
+  // getComputedStyle() resolves them to pixels: `auto`, `fit-content`, and
+  // `100%` remain distinguishable from an explicit pixel dimension. This is a
+  // read-only hint for the Inspector; stylesheet values are never write
+  // targets.
+  function collectAuthoredSizeStyles(
+    el: Element,
+  ): Record<string, string> | undefined {
+    var computedStyleMap = (
+      el as Element & {
+        computedStyleMap?: () => { get(property: string): unknown };
+      }
+    ).computedStyleMap;
+    if (typeof computedStyleMap !== "function") return undefined;
+    var map = computedStyleMap.call(el);
+    var styles: Record<string, string> = {};
+    ["width", "height"].forEach(function (property) {
+      var value = map.get(property);
+      if (value == null) return;
+      var cssText = String(value).trim();
+      if (cssText) styles[property] = cssText;
+    });
+    return styles;
+  }
+
   var liveVisualEditOriginalInlineStyles =
     typeof WeakMap !== "undefined"
       ? new WeakMap<Element, Record<string, string>>()
@@ -3456,11 +3490,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var parentStyles = designParent
       ? window.getComputedStyle(designParent)
       : null;
+    var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
+    // A board copy has a fresh live id so selection can target it, but that
+    // id is not source ownership until the host projects/persists the copy.
+    // Keep those identities separate: sourceId remains write-safe while the
+    // runtime pair lets host chrome match this exact live clone.
+    var runtimeOnlyClone = isRuntimeOnlyClone(el);
     var sourceBacked =
-      hasStableOwnSource(el) ||
-      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
+      !runtimeOnlyClone &&
+      (hasStableOwnSource(el) ||
+        (!isTemplateCloneElement(el) && !!closestStableSourceElement(el)));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+    var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
     // Id-on-demand (empty-node-id fix, bridge side): AI-generated screens
     // frequently ship with NO data-agent-native-node-id anywhere, which
     // breaks every id-keyed operation host-side ("Could not move that
@@ -3552,6 +3595,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      runtimeSelector: runtimeSelector || undefined,
+      runtimeSourceId: runtimeSourceId || undefined,
       repeat: repeatInstanceInfo(el) || undefined,
       hasOwnText: hasOwnTextContent(el),
       wholeTextStyleRoot: isWholeTextStyleRoot(el),
@@ -3560,6 +3605,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       classes: Array.from(el.classList),
       computedStyles: collectElementComputedStyles(el, cs, paintCs),
       inlineStyles: collectElementInlineStyles(el),
+      authoredSizeStyles: authoredSizeStyles,
       primitiveKind: el.getAttribute("data-an-primitive") || undefined,
       isGroup: el.getAttribute("data-agent-native-group") === "true",
       vectorStrokeCanAlign: vectorStrokeCanAlign(el),
@@ -3632,23 +3678,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // or portableStyleSnapshot, so this intentionally omits both. Full detail is
   // still posted on element-select / drag-start / edit-time messages via
   // getElementInfo().
-  function getLightElementInfo(el: Element): unknown {
+  function getLightElementInfo(
+    el: Element,
+    includePendingNodeId = false,
+  ): unknown {
     var rect = el.getBoundingClientRect();
     var componentName = componentNameForElement(el);
+    var runtimeOnlyClone = isRuntimeOnlyClone(el);
     var sourceBacked =
-      hasStableOwnSource(el) ||
-      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
+      !runtimeOnlyClone &&
+      (hasStableOwnSource(el) ||
+        (!isTemplateCloneElement(el) && !!closestStableSourceElement(el)));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+    var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
     var parentStyles = el.parentElement
       ? window.getComputedStyle(el.parentElement)
       : null;
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var cs = window.getComputedStyle(el);
+    var pendingNodeId = "";
+    if (
+      includePendingNodeId &&
+      !getSourceId(el) &&
+      el !== document.body &&
+      el !== document.documentElement &&
+      el.getAttribute &&
+      el.setAttribute &&
+      !isTemplateCloneElement(el)
+    ) {
+      pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
+      if (!pendingNodeId) {
+        pendingNodeId = freshRuntimeNodeId("pending");
+        el.setAttribute("data-an-pending-node-id", pendingNodeId);
+      }
+    }
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      runtimeSelector: runtimeSelector || undefined,
+      runtimeSourceId: runtimeSourceId || undefined,
+      pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
       computedStyles: {},
@@ -3956,7 +4028,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? "nwse-resize"
             : "nesw-resize";
     handle.style.cssText =
-      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" +
       cursor +
       ";";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -4322,6 +4394,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function updateParentAutoLayoutOverlay(el: Element | null): void {
+    // A selected frame already has its own selection outline. Showing the
+    // parent's layout box as a second dashed outline makes the frame read as
+    // nested chrome instead of one selected object; keep this affordance for
+    // ordinary child layers where it communicates their auto-layout parent.
+    if (el?.getAttribute("data-an-primitive") === "frame") {
+      hideParentAutoLayoutOverlay();
+      return;
+    }
     var parent = el && el.parentElement;
     if (
       !parent ||
@@ -4438,6 +4518,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
      *  this the drag pays that cost once per element PER TICK. Valid only
      *  while the gesture runs, which is exactly while layout is frozen. */
     infoCache?: Map<Element, unknown>;
+    /** Light identity/geometry descriptors are also stable for one gesture;
+     * cache them so distinct hit-set reports do not re-read computed style. */
+    lightInfoCache?: Map<Element, unknown>;
+    lastReportedElements?: Element[];
     moveFrame?: number | null;
     pendingMoveEvent?: MouseEvent | null;
     move: string;
@@ -4835,7 +4919,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       handle.setAttribute("data-corner", pos);
       handle.style.cssText =
-        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" +
         (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") +
         ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -9050,12 +9134,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e,
     final?: boolean,
     infoCache?: Map<Element, unknown> | null,
+    lightInfoCache?: Map<Element, unknown> | null,
   ): void {
+    var primaryIndex = elements.length - 1;
+    function lightInfo(el: Element): unknown {
+      if (!lightInfoCache) return getLightElementInfo(el, true);
+      var cached = lightInfoCache.get(el);
+      if (cached === undefined) {
+        cached = getLightElementInfo(el, true);
+        lightInfoCache.set(el, cached);
+      }
+      return cached;
+    }
     (window.parent as Window).postMessage(
       {
         type: "agent-native:layer-marquee-selection",
         phase: "change",
-        payload: elements.map(function (el) {
+        payload: elements.map(function (el, index) {
+          // Live ticks only need identity and geometry. Defer the expensive
+          // computed-style/subtree snapshot to the final primary item, which
+          // is the element the host keeps as the inspector selection.
+          if (!final) return lightInfo(el);
+          if (index !== primaryIndex) return lightInfo(el);
           if (!infoCache) return getElementInfo(el);
           var cached = infoCache.get(el);
           if (cached === undefined) {
@@ -9135,12 +9235,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     setPassiveSelectionElements(hitElements);
+    // The host also dedupes unchanged hit sets, but doing it after postMessage
+    // still pays to serialize every selection payload. Skip identical live
+    // ticks here; mouseup must always send the final packet for undo history.
+    var lastReported = activeMarqueeSelection.lastReportedElements;
+    var sameHitSet =
+      !!lastReported &&
+      lastReported.length === hitElements.length &&
+      hitElements.every(function (el, index) {
+        return lastReported![index] === el;
+      });
+    if (!final && sameHitSet) return;
+    activeMarqueeSelection.lastReportedElements = hitElements;
     postElementMarqueeSelect(
       hitElements,
       activeMarqueeSelection.additive,
       e,
       final,
       activeMarqueeSelection.infoCache,
+      activeMarqueeSelection.lightInfoCache,
     );
   }
 
@@ -9226,6 +9339,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       deep: Boolean(e && (e.metaKey || e.ctrlKey)),
       moved: false,
       infoCache: new Map<Element, unknown>(),
+      lightInfoCache: new Map<Element, unknown>(),
       moveFrame: null,
       pendingMoveEvent: null,
       pointerId: e.pointerId,
@@ -10387,6 +10501,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return clampSpacingValue(originValue + delta);
   }
 
+  var paddingProperties = [
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+  ];
+
   function applySpacingDragValue(
     target: Element,
     handle: {
@@ -10403,8 +10524,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } | null,
     value: number,
     mirrorOpposite: boolean,
+    syncAllPadding: boolean,
   ): void {
     if (!target || !handle) return;
+    if (handle.kind === "padding" && syncAllPadding) {
+      for (var i = 0; i < 4; i += 1) {
+        target.style[paddingProperties[i]] = value + "px";
+      }
+      return;
+    }
     target.style[handle.property] = value + "px";
     if (
       handle.kind === "padding" &&
@@ -10430,10 +10558,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var dragEl = selectedEl;
     var originValue = handle.value;
-    var originInlineValue = (dragEl as HTMLElement).style[handle.property];
-    var originInlineOppositeValue = handle.oppositeProperty
-      ? (dragEl as HTMLElement).style[handle.oppositeProperty]
-      : "";
+    var originInlinePaddingValues = {};
+    for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+      var paddingProperty = paddingProperties[paddingIndex];
+      originInlinePaddingValues[paddingProperty] = (
+        dragEl as HTMLElement
+      ).style[paddingProperty];
+    }
+    var syncAllPadding = !!e.shiftKey;
     var startX = e.clientX;
     var startY = e.clientY;
     lastSpacingPointerPoint = { x: startX, y: startY };
@@ -10442,20 +10574,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle: handle,
       currentValue: originValue,
       mirrorOpposite: !!e.altKey,
+      syncAllPadding: syncAllPadding,
+      touchedAllPadding: syncAllPadding,
     };
+    applySpacingDragValue(
+      dragEl,
+      handle,
+      originValue,
+      !!e.altKey,
+      syncAllPadding,
+    );
     // Hide the hover-only hatch fill the instant the drag begins (Figma-style:
     // hatch communicates "this is the resizable band" on hover; once dragging,
     // only the live value badge should be visible over the padding band).
     updateSpacingOverlay(selectedEl);
     showSpacingBadgeForHandle(handle, originValue);
 
-    function updateSpacingDragMirrorState(mirrorOpposite: boolean) {
+    function updateSpacingDragState(
+      mirrorOpposite: boolean,
+      syncAllPadding: boolean,
+    ) {
       if (!spacingDrag) return;
-      if (spacingDrag.mirrorOpposite === mirrorOpposite) return;
+      if (
+        spacingDrag.mirrorOpposite === mirrorOpposite &&
+        spacingDrag.syncAllPadding === syncAllPadding
+      ) {
+        return;
+      }
+      var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding;
+      if (syncAllPadding) {
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          spacingDrag.currentValue,
+          mirrorOpposite,
+          true,
+        );
+      }
       spacingDrag = {
         handle: handle,
         currentValue: spacingDrag.currentValue,
         mirrorOpposite: mirrorOpposite,
+        syncAllPadding: syncAllPadding,
+        touchedAllPadding: touchedAllPadding,
       };
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -10471,10 +10632,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function restoreSpacingDragValue() {
       if (dragEl && document.documentElement.contains(dragEl)) {
-        (dragEl as HTMLElement).style[handle.property] = originInlineValue;
-        if (handle.oppositeProperty) {
-          (dragEl as HTMLElement).style[handle.oppositeProperty] =
-            originInlineOppositeValue;
+        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+          var paddingProperty = paddingProperties[paddingIndex];
+          (dragEl as HTMLElement).style[paddingProperty] =
+            originInlinePaddingValues[paddingProperty];
         }
         selectedEl = dragEl;
         positionOverlay(selectionOverlay, dragEl);
@@ -10495,8 +10656,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cancelSpacingDrag();
         return;
       }
-      if (ev.key !== "Alt") return;
-      updateSpacingDragMirrorState(!!ev.altKey);
+      if (ev.key !== "Alt" && ev.key !== "Shift") return;
+      updateSpacingDragState(!!ev.altKey, !!ev.shiftKey);
     }
 
     function onMove(ev) {
@@ -10509,13 +10670,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
+      var syncAllPadding = !!ev.shiftKey;
+      var touchedAllPadding =
+        (spacingDrag && spacingDrag.touchedAllPadding) || syncAllPadding;
       spacingDrag = {
         handle: handle,
         currentValue: nextValue,
         mirrorOpposite: !!ev.altKey,
+        syncAllPadding: syncAllPadding,
+        touchedAllPadding: touchedAllPadding,
       };
       lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
-      applySpacingDragValue(dragEl, handle, nextValue, !!ev.altKey);
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        nextValue,
+        !!ev.altKey,
+        syncAllPadding,
+      );
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, nextValue);
     }
@@ -10531,17 +10703,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var mirrorOpposite = spacingDrag
         ? spacingDrag.mirrorOpposite
         : !!ev.altKey;
-      applySpacingDragValue(dragEl, handle, finalValue, mirrorOpposite);
+      var syncAllPadding = spacingDrag
+        ? spacingDrag.syncAllPadding
+        : !!ev.shiftKey;
+      var touchedAllPadding = spacingDrag
+        ? spacingDrag.touchedAllPadding
+        : syncAllPadding;
+      var commitAllPadding =
+        handle.kind === "padding" && (syncAllPadding || touchedAllPadding);
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        finalValue,
+        mirrorOpposite,
+        commitAllPadding,
+      );
       selectedEl = dragEl;
       spacingDrag = null;
       var styles = {};
-      styles[handle.property] = finalValue + "px";
-      if (
-        handle.kind === "padding" &&
-        mirrorOpposite &&
-        handle.oppositeProperty
-      ) {
-        styles[handle.oppositeProperty] = finalValue + "px";
+      if (commitAllPadding) {
+        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+          styles[paddingProperties[paddingIndex]] = finalValue + "px";
+        }
+      } else {
+        styles[handle.property] = finalValue + "px";
+        if (
+          handle.kind === "padding" &&
+          mirrorOpposite &&
+          handle.oppositeProperty
+        ) {
+          styles[handle.oppositeProperty] = finalValue + "px";
+        }
       }
       postVisualStyleChange(styles);
       positionOverlay(selectionOverlay, dragEl);
@@ -15693,11 +15885,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         showConstraintGuides(dragEl);
       }
-      showTransformBadge(
-        Math.round(nextLeft) + ", " + Math.round(nextTop),
-        ev.clientX,
-        ev.clientY,
-      );
       refreshOverlays();
     }
     function restoreSourceDragPosition(): void {

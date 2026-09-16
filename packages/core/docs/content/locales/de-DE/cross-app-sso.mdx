@@ -130,4 +130,8 @@ normale lokale Authentifizierung verfügbar.
 - [Sicherheit und Datenscoping](/docs/security)
 - [Multi-App-Arbeitsbereiche](/docs/multi-app-workspace)
 
-Unternehmensanmeldung über OIDC oder SAML unterscheidet sich von der Identitätsföderation zwischen Apps. Der [Leitfaden für verwaltete Bereitstellungen](/docs/administered-deployments) beschreibt das Unternehmensmodell. Die Browser-Anmeldung mit Agent-Native bleibt entfernt.
+Unternehmensanmeldung über OIDC oder SAML unterscheidet sich von der Identitätsföderation zwischen Apps. Der [Leitfaden für verwaltete Bereitstellungen](/docs/administered-deployments) beschreibt das Unternehmensmodell. Wenn `browser.identity-sso` aktiviert ist, versucht die App eine stille `prompt=none`-Prüfung; das lokale Anmeldeformular bleibt der Fallback. Siehe [Design für Cross-App Connect](/docs/cross-app-connect-design).
+
+## Rollout-Anleitung für Browser-Identity-SSO
+
+Aktiviere `browser.identity-sso` zunächst nur für eine Testadresse. Melde dich bei Dispatch an, melde dich in der Ziel-App ab und prüfe beim nächsten Laden die stille Prüfung. Wiederhole den Test ohne Hub-Sitzung und bestätige bei `login_required` das lokale Formular, bevor du die Gruppe erweiterst. Beim ersten Aktivieren kann eine einmalige Sitzungswiderrufung nötig sein.

@@ -5,6 +5,8 @@ description: एक संगठन के लिए invite-only Agent-Native wo
 
 # प्रशासित डिप्लॉयमेंट
 
+SCIM deactivation provisioned membership को pending चिह्नित करता है और app roles तुरंत हटाता है। Ownership transfer पूरा करने के लिए administrator को successor चुनना होगा; पूरा होने पर immutable audit event लिखा जाता है।
+
 एक संगठन के internal apps के लिए workspace चुनें। संगठन membership और data boundary है। Workspace एक या अधिक apps के deployment और config को साथ रखता है।
 
 ## Signup और org creation बंद करें
@@ -23,9 +25,15 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 `ORG_CREATION=closed` होने पर organization creation तब तक अस्वीकृत रहता है जब तक `AUTH_BOOTSTRAP_ADMINS` में कम से कम एक verified administrator सूचीबद्ध न हो, जो अपने पहले sign-in पर canonical organization बनाता है।
 
+प्रारंभिक सेटअप और recovery के लिए एक verified bootstrap-admin address उपलब्ध रखें।
+
 ## कंपनी की keys और roles
 
-Owner या admin org के लिए LLM key सहेज सकता है। सदस्य के personal key को हटाकर org key चुना जा सकता है। App roles एक app के भीतर लागू होते हैं और एक सदस्य के कई roles हो सकते हैं। Admin बिना redeploy किए code-declared permissions को roles से जोड़ सकता है।
+Owner या admin org के लिए LLM key सहेज सकता है। Provider setup अब keys केवल organization के लिए सहेजता है, इसलिए सभी सदस्य company key का उपयोग करते हैं। पुराने personal rows organization key सहेजते समय हट जाते हैं, या provider setup से पहले हटाए जा सकते हैं।
+
+Model field मौजूदा models को सुझाव के रूप में दिखाता है और provider या gateway द्वारा समर्थित कोई भी model ID स्वीकार करता है।
+
+App roles एक app के भीतर लागू होते हैं और एक सदस्य के कई roles हो सकते हैं। Admin बिना redeploy किए code-declared permissions को roles से जोड़ सकता है।
 
 ## ईमेल और पहचान बदलना
 

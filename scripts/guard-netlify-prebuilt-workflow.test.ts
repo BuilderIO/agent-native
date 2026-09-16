@@ -131,6 +131,9 @@ describe("Google callback deploy verification guard", () => {
       /if \[\[ \"\$TARGET\" == \"beta\" && \"\$DEPLOY_MODE\" == \"production\" \]\]/,
     );
     assert.match(step, /relay_context=production/);
+    assert.match(step, /context === "deploy-preview"/);
+    assert.match(step, /preview relay configuration is optional/);
+    assert.match(step, /throw new Error/);
     assert.match(step, /!value/);
     assert.match(step, /Netlify masks secret values/);
     assert.match(step, /Verified Google OAuth relay metadata/);
@@ -1515,6 +1518,9 @@ describe("production Netlify site concurrency guard", () => {
     // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.
     assert.match(String(appSmoke.run), /scripts\/smoke-check-health\.ts/);
     assert.match(String(appSmoke.run), /--auth-routes/);
+    assert.match(String(appSmoke.run), /--check-assets/);
+    assert.match(String(appSmoke.run), /SOURCE_TEMPLATE/);
+    assert.match(String(appSmoke.run), /--asset-path \/overview/);
     assert.match(String(appSmoke.run), /--canonical-host/);
 
     assert(previewSmoke);
@@ -1525,6 +1531,8 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(previewSmoke.run), /scripts\/smoke-check-health\.ts/);
     assert.match(String(previewSmoke.run), /--canonical-host/);
     assert.match(String(previewSmoke.run), /--auth-routes/);
+    assert.match(String(previewSmoke.run), /--check-assets/);
+    assert.match(String(previewSmoke.run), /--asset-path \/overview/);
     assert.match(String(previewSmoke.run), /--preview/);
     assert.doesNotMatch(String(previewSmoke.run), /--allow-missing-health/);
 

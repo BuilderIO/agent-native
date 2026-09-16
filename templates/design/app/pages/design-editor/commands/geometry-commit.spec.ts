@@ -11,6 +11,7 @@ import { runGeometryCommit } from "./geometry-commit";
 
 function runCommit(
   options?: {
+    source?: "pointer" | "keyboard";
     kScaleStyleChangesByFrameId?: Record<string, []>;
   },
   before: CanvasFrameGeometryById = {
@@ -19,9 +20,16 @@ function runCommit(
   after: CanvasFrameGeometryById = {
     screen: { x: 0.2, y: 0.2, width: 416.2, height: 416.2 },
   },
+  seed?: {
+    previousEntry?: GeometryHistoryEntry;
+    lastGeometryCommitAt?: number;
+  },
 ) {
-  const geometryUndoStackRef = { current: [] as GeometryHistoryEntry[] };
+  const geometryUndoStackRef = {
+    current: seed?.previousEntry ? [seed.previousEntry] : [],
+  };
   const historyOrderRef = { current: [] as UndoRedoOrderKind[] };
+  const liveFrameGeometryRef = { current: before };
   const writeFrameGeometrySnapshot = vi.fn();
   const captureLinkedContentChanges = vi.fn(() => []);
   const selection: GeometryHistorySelection = {
@@ -40,7 +48,10 @@ function runCommit(
       geometryUndoStackRef,
       historyOrderRef,
       id: "design",
-      lastGeometryCommitAtRef: { current: 0 },
+      lastGeometryCommitAtRef: {
+        current: seed?.lastGeometryCommitAt ?? 0,
+      },
+      liveFrameGeometryRef,
       locallyPinnedHeightIdsRef: { current: new Set<string>() },
       queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
       queueFrameGeometrySave: vi.fn(),
@@ -56,6 +67,7 @@ function runCommit(
     captureLinkedContentChanges,
     committed,
     geometryUndoStackRef,
+    liveFrameGeometryRef,
     writeFrameGeometrySnapshot,
   };
 }
@@ -129,5 +141,26 @@ describe("runGeometryCommit", () => {
       screen: { x: 5, y: 0.2, width: 416.2, height: 416.2 },
       other: before.other,
     });
+  });
+
+  it("publishes the live snapshot for a coalesced keyboard commit", () => {
+    const before = {
+      screen: { x: 0, y: 0, width: 400, height: 400 },
+    };
+    const previousEntry: GeometryHistoryEntry = {
+      before: { screen: { ...before.screen, x: -1 } },
+      after: before,
+    };
+    const after = {
+      screen: { ...before.screen, x: 1 },
+    };
+
+    const result = runCommit({ source: "keyboard" }, before, after, {
+      previousEntry,
+      lastGeometryCommitAt: Date.now(),
+    });
+
+    expect(result.liveFrameGeometryRef.current).toEqual(after);
+    expect(result.writeFrameGeometrySnapshot).not.toHaveBeenCalled();
   });
 });

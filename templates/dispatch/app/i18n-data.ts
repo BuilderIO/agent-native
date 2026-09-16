@@ -52,6 +52,10 @@ const enUS = {
     agentDescription:
       "Manage the agent's model, API keys, voice, and other controls. Use the Automations page for scheduled and event-triggered jobs.",
     openAgentSettings: "Manage agent",
+    connectApps: "Connect apps",
+    connectAppsDescription:
+      "Sign in to another Agent-Native app with one handoff.",
+    openConnectApps: "Open Connect apps",
   },
   integrations: {
     title: "Integrations",
@@ -447,6 +451,23 @@ const enUS = {
       searchAppsPlaceholder: "Search apps",
       clearAppSearch: "Clear search",
       noAppsMatch: "No apps match your search",
+      connectApps: "Connect apps",
+      availableApps: "Available apps",
+      connectApp: "Connect",
+      openApp: "Open",
+      appsLoadFailed: "Apps could not be loaded.",
+      noAppsAvailable: "No apps are available right now.",
+      connectByUrl: "Connect by URL",
+      appUrl: "App URL",
+      inspectApp: "Inspect app",
+      inspectingApp: "Checking the app card…",
+      appCardInvalid: "This app has no compatible connect card.",
+      connectAppGrant:
+        "Your account will be provisioned through the existing identity handoff.",
+      connectAppUnsupported:
+        "This app has not opted into one-click identity connect yet.",
+      connectAppsPrivacy:
+        "No shared cookie or app secret is used. The identity hub sends a signed, one-time handoff.",
       pinApp: "Pin this app",
       unpinApp: "Unpin this app",
       appPinSaveFailed: "App pins could not be saved.",
@@ -986,6 +1007,9 @@ export const messagesByLocale = {
         agentDescription:
           "管理代理的模型、API 密钥、语音和其他控制项。定时与事件触发的任务请使用自动化页面。",
         openAgentSettings: "管理代理",
+        connectApps: "连接应用",
+        connectAppsDescription: "通过一次交接登录另一个 Agent-Native 应用。",
+        openConnectApps: "打开连接应用",
       },
       integrations: {
         title: "集成",
@@ -1223,6 +1247,21 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["zh-CN"],
           adminDescription: "工作区控制与运营",
+          connectApps: "连接应用",
+          availableApps: "可用应用",
+          connectApp: "连接",
+          openApp: "打开",
+          appsLoadFailed: "无法加载应用。",
+          noAppsAvailable: "目前没有可用应用。",
+          connectByUrl: "通过 URL 连接",
+          appUrl: "应用 URL",
+          inspectApp: "检查应用",
+          inspectingApp: "正在检查应用卡片…",
+          appCardInvalid: "此应用没有兼容的连接卡片。",
+          connectAppGrant: "你的账户将通过现有身份交接流程配置。",
+          connectAppUnsupported: "此应用尚未加入一键身份连接。",
+          connectAppsPrivacy:
+            "不使用共享 Cookie 或应用密钥。身份中心发送签名的一次性交接。",
           simpleAgentsDescription:
             "几分钟内创建可复用的代理，或导入你已在 Claude 或其他代理工具中创建的设置。",
           adminNavigation: "管理导航",
@@ -1390,6 +1429,10 @@ export const messagesByLocale = {
         agentDescription:
           "Gestiona el modelo del agente, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
         openAgentSettings: "Gestionar agente",
+        connectApps: "Conectar apps",
+        connectAppsDescription:
+          "Inicia sesión en otra app de Agent-Native con una sola transferencia.",
+        openConnectApps: "Abrir Conectar apps",
       },
       integrations: {
         title: "Integraciones",
@@ -1651,6 +1694,24 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["es-ES"],
           adminDescription: "Controles y operaciones del espacio de trabajo",
+          connectApps: "Conectar apps",
+          availableApps: "Apps disponibles",
+          connectApp: "Conectar",
+          openApp: "Abrir",
+          appsLoadFailed: "No se pudieron cargar las apps.",
+          noAppsAvailable: "No hay apps disponibles ahora.",
+          connectByUrl: "Conectar por URL",
+          appUrl: "URL de la app",
+          inspectApp: "Inspeccionar app",
+          inspectingApp: "Comprobando la tarjeta de la app…",
+          appCardInvalid:
+            "Esta app no tiene una tarjeta de conexión compatible.",
+          connectAppGrant:
+            "Tu cuenta se aprovisionará mediante la transferencia de identidad existente.",
+          connectAppUnsupported:
+            "Esta app aún no admite la conexión de identidad con un clic.",
+          connectAppsPrivacy:
+            "No se usa ninguna cookie compartida ni secreto de app. El hub envía una transferencia firmada de un solo uso.",
           simpleAgentsDescription:
             "Crea agentes reutilizables en minutos o importa una configuración que ya hayas creado en Claude u otra herramienta de agentes.",
           adminNavigation: "Navegación de administración",
@@ -1830,6 +1891,10 @@ export const messagesByLocale = {
         agentDescription:
           "Gérez le modèle de l’agent, les clés API, la voix et les autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
         openAgentSettings: "Gérer l’agent",
+        connectApps: "Connecter des apps",
+        connectAppsDescription:
+          "Connectez-vous à une autre app Agent-Native via un seul transfert.",
+        openConnectApps: "Ouvrir Connecter des apps",
       },
       integrations: {
         title: "Intégrations",
@@ -2090,6 +2155,25 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["fr-FR"],
           adminDescription: "Contrôles et opérations de l’espace de travail",
+          connectApps: "Connecter des apps",
+          availableApps: "Applications disponibles",
+          connectApp: "Connecter",
+          openApp: "Ouvrir",
+          appsLoadFailed: "Impossible de charger les applications.",
+          noAppsAvailable:
+            "Aucune application n’est disponible pour le moment.",
+          connectByUrl: "Connecter par URL",
+          appUrl: "URL de l’application",
+          inspectApp: "Inspecter l’application",
+          inspectingApp: "Vérification de la carte…",
+          appCardInvalid:
+            "Cette application n’a pas de carte de connexion compatible.",
+          connectAppGrant:
+            "Votre compte sera provisionné via le transfert d’identité existant.",
+          connectAppUnsupported:
+            "Cette application n’a pas encore activé la connexion d’identité en un clic.",
+          connectAppsPrivacy:
+            "Aucun cookie partagé ni secret d’application n’est utilisé. Le hub envoie un transfert signé à usage unique.",
           simpleAgentsDescription:
             "Créez des agents réutilisables en quelques minutes ou importez une configuration déjà créée dans Claude ou un autre outil d’agents.",
           adminNavigation: "Navigation d’administration",
@@ -2270,6 +2354,10 @@ export const messagesByLocale = {
         agentDescription:
           "Verwalte das Modell, die API-Schlüssel, Sprache und weitere Steuerungen des Agents. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
         openAgentSettings: "Agent verwalten",
+        connectApps: "Apps verbinden",
+        connectAppsDescription:
+          "Melde dich mit einer Übergabe bei einer anderen Agent-Native-App an.",
+        openConnectApps: "Apps verbinden öffnen",
       },
       integrations: {
         title: "Integrationen",
@@ -2519,6 +2607,23 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["de-DE"],
           adminDescription: "Arbeitsbereichssteuerung und -betrieb",
+          connectApps: "Apps verbinden",
+          availableApps: "Verfügbare Apps",
+          connectApp: "Verbinden",
+          openApp: "Öffnen",
+          appsLoadFailed: "Apps konnten nicht geladen werden.",
+          noAppsAvailable: "Derzeit sind keine Apps verfügbar.",
+          connectByUrl: "Per URL verbinden",
+          appUrl: "App-URL",
+          inspectApp: "App prüfen",
+          inspectingApp: "App-Karte wird geprüft…",
+          appCardInvalid: "Diese App hat keine kompatible Verbindungskarte.",
+          connectAppGrant:
+            "Dein Konto wird über die bestehende Identitätsübergabe eingerichtet.",
+          connectAppUnsupported:
+            "Diese App unterstützt noch keine Identitätsverbindung mit einem Klick.",
+          connectAppsPrivacy:
+            "Es werden keine gemeinsamen Cookies oder App-Geheimnisse verwendet. Der Hub sendet eine signierte einmalige Übergabe.",
           simpleAgentsDescription:
             "Erstelle in wenigen Minuten wiederverwendbare Agents oder importiere eine Konfiguration, die du bereits in Claude oder einem anderen Agent-Tool erstellt hast.",
           adminNavigation: "Administrationsnavigation",
@@ -2696,6 +2801,10 @@ export const messagesByLocale = {
         agentDescription:
           "エージェントのモデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
         openAgentSettings: "エージェントを管理",
+        connectApps: "アプリを接続",
+        connectAppsDescription:
+          "1 回のハンドオフで別の Agent-Native アプリにサインインします。",
+        openConnectApps: "アプリ接続を開く",
       },
       integrations: {
         title: "連携",
@@ -2943,6 +3052,23 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["ja-JP"],
           adminDescription: "ワークスペースの管理と運用",
+          connectApps: "アプリを接続",
+          availableApps: "利用可能なアプリ",
+          connectApp: "接続",
+          openApp: "開く",
+          appsLoadFailed: "アプリを読み込めませんでした。",
+          noAppsAvailable: "現在利用できるアプリはありません。",
+          connectByUrl: "URL で接続",
+          appUrl: "アプリ URL",
+          inspectApp: "アプリを確認",
+          inspectingApp: "アプリカードを確認中…",
+          appCardInvalid: "このアプリには互換性のある接続カードがありません。",
+          connectAppGrant:
+            "既存の ID ハンドオフでアカウントがプロビジョニングされます。",
+          connectAppUnsupported:
+            "このアプリはまだワンクリック ID 接続に対応していません。",
+          connectAppsPrivacy:
+            "共有 Cookie やアプリシークレットは使用しません。ハブが署名付きの一回限りのハンドオフを送信します。",
           simpleAgentsDescription:
             "数分で再利用可能なエージェントを作成するか、Claude などのエージェントツールで作成済みの設定をインポートします。",
           adminNavigation: "管理ナビゲーション",
@@ -3117,6 +3243,10 @@ export const messagesByLocale = {
         agentDescription:
           "에이전트의 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
         openAgentSettings: "에이전트 관리",
+        connectApps: "앱 연결",
+        connectAppsDescription:
+          "한 번의 핸드오프로 다른 Agent-Native 앱에 로그인합니다.",
+        openConnectApps: "앱 연결 열기",
       },
       integrations: {
         title: "통합",
@@ -3361,6 +3491,22 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["ko-KR"],
           adminDescription: "워크스페이스 제어 및 운영",
+          connectApps: "앱 연결",
+          availableApps: "사용 가능한 앱",
+          connectApp: "연결",
+          openApp: "열기",
+          appsLoadFailed: "앱을 불러오지 못했습니다.",
+          noAppsAvailable: "현재 사용할 수 있는 앱이 없습니다.",
+          connectByUrl: "URL로 연결",
+          appUrl: "앱 URL",
+          inspectApp: "앱 검사",
+          inspectingApp: "앱 카드를 확인하는 중…",
+          appCardInvalid: "이 앱에는 호환되는 연결 카드가 없습니다.",
+          connectAppGrant: "기존 ID 핸드오프를 통해 계정이 프로비저닝됩니다.",
+          connectAppUnsupported:
+            "이 앱은 아직 원클릭 ID 연결을 지원하지 않습니다.",
+          connectAppsPrivacy:
+            "공유 쿠키나 앱 시크릿을 사용하지 않습니다. 허브가 서명된 일회성 핸드오프를 보냅니다.",
           simpleAgentsDescription:
             "몇 분 만에 재사용 가능한 에이전트를 만들거나 Claude 또는 다른 에이전트 도구에서 만든 설정을 가져오세요.",
           adminNavigation: "관리 탐색",
@@ -3533,6 +3679,10 @@ export const messagesByLocale = {
         agentDescription:
           "Gerencie o modelo do agente, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
         openAgentSettings: "Gerenciar agente",
+        connectApps: "Conectar apps",
+        connectAppsDescription:
+          "Entre em outro app Agent-Native com uma única transferência.",
+        openConnectApps: "Abrir Conectar apps",
       },
       integrations: {
         title: "Integrações",
@@ -3789,6 +3939,23 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["pt-BR"],
           adminDescription: "Controles e operações do espaço de trabalho",
+          connectApps: "Conectar apps",
+          availableApps: "Apps disponíveis",
+          connectApp: "Conectar",
+          openApp: "Abrir",
+          appsLoadFailed: "Não foi possível carregar os apps.",
+          noAppsAvailable: "Nenhum app está disponível agora.",
+          connectByUrl: "Conectar por URL",
+          appUrl: "URL do app",
+          inspectApp: "Inspecionar app",
+          inspectingApp: "Verificando o cartão do app…",
+          appCardInvalid: "Este app não tem um cartão de conexão compatível.",
+          connectAppGrant:
+            "Sua conta será provisionada pelo handoff de identidade existente.",
+          connectAppUnsupported:
+            "Este app ainda não ativou a conexão de identidade com um clique.",
+          connectAppsPrivacy:
+            "Nenhum cookie compartilhado ou segredo de app é usado. O hub envia um handoff assinado de uso único.",
           simpleAgentsDescription:
             "Crie agentes reutilizáveis em minutos ou importe uma configuração que você já criou no Claude ou em outra ferramenta de agentes.",
           adminNavigation: "Navegação de administração",
@@ -3966,6 +4133,9 @@ export const messagesByLocale = {
         agentDescription:
           "एजेंट के मॉडल, API कुंजियों, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
         openAgentSettings: "एजेंट प्रबंधित करें",
+        connectApps: "ऐप कनेक्ट करें",
+        connectAppsDescription: "एक हैंडऑफ से दूसरे Agent-Native ऐप में साइन इन करें।",
+        openConnectApps: "कनेक्ट ऐप्स खोलें",
       },
       integrations: {
         title: "इंटीग्रेशन",
@@ -4208,6 +4378,22 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["hi-IN"],
           adminDescription: "वर्कस्पेस नियंत्रण और संचालन",
+          connectApps: "ऐप कनेक्ट करें",
+          availableApps: "उपलब्ध ऐप्स",
+          connectApp: "कनेक्ट करें",
+          openApp: "खोलें",
+          appsLoadFailed: "ऐप्स लोड नहीं हो सके।",
+          noAppsAvailable: "अभी कोई ऐप उपलब्ध नहीं है।",
+          connectByUrl: "URL से कनेक्ट करें",
+          appUrl: "ऐप URL",
+          inspectApp: "ऐप जांचें",
+          inspectingApp: "ऐप कार्ड जांचा जा रहा है…",
+          appCardInvalid: "इस ऐप में संगत कनेक्ट कार्ड नहीं है।",
+          connectAppGrant: "आपका खाता मौजूदा पहचान हैंडऑफ से प्रोविज़न होगा।",
+          connectAppUnsupported:
+            "इस ऐप ने अभी वन-क्लिक पहचान कनेक्ट सक्षम नहीं किया है।",
+          connectAppsPrivacy:
+            "साझा कुकी या ऐप सीक्रेट का उपयोग नहीं होता। हब हस्ताक्षरित वन-टाइम हैंडऑफ भेजता है।",
           simpleAgentsDescription:
             "कुछ ही मिनटों में दोबारा इस्तेमाल किए जा सकने वाले एजेंट बनाएं, या Claude या किसी अन्य एजेंट टूल में पहले से बनाई गई सेटअप इंपोर्ट करें।",
           adminNavigation: "व्यवस्थापक नेविगेशन",
@@ -4375,6 +4561,10 @@ export const messagesByLocale = {
         agentDescription:
           "أدر نموذج الوكيل ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
         openAgentSettings: "إدارة الوكيل",
+        connectApps: "توصيل التطبيقات",
+        connectAppsDescription:
+          "سجّل الدخول إلى تطبيق Agent-Native آخر عبر عملية تسليم واحدة.",
+        openConnectApps: "فتح توصيل التطبيقات",
       },
       integrations: {
         title: "عمليات التكامل",
@@ -4655,6 +4845,22 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["ar-SA"],
           adminDescription: "عناصر التحكم في مساحة العمل وعملياتها",
+          connectApps: "توصيل التطبيقات",
+          availableApps: "التطبيقات المتاحة",
+          connectApp: "توصيل",
+          openApp: "فتح",
+          appsLoadFailed: "تعذر تحميل التطبيقات.",
+          noAppsAvailable: "لا توجد تطبيقات متاحة الآن.",
+          connectByUrl: "التوصيل عبر عنوان URL",
+          appUrl: "عنوان URL للتطبيق",
+          inspectApp: "فحص التطبيق",
+          inspectingApp: "جارٍ فحص بطاقة التطبيق…",
+          appCardInvalid: "لا تحتوي هذه التطبيق على بطاقة توصيل متوافقة.",
+          connectAppGrant: "سيتم توفير حسابك عبر تسليم الهوية الحالي.",
+          connectAppUnsupported:
+            "لم يفعّل هذا التطبيق توصيل الهوية بنقرة واحدة بعد.",
+          connectAppsPrivacy:
+            "لا تُستخدم ملفات تعريف ارتباط مشتركة أو أسرار تطبيق. يرسل المركز عملية تسليم موقعة لمرة واحدة.",
           simpleAgentsDescription:
             "أنشئ وكلاء قابلين لإعادة الاستخدام خلال دقائق، أو استورد إعدادًا أنشأته بالفعل في Claude أو أداة وكلاء أخرى.",
           adminNavigation: "تنقل الإدارة",

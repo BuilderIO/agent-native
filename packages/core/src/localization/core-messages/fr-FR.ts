@@ -76,10 +76,23 @@ const messages: AgentChatTranslation = {
     "Création ou réutilisation de votre compte Builder.io. Cela prend généralement quelques secondes.",
   "onboarding.builderConnectionDescription":
     "Terminez la connexion en un clic dans la nouvelle fenêtre.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Les crédits IA et les modifications de code dans le cloud sont prêts à l’emploi.",
+  "onboarding.builderReadyCreditsOnly":
+    "Les crédits IA sont prêts à l’emploi. Les modifications de code dans le cloud nécessitent un projet Builder dans les paramètres de l’agent en arrière-plan.",
+  "onboarding.openBackgroundAgentSettings":
+    "Ouvrir les paramètres de l’agent en arrière-plan",
   "onboarding.capability.llm.keySummary":
     "Connectez un fournisseur d’IA ou un modèle local",
   "onboarding.capability.fileStorage.keySummary":
     "Stockage Builder ou bucket compatible S3",
+  "onboarding.fileStorage.title": "Choisir le stockage des fichiers",
+  "onboarding.fileStorage.description":
+    "Choisissez le stockage Builder géré ou vos propres clés pour un bucket compatible S3.",
+  "onboarding.fileStorage.custom":
+    "Utiliser des clés de stockage personnalisées",
+  "onboarding.fileStorage.customDescription":
+    "Configurez un bucket compatible S3 avec une URL publique stable.",
   "onboarding.capability.voiceInput.label": "Entrée vocale",
   "onboarding.capability.voiceInput.keySummary":
     "Reconnaissance vocale du navigateur ou conversion parole-texte",
@@ -642,6 +655,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} lignes",
   "errorMessages.agentConnection":
     "La connexion de l'agent a été interrompue. Vérifiez votre connexion et réessayez.",
+  "errorMessages.attachmentPasswordProtected":
+    "Ce PDF est protégé par mot de passe et ne peut pas être lu. Supprimez la protection par mot de passe ou collez le texte pertinent, puis réessayez.",
   "errorMessages.builderAuthentication":
     "Builder a rejeté les identifiants connectés. Reconnectez Builder.io dans les paramètres, puis réessayez.",
   "errorMessages.builderModelUnauthorized":

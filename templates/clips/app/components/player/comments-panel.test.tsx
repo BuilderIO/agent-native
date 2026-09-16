@@ -1175,4 +1175,46 @@ describe("CommentsPanel reply composer", () => {
     expect(send?.className).toContain("size-7");
     expect(send?.querySelector(".tabler-icon-arrow-up")).not.toBeNull();
   });
+
+  it("renders a shadcn empty state with an icon when there are no comments", () => {
+    renderPanel("viewer@example.com", [], "share");
+
+    const empty = container.querySelector("[data-slot=empty]");
+    const icon = container.querySelector("[data-slot=empty-icon]");
+    const svg = icon ? icon.querySelector("svg") : null;
+
+    expect(empty).not.toBeNull();
+    expect(icon).not.toBeNull();
+    expect(svg).not.toBeNull();
+    expect(container.textContent).toContain("commentsPanel.beFirst");
+  });
+
+  it("renders the shared empty state icon when comments are disabled", () => {
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={[]}
+            currentMs={34_000}
+            currentUserEmail="viewer@example.com"
+            enableComments={false}
+            canComment={false}
+            onSeek={vi.fn()}
+            queryKey={["recording", "recording-1"]}
+            presentation="share"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const empty = container.querySelector("[data-slot=empty]");
+    const icon = container.querySelector("[data-slot=empty-icon]");
+    const svg = icon ? icon.querySelector("svg") : null;
+
+    expect(empty).not.toBeNull();
+    expect(icon).not.toBeNull();
+    expect(svg).not.toBeNull();
+    expect(container.textContent).toContain("commentsPanel.disabled");
+  });
 });

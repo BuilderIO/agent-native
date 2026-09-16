@@ -49,7 +49,10 @@ import {
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
-import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
 import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
@@ -1552,7 +1555,9 @@ async function readWorkspaceAppManifest(
       description: pkg?.description || "",
       path: appPath,
       homePath: normalizeWorkspaceAppHomePath(
-        explicit?.homePath ?? configuredHomePath,
+        explicit?.homePath ??
+          configuredHomePath ??
+          inferWorkspaceAppRootHomePath(appDir),
       ),
       ...(url ? { url } : {}),
       isDispatch: app === "dispatch",
