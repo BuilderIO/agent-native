@@ -13,6 +13,9 @@ type ServerManifestVerificationResult = {
 const ABSOLUTE_ASSET_PATH =
   /["'`]((?:\/[A-Za-z0-9._~-]+)*\/assets\/[^"'`\s?#]+)["'`]/g;
 
+// Netlify rewrites this routing control file after Vite copies public files.
+const NETLIFY_GENERATED_FILES = new Set(["_redirects"]);
+
 function listFiles(root: string, relative = ""): string[] {
   return readdirSync(path.join(root, relative), {
     withFileTypes: true,
@@ -58,7 +61,10 @@ export function verifyNetlifyPrebuiltClientArtifact(
       missing.push(relative);
       continue;
     }
-    if (!readFileSync(clientPath).equals(readFileSync(publishPath))) {
+    if (
+      !NETLIFY_GENERATED_FILES.has(relative) &&
+      !readFileSync(clientPath).equals(readFileSync(publishPath))
+    ) {
       mismatched.push(relative);
     }
   }

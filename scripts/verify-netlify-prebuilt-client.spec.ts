@@ -50,6 +50,23 @@ test("rejects missing or stale client files in publish output", () => {
   }
 });
 
+test("allows Netlify to rewrite its generated redirects file", () => {
+  const { client, publish, root } = fixture();
+  try {
+    writeFileSync(path.join(client, "_redirects"), "source redirect\n");
+    writeFileSync(
+      path.join(publish, "_redirects"),
+      "source redirect\n/* /.netlify/functions/server 200\n",
+    );
+
+    assert.deepEqual(verifyNetlifyPrebuiltClientArtifact(client, publish), {
+      checkedFiles: 1,
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("verifies the trusted server manifest against publish output", () => {
   const { client, publish, root } = fixture();
   const server = path.join(root, "server");
