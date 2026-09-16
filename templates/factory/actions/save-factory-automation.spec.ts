@@ -50,8 +50,16 @@ vi.mock("../server/connectors/credentials.js", () => ({
   VaultUnavailableError,
 }));
 
+const insertResourceVersionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ id: "ver-inserted" }),
+);
+const deleteResourceVersionByIdMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(true),
+);
+
 vi.mock("@agent-native/core/history", () => ({
-  insertResourceVersion: vi.fn().mockResolvedValue(undefined),
+  insertResourceVersion: insertResourceVersionMock,
+  deleteResourceVersionById: deleteResourceVersionByIdMock,
 }));
 
 const existingContent = `---
@@ -393,5 +401,53 @@ Babysit pull requests.
     expect(saved).toMatch(/^source: github$/m);
     expect(saved).not.toMatch(/^source: slack$/m);
     expect(saved).toContain("authorIds: 138030887");
+  });
+
+  it("deletes the inserted predecessor snapshot when the live write is rejected", async () => {
+    resourcePutIfCurrentMock.mockResolvedValue(null);
+    const { default: action } = await import("./save-factory-automation.js");
+
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow("changed concurrently");
+
+    expect(deleteResourceVersionByIdMock).toHaveBeenCalledWith(
+      "ver-inserted",
+      { userEmail: "teammate@example.com", orgId: "org-1" },
+      { bypassScope: true },
+    );
+  });
+
+  it("deletes the inserted predecessor snapshot when the live write throws", async () => {
+    resourcePutIfCurrentMock.mockRejectedValue(new Error("db unavailable"));
+    const { default: action } = await import("./save-factory-automation.js");
+
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow("db unavailable");
+
+    expect(deleteResourceVersionByIdMock).toHaveBeenCalledWith(
+      "ver-inserted",
+      { userEmail: "teammate@example.com", orgId: "org-1" },
+      { bypassScope: true },
+    );
   });
 });

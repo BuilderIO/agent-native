@@ -88,6 +88,19 @@ export async function ensureResourceVersionsTable(): Promise<void> {
           "agent_resource_version_counters",
           counterCreateSql,
         );
+        // Idempotent backfill: a resource with pre-existing history rows
+        // (seeded before this counter table existed) must not start
+        // allocating from 1 again, or every allocation collides with an
+        // already-used version_number until the retry budget is exhausted.
+        // ON CONFLICT DO NOTHING makes this safe to run on every init.
+        await getDbExec().execute({
+          sql: `INSERT INTO agent_resource_version_counters (resource_type, resource_id, last_version_number)
+             SELECT resource_type, resource_id, MAX(version_number)
+               FROM agent_resource_versions
+              GROUP BY resource_type, resource_id
+             ON CONFLICT (resource_type, resource_id) DO NOTHING`,
+          args: [],
+        });
       }
     })();
   }

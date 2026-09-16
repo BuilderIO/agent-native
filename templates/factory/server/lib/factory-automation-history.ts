@@ -231,23 +231,33 @@ export async function restoreFactoryAutomationSnapshot(input: {
       metadata: { factoryId: input.factoryId },
     });
   }
-  const updated = await resourcePutIfCurrent({
-    owner: current.owner,
-    path: current.path,
-    content,
-    mimeType: "text/markdown",
-    expectedId: current.id,
-    expectedUpdatedAt: current.updatedAt,
-    expectedContent: current.content,
-  });
+  // A thrown write failure must compensate exactly like a falsy return —
+  // resourcePutIfCurrent has no try/catch of its own, so a throw here would
+  // otherwise skip the cleanup below and leave the inserted version orphaned.
+  let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
+  let writeError: unknown;
+  try {
+    updated = await resourcePutIfCurrent({
+      owner: current.owner,
+      path: current.path,
+      content,
+      mimeType: "text/markdown",
+      expectedId: current.id,
+      expectedUpdatedAt: current.updatedAt,
+      expectedContent: current.content,
+    });
+  } catch (error) {
+    writeError = error;
+  }
+  if (!updated && insertedVersion) {
+    await deleteResourceVersionById(
+      insertedVersion.id,
+      { userEmail: input.userEmail, orgId: input.orgId },
+      { bypassScope: true },
+    ).catch(() => {});
+  }
+  if (writeError) throw writeError;
   if (!updated) {
-    if (insertedVersion) {
-      await deleteResourceVersionById(
-        insertedVersion.id,
-        { userEmail: input.userEmail, orgId: input.orgId },
-        { bypassScope: true },
-      ).catch(() => {});
-    }
     throw new Error(
       "Factory automation changed concurrently. Refresh and try again.",
     );

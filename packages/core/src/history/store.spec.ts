@@ -96,6 +96,50 @@ describe("resource history store", () => {
     expect(full?.metadata).toEqual({ source: "test" });
   });
 
+  it("backfills the counter from pre-existing history so allocation continues past them", async () => {
+    // Simulate versions 1-8 already present before the counter table
+    // existed (e.g. seeded under an earlier MAX(version_number) scheme).
+    for (let n = 1; n <= 8; n++) {
+      await rawClient.execute({
+        sql: `INSERT INTO agent_resource_versions (
+          id, resource_type, resource_id, version_number, created_at, created_by,
+          actor_kind, owner_email, org_id, visibility, title, summary,
+          snapshot_json, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          `ver_legacy_${n}`,
+          "doc",
+          "legacy-doc",
+          n,
+          new Date().toISOString(),
+          null,
+          "human",
+          "alice@example.com",
+          null,
+          "private",
+          null,
+          null,
+          JSON.stringify({ n }),
+          null,
+        ],
+      });
+    }
+
+    // Re-run table init, as a fresh process would, so the backfill
+    // reconciles the counter table against rows that already exist.
+    __resetHistoryInitForTests();
+    await ensureResourceVersionsTable();
+
+    const next = await insertResourceVersion({
+      resourceType: "doc",
+      resourceId: "legacy-doc",
+      ownerEmail: "alice@example.com",
+      snapshot: { n: 9 },
+    });
+
+    expect(next.versionNumber).toBe(9);
+  });
+
   it("enforces unique version numbers per resource", async () => {
     await insertResourceVersion({
       resourceType: "doc",

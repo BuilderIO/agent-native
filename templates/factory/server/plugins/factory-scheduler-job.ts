@@ -1,5 +1,9 @@
 import { subscribe } from "@agent-native/core/event-bus";
-import { insertResourceVersion } from "@agent-native/core/history";
+import {
+  deleteResourceVersionById,
+  insertResourceVersion,
+  type ResourceVersion,
+} from "@agent-native/core/history";
 import { notify } from "@agent-native/core/notifications";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
@@ -206,12 +210,17 @@ export async function recordFinishedAutomationPrompt(
   // current when the run happens to finish, not the one it actually ran
   // with, if the automation was edited while the run was in flight.
   if (event.promptSnapshot == null) return;
+  // list-factory-audit joins audit events by the agent run id (event.runId),
+  // not the core history-row id (event.automationRunId) — every other writer
+  // of factoryAuditEvents.automationRunId already stores the agent run id.
+  // Without one, this row can never be joined to a displayed run.
+  if (!event.runId) return;
   const { body } = splitAutomationFrontmatter(event.promptSnapshot);
   const factoryId =
     readFactoryIdFromAutomationPath(event.path) ?? DEFAULT_FACTORY_ID;
   await recordFactoryAutomationRunPrompt({
     identity: { userEmail: event.owner, orgId: event.orgId },
-    automationRunId: event.automationRunId,
+    automationRunId: event.runId,
     factoryId,
     path: event.path,
     promptVersion: readPromptVersion(event.promptSnapshot),
@@ -628,24 +637,14 @@ export async function ensureFactoryAutomations(
       );
       if (repaired === originalContent) return;
 
-      const updated = await resourcePutIfCurrent({
-        owner,
-        path,
-        content: repaired,
-        mimeType: "text/markdown",
-        expectedId: existing.id,
-        expectedUpdatedAt: existing.updatedAt,
-        expectedContent: originalContent,
-      });
-      if (!updated) {
-        console.warn(
-          `[factory-scheduler-job] skipped metadata repair for ${path}: the resource changed concurrently`,
-        );
-        return;
-      }
+      // Insert the predecessor snapshot before the live write commits, same
+      // as save/restore: if the write below fails, this is just an unused
+      // extra row, but the reverse order would let the repair commit with no
+      // recoverable pre-repair version when the history insert fails.
+      let insertedRepairVersion: ResourceVersion | null = null;
       if (bodyRepairNeeded) {
         const automationName = factoryAutomationRunHistoryKey(path);
-        await insertResourceVersion({
+        insertedRepairVersion = await insertResourceVersion({
           resourceType: FACTORY_AUTOMATION_RESOURCE_TYPE,
           resourceId: existing.id,
           createdBy: ownerEmail,
@@ -661,6 +660,45 @@ export async function ensureFactoryAutomations(
           ),
           metadata: { factoryId },
         });
+      }
+      // A thrown write failure must compensate exactly like a falsy return —
+      // resourcePutIfCurrent has no try/catch of its own.
+      let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
+      let writeError: unknown;
+      try {
+        updated = await resourcePutIfCurrent({
+          owner,
+          path,
+          content: repaired,
+          mimeType: "text/markdown",
+          expectedId: existing.id,
+          expectedUpdatedAt: existing.updatedAt,
+          expectedContent: originalContent,
+        });
+      } catch (error) {
+        writeError = error;
+      }
+      if (!updated && insertedRepairVersion) {
+        await deleteResourceVersionById(
+          insertedRepairVersion.id,
+          { userEmail: ownerEmail, orgId },
+          { bypassScope: true },
+        ).catch(() => {});
+      }
+      if (writeError) {
+        console.warn(
+          `[factory-scheduler-job] metadata repair failed for ${path}:`,
+          writeError,
+        );
+        return;
+      }
+      if (!updated) {
+        console.warn(
+          `[factory-scheduler-job] skipped metadata repair for ${path}: the resource changed concurrently`,
+        );
+        return;
+      }
+      if (bodyRepairNeeded) {
         await recordFactoryGovernanceAudit(
           { userEmail: ownerEmail, orgId },
           {

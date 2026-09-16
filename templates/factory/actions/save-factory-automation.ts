@@ -319,23 +319,34 @@ export default defineAction({
       ),
       summary: "Automation save",
     });
-    const updated = await resourcePutIfCurrent({
-      owner: definition.resource.owner,
-      path: definition.resource.path,
-      content,
-      mimeType: "text/markdown",
-      expectedId: resource.id,
-      expectedUpdatedAt: resource.updatedAt,
-      expectedContent: resource.content,
-    });
+    // A thrown write failure (DB/provider error) must compensate exactly like
+    // a falsy return (optimistic-concurrency mismatch) — resourcePutIfCurrent
+    // has no try/catch of its own, so a throw here would otherwise skip the
+    // cleanup below and leave the inserted version orphaned.
+    let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
+    let writeError: unknown;
+    try {
+      updated = await resourcePutIfCurrent({
+        owner: definition.resource.owner,
+        path: definition.resource.path,
+        content,
+        mimeType: "text/markdown",
+        expectedId: resource.id,
+        expectedUpdatedAt: resource.updatedAt,
+        expectedContent: resource.content,
+      });
+    } catch (error) {
+      writeError = error;
+    }
+    if (!updated && insertedVersion) {
+      await deleteResourceVersionById(
+        insertedVersion.id,
+        { userEmail, orgId },
+        { bypassScope: true },
+      ).catch(() => {});
+    }
+    if (writeError) throw writeError;
     if (!updated) {
-      if (insertedVersion) {
-        await deleteResourceVersionById(
-          insertedVersion.id,
-          { userEmail, orgId },
-          { bypassScope: true },
-        ).catch(() => {});
-      }
       throw new Error(
         "Factory automation changed concurrently. Refresh and try again.",
       );

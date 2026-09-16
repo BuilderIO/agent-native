@@ -505,12 +505,12 @@ describe("recordFinishedAutomationPrompt", () => {
     });
 
     await recordFinishedAutomationPrompt({
-      automationRunId: "run-1",
+      automationRunId: "history-row-1",
       owner: "workspace",
       automation: "factory-slack-feedback",
       path,
       orgId: "org-1",
-      runId: null,
+      runId: "agent-run-1",
       threadId: null,
       status: "success",
       error: null,
@@ -521,8 +521,27 @@ describe("recordFinishedAutomationPrompt", () => {
     expect(recordFactoryAutomationRunPromptMock).toHaveBeenCalledTimes(1);
     const call = recordFactoryAutomationRunPromptMock.mock.calls[0][0];
     expect(call.promptVersion).toBe(3);
-    expect(call.automationRunId).toBe("run-1");
+    // Must be the agent run id (list-factory-audit's join key), not the core
+    // history-row id — those are two different id spaces.
+    expect(call.automationRunId).toBe("agent-run-1");
     expect(call.path).toBe(path);
+  });
+
+  it("does not record when the run has no agent run id to join on", async () => {
+    await recordFinishedAutomationPrompt({
+      automationRunId: "history-row-3",
+      owner: "workspace",
+      automation: "factory-slack-feedback",
+      path,
+      orgId: "org-1",
+      runId: null,
+      threadId: null,
+      status: "success",
+      error: null,
+      promptSnapshot: "---\npromptVersion: 1\n---\nPrompt.\n",
+    });
+
+    expect(recordFactoryAutomationRunPromptMock).not.toHaveBeenCalled();
   });
 
   it("does not guess from the live resource when no snapshot was captured", async () => {
@@ -532,7 +551,7 @@ describe("recordFinishedAutomationPrompt", () => {
       automation: "factory-slack-feedback",
       path,
       orgId: "org-1",
-      runId: null,
+      runId: "agent-run-2",
       threadId: null,
       status: "success",
       error: null,
