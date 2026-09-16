@@ -36,10 +36,10 @@ unblocker - request id, time, screenshot, account, or URL.
 
 ### Checkmark gate
 
-For a defect, `✅` means verified closure. Use it only for **Fixed**,
-**Shipped**, or **Live verified** after Phase 2's four bars hold. Never use it
-for a read, claim, review, assignment, source change, test, or beta/PR queue.
-A suspected fix is not a fix; other terminal states use `:no_entry_sign:`.
+For a defect, `✅` means verified closure and is only for **Fixed**, **Shipped**,
+or **Live verified** after Phase 2's four bars. Never use it for a read, claim,
+review, assignment, source change, test, or beta/PR queue; a suspected fix is
+not a fix, and other terminal states use `:no_entry_sign:`.
 
 If confidence is missing, retain `👀`, use an evidence-limited disposition, and
 ask one targeted question or fork if it would unblock reproduction. Age never
@@ -88,15 +88,11 @@ Add `👀` to every intended item and read reactions back before investigation.
 Claim all actionable reports, including carried-over parents, without adding a
 second reaction.
 
-When a prior item is reopened, re-claimed, or changed from a terminal
-disposition, remove this workflow's old `✅` or `:no_entry_sign:` before adding
-`👀` or changing the ledger. For an active claim, `👀` and a release marker are
-mutually exclusive. Remove only this workflow's reaction; a foreign reaction
-is never touched. If reaction removal is unavailable, do not re-add or retain
-`👀` beside the stale marker. Enumerate the full channel with reaction
-metadata, record the item as unverified/manual cleanup, and do not let the
-optimized negative-marker cursor suppress it; claim it only after the stale
-marker is removed.
+When reopening, re-claiming, or changing a terminal disposition, remove this
+workflow's marker before adding `👀`; they are mutually exclusive. Remove only
+our reaction. If removal is unavailable, enumerate full reaction metadata,
+record manual cleanup/unverified, and claim only after removal; do not trust
+the optimized negative-marker cursor.
 
 Claiming only marks work; it does not investigate or reply. Search-discovered
 work gets the same eye-first read-back. Release out-of-scope work with
@@ -249,21 +245,12 @@ the query also returns ordinary replies and old polls that happen to carry the
 reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
-An upvoted item is a **feature or UX change**, so it is exempt from the
-clear-bug bar and from the demand for observable broken behavior. Everything
-else still applies: it gets the same `👀`, the same fix-altitude gate, the
-same verification, and it counts against the question budget.
-
-The upvote overrides the bug gate, not the ownership map. An upvoted Design or
-Content item still gets built — name Sid or Alice in the recap row so the
-mapped owner is not surprised by a change in their area. Naming them is a
-courtesy, not a gate: do not stall the work waiting for their reply.
-
-For every authorized upvoted improvement, add `👀` before investigation or
-delegation and read it back. Audit it with the clear-bug ledger, using
-**Shipped** only after Phase 2's four verification bars hold, with `✅`; until
-then keep an evidence-limited disposition and the eye. The Phase 0 release
-contract applies.
+An upvoted item is a **feature or UX change**: it skips only the clear-bug bar,
+not `👀`, fix-altitude, verification, or question-budget requirements. The
+upvote overrides the bug gate, not ownership; build the smallest endorsed
+version and name Sid or Alice in the recap. Add `👀` before investigation or
+delegation and read it back. Keep an evidence-limited disposition until Phase
+2's four bars hold; only then use **Shipped** with `✅`.
 
 Phase 0 already claimed these with `👀`. If this workflow earlier eyed
 something out of scope, release it with `:no_entry_sign:`; do not post a
