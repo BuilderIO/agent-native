@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import {
   getDbExec,
+  isProductionServerlessFunctionRuntime,
   isUniqueViolation,
   retryOnDdlRace,
   safeJsonParse,
   type DbExec,
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
 import { isOrgMember } from "../org/membership.js";
 import {
   getRequestOrgId,
@@ -196,6 +198,12 @@ async function ensureWorkspaceUserGroupNameTrigger(
 let initPromise: Promise<void> | undefined;
 
 export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
+  if (
+    isProductionServerlessFunctionRuntime() &&
+    !isMigrationAuthorizedRuntime()
+  ) {
+    return;
+  }
   if (!initPromise) {
     initPromise = (async () => {
       const client = getDbExec();

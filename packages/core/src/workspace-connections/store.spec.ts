@@ -15,7 +15,8 @@ vi.mock("../db/client.js", async (importOriginal) => {
   return {
     ...actual,
     getDbExec: () => sharedClient,
-    isProductionServerlessFunctionRuntime: () => false,
+    isProductionServerlessFunctionRuntime:
+      actual.isProductionServerlessFunctionRuntime,
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };
 });
@@ -98,6 +99,28 @@ afterAll(async () => {
 });
 
 describe("workspace connection store", () => {
+  it("does not run runtime schema DDL in hosted function invocations", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousNetlifyFunctionName = process.env.NETLIFY_FUNCTION_NAME;
+    process.env.NODE_ENV = "production";
+    process.env.NETLIFY_FUNCTION_NAME = "workspace-groups-test";
+    const execute = vi.spyOn(sharedClient, "execute");
+    try {
+      const { ensureWorkspaceUserGroupsTable } = await import("./groups.js");
+      await ensureWorkspaceUserGroupsTable();
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      execute.mockRestore();
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousNetlifyFunctionName === undefined) {
+        delete process.env.NETLIFY_FUNCTION_NAME;
+      } else {
+        process.env.NETLIFY_FUNCTION_NAME = previousNetlifyFunctionName;
+      }
+    }
+  });
+
   it("describes app-level access semantics", async () => {
     const { getWorkspaceConnectionAppAccess } = await import("./store.js");
     const baseConnection = {
