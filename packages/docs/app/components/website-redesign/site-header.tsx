@@ -63,7 +63,14 @@ function GithubStarsButton({ starCount, className }: GithubStarsButtonProps) {
     <Button
       variant="secondary"
       dimBorder
-      className={className}
+      className={[
+        // Keep the cold-cache fallback the same width as the server count so
+        // the one-time client revalidation cannot shift the header.
+        "min-w-[96px]",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noreferrer"

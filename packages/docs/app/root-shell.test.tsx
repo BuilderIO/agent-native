@@ -5,13 +5,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useShellSettled } from "./shell-ready";
 
-const { agentSidebarSpy, docsWebMcpActions, navigateMock, routerRootHref } =
-  vi.hoisted(() => ({
-    agentSidebarSpy: vi.fn(),
-    docsWebMcpActions: [] as Array<{ run: (args: unknown) => unknown }>,
-    navigateMock: vi.fn(),
-    routerRootHref: { value: "/" },
-  }));
+const {
+  agentSidebarSpy,
+  docsWebMcpActions,
+  navigateMock,
+  revalidateMock,
+  routerRootHref,
+} = vi.hoisted(() => ({
+  agentSidebarSpy: vi.fn(),
+  docsWebMcpActions: [] as Array<{ run: (args: unknown) => unknown }>,
+  navigateMock: vi.fn(),
+  revalidateMock: vi.fn(),
+  routerRootHref: { value: "/" },
+}));
 
 function ShellSettledProbe() {
   const settled = useShellSettled();
@@ -79,6 +85,7 @@ vi.mock("react-router", () => ({
   useNavigate: () => navigateMock,
   useNavigation: () => ({ state: "idle" }),
   useMatches: () => [],
+  useRevalidator: () => ({ revalidate: revalidateMock }),
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
   useRouteError: () => null,
   isRouteErrorResponse: () => false,
@@ -94,9 +101,11 @@ vi.mock("./components/website-redesign/footer", () => ({ Footer: () => null }));
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   agentSidebarSpy.mockClear();
   docsWebMcpActions.length = 0;
   navigateMock.mockClear();
+  revalidateMock.mockClear();
   routerRootHref.value = "/";
 });
 
@@ -177,5 +186,15 @@ describe("RootShell tree stability", () => {
     screen.getByTestId("protected-link").click();
 
     expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("revalidates a cold GitHub star count once", async () => {
+    vi.useFakeTimers();
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted={false} />);
+
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    expect(revalidateMock).toHaveBeenCalledTimes(1);
   });
 });

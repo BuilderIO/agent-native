@@ -153,6 +153,10 @@ function shouldRefresh(value: GithubStarCache, now: number): boolean {
   return value.count === null || now - value.fetchedAt >= CACHE_FRESH_MS;
 }
 
+function isFresh(value: GithubStarCache, now: number): boolean {
+  return value.count !== null && now - value.fetchedAt < CACHE_FRESH_MS;
+}
+
 async function persistCache(value: GithubStarCache): Promise<void> {
   try {
     await putSetting(CACHE_KEY, cacheValue(value));
@@ -170,9 +174,12 @@ async function claimRefresh(now: number): Promise<{
     const value = await mutateSetting(CACHE_KEY, (current) => {
       claimed = false;
       const currentCache = parseCache(current) ?? cache ?? emptyCache();
+      const currentNow = Date.now();
       if (
-        (currentCache.retryAt !== null && now < currentCache.retryAt) ||
-        (currentCache.refreshUntil !== null && now < currentCache.refreshUntil)
+        isFresh(currentCache, currentNow) ||
+        (currentCache.retryAt !== null && currentNow < currentCache.retryAt) ||
+        (currentCache.refreshUntil !== null &&
+          currentNow < currentCache.refreshUntil)
       ) {
         return cacheValue(currentCache);
       }
@@ -180,7 +187,7 @@ async function claimRefresh(now: number): Promise<{
       claimed = true;
       return cacheValue({
         ...currentCache,
-        refreshUntil: now + REFRESH_LEASE_MS,
+        refreshUntil: currentNow + REFRESH_LEASE_MS,
       });
     });
     const currentCache = parseCache(value) ?? cache ?? emptyCache();
@@ -242,18 +249,23 @@ async function withSsrBudget(
   });
 }
 
-export async function getGithubStarCount(): Promise<number | null> {
+async function getGithubStarCountUnbounded(): Promise<number | null> {
   const persisted = await readPersistedCache();
   const current = cache ?? persisted;
   if (current) {
     if (shouldRefresh(current, Date.now())) {
-      if (current.count === null) return withSsrBudget(refresh());
+      if (current.count === null) return refresh();
       void refresh();
     }
+    if (current.count === null && refreshInFlight) return refreshInFlight;
     return current.count;
   }
 
-  return withSsrBudget(refresh());
+  return refresh();
+}
+
+export async function getGithubStarCount(): Promise<number | null> {
+  return withSsrBudget(getGithubStarCountUnbounded());
 }
 
 export function resetGithubStarCountCacheForTests(): void {

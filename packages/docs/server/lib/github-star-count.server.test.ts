@@ -83,6 +83,30 @@ describe("getGithubStarCount", () => {
     });
   });
 
+  it("bounds a slow persisted-cache read by the SSR budget", async () => {
+    vi.useFakeTimers();
+    let resolveRead!: (value: Record<string, unknown> | null) => void;
+    settings.getSetting.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+
+    const result = getGithubStarCount();
+    expect(settings.getSetting).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(result).resolves.toBeNull();
+
+    resolveRead({
+      count: 19,
+      fetchedAt: Date.now(),
+      retryAt: null,
+      refreshUntil: null,
+    });
+    await expect(getGithubStarCount()).resolves.toBe(19);
+  });
+
   it("returns null and does not throw when the request fails", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
     global.fetch = fetchMock;
@@ -198,6 +222,37 @@ describe("getGithubStarCount", () => {
 
     expect(await getGithubStarCount()).toBe(19);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not refresh after another instance persists a fresh value", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T17:00:00.000Z"));
+    settings.set({
+      count: 7,
+      fetchedAt: 0,
+      retryAt: null,
+      refreshUntil: null,
+    });
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
+    settings.mutateSetting.mockImplementationOnce(async () => {
+      const fresh = {
+        count: 19,
+        fetchedAt: Date.now(),
+        retryAt: null,
+        refreshUntil: null,
+      };
+      settings.set(fresh);
+      return fresh;
+    });
+
+    expect(await getGithubStarCount()).toBe(7);
+    await vi.waitFor(() =>
+      expect(settings.mutateSetting).toHaveBeenCalledTimes(1),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await getGithubStarCount()).toBe(19);
   });
 
   it("keeps the persisted value during a GitHub rate-limit retry window", async () => {

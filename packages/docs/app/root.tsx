@@ -35,6 +35,7 @@ import {
   useNavigate,
   useRouteError,
   useLocation,
+  useRevalidator,
   type LoaderFunctionArgs,
 } from "react-router";
 
@@ -65,6 +66,7 @@ import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+const GITHUB_STAR_REVALIDATION_DELAY_MS = 1_500;
 
 const LazyAgentSidebar = lazy(async () => {
   const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
@@ -225,6 +227,27 @@ function useRootLocaleData() {
     : fallbackRootLocaleData(location.pathname);
 }
 
+function GithubStarCountRevalidator({
+  starCount,
+}: {
+  starCount: number | null;
+}) {
+  const { revalidate } = useRevalidator();
+  const scheduledRef = useRef(false);
+
+  useEffect(() => {
+    if (starCount !== null || scheduledRef.current) return;
+    scheduledRef.current = true;
+    const timer = window.setTimeout(
+      () => revalidate(),
+      GITHUB_STAR_REVALIDATION_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [revalidate, starCount]);
+
+  return null;
+}
+
 export const links = () => [
   { rel: "stylesheet", href: appCss },
   // Every selector in tokens.css is scoped under .builder-brand-tokens, which
@@ -327,6 +350,7 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
       onClick={handleClick}
     >
       <ScrollManager />
+      <GithubStarCountRevalidator starCount={starCount} />
       <SnackbarProvider>
         <SiteHeader starCount={starCount} />
         {children}

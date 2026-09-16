@@ -67,6 +67,13 @@ describe("SiteHeader search", () => {
     ).toHaveLength(1);
   });
 
+  it("reserves the GitHub button width without a server count", () => {
+    renderHeader(null);
+    expect(screen.getByRole("link", { name: "GitHub" }).className).toContain(
+      "min-w-[96px]",
+    );
+  });
+
   it("does not mount the search modal until it is asked for", () => {
     renderHeader();
 
