@@ -418,8 +418,9 @@ type SuppressionEntry = {
   action: SuppressionAction;
   // Where the thread legitimately lives after the action, so it stays visible
   // there. The entry carries this instead of the filter testing one action at
-  // a time: a move's destination is a label the filter cannot guess.
-  destination?: { view?: string; label?: string };
+  // a time: a move's destination is a label the filter cannot guess. `all` has
+  // no Gmail query, so everything except trash and spam stays listed there.
+  destination?: { views?: string[]; label?: string };
   timestamp: number;
 };
 
@@ -449,7 +450,7 @@ function subscribeToSuppression(listener: () => void) {
 export function suppressThread(
   threadId: string,
   action: SuppressionAction,
-  destination?: { view?: string; label?: string },
+  destination?: { views?: string[]; label?: string },
 ): number {
   const id = nextSuppressionId++;
   const entries = suppressedThreads.get(threadId) ?? new Map();
@@ -481,21 +482,26 @@ function isSuppressedInView(
   const entries = suppressedThreads.get(threadId);
   if (!entries) return false;
   const now = Date.now();
-  let suppressed = false;
+  let newest: SuppressionEntry | undefined;
+  let newestId = 0;
   for (const [id, entry] of entries) {
     if (now - entry.timestamp > SUPPRESS_DURATION) {
       entries.delete(id);
       continue;
     }
-    // A move names a destination label list; archive/trash name a view.
-    const destination = entry.destination;
-    const isDestinationView = destination?.label
-      ? destination.label === label
-      : destination?.view === view;
-    if (!isDestinationView) suppressed = true;
+    if (id > newestId) {
+      newestId = id;
+      newest = entry;
+    }
   }
   if (entries.size === 0) suppressedThreads.delete(threadId);
-  return suppressed;
+  if (!newest) return false;
+  // Only the newest claim says where the thread now lives: an archive claim
+  // must stop hiding it from Trash once a later trash put it there. Older
+  // claims stay in the map purely so their own rollback stays scoped.
+  const destination = newest.destination;
+  if (destination?.label && destination.label === label) return false;
+  return !destination?.views?.includes(view);
 }
 
 export function filterSuppressedThreads(
@@ -1532,7 +1538,7 @@ export function useArchiveEmail() {
         findInboxThreadIdByMessageId(qc, id) ||
         id;
       const suppressionId = suppressThread(threadId, "archive", {
-        view: "archive",
+        views: ["archive", "all"],
       });
       invalidateCachedThread(threadId);
       const inboxMutationId = removeInboxThreadsOptimistic(
@@ -1659,7 +1665,7 @@ export function useTrashEmail() {
         findInboxThreadIdByMessageId(qc, id) ||
         id;
       const suppressionId = suppressThread(threadId, "trash", {
-        view: "trash",
+        views: ["trash"],
       });
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
@@ -1807,7 +1813,7 @@ export function useBulkArchiveEmails() {
       const suppressionIds: Record<string, number> = {};
       for (const threadId of threadIdSet) {
         suppressionIds[threadId] = suppressThread(threadId, "archive", {
-          view: "archive",
+          views: ["archive", "all"],
         });
         invalidateCachedThread(threadId);
       }
@@ -1884,7 +1890,7 @@ export function useBulkTrashEmails() {
       const suppressionIds: Record<string, number> = {};
       for (const threadId of threadIdSet)
         suppressionIds[threadId] = suppressThread(threadId, "trash", {
-          view: "trash",
+          views: ["trash"],
         });
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIdSet);
       return {
@@ -2197,8 +2203,12 @@ export function useMoveEmail() {
         // Suppress per thread rather than snapshotting the legacy cache: a
         // snapshot restore also reverts whatever landed after this move
         // started, which is how an overlapping move gets resurrected. The
-        // destination label keeps the thread visible in the list it moved to.
-        suppressionIds[threadId] = suppressThread(threadId, "move", { label });
+        // destination label keeps the thread visible in the list it moved to,
+        // and a move never removes it from All Mail.
+        suppressionIds[threadId] = suppressThread(threadId, "move", {
+          views: ["all"],
+          label,
+        });
       }
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIds);
       return {
@@ -2580,7 +2590,10 @@ export function useMuteThread() {
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      const suppressionId = suppressThread(threadId, "mute");
+      // Muting only drops the thread out of the inbox; it stays in All Mail.
+      const suppressionId = suppressThread(threadId, "mute", {
+        views: ["all"],
+      });
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
