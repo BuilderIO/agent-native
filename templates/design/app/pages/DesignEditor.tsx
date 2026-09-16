@@ -1721,7 +1721,7 @@ function DesignEditor() {
   const initialUrlSelectionHydratedForIdRef = useRef<string | null>(null);
   // Figma's 56px workspace rail (plus its 1px divider) and 280px Layers/Pages
   // pane place the content divider at x=337. Keep that total while honoring
-  // resizable 220–420px content range.
+  // the resizable 220–420px content range, with 320px reserved for Agent chat.
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
@@ -23398,7 +23398,10 @@ function DesignEditor() {
   const leftContentWidth =
     activeLeftPanel === "code"
       ? Math.max(leftSidebarWidth, 640)
-      : Math.max(Math.min(leftSidebarWidth, 420), 220);
+      : Math.max(
+          Math.min(leftSidebarWidth, 420),
+          activeLeftPanel === "agent" ? 320 : 220,
+        );
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
   // These focused surfaces need a clear viewport beside the absolute rail.
   const leftChromeOverlayInset = leftSidebarVisible
@@ -23712,7 +23715,7 @@ function DesignEditor() {
               <div
                 data-design-agent-panel
                 className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  "min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
                   activeLeftPanel === "agent" ? "flex" : "hidden",
                 )}
               >
@@ -23721,7 +23724,9 @@ function DesignEditor() {
                 ) : canEditDesign ? (
                   <AgentChatSurface
                     mode="panel"
-                    className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
+                    className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
+                    chatOnly={true}
+                    onCollapse={() => setActiveLeftPanel(null)}
                     storageKey={DESIGN_CHAT_STORAGE_KEY}
                     emptyStateText={t("chat.emptyState")}
                     suggestions={designAgentSuggestions}

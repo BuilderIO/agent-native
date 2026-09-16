@@ -62,11 +62,11 @@ export function AgentSuggestionBar({
     <section
       aria-label={ariaLabel}
       data-agent-suggestion-bar="true"
-      className={cn("w-full overflow-hidden px-3 py-2", className)}
+      className={cn("w-full min-w-0 overflow-hidden px-3 py-2", className)}
     >
       <div
         data-agent-suggestion-scroller="true"
-        className="flex w-full snap-x snap-proximity gap-1 overflow-x-auto overscroll-x-contain px-0.5 py-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex w-full min-w-0 snap-x snap-proximity gap-1 overflow-x-auto overscroll-x-contain px-0.5 py-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {suggestions.map((input, index) => {
           const suggestion = normalizeAgentSuggestion(input, index);
