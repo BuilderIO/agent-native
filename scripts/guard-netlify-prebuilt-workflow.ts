@@ -828,6 +828,9 @@ const parsedClientPairingIndex = parsedStepIndex(
 const parsedTrustedPreviewBuildIndex = parsedStepIndex(
   "Build trusted preview Functions for the PR artifact",
 );
+const parsedTrustedPreviewManifestIndex = parsedStepIndex(
+  "Verify trusted preview server manifest",
+);
 const parsedPreviewSmokeIndex = parsedStepIndex(
   "Smoke-test the uploaded PR preview",
 );
@@ -875,6 +878,33 @@ if (
 ) {
   issues.push(
     `${reusablePath} must pair the PR client artifact with publish output before the trusted Functions build`,
+  );
+}
+const parsedTrustedPreviewManifestStep =
+  reusableSteps[parsedTrustedPreviewManifestIndex];
+const trustedPreviewManifestRun = String(
+  parsedTrustedPreviewManifestStep?.run ?? "",
+);
+const trustedPreviewManifestIf = String(
+  parsedTrustedPreviewManifestStep?.if ?? "",
+);
+if (
+  parsedTrustedPreviewManifestIndex < 0 ||
+  parsedTrustedPreviewManifestIndex <= parsedTrustedPreviewBuildIndex ||
+  parsedTrustedPreviewManifestIndex >= parsedUploadIndex ||
+  !trustedPreviewManifestIf.includes("inputs.target == 'preview'") ||
+  !trustedPreviewManifestIf.includes("inputs.deploy") ||
+  !trustedPreviewManifestIf.includes("inputs.artifact_download") ||
+  !trustedPreviewManifestIf.includes(
+    "steps.target.outputs.source_template == 'dispatch'",
+  ) ||
+  !trustedPreviewManifestRun.includes('"$FUNCTIONS_DIRECTORY"') ||
+  !trustedPreviewManifestRun.includes('"$PUBLISH_DIRECTORY"') ||
+  !trustedPreviewManifestRun.includes('"$client_directory"') ||
+  !trustedPreviewManifestRun.includes('--server "$FUNCTIONS_DIRECTORY"')
+) {
+  issues.push(
+    `${reusablePath} must verify the trusted server manifest against the uploaded preview publish tree before upload`,
   );
 }
 const previewSmokeRun = String(parsedPreviewSmokeStep?.run ?? "");

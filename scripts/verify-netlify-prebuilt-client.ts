@@ -6,6 +6,13 @@ type VerificationResult = {
   checkedFiles: number;
 };
 
+type ServerManifestVerificationResult = {
+  checkedAssets: number;
+};
+
+const ABSOLUTE_ASSET_PATH =
+  /["'`]((?:\/[A-Za-z0-9._~-]+)*\/assets\/[^"'`\s?#]+)["'`]/g;
+
 function listFiles(root: string, relative = ""): string[] {
   return readdirSync(path.join(root, relative), {
     withFileTypes: true,
@@ -71,6 +78,56 @@ export function verifyNetlifyPrebuiltClientArtifact(
   return { checkedFiles: clientFiles.length };
 }
 
+/**
+ * Nitro's server bundle contains the route manifest used by serveStatic. Check
+ * those absolute asset paths against the tree that the deploy will upload,
+ * rather than trusting the client artifact graph alone.
+ */
+export function verifyNetlifyPrebuiltServerManifest(
+  serverDirectory: string,
+  publishDirectory: string,
+): ServerManifestVerificationResult {
+  if (!statSync(serverDirectory, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error(`Server artifact directory is missing: ${serverDirectory}`);
+  }
+  if (!statSync(publishDirectory, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error(`Publish directory is missing: ${publishDirectory}`);
+  }
+
+  const assetPaths = new Set<string>();
+  for (const relative of listFiles(serverDirectory)) {
+    if (!/\.(?:cjs|js|mjs)$/.test(relative)) continue;
+    const source = readFileSync(path.join(serverDirectory, relative), "utf8");
+    for (const match of source.matchAll(ABSOLUTE_ASSET_PATH)) {
+      for (const assetPath of match[1].split(",")) {
+        if (assetPath.startsWith("/") && /\.[A-Za-z0-9_-]+$/.test(assetPath)) {
+          assetPaths.add(assetPath);
+        }
+      }
+    }
+  }
+
+  if (assetPaths.size === 0) {
+    throw new Error(
+      `Server artifact contains no absolute client asset paths: ${serverDirectory}`,
+    );
+  }
+
+  const missing = [...assetPaths].sort().filter((assetPath) => {
+    const relative = assetPath.replace(/^\/+/, "");
+    return !statSync(path.join(publishDirectory, relative), {
+      throwIfNoEntry: false,
+    })?.isFile();
+  });
+  if (missing.length > 0) {
+    throw new Error(
+      `Server asset manifest is not paired with publish output (missing: ${missing.join(", ")}).`,
+    );
+  }
+
+  return { checkedAssets: assetPaths.size };
+}
+
 function argumentValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   return index === -1 ? undefined : process.argv[index + 1];
@@ -91,6 +148,17 @@ function main(): void {
   console.log(
     `Verified ${checkedFiles} client artifact file(s) are present byte-for-byte in publish output.`,
   );
+
+  const serverDirectory = argumentValue("--server");
+  if (serverDirectory) {
+    const { checkedAssets } = verifyNetlifyPrebuiltServerManifest(
+      serverDirectory,
+      publishDirectory,
+    );
+    console.log(
+      `Verified ${checkedAssets} server manifest asset path(s) are present in publish output.`,
+    );
+  }
 }
 
 const isMainModule =

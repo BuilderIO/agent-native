@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { verifyNetlifyPrebuiltClientArtifact } from "./verify-netlify-prebuilt-client.ts";
+import {
+  verifyNetlifyPrebuiltClientArtifact,
+  verifyNetlifyPrebuiltServerManifest,
+} from "./verify-netlify-prebuilt-client.ts";
 
 function fixture(): { client: string; publish: string; root: string } {
   const root = mkdtempSync(path.join(os.tmpdir(), "netlify-client-pair-"));
@@ -41,6 +44,46 @@ test("rejects missing or stale client files in publish output", () => {
     assert.throws(
       () => verifyNetlifyPrebuiltClientArtifact(client, publish),
       /missing: assets\/route-def\.js; mismatched: assets\/entry-abc\.js/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("verifies the trusted server manifest against publish output", () => {
+  const { client, publish, root } = fixture();
+  const server = path.join(root, "server");
+  try {
+    mkdirSync(server, { recursive: true });
+    writeFileSync(path.join(client, "assets", "entry-abc.js"), "client");
+    writeFileSync(path.join(publish, "assets", "entry-abc.js"), "client");
+    writeFileSync(path.join(publish, "assets", "route-def.js"), "route");
+    writeFileSync(
+      path.join(server, "main.mjs"),
+      'const route = "/assets/entry-abc.js,/assets/route-def.js"; const api = "/api/v1/assets/by-url"; const glob = "/assets/**"; import "./assets/server-chunk.mjs";',
+    );
+
+    assert.deepEqual(verifyNetlifyPrebuiltServerManifest(server, publish), {
+      checkedAssets: 2,
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects trusted server manifest assets missing from publish output", () => {
+  const { root, publish } = fixture();
+  const server = path.join(root, "server");
+  try {
+    mkdirSync(server, { recursive: true });
+    writeFileSync(
+      path.join(server, "main.mjs"),
+      'const route = "/assets/missing-abc.js";',
+    );
+
+    assert.throws(
+      () => verifyNetlifyPrebuiltServerManifest(server, publish),
+      /missing: \/assets\/missing-abc\.js/,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
