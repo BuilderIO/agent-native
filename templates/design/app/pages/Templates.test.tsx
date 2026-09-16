@@ -166,6 +166,6 @@ describe("Templates deep links", () => {
       (button) => button.textContent === "visualEdit.openDesign",
     );
     await act(async () => openDesign?.click());
-    expect(mocks.navigate).toHaveBeenCalledWith("/designs");
+    expect(mocks.navigate).toHaveBeenCalledWith("/home");
   });
 });

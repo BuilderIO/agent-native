@@ -60,13 +60,15 @@ export function useImageModelMenu(threadId?: string | null) {
       void writeClientAppState(IMAGE_MODEL_STATE_KEY, { model: value }).catch(
         () => {},
       );
-      dismissFailed.mutate(
-        { scope: "failed", threadId },
-        {
-          onSuccess: () =>
-            void queryClient.invalidateQueries({ queryKey: ["app-state"] }),
-        },
-      );
+      if (threadId) {
+        dismissFailed.mutate(
+          { scope: "failed", threadId },
+          {
+            onSuccess: () =>
+              void queryClient.invalidateQueries({ queryKey: ["app-state"] }),
+          },
+        );
+      }
     },
     [dismissFailed, queryClient, threadId],
   );

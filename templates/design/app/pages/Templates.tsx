@@ -338,7 +338,7 @@ export default function Templates() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => void navigate("/designs")}
+                    onClick={() => void navigate("/home")}
                   >
                     {t("visualEdit.openDesign")}
                   </Button>

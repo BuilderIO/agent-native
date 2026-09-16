@@ -1375,6 +1375,8 @@ describe("AppWebview per-app chat state propagation", () => {
 });
 
 describe("AppWebview theme propagation", () => {
+  beforeEach(() => window.localStorage.clear());
+
   it("updates the guest root and shared theme storage", () => {
     document.documentElement.className = "light";
     document.documentElement.removeAttribute("data-theme");
@@ -1399,6 +1401,9 @@ describe("AppWebview theme propagation", () => {
       expect(
         window.localStorage.getItem("agent-native-desktop-host-theme"),
       ).toBe("dark");
+      expect(
+        window.localStorage.getItem("agent-native-desktop-guest-theme"),
+      ).toBeNull();
       expect(changeDetail).toEqual({
         type: "agent-native-theme-update",
         theme: "dark",
@@ -1410,23 +1415,39 @@ describe("AppWebview theme propagation", () => {
   });
 
   it("preserves a guest theme that differs from the last injected host theme", () => {
-    window.localStorage.setItem("agent-native-desktop-host-theme", "dark");
+    new Function(buildGuestThemeScript("dark"))();
     window.localStorage.setItem("theme", "light");
 
     new Function(buildGuestThemeScript("dark"))();
 
     expect(document.documentElement.classList.contains("light")).toBe(true);
     expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("light");
   });
 
   it("follows the host when the guest has not selected a different theme", () => {
-    window.localStorage.setItem("agent-native-desktop-host-theme", "dark");
-    window.localStorage.setItem("theme", "dark");
+    new Function(buildGuestThemeScript("dark"))();
 
     new Function(buildGuestThemeScript("light"))();
 
     expect(document.documentElement.classList.contains("light")).toBe(true);
     expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("preserves an explicit guest choice that matches the current host theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+    new Function(buildGuestThemeScript("light"))();
+
+    new Function(buildGuestThemeScript("dark"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("light");
   });
 });
 

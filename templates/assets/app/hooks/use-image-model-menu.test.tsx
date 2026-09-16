@@ -60,4 +60,20 @@ describe("useImageModelMenu", () => {
       expect.any(Object),
     );
   });
+
+  it("does not dismiss unscoped candidates from a sidebar without a thread", () => {
+    let menu: ReturnType<typeof useImageModelMenu> | undefined;
+    function Harness() {
+      menu = useImageModelMenu();
+      return null;
+    }
+
+    act(() => root.render(<Harness />));
+    act(() => menu?.onChange("gpt-image-2"));
+
+    expect(writeClientAppState).toHaveBeenCalledWith("imageGenerationModel", {
+      model: "gpt-image-2",
+    });
+    expect(mutate).not.toHaveBeenCalled();
+  });
 });
