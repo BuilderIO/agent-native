@@ -80,6 +80,7 @@ export interface WorkspaceDevHandle {
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
 const DEFAULT_GATEWAY_PORT = 8080;
 const DEFAULT_APP_PORT_START = 8100;
+const GATEWAY_PORT_FALLBACK_ATTEMPTS = 20;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
@@ -93,6 +94,23 @@ const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
   pragma: "no-cache",
   expires: "0",
 };
+
+export function workspaceGatewayUrl(host: string, port: number): string {
+  const bindHost = workspaceBindHost(host);
+  const clientHost =
+    bindHost === "0.0.0.0"
+      ? "127.0.0.1"
+      : bindHost === "::"
+        ? "[::1]"
+        : bindHost.includes(":")
+          ? `[${bindHost}]`
+          : bindHost;
+  return `http://${clientHost}:${port}`;
+}
+
+export function workspaceBindHost(host: string): string {
+  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+}
 
 function workspaceOAuthOrigin(
   env: NodeJS.ProcessEnv,
@@ -652,7 +670,8 @@ export async function runWorkspaceDev(
   const stderr = options.stderr ?? process.stderr;
 
   fs.mkdirSync(path.join(root, "data"), { recursive: true });
-  const gatewayHost = env.WORKSPACE_HOST || DEFAULT_GATEWAY_HOST;
+  const configuredGatewayHost = env.WORKSPACE_HOST || DEFAULT_GATEWAY_HOST;
+  const gatewayHost = workspaceBindHost(configuredGatewayHost);
   const requestedPort = Number(
     env.WORKSPACE_PORT || env.PORT || DEFAULT_GATEWAY_PORT,
   );
@@ -675,7 +694,7 @@ export async function runWorkspaceDev(
       env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
       DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS,
   );
-  let gatewayUrl = `http://${gatewayHost}:${requestedPort}`;
+  let gatewayUrl = workspaceGatewayUrl(configuredGatewayHost, requestedPort);
 
   const apps = await discoverApps(appsDir, appPortStart);
   if (apps.length === 0) {
@@ -694,7 +713,9 @@ export async function runWorkspaceDev(
       probe.once("listening", () => {
         probe.close(() => resolve(true));
       });
-      probe.listen(port, gatewayHost);
+      // Child Vite servers always bind IPv4 loopback, independently of the
+      // gateway bind host, so reserve against the address they actually use.
+      probe.listen(port, "127.0.0.1");
     });
   }
 
@@ -704,7 +725,12 @@ export async function runWorkspaceDev(
   ): Promise<number> {
     for (let port = start; port < start + 100; port++) {
       if (excluded.has(port)) continue;
-      if (port === requestedPort) continue;
+      if (
+        port >= requestedPort &&
+        port <= requestedPort + GATEWAY_PORT_FALLBACK_ATTEMPTS
+      ) {
+        continue;
+      }
       if (await probePortAvailable(port)) return port;
     }
     throw new Error(
@@ -1412,7 +1438,10 @@ export async function runWorkspaceDev(
 
     if (pathname === "/_workspace/apps") {
       await syncApps().catch(() => {});
-      res.writeHead(200, { "content-type": "application/json" });
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "x-agent-native-workspace-root": root,
+      });
       res.end(
         JSON.stringify(
           apps.map((app) => ({
@@ -1454,7 +1483,10 @@ export async function runWorkspaceDev(
     proxyUpgrade(app, req, socket, head);
   });
 
-  function listen(port: number, attempts = 20): void {
+  function listen(
+    port: number,
+    attempts = GATEWAY_PORT_FALLBACK_ATTEMPTS,
+  ): void {
     server.once("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE" && attempts > 0) {
         listen(port + 1, attempts - 1);
@@ -1467,7 +1499,13 @@ export async function runWorkspaceDev(
       const address = server.address();
       const actualPort =
         typeof address === "object" && address ? address.port : port;
-      gatewayUrl = `http://${gatewayHost}:${actualPort}`;
+      gatewayUrl = workspaceGatewayUrl(configuredGatewayHost, actualPort);
+      stdout.write(`[workspace] Root: ${root}\n`);
+      if (requestedPort > 0 && actualPort !== requestedPort) {
+        stdout.write(
+          `[workspace] Gateway port ${requestedPort} was in use; listening on ${actualPort} instead — the URLs below are the real ones.\n`,
+        );
+      }
       stdout.write(
         `[workspace] Default: ${redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl}\n`,
       );
@@ -1480,7 +1518,7 @@ export async function runWorkspaceDev(
       );
       for (const app of apps) {
         stdout.write(
-          `[workspace] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}\n`,
+          `[workspace] ${app.id}: ${gatewayUrl}/${app.id} (upstream 127.0.0.1:${app.port})\n`,
         );
       }
       startWorkspaceProcesses();

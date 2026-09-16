@@ -1699,6 +1699,7 @@ describe("workspace scaffold defaults", () => {
 
     const gitignore = fs.readFileSync(path.join(wsDir, ".gitignore"), "utf-8");
     expect(gitignore).toContain("dist/");
+    expect(gitignore).toContain(".agent-native/");
   });
 
   it("does not copy generated Vercel output or legacy Claude settings", async () => {

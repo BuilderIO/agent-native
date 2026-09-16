@@ -21,6 +21,8 @@ import {
   shouldEagerStartWorkspaceApps,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
+  workspaceBindHost,
+  workspaceGatewayUrl,
   workspacePrewarmConcurrency,
   type WorkspaceDevHandle,
 } from "./workspace-dev.js";
@@ -40,6 +42,162 @@ afterEach(() => {
 });
 
 describe("workspace dev startup", () => {
+  it.each([
+    ["127.0.0.1", "http://127.0.0.1:8080"],
+    ["localhost", "http://localhost:8080"],
+    ["0.0.0.0", "http://127.0.0.1:8080"],
+    ["::", "http://[::1]:8080"],
+    ["[::]", "http://[::1]:8080"],
+    ["::1", "http://[::1]:8080"],
+    ["2001:db8::1", "http://[2001:db8::1]:8080"],
+    ["[::1]", "http://[::1]:8080"],
+  ])("builds a usable gateway URL for bind host %s", (host, expected) => {
+    expect(workspaceGatewayUrl(host, 8080)).toBe(expected);
+  });
+
+  it.each([
+    ["::1", "::1"],
+    ["[::1]", "::1"],
+    ["2001:db8::1", "2001:db8::1"],
+    ["[2001:db8::1]", "2001:db8::1"],
+  ])("normalizes IPv6 bind host %s for Node", (host, expected) => {
+    expect(workspaceBindHost(host)).toBe(expected);
+  });
+
+  it("advertises and injects a loopback URL when bound to every IPv4 interface", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let output = "";
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_HOST: "0.0.0.0" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+      stdout: { write: (chunk) => void (output += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:/);
+    expect(output).toContain(`[workspace] Gateway: ${url}`);
+    expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
+  });
+
+  it("starts from a bracketed IPv6 bind host and advertises a valid URL", async ({
+    skip,
+  }) => {
+    if (!(await supportsIpv6Loopback())) skip();
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_HOST: "[::1]" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+
+    expect(url).toMatch(/^http:\/\/\[::1\]:/);
+    await expect(fetch(`${url}/_workspace/apps`)).resolves.toMatchObject({
+      status: 200,
+    });
+    expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
+  });
+
+  it("starts from a bracketed IPv6 wildcard and advertises loopback", async ({
+    skip,
+  }) => {
+    if (!(await supportsIpv6Loopback())) skip();
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let output = "";
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_HOST: "[::]" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+      stdout: { write: (chunk) => void (output += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    expect(url).toMatch(/^http:\/\/\[::1\]:/);
+    await expect(fetch(`${url}/_workspace/apps`)).resolves.toMatchObject({
+      status: 200,
+    });
+    expect(output).toContain(`[workspace] Gateway: ${url}`);
+    expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
+  });
+
+  it("reserves child ports on IPv4 when the gateway binds IPv6", async ({
+    skip,
+  }) => {
+    if (!(await supportsIpv6Loopback())) skip();
+    const occupied = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.1", () => resolve());
+    });
+    try {
+      const address = occupied.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected the occupied server to expose a TCP port");
+      }
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn();
+      let output = "";
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: {
+          ...testEnv(),
+          WORKSPACE_HOST: "[::1]",
+          WORKSPACE_APP_PORT_START: String(address.port),
+        },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+        stdout: { write: (chunk) => void (output += String(chunk)) },
+      });
+      await handle.ready;
+
+      expect(handle.apps[0]?.port).not.toBe(address.port);
+      expect(output).toContain(
+        `[workspace] Port ${address.port} unavailable for /dispatch`,
+      );
+    } finally {
+      await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    }
+  });
+
+  it("keeps gateway fallback ports out of the child reservation range", async () => {
+    const occupied = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.1", () => resolve());
+    });
+    try {
+      const address = occupied.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected the occupied server to expose a TCP port");
+      }
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn();
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: {
+          ...testEnv(),
+          WORKSPACE_PORT: String(address.port),
+          WORKSPACE_APP_PORT_START: String(address.port + 1),
+        },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+      });
+      const ready = await handle.ready;
+
+      expect(ready.port).toBe(address.port + 1);
+      expect(handle.apps[0]?.port).toBeGreaterThan(address.port + 20);
+    } finally {
+      await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    }
+  });
+
   it("starts only Dispatch by default and starts other apps on first visit", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();
@@ -748,6 +906,14 @@ describe("workspace dev startup", () => {
     expect(handle.apps[0].restartTimer).toBeUndefined();
   });
 });
+
+async function supportsIpv6Loopback(): Promise<boolean> {
+  const probe = http.createServer();
+  return await new Promise<boolean>((resolve) => {
+    probe.once("error", () => resolve(false));
+    probe.listen(0, "::1", () => probe.close(() => resolve(true)));
+  });
+}
 
 describe("workspace dev helpers", () => {
   it("parses eager mode from args or env", () => {

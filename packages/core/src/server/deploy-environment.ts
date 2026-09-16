@@ -33,7 +33,9 @@ function normalizeFallbackEnvironment(
 }
 
 /** The deploy environment name, e.g. `production`, `beta`, or `preview`. */
-export function resolveDeployEnvironment(): string {
+export function resolveDeployEnvironment(options?: {
+  metadataFreeDefault?: "local" | "production";
+}): string {
   const explicit = firstNonEmpty(
     process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
   )?.toLowerCase();
@@ -71,10 +73,13 @@ export function resolveDeployEnvironment(): string {
   }
 
   if (!context && !branch && !vercelEnv) {
+    const nodeEnvironment = normalizeFallbackEnvironment(process.env.NODE_ENV);
+    if (nodeEnvironment === "production") return "production";
     return (
-      normalizeFallbackEnvironment(
-        firstNonEmpty(process.env.SENTRY_ENVIRONMENT, process.env.NODE_ENV),
-      ) ?? "production"
+      normalizeFallbackEnvironment(process.env.SENTRY_ENVIRONMENT) ??
+      nodeEnvironment ??
+      options?.metadataFreeDefault ??
+      "production"
     );
   }
 

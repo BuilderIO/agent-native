@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { convertSetCookieToCookie, getTestInstance } from "better-auth/test";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -72,6 +76,13 @@ describe("resolveAuthSecret", () => {
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
     delete process.env.NODE_ENV;
+    delete process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
+    delete process.env.SENTRY_ENVIRONMENT;
+    delete process.env.CONTEXT;
+    delete process.env.NETLIFY_CONTEXT;
+    delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
+    delete process.env.BRANCH;
+    delete process.env.VERCEL_ENV;
   });
 
   afterEach(() => {
@@ -90,6 +101,21 @@ describe("resolveAuthSecret", () => {
     process.env.NODE_ENV = "production";
     expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
   });
+
+  it("uses explicit deployment classification for the production guard", () => {
+    process.env.NODE_ENV = "development";
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "production";
+    expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it.each(["beta", "preview"] as const)(
+    "fails closed in the %s deployment environment",
+    (environment) => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = environment;
+      expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+    },
+  );
 
   it("derives a production workspace auth secret from A2A_SECRET", () => {
     process.env.NODE_ENV = "production";
@@ -117,25 +143,60 @@ describe("resolveAuthSecret", () => {
     expect(() => getAuthSecret()).toThrow(/openssl rand -hex 32/);
   });
 
-  it("does not throw in dev when missing (auto-generates instead)", () => {
+  // Runs the assertion from a throwaway cwd so the dev fallback persists its
+  // secret file there instead of into the repository checkout.
+  function inTempAppRoot(run: (appRoot: string) => void): void {
+    const originalCwd = process.cwd();
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
+    process.chdir(appRoot);
+    try {
+      run(appRoot);
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  }
+
+  it("fails closed when startup has no deployment metadata", () => {
+    expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it("persists a generated secret in local development", () => {
     process.env.NODE_ENV = "development";
-    expect(() => getAuthSecret()).not.toThrow();
-    expect(getAuthSecret()).toBeTruthy();
+    inTempAppRoot((appRoot) => {
+      expect(() => getAuthSecret()).not.toThrow();
+      const secret = getAuthSecret();
+      expect(secret).toBeTruthy();
+      const secretFile = path.join(appRoot, ".agent-native", "dev-auth-secret");
+      expect(fs.readFileSync(secretFile, "utf8").trim()).toBe(secret);
+      // A second resolution in the same directory reuses the persisted value.
+      expect(getAuthSecret()).toBe(secret);
+    });
+  });
+
+  it("lets an explicitly local runtime proceed with production NODE_ENV", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "local";
+    inTempAppRoot(() => {
+      expect(() => getAuthSecret()).not.toThrow();
+    });
   });
 
   // SECURITY (audit 09 LOW-2): the dev-mode fallback used to chain to
   // GOOGLE_CLIENT_SECRET, ACCESS_TOKEN, and a hardcoded literal. All
-  // three were dropped — the fallback now mints a random in-memory
-  // secret only when the filesystem is unwritable. These tests verify
-  // that even with those legacy env vars set, the resolved secret is
+  // three were dropped — better to mint a random secret than to re-use
+  // a Google client secret or a known string. These tests verify that
+  // even with those legacy env vars set, the resolved secret is
   // not either of them or the legacy literal.
   it("never returns the legacy hardcoded fallback string", () => {
     process.env.NODE_ENV = "development";
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.GOOGLE_CLIENT_SECRET;
     delete process.env.ACCESS_TOKEN;
-    const secret = getAuthSecret();
-    expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+    inTempAppRoot(() => {
+      const secret = getAuthSecret();
+      expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+    });
   });
 });
 
