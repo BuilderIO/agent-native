@@ -9553,6 +9553,7 @@ it(
   <body style="margin:0">
     <h1 data-agent-native-node-id="hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
     <div style="position:absolute;left:500px;top:100px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested layer</span></div>
+    <div data-agent-native-node-id="nested-parent" style="position:absolute;left:700px;top:100px;width:160px;height:100px"><span data-agent-native-node-id="nested-child" style="display:block;width:120px;height:60px">Nested identity</span></div>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
@@ -9591,6 +9592,15 @@ it(
           },
           "agent-native:review-anchor-at-point-result",
         );
+        const nestedAnchor = await request(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId: "review-nested-point",
+            x: 720,
+            y: 120,
+          },
+          "agent-native:review-anchor-at-point-result",
+        );
         const rects = await request(
           {
             type: "agent-native:review-node-rects",
@@ -9607,7 +9617,7 @@ it(
           },
           "agent-native:review-focus-result",
         );
-        return { anchor, selectorAnchor, rects, focus };
+        return { anchor, selectorAnchor, nestedAnchor, rects, focus };
       });
 
       expect(result.anchor).toMatchObject({
@@ -9620,6 +9630,7 @@ it(
         tagName: "span",
       });
       expect(result.selectorAnchor.nodeId).toBeUndefined();
+      expect(result.nestedAnchor).toMatchObject({ nodeId: "nested-child" });
       expect(result.rects).toMatchObject({
         rects: {
           "hero-title": { left: 40, top: 40, width: 320, height: 80 },
