@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { ReviewComment } from "@agent-native/core/review";
+import type { ReviewComment, ReviewMention } from "@agent-native/core/review";
 import { act } from "react";
 import type { TextareaHTMLAttributes } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -85,6 +85,8 @@ vi.mock("@agent-native/core/client/review", () => ({
     value: string;
     onChange: (value: string) => void;
     onSubmit: (target: "human" | "agent") => void;
+    mentions?: readonly ReviewMention[];
+    onMentionsChange?: (mentions: ReviewMention[]) => void;
     showCommentAction?: boolean;
     showAgentAction?: boolean;
     showCommentTools?: boolean;
@@ -134,6 +136,16 @@ vi.mock("@agent-native/core/client/review", () => ({
               <>
                 <button type="button" aria-label="review.addEmoji" />
                 <button type="button" aria-label="review.mention" />
+                <button
+                  type="button"
+                  data-review-test-mention
+                  onClick={() => {
+                    props.onChange("@Alice");
+                    props.onMentionsChange?.([
+                      { label: "Alice", email: "alice@example.com" },
+                    ]);
+                  }}
+                />
               </>
             ) : null}
             {props.commentToolsEnd ? (
@@ -1323,6 +1335,86 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       await Promise.resolve();
     });
     expect(submit?.disabled).toBe(false);
+  });
+
+  it("persists selected mentions through draft and reply submissions", async () => {
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 200,
+            clientY: 180,
+          }),
+        );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-mention]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+    expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+      body: "@Alice",
+      mentions: [{ label: "Alice", email: "alice@example.com" }],
+    });
+
+    mocks.replyMutate.mockReset();
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-mention]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="review.reply"]')
+        ?.click();
+    });
+    expect(mocks.replyMutate.mock.calls[0]?.[0]).toMatchObject({
+      body: "@Alice",
+      mentions: [{ label: "Alice", email: "alice@example.com" }],
+    });
   });
 
   it("supports replies, reactions, and reopening a resolved thread", async () => {

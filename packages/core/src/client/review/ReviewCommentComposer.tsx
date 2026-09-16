@@ -284,7 +284,6 @@ export function ReviewCommentComposer({
             return;
           }
           if (
-            showCommentTools &&
             mentionOptions.length > 0 &&
             event.key === "@" &&
             !event.metaKey &&
@@ -293,6 +292,12 @@ export function ReviewCommentComposer({
           ) {
             const triggerIndex =
               event.currentTarget.selectionStart ?? value.length;
+            const selectionEnd =
+              event.currentTarget.selectionEnd ?? triggerIndex;
+            event.preventDefault();
+            updateValue(
+              `${value.slice(0, triggerIndex)}@${value.slice(selectionEnd)}`,
+            );
             setMentionTriggerIndex(triggerIndex);
             mentionTokenEndRef.current = triggerIndex + 1;
             setMentionSearch("");
@@ -306,10 +311,11 @@ export function ReviewCommentComposer({
       />
       {showCommentTools ||
       commentToolsEnd ||
+      mentionMenuOpen ||
       showCommentAction ||
       showAgentAction ? (
         <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @2xs/review:flex-row @2xs/review:items-center">
-          {showCommentTools || commentToolsEnd ? (
+          {showCommentTools || commentToolsEnd || mentionMenuOpen ? (
             <div
               data-review-comment-tools
               className="flex min-w-0 items-center gap-0.5 @2xs/review:me-auto"

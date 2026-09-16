@@ -117,6 +117,43 @@ describe("ReviewCommentComposer actions", () => {
     expect(onSubmit).toHaveBeenNthCalledWith(2, "agent");
   });
 
+  it("keeps a keyboard @ in the textarea while opening the picker", () => {
+    const mention = { label: "Alice", email: "alice@example.com" };
+    function Harness() {
+      const [value, setValue] = useState("");
+      const [mentions, setMentions] = useState<(typeof mention)[]>([]);
+      return (
+        <ReviewCommentComposer
+          value={value}
+          onChange={setValue}
+          onSubmit={() => {}}
+          mentions={mentions}
+          onMentionsChange={setMentions}
+          mentionOptions={[mention]}
+        />
+      );
+    }
+
+    act(() => root.render(<Harness />));
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).toBeTruthy();
+    textarea!.setSelectionRange(0, 0);
+    const event = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => textarea!.dispatchEvent(event));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(textarea!.value).toBe("@");
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[aria-label="Mention someone"]',
+      )?.value,
+    ).toBe("");
+  });
+
   it("replaces the full typed mention token", () => {
     let submittedMentions: unknown;
     const mention = { label: "Alice", email: "alice@example.com" };

@@ -35,7 +35,22 @@ test("comments toolbar opens an anchored composer", async ({ page }) => {
     exact: true,
   });
   await expect(commentButton).toBeDisabled();
-  await composer.fill("Browser parity check");
+  await composer.fill("Browser parity check ");
+  await composer.press("@");
+  const mentionMenu = page.getByRole("menu", { name: "Mention someone" });
+  await expect(mentionMenu).toBeVisible();
+  await expect(
+    mentionMenu.getByRole("textbox", { name: "Mention someone" }),
+  ).toHaveValue("");
+  await expect(mentionMenu.getByRole("menuitem").first()).toBeVisible();
+  await mentionMenu.getByRole("menuitem").first().click();
+  await expect(composer).toHaveValue(/Browser parity check @.+/);
+  await expect(
+    page.getByRole("button", { name: "Attach image" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Send to agent" }),
+  ).toBeVisible();
   await expect(commentButton).toBeEnabled();
   await composer.press("Escape");
   await expect(composer).toBeHidden();
