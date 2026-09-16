@@ -192,6 +192,7 @@ import {
   rotateSlideObjectMembers,
   resolveSlideClipboardElement,
   restoreSlideObjectStyle,
+  restoreSlideObjectDomSnapshot,
   setSlideObjectDimension,
   setSlideObjectRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
@@ -6614,32 +6615,13 @@ export default function SlideEditor({
             }
           }
           for (const promotion of promotions) {
-            const {
-              element,
-              originalClassName,
-              originalStyle,
-              originalObjectId,
-              originalContentEditable,
-              originalEditingBlock,
-            } = promotion;
-            element.className = originalClassName;
-            if (originalStyle === null) element.removeAttribute("style");
-            else element.setAttribute("style", originalStyle);
-            if (originalContentEditable === null) {
-              element.removeAttribute("contenteditable");
-            } else {
-              element.setAttribute("contenteditable", originalContentEditable);
-            }
-            if (originalEditingBlock === null) {
-              element.removeAttribute("data-editing-block");
-            } else {
-              element.setAttribute("data-editing-block", originalEditingBlock);
-            }
-            if (originalObjectId) {
-              element.setAttribute("data-slide-object-id", originalObjectId);
-            } else {
-              element.removeAttribute("data-slide-object-id");
-            }
+            restoreSlideObjectDomSnapshot(promotion.element, {
+              className: promotion.originalClassName,
+              style: promotion.originalStyle,
+              objectId: promotion.originalObjectId,
+              contentEditable: promotion.originalContentEditable,
+              editingBlock: promotion.originalEditingBlock,
+            });
           }
         };
         for (const element of roots) {
@@ -6728,6 +6710,15 @@ export default function SlideEditor({
             restoredMarkdownTrees.add(restoreMarkdownTree);
             restoreMarkdownTree();
           }
+        }
+        for (const promotion of promotions) {
+          restoreSlideObjectDomSnapshot(promotion.element, {
+            className: promotion.originalClassName,
+            style: promotion.originalStyle,
+            objectId: promotion.originalObjectId,
+            contentEditable: promotion.originalContentEditable,
+            editingBlock: promotion.originalEditingBlock,
+          });
         }
         refreshMultiSelectionRects(multiSelection);
         commitMultiObjectChange(
