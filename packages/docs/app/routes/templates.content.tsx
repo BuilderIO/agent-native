@@ -149,7 +149,7 @@ export default function ContentTemplate() {
           eyebrow={
             <span className="inline-flex items-center gap-2 text-[var(--fg)]">
               <LogoMark className="size-6" />
-              <span className="font-sans text-2xl font-bold tracking-tight">
+              <span className="font-sans text-[20px] font-bold tracking-tight">
                 {t("templateLanding.content.heroEyebrow")}
               </span>
               <AppStatusBadge appId="content" />
