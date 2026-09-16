@@ -90,6 +90,15 @@ export interface AutoLayoutGridValue {
   rowsMixed?: boolean;
   columnGapMixed?: boolean;
   rowGapMixed?: boolean;
+  /**
+   * Set when the axis is authored outside the inspector — a stylesheet rule,
+   * a class, or an implicit grid track — so only its track COUNT is known,
+   * not its sizing. A count edit while this is set and sizing is still
+   * "custom" is refused (nothing written) rather than committed as a
+   * fabricated fill/hug/fixed template over whatever is really authored.
+   */
+  columnSizingUnknown?: boolean;
+  rowSizingUnknown?: boolean;
 }
 
 /** Round to one decimal place — matches the `precision={1}` ScrubInput fields
@@ -956,7 +965,18 @@ function GridControls({
             columns={value.columns}
             rows={value.rows}
             mixed={Boolean(value.columnsMixed || value.rowsMixed)}
-            disabled={locked}
+            // A custom axis (unknown, or a known non-uniform inline
+            // template) has no count-preserving write to make — see
+            // gridTemplatePatchForChange's "custom" skip — so the combined
+            // matrix is unreachable while either axis is custom or unknown;
+            // the sizing pickers in the popover stay enabled as the
+            // recovery path.
+            disabled={
+              locked ||
+              Boolean(value.columnSizingUnknown || value.rowSizingUnknown) ||
+              value.columnSizing === "custom" ||
+              value.rowSizing === "custom"
+            }
             onChange={(columns, rows, meta) => update({ columns, rows }, meta)}
           />
         </InspectorGridCell>
@@ -1041,6 +1061,7 @@ function GridTrackMatrix({
             <button
               key={`${cellColumn}:${cellRow}`}
               type="button"
+              disabled={disabled}
               aria-label={
                 `${cellColumn} × ${cellRow}` /* i18n-ignore design inspector label */
               }
@@ -1163,7 +1184,16 @@ function GridAdvancedPopover({
             min={1}
             max={24}
             onChange={(columns, meta) => update({ columns }, meta)}
-            disabled={disabled}
+            // A custom axis — unknown (stylesheet-authored) or a known
+            // non-uniform inline template — has no count-preserving write
+            // to make (see gridTemplatePatchForChange), so the count field
+            // stays disabled either way; the sizing picker below is the
+            // recovery path.
+            disabled={
+              disabled ||
+              Boolean(value.columnSizingUnknown) ||
+              value.columnSizing === "custom"
+            }
           />
           <GridNumberField
             label={"Rows" /* i18n-ignore design inspector label */}
@@ -1172,7 +1202,11 @@ function GridAdvancedPopover({
             min={1}
             max={24}
             onChange={(rows, meta) => update({ rows }, meta)}
-            disabled={disabled}
+            disabled={
+              disabled ||
+              Boolean(value.rowSizingUnknown) ||
+              value.rowSizing === "custom"
+            }
           />
         </div>
         <div className="grid grid-cols-2 gap-1.5">
@@ -1180,7 +1214,15 @@ function GridAdvancedPopover({
             label={"Column sizing" /* i18n-ignore design inspector label */}
             value={value.columnSizing}
             fixedSize={value.columnSize}
-            disabled={disabled}
+            // A mixed multi-selection has no shared count to write a sizing
+            // pick against (see gridTemplatePatchForChange) — the only
+            // recovery is selecting elements individually. A plain
+            // stylesheet-unknown axis (not mixed) stays enabled: picking a
+            // sizing there is exactly how the user resolves it.
+            disabled={
+              disabled ||
+              Boolean(value.columnsMixed && value.columnSizingUnknown)
+            }
             onChange={(columnSizing) => update({ columnSizing })}
             onFixedSizeChange={(columnSize, meta) =>
               update({ columnSize }, meta)
@@ -1190,7 +1232,9 @@ function GridAdvancedPopover({
             label={"Row sizing" /* i18n-ignore design inspector label */}
             value={value.rowSizing}
             fixedSize={value.rowSize}
-            disabled={disabled}
+            disabled={
+              disabled || Boolean(value.rowsMixed && value.rowSizingUnknown)
+            }
             onChange={(rowSizing) => update({ rowSizing })}
             onFixedSizeChange={(rowSize, meta) => update({ rowSize }, meta)}
           />

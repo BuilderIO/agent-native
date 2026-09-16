@@ -6354,9 +6354,30 @@ function collectBridgeMessages(page: import("@playwright/test").Page) {
   });
 }
 
+// The bridge posts synchronously, but `message` events are delivered as tasks;
+// a fixed wait before reading loses that race under CPU load. Same-window
+// postMessage delivery is FIFO, so a sentinel's arrival proves every message
+// posted before this read has been delivered. The sentinel is removed from the
+// collected list in place: some tests read that list directly afterwards.
 async function readBridgeMessages(page: import("@playwright/test").Page) {
   return page.evaluate(
-    () => (window as any).__bridgeMessages as Array<Record<string, unknown>>,
+    () =>
+      new Promise<Array<Record<string, unknown>>>((resolve) => {
+        const sentinel = `__bridge-read-${Math.random()}`;
+        const onMessage = (event: MessageEvent) => {
+          if (event.data?.type !== sentinel) return;
+          window.removeEventListener("message", onMessage);
+          const messages = (window as any).__bridgeMessages as Array<
+            Record<string, unknown>
+          >;
+          for (let index = messages.length - 1; index >= 0; index -= 1) {
+            if (messages[index]?.type === sentinel) messages.splice(index, 1);
+          }
+          resolve([...messages]);
+        };
+        window.addEventListener("message", onMessage);
+        window.postMessage({ type: sentinel }, "*");
+      }),
   );
 }
 
@@ -13661,6 +13682,71 @@ it("keeps the authored inline-style key list in sync with the bridge", () => {
     bridgeKeys.sort(),
   );
 });
+
+it(
+  "carries an authored grid-auto-flow into the selection's inline-style payload",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html><html><body>
+        <div id="dense-grid" data-agent-native-node-id="dense-grid" style="display:grid;grid-auto-flow:dense;grid-template-columns:repeat(2, 1fr)"><div>Cell</div></div>
+        <div id="column-grid" data-agent-native-node-id="column-grid" style="display:grid;grid-auto-flow:column"><div>Cell</div></div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const selectInlineStyles = async (selector: string) => {
+        await page.evaluate((targetSelector) => {
+          (window as any).__bridgeMessages = [];
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: targetSelector,
+              selectorCandidates: [targetSelector],
+            },
+            "*",
+          );
+        }, selector);
+        await page.waitForFunction(
+          (targetSelector) =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) =>
+                message.type === "element-select" &&
+                message.payload?.selector?.includes(targetSelector.slice(1)),
+            ),
+          selector,
+        );
+        const message = (await readBridgeMessages(page)).find(
+          (entry) => entry.type === "element-select",
+        ) as
+          | {
+              payload?: {
+                inlineStyles?: Record<string, string>;
+              };
+            }
+          | undefined;
+        return message?.payload?.inlineStyles;
+      };
+
+      // The track templates are carried for provenance; grid-auto-flow is
+      // written by the same grid edit (gridChangePatch) and needs it for the
+      // same reason — unreported, an authored "dense"/"column" is
+      // indistinguishable from the browser's default and a later grid edit
+      // overwrites it as "row".
+      const dense = await selectInlineStyles("#dense-grid");
+      expect(dense?.gridAutoFlow).toContain("dense");
+      expect(dense?.gridTemplateColumns).toBe("repeat(2, 1fr)");
+      expect((await selectInlineStyles("#column-grid"))?.gridAutoFlow).toBe(
+        "column",
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
 
 it(
   "keeps stylesheet-authored flex/grid sizing distinct from auto defaults",

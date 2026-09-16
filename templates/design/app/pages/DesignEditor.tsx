@@ -237,6 +237,10 @@ import type {
   IframeImagePastePayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
+import {
+  failPendingTextCapture,
+  registerPendingTextHostCommit,
+} from "@/components/design/design-canvas/pending-text-capture";
 import { trace } from "@/components/design/design-trace";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
@@ -664,6 +668,7 @@ import { runPasteOverSelection } from "./design-editor/commands/paste-over-selec
 import { runPasteSelection } from "./design-editor/commands/paste-selection";
 import { runPasteToReplace } from "./design-editor/commands/paste-to-replace";
 import { runPastedImageFiles } from "./design-editor/commands/pasted-image-files";
+import { runPendingTextHostCommit } from "./design-editor/commands/pending-text-host-commit";
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
@@ -744,6 +749,7 @@ import {
   AUTO_RETRY_DELAY_MS,
   BOARD_SURFACE_SIZE,
   DESIGN_EDITOR_DEBUG_LOGS,
+  EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
   HOST_CHAT_SLOT_MESSAGE,
   LOCALHOST_COMPILED_SOURCE_EXTENSIONS,
@@ -972,7 +978,11 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
 import { prepareCanonicalSourceContent } from "./design-editor/source-publication";
-import { postShaderFillPreviewClearToPreviewIframes } from "./design-editor/text-edit-utils";
+import {
+  endedTextEditClosesActiveSession,
+  endedTextEditMatchesPendingCreation,
+  postShaderFillPreviewClearToPreviewIframes,
+} from "./design-editor/text-edit-utils";
 import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
@@ -1603,23 +1613,35 @@ function DesignEditor() {
   // clobber the currently-active screen's active:true state, breaking style
   // panel range-routing (handleStyleChange/handleStylesChange key off
   // textEditingState.active) for the screen the user is actually editing.
-  // Track which screen id last reported active:true and ignore an
-  // active:false that doesn't come from that same screen.
-  const activeTextEditingScreenIdRef = useRef<string | null>(null);
+  // Track which screen AND element last reported active:true and ignore an
+  // active:false that doesn't come from that same session. Screen alone is not
+  // an identity: two text nodes on one surface (board creation A, then B) let
+  // A's late active:false clear B's live session.
+  const activeTextEditingSessionRef = useRef<{
+    screenId: string;
+    sourceId?: string;
+  } | null>(null);
   const handleTextEditingStateChangeForScreen = useCallback(
     (screenId: string, state: Omit<TextEditingState, "screenId">) => {
       const screenState = { ...state, screenId };
       if (state.active || state.hasRange) {
-        activeTextEditingScreenIdRef.current = screenId;
+        activeTextEditingSessionRef.current = {
+          screenId,
+          sourceId: state.sourceId,
+        };
         setTextEditingState(screenState);
         return;
       }
-      if (activeTextEditingScreenIdRef.current === screenId) {
-        activeTextEditingScreenIdRef.current = null;
-        setTextEditingState(screenState);
+      if (
+        !endedTextEditClosesActiveSession(activeTextEditingSessionRef.current, {
+          screenId,
+          sourceId: state.sourceId,
+        })
+      ) {
+        return;
       }
-      // Else: an active:false from a screen that isn't the one we last saw
-      // active:true from — stale/out-of-order, ignore it.
+      activeTextEditingSessionRef.current = null;
+      setTextEditingState(screenState);
     },
     [],
   );
@@ -2743,7 +2765,11 @@ function DesignEditor() {
     },
     [],
   );
-  const finalizePendingTextCreation = useCallback(
+  // Two phases on purpose. The caller needs `isCreationCommit` to choose the
+  // content it publishes, but consuming the pending record before that
+  // publication was accepted threw the creation's history away on a refused
+  // write — and the typed text with it. `confirm` is what consumes it.
+  const prepareTextCreationFinalization = useCallback(
     (
       fileId: string,
       nodeIds: readonly (string | null | undefined)[],
@@ -2755,27 +2781,47 @@ function DesignEditor() {
         pending.fileId !== fileId ||
         !nodeIds.some((nodeId) => nodeId === pending.nodeId)
       ) {
-        return false;
+        return {
+          isCreationCommit: false,
+          historyHandled: false,
+          confirm: () => {},
+        };
       }
+      const consumePending = () => {
+        if (pendingTextCreationHistoryRef.current !== pending) return false;
+        pendingTextCreationHistoryRef.current = null;
+        return true;
+      };
       const result = finalizeTextCreationHistory(
         contentUndoStackRef.current,
         pending,
         finalContent,
       );
-      pendingTextCreationHistoryRef.current = null;
-      if (result.status === "stale") return false;
-      contentUndoStackRef.current = result.stack;
-      if (result.status === "rolled-back") {
-        contentUndoSelectionStackRef.current =
-          contentUndoSelectionStackRef.current.slice(0, -1);
-        historyOrderRef.current = removeRecentUndoRedoOrderKinds(
-          historyOrderRef.current,
-          "file-content",
-          1,
-        );
+      if (result.status === "stale") {
+        return {
+          isCreationCommit: true,
+          historyHandled: false,
+          confirm: consumePending,
+        };
       }
-      syncUndoRedoState();
-      return true;
+      return {
+        isCreationCommit: true,
+        historyHandled: true,
+        confirm: () => {
+          if (!consumePending()) return;
+          contentUndoStackRef.current = result.stack;
+          if (result.status === "rolled-back") {
+            contentUndoSelectionStackRef.current =
+              contentUndoSelectionStackRef.current.slice(0, -1);
+            historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+              historyOrderRef.current,
+              "file-content",
+              1,
+            );
+          }
+          syncUndoRedoState();
+        },
+      };
     },
     [syncUndoRedoState],
   );
@@ -2888,6 +2934,13 @@ function DesignEditor() {
   // commits (keyboard nudge auto-repeat) so they coalesce into one undo entry
   // and one debounced server write instead of one of each per tick.
   const lastGeometryCommitAtRef = useRef(0);
+  const lastGeometryCommitSourceRef = useRef<"pointer" | "keyboard" | null>(
+    null,
+  );
+  const resetGeometryCommitCoalescing = useCallback(() => {
+    lastGeometryCommitAtRef.current = 0;
+    lastGeometryCommitSourceRef.current = null;
+  }, []);
   // Localhost write-consent dialog state. When the agent wants to write a local
   // file and no valid grant exists for the active connection, we show the dialog
   // with a pending payload; the user clicks "Allow writes" to mint a grant.
@@ -3500,6 +3553,9 @@ function DesignEditor() {
         );
       }
       clearPendingLocalFileContent(fileId, expectedContent);
+      // The optimistic bytes a text creation was inserted into are gone, so its
+      // owner will never hold that node: fail the creation now, not on a clock.
+      failPendingTextCapture(fileId);
     },
     [clearPendingLocalFileContent, id, queryClient],
   );
@@ -5054,6 +5110,7 @@ function DesignEditor() {
     (
       geometryById: CanvasFrameGeometryById,
       options?: {
+        replacePendingGeometrySave?: boolean;
         syncViewportFrameIds?: string[];
         pinHeightFrameIds?: string[];
       },
@@ -5232,6 +5289,7 @@ function DesignEditor() {
           applyLinkedContentChanges: (changes, direction) =>
             applyGeometryHistoryContentChangesRef.current(changes, direction),
           lastGeometryCommitAtRef,
+          lastGeometryCommitSourceRef,
           liveFrameGeometryRef,
           locallyPinnedHeightIdsRef,
           queryClient,
@@ -9615,15 +9673,19 @@ function DesignEditor() {
       if (hasContent) return "kept-has-content";
       const nextContent = removeCodeLayerNodeFromHtml(content, node);
       if (!nextContent || nextContent === content) return "remove-failed";
-      const finalizedCreation = finalizePendingTextCreation(
+      const finalizedCreation = prepareTextCreationFinalization(
         screenId,
         [nodeId, node.id, node.dataAttributes["data-agent-native-node-id"]],
         nextContent,
       );
-      applyFileContentUpdate(screenId, nextContent, {
+      const publication = applyFileContentUpdate(screenId, nextContent, {
         refreshPreview: false,
-        recordHistory: !finalizedCreation,
+        recordHistory: !finalizedCreation.historyHandled,
       });
+      // A write that never published leaves the node exactly where it was, so
+      // the creation record has to survive for the retry.
+      if (publication.status !== "accepted") return "remove-failed";
+      finalizedCreation.confirm();
       setSelectedLayerIdsState((current) =>
         current.filter((id) => id !== node.id),
       );
@@ -9635,28 +9697,36 @@ function DesignEditor() {
     [
       applyFileContentUpdate,
       codeLayerSourceForScreen,
-      finalizePendingTextCreation,
+      prepareTextCreationFinalization,
       getScreenContent,
     ],
   );
 
-  /** Cleanup for an untouched text node, retried once past the insert→content
-   *  propagation gap. Without the retry an empty box created while its screen
-   *  content was still settling stayed on the canvas as an invisible node. */
+  /** Cleanup for an untouched text node, retried past the insert→content
+   *  propagation gap. "Not resolvable yet" is not an answer: a board's FIRST
+   *  primitive is created before that file's content reaches the client map,
+   *  and one attempt that read nothing used to leave the node on the canvas
+   *  forever with nothing left to remove it. Only a settled answer — removed,
+   *  or kept because it has content — ends the retries. */
   const removeEmptyTextNodeWithRetry = useCallback(
     (screenId: string | null, nodeId: string) => {
-      const outcome = removeEmptyTextNodeIfUntouched(screenId, nodeId);
-      if (outcome !== "node-absent" && outcome !== "content-unavailable") {
-        return;
-      }
-      window.setTimeout(() => {
-        const retried = removeEmptyTextNodeIfUntouched(screenId, nodeId);
-        if (retried === "node-absent" || retried === "content-unavailable") {
-          console.warn(
-            `[design] could not resolve empty text node ${screenId}/${nodeId} to clean up (${retried})`,
-          );
+      const attempt = (remaining: number) => {
+        const outcome = removeEmptyTextNodeIfUntouched(screenId, nodeId);
+        if (outcome !== "node-absent" && outcome !== "content-unavailable") {
+          return;
         }
-      }, EMPTY_TEXT_CLEANUP_RETRY_MS);
+        if (remaining <= 0) {
+          console.warn(
+            `[design] could not resolve empty text node ${screenId}/${nodeId} to clean up (${outcome})`,
+          );
+          return;
+        }
+        window.setTimeout(
+          () => attempt(remaining - 1),
+          EMPTY_TEXT_CLEANUP_RETRY_MS,
+        );
+      };
+      attempt(EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS - 1);
     },
     [removeEmptyTextNodeIfUntouched],
   );
@@ -9703,18 +9773,19 @@ function DesignEditor() {
     ],
   );
 
-  // T6: stop the begin-text-edit retry loop as soon as the bridge reports the
-  // editing session ended (Escape, blur, or a real commit) instead of
-  // continuing to force-reopen it for the rest of the retry window. This is
-  // a coarse "any text-editing session just ended" signal (matched against
-  // whichever node is currently pending, not a specific selector), which is
-  // fine in practice since only one text primitive is normally mid-creation
-  // at a time; scheduleBeginTextEditForScreen's onExhausted callback still
-  // double-checks pending.nodeId before acting.
+  // T6: stop the begin-text-edit retry loop as soon as the bridge reports THIS
+  // creation's editing session ended (Escape, blur, or a real commit) instead
+  // of force-reopening it for the rest of the retry window. The identity match
+  // is load-bearing — see endedTextEditMatchesPendingCreation.
   useEffect(() => {
-    if (textEditingState.active) return;
-    pendingEmptyTextEditRef.current?.cancel();
-  }, [textEditingState.active]);
+    const pending = pendingEmptyTextEditRef.current;
+    if (!endedTextEditMatchesPendingCreation(pending, textEditingState)) return;
+    pending?.cancel();
+  }, [
+    textEditingState.active,
+    textEditingState.screenId,
+    textEditingState.sourceId,
+  ]);
 
   /**
    * Called by MultiScreenCanvas when a draft primitive is committed in empty
@@ -12117,7 +12188,7 @@ function DesignEditor() {
           applyLinkedComponentEdit,
           applyLocalContentUpdate,
           canEditDesign,
-          finalizePendingTextCreation,
+          prepareTextCreationFinalization,
           getFreshActiveContent,
           liveScreenSnapshotsById,
           recordPendingLiveTextEdit,
@@ -12139,7 +12210,7 @@ function DesignEditor() {
       applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
-      finalizePendingTextCreation,
+      prepareTextCreationFinalization,
       getFreshActiveContent,
       liveScreenSnapshotsById,
       recordPendingLiveTextEdit,
@@ -12320,7 +12391,7 @@ function DesignEditor() {
           applyLinkedComponentEdit,
           canEditDesign,
           designSourceType,
-          finalizePendingTextCreation,
+          prepareTextCreationFinalization,
           getScreenContent,
           handleTextContentChange,
           liveScreenSnapshotsById,
@@ -12346,7 +12417,7 @@ function DesignEditor() {
       applyLinkedComponentEdit,
       canEditDesign,
       designSourceType,
-      finalizePendingTextCreation,
+      prepareTextCreationFinalization,
       getScreenContent,
       handleTextContentChange,
       liveScreenSnapshotsById,
@@ -12355,6 +12426,28 @@ function DesignEditor() {
       t,
       updateLiveScreenSnapshotContent,
     ],
+  );
+
+  // A text creation whose owner canvas never became ready still owes its node
+  // what was typed; this is the host-side writer for that text. Registered once
+  // and read through a ref, so no render leaves a creation without one.
+  const pendingTextHostCommitRef = useRef({
+    commitText: handleScreenTextContentChange,
+  });
+  pendingTextHostCommitRef.current = {
+    commitText: handleScreenTextContentChange,
+  };
+  useEffect(
+    () =>
+      registerPendingTextHostCommit((screenId, nodeId, text) =>
+        runPendingTextHostCommit(
+          pendingTextHostCommitRef.current.commitText,
+          screenId,
+          nodeId,
+          text,
+        ),
+      ),
+    [],
   );
 
   // ── Clipboard copy and paste ───────────────────────────────────────────────
@@ -14925,6 +15018,7 @@ function DesignEditor() {
         id,
         isSynced,
         lastLocalContentRef,
+        resetGeometryCommitCoalescing,
         liveFrameGeometryRef,
         liveScreenSnapshotsById,
         localContentRedoStackRef,
@@ -14988,6 +15082,7 @@ function DesignEditor() {
       queryClient,
       queueFileContentSave,
       replacePreviewContent,
+      resetGeometryCommitCoalescing,
       restoreSelectionSnapshot,
       requestPendingLiveNonStyleRevert,
       requestPendingVisualStyleRevert,
@@ -15036,6 +15131,7 @@ function DesignEditor() {
         id,
         isSynced,
         lastLocalContentRef,
+        resetGeometryCommitCoalescing,
         liveFrameGeometryRef,
         liveScreenSnapshotsById,
         localContentRedoStackRef,
@@ -15111,6 +15207,7 @@ function DesignEditor() {
       queueFileContentSave,
       recordLocalContentHistoryChangeFallback,
       replacePreviewContent,
+      resetGeometryCommitCoalescing,
       restoreSelectionSnapshot,
       syncLiveScreenSnapshotPreview,
       syncUndoRedoState,

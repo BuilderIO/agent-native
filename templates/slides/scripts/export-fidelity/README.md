@@ -92,6 +92,7 @@ For each slide N:
    and coordinate width, e.g.
    `extractGoogleSlideLayout(N, { aspect: 4 / 5, width: 720 })`, or the frame
    search finds nothing and it throws.
+
 3. Browser tools may cap output around 1KB per call — page the returned rows
    and append each page to `google.txt`.
 4. Once every slide is appended, run
