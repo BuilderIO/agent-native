@@ -22,12 +22,13 @@ describe("AppStatusBadge", () => {
     expect(screen.getByText("beta")).toBeTruthy();
   });
 
-  it("renders a rounded badge that inverts against the page surface", () => {
+  it("renders the shadcn badge, inverted against the page surface", () => {
     render(<AppStatusBadge appId="slides" />);
 
-    const className = screen.getByText("alpha").className;
-    expect(className).toContain("rounded-[6px]");
-    expect(className).toContain("bg-[var(--b-text-primary,var(--fg))]");
-    expect(className).toContain("text-[var(--b-bg-page,var(--bg))]");
+    const badge = screen.getByText("alpha");
+    expect(badge.dataset.slot).toBe("badge");
+    expect(badge.className).toContain("bg-primary");
+    expect(badge.className).toContain("text-primary-foreground");
+    expect(badge.className).toContain("rounded-[6px]");
   });
 });
