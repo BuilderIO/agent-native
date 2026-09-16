@@ -1,6 +1,10 @@
 import type { InteractionState } from "@shared/interaction-states";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
+import {
+  clearAuthoredSizeStylesForCommit,
+  patchAuthoredInlineStyles,
+} from "@/components/design/edit-panel/interaction-state-helpers";
 import type { ElementInfo } from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
 import type {
@@ -259,6 +263,11 @@ export function runRecordPendingVisualStyleEdit(
         ...base.computedStyles,
         ...stylePatch,
       },
+      inlineStyles: patchAuthoredInlineStyles(base.inlineStyles, stylePatch),
+      authoredSizeStyles: clearAuthoredSizeStylesForCommit(
+        base.authoredSizeStyles,
+        stylePatch,
+      ),
     };
   });
   if (sourceId && !metadata?.preserveSelection) {

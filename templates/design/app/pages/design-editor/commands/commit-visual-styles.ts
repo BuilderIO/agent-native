@@ -10,7 +10,10 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
-import { patchAuthoredInlineStyles } from "@/components/design/edit-panel/interaction-state-helpers";
+import {
+  clearAuthoredSizeStylesForCommit,
+  patchAuthoredInlineStyles,
+} from "@/components/design/edit-panel/interaction-state-helpers";
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
@@ -68,10 +71,10 @@ export interface CommitVisualStylesArgs {
   activeBreakpointWidthStateRef: RefObject<number | undefined>;
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   activeCodeLayerProjection: CodeLayerProjection;
-  activeContent: string;
   activeFile: DesignFile;
   activeProjectionContent: string;
   canEditDesign: boolean;
+  canApplyContentEdit: (fileId: string) => boolean;
   applyLinkedComponentEdit?: (
     fileId: string,
     nodeId: string,
@@ -89,6 +92,7 @@ export interface CommitVisualStylesArgs {
     },
   ) => void;
   isSynced: boolean;
+  getScreenContent: (fileId: string) => string;
   lastDuplicateTransformRef: RefObject<{
     rootNodeIds: string[];
     dx: number;
@@ -179,12 +183,13 @@ export function runCommitVisualStyles(
     activeBreakpointWidthStateRef,
     activeCanvasSourceType,
     activeCodeLayerProjection,
-    activeContent,
     activeFile,
     activeProjectionContent,
     applyLinkedComponentEdit,
+    canApplyContentEdit,
     canEditDesign,
     commitVisualStyles,
+    getScreenContent,
     isSynced,
     lastDuplicateTransformRef,
     lastLocalContentRef,
@@ -230,6 +235,7 @@ export function runCommitVisualStyles(
     props: Object.keys(styles ?? {}),
   });
   if (!activeFile || !canEditDesign) return;
+  if (!canApplyContentEdit(activeFile.id)) return;
   // Cross-pipeline write race guard (see GlslShaderPanel.tsx's module doc
   // comment on withShaderWriteLock/waitForShaderWriteToSettle): a shader
   // apply/remove/knob-commit for this same file goes through a completely
@@ -290,22 +296,12 @@ export function runCommitVisualStyles(
     });
     return;
   }
-  // Base every patch off the freshest known content, not the closed-over
-  // render value. Handlers that fire several onStyleChange calls in one
-  // synchronous user action (e.g. fixed-size text → width+height+whiteSpace,
-  // constraints center → both axes, linked padding → 4 sides) would
-  // otherwise each read the same pre-render `activeContent` and clobber one
-  // another, so only the last property survived in the saved HTML. Since we
-  // advance lastLocalContentRef.current to resolvedNextContent below, the
-  // next synchronous call reads the previous call's result and the patches
-  // compose. Falls back to activeContent when the ref is unset (file switch).
+  // Read through the editor's source boundary so pending linked projections
+  // and synchronous local writes compose before this full-document commit.
   const activeLiveSnapshot = activeFile
     ? liveScreenSnapshotsById[activeFile.id]
     : undefined;
-  const baseContent =
-    latestActiveContentRef.current ??
-    lastLocalContentRef.current ??
-    activeContent;
+  const baseContent = getScreenContent(activeFile.id);
   // A localhost screen's stored content IS its route URL, so with no
   // snapshot yet the chain above yields that URL string. Projecting it gives
   // a 3-node document where nothing resolves: a snapshot that has not
@@ -801,7 +797,24 @@ export function runCommitVisualStyles(
     );
   }
   setSelectedElement((prev) => {
-    if (options.elementInfo) return options.elementInfo;
+    const committed = Object.fromEntries(entries);
+    if (options.elementInfo) {
+      return {
+        ...options.elementInfo,
+        computedStyles: {
+          ...options.elementInfo.computedStyles,
+          ...committed,
+        },
+        inlineStyles: patchAuthoredInlineStyles(
+          options.elementInfo.inlineStyles,
+          committed,
+        ),
+        authoredSizeStyles: clearAuthoredSizeStylesForCommit(
+          options.elementInfo.authoredSizeStyles,
+          committed,
+        ),
+      };
+    }
     if (!prev) return prev;
     const stablePatch = resolvedNode
       ? {
@@ -810,12 +823,15 @@ export function runCommitVisualStyles(
           classes: resolvedNode.classes,
         }
       : {};
-    const committed = Object.fromEntries(entries);
     return {
       ...prev,
       ...stablePatch,
       computedStyles: { ...prev.computedStyles, ...committed },
       inlineStyles: patchAuthoredInlineStyles(prev.inlineStyles, committed),
+      authoredSizeStyles: clearAuthoredSizeStylesForCommit(
+        prev.authoredSizeStyles,
+        committed,
+      ),
     };
   });
 }

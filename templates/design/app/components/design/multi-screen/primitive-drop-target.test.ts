@@ -9,6 +9,7 @@ import {
   getPrimitiveLowZoomHitRect,
   getPrimitiveDropTargetForPoint,
   parsePrimitivesFromScreen,
+  resolveNodeScreenId,
 } from "./primitive-drop-target";
 
 beforeEach(() => __clearPrimitiveParseCachesForTests());
@@ -18,7 +19,7 @@ describe("primitive drop target authored layout fallback", () => {
     const screen = {
       id: "screen",
       filename: "screen.html",
-      content: `<!doctype html><html><body>
+      content: `<!doctype html><html><body data-agent-native-node-id="body">
         <div data-agent-native-node-id="parent" style="position:absolute;left:300px;top:100px;width:400px;height:300px">
           <div data-agent-native-node-id="frame" data-an-primitive="frame" style="position:absolute;left:20px;top:30px;width:120px;height:90px"></div>
         </div>
@@ -297,5 +298,63 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     expect(target?.nodeId).toBe("frame");
     expect(target?.placement).toBeUndefined();
     expect(target?.anchorNodeId).toBeUndefined();
+  });
+
+  it("falls back to the authored document body for blank Screen canvas space", () => {
+    const screen = {
+      id: "screen",
+      filename: "screen.html",
+      content: `<!doctype html><html data-agent-native-node-id="html"><body data-agent-native-node-id="body">
+        <div data-agent-native-node-id="title" style="position:absolute;left:40px;top:40px;width:340px">Title</div>
+      </body></html>`,
+    };
+
+    const target = getPrimitiveDropTargetForPoint(
+      { x: 700, y: 500 },
+      null,
+      [screen],
+      { screen: { x: 0, y: 0, width: 800, height: 600 } },
+      () => ({ width: 800, height: 600 }),
+    );
+
+    expect(target?.nodeId).toBe("body");
+    expect(target?.targetIdentity?.authoredNodeId).toBe("body");
+    expect(target?.targetIdentity?.nodeId).toMatch(/^html:/);
+  });
+
+  it("resolves projection ids used by canvas selection for primitive drags", () => {
+    const source = {
+      id: "source",
+      filename: "source.html",
+      content: `<!doctype html><html data-agent-native-node-id="source-html"><body data-agent-native-node-id="source-body">
+        <div data-agent-native-node-id="moving" data-an-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:80px;height:60px"></div>
+      </body></html>`,
+    };
+    const target = {
+      id: "target",
+      filename: "target.html",
+      content: `<!doctype html><html data-agent-native-node-id="target-html"><body data-agent-native-node-id="target-body"></body></html>`,
+    };
+    const moving = parsePrimitivesFromScreen(source).find(
+      (primitive) => primitive.nodeId === "moving",
+    );
+    const projectionNodeId = moving?.projectionIdentity?.nodeId;
+    expect(projectionNodeId).toMatch(/^html:/);
+
+    expect(resolveNodeScreenId(projectionNodeId!, [source, target])).toBe(
+      "source",
+    );
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 500, y: 300 },
+        projectionNodeId!,
+        [source, target],
+        {
+          source: { x: 0, y: 0, width: 800, height: 600 },
+          target: { x: 400, y: 0, width: 800, height: 600 },
+        },
+        () => ({ width: 800, height: 600 }),
+      )?.nodeId,
+    ).toBe("target-body");
   });
 });

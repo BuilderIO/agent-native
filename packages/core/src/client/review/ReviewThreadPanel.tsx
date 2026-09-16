@@ -18,13 +18,19 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
+  IconAlertCircle,
+  IconCheck,
+  IconChevronDown,
   IconCircleCheck,
   IconDots,
+  IconFilter,
   IconLink,
   IconMessageCircle,
   IconMoodSmile,
@@ -40,6 +46,7 @@ import type {
   ReviewMention,
   ReviewResolutionTarget,
 } from "../../review/types.js";
+import { writeClipboardText } from "../clipboard.js";
 import { useFormatters } from "../i18n.js";
 import { InlineMarkdown } from "../markdown/index.js";
 import { useAvatarUrl } from "../use-avatar.js";
@@ -71,6 +78,8 @@ export type ReviewCommentCapability =
   | boolean
   | ((comment: ReviewComment, thread: ReviewThread) => boolean);
 
+export type ReviewCommentFilter = "all" | "open" | "resolved";
+
 export interface ReviewThreadPanelProps {
   resourceType: string;
   resourceId: string;
@@ -86,6 +95,12 @@ export interface ReviewThreadPanelProps {
   title?: string;
   className?: string;
   includeResolved?: boolean;
+  /** Show the compact open/resolved history filter. */
+  showFilter?: boolean;
+  filterLabel?: string;
+  allCommentsLabel?: string;
+  openCommentsLabel?: string;
+  resolvedCommentsLabel?: string;
   showComposer?: boolean;
   showHeader?: boolean;
   variant?: "card" | "plain";
@@ -143,6 +158,10 @@ export interface ReviewThreadPanelProps {
   canResolve?: ReviewThreadCapability;
   /** Allow deletion only for comments the caller has authorized. */
   canDeleteComment?: ReviewCommentCapability;
+  /** Allow copying a stable link to a thread. Omitted capabilities fail closed. */
+  canCopyLink?: ReviewThreadCapability;
+  linkCopiedLabel?: string;
+  copyLinkFailedLabel?: string;
   /** Extra per-thread controls rendered next to reply/resolve/delete. */
   renderThreadActions?: (thread: ReviewThread) => ReactNode;
   /** Show a separate agent-submit action when the host supports agent routing. */
@@ -162,6 +181,11 @@ export function ReviewThreadPanel({
   title = "Review",
   className,
   includeResolved = true,
+  showFilter = false,
+  filterLabel = "Filter comments",
+  allCommentsLabel = "All",
+  openCommentsLabel = "Open",
+  resolvedCommentsLabel = "Resolved",
   showComposer = true,
   showHeader = true,
   variant = "card",
@@ -209,6 +233,9 @@ export function ReviewThreadPanel({
   canReply = false,
   canResolve = false,
   canDeleteComment = false,
+  canCopyLink = false,
+  linkCopiedLabel = "Link copied",
+  copyLinkFailedLabel = "Couldn’t copy link",
   renderThreadActions,
   showComposerTargetPicker = false,
   composerCommentLabel = "Comment",
@@ -227,16 +254,27 @@ export function ReviewThreadPanel({
     null,
   );
   const [editDraft, setEditDraft] = useState("");
+  const [editMentions, setEditMentions] = useState<ReviewMention[]>([]);
   const [deleteCandidate, setDeleteCandidate] = useState<ReviewComment | null>(
     null,
   );
+  const [commentFilter, setCommentFilter] = useState<ReviewCommentFilter>(
+    showFilter ? "open" : "all",
+  );
+  const [copyPendingThreadId, setCopyPendingThreadId] = useState<string | null>(
+    null,
+  );
+  const [copyStatus, setCopyStatus] = useState<{
+    threadId: string;
+    status: "copied" | "failed";
+  } | null>(null);
   const formatters = useFormatters();
   const formatDate = formatters.formatDate.bind(formatters);
   const comments = useReviewComments({
     resourceType,
     resourceId,
     targetId,
-    includeResolved,
+    includeResolved: includeResolved && commentFilter !== "open",
   });
   const createComment = useCreateReviewComment();
   const replyComment = useReplyReviewComment();
@@ -249,6 +287,14 @@ export function ReviewThreadPanel({
     const filtered = threadFilter ? next.filter(threadFilter) : next;
     return threadSort ? filtered.sort(threadSort) : filtered;
   }, [comments.data?.comments, threadFilter, threadSort]);
+
+  const visibleThreads = useMemo(
+    () =>
+      commentFilter === "all"
+        ? threads
+        : threads.filter((thread) => thread.root.status === commentFilter),
+    [commentFilter, threads],
+  );
 
   const handleReaction = (
     comment: ReviewComment,
@@ -268,6 +314,43 @@ export function ReviewThreadPanel({
       { onError: onReactionError },
     );
   };
+
+  const copyThreadLink = async (thread: ReviewThread) => {
+    if (copyPendingThreadId) return;
+    const href = typeof window === "undefined" ? null : window.location.href;
+    if (!href) return;
+    let url: URL;
+    try {
+      url = new URL(href);
+    } catch {
+      return;
+    }
+    url.hash = `review-thread=${encodeURIComponent(thread.root.threadId)}`;
+    setCopyPendingThreadId(thread.root.threadId);
+    let copied = false;
+    try {
+      copied = await writeClipboardText(url.toString());
+    } catch {
+      copied = false;
+    }
+    setCopyPendingThreadId(null);
+    setCopyStatus({
+      threadId: thread.root.threadId,
+      status: copied ? "copied" : "failed",
+    });
+    window.setTimeout(() => {
+      setCopyStatus((current) =>
+        current?.threadId === thread.root.threadId ? null : current,
+      );
+    }, 1_500);
+  };
+
+  const filterText =
+    commentFilter === "open"
+      ? openCommentsLabel
+      : commentFilter === "resolved"
+        ? resolvedCommentsLabel
+        : allCommentsLabel;
 
   const submitDraft = (resolutionTarget: ReviewResolutionTarget) => {
     const body = draft.trim();
@@ -305,11 +388,13 @@ export function ReviewThreadPanel({
         resourceId,
         commentId: comment.id,
         body,
+        mentions: editMentions,
       },
       {
         onSuccess: (updated) => {
           setEditCandidate(null);
           setEditDraft("");
+          setEditMentions([]);
           onCommentUpdated?.(updated);
         },
       },
@@ -367,6 +452,51 @@ export function ReviewThreadPanel({
           />
         ) : null}
 
+        {showFilter ? (
+          <div className="flex items-center justify-end border-b border-border px-3 py-1.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                  aria-label={filterLabel}
+                  data-review-filter-trigger
+                >
+                  <IconFilter className="size-3.5" />
+                  <span>{filterText}</span>
+                  <IconChevronDown className="size-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-36">
+                <DropdownMenuRadioGroup
+                  value={commentFilter}
+                  onValueChange={(value) => {
+                    if (
+                      value === "all" ||
+                      value === "open" ||
+                      value === "resolved"
+                    ) {
+                      setCommentFilter(value);
+                    }
+                  }}
+                >
+                  <DropdownMenuRadioItem value="all">
+                    {allCommentsLabel}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="open">
+                    {openCommentsLabel}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="resolved">
+                    {resolvedCommentsLabel}
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ) : null}
+
         <div className="divide-y divide-border">
           {comments.isLoading ? (
             <div
@@ -382,8 +512,8 @@ export function ReviewThreadPanel({
               </div>
               <Skeleton className="h-8 w-full" />
             </div>
-          ) : threads.length ? (
-            threads.map((thread) => {
+          ) : visibleThreads.length ? (
+            visibleThreads.map((thread) => {
               const replyDraft = replyDrafts[thread.root.id] ?? "";
               const replying = replyingThreadId === thread.root.threadId;
               const threadIsOpen = thread.root.status === "open";
@@ -401,6 +531,14 @@ export function ReviewThreadPanel({
                 thread.root,
                 thread,
               );
+              const copyLinkAllowed = capabilityAllowsThread(
+                canCopyLink,
+                thread,
+              );
+              const copyState =
+                copyStatus?.threadId === thread.root.threadId
+                  ? copyStatus.status
+                  : null;
               const threadActions = renderThreadActions?.(thread);
               const threadUnread = Boolean(
                 comments.data?.discussion?.threadPreferences[
@@ -413,6 +551,7 @@ export function ReviewThreadPanel({
               const hasMenuActions =
                 editAllowed ||
                 deleteAllowed ||
+                copyLinkAllowed ||
                 Boolean(onCopyThreadLink) ||
                 Boolean(onMarkThreadUnread || onSetThreadUnread);
               const hasActions =
@@ -435,6 +574,8 @@ export function ReviewThreadPanel({
                       <ReviewCommentComposer
                         className="min-w-0 flex-1"
                         value={editDraft}
+                        mentions={editMentions}
+                        onMentionsChange={setEditMentions}
                         mentionOptions={mentionOptions}
                         showCommentTools={showComposerTools}
                         onChange={setEditDraft}
@@ -447,6 +588,7 @@ export function ReviewThreadPanel({
                         onEscape={() => {
                           setEditCandidate(null);
                           setEditDraft("");
+                          setEditMentions([]);
                         }}
                       />
                       <Button
@@ -458,6 +600,7 @@ export function ReviewThreadPanel({
                         onClick={() => {
                           setEditCandidate(null);
                           setEditDraft("");
+                          setEditMentions([]);
                         }}
                       >
                         <IconX className="size-3.5" />
@@ -696,6 +839,7 @@ export function ReviewThreadPanel({
                                   onSelect={() => {
                                     setEditCandidate(thread.root);
                                     setEditDraft(thread.root.body);
+                                    setEditMentions([...thread.root.mentions]);
                                   }}
                                 >
                                   {editLabel}
@@ -723,6 +867,24 @@ export function ReviewThreadPanel({
                                 >
                                   <IconLink className="size-4" />
                                   {copyLinkLabel}
+                                </DropdownMenuItem>
+                              ) : copyLinkAllowed ? (
+                                <DropdownMenuItem
+                                  disabled={copyPendingThreadId !== null}
+                                  onSelect={() => void copyThreadLink(thread)}
+                                >
+                                  {copyState === "copied" ? (
+                                    <IconCheck className="size-4" />
+                                  ) : copyState === "failed" ? (
+                                    <IconAlertCircle className="size-4" />
+                                  ) : (
+                                    <IconLink className="size-4" />
+                                  )}
+                                  {copyState === "copied"
+                                    ? linkCopiedLabel
+                                    : copyState === "failed"
+                                      ? copyLinkFailedLabel
+                                      : copyLinkLabel}
                                 </DropdownMenuItem>
                               ) : null}
                               {deleteAllowed ? (

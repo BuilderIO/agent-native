@@ -217,6 +217,8 @@ export interface MultiScreenCanvasProps {
   reviewDesignTitle?: string;
   toolProps?: CanvasToolProps;
   onActiveToolChange?: (tool: MultiScreenCanvasTool) => void;
+  /** Routes empty-board clicks to the active overview comment composer. */
+  onCommentPin?: (point: Point) => void;
   onPick: (id: string) => void;
   onEdit?: (id: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;

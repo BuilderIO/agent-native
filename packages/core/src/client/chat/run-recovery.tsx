@@ -705,7 +705,7 @@ export function RunErrorRecoveryCard({
   }
 
   return (
-    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
+    <div className="min-w-0 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
       <div className="flex items-start gap-2">
         <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300">
           <IconAlertTriangle size={14} />
@@ -717,7 +717,7 @@ export function RunErrorRecoveryCard({
               terminal: t("agentChat.error.failed"),
             })}
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
             {localizeKnownChatErrorText(info.message, t)}
           </p>
           {shouldShowBuilderReconnect && !builderReconnectResolved && (

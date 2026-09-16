@@ -37,7 +37,10 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedded-wheel.generated";
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
-import { isTextElement } from "../edit-panel/element-classification";
+import {
+  inferElementSizing,
+  isTextElement,
+} from "../edit-panel/element-classification";
 
 declare global {
   interface Window {
@@ -1758,7 +1761,7 @@ it(
 // ── Figma-parity in-iframe editing behavior ────────────────────────────────
 
 it(
-  "editor chrome bridge shows a live position badge and locks to the dominant axis while Shift is held during a move drag",
+  "editor chrome bridge omits a move position badge and locks to the dominant axis while Shift is held during a move drag",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -1814,15 +1817,13 @@ it(
       // (280, 270) is a further +30/+30 delta from origin (200, 200).
       expect(draggedPosition).toEqual({ left: "230px", top: "230px" });
 
-      const badgeText = await page.evaluate(() => {
+      const badgeDisplay = await page.evaluate(() => {
         const badge = document.querySelector<HTMLElement>(
           "[data-agent-native-transform-badge]",
         );
-        return badge && window.getComputedStyle(badge).display !== "none"
-          ? badge.textContent
-          : null;
+        return badge ? window.getComputedStyle(badge).display : null;
       });
-      expect(badgeText).toBe("230, 230");
+      expect(badgeDisplay).toBe("none");
 
       await page.keyboard.down("Shift");
       await page.mouse.move(400, 400);
@@ -13660,6 +13661,98 @@ it("keeps the authored inline-style key list in sync with the bridge", () => {
     bridgeKeys.sort(),
   );
 });
+
+it(
+  "keeps stylesheet-authored flex/grid sizing distinct from auto defaults",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 500 },
+      });
+      await page.setContent(`<!doctype html><style>
+        html, body { margin: 0; }
+        .flex-explicit { display: flex; width: 240px; height: 100px; }
+        .flex-important { display: flex; width: 240px !important; height: 100px !important; }
+        .flex-auto { display: flex; }
+        .grid-explicit { display: grid; width: 240px; height: 100px; }
+        .grid-auto { display: grid; }
+      </style>
+      <div id="flex-explicit" class="flex-explicit"><span>Explicit flex</span></div>
+      <div id="flex-important" class="flex-important" style="width:auto;height:auto"><span>Important flex</span></div>
+      <div id="flex-auto" class="flex-auto"><span>Auto flex</span></div>
+      <div id="grid-explicit" class="grid-explicit"><span>Explicit grid</span></div>
+      <div id="grid-auto" class="grid-auto"><span>Auto grid</span></div>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__lastElementSelection = undefined;
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__lastElementSelection = event.data.payload;
+          }
+        });
+      });
+
+      const select = async (id: string) => {
+        await page.evaluate((id) => {
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: `#${id}`,
+              selectorCandidates: [`#${id}`],
+            },
+            "*",
+          );
+        }, id);
+        await page.waitForFunction(
+          (id) => (window as any).__lastElementSelection?.sourceId === id,
+          id,
+        );
+        return page.evaluate(() => (window as any).__lastElementSelection);
+      };
+
+      for (const id of ["flex-explicit", "grid-explicit"] as const) {
+        const payload = await select(id);
+        expect(payload.inlineStyles).toEqual({});
+        expect(payload.authoredSizeStyles).toEqual({
+          width: "240px",
+          height: "100px",
+        });
+        expect(inferElementSizing(payload, "horizontal")).toBe("fixed");
+        expect(inferElementSizing(payload, "vertical")).toBe("fixed");
+      }
+
+      const important = await select("flex-important");
+      expect(important.inlineStyles).toMatchObject({
+        width: "auto",
+        height: "auto",
+      });
+      expect(important.authoredSizeStyles).toEqual({
+        width: "240px",
+        height: "100px",
+      });
+      expect(inferElementSizing(important, "horizontal")).toBe("fixed");
+      expect(inferElementSizing(important, "vertical")).toBe("fixed");
+
+      for (const id of ["flex-auto", "grid-auto"] as const) {
+        const payload = await select(id);
+        expect(payload.inlineStyles).toEqual({});
+        expect(payload.authoredSizeStyles).toEqual({
+          width: "auto",
+          height: "auto",
+        });
+        expect(inferElementSizing(payload, "horizontal")).toBe("hug");
+        expect(inferElementSizing(payload, "vertical")).toBe("hug");
+      }
+    } finally {
+      await browser.close();
+    }
+  },
+);
 
 // PR #3585 review: keying free-form on the CONTAINER's own position swept in
 // ordinary absolutely positioned cards and modals, whose children are in

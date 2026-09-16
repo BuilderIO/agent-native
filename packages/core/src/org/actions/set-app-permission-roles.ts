@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { requireOrgMember } from "../actions.js";
-import { getRegisteredAppRoles, setAppPermissionRoles } from "../app-roles.js";
+import {
+  getAppPermissionOverrides,
+  getRegisteredAppRoles,
+  setAppPermissionRoles,
+} from "../app-roles.js";
 
 export default defineAction({
   description:
@@ -13,6 +17,18 @@ export default defineAction({
     roles: z.array(z.string()).max(50).optional(),
     reset: z.boolean().default(false),
   }),
+  audit: {
+    target: (args, _result, meta) => ({
+      type: "app-permission-roles",
+      id: `${args.appId}:${args.permission}`,
+      ownerEmail: meta.userEmail,
+      visibility: "org",
+    }),
+    summary: (args, result) => {
+      const change = result as { previousRoles?: string[]; roles?: string[] };
+      return `${args.reset ? "Reset" : "Updated"} ${args.appId} permission ${args.permission}: [${(change.previousRoles ?? []).join(", ")}] -> [${(change.roles ?? []).join(", ")}]`;
+    },
+  },
   run: async ({ appId, permission, roles, reset }, ctx) => {
     const caller = await requireOrgMember(ctx, true);
     const descriptor = getRegisteredAppRoles(appId);
@@ -22,6 +38,13 @@ export default defineAction({
     if (!reset && !roles) throw new Error("Provide roles or set reset=true.");
     if (roles?.some((role) => !descriptor.roles.includes(role)))
       throw new Error("The role list contains an undeclared role.");
+    const overrides = await getAppPermissionOverrides(appId, caller.orgId);
+    const previousRoles = overrides[permission] ?? [
+      ...(descriptor.permissions[permission] ?? []),
+    ];
+    const nextRoles = reset
+      ? [...(descriptor.permissions[permission] ?? [])]
+      : [...new Set(roles!)];
     await setAppPermissionRoles({
       appId,
       orgId: caller.orgId,
@@ -32,7 +55,8 @@ export default defineAction({
     return {
       appId,
       permission,
-      roles: reset ? descriptor.permissions[permission] : [...new Set(roles!)],
+      roles: nextRoles,
+      previousRoles,
       reset,
     };
   },

@@ -32,13 +32,13 @@ Un bon modèle :
 Utilisez le modèle Chat lorsque vous souhaitez une application minimale avec le câblage du framework déjà en place :
 
 ```bash
-npx @agent-native/core@latest create my-template --template chat --standalone
+npx --yes @agent-native/core@latest create my-template --template chat --standalone
 ```
 
 Pour un espace de travail avec plusieurs applications, exécutez le sélecteur et incluez Chat avec les modèles de domaine de votre choix :
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 Chat vous offre une authentification, des fils de discussion durables, des ressources soutenues par PostgreSQL, des outils, l'état de l'application, actions et la synchronisation des sondages. Vous ajoutez le modèle de domaine et le produit UI.
@@ -514,13 +514,13 @@ Avant de partager :
 Les modèles de la communauté s’installent directement depuis un dépôt GitHub public. Placez l’application Agent-Native à la racine du dépôt :
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo
 ```
 
 Ajoutez `#branch`, `#tag` ou `#commit` pour épingler une révision précise :
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
 ```
 
 La CLI télécharge uniquement le code source. Elle n’installe pas les dépendances et n’exécute pas les scripts du modèle. Les modèles communautaires sont du code tiers : vérifiez le dépôt, la licence, les dépendances et les scripts avant d’exécuter `pnpm install`.

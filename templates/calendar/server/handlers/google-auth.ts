@@ -439,7 +439,6 @@ export const handleGoogleCallback = defineEventHandler(
             ...(mobile ? { mobile: true } : {}),
             trackSignup: {
               authProvider: "google",
-              authUserId: identity.id,
               name: identity.name,
               isNewUser,
             },

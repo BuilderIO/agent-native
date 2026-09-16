@@ -68,10 +68,21 @@ const messages = {
     "Creating or reusing your Builder.io account. This usually takes a few seconds.",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI credits and cloud code changes are ready to use.",
+  "onboarding.builderReadyCreditsOnly":
+    "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
+  "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
   "onboarding.capability.llm.keySummary":
     "Connect an AI provider or local model",
   "onboarding.capability.fileStorage.keySummary":
     "Builder storage or an S3-compatible bucket",
+  "onboarding.fileStorage.title": "Choose file storage",
+  "onboarding.fileStorage.description":
+    "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
+  "onboarding.fileStorage.custom": "Use custom storage keys",
+  "onboarding.fileStorage.customDescription":
+    "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",
   "onboarding.capability.voiceInput.keySummary":
     "Browser speech recognition or speech-to-text",
@@ -399,6 +410,8 @@ const messages = {
   "error.stopped": "The agent stopped before finishing",
   "errorMessages.agentConnection":
     "The agent connection was interrupted. Check your connection and retry.",
+  "errorMessages.attachmentPasswordProtected":
+    "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.",
   "errorMessages.builderAuthentication":
     "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
   "errorMessages.builderModelUnauthorized":

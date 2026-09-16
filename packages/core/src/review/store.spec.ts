@@ -196,6 +196,43 @@ describe("review store", () => {
     expect(comments[1].parentCommentId).toBe(root.id);
   });
 
+  it("keeps legacy replies when filtering comments by the root target", async () => {
+    const currentRoot = await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      targetId: "section-1",
+      body: "Current section",
+      ownerEmail: "alice@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      threadId: currentRoot.threadId,
+      parentCommentId: currentRoot.id,
+      body: "Legacy reply",
+      ownerEmail: "alice@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      targetId: "section-2",
+      body: "Other section",
+      ownerEmail: "alice@example.com",
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "plan",
+      resourceId: "p1",
+      scope: { userEmail: "alice@example.com" },
+      targetId: "section-1",
+    });
+
+    expect(comments.map((comment) => comment.body)).toEqual([
+      "Current section",
+      "Legacy reply",
+    ]);
+  });
+
   it("resolves threads and hides resolved comments by default", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",

@@ -22,6 +22,11 @@ export interface ReviewAnchorWorldPoint {
   y: number;
 }
 
+export interface ReviewCanvasPoint {
+  x: number;
+  y: number;
+}
+
 export interface ReviewAnchorWorldRegion {
   x: number;
   y: number;
@@ -37,6 +42,7 @@ export interface DesignReviewAnchor {
   region?: ReviewAnchorRegion;
   worldPoint?: ReviewAnchorWorldPoint;
   worldRegion?: ReviewAnchorWorldRegion;
+  canvasPoint?: ReviewCanvasPoint;
 }
 
 export interface ResolvedReviewAnchor {
@@ -140,6 +146,21 @@ export function parseReviewAnchor(value: unknown): DesignReviewAnchor | null {
   const region = parseRegion(record.region);
   const worldPoint = parseWorldPoint(record.worldPoint);
   const worldRegion = parseWorldRegion(record.worldRegion);
+  const canvasPointRecord =
+    record.canvasPoint &&
+    typeof record.canvasPoint === "object" &&
+    !Array.isArray(record.canvasPoint)
+      ? (record.canvasPoint as Record<string, unknown>)
+      : null;
+  const canvasX = canvasPointRecord?.x;
+  const canvasY = canvasPointRecord?.y;
+  const canvasPoint =
+    typeof canvasX === "number" &&
+    Number.isFinite(canvasX) &&
+    typeof canvasY === "number" &&
+    Number.isFinite(canvasY)
+      ? { x: canvasX, y: canvasY }
+      : undefined;
   return {
     ...(nodeId ? { nodeId } : {}),
     ...(selector ? { selector } : {}),
@@ -148,6 +169,7 @@ export function parseReviewAnchor(value: unknown): DesignReviewAnchor | null {
     ...(region ? { region } : {}),
     ...(worldPoint ? { worldPoint } : {}),
     ...(worldRegion ? { worldRegion } : {}),
+    ...(canvasPoint ? { canvasPoint } : {}),
   };
 }
 

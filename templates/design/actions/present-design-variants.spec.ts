@@ -208,6 +208,30 @@ describe("present-design-variants", () => {
       .mockReturnValueOnce("file-c");
   });
 
+  it("keeps fallback direction screens fluid on narrow viewports", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Explore a mobile task manager direction",
+      variants: [
+        { id: "mobile", label: "Mobile direction" },
+        { id: "mobile-alt", label: "Mobile direction alt" },
+      ],
+    });
+
+    const inserted = mocks.insertChain.values.mock.calls[0]![0] as {
+      content: string;
+    };
+    expect(inserted.content).toContain(
+      "@media (max-width: 900px) { body { width: 100%; max-width: 390px; overflow-x: hidden; overflow-y: auto; } .shell { grid-template-columns: 1fr;",
+    );
+    expect(inserted.content).toContain(
+      ".shell { box-sizing: border-box; width: 100%; max-width: 390px;",
+    );
+    expect(inserted.content).toContain(
+      ".board { grid-template-columns: 1fr; }",
+    );
+  });
+
   it("writes variants as overview screens and asks the user with chat buttons", async () => {
     const result = await action.run({
       designId: "design_123",

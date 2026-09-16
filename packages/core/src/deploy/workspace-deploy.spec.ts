@@ -1119,6 +1119,41 @@ describe("workspace deploy", () => {
     ]);
   }, 30_000);
 
+  it("infers a root home path when an app has no home route", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "root-app", { rootRoute: true });
+    makeWorkspaceApp(tmpDir, "configured-root", {
+      homePath: "/inbox",
+      rootRoute: true,
+    });
+    makeWorkspaceApp(tmpDir, "standard", {
+      homeRoute: true,
+      rootRoute: true,
+    });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const apps = JSON.parse(
+      buildCallForApp("dispatch")?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ??
+        "[]",
+    );
+    expect(apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "root-app", homePath: "/" }),
+        expect.objectContaining({
+          id: "configured-root",
+          homePath: "/inbox",
+        }),
+        expect.objectContaining({ id: "standard", homePath: "/home" }),
+      ]),
+    );
+  });
+
   it("uses public workspace URLs before loopback gateways when building apps", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
@@ -1607,9 +1642,11 @@ function makeWorkspaceApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    homeRoute?: boolean;
     homePath?: string;
     protectedPaths?: string[];
     publicPaths?: string[];
+    rootRoute?: boolean;
     usesUnpooledDatabaseUrl?: boolean;
   } = {},
 ): void {
@@ -1647,6 +1684,23 @@ function makeWorkspaceApp(
         "",
       ].join("\n"),
     );
+  }
+
+  if (opts.rootRoute || opts.homeRoute) {
+    const routesDir = path.join(appDir, "app", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    if (opts.rootRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_index.tsx"),
+        "export default function RootRoute() { return null; }\n",
+      );
+    }
+    if (opts.homeRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_app.home.tsx"),
+        "export default function HomeRoute() { return null; }\n",
+      );
+    }
   }
 
   if (opts.usesUnpooledDatabaseUrl) {

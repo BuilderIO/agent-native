@@ -328,6 +328,20 @@ test("renaming a layer then one undo restores its previous name", async ({
       hasText: "Renamed Box",
     }),
   ).toHaveCount(0);
+
+  await page.keyboard.press(REDO);
+  await page.waitForTimeout(400);
+  await expect(
+    page.getByRole("tree", { name: "Layers" }).getByRole("treeitem").filter({
+      hasText: "Renamed Box",
+    }),
+    "redo after a layer-name undo must re-apply the renamed layer",
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("tree", { name: "Layers" }).getByRole("treeitem").filter({
+      hasText: "Box B",
+    }),
+  ).toHaveCount(0);
 });
 
 test("committing an inspector width value then one undo restores the exact previous width", async ({

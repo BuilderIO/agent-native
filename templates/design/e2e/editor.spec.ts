@@ -79,6 +79,42 @@ test("editor renders the toolbar and the design iframe content", async ({
   expect(nodeCount).toBeGreaterThanOrEqual(5);
 });
 
+test("agent rail keeps the shared chat header and conversation tabs", async ({
+  page,
+}, testInfo) => {
+  const workspaceRail = page.locator(
+    '[data-design-chrome-region="workspace-rail"]',
+  );
+  await workspaceRail
+    .getByRole("button", { name: "Agent", exact: true })
+    .click();
+
+  const agentPanel = page.locator("[data-design-agent-panel]");
+  await expect(agentPanel).toBeVisible();
+  await expect(
+    agentPanel.getByRole("button", { name: "New chat", exact: true }),
+  ).toBeVisible();
+  await expect(
+    agentPanel.getByRole("button", {
+      name: "Agent panel options",
+      exact: true,
+    }),
+  ).toBeVisible();
+
+  await agentPanel
+    .getByRole("button", { name: "New chat", exact: true })
+    .click();
+  const conversationTabs = agentPanel.locator('[role="button"].agent-tab');
+  await expect(conversationTabs).toHaveCount(2);
+  expect(
+    await conversationTabs.evaluateAll(
+      (tabs) =>
+        tabs.filter((tab) => tab.classList.contains("bg-accent")).length,
+    ),
+  ).toBe(1);
+  await cdpScreenshot(page, testInfo.outputPath("design-agent-header.png"));
+});
+
 test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   await page
     .getByRole("button", { name: /^share(?: \(.+\))?$/i })

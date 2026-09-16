@@ -95,6 +95,13 @@ export function ReviewCommentComposer({
   const [mentionTriggerIndex, setMentionTriggerIndex] = useState<number | null>(
     null,
   );
+  const mentionTokenEndRef = useRef<number | null>(null);
+  const resetMention = () => {
+    setMentionSearch("");
+    setMentionTriggerIndex(null);
+    mentionTokenEndRef.current = null;
+    setMentionMenuOpen(false);
+  };
   const filteredMentionOptions = mentionOptions.filter((mention) => {
     const query = mentionSearch.trim().toLowerCase();
     return (
@@ -128,9 +135,21 @@ export function ReviewCommentComposer({
     if (mentionTriggerIndex === null) {
       appendText(mentionText);
     } else {
+      const naturalTokenEnd = (() => {
+        const whitespaceIndex = value
+          .slice(mentionTriggerIndex + 1)
+          .search(/\s/);
+        return whitespaceIndex < 0
+          ? value.length
+          : mentionTriggerIndex + 1 + whitespaceIndex;
+      })();
+      const tokenEnd = Math.min(
+        naturalTokenEnd,
+        mentionTokenEndRef.current ?? naturalTokenEnd,
+      );
       updateValue(
         `${value.slice(0, mentionTriggerIndex)}${mentionText}${value.slice(
-          mentionTriggerIndex + 1,
+          tokenEnd,
         )}`,
       );
       requestAnimationFrame(() => {
@@ -149,9 +168,7 @@ export function ReviewCommentComposer({
     ) {
       onMentionsChange?.([...mentions, mention]);
     }
-    setMentionSearch("");
-    setMentionTriggerIndex(null);
-    setMentionMenuOpen(false);
+    resetMention();
   };
   const submit = (resolutionTarget: ReviewResolutionTarget) => {
     if (!canSubmit) return;
@@ -190,7 +207,56 @@ export function ReviewCommentComposer({
         autoFocus={autoFocus}
         value={value}
         disabled={disabled}
-        onChange={(event) => updateValue(event.currentTarget.value)}
+        onChange={(event) => {
+          const nextValue = event.currentTarget.value;
+          updateValue(nextValue);
+          if (mentionTriggerIndex !== null) {
+            const tokenStart = mentionTriggerIndex + 1;
+            const whitespaceIndex = nextValue.slice(tokenStart).search(/\s/);
+            const tokenEnd =
+              whitespaceIndex < 0
+                ? nextValue.length
+                : tokenStart + whitespaceIndex;
+            const caret =
+              event.currentTarget.selectionStart ?? nextValue.length;
+            if (
+              nextValue[mentionTriggerIndex] !== "@" ||
+              caret < tokenStart ||
+              caret > tokenEnd
+            ) {
+              resetMention();
+              return;
+            }
+            mentionTokenEndRef.current = Math.max(tokenStart, caret);
+            setMentionSearch(nextValue.slice(tokenStart, caret));
+          }
+        }}
+        onSelect={(event) => {
+          if (mentionTriggerIndex === null) return;
+          const tokenStart = mentionTriggerIndex + 1;
+          const whitespaceIndex = event.currentTarget.value
+            .slice(tokenStart)
+            .search(/\s/);
+          const tokenEnd =
+            whitespaceIndex < 0
+              ? event.currentTarget.value.length
+              : tokenStart + whitespaceIndex;
+          const selectionStart = event.currentTarget.selectionStart ?? 0;
+          const selectionEnd =
+            event.currentTarget.selectionEnd ?? selectionStart;
+          if (
+            event.currentTarget.value[mentionTriggerIndex] !== "@" ||
+            selectionStart < tokenStart ||
+            selectionEnd > tokenEnd
+          ) {
+            resetMention();
+            return;
+          }
+          mentionTokenEndRef.current = selectionEnd;
+          setMentionSearch(
+            event.currentTarget.value.slice(tokenStart, selectionEnd),
+          );
+        }}
         placeholder={placeholder}
         className="min-h-16 resize-none text-sm"
         onKeyDown={(event) => {
@@ -208,7 +274,10 @@ export function ReviewCommentComposer({
             !event.ctrlKey &&
             !event.altKey
           ) {
-            setMentionTriggerIndex(event.currentTarget.selectionStart ?? null);
+            const triggerIndex =
+              event.currentTarget.selectionStart ?? value.length;
+            setMentionTriggerIndex(triggerIndex);
+            mentionTokenEndRef.current = triggerIndex + 1;
             setMentionSearch("");
             setMentionMenuOpen(true);
           }
@@ -259,6 +328,7 @@ export function ReviewCommentComposer({
                     if (!open) {
                       setMentionSearch("");
                       setMentionTriggerIndex(null);
+                      mentionTokenEndRef.current = null;
                     }
                   }}
                 >
@@ -270,7 +340,9 @@ export function ReviewCommentComposer({
                       className="size-8 text-muted-foreground"
                       disabled={disabled}
                       aria-label={mentionLabel}
-                      onClick={() => setMentionTriggerIndex(null)}
+                      onClick={() => {
+                        resetMention();
+                      }}
                     >
                       <IconAt className="size-4" />
                     </Button>

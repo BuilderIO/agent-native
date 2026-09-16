@@ -502,8 +502,33 @@ export async function queryReviewComments(
     if (input.targetId === null) {
       filters.push("target_id IS NULL");
     } else {
-      filters.push("target_id = ?");
-      filterParams.push(input.targetId);
+      const { clause: rootScopeClause, params: rootScopeParams } =
+        input.bypassScope
+          ? { clause: "1 = 1", params: [] as unknown[] }
+          : scopedReviewClause(input.scope, "root");
+      filters.push(`(
+        comment.target_id = ?
+        OR (
+          comment.parent_comment_id IS NOT NULL
+          AND comment.target_id IS NULL
+          AND comment.thread_id IN (
+            SELECT root.thread_id
+              FROM agent_review_comments AS root
+             WHERE root.resource_type = ?
+               AND root.resource_id = ?
+               AND root.parent_comment_id IS NULL
+               AND root.target_id = ?
+               AND ${rootScopeClause}
+          )
+        )
+      )`);
+      filterParams.push(
+        input.targetId,
+        input.resourceType,
+        input.resourceId,
+        input.targetId,
+        ...rootScopeParams,
+      );
     }
   }
   if (input.rootOnly) {
@@ -545,12 +570,12 @@ export async function queryReviewComments(
                     PARTITION BY thread_id
                     ORDER BY created_at ASC, id ASC
                   ) AS review_thread_rank
-             FROM agent_review_comments
+             FROM agent_review_comments AS comment
             WHERE ${filters.join(" AND ")}
          ) AS distinct_review_threads
         WHERE review_thread_rank = 1`
     : `SELECT ${commentColumns()}
-         FROM agent_review_comments
+         FROM agent_review_comments AS comment
         WHERE ${filters.join(" AND ")}`;
   const result = await client.execute({
     sql: `${selectSql}
@@ -1050,22 +1075,26 @@ function statusColumns(): string {
   ].join(", ");
 }
 
-function scopedReviewClause(scope: ReviewScope): {
+function scopedReviewClause(
+  scope: ReviewScope,
+  alias?: string,
+): {
   clause: string;
   params: unknown[];
 } {
   const parts: string[] = [];
   const params: unknown[] = [];
+  const column = (name: string) => (alias ? `${alias}.${name}` : name);
 
   if (scope.userEmail) {
-    parts.push("owner_email = ?");
+    parts.push(`${column("owner_email")} = ?`);
     params.push(scope.userEmail);
   }
   if (scope.orgId) {
-    parts.push("(visibility = 'org' AND org_id = ?)");
+    parts.push(`(${column("visibility")} = 'org' AND ${column("org_id")} = ?)`);
     params.push(scope.orgId);
   }
-  parts.push("visibility = 'public'");
+  parts.push(`${column("visibility")} = 'public'`);
 
   return { clause: `(${parts.join(" OR ")})`, params };
 }

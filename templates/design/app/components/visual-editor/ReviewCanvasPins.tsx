@@ -22,6 +22,7 @@ import type {
   ReviewDiscussionState,
   ReviewMention,
 } from "@agent-native/core/review";
+import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
   IconChevronDown,
@@ -91,12 +92,15 @@ import {
   type ReviewBoardGeometry,
   type ReviewAnchorRegion,
   type ReviewAnchorPoint,
+  type ReviewCanvasPoint,
 } from "../../../shared/review-anchor";
+import { SURFACE_PADDING } from "../design/multi-screen/overview-layout";
 import {
   getReviewPinPosition,
   getReviewPopoverPlacement,
   placeReviewDraftPin,
   type ReviewDraftPin,
+  type ReviewPinPosition,
 } from "./review-canvas-state";
 
 export interface RepromptDraftRequest {
@@ -113,17 +117,24 @@ export interface ReviewFocusRequest {
   threadId?: string;
 }
 
+export interface ReviewCanvasPinRequest {
+  nonce: number;
+  canvasPoint: ReviewCanvasPoint;
+}
+
 interface ReviewCanvasPinsProps {
   active: boolean;
   hidden?: boolean;
   onClose: () => void;
   canvasSelector?: string;
+  showPlacementPlane?: boolean;
   resourceType: string;
   resourceId: string;
   targetId: string | null;
   boardGeometry?: ReviewBoardGeometry | null;
   onFocusBoardPoint?: (point: ReviewAnchorWorldPoint) => boolean | void;
   currentUserEmail?: string | null;
+  pinRequest?: ReviewCanvasPinRequest | null;
   canPost: boolean;
   canResolve: boolean;
   focusRequest?: ReviewFocusRequest | null;
@@ -160,6 +171,85 @@ const REVIEW_IDENTITY_SELECTOR =
   "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]";
 
 type ReviewPopoverPlacement = ReturnType<typeof getReviewPopoverPlacement>;
+
+interface CanvasCameraSnapshot {
+  camera: { x: number; y: number; zoom: number };
+  surfaceOrigin: { x: number; y: number };
+}
+
+function readCanvasCamera(canvas: HTMLElement): CanvasCameraSnapshot | null {
+  const world = canvas.querySelector<HTMLElement>(
+    "[data-multi-screen-canvas-world]",
+  );
+  const transform = world?.style.transform ?? "";
+  const match = transform.match(
+    /translate\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)px\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)px\s*\)\s*scale\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*\)/i,
+  );
+  if (!match) return null;
+  const x = Number(match[1]);
+  const y = Number(match[2]);
+  const scale = Number(match[3]);
+  if (![x, y, scale].every(Number.isFinite) || scale <= 0) return null;
+  const rect = canvas.getBoundingClientRect();
+  return {
+    camera: { x, y, zoom: scale * 100 },
+    surfaceOrigin: { x: rect.left, y: rect.top },
+  };
+}
+
+function canvasPointToClientPoint(
+  canvas: HTMLElement,
+  point: ReviewCanvasPoint,
+): ReviewCanvasPoint | null {
+  const snapshot = readCanvasCamera(canvas);
+  if (!snapshot) return null;
+  return canvasToScreenPoint(
+    point,
+    snapshot.camera,
+    snapshot.surfaceOrigin,
+    SURFACE_PADDING,
+  );
+}
+
+function clientPointToCanvasPoint(
+  canvas: HTMLElement,
+  point: ReviewCanvasPoint,
+): ReviewCanvasPoint | null {
+  const snapshot = readCanvasCamera(canvas);
+  if (!snapshot) return null;
+  return screenToCanvasPoint(
+    point,
+    snapshot.camera,
+    snapshot.surfaceOrigin,
+    SURFACE_PADDING,
+  );
+}
+
+function canvasAnchorAtPoint(
+  canvas: HTMLElement,
+  canvasPoint: ReviewCanvasPoint,
+): { anchor: DesignReviewAnchor; metadata: Record<string, unknown> } {
+  const rect = canvas.getBoundingClientRect();
+  const clientPoint = canvasPointToClientPoint(canvas, canvasPoint);
+  const xPct =
+    clientPoint && rect.width > 0
+      ? Math.min(
+          100,
+          Math.max(0, ((clientPoint.x - rect.left) / rect.width) * 100),
+        )
+      : 50;
+  const yPct =
+    clientPoint && rect.height > 0
+      ? Math.min(
+          100,
+          Math.max(0, ((clientPoint.y - rect.top) / rect.height) * 100),
+        )
+      : 50;
+  return {
+    anchor: { point: { xPct, yPct }, canvasPoint },
+    metadata: {},
+  };
+}
 
 function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
   const iframe = canvas.querySelector<HTMLIFrameElement>(
@@ -320,8 +410,10 @@ function elementAnchorAtPoint(
       current !== document.documentElement;
       current = current.parentElement
     ) {
-      if (current.matches(REVIEW_IDENTITY_SELECTOR))
+      if (current.matches(REVIEW_IDENTITY_SELECTOR)) {
         identifiedAncestor = current;
+        break;
+      }
     }
     const anchor =
       identifiedAncestor &&
@@ -605,12 +697,14 @@ export function ReviewCanvasPins({
   hidden = false,
   onClose,
   canvasSelector,
+  showPlacementPlane = true,
   resourceType,
   resourceId,
   targetId,
   boardGeometry,
   onFocusBoardPoint,
   currentUserEmail,
+  pinRequest,
   canPost,
   canResolve,
   focusRequest,
@@ -652,7 +746,6 @@ export function ReviewCanvasPins({
   const resolveThread = useResolveReviewThread();
   const setUnread = useSetReviewThreadUnread();
   const updateComment = useUpdateReviewComment();
-  const updateReviewComment = updateComment.mutate;
   const [canvas, setCanvas] = useState<HTMLElement | null>(null);
   const [layoutTick, setLayoutTick] = useState(0);
   const [draftPin, setDraftPin] = useState<ReviewDraftPin | null>(null);
@@ -671,6 +764,7 @@ export function ReviewCanvasPins({
     null,
   );
   const [editDraft, setEditDraft] = useState("");
+  const [editMentions, setEditMentions] = useState<ReviewMention[]>([]);
   const [deleteCandidate, setDeleteCandidate] = useState<ReviewComment | null>(
     null,
   );
@@ -697,7 +791,9 @@ export function ReviewCanvasPins({
   const lastFocusNonceRef = useRef<number | null>(null);
   const pendingFocusNonceRef = useRef<number | null>(null);
   const migratedBoardAnchorIdsRef = useRef<Set<string>>(new Set());
+  const migrationInFlightRef = useRef(false);
   const lastRepromptDraftNonceRef = useRef<number | null>(null);
+  const lastPinRequestNonceRef = useRef<number | null>(null);
   const frameCallbacksRef = useRef<
     Map<string, (payload: Record<string, unknown>) => void>
   >(new Map());
@@ -755,7 +851,7 @@ export function ReviewCanvasPins({
     [discussion?.threadPreferences, optimisticUnread],
   );
   const pinPositionFor = useCallback(
-    (threadId: string | null, anchor: unknown) => {
+    (threadId: string | null, anchor: unknown): ReviewPinPosition | null => {
       const effectiveAnchor =
         (threadId && optimisticAnchors[threadId]) || anchor;
       const parsed =
@@ -828,6 +924,7 @@ export function ReviewCanvasPins({
     setReplyMentions([]);
     setEditCandidate(null);
     setEditDraft("");
+    setEditMentions([]);
   }, []);
   const copyThreadLink = useCallback(
     async (thread: ReviewThread) => {
@@ -884,16 +981,31 @@ export function ReviewCanvasPins({
     const body = editDraft.trim();
     if (!comment || !body || updateComment.isPending) return;
     updateComment.mutate(
-      { resourceType, resourceId, commentId: comment.id, body },
+      {
+        resourceType,
+        resourceId,
+        commentId: comment.id,
+        body,
+        mentions: editMentions,
+      },
       {
         onSuccess: () => {
           setEditCandidate(null);
           setEditDraft("");
+          setEditMentions([]);
         },
         onError: () => toast.error(t("review.postFailed")),
       },
     );
-  }, [editCandidate, editDraft, resourceId, resourceType, t, updateComment]);
+  }, [
+    editCandidate,
+    editDraft,
+    editMentions,
+    resourceId,
+    resourceType,
+    t,
+    updateComment,
+  ]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -937,12 +1049,23 @@ export function ReviewCanvasPins({
       "iframe[data-design-preview-iframe]",
     );
     if (iframe) resizeObserver.observe(iframe);
+    const world = canvas.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    const worldObserver = world ? new MutationObserver(bump) : null;
+    if (world && worldObserver) {
+      worldObserver.observe(world, {
+        attributes: true,
+        attributeFilter: ["style"],
+      });
+    }
     window.addEventListener("resize", bump);
     window.addEventListener("scroll", bump, { capture: true, passive: true });
     iframe?.addEventListener("load", bump);
     return () => {
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
+      worldObserver?.disconnect();
       window.removeEventListener("resize", bump);
       window.removeEventListener("scroll", bump, true);
       iframe?.removeEventListener("load", bump);
@@ -1036,7 +1159,18 @@ export function ReviewCanvasPins({
   }, [anchoredNodeIds, canvas, layoutTick, targetId]);
 
   useEffect(() => {
-    if (!canvas || targetId !== null || !boardGeometry) return;
+    if (
+      !canvas ||
+      targetId !== null ||
+      !boardGeometry ||
+      migrationInFlightRef.current
+    )
+      return;
+    const migrations: Array<{
+      threadId: string;
+      commentId: string;
+      anchor: DesignReviewAnchor;
+    }> = [];
     for (const thread of threads) {
       const threadId = thread.root.threadId;
       const parsed = parseReviewAnchor(thread.root.anchor);
@@ -1053,34 +1187,48 @@ export function ReviewCanvasPins({
         ...current,
         [threadId]: nextAnchor,
       }));
-      if (canPost && thread.root.canDelete) {
-        migratedBoardAnchorIdsRef.current.add(threadId);
-        updateReviewComment(
-          {
-            resourceType,
-            resourceId,
-            commentId: thread.root.id,
-            anchor: nextAnchor,
-          },
-          {
-            onError: () => {
-              // Keep the local anchor for stable rendering, but allow a later
-              // review refresh to retry persistence after a transient failure.
-              migratedBoardAnchorIdsRef.current.delete(threadId);
-            },
-          },
-        );
-      }
+      if (canPost && thread.root.canDelete)
+        migrations.push({
+          threadId,
+          commentId: thread.root.id,
+          anchor: nextAnchor,
+        });
     }
+    if (!migrations.length) return;
+    migrationInFlightRef.current = true;
+    void (async () => {
+      let allSucceeded = true;
+      try {
+        for (const migration of migrations) {
+          migratedBoardAnchorIdsRef.current.add(migration.threadId);
+          try {
+            await callAction("update-review-comment", {
+              resourceType,
+              resourceId,
+              commentId: migration.commentId,
+              anchor: migration.anchor,
+            });
+          } catch {
+            // Keep the local anchor for stable rendering, but allow a later
+            // review refresh to retry persistence after a transient failure.
+            allSucceeded = false;
+            migratedBoardAnchorIdsRef.current.delete(migration.threadId);
+          }
+        }
+        if (allSucceeded) await comments.refetch?.();
+      } finally {
+        migrationInFlightRef.current = false;
+      }
+    })();
   }, [
     boardGeometry,
     canPost,
     canvas,
+    comments.refetch,
     resourceId,
     resourceType,
     targetId,
     threads,
-    updateReviewComment,
   ]);
 
   const focusAnchor = useCallback(
@@ -1283,9 +1431,37 @@ export function ReviewCanvasPins({
     if (active) onClose();
   }, [active, cancelDraft, hidden, onClose]);
 
+  const dropCanvasPin = useCallback(
+    (canvasPoint: ReviewCanvasPoint) => {
+      if (!canvas || !canPost) return;
+      const next = canvasAnchorAtPoint(canvas, canvasPoint);
+      setActiveThreadId(null);
+      setReplyDraft("");
+      setDraftMode("comment");
+      setPendingRepromptId(null);
+      setDraftPin((current) =>
+        placeReviewDraftPin(current, {
+          id: crypto.randomUUID(),
+          anchor: next.anchor,
+          metadata: next.metadata,
+        }),
+      );
+      setDraftComposerOpen(true);
+    },
+    [canPost, canvas],
+  );
+
   const dropPin = useCallback(
     (clientX: number, clientY: number, region?: ReviewAnchorRegion | null) => {
       if (!canvas || !canPost) return;
+      if (targetId === null && !boardGeometry) {
+        const canvasPoint = clientPointToCanvasPoint(canvas, {
+          x: clientX,
+          y: clientY,
+        });
+        if (canvasPoint) dropCanvasPin(canvasPoint);
+        return;
+      }
       const pointAnchor = anchorAtPoint(
         canvas,
         clientX,
@@ -1390,7 +1566,7 @@ export function ReviewCanvasPins({
         "*",
       );
     },
-    [boardGeometry, canPost, canvas],
+    [boardGeometry, canPost, canvas, dropCanvasPin, targetId],
   );
 
   const updateRegionPreview = useCallback(
@@ -1451,6 +1627,20 @@ export function ReviewCanvasPins({
     },
     [canvas, dropPin],
   );
+  useEffect(() => {
+    if (
+      !active ||
+      hidden ||
+      !canvas ||
+      !canPost ||
+      !pinRequest ||
+      pinRequest.nonce === lastPinRequestNonceRef.current
+    ) {
+      return;
+    }
+    lastPinRequestNonceRef.current = pinRequest.nonce;
+    dropCanvasPin(pinRequest.canvasPoint);
+  }, [active, canPost, canvas, dropCanvasPin, hidden, pinRequest]);
 
   const postDraft = useCallback(
     (
@@ -1514,6 +1704,7 @@ export function ReviewCanvasPins({
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
+        !targetId ||
         !sourceVersionHash ||
         !targetId ||
         sourceType !== "inline" ||
@@ -1799,15 +1990,16 @@ export function ReviewCanvasPins({
     ? pinPositionFor(null, draftPin.anchor)
     : null;
   const pinPlacementEnabled = active && canPost && !pendingRepromptId;
+  const placementPlaneVisible = pinPlacementEnabled && showPlacementPlane;
   const placementHintVisible =
-    pinPlacementEnabled &&
+    placementPlaneVisible &&
     !draftComposerOpen &&
     !activeThreadId &&
     !repromptDraftRequest;
 
   return createPortal(
     <>
-      {pinPlacementEnabled ? (
+      {placementPlaneVisible ? (
         <div
           data-review-click-plane
           className="fixed z-40 cursor-crosshair"
@@ -1874,165 +2066,176 @@ export function ReviewCanvasPins({
             />
           );
         }
-        return group.entries.map(({ thread, index, position }) => (
-          <ReviewPin
-            key={thread.root.threadId}
-            index={index}
-            canvasRect={rect}
-            point={position.point}
-            onClick={() => {
-              if (!draftPin?.draft.trim()) setDraftPin(null);
-              setDraftComposerOpen(false);
-              setReplyDraft("");
-              setReplyAttachments([]);
-              setReplyMentions([]);
-              setEditCandidate(null);
-              setEditDraft("");
-              if (threadIsUnread(thread.root.threadId)) {
-                setThreadUnread(thread, false);
-              }
-              setActiveThreadId(thread.root.threadId);
-            }}
-            active={activeThreadId === thread.root.threadId}
-            resolved={thread.root.status === "resolved"}
-            unread={threadIsUnread(thread.root.threadId)}
-            region={(() => {
-              const parsed = parseReviewAnchor(
-                optimisticAnchors[thread.root.threadId] ?? thread.root.anchor,
-              );
-              return parsed?.worldRegion && boardGeometry
-                ? (canvasRegionFromBoardWorldRegion(
-                    parsed.worldRegion,
-                    boardGeometry,
-                  ) ?? parsed.region)
-                : parsed?.region;
-            })()}
-            canMove={canPost && (thread.root.canDelete ?? true)}
-            onMove={(point) => moveThread(thread, point)}
-          >
-            {activeThreadId === thread.root.threadId ? (
-              <ReviewThreadPopover
-                thread={thread}
-                canResolve={canResolve}
-                discussion={discussion}
-                onReact={react}
-                pendingReaction={
-                  reactToComment.isPending && reactToComment.variables
-                    ? reactToComment.variables
-                    : null
+        return group.entries.map(({ thread, index, position }) => {
+          const clientPoint = position.canvasPoint
+            ? canvasPointToClientPoint(canvas, position.canvasPoint)
+            : null;
+          return (
+            <ReviewPin
+              key={thread.root.threadId}
+              index={index}
+              canvasRect={rect}
+              point={position.point}
+              clientPoint={clientPoint}
+              onClick={() => {
+                if (!draftPin?.draft.trim()) setDraftPin(null);
+                setDraftComposerOpen(false);
+                setReplyDraft("");
+                setReplyAttachments([]);
+                setReplyMentions([]);
+                setEditCandidate(null);
+                setEditDraft("");
+                setEditMentions([]);
+                if (threadIsUnread(thread.root.threadId)) {
+                  setThreadUnread(thread, false);
                 }
-                sending={sendingThreadId === thread.root.threadId}
-                canReply={canPost && thread.root.status === "open"}
-                canEdit={Boolean(
-                  canPost &&
-                  normalizedCurrentUserEmail &&
-                  thread.root.authorEmail?.trim().toLowerCase() ===
-                    normalizedCurrentUserEmail,
-                )}
-                editing={editCandidate?.id === thread.root.id}
-                editDraft={editDraft}
-                updating={updateComment.isPending}
-                onEdit={() => {
-                  setEditCandidate(thread.root);
-                  setEditDraft(thread.root.body);
-                }}
-                onEditDraftChange={setEditDraft}
-                onEditCancel={() => {
-                  setEditCandidate(null);
-                  setEditDraft("");
-                }}
-                onEditSubmit={submitEdit}
-                unread={threadIsUnread(thread.root.threadId)}
-                onCopyLink={() => void copyThreadLink(thread)}
-                onSetUnread={(unread) => setThreadUnread(thread, unread)}
-                onDelete={() => setDeleteCandidate(thread.root)}
-                canDelete={canPost && (thread.root.canDelete ?? false)}
-                placement={getReviewPopoverPlacement(position.point)}
-                replyDraft={replyDraft}
-                replyMentions={replyMentions}
-                mentionOptions={mentionOptions}
-                replyAttachments={replyAttachments}
-                onReplyAttachmentsChange={setReplyAttachments}
-                onReplyDraftChange={setReplyDraft}
-                onReplyMentionsChange={setReplyMentions}
-                onClose={closeActiveThread}
-                onReply={() => {
-                  const body = replyDraft.trim();
-                  if (!body) return;
-                  replyComment.mutate(
-                    {
-                      resourceType,
-                      resourceId,
-                      commentId: thread.root.id,
-                      body,
-                      ...(replyMentions.length
-                        ? { mentions: [...replyMentions] }
-                        : {}),
-                      ...(replyAttachments.length
-                        ? {
-                            metadata: {
-                              attachments:
-                                reviewAttachmentMetadata(replyAttachments),
-                            },
+                setActiveThreadId(thread.root.threadId);
+              }}
+              active={activeThreadId === thread.root.threadId}
+              resolved={thread.root.status === "resolved"}
+              unread={threadIsUnread(thread.root.threadId)}
+              region={(() => {
+                const parsed = parseReviewAnchor(
+                  optimisticAnchors[thread.root.threadId] ?? thread.root.anchor,
+                );
+                return parsed?.worldRegion && boardGeometry
+                  ? (canvasRegionFromBoardWorldRegion(
+                      parsed.worldRegion,
+                      boardGeometry,
+                    ) ?? parsed.region)
+                  : parsed?.region;
+              })()}
+              canMove={canPost && (thread.root.canDelete ?? true)}
+              onMove={(point) => moveThread(thread, point)}
+            >
+              {activeThreadId === thread.root.threadId ? (
+                <ReviewThreadPopover
+                  thread={thread}
+                  canResolve={canResolve}
+                  discussion={discussion}
+                  onReact={react}
+                  pendingReaction={
+                    reactToComment.isPending && reactToComment.variables
+                      ? reactToComment.variables
+                      : null
+                  }
+                  sending={sendingThreadId === thread.root.threadId}
+                  canReply={canPost && thread.root.status === "open"}
+                  canEdit={Boolean(
+                    canPost &&
+                    normalizedCurrentUserEmail &&
+                    thread.root.authorEmail?.trim().toLowerCase() ===
+                      normalizedCurrentUserEmail,
+                  )}
+                  editing={editCandidate?.id === thread.root.id}
+                  editDraft={editDraft}
+                  editMentions={editMentions}
+                  updating={updateComment.isPending}
+                  onEdit={() => {
+                    setEditCandidate(thread.root);
+                    setEditDraft(thread.root.body);
+                    setEditMentions([...thread.root.mentions]);
+                  }}
+                  onEditDraftChange={setEditDraft}
+                  onEditMentionsChange={setEditMentions}
+                  onEditCancel={() => {
+                    setEditCandidate(null);
+                    setEditDraft("");
+                    setEditMentions([]);
+                  }}
+                  onEditSubmit={submitEdit}
+                  unread={threadIsUnread(thread.root.threadId)}
+                  onCopyLink={() => void copyThreadLink(thread)}
+                  onSetUnread={(unread) => setThreadUnread(thread, unread)}
+                  onDelete={() => setDeleteCandidate(thread.root)}
+                  canDelete={canPost && (thread.root.canDelete ?? false)}
+                  placement={getReviewPopoverPlacement(position.point)}
+                  replyDraft={replyDraft}
+                  replyMentions={replyMentions}
+                  mentionOptions={mentionOptions}
+                  replyAttachments={replyAttachments}
+                  onReplyAttachmentsChange={setReplyAttachments}
+                  onReplyDraftChange={setReplyDraft}
+                  onReplyMentionsChange={setReplyMentions}
+                  onClose={closeActiveThread}
+                  onReply={() => {
+                    const body = replyDraft.trim();
+                    if (!body) return;
+                    replyComment.mutate(
+                      {
+                        resourceType,
+                        resourceId,
+                        commentId: thread.root.id,
+                        body,
+                        ...(replyMentions.length
+                          ? { mentions: [...replyMentions] }
+                          : {}),
+                        ...(replyAttachments.length
+                          ? {
+                              metadata: {
+                                attachments:
+                                  reviewAttachmentMetadata(replyAttachments),
+                              },
+                            }
+                          : {}),
+                      },
+                      {
+                        onSuccess: () => {
+                          setReplyDraft("");
+                          setReplyAttachments([]);
+                          setReplyMentions([]);
+                        },
+                        onError: () => toast.error(t("review.replyFailed")),
+                      },
+                    );
+                  }}
+                  onStatusChange={() =>
+                    resolveThread.mutate(
+                      {
+                        resourceType,
+                        resourceId,
+                        threadId: thread.root.threadId,
+                        status:
+                          thread.root.status === "open" ? "resolved" : "open",
+                      },
+                      {
+                        onSuccess: () => {
+                          setActiveThreadId(null);
+                          if (thread.root.status === "open") {
+                            toast.success(t("review.resolved"), {
+                              action: {
+                                label: t("review.undo"),
+                                onClick: () =>
+                                  resolveThread.mutate({
+                                    resourceType,
+                                    resourceId,
+                                    threadId: thread.root.threadId,
+                                    status: "open",
+                                  }),
+                              },
+                            });
+                          } else {
+                            toast.success(t("review.reopen"));
                           }
-                        : {}),
-                    },
-                    {
-                      onSuccess: () => {
-                        setReplyDraft("");
-                        setReplyAttachments([]);
-                        setReplyMentions([]);
+                        },
+                        onError: () => toast.error(t("review.resolveFailed")),
                       },
-                      onError: () => toast.error(t("review.replyFailed")),
-                    },
-                  );
-                }}
-                onStatusChange={() =>
-                  resolveThread.mutate(
-                    {
-                      resourceType,
-                      resourceId,
-                      threadId: thread.root.threadId,
-                      status:
-                        thread.root.status === "open" ? "resolved" : "open",
-                    },
-                    {
-                      onSuccess: () => {
-                        setActiveThreadId(null);
-                        if (thread.root.status === "open") {
-                          toast.success(t("review.resolved"), {
-                            action: {
-                              label: t("review.undo"),
-                              onClick: () =>
-                                resolveThread.mutate({
-                                  resourceType,
-                                  resourceId,
-                                  threadId: thread.root.threadId,
-                                  status: "open",
-                                }),
-                            },
-                          });
-                        } else {
-                          toast.success(t("review.reopen"));
-                        }
-                      },
-                      onError: () => toast.error(t("review.resolveFailed")),
-                    },
-                  )
-                }
-                onSendToAgent={
-                  onSendThreadToAgent &&
-                  (thread.root.resolutionTarget === "human" ||
-                    Boolean(thread.root.consumedAt))
-                    ? () => onSendThreadToAgent(thread)
-                    : undefined
-                }
-                replying={replyComment.isPending}
-                resolving={resolveThread.isPending}
-              />
-            ) : null}
-          </ReviewPin>
-        ));
+                    )
+                  }
+                  onSendToAgent={
+                    onSendThreadToAgent &&
+                    (thread.root.resolutionTarget === "human" ||
+                      Boolean(thread.root.consumedAt))
+                      ? () => onSendThreadToAgent(thread)
+                      : undefined
+                  }
+                  replying={replyComment.isPending}
+                  resolving={resolveThread.isPending}
+                />
+              ) : null}
+            </ReviewPin>
+          );
+        });
       })}
       {draftPin && draftPinPosition ? (
         <ReviewPin
@@ -2040,6 +2243,11 @@ export function ReviewCanvasPins({
           index={visibleThreads.length}
           canvasRect={rect}
           point={draftPinPosition.point}
+          clientPoint={
+            draftPinPosition.canvasPoint
+              ? canvasPointToClientPoint(canvas, draftPinPosition.canvasPoint)
+              : null
+          }
           draft
           pending={Boolean(pendingRepromptId)}
           onClick={() => {
@@ -2155,6 +2363,7 @@ function ReviewPin({
   index,
   point,
   canvasRect,
+  clientPoint,
   active,
   draft = false,
   pending = false,
@@ -2169,6 +2378,7 @@ function ReviewPin({
   index: number;
   point: ReviewAnchorPoint;
   canvasRect: DOMRect;
+  clientPoint?: ReviewCanvasPoint | null;
   active: boolean;
   draft?: boolean;
   pending?: boolean;
@@ -2184,10 +2394,21 @@ function ReviewPin({
   const movedRef = useRef(false);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragPointRef = useRef<ReviewAnchorPoint | null>(null);
+  const pointerMoveHandlerRef = useRef<((event: PointerEvent) => void) | null>(
+    null,
+  );
+  const pointerUpHandlerRef = useRef<(() => void) | null>(null);
   const stopPointerTracking = useCallback(() => {
-    window.removeEventListener("pointermove", handlePointerMove);
-    window.removeEventListener("pointerup", handlePointerUp);
-    window.removeEventListener("pointercancel", handlePointerUp);
+    const pointerMoveHandler = pointerMoveHandlerRef.current;
+    const pointerUpHandler = pointerUpHandlerRef.current;
+    if (pointerMoveHandler)
+      window.removeEventListener("pointermove", pointerMoveHandler);
+    if (pointerUpHandler) {
+      window.removeEventListener("pointerup", pointerUpHandler);
+      window.removeEventListener("pointercancel", pointerUpHandler);
+    }
+    pointerMoveHandlerRef.current = null;
+    pointerUpHandlerRef.current = null;
   }, []);
   const handlePointerMove = (event: PointerEvent) => {
     const start = pointerStartRef.current;
@@ -2221,17 +2442,31 @@ function ReviewPin({
     movedRef.current = false;
     pointerStartRef.current = { x: event.clientX, y: event.clientY };
     dragPointRef.current = null;
+    pointerMoveHandlerRef.current = handlePointerMove;
+    pointerUpHandlerRef.current = handlePointerUp;
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerUp);
   };
+  useEffect(
+    () => () => {
+      stopPointerTracking();
+      pointerStartRef.current = null;
+      dragPointRef.current = null;
+    },
+    [stopPointerTracking],
+  );
   return (
     <div
       data-review-popover
       className="fixed z-[45]"
       style={{
-        left: canvasRect.left + (point.xPct / 100) * canvasRect.width,
-        top: canvasRect.top + (point.yPct / 100) * canvasRect.height,
+        left:
+          clientPoint?.x ??
+          canvasRect.left + (point.xPct / 100) * canvasRect.width,
+        top:
+          clientPoint?.y ??
+          canvasRect.top + (point.yPct / 100) * canvasRect.height,
       }}
     >
       {region ? (
@@ -2770,9 +3005,11 @@ function ReviewThreadPopover({
   canEdit,
   editing,
   editDraft,
+  editMentions,
   updating,
   onEdit,
   onEditDraftChange,
+  onEditMentionsChange,
   onEditCancel,
   onEditSubmit,
   unread,
@@ -2805,9 +3042,11 @@ function ReviewThreadPopover({
   canEdit: boolean;
   editing: boolean;
   editDraft: string;
+  editMentions: readonly ReviewMention[];
   updating: boolean;
   onEdit: () => void;
   onEditDraftChange: (value: string) => void;
+  onEditMentionsChange: (mentions: ReviewMention[]) => void;
   onEditCancel: () => void;
   onEditSubmit: () => void;
   unread: boolean;
@@ -2866,6 +3105,8 @@ function ReviewThreadPopover({
             <ReviewCommentComposer
               className="mt-2 p-0"
               value={editDraft}
+              mentions={editMentions}
+              onMentionsChange={onEditMentionsChange}
               mentionOptions={mentionOptions}
               showCommentTools
               emojiLabel={t("review.addEmoji")}

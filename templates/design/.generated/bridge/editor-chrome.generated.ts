@@ -2178,6 +2178,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     function hasStableOwnSource(el) {
       return !!(el && !isDocumentRootElement(el) && getSourceId(el));
     }
+    function isRuntimeOnlyClone(el) {
+      var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
+      return !!cloneRoot && !isSourceOwned(cloneRoot);
+    }
     function repeatTemplateOwning(node) {
       var parent = node.parentElement;
       if (!parent) return null;
@@ -2881,6 +2885,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return styles;
     }
+    function collectAuthoredSizeStyles(el) {
+      var computedStyleMap = el.computedStyleMap;
+      if (typeof computedStyleMap !== "function") return void 0;
+      var map = computedStyleMap.call(el);
+      var styles = {};
+      ["width", "height"].forEach(function(property) {
+        var value = map.get(property);
+        if (value == null) return;
+        var cssText = String(value).trim();
+        if (cssText) styles[property] = cssText;
+      });
+      return styles;
+    }
     var liveVisualEditOriginalInlineStyles = typeof WeakMap !== "undefined" ? /* @__PURE__ */ new WeakMap() : null;
     function rememberLiveVisualEditOriginalStyles(el) {
       if (!el || !liveVisualEditOriginalInlineStyles) return;
@@ -3218,9 +3235,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parentAutoLayout = autoLayoutParentInfo(el);
       var designParent = designParentForElement(el);
       var parentStyles = designParent ? window.getComputedStyle(designParent) : null;
+      var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
-      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
+      var runtimeOnlyClone = isRuntimeOnlyClone(el);
+      var sourceBacked = !runtimeOnlyClone && (hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el));
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+      var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+      var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
       var pendingNodeId = "";
       if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
       // a template clone has no counterpart in source HTML, so no host
@@ -3286,6 +3307,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        runtimeSelector: runtimeSelector || void 0,
+        runtimeSourceId: runtimeSourceId || void 0,
         repeat: repeatInstanceInfo(el) || void 0,
         hasOwnText: hasOwnTextContent(el),
         wholeTextStyleRoot: isWholeTextStyleRoot(el),
@@ -3294,6 +3317,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         classes: Array.from(el.classList),
         computedStyles: collectElementComputedStyles(el, cs, paintCs),
         inlineStyles: collectElementInlineStyles(el),
+        authoredSizeStyles,
         primitiveKind: el.getAttribute("data-an-primitive") || void 0,
         isGroup: el.getAttribute("data-agent-native-group") === "true",
         vectorStrokeCanAlign: vectorStrokeCanAlign(el),
@@ -3343,19 +3367,33 @@ export const editorChromeBridgeScript: string = `"use strict";
         postScreenRootStyleSnapshot();
       });
     }
-    function getLightElementInfo(el) {
+    function getLightElementInfo(el, includePendingNodeId = false) {
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
-      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
+      var runtimeOnlyClone = isRuntimeOnlyClone(el);
+      var sourceBacked = !runtimeOnlyClone && (hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el));
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+      var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+      var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
       var parentStyles = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var cs = window.getComputedStyle(el);
+      var pendingNodeId = "";
+      if (includePendingNodeId && !getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && !isTemplateCloneElement(el)) {
+        pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
+        if (!pendingNodeId) {
+          pendingNodeId = freshRuntimeNodeId("pending");
+          el.setAttribute("data-an-pending-node-id", pendingNodeId);
+        }
+      }
       return {
         tagName: el.tagName.toLowerCase(),
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        runtimeSelector: runtimeSelector || void 0,
+        runtimeSourceId: runtimeSourceId || void 0,
+        pendingNodeId: pendingNodeId || void 0,
         selector: getSelector(el),
         classes: Array.from(el.classList),
         computedStyles: {},
@@ -3534,7 +3572,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var handle = document.createElement("span");
       handle.setAttribute("data-agent-native-edit-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : pos === "e" || pos === "w" ? "ew-resize" : pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize";
-      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + cursor + ";";
+      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" + cursor + ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -3781,6 +3819,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       parentAutoLayoutOverlay.style.display = "none";
     }
     function updateParentAutoLayoutOverlay(el) {
+      if (el?.getAttribute("data-an-primitive") === "frame") {
+        hideParentAutoLayoutOverlay();
+        return;
+      }
       var parent = el && el.parentElement;
       if (!parent || parent === document.body || parent === document.documentElement) {
         hideParentAutoLayoutOverlay();
@@ -3981,7 +4023,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "multi-selection-handle"
         );
         handle.setAttribute("data-corner", pos);
-        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
+        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
         if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
         if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -6783,12 +6825,24 @@ export const editorChromeBridgeScript: string = `"use strict";
     function rectsIntersect(a, b) {
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
-    function postElementMarqueeSelect(elements, additive, e, final, infoCache) {
+    function postElementMarqueeSelect(elements, additive, e, final, infoCache, lightInfoCache) {
+      var primaryIndex = elements.length - 1;
+      function lightInfo(el) {
+        if (!lightInfoCache) return getLightElementInfo(el, true);
+        var cached = lightInfoCache.get(el);
+        if (cached === void 0) {
+          cached = getLightElementInfo(el, true);
+          lightInfoCache.set(el, cached);
+        }
+        return cached;
+      }
       window.parent.postMessage(
         {
           type: "agent-native:layer-marquee-selection",
           phase: "change",
-          payload: elements.map(function(el) {
+          payload: elements.map(function(el, index) {
+            if (!final) return lightInfo(el);
+            if (index !== primaryIndex) return lightInfo(el);
             if (!infoCache) return getElementInfo(el);
             var cached = infoCache.get(el);
             if (cached === void 0) {
@@ -6854,12 +6908,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSelectionOverlay();
       }
       setPassiveSelectionElements(hitElements);
+      var lastReported = activeMarqueeSelection.lastReportedElements;
+      var sameHitSet = !!lastReported && lastReported.length === hitElements.length && hitElements.every(function(el, index2) {
+        return lastReported[index2] === el;
+      });
+      if (!final && sameHitSet) return;
+      activeMarqueeSelection.lastReportedElements = hitElements;
       postElementMarqueeSelect(
         hitElements,
         activeMarqueeSelection.additive,
         e,
         final,
-        activeMarqueeSelection.infoCache
+        activeMarqueeSelection.infoCache,
+        activeMarqueeSelection.lightInfoCache
       );
     }
     function beginMarqueeSelection(e) {
@@ -6926,6 +6987,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         deep: Boolean(e && (e.metaKey || e.ctrlKey)),
         moved: false,
         infoCache: /* @__PURE__ */ new Map(),
+        lightInfoCache: /* @__PURE__ */ new Map(),
         moveFrame: null,
         pendingMoveEvent: null,
         pointerId: e.pointerId,
@@ -7762,8 +7824,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return clampSpacingValue(originValue + delta);
     }
-    function applySpacingDragValue(target, handle, value, mirrorOpposite) {
+    var paddingProperties = [
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft"
+    ];
+    function applySpacingDragValue(target, handle, value, mirrorOpposite, syncAllPadding) {
       if (!target || !handle) return;
+      if (handle.kind === "padding" && syncAllPadding) {
+        for (var i = 0; i < 4; i += 1) {
+          target.style[paddingProperties[i]] = value + "px";
+        }
+        return;
+      }
       target.style[handle.property] = value + "px";
       if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
         target.style[handle.oppositeProperty] = value + "px";
@@ -7784,8 +7858,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var dragEl = selectedEl;
       var originValue = handle.value;
-      var originInlineValue = dragEl.style[handle.property];
-      var originInlineOppositeValue = handle.oppositeProperty ? dragEl.style[handle.oppositeProperty] : "";
+      var originInlinePaddingValues = {};
+      for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+        var paddingProperty = paddingProperties[paddingIndex];
+        originInlinePaddingValues[paddingProperty] = dragEl.style[paddingProperty];
+      }
+      var syncAllPadding = !!e.shiftKey;
       var startX = e.clientX;
       var startY = e.clientY;
       lastSpacingPointerPoint = { x: startX, y: startY };
@@ -7793,17 +7871,40 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingDrag = {
         handle,
         currentValue: originValue,
-        mirrorOpposite: !!e.altKey
+        mirrorOpposite: !!e.altKey,
+        syncAllPadding,
+        touchedAllPadding: syncAllPadding
       };
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        originValue,
+        !!e.altKey,
+        syncAllPadding
+      );
       updateSpacingOverlay(selectedEl);
       showSpacingBadgeForHandle(handle, originValue);
-      function updateSpacingDragMirrorState(mirrorOpposite) {
+      function updateSpacingDragState(mirrorOpposite, syncAllPadding2) {
         if (!spacingDrag) return;
-        if (spacingDrag.mirrorOpposite === mirrorOpposite) return;
+        if (spacingDrag.mirrorOpposite === mirrorOpposite && spacingDrag.syncAllPadding === syncAllPadding2) {
+          return;
+        }
+        var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding2;
+        if (syncAllPadding2) {
+          applySpacingDragValue(
+            dragEl,
+            handle,
+            spacingDrag.currentValue,
+            mirrorOpposite,
+            true
+          );
+        }
         spacingDrag = {
           handle,
           currentValue: spacingDrag.currentValue,
-          mirrorOpposite
+          mirrorOpposite,
+          syncAllPadding: syncAllPadding2,
+          touchedAllPadding
         };
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -7817,9 +7918,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function restoreSpacingDragValue() {
         if (dragEl && document.documentElement.contains(dragEl)) {
-          dragEl.style[handle.property] = originInlineValue;
-          if (handle.oppositeProperty) {
-            dragEl.style[handle.oppositeProperty] = originInlineOppositeValue;
+          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
+            var paddingProperty2 = paddingProperties[paddingIndex2];
+            dragEl.style[paddingProperty2] = originInlinePaddingValues[paddingProperty2];
           }
           selectedEl = dragEl;
           positionOverlay(selectionOverlay, dragEl);
@@ -7838,8 +7939,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           cancelSpacingDrag();
           return;
         }
-        if (ev.key !== "Alt") return;
-        updateSpacingDragMirrorState(!!ev.altKey);
+        if (ev.key !== "Alt" && ev.key !== "Shift") return;
+        updateSpacingDragState(!!ev.altKey, !!ev.shiftKey);
       }
       function onMove(ev) {
         if (!dragEl || !document.documentElement.contains(dragEl)) return;
@@ -7851,13 +7952,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           ev.clientX,
           ev.clientY
         );
+        var syncAllPadding2 = !!ev.shiftKey;
+        var touchedAllPadding = spacingDrag && spacingDrag.touchedAllPadding || syncAllPadding2;
         spacingDrag = {
           handle,
           currentValue: nextValue,
-          mirrorOpposite: !!ev.altKey
+          mirrorOpposite: !!ev.altKey,
+          syncAllPadding: syncAllPadding2,
+          touchedAllPadding
         };
         lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
-        applySpacingDragValue(dragEl, handle, nextValue, !!ev.altKey);
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          nextValue,
+          !!ev.altKey,
+          syncAllPadding2
+        );
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, nextValue);
       }
@@ -7870,13 +7981,28 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var finalValue = spacingDrag ? spacingDrag.currentValue : originValue;
         var mirrorOpposite = spacingDrag ? spacingDrag.mirrorOpposite : !!ev.altKey;
-        applySpacingDragValue(dragEl, handle, finalValue, mirrorOpposite);
+        var syncAllPadding2 = spacingDrag ? spacingDrag.syncAllPadding : !!ev.shiftKey;
+        var touchedAllPadding = spacingDrag ? spacingDrag.touchedAllPadding : syncAllPadding2;
+        var commitAllPadding = handle.kind === "padding" && (syncAllPadding2 || touchedAllPadding);
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          finalValue,
+          mirrorOpposite,
+          commitAllPadding
+        );
         selectedEl = dragEl;
         spacingDrag = null;
         var styles = {};
-        styles[handle.property] = finalValue + "px";
-        if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
-          styles[handle.oppositeProperty] = finalValue + "px";
+        if (commitAllPadding) {
+          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
+            styles[paddingProperties[paddingIndex2]] = finalValue + "px";
+          }
+        } else {
+          styles[handle.property] = finalValue + "px";
+          if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
+            styles[handle.oppositeProperty] = finalValue + "px";
+          }
         }
         postVisualStyleChange(styles);
         positionOverlay(selectionOverlay, dragEl);
@@ -11107,11 +11233,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           showConstraintGuides(dragEl);
         }
-        showTransformBadge(
-          Math.round(nextLeft) + ", " + Math.round(nextTop),
-          ev.clientX,
-          ev.clientY
-        );
         refreshOverlays();
       }
       function restoreSourceDragPosition() {
