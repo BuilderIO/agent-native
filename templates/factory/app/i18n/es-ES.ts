@@ -564,7 +564,6 @@ const messages = {
     automationVersionsLoadFailed:
       "No se pudo cargar el historial de versiones.",
     automationVersionLoadFailed: "No se pudo cargar esa versión.",
-    automationVersionHistoryRowDetail: "guardado {{savedAt}} · {{summary}}",
     automationVersionAppliedToDraft:
       "Versión v{{promptVersion}} cargada en el borrador. Guarda para persistir.",
     automationSavedVersion: "Versión {{version}}",

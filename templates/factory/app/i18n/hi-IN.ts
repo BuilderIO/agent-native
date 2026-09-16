@@ -536,7 +536,6 @@ const messages = {
     automationVersionsLoading: "संस्करण लोड हो रहे हैं…",
     automationVersionsLoadFailed: "संस्करण इतिहास लोड नहीं हो सका।",
     automationVersionLoadFailed: "यह संस्करण लोड नहीं हो सका।",
-    automationVersionHistoryRowDetail: "सहेजा गया {{savedAt}} · {{summary}}",
     automationVersionAppliedToDraft:
       "संस्करण v{{promptVersion}} ड्राफ्ट में लोड किया गया। सहेजने पर लागू होगा।",
     automationSavedVersion: "संस्करण {{version}}",

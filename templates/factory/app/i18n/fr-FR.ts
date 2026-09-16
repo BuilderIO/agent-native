@@ -566,7 +566,6 @@ const messages = {
     automationVersionsLoadFailed:
       "Impossible de charger l'historique des versions.",
     automationVersionLoadFailed: "Impossible de charger cette version.",
-    automationVersionHistoryRowDetail: "enregistré {{savedAt}} · {{summary}}",
     automationVersionAppliedToDraft:
       "Version v{{promptVersion}} chargée dans le brouillon. Enregistrez pour conserver.",
     automationSavedVersion: "Version {{version}}",

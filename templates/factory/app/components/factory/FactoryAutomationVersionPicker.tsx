@@ -83,9 +83,13 @@ function versionRowLabel(
   t: ReturnType<typeof useT>,
   version: VersionRow,
 ): string {
-  return t("factoryRoute.automationVersionHistoryRowDetail", {
+  // Short and fixed-shape on purpose, matching the "Current (saved)" row:
+  // the summary (which varies a lot in length — "Automation save" vs.
+  // "Before restoring version 12") renders as its own line below instead,
+  // so this title can't grow into the delete icon.
+  return t("factoryRoute.automationVersionRowDetail", {
+    promptVersion: version.version,
     savedAt: formatAutomationDate(version.createdAt),
-    summary: version.summary ?? "",
   });
 }
 

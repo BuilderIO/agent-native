@@ -533,7 +533,6 @@ const messages = {
     automationVersionsLoading: "جارٍ تحميل الإصدارات…",
     automationVersionsLoadFailed: "تعذر تحميل سجل الإصدارات.",
     automationVersionLoadFailed: "تعذر تحميل هذا الإصدار.",
-    automationVersionHistoryRowDetail: "تم الحفظ {{savedAt}} · {{summary}}",
     automationVersionAppliedToDraft:
       "تم تحميل الإصدار v{{promptVersion}} في المسودة. احفظ للتطبيق.",
     automationSavedVersion: "الإصدار {{version}}",

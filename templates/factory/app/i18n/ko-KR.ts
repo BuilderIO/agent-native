@@ -543,7 +543,6 @@ const messages = {
     automationVersionsLoading: "버전 불러오는 중…",
     automationVersionsLoadFailed: "버전 기록을 불러올 수 없습니다.",
     automationVersionLoadFailed: "이 버전을 불러올 수 없습니다.",
-    automationVersionHistoryRowDetail: "저장 {{savedAt}} · {{summary}}",
     automationVersionAppliedToDraft:
       "버전 v{{promptVersion}}을(를) 초안에 불러왔습니다. 저장하면 반영됩니다.",
     automationSavedVersion: "버전 {{version}}",

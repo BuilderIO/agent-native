@@ -548,7 +548,6 @@ const messages = {
     automationVersionsLoading: "Loading versions…",
     automationVersionsLoadFailed: "Could not load version history.",
     automationVersionLoadFailed: "Could not load that version.",
-    automationVersionHistoryRowDetail: "saved {{savedAt}} · {{summary}}",
     automationVersionAppliedToDraft:
       "Loaded version v{{promptVersion}} into the draft. Save to persist.",
     automationSavedVersion: "Version {{version}}",

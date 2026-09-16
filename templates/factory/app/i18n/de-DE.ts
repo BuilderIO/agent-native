@@ -557,7 +557,6 @@ const messages = {
     automationVersionsLoadFailed:
       "Versionsverlauf konnte nicht geladen werden.",
     automationVersionLoadFailed: "Diese Version konnte nicht geladen werden.",
-    automationVersionHistoryRowDetail: "gespeichert {{savedAt}} · {{summary}}",
     automationVersionAppliedToDraft:
       "Version v{{promptVersion}} in den Entwurf geladen. Speichern, um zu übernehmen.",
     automationSavedVersion: "Version {{version}}",

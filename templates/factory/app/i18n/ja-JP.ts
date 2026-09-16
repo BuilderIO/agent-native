@@ -548,7 +548,6 @@ const messages = {
     automationVersionsLoading: "バージョンを読み込み中…",
     automationVersionsLoadFailed: "バージョン履歴を読み込めませんでした。",
     automationVersionLoadFailed: "このバージョンを読み込めませんでした。",
-    automationVersionHistoryRowDetail: "保存 {{savedAt}} · {{summary}}",
     automationVersionAppliedToDraft:
       "バージョン v{{promptVersion}} を下書きに読み込みました。保存して反映してください。",
     automationSavedVersion: "バージョン {{version}}",

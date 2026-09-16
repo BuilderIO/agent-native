@@ -513,7 +513,6 @@ const messages = {
     automationVersionsLoading: "正在加载版本…",
     automationVersionsLoadFailed: "无法加载版本历史。",
     automationVersionLoadFailed: "无法加载该版本。",
-    automationVersionHistoryRowDetail: "保存于 {{savedAt}} · {{summary}}",
     automationVersionAppliedToDraft:
       "已将版本 v{{promptVersion}} 加载到草稿。保存后生效。",
     automationSavedVersion: "版本 {{version}}",
