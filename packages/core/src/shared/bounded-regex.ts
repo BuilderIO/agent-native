@@ -588,6 +588,9 @@ function walk(
   ctx: AnalysisContext,
   rejectQuadratic: boolean,
 ): string | null {
+  if (rejectQuadratic && containsVariableLengthLookaround(branches)) {
+    return "variable-length lookarounds cannot be bounded safely on uncapped input";
+  }
   if (rejectQuadratic && containsBackreference(branches)) {
     return "backreferences cannot be bounded safely on uncapped input";
   }
@@ -616,6 +619,19 @@ function containsBackreference(branches: RegexAtom[][]): boolean {
       (atom) =>
         atom.kind === "backref" ||
         (atom.kind === "group" && containsBackreference(atom.branches ?? [])),
+    ),
+  );
+}
+
+function containsVariableLengthLookaround(branches: RegexAtom[][]): boolean {
+  return branches.some((branch) =>
+    branch.some(
+      (atom) =>
+        (atom.kind === "group" &&
+          atom.zeroWidth === true &&
+          isVariableLength(atom)) ||
+        (atom.kind === "group" &&
+          containsVariableLengthLookaround(atom.branches ?? [])),
     ),
   );
 }

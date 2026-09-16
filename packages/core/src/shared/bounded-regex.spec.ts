@@ -170,6 +170,14 @@ describe("analyzeRegexSource", () => {
     }
   });
 
+  it("rejects variable-length lookarounds for uncapped callers", () => {
+    const source = "^(a+)(?=a+$)";
+    expect(analyzeRegexSource(source).safe).toBe(true);
+    const verdict = analyzeRegexSource(source, "", { inputBounded: false });
+    expect(verdict.safe).toBe(false);
+    if (!verdict.safe) expect(verdict.reason).toContain("lookaround");
+  });
+
   it("refuses to clear a pattern it cannot parse", () => {
     expect(analyzeRegexSource("^(unclosed").safe).toBe(false);
   });
