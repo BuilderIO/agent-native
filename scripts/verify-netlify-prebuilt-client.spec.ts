@@ -58,9 +58,14 @@ test("allows Netlify to rewrite its generated redirects file", () => {
       path.join(publish, "_redirects"),
       "source redirect\n/* /.netlify/functions/server 200\n",
     );
+    writeFileSync(path.join(client, "_headers"), "source headers\n");
+    writeFileSync(
+      path.join(publish, "_headers"),
+      "source headers\n/*\n  cache-control: public\n",
+    );
 
     assert.deepEqual(verifyNetlifyPrebuiltClientArtifact(client, publish), {
-      checkedFiles: 1,
+      checkedFiles: 2,
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
