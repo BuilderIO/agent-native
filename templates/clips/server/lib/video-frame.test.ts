@@ -24,6 +24,51 @@ const availableFfmpegPath =
       })();
 
 describe("probeMediaDurationMs", () => {
+  it("hands validation capacity through the queue without leaking it", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "clips-video-frame-handoff-test-"),
+    );
+    const slowFfmpegPath = join(root, "slow-ffmpeg.sh");
+    const previousFfmpegPath = process.env.FFMPEG_PATH;
+    process.env.FFMPEG_PATH = slowFfmpegPath;
+
+    try {
+      await writeFile(
+        slowFfmpegPath,
+        "#!/bin/sh\nsleep 0.05\nprintf '  Duration: 00:00:01.00, start: 0.000000, bitrate: 1 kb/s\\n' >&2\n",
+      );
+      await chmod(slowFfmpegPath, 0o755);
+
+      const activeValidation = probeMediaDurationMs(
+        new Uint8Array([1]),
+        "video/mp4",
+        { requireComplete: true },
+      );
+      const queuedValidation = probeMediaDurationMs(
+        new Uint8Array([1]),
+        "video/mp4",
+        { requireComplete: true },
+      );
+
+      await expect(
+        Promise.all([activeValidation, queuedValidation]),
+      ).resolves.toEqual([1_000, 1_000]);
+      await expect(
+        probeMediaDurationMs(new Uint8Array([1]), "video/mp4", {
+          requireComplete: true,
+          maxQueueWaitMs: 1,
+        }),
+      ).resolves.toBe(1_000);
+    } finally {
+      if (previousFfmpegPath === undefined) {
+        delete process.env.FFMPEG_PATH;
+      } else {
+        process.env.FFMPEG_PATH = previousFfmpegPath;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("fails a queued complete validation before the worker deadline", async () => {
     const root = await mkdtemp(join(tmpdir(), "clips-video-frame-queue-test-"));
     const slowFfmpegPath = join(root, "slow-ffmpeg.sh");

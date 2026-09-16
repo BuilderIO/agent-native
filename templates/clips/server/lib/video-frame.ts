@@ -212,6 +212,7 @@ async function withMediaValidationSlot<T>(
   fn: () => Promise<T>,
   maxQueueWaitMs = MEDIA_VALIDATION_QUEUE_TIMEOUT_MS,
 ): Promise<T> {
+  let slotReserved = false;
   if (activeMediaValidations >= MAX_CONCURRENT_MEDIA_VALIDATIONS) {
     const acquired = await new Promise<boolean>((resolve) => {
       let settled = false;
@@ -232,8 +233,9 @@ async function withMediaValidationSlot<T>(
       }, maxQueueWaitMs);
     });
     if (!acquired) throw new MediaValidationQueueTimeoutError();
+    slotReserved = true;
   }
-  activeMediaValidations += 1;
+  if (!slotReserved) activeMediaValidations += 1;
   try {
     return await fn();
   } finally {
