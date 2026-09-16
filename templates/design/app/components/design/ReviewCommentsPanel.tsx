@@ -362,6 +362,7 @@ export function ReviewCommentsPanel({
           threadFilter={threadFilter}
           threadSort={threadSort}
           showReactions
+          onReactionError={() => toast.error(t("common.genericError"))}
           onCopyThreadLink={copyThreadLink}
           onSetThreadUnread={
             canSetThreadPreferences ? setThreadUnread : undefined
