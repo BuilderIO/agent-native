@@ -1,3 +1,5 @@
+.agent-native/
+
 # Logs
 logs
 *.log
@@ -27,7 +29,6 @@ dist
 .tmp/
 
 # Runtime data
-.agent-native/
 **/data/
 data/pglite/
 data/uploads/

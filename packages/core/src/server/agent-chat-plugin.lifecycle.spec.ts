@@ -132,10 +132,6 @@ describe("agent chat plugin Nitro lifecycle", () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.stubEnv("NODE_ENV", "development");
-    // The plugin boot resolves the auth secret; a local resolution would
-    // persist a secret file into the package cwd and race every parallel
-    // worker for the same first creation.
-    vi.stubEnv("BETTER_AUTH_SECRET", "agent-chat-lifecycle-stable-secret");
     vi.stubEnv("AGENT_NATIVE_MCP_CONFIG_REFRESH_MS", "5000");
     lifecycle.bootstrap = Promise.resolve();
     lifecycle.initPromises.length = 0;

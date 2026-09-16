@@ -398,8 +398,6 @@ export async function trackSignupEvent({
 // Persistent auth secret
 // ---------------------------------------------------------------------------
 
-let inMemoryDevAuthSecret: string | undefined;
-
 /** Persists the generated dev secret next to `dev-server.json`, gitignored. */
 export const DEV_AUTH_SECRET_PATH = path.join(
   ".agent-native",
@@ -617,33 +615,17 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   // SECURITY (audit 09 LOW-2): the previous fallback chain
   // (`GOOGLE_CLIENT_SECRET || ACCESS_TOKEN || hardcoded`) reused
   // cross-purpose secrets and a public hardcoded literal as the cookie
-  // HMAC. Dropped entirely — better to mint an ephemeral secret than to
-  // re-use a Google client secret or a known string.
-  const existing = readEnvLocalSecret(
-    path.resolve(process.cwd(), ".env.local"),
-  );
+  // HMAC. Dropped entirely — local development gets a dedicated generated
+  // secret rather than reusing a Google client secret or a known string.
+  const existing = readEnvLocalSecret(path.resolve(appRoot, ".env.local"));
   if (existing) return existing;
 
-  if (!inMemoryDevAuthSecret) {
-    if (deployEnvironment === "local") {
-      // The persisted file is the dev-session contract: a per-process secret
-      // would silently sign everyone out on every restart and strand the
-      // auto dev account behind a password nobody has. Persistence failures
-      // throw (see DevAuthSecretFileError) — no ephemeral success.
-      inMemoryDevAuthSecret = resolvePersistedDevAuthSecret(appRoot, () =>
-        crypto.randomBytes(32).toString("hex"),
-      );
-    } else {
-      inMemoryDevAuthSecret = crypto.randomBytes(32).toString("hex");
-      console.warn(
-        "[agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral " +
-          "in-memory development secret. Sessions will reset every time this " +
-          "process restarts. Set BETTER_AUTH_SECRET in your environment to keep " +
-          "sessions valid across restarts.",
-      );
-    }
-  }
-  return inMemoryDevAuthSecret;
+  // The persisted file is the dev-session contract: a process-local secret
+  // would silently sign everyone out on every restart. Persistence failures
+  // throw (see DevAuthSecretFileError) rather than rotating the key.
+  return resolvePersistedDevAuthSecret(appRoot, () =>
+    crypto.randomBytes(32).toString("hex"),
+  );
 }
 
 function readEnvLocalSecret(envLocalPath: string): string | undefined {
@@ -816,8 +798,8 @@ export function resolveEmailPasswordAuthPolicy(
 }
 
 /** Read-only accessor for the resolved auth secret. */
-export function getAuthSecret(appRoot?: string): string {
-  return resolveAuthSecret(appRoot);
+export function getAuthSecret(): string {
+  return resolveAuthSecret();
 }
 
 // ---------------------------------------------------------------------------
