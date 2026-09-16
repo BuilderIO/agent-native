@@ -149,6 +149,7 @@ import {
   sendLinkedScreenPreviewStyleChange,
 } from "./multi-screen/linked-screen-preview";
 import type { KScaleStyleChange } from "./multi-screen/types";
+import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
 import type {
   ElementInfo,
   ElementSelectionIntent,
@@ -5537,6 +5538,7 @@ export function DesignCanvas({
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
+            ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
           }}
           title={t("designEditor.designPreview")}
         />
@@ -5561,6 +5563,9 @@ export function DesignCanvas({
           data-runtime-verification-iframe
           aria-hidden="true"
           tabIndex={-1}
+          // scaled-iframe-paint-ignore -- parked off-viewport and never
+          // painted, so promoting it to its own composited layer would only
+          // cost memory.
           className="pointer-events-none fixed border-0 opacity-0"
           style={{
             left: -100_000,

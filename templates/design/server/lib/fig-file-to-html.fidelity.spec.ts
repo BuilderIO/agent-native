@@ -58,6 +58,48 @@ function renderFrame(document: Record<string, unknown>): string {
   return result.frames[0]?.html ?? "";
 }
 
+describe("Figma layer-name parity", () => {
+  it("preserves duplicate, escaped, nested, and component layer names", () => {
+    const doc = makeDocument([{ name: "Root" }]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 20, { name: 'Duplicate & "Name"' }),
+      childNode(10, 21, { name: 'Duplicate & "Name"', type: "VECTOR" }),
+      childNode(20, 30, {
+        name: "Nested <Badge>",
+        type: "TEXT",
+        characters: "Badge",
+      }),
+      childNode(10, 40, {
+        name: "Component / Instance",
+        type: "INSTANCE",
+        symbolData: { symbolID: { sessionID: 1, localID: 41 } },
+      }),
+      {
+        guid: { sessionID: 1, localID: 41 },
+        parentIndex: { guid: { sessionID: 1, localID: 2 }, position: "z" },
+        type: "SYMBOL",
+        name: "Component / Master",
+        size: { x: 200, y: 100 },
+        transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+      },
+    );
+
+    const html = renderFrame(doc);
+
+    expect(html).toContain('data-agent-native-layer-name="Root"');
+    expect(
+      html.match(
+        /data-agent-native-layer-name="Duplicate &amp; &quot;Name&quot;"/g,
+      ),
+    ).toHaveLength(2);
+    expect(html).toContain('data-agent-native-layer-name="Nested &lt;Badge>"');
+    expect(html).toContain(
+      'data-agent-native-layer-name="Component / Instance"',
+    );
+    expect(html).not.toContain(' layer-name="');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // A1: Image fill URL quoting
 // ---------------------------------------------------------------------------

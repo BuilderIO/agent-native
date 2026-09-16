@@ -3285,7 +3285,8 @@ function isVectorLike(node: FigNode, ctx?: Ctx): boolean {
 
 /**
  * Render a vector-like node as an inline `<svg>`. The element itself keeps
- * the same outer attrs (layer name, position/size style) as a regular div
+ * the same outer attrs (data-agent-native-layer-name, position/size style)
+ * as a regular div
  * so it slots into auto-layout / absolute positioning identically; the
  * vector geometry lives inside as `<path>` children.
  */

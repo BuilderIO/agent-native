@@ -82,7 +82,7 @@ for (const site of sites) {
     });
 
     test("does not report ok while its database is unreachable", async () => {
-      // Measured on beta.macros: {"ok":true,"ready":false,"db":false,
+      // A host can report {"ok":true,"ready":false,"db":false,
       // "dbTimedOut":true}. A caller that trusts `ok` — a monitor, a load
       // balancer, a status page — reads a host with no database as healthy.
       // The suite's own gating check therefore ignores `ok` and asserts `db`,

@@ -115,8 +115,7 @@ describe("tryForwardToDevServer", () => {
   it("runs in-process, sending nothing, when the discovery origin is not the loopback dev server", async () => {
     for (const origin of [
       "http://evil.example",
-      "https://127.0.0.1:1",
-      "http://localhost:1",
+      "https://evil.example",
       "http://127.0.0.1:1/path",
       "not a url",
     ]) {
@@ -179,6 +178,64 @@ describe("tryForwardToDevServer", () => {
     );
     expect(exit).toHaveBeenCalledWith(1);
   });
+
+  it("forwards when the discovery origin is the printed localhost dev server", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(
+      liveDiscovery({ origin: "http://localhost:8082", token: "secret-token" }),
+    );
+    mockIsProcessAlive.mockReturnValue(true);
+    process.env.AGENT_USER_EMAIL = "owner@example.test";
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({ ok: true, result: "forwarded-ok" }),
+    });
+    const exit = mockExit();
+
+    await expect(tryForwardToDevServer("do-thing", [])).rejects.toThrow(
+      "process.exit(0)",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8082/_agent-native/dev/action",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "x-agent-native-dev-token": "secret-token",
+          "x-agent-native-dev-user": "owner@example.test",
+        }),
+      }),
+    );
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it.each(["https://localhost:8083", "http://[::1]:8084"])(
+    "forwards to the printed loopback origin %s",
+    async (origin) => {
+      mockReadDevActionDiscoveryFile.mockReturnValue(
+        liveDiscovery({ origin, token: "secret-token" }),
+      );
+      mockIsProcessAlive.mockReturnValue(true);
+      fetchMock.mockResolvedValue({
+        status: 200,
+        json: async () => ({ ok: true, result: "forwarded-ok" }),
+      });
+      const exit = mockExit();
+
+      await expect(tryForwardToDevServer("do-thing", [])).rejects.toThrow(
+        "process.exit(0)",
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${origin}/_agent-native/dev/action`,
+        expect.objectContaining({
+          method: "POST",
+          ...(origin.startsWith("https:")
+            ? { dispatcher: expect.anything() }
+            : {}),
+        }),
+      );
+      expect(exit).toHaveBeenCalledWith(0);
+    },
+  );
 
   it("forwards the CLI's identity env as headers and prints the result on success", async () => {
     mockReadDevActionDiscoveryFile.mockReturnValue(
