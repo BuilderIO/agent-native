@@ -1,9 +1,26 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../db/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/client.js")>();
+  return {
+    ...actual,
+    createDbExec: vi.fn(),
+    getDbExec: vi.fn(),
+    getMigrationDatabaseUrl: vi.fn(() => ""),
+  };
+});
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import {
+  createDbExec,
+  getDbExec,
+  getMigrationDatabaseUrl,
+  type DbExec,
+} from "../db/client.js";
+import { runMigrations } from "../db/migrations.js";
 import {
   WORKSPACE_CONNECTIONS_MIGRATIONS,
   WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
@@ -20,6 +37,28 @@ function migrationSql(): string {
   return WORKSPACE_CONNECTIONS_MIGRATIONS.map((entry) =>
     typeof entry.sql === "string" ? entry.sql : (entry.sql.postgres ?? ""),
   ).join("\n");
+}
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
+}
+
+function pgliteExec(
+  pglite: Awaited<ReturnType<typeof createTestPglite>>,
+): DbExec {
+  return {
+    async execute(statement) {
+      const sql = typeof statement === "string" ? statement : statement.sql;
+      const args = typeof statement === "string" ? [] : (statement.args ?? []);
+      const result = await pglite.query(postgresSql(sql), args);
+      return {
+        rows: result.rows,
+        rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+      };
+    },
+    async close() {},
+  };
 }
 
 describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
@@ -160,6 +199,7 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
 
   it("repairs normalized keys left by pre-trigger release migrations", async () => {
     const pglite = await createTestPglite();
+    const exec = pgliteExec(pglite);
     try {
       for (const migration of WORKSPACE_CONNECTIONS_MIGRATIONS) {
         if (migration.version > 10) break;
@@ -188,12 +228,30 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
         )
         .run("legacy-gap-group", "org-repair", "Finance Team");
 
-      const v13 = WORKSPACE_CONNECTIONS_MIGRATIONS.find(
-        (entry) => entry.version === 13,
+      await pglite.exec(
+        `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS 'BEGIN
+            NEW.normalized_name := LOWER(BTRIM(NEW.name));
+            RETURN NEW;
+          END;';
+          CREATE TRIGGER trg_workspace_user_groups_normalized_name
+            BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
+            FOR EACH ROW
+            EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();`,
       );
-      const v13Sql =
-        typeof v13?.sql === "string" ? v13.sql : (v13?.sql.postgres ?? "");
-      await pglite.exec(v13Sql);
+      await pglite.exec(
+        `CREATE TABLE workspace_group_runner_migrations (version BIGINT PRIMARY KEY);
+         INSERT INTO workspace_group_runner_migrations (version) VALUES (13);`,
+      );
+      vi.mocked(getDbExec).mockReturnValue(exec);
+      vi.mocked(createDbExec).mockResolvedValue(exec);
+      vi.mocked(getMigrationDatabaseUrl).mockReturnValue("");
+
+      await runMigrations(WORKSPACE_CONNECTIONS_MIGRATIONS, {
+        table: "workspace_group_runner_migrations",
+      })(null);
 
       const repaired = await pglite
         .prepare(
@@ -208,7 +266,14 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
           )
           .run("legacy-gap-duplicate", "org-repair", "finance team"),
       ).rejects.toThrow(/duplicate|unique/i);
+      const version = await pglite
+        .prepare(
+          "SELECT MAX(version) AS version FROM workspace_group_runner_migrations",
+        )
+        .get();
+      expect(version?.version).toBe(14);
     } finally {
+      vi.clearAllMocks();
       await pglite.close();
     }
   });

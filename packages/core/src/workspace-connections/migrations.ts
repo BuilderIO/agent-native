@@ -194,8 +194,8 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
   },
   {
     version: 13,
-    // Repair databases that recorded an older v12 before the trigger and
-    // normalized-key repair were added.
+    // Reapply the compatibility trigger for databases that already recorded
+    // v12 before the trigger was added.
     sql: `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
       RETURNS trigger
       LANGUAGE plpgsql
@@ -215,8 +215,13 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
             FOR EACH ROW
             EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();
         END IF;
-      END';
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
+      END'`,
+  },
+  {
+    version: 14,
+    // Repair NULL keys left by databases that recorded the pre-trigger v11/v12
+    // migrations before the compatibility trigger was installed.
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
       ON workspace_user_groups (org_id, normalized_name)
       WHERE normalized_name IS NOT NULL;
       UPDATE workspace_user_groups AS group_row
