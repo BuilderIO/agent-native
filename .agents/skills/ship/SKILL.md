@@ -111,9 +111,9 @@ disposition table into the PR or ship recap. The handoff remains cross-app and
 cross-source: adding Design UI bugs to the eligible set must not drop
 Analytics, Dispatch, Calendar, Slides, Content, GitHub, Sentry, or any other
 previously identified candidate. Every actionable item must have an owning
-source seam and focused verification, with one explicit disposition: fixed,
-awaiting reporter clarification, already owned or duplicate, deferred or
-informational, external or non-repo-owned, or unavailable/unverified.
+source seam, focused verification, and one disposition from the shared
+vocabulary. Active/evidence-limited dispositions retain the eye and block
+merge; terminal dispositions release it with their marker.
 `Clarification needed` is an active, eye-held disposition and blocks merge
 until answered or expired; only a terminal disposition with its marker clears
 the gate.
