@@ -139,7 +139,7 @@ describe("resolvePersistedDevAuthSecret", () => {
     const appRoot = tempAppRoot();
     try {
       fs.mkdirSync(path.dirname(secretFile(appRoot)), { recursive: true });
-      fs.writeFileSync(secretFile(appRoot), "");
+      fs.writeFileSync(secretFile(appRoot), "", { mode: 0o600 });
 
       expect(() =>
         resolvePersistedDevAuthSecret(appRoot, () => "should-never-be-written"),

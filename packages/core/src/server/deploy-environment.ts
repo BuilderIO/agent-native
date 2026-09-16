@@ -73,10 +73,11 @@ export function resolveDeployEnvironment(options?: {
   }
 
   if (!context && !branch && !vercelEnv) {
+    const nodeEnvironment = normalizeFallbackEnvironment(process.env.NODE_ENV);
+    if (nodeEnvironment === "production") return "production";
     return (
-      normalizeFallbackEnvironment(
-        firstNonEmpty(process.env.SENTRY_ENVIRONMENT, process.env.NODE_ENV),
-      ) ??
+      normalizeFallbackEnvironment(process.env.SENTRY_ENVIRONMENT) ??
+      nodeEnvironment ??
       options?.metadataFreeDefault ??
       "production"
     );

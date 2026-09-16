@@ -48,6 +48,18 @@ describe("resolveDeployEnvironment", () => {
     expect(resolveDeployEnvironment()).toBe("production");
   });
 
+  it("does not let Sentry metadata downgrade a production runtime", () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("SENTRY_ENVIRONMENT", "development");
+    vi.stubEnv("CONTEXT", "");
+    vi.stubEnv("NETLIFY_CONTEXT", "");
+    vi.stubEnv("BRANCH", "");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(resolveDeployEnvironment()).toBe("production");
+  });
+
   it("lets a caller choose the metadata-free default without overriding explicit signals", () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
     vi.stubEnv("SENTRY_ENVIRONMENT", "");
