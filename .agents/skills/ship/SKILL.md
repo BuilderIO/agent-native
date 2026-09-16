@@ -219,9 +219,11 @@ The ship report and PR description must keep source-tested, built, and merged
 claims separate. A green test or PR does not prove that beta or production is
 live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
-review item has a fix, a concise reply, or an explicit terminal disposition
-with its disposition-specific release marker, and that no new evidence has been left without a
-disposition. Items routed to Alice remain outside this workflow's ownership;
+review item is either a verified fix with a concise reply and **Fixed**,
+**Shipped**, or **Live verified** disposition plus `✅`, a non-fixed terminal
+disposition with `:no_entry_sign:`, or an active/evidence-limited disposition
+whose eye still blocks merge. A reply alone never satisfies this gate, and no
+new evidence may be left without a disposition. Items routed to Alice remain outside this workflow's ownership;
 explicitly assigned Design items are included. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
   parent marked with `👀` is not thereby complete or non-actionable: preserve the
