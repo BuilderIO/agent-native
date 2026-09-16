@@ -164,6 +164,31 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(isTrustedReviewAttachmentUrl("javascript:alert(1)")).toBe(false);
   });
 
+  it("renders all five trusted persisted image attachments", () => {
+    rootComment.metadata = {
+      attachments: Array.from({ length: 6 }, (_, index) => ({
+        url: `${window.location.origin}/uploads/review-${index + 1}.png`,
+        name: `Review ${index + 1}`,
+        contentType: "image/png",
+      })),
+    };
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelectorAll("[data-review-comment-attachments] img"),
+    ).toHaveLength(5);
+  });
+
   it("uses the localized agent label without displaying the acting human as author", () => {
     (rootComment as ReviewComment).createdBy = "agent";
     act(() => {

@@ -82,4 +82,23 @@ describe("review comment attachment metadata", () => {
       ],
     });
   });
+
+  it("preserves the five-image composer limit while dropping additional images", async () => {
+    const isOwnedUrl = vi.fn(async () => true);
+    getActiveFileUploadProviderForRequest.mockResolvedValue({
+      id: "s3",
+      isOwnedUrl,
+    });
+
+    const attachments = Array.from({ length: 6 }, (_, index) => ({
+      url: `https://uploads.example.com/review-${index + 1}.png`,
+      name: `Review ${index + 1}`,
+      contentType: "image/png",
+      provider: "s3",
+    }));
+
+    await expect(
+      sanitizeReviewCommentMetadata({ attachments }),
+    ).resolves.toEqual({ attachments: attachments.slice(0, 5) });
+  });
 });

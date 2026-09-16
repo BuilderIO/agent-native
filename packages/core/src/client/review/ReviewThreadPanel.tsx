@@ -64,7 +64,7 @@ import {
 } from "./use-review.js";
 
 const DEFAULT_REACTION_CHOICES = ["👍", "❤️", "🎉", "👀"] as const;
-const MAX_REVIEW_IMAGE_ATTACHMENTS = 4;
+const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
 
 interface ReviewCommentAttachment {
   url: string;

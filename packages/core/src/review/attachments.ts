@@ -1,6 +1,6 @@
 import { getActiveFileUploadProviderForRequest } from "../file-upload/registry.js";
 
-const MAX_REVIEW_IMAGE_ATTACHMENTS = 4;
+const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
 
 interface ReviewAttachmentRecord {
   url: string;
