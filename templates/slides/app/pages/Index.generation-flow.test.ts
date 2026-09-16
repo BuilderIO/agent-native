@@ -151,7 +151,7 @@ describe("new deck generation flow", () => {
     );
     const titlePatchIndex = flow.indexOf('"op": "patch-deck-fields"');
     const addSlideInstructionIndex = flow.indexOf(
-      "Add the first one or two slides ONE AT A TIME using the `add-slide` action",
+      "Add every generated slide ONE AT A TIME using the `add-slide` action",
     );
     const sparseTitleInstructionIndex = flow.indexOf(
       "Include only `title` in `fields`; omit all other optional fields.",
@@ -175,7 +175,13 @@ describe("new deck generation flow", () => {
       "Treat each successful write and compact readback as confirmation",
     );
     expect(flow).toContain("deck-level visual contract");
-    expect(flow).toContain("at most three `add-slide` operations");
+    expect(flow).toContain(
+      "Add every generated slide ONE AT A TIME using the `add-slide` action",
+    );
+    expect(flow).toContain(
+      "Do not use `patch-deck` to append generated slides because `add-slide` records per-slide Creative Context provenance",
+    );
+    expect(flow).not.toContain("at most three `add-slide` operations");
     expect(flow).toContain("Never issue parallel writes to the same deck");
   });
 

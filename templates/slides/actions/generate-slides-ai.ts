@@ -36,8 +36,8 @@ export default defineAction({
     // Cap at 10. Single-shot JSON generation reliably truncates
     // beyond that — the resulting JSON fails to parse and the user sees
     // an error. Larger decks should be assembled through the agent chat,
-    // which establishes the first slides sequentially and can append later
-    // slides in bounded `patch-deck` batches.
+    // which establishes the deck-level visual contract and appends later
+    // slides sequentially through `add-slide`.
     const slideCount = Math.min(args.slideCount ?? 8, 10);
     const style = args.style;
     const includeImages = args.includeImages !== false;

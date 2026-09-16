@@ -26,10 +26,10 @@ Context, reference deck, or source material that the app already provides.
    another placeholder title for a generated deck.
 5. If the connected browser does not consume the navigation command, call
    `navigate` with the new deck id.
-6. Add the first one or two slides with `add-slide` in slide order, waiting for each
-   result. For three or more remaining slides, use one `patch-deck` call with at
-   most three `add-slide` operations per batch when useful, then read back the
-   compact deck before the next batch.
+6. Add every generated slide with `add-slide` in slide order, waiting for each
+   result so each slide preserves its per-slide Creative Context provenance.
+   After the first slide, read back the compact deck to verify the visual
+   contract before continuing.
 
 When speaker notes are requested, put presenter-only text in each slide's
 `notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
@@ -87,12 +87,11 @@ library, omit them. With Library mode Off, omit them and create normally.
    before adding the next slide
 
 Do not create multiple independent writes in parallel for the same deck. Do not
-spawn sub-agents to write into the same deck at the same time. After the first
-one or two slides establish the theme, one writer may use a single `patch-deck` call
-with up to three add-slide operations as an atomic batch, then read back the
-deck before continuing. Sub-agents may research or draft slide copy, but one
-writer owns every deck mutation so the editor stays stable and the user can
-watch progress.
+spawn sub-agents to write into the same deck at the same time. Every newly
+generated slide must use `add-slide`; reserve `patch-deck` for deck fields,
+existing-slide edits, ordering, or source-preserving work. Sub-agents may
+research or draft slide copy, but one writer owns every deck mutation so the
+editor stays stable and the user can watch progress.
 
 ## Reference Decks
 
@@ -287,8 +286,8 @@ and can later be replaced with a generated image:
 
 Use a non-empty `create-deck --slides '[...]'` payload only for imports or an
 intentional atomic bulk replacement. For normal AI-generated decks, use the
-empty-deck workflow above: sequential `add-slide` calls for the first one or two
-slides, followed by bounded atomic `patch-deck` batches when useful.
+empty-deck workflow above: sequential `add-slide` calls for every generated
+slide.
 
 For a bulk replacement, pass the same fully styled HTML templates in the
 `slides` array. After creating, navigate to the deck:
