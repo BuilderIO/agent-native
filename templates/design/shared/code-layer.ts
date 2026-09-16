@@ -16,10 +16,15 @@ import {
   type ComponentInstance,
 } from "./component-model";
 import type { TailwindBreakpointPrefix } from "./design-state.js";
+import {
+  ensureGroupRuntime,
+  MEASURED_FLOW_GROUP_ATTR,
+} from "./group-runtime.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
 import {
   getPropertyClasses,
+  migrateMaxWidthClassBounds,
   parseClassGroups,
   parseClassToken,
   removeMaxWidthPropertyClass,
@@ -551,6 +556,16 @@ export interface MoveNodeEditIntent {
  *
  * Returns "unsupported" if the targets don't share a common parent.
  */
+export interface WrapNodeSizeHint {
+  width: number;
+  height: number;
+  /** Parent-content-relative border-box position for an in-flow target. */
+  left?: number;
+  top?: number;
+  /** Live layout found authored CSS that removes this target from flow. */
+  outOfFlow?: true;
+}
+
 export interface WrapNodesEditIntent {
   kind: "wrapNodes";
   targetIds: string[];
@@ -558,14 +573,15 @@ export interface WrapNodesEditIntent {
   /** Defaults to a Group; auto-layout always creates a Frame. */
   wrapperKind?: "group" | "frame";
   /**
-   * Live-rendered width/height per projected target node id, used only as a fallback
-   * when a target's inline style has position/left/top but no explicit
-   * width/height (see computeAbsoluteUnionBounds). Optional: callers with no
-   * live DOM to measure (server-side edits, tests) simply omit it and get
-   * the previous behavior. A unique authored node id is also accepted for
+   * Live-rendered dimensions per projected target node id. Width/height are
+   * used as a fallback when an absolutely positioned target omits its own
+   * dimensions. left/top are parent-content-relative positions used to keep
+   * an in-flow group at its measured size while rebasing its direct children.
+   * Callers without live DOM measurements simply omit the hint and retain the
+   * source-only behavior. A unique authored node id is also accepted for
    * direct API callers; ambiguous authored ids are never hint aliases.
    */
-  sizeHints?: Record<string, { width: number; height: number }>;
+  sizeHints?: Record<string, WrapNodeSizeHint>;
 }
 
 /** Create an editable SVG-backed Boolean Subtract from supported shape siblings. */
@@ -3589,10 +3605,16 @@ export function buildCodeLayerTree(
 
   for (const node of projection.nodes) {
     const componentName = node.componentInstance?.name;
+    const explicitLayerName =
+      node.layerNameSource === "attribute" ? node.layerName : undefined;
     const type = treeTypeForNode(node, nodesById);
     treeById.set(node.id, {
       id: node.id,
-      name: componentName ?? unnamedLayerName(node, type) ?? node.layerName,
+      name:
+        explicitLayerName ??
+        componentName ??
+        unnamedLayerName(node, type) ??
+        node.layerName,
       type,
       isNativeTextPrimitive:
         node.dataAttributes["data-an-primitive"] === "text",
@@ -4061,6 +4083,45 @@ function replaceOrInsertAttribute(
     : -1;
   const insertAt = slashIndex > element.start ? slashIndex : closeIndex;
   return `${html.slice(0, insertAt)} ${name}="${escaped}"${html.slice(insertAt)}`;
+}
+
+/**
+ * Migrate generated max-width class tokens in HTML without serializing the
+ * document. The existing source parser skips opaque head/script/style text;
+ * reverse attribute splices keep every other byte unchanged.
+ */
+export function migrateMaxWidthClassBoundsInHtml(
+  html: string,
+  boundMap: ReadonlyMap<number, number | null>,
+): string | null {
+  if (boundMap.size === 0) return html;
+  const updates: Array<{ element: ParsedElement; className: string }> = [];
+
+  for (const element of parseHtmlElements(html)) {
+    const currentClass = attributeValue(element, "class");
+    if (currentClass === null) continue;
+    const nextClass = migrateMaxWidthClassBounds(currentClass, boundMap);
+    if (nextClass === null) {
+      // coercion-ok: callers treat null as a typed migration refusal.
+      return null;
+    }
+    if (nextClass !== currentClass) {
+      updates.push({ element, className: nextClass });
+    }
+  }
+
+  let nextHtml = html;
+  for (let index = updates.length - 1; index >= 0; index -= 1) {
+    const update = updates[index];
+    if (!update) continue;
+    nextHtml = replaceOrInsertAttribute(
+      nextHtml,
+      update.element,
+      "class",
+      update.className,
+    );
+  }
+  return nextHtml;
 }
 
 function removeAttributeFromHtml(
@@ -6026,6 +6087,36 @@ const FLEX_ITEM_STRIP_PROPS = [
 ] as const;
 
 /**
+ * Properties whose old flow placement would be counted twice after a direct
+ * child is pinned to its measured position inside a new relative wrapper.
+ */
+const MEASURED_FLOW_REBASE_STRIP_PROPS = [
+  "position",
+  "left",
+  "top",
+  "right",
+  "bottom",
+  "inset",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "margin-block",
+  "margin-block-start",
+  "margin-block-end",
+  "margin-inline",
+  "margin-inline-start",
+  "margin-inline-end",
+] as const;
+
+/**
  * Strip absolute-positioning properties from a child's inline style, applying
  * the edit directly to the html string at the child element's source spans.
  * Returns the updated html string.
@@ -6142,6 +6233,30 @@ function stripFlexItemStylingFromChild(
 }
 
 /**
+ * Pin a flow child to its measured border-box position inside a relative
+ * wrapper. Margins and inset values contributed to the measured position in
+ * the old parent, so retaining them would offset the child a second time.
+ */
+function rebaseMeasuredFlowChild(
+  html: string,
+  child: ParsedElement,
+  left: number,
+  top: number,
+): string {
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  removeStyleDeclarations(declarations, MEASURED_FLOW_REBASE_STRIP_PROPS);
+  setStyleDeclaration(declarations, "position", "absolute");
+  setStyleDeclaration(declarations, "left", formatMeasuredPixel(left));
+  setStyleDeclaration(declarations, "top", formatMeasuredPixel(top));
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+}
+
+/**
  * L7: sequential "<baseName> N" naming. Counts existing layer names already
  * matching "<baseName>" or "<baseName> <number>" in the projection (via
  * data-agent-native-layer-name / layerName) and returns the next unused
@@ -6207,7 +6322,7 @@ function computeAbsoluteUnionBounds(
    * would otherwise return null and leave the wrapper with no geometry at
    * all (a frame that doesn't enclose its own content).
    */
-  sizeHints?: ReadonlyMap<ParsedElement, { width: number; height: number }>,
+  sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
 ): AbsoluteUnionBounds | null {
   let minLeft = Infinity;
   let minTop = Infinity;
@@ -6229,6 +6344,297 @@ function computeAbsoluteUnionBounds(
     minTop = Math.min(minTop, top);
     maxRight = Math.max(maxRight, left + width);
     maxBottom = Math.max(maxBottom, top + height);
+  }
+
+  if (
+    !Number.isFinite(minLeft) ||
+    !Number.isFinite(minTop) ||
+    !Number.isFinite(maxRight) ||
+    !Number.isFinite(maxBottom)
+  ) {
+    return null;
+  }
+
+  return {
+    left: minLeft,
+    top: minTop,
+    width: maxRight - minLeft,
+    height: maxBottom - minTop,
+  };
+}
+
+interface SelectionBackgroundRectangle {
+  element: ParsedElement;
+  node: CodeLayerNode;
+  bounds: AbsoluteUnionBounds;
+  padding: { top: number; right: number; bottom: number; left: number };
+}
+
+/**
+ * A painted rectangle can be the visual background of a Shift+A selection.
+ * Figma turns that layer into the frame itself, but only when it is the
+ * bottom-most selected sibling and fully contains every other selected layer.
+ * Partial overlaps stay ordinary auto-layout children so selecting two
+ * arbitrary shapes never changes their identity or stacking semantics.
+ */
+function findSelectionBackgroundRectangle(
+  targetElements: ParsedElement[],
+  nodeByElement: ReadonlyMap<ParsedElement, CodeLayerNode>,
+  sizeHintsByElement: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
+): SelectionBackgroundRectangle | null {
+  if (targetElements.length < 2) return null;
+
+  const background = targetElements[0]!;
+  const backgroundNode = nodeByElement.get(background);
+  if (
+    !backgroundNode ||
+    background.tag !== "div" ||
+    attributeValue(background, "data-an-primitive") !== "rectangle" ||
+    background.childIndexes.length > 0 ||
+    backgroundNode.paintsOwnText ||
+    backgroundNode.componentInstance ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-component",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-component-id",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-component-ref",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-group-wrapper",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-group",
+    )
+  ) {
+    return null;
+  }
+  const backgroundStyle = parseStyle(attributeValue(background, "style"));
+  const fill =
+    backgroundStyle["background-color"] ?? backgroundStyle.background;
+  const parsedFill = fill ? parseCssColorExtended(fill) : null;
+  if (!parsedFill || parsedFill.a <= 0) return null;
+  if (backgroundStyle.transform && backgroundStyle.transform !== "none") {
+    return null;
+  }
+  if (
+    backgroundStyle.rotate &&
+    backgroundStyle.rotate !== "none" &&
+    backgroundStyle.rotate !== "0deg" &&
+    backgroundStyle.rotate !== "0"
+  ) {
+    return null;
+  }
+  if (
+    backgroundStyle.scale &&
+    backgroundStyle.scale !== "none" &&
+    backgroundStyle.scale !== "1"
+  ) {
+    return null;
+  }
+
+  const origin = {
+    left: parsePixelLength(backgroundStyle.left),
+    top: parsePixelLength(backgroundStyle.top),
+  };
+  const backgroundHint = sizeHintsByElement.get(background);
+  const left = origin.left ?? backgroundHint?.left ?? null;
+  const top = origin.top ?? backgroundHint?.top ?? null;
+  const width =
+    parsePixelLength(backgroundStyle.width) ?? backgroundHint?.width ?? null;
+  const height =
+    parsePixelLength(backgroundStyle.height) ?? backgroundHint?.height ?? null;
+  if (
+    backgroundStyle.position !== "absolute" ||
+    left === null ||
+    top === null ||
+    width === null ||
+    height === null ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  const bounds = { left, top, width, height };
+
+  const childBounds = targetElements.slice(1).map((element) => {
+    const style = parseStyle(attributeValue(element, "style"));
+    const hint = sizeHintsByElement.get(element);
+    const childLeft = parsePixelLength(style.left) ?? hint?.left ?? null;
+    const childTop = parsePixelLength(style.top) ?? hint?.top ?? null;
+    const childWidth = parsePixelLength(style.width) ?? hint?.width ?? null;
+    const childHeight = parsePixelLength(style.height) ?? hint?.height ?? null;
+    return childLeft === null ||
+      childTop === null ||
+      childWidth === null ||
+      childHeight === null ||
+      childWidth <= 0 ||
+      childHeight <= 0
+      ? null
+      : {
+          left: childLeft,
+          top: childTop,
+          width: childWidth,
+          height: childHeight,
+        };
+  });
+  if (
+    childBounds.some(
+      (child) =>
+        child === null ||
+        child.left < bounds.left ||
+        child.top < bounds.top ||
+        child.left + child.width > bounds.left + bounds.width ||
+        child.top + child.height > bounds.top + bounds.height,
+    )
+  ) {
+    return null;
+  }
+
+  const minLeft = Math.min(...childBounds.map((child) => child!.left));
+  const minTop = Math.min(...childBounds.map((child) => child!.top));
+  const maxRight = Math.max(
+    ...childBounds.map((child) => child!.left + child!.width),
+  );
+  const maxBottom = Math.max(
+    ...childBounds.map((child) => child!.top + child!.height),
+  );
+  return {
+    element: background,
+    node: backgroundNode,
+    bounds,
+    padding: {
+      left: minLeft - bounds.left,
+      top: minTop - bounds.top,
+      right: bounds.left + bounds.width - maxRight,
+      bottom: bounds.top + bounds.height - maxBottom,
+    },
+  };
+}
+
+function promoteSelectionBackgroundRectangle(
+  html: string,
+  promotion: SelectionBackgroundRectangle,
+  targetElements: ParsedElement[],
+  wrapperNodeId: string,
+  wrapperLayerName: string,
+): string {
+  const backgroundMarkup = html.slice(
+    promotion.element.start,
+    promotion.element.end,
+  );
+  const backgroundRoot = parseHtmlElements(backgroundMarkup).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!backgroundRoot) return html;
+
+  const centered =
+    Math.abs(promotion.padding.left - promotion.padding.right) <= 8 &&
+    Math.abs(promotion.padding.top - promotion.padding.bottom) <= 8;
+  let style = attributeValue(backgroundRoot, "style") ?? "";
+  for (const [property, value] of [
+    ["display", "flex"],
+    ["flex-direction", centered ? "row" : "column"],
+    ["gap", "10px"],
+    ["align-items", centered ? "center" : "flex-start"],
+    ["justify-content", centered ? "center" : "flex-start"],
+    ["box-sizing", "border-box"],
+    [
+      "padding",
+      `${formatMeasuredPixel(promotion.padding.top)} ${formatMeasuredPixel(promotion.padding.right)} ${formatMeasuredPixel(promotion.padding.bottom)} ${formatMeasuredPixel(promotion.padding.left)}`,
+    ],
+  ] as const) {
+    style = setStyleValue(style, property, value);
+  }
+
+  let promoted = patchElementAttributes(backgroundMarkup, [
+    {
+      element: backgroundRoot,
+      attributes: {
+        "data-agent-native-node-id": wrapperNodeId,
+        "data-agent-native-layer-name": wrapperLayerName,
+        "data-an-primitive": "frame",
+        "data-agent-native-group-wrapper": "true",
+        "data-agent-native-preserve-styles": "true",
+        style,
+      },
+    },
+  ]);
+
+  const promotedRoot = parseHtmlElements(promoted).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!promotedRoot) return html;
+  const childFragments = targetElements.slice(1).map((element) => {
+    const fragment = html.slice(element.start, element.end);
+    const root = parseHtmlElements(fragment).find(
+      (candidate) => candidate.parentIndex === undefined,
+    );
+    return root ? stripAbsolutePositioningFromChild(fragment, root) : fragment;
+  });
+  const children = childFragments.join("");
+  if (promotedRoot.selfClosing) {
+    const opening = promoted.slice(promotedRoot.start, promotedRoot.openEnd);
+    promoted = `${opening.replace(/\/\>\s*$/, ">")}${children}</${promotedRoot.tag}>`;
+  } else {
+    promoted = `${promoted.slice(0, promotedRoot.contentStart)}${children}${promoted.slice(promotedRoot.contentEnd)}`;
+  }
+
+  const topmostStart = targetElements[targetElements.length - 1]!.start;
+  let removedBefore = 0;
+  let result = html;
+  for (const element of [...targetElements].sort(
+    (left, right) => right.start - left.start,
+  )) {
+    result = `${result.slice(0, element.start)}${result.slice(element.end)}`;
+    if (element.start < topmostStart)
+      removedBefore += element.end - element.start;
+  }
+  const insertAt = topmostStart - removedBefore;
+  return `${result.slice(0, insertAt)}${promoted}${result.slice(insertAt)}`;
+}
+
+/**
+ * Compute a measured union for targets that currently participate in their
+ * parent's flow. The wrapper stays in that flow slot, so its parent-relative
+ * origin is deliberately not written to the wrapper; only its dimensions are
+ * persisted and each direct child is rebased into that local origin.
+ */
+function computeMeasuredFlowBounds(
+  elements: ParsedElement[],
+  sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
+): AbsoluteUnionBounds | null {
+  let minLeft = Infinity;
+  let minTop = Infinity;
+  let maxRight = -Infinity;
+  let maxBottom = -Infinity;
+
+  for (const element of elements) {
+    if (isOutOfFlowElement(element)) return null;
+    const hint = sizeHints?.get(element);
+    if (
+      !hint ||
+      hint.outOfFlow ||
+      !Number.isFinite(hint.left) ||
+      !Number.isFinite(hint.top) ||
+      !Number.isFinite(hint.width) ||
+      !Number.isFinite(hint.height) ||
+      hint.width < 0 ||
+      hint.height < 0
+    ) {
+      return null;
+    }
+    minLeft = Math.min(minLeft, hint.left!);
+    minTop = Math.min(minTop, hint.top!);
+    maxRight = Math.max(maxRight, hint.left! + hint.width);
+    maxBottom = Math.max(maxBottom, hint.top! + hint.height);
   }
 
   if (
@@ -6295,10 +6701,8 @@ function applyWrapNodes(
   // Resolve selected projection identities exactly; the authored ID fallback
   // is only for legacy callers whose ID is unique in this projection.
   const targetElements: ParsedElement[] = [];
-  const sizeHintsByElement = new Map<
-    ParsedElement,
-    { width: number; height: number }
-  >();
+  const nodeByElement = new Map<ParsedElement, CodeLayerNode>();
+  const sizeHintsByElement = new Map<ParsedElement, WrapNodeSizeHint>();
   const authoredNodeIdCounts = new Map<string, number>();
   for (const node of build.projection.nodes) {
     const authoredNodeId = node.dataAttributes["data-agent-native-node-id"];
@@ -6321,6 +6725,7 @@ function applyWrapNodes(
     const el = build.elementByNodeId.get(node.id);
     if (!el) return "conflict";
     targetElements.push(el);
+    nodeByElement.set(el, node);
     const authoredNodeId = node.dataAttributes["data-agent-native-node-id"];
     const hint =
       intent.sizeHints?.[node.id] ??
@@ -6348,6 +6753,55 @@ function applyWrapNodes(
   // and the targets end up adjacent to each other inside the new wrapper.
   // This matches Figma's group behavior: the group lands at the z-position
   // of its topmost selected child, not its bottommost.
+
+  // Shift+A treats a painted rectangle that contains the rest of the
+  // selection as the frame's background. Reuse that source element so the
+  // promoted frame keeps the rectangle's identity and fill. Frame selection
+  // and ordinary grouping remain on the generic wrapper path.
+  const backgroundPromotion = autoLayout
+    ? findSelectionBackgroundRectangle(
+        targetElements,
+        nodeByElement,
+        sizeHintsByElement,
+      )
+    : null;
+  if (backgroundPromotion) {
+    const usedIds = new Set(
+      build.projection.nodes.flatMap((node) => {
+        const id = node.dataAttributes["data-agent-native-node-id"];
+        return id ? [id] : [];
+      }),
+    );
+    const authoredNodeId =
+      backgroundPromotion.node.dataAttributes["data-agent-native-node-id"];
+    const wrapperNodeId =
+      authoredNodeId && authoredNodeIdCounts.get(authoredNodeId) === 1
+        ? authoredNodeId
+        : freshNodeId(usedIds, `promote:${backgroundPromotion.element.start}`);
+    const wrapperLayerName = nextSequentialFrameName(
+      build.projection.nodes.filter(
+        (node) => node.id !== backgroundPromotion.node.id,
+      ),
+    );
+    const content = promoteSelectionBackgroundRectangle(
+      html,
+      backgroundPromotion,
+      targetElements,
+      wrapperNodeId,
+      wrapperLayerName,
+    );
+    if (content !== html) {
+      return {
+        content,
+        capability: {
+          kind: "structure",
+          operations: ["moveNode"],
+          confidence: 0.92,
+        },
+        wrapperNodeId,
+      };
+    }
+  }
 
   // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(
@@ -6383,6 +6837,16 @@ function applyWrapNodes(
     targetElements,
     sizeHintsByElement,
   );
+  if (
+    !targetGeometry &&
+    targetElements.some((element) => sizeHintsByElement.get(element)?.outOfFlow)
+  ) {
+    return "unsupported";
+  }
+  const measuredFlowGeometry =
+    !autoLayout && !targetGeometry
+      ? computeMeasuredFlowBounds(targetElements, sizeHintsByElement)
+      : null;
 
   // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
@@ -6409,6 +6873,18 @@ function applyWrapNodes(
           -targetGeometry.top,
         );
       }
+    } else if (measuredFlowGeometry) {
+      const hint = sizeHintsByElement.get(el);
+      const fragElements = parseHtmlElements(frag);
+      const root = fragElements.find((fe) => fe.parentIndex === undefined);
+      if (hint && root) {
+        frag = rebaseMeasuredFlowChild(
+          frag,
+          root,
+          hint.left! - measuredFlowGeometry.left,
+          hint.top! - measuredFlowGeometry.top,
+        );
+      }
     }
     return frag;
   });
@@ -6426,12 +6902,20 @@ function applyWrapNodes(
       : autoLayoutStyle
     : targetGeometry
       ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
-      : null;
+      : measuredFlowGeometry
+        ? `position: relative; width: ${formatMeasuredPixel(measuredFlowGeometry.width)}; height: ${formatMeasuredPixel(measuredFlowGeometry.height)};`
+        : null;
   const wrapperStyleAttr = wrapperStyle ? ` style="${wrapperStyle}"` : "";
   const wrapperKindAttr = wrapperIsFrame
     ? ' data-an-primitive="frame"'
     : ' data-agent-native-group="true"';
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${wrapperStyleAttr}>`;
+  const hasMeasuredGroupRuntime = Boolean(
+    measuredFlowGeometry && !wrapperIsFrame,
+  );
+  const measuredFlowAttr = hasMeasuredGroupRuntime
+    ? ` ${MEASURED_FLOW_GROUP_ATTR}="true"`
+    : "";
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${measuredFlowAttr}${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
@@ -6872,6 +7356,10 @@ function parsePixelLength(value: string | undefined): number | null {
   if (!match) return null;
   const parsed = Number(match[1]);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatMeasuredPixel(value: number): string {
+  return `${Number(value.toFixed(4))}px`;
 }
 
 /**
@@ -7767,6 +8255,7 @@ function applyVisualEditUnsafe(
   intent: EditIntent,
   options: {
     source?: CodeLayerSource;
+    allowMainComponentStructure?: boolean;
     moveNode?: {
       destinationIsFlow?: boolean;
       sourceWasIgnoredInFlow?: boolean;
@@ -7824,7 +8313,7 @@ function applyVisualEditUnsafe(
     structureTargets.some((node) => {
       if (!node) return false;
       if (
-        intent.kind === "deleteNode" &&
+        (intent.kind === "deleteNode" || intent.kind === "unwrap") &&
         initial.projection.nodes.some(
           (candidate) =>
             Object.prototype.hasOwnProperty.call(
@@ -7844,9 +8333,13 @@ function applyVisualEditUnsafe(
           : initial.projection.nodes.find(
               (parent) => parent.id === node.parentId,
             );
+      const linkedRoot = affectedParent
+        ? linkedComponentRootForNode(affectedParent, initial.projection)
+        : null;
       return (
-        affectedParent &&
-        linkedComponentRootForNode(affectedParent, initial.projection)
+        linkedRoot &&
+        (!options.allowMainComponentStructure ||
+          !linkedRoot.dataAttributes[COMPONENT_ID_ATTR])
       );
     })
   ) {
@@ -7887,11 +8380,17 @@ function applyVisualEditUnsafe(
         },
       };
     }
-    const nextProjection = buildCodeLayerProjection(wrapEdit.content, {
+    // Component structure validation requires this intermediate transform to
+    // change only the canonical main span. Propagation installs the document
+    // runtime after that boundary has been validated for every linked copy.
+    const nextContent = options.allowMainComponentStructure
+      ? wrapEdit.content
+      : ensureGroupRuntime(wrapEdit.content);
+    const nextProjection = buildCodeLayerProjection(nextContent, {
       source,
     });
     return {
-      content: wrapEdit.content,
+      content: nextContent,
       projection: nextProjection,
       result: {
         ...patchResult(
@@ -8187,9 +8686,16 @@ function applyVisualEditUnsafe(
             (node) => node.id === anchorResolution.node!.parentId,
           );
     if (
-      [sourceParent, destinationParentNode].some(
-        (node) => node && linkedComponentRootForNode(node, initial.projection),
-      )
+      [sourceParent, destinationParentNode].some((node) => {
+        const linkedRoot = node
+          ? linkedComponentRootForNode(node, initial.projection)
+          : null;
+        return (
+          linkedRoot &&
+          (!options.allowMainComponentStructure ||
+            !linkedRoot.dataAttributes[COMPONENT_ID_ATTR])
+        );
+      })
     ) {
       return {
         content: html,
@@ -8298,6 +8804,8 @@ export function applyVisualEdit(
   intent: EditIntent,
   options: {
     source?: CodeLayerSource;
+    /** Only the atomic linked-component action may publish this transform. */
+    allowMainComponentStructure?: boolean;
     moveNode?: {
       destinationIsFlow?: boolean;
       sourceWasIgnoredInFlow?: boolean;

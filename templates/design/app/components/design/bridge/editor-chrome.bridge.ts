@@ -2024,6 +2024,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !!(el && !isDocumentRootElement(el) && getSourceId(el));
   }
 
+  // Portable clone styling retains its marker after persistence. The marker
+  // alone therefore means "clone-shaped", not "runtime-only": a source
+  // document reload stamps its nodes with __anSource, while an optimistic
+  // board insertion remains unclaimed until that source round trip completes.
+  function isRuntimeOnlyClone(el: Element): boolean {
+    var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
+    return !!cloneRoot && !isSourceOwned(cloneRoot);
+  }
+
   // Alpine inserts x-for and x-if instances as direct siblings of their
   // template. Use Alpine's own ownership references rather than guessing from
   // copied IDs, tag shape, or sibling position: any of those can also describe
@@ -3003,6 +3012,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "display",
     "overflow",
     "lineHeight",
+    "letterSpacing",
+    "gridTemplateColumns",
+    "gridTemplateRows",
+    "gridAutoFlow",
     "webkitBoxOrient",
     "webkitLineClamp",
     "--agent-native-truncate-original-display",
@@ -3032,6 +3045,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (typeof value === "string" && value !== "") {
         styles[property] = value;
       }
+    });
+    return styles;
+  }
+
+  // CSS Typed OM keeps sizing keywords and authored units intact where
+  // getComputedStyle() resolves them to pixels: `auto`, `fit-content`, and
+  // `100%` remain distinguishable from an explicit pixel dimension. This is a
+  // read-only hint for the Inspector; stylesheet values are never write
+  // targets.
+  function collectAuthoredSizeStyles(
+    el: Element,
+  ): Record<string, string> | undefined {
+    var computedStyleMap = (
+      el as Element & {
+        computedStyleMap?: () => { get(property: string): unknown };
+      }
+    ).computedStyleMap;
+    if (typeof computedStyleMap !== "function") return undefined;
+    var map = computedStyleMap.call(el);
+    var styles: Record<string, string> = {};
+    ["width", "height"].forEach(function (property) {
+      var value = map.get(property);
+      if (value == null) return;
+      var cssText = String(value).trim();
+      if (cssText) styles[property] = cssText;
     });
     return styles;
   }
@@ -3456,11 +3494,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var parentStyles = designParent
       ? window.getComputedStyle(designParent)
       : null;
+    var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
+    // A board copy has a fresh live id so selection can target it, but that
+    // id is not source ownership until the host projects/persists the copy.
+    // Keep those identities separate: sourceId remains write-safe while the
+    // runtime pair lets host chrome match this exact live clone.
+    var runtimeOnlyClone = isRuntimeOnlyClone(el);
     var sourceBacked =
-      hasStableOwnSource(el) ||
-      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
+      !runtimeOnlyClone &&
+      (hasStableOwnSource(el) ||
+        (!isTemplateCloneElement(el) && !!closestStableSourceElement(el)));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+    var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
     // Id-on-demand (empty-node-id fix, bridge side): AI-generated screens
     // frequently ship with NO data-agent-native-node-id anywhere, which
     // breaks every id-keyed operation host-side ("Could not move that
@@ -3552,6 +3599,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      runtimeSelector: runtimeSelector || undefined,
+      runtimeSourceId: runtimeSourceId || undefined,
       repeat: repeatInstanceInfo(el) || undefined,
       hasOwnText: hasOwnTextContent(el),
       wholeTextStyleRoot: isWholeTextStyleRoot(el),
@@ -3560,6 +3609,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       classes: Array.from(el.classList),
       computedStyles: collectElementComputedStyles(el, cs, paintCs),
       inlineStyles: collectElementInlineStyles(el),
+      authoredSizeStyles: authoredSizeStyles,
       primitiveKind: el.getAttribute("data-an-primitive") || undefined,
       isGroup: el.getAttribute("data-agent-native-group") === "true",
       vectorStrokeCanAlign: vectorStrokeCanAlign(el),
@@ -3632,23 +3682,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // or portableStyleSnapshot, so this intentionally omits both. Full detail is
   // still posted on element-select / drag-start / edit-time messages via
   // getElementInfo().
-  function getLightElementInfo(el: Element): unknown {
+  function getLightElementInfo(
+    el: Element,
+    includePendingNodeId = false,
+  ): unknown {
     var rect = el.getBoundingClientRect();
     var componentName = componentNameForElement(el);
+    var runtimeOnlyClone = isRuntimeOnlyClone(el);
     var sourceBacked =
-      hasStableOwnSource(el) ||
-      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
+      !runtimeOnlyClone &&
+      (hasStableOwnSource(el) ||
+        (!isTemplateCloneElement(el) && !!closestStableSourceElement(el)));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+    var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
     var parentStyles = el.parentElement
       ? window.getComputedStyle(el.parentElement)
       : null;
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var cs = window.getComputedStyle(el);
+    var pendingNodeId = "";
+    if (
+      includePendingNodeId &&
+      !getSourceId(el) &&
+      el !== document.body &&
+      el !== document.documentElement &&
+      el.getAttribute &&
+      el.setAttribute &&
+      !isTemplateCloneElement(el)
+    ) {
+      pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
+      if (!pendingNodeId) {
+        pendingNodeId = freshRuntimeNodeId("pending");
+        el.setAttribute("data-an-pending-node-id", pendingNodeId);
+      }
+    }
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      runtimeSelector: runtimeSelector || undefined,
+      runtimeSourceId: runtimeSourceId || undefined,
+      pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
       computedStyles: {},
@@ -3956,7 +4032,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? "nwse-resize"
             : "nesw-resize";
     handle.style.cssText =
-      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" +
       cursor +
       ";";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -4322,6 +4398,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function updateParentAutoLayoutOverlay(el: Element | null): void {
+    // A selected frame already has its own selection outline. Showing the
+    // parent's layout box as a second dashed outline makes the frame read as
+    // nested chrome instead of one selected object; keep this affordance for
+    // ordinary child layers where it communicates their auto-layout parent.
+    if (el?.getAttribute("data-an-primitive") === "frame") {
+      hideParentAutoLayoutOverlay();
+      return;
+    }
     var parent = el && el.parentElement;
     if (
       !parent ||
@@ -4438,6 +4522,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
      *  this the drag pays that cost once per element PER TICK. Valid only
      *  while the gesture runs, which is exactly while layout is frozen. */
     infoCache?: Map<Element, unknown>;
+    /** Light identity/geometry descriptors are also stable for one gesture;
+     * cache them so distinct hit-set reports do not re-read computed style. */
+    lightInfoCache?: Map<Element, unknown>;
+    lastReportedElements?: Element[];
     moveFrame?: number | null;
     pendingMoveEvent?: MouseEvent | null;
     move: string;
@@ -4502,6 +4590,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     nodeId: string;
     repeat: BeginTextEditRepeat | null;
     force: boolean;
+    // Escape keeps what was typed (Figma): the host hands its buffer over with
+    // the command and asks for the session to end the moment it has landed.
+    commitImmediately: boolean;
     deadline: number;
     raf: number;
     // Keystrokes typed INTO THIS IFRAME while the command waits for its node
@@ -4523,9 +4614,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // iframe). pending:false stands the host down when the wait is abandoned;
   // successful activation instead flows through text-editing-state(active),
   // which both flushes the host buffer and clears its pending flag.
-  function postTextEditPending(nodeId: string, pending: boolean): void {
+  // `reason` exists because pending:false carries two different facts. Escape,
+  // a pointerdown in this frame, and a superseding dblclick are the user
+  // abandoning the request — the host may drop it and clean the node up. The
+  // pump's own deadline is not: the node simply has not arrived here yet, and
+  // a host that reads that as abandonment deletes a layer its own retry ladder
+  // is still working on. Unlabelled is never treated as abandonment.
+  function postTextEditPending(
+    nodeId: string,
+    pending: boolean,
+    reason?:
+      | "escape"
+      | "pointerdown"
+      | "superseded"
+      | "deadline"
+      | "committed"
+      | "not-taken",
+  ): void {
     (window.parent as Window).postMessage(
-      { type: "text-edit-pending", nodeId: nodeId, pending: pending },
+      {
+        type: "text-edit-pending",
+        nodeId: nodeId,
+        pending: pending,
+        reason: reason,
+      },
+      "*",
+    );
+  }
+  // Whether text handed to this frame actually landed in a session. The host
+  // owns the only copy until this says it did: an insert for an editable that
+  // was replaced or detached is dropped here, and silence let the host release
+  // keystrokes that never reached the document.
+  function postTextEditInsertResult(nodeId: string, inserted: boolean): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "text-edit-insert-result",
+        nodeId: nodeId,
+        inserted: inserted,
+      },
       "*",
     );
   }
@@ -4835,7 +4961,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       handle.setAttribute("data-corner", pos);
       handle.style.cssText =
-        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" +
         (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") +
         ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -9050,12 +9176,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e,
     final?: boolean,
     infoCache?: Map<Element, unknown> | null,
+    lightInfoCache?: Map<Element, unknown> | null,
   ): void {
+    var primaryIndex = elements.length - 1;
+    function lightInfo(el: Element): unknown {
+      if (!lightInfoCache) return getLightElementInfo(el, true);
+      var cached = lightInfoCache.get(el);
+      if (cached === undefined) {
+        cached = getLightElementInfo(el, true);
+        lightInfoCache.set(el, cached);
+      }
+      return cached;
+    }
     (window.parent as Window).postMessage(
       {
         type: "agent-native:layer-marquee-selection",
         phase: "change",
-        payload: elements.map(function (el) {
+        payload: elements.map(function (el, index) {
+          // Live ticks only need identity and geometry. Defer the expensive
+          // computed-style/subtree snapshot to the final primary item, which
+          // is the element the host keeps as the inspector selection.
+          if (!final) return lightInfo(el);
+          if (index !== primaryIndex) return lightInfo(el);
           if (!infoCache) return getElementInfo(el);
           var cached = infoCache.get(el);
           if (cached === undefined) {
@@ -9135,12 +9277,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     setPassiveSelectionElements(hitElements);
+    // The host also dedupes unchanged hit sets, but doing it after postMessage
+    // still pays to serialize every selection payload. Skip identical live
+    // ticks here; mouseup must always send the final packet for undo history.
+    var lastReported = activeMarqueeSelection.lastReportedElements;
+    var sameHitSet =
+      !!lastReported &&
+      lastReported.length === hitElements.length &&
+      hitElements.every(function (el, index) {
+        return lastReported![index] === el;
+      });
+    if (!final && sameHitSet) return;
+    activeMarqueeSelection.lastReportedElements = hitElements;
     postElementMarqueeSelect(
       hitElements,
       activeMarqueeSelection.additive,
       e,
       final,
       activeMarqueeSelection.infoCache,
+      activeMarqueeSelection.lightInfoCache,
     );
   }
 
@@ -9226,6 +9381,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       deep: Boolean(e && (e.metaKey || e.ctrlKey)),
       moved: false,
       infoCache: new Map<Element, unknown>(),
+      lightInfoCache: new Map<Element, unknown>(),
       moveFrame: null,
       pendingMoveEvent: null,
       pointerId: e.pointerId,
@@ -10387,6 +10543,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return clampSpacingValue(originValue + delta);
   }
 
+  var paddingProperties = [
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+  ];
+
   function applySpacingDragValue(
     target: Element,
     handle: {
@@ -10403,8 +10566,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } | null,
     value: number,
     mirrorOpposite: boolean,
+    syncAllPadding: boolean,
   ): void {
     if (!target || !handle) return;
+    if (handle.kind === "padding" && syncAllPadding) {
+      for (var i = 0; i < 4; i += 1) {
+        target.style[paddingProperties[i]] = value + "px";
+      }
+      return;
+    }
     target.style[handle.property] = value + "px";
     if (
       handle.kind === "padding" &&
@@ -10430,10 +10600,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var dragEl = selectedEl;
     var originValue = handle.value;
-    var originInlineValue = (dragEl as HTMLElement).style[handle.property];
-    var originInlineOppositeValue = handle.oppositeProperty
-      ? (dragEl as HTMLElement).style[handle.oppositeProperty]
-      : "";
+    var originInlinePaddingValues = {};
+    for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+      var paddingProperty = paddingProperties[paddingIndex];
+      originInlinePaddingValues[paddingProperty] = (
+        dragEl as HTMLElement
+      ).style[paddingProperty];
+    }
+    var syncAllPadding = !!e.shiftKey;
     var startX = e.clientX;
     var startY = e.clientY;
     lastSpacingPointerPoint = { x: startX, y: startY };
@@ -10442,20 +10616,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle: handle,
       currentValue: originValue,
       mirrorOpposite: !!e.altKey,
+      syncAllPadding: syncAllPadding,
+      touchedAllPadding: syncAllPadding,
     };
+    applySpacingDragValue(
+      dragEl,
+      handle,
+      originValue,
+      !!e.altKey,
+      syncAllPadding,
+    );
     // Hide the hover-only hatch fill the instant the drag begins (Figma-style:
     // hatch communicates "this is the resizable band" on hover; once dragging,
     // only the live value badge should be visible over the padding band).
     updateSpacingOverlay(selectedEl);
     showSpacingBadgeForHandle(handle, originValue);
 
-    function updateSpacingDragMirrorState(mirrorOpposite: boolean) {
+    function updateSpacingDragState(
+      mirrorOpposite: boolean,
+      syncAllPadding: boolean,
+    ) {
       if (!spacingDrag) return;
-      if (spacingDrag.mirrorOpposite === mirrorOpposite) return;
+      if (
+        spacingDrag.mirrorOpposite === mirrorOpposite &&
+        spacingDrag.syncAllPadding === syncAllPadding
+      ) {
+        return;
+      }
+      var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding;
+      if (syncAllPadding) {
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          spacingDrag.currentValue,
+          mirrorOpposite,
+          true,
+        );
+      }
       spacingDrag = {
         handle: handle,
         currentValue: spacingDrag.currentValue,
         mirrorOpposite: mirrorOpposite,
+        syncAllPadding: syncAllPadding,
+        touchedAllPadding: touchedAllPadding,
       };
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -10471,10 +10674,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function restoreSpacingDragValue() {
       if (dragEl && document.documentElement.contains(dragEl)) {
-        (dragEl as HTMLElement).style[handle.property] = originInlineValue;
-        if (handle.oppositeProperty) {
-          (dragEl as HTMLElement).style[handle.oppositeProperty] =
-            originInlineOppositeValue;
+        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+          var paddingProperty = paddingProperties[paddingIndex];
+          (dragEl as HTMLElement).style[paddingProperty] =
+            originInlinePaddingValues[paddingProperty];
         }
         selectedEl = dragEl;
         positionOverlay(selectionOverlay, dragEl);
@@ -10495,8 +10698,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cancelSpacingDrag();
         return;
       }
-      if (ev.key !== "Alt") return;
-      updateSpacingDragMirrorState(!!ev.altKey);
+      if (ev.key !== "Alt" && ev.key !== "Shift") return;
+      updateSpacingDragState(!!ev.altKey, !!ev.shiftKey);
     }
 
     function onMove(ev) {
@@ -10509,13 +10712,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
+      var syncAllPadding = !!ev.shiftKey;
+      var touchedAllPadding =
+        (spacingDrag && spacingDrag.touchedAllPadding) || syncAllPadding;
       spacingDrag = {
         handle: handle,
         currentValue: nextValue,
         mirrorOpposite: !!ev.altKey,
+        syncAllPadding: syncAllPadding,
+        touchedAllPadding: touchedAllPadding,
       };
       lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
-      applySpacingDragValue(dragEl, handle, nextValue, !!ev.altKey);
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        nextValue,
+        !!ev.altKey,
+        syncAllPadding,
+      );
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, nextValue);
     }
@@ -10531,17 +10745,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var mirrorOpposite = spacingDrag
         ? spacingDrag.mirrorOpposite
         : !!ev.altKey;
-      applySpacingDragValue(dragEl, handle, finalValue, mirrorOpposite);
+      var syncAllPadding = spacingDrag
+        ? spacingDrag.syncAllPadding
+        : !!ev.shiftKey;
+      var touchedAllPadding = spacingDrag
+        ? spacingDrag.touchedAllPadding
+        : syncAllPadding;
+      var commitAllPadding =
+        handle.kind === "padding" && (syncAllPadding || touchedAllPadding);
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        finalValue,
+        mirrorOpposite,
+        commitAllPadding,
+      );
       selectedEl = dragEl;
       spacingDrag = null;
       var styles = {};
-      styles[handle.property] = finalValue + "px";
-      if (
-        handle.kind === "padding" &&
-        mirrorOpposite &&
-        handle.oppositeProperty
-      ) {
-        styles[handle.oppositeProperty] = finalValue + "px";
+      if (commitAllPadding) {
+        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+          styles[paddingProperties[paddingIndex]] = finalValue + "px";
+        }
+      } else {
+        styles[handle.property] = finalValue + "px";
+        if (
+          handle.kind === "padding" &&
+          mirrorOpposite &&
+          handle.oppositeProperty
+        ) {
+          styles[handle.oppositeProperty] = finalValue + "px";
+        }
       }
       postVisualStyleChange(styles);
       positionOverlay(selectionOverlay, dragEl);
@@ -10634,19 +10868,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     postTextEditingState(suspended.target, false, suspended.selector, false);
   }
 
-  function insertPlainTextAtSelection(text: string): void {
-    if (!text) return;
+  /** Whether the text actually landed in the document. The host holds the only
+   *  copy until it hears that it did, so reporting a success execCommand
+   *  refused released those keystrokes into nothing. */
+  function insertPlainTextAtSelection(text: string): boolean {
+    if (!text) return false;
     if (
       document.queryCommandSupported &&
       document.queryCommandSupported("insertText")
     ) {
-      document.execCommand("insertText", false, text);
-      return;
+      var executed = false;
+      try {
+        executed = document.execCommand("insertText", false, text) === true;
+      } catch (_err) {
+        executed = false;
+      }
+      // A refusal is not yet a failure to report: fall through to the manual
+      // range path, and answer for what actually happened.
+      if (executed) return true;
     }
     var selection: Selection | null = window.getSelection
       ? window.getSelection()
       : null;
-    if (!selection || selection.rangeCount === 0) return;
+    if (!selection || selection.rangeCount === 0) return false;
     var range = selection.getRangeAt(0);
     range.deleteContents();
     var textNode = document.createTextNode(text);
@@ -10655,6 +10899,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     range.setEndAfter(textNode);
     selection.removeAllRanges();
     selection.addRange(range);
+    return textNode.isConnected === true;
   }
 
   // T2: Figma-style text editing treats Enter as a line break while editing
@@ -15693,11 +15938,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         showConstraintGuides(dragEl);
       }
-      showTransformBadge(
-        Math.round(nextLeft) + ", " + Math.round(nextTop),
-        ev.clientX,
-        ev.clientY,
-      );
       refreshOverlays();
     }
     function restoreSourceDragPosition(): void {
@@ -17614,9 +17854,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
           var pendingKey = e.key || "";
           if (pendingKey === "Escape") {
+            // Escape KEEPS what was typed (Figma). Characters typed into this
+            // frame while the node was still arriving exist nowhere else, so
+            // the request stays alive and commits them the moment the node
+            // appears; only an empty one is abandoned.
+            if (pendingBeginTextEdit.buffer) {
+              pendingBeginTextEdit.commitImmediately = true;
+              stopNativeInteraction(e);
+              return;
+            }
             var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
             cancelPendingBeginTextEdit();
-            postTextEditPending(abandonedPendingNodeId, false);
+            postTextEditPending(abandonedPendingNodeId, false, "escape");
             stopNativeInteraction(e);
             return;
           }
@@ -17783,7 +18032,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (pendingBeginTextEdit) {
         var canceledPendingNodeId = pendingBeginTextEdit.nodeId;
         cancelPendingBeginTextEdit();
-        postTextEditPending(canceledPendingNodeId, false);
+        postTextEditPending(canceledPendingNodeId, false, "pointerdown");
       }
       if (!activeTextEditEl) return;
       if (exitStaleTextEditSession()) return;
@@ -18002,7 +18251,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (pendingBeginTextEdit) {
       var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
       cancelPendingBeginTextEdit();
-      postTextEditPending(supersededPendingNodeId, false);
+      postTextEditPending(supersededPendingNodeId, false, "superseded");
     }
     // T23: a live session on a DIFFERENT element must end through the
     // canonical cleanup BEFORE the new one starts. Previously the new
@@ -18631,27 +18880,56 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       resumeBookmark,
     );
   }
+  // Outlives the host's own request window (its retry ladder settles at
+  // ~4.75s). At the old 2s this frame gave up FIRST on a slow board mount, and
+  // a commit-on-Escape carries no retries to extend it — everything typed was
+  // discarded before the node arrived.
+  var PENDING_BEGIN_TEXT_EDIT_MS = 5000;
   function pumpPendingBeginTextEdit(): void {
     if (!pendingBeginTextEdit) return;
     var entry = pendingBeginTextEdit;
     var node = queryBeginTextEditNode(entry.nodeId, entry.repeat);
     if (node) {
       pendingBeginTextEdit = null;
-      // The user may have started their own edit meanwhile — never steal it.
+      // The user may have started their own edit meanwhile — never steal it,
+      // and tell the host its text did not land so it keeps owing it.
+      if (activeTextEditEl) {
+        if (entry.buffer) postTextEditInsertResult(entry.nodeId, false);
+      }
       if (!activeTextEditEl) {
         activateProgrammaticTextEdit(node, entry.force);
         // Replay keystrokes typed into this iframe during the wait — the
         // session is focused with the caret at the content end, so this
         // lands exactly where the user expects their first characters.
-        if (entry.buffer && activeTextEditEl === node) {
-          insertPlainTextAtSelection(entry.buffer);
+        var replayLanded = false;
+        if (entry.buffer) {
+          replayLanded =
+            activeTextEditEl === node &&
+            insertPlainTextAtSelection(entry.buffer);
+          postTextEditInsertResult(entry.nodeId, replayLanded);
+        }
+        if (entry.commitImmediately) {
+          // Same rule as the takeover above: a session finished and reported
+          // committed after a failed replay tells the host to release text
+          // that never reached the document.
+          if (
+            activeTextEditEl === node &&
+            finishActiveTextEdit &&
+            (replayLanded || !entry.buffer)
+          ) {
+            finishActiveTextEdit(true);
+            (node as HTMLElement).blur();
+            postTextEditPending(entry.nodeId, false, "committed");
+          } else {
+            postTextEditPending(entry.nodeId, false, "not-taken");
+          }
         }
       }
       return;
     }
     if (Date.now() > entry.deadline) {
       pendingBeginTextEdit = null;
-      postTextEditPending(entry.nodeId, false);
+      postTextEditPending(entry.nodeId, false, "deadline");
       return;
     }
     entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
@@ -18660,6 +18938,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     nodeId: string,
     repeat: BeginTextEditRepeat | null,
     force: boolean,
+    insertText?: string,
+    commitImmediately?: boolean,
   ): void {
     // DesignEditor's own T6 loop re-posts begin-text-edit for the SAME node
     // every few hundred ms until it activates — those re-posts must extend
@@ -18671,7 +18951,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       sameBeginTextEditRepeat(pendingBeginTextEdit.repeat, repeat)
     ) {
       pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
-      pendingBeginTextEdit.deadline = Date.now() + 2000;
+      pendingBeginTextEdit.deadline = Date.now() + PENDING_BEGIN_TEXT_EDIT_MS;
+      if (insertText) pendingBeginTextEdit.buffer += insertText;
+      if (commitImmediately) pendingBeginTextEdit.commitImmediately = true;
       return;
     }
     cancelPendingBeginTextEdit();
@@ -18679,9 +18961,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       nodeId: nodeId,
       repeat: repeat,
       force: force,
-      deadline: Date.now() + 2000,
+      commitImmediately: commitImmediately === true,
+      deadline: Date.now() + PENDING_BEGIN_TEXT_EDIT_MS,
       raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
-      buffer: "",
+      buffer: insertText || "",
     };
   }
 
@@ -19020,6 +19303,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // nodeId immediately (no double-click needed). Used after programmatic
     // text-element creation so the user can type right away and the autosize
     // CSS (width:max-content or similar) takes effect from the first keystroke.
+    // The host stood this exact creation down (pointer-away, Escape, undo, a
+    // newer creation). A begin-text-edit already delivered here outlives that:
+    // pendingBeginTextEdit keeps pumping for its own ~2s deadline and focuses
+    // the node the moment it appears, so the abandoned layer comes back to life
+    // with a caret in it. Identity-scoped on BOTH ids — a cancel for one node
+    // must never touch another node's pending or live session — and it only
+    // ends a live session that is still EMPTY, because a session with typed
+    // text belongs to the user, not to the cancelled request.
+    if (e.data.type === "agent-native:cancel-text-edit") {
+      var cancelScreenId =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      var cancelNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      if (!cancelNodeId) return;
+      if (cancelScreenId && cancelScreenId !== designCanvasScreenId) return;
+      if (
+        pendingBeginTextEdit &&
+        pendingBeginTextEdit.nodeId === cancelNodeId
+      ) {
+        cancelPendingBeginTextEdit();
+        postTextEditPending(cancelNodeId, false, "superseded");
+      }
+      if (
+        activeTextEditEl &&
+        getSourceId(activeTextEditEl) === cancelNodeId &&
+        (activeTextEditEl.textContent || "").trim() === "" &&
+        finishActiveTextEdit
+      ) {
+        finishActiveTextEdit(false);
+      }
+      return;
+    }
     if (e.data.type === "begin-text-edit") {
       var forceBeginTextEdit = e.data.force === true;
       if ((readOnly || !textEditingEnabled) && !forceBeginTextEdit) return;
@@ -19028,6 +19342,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!nodeId) return;
       var beginTextEditRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
       if (e.data.repeat !== undefined && !beginTextEditRepeat) return;
+      // Escape while the host still holds the creation's keystrokes: they ride
+      // in with the command so the node keeps them, and the session closes as
+      // soon as they have landed. Never a way to drop what was typed.
+      var beginInsertText =
+        typeof e.data.insertText === "string" ? e.data.insertText : "";
+      var beginCommitImmediately = e.data.commitImmediately === true;
       // Edit the EXACT node identified by nodeId. Do NOT run it through
       // findTextEditTarget here — that helper climbs UP to the highest
       // inline-editable ancestor, which for a text node inside a text-heavy
@@ -19044,12 +19364,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           nodeId,
           beginTextEditRepeat,
           forceBeginTextEdit,
+          beginInsertText,
+          beginCommitImmediately,
         );
         postTextEditPending(nodeId, true);
         return;
       }
       cancelPendingBeginTextEdit();
       activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
+      var tookTarget = activeTextEditEl === textTarget;
+      // The host keeps owing these keystrokes until this frame says they
+      // landed: a target it could not take over, or an insert the document
+      // refused, never received them.
+      var beginInsertLanded = false;
+      if (beginInsertText) {
+        beginInsertLanded =
+          tookTarget && insertPlainTextAtSelection(beginInsertText);
+        postTextEditInsertResult(nodeId, beginInsertLanded);
+      }
+      if (beginCommitImmediately) {
+        // Only ever finish THIS target, and only once the text is actually in
+        // it. Reporting "committed" after a failed insert made the host release
+        // the buffer it had just been told to keep — the two reports together
+        // were the one way to lose the text outright.
+        if (
+          tookTarget &&
+          finishActiveTextEdit &&
+          (beginInsertLanded || !beginInsertText)
+        ) {
+          finishActiveTextEdit(true);
+          textTarget.blur();
+          postTextEditPending(nodeId, false, "committed");
+        } else {
+          postTextEditPending(nodeId, false, "not-taken");
+        }
+      }
       return;
     }
     // T25: replay keystrokes the HOST buffered during the creation→activation
@@ -19060,8 +19409,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // chrome/state naturally.
     if (e.data.type === "text-edit-insert-text") {
       var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
-      if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
+      var bufferedNodeId =
+        typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      if (!bufferedText) return;
+      if (!activeTextEditEl || !isTextEditElConnected()) {
+        // The editable these keystrokes belong to is gone — a document swap or
+        // a detached node. Returning silently lost them outright, because the
+        // host released its only copy when the session reported active.
+        postTextEditInsertResult(bufferedNodeId, false);
         return;
+      }
+      if (bufferedNodeId && getSourceId(activeTextEditEl) !== bufferedNodeId) {
+        // A queued insert for a node that is no longer the live session.
+        // Writing it here spliced one creation's keystrokes into another's
+        // node AND told the host the first one had landed.
+        postTextEditInsertResult(bufferedNodeId, false);
+        return;
+      }
       var bufferedActive = document.activeElement;
       if (
         !bufferedActive ||
@@ -19079,8 +19443,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         activeTextEditEl,
         true,
       );
-      insertPlainTextAtSelection(bufferedText);
+      var bufferedInserted = insertPlainTextAtSelection(bufferedText);
       if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
+      postTextEditInsertResult(bufferedNodeId, bufferedInserted);
       return;
     }
     if (e.data.type === "set-editor-chrome-scale") {

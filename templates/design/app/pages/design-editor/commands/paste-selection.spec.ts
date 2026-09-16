@@ -27,6 +27,7 @@ import {
   type ClipboardContentLineage,
 } from "@/lib/clipboard-content-lineage";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
+import type { GeometryHistorySelection } from "@/pages/design-editor/history";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -300,6 +301,66 @@ describe("pasting copied layers with no explicit drop point", () => {
         (component) => component.componentId === "cmp-button",
       )?.status,
     ).toBe("resolved");
+  });
+
+  it("dispatches a pasted interior clone as one deferred linked snapshot", async () => {
+    const componentHtml = `<span data-agent-native-node-id="label">Label</span>`;
+    const content = `<!doctype html>\n<html><head><!--keep--></head><body><section data-agent-native-node-id="main" data-agent-native-component-id="cmp-card">${componentHtml}<span data-agent-native-node-id="after">After</span></section></body></html>`;
+    const { args, writes } = harness({
+      files: [designFile("home", "index.html", content)],
+      activeFileId: "home",
+      entries: [
+        {
+          html: componentHtml,
+          rootNodeId: "label",
+          sourceFileId: "home",
+          sourceParentNodeId: "main",
+        },
+      ],
+    });
+    const projection = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "home" },
+    });
+    const label = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "label",
+    );
+    expect(label).toBeDefined();
+    if (!label) return;
+    const selectionBefore: GeometryHistorySelection = {
+      activeFileId: "home",
+      overviewSelectedScreenIds: ["home"],
+      selectedLayerIds: [label.id],
+      sourceContentByFileId: {},
+      sourceFileIdByFileId: {},
+    };
+    const applyLinkedComponentEdit = vi.fn();
+    const remapMotionTracksForClone = vi.fn();
+    args.applyLinkedComponentEdit = applyLinkedComponentEdit;
+    args.remapMotionTracksForClone = remapMotionTracksForClone;
+    args.selectionBefore = selectionBefore;
+
+    await runPasteSelection(args);
+
+    expect(writes).toEqual([]);
+    expect(applyLinkedComponentEdit).toHaveBeenCalledOnce();
+    const [targetFileId, targetNodeId, edit, receivedSelection, onApplied] =
+      applyLinkedComponentEdit.mock.calls[0]!;
+    expect(targetFileId).toBe("home");
+    expect(targetNodeId).toBe("main");
+    expect(edit.kind).toBe("structure");
+    expect(edit.before).toBe(content);
+    expect(edit.after).toContain('data-agent-native-node-id="copy-');
+    expect(edit.selectionNodeIds).toHaveLength(1);
+    expect(receivedSelection).toEqual(selectionBefore);
+    expect(onApplied).toEqual(expect.any(Function));
+    expect(remapMotionTracksForClone).not.toHaveBeenCalled();
+
+    onApplied();
+    expect(remapMotionTracksForClone).toHaveBeenCalledOnce();
+    expect(remapMotionTracksForClone).toHaveBeenCalledWith(
+      expect.any(Map),
+      "home",
+    );
   });
 
   it("pastes directly above the source, not appended after a later sibling", async () => {

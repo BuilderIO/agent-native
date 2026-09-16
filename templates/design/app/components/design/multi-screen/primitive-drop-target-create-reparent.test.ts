@@ -126,6 +126,17 @@ function makeCreateArgs(
   const args = {
     activeContent: content,
     activeFile: file,
+    applyFileContentUpdate: (id: string, nextContent: string) => {
+      const accepted = acceptCanonicalContent(id, nextContent);
+      currentContent = accepted.content;
+      fileContentById.set(id, accepted.content);
+      pendingLocalFileContentsRef.current.set(id, {
+        content: accepted.content,
+        startedAt: 1,
+      });
+      queuedSaves.push({ fileId: id, content: accepted.content });
+      return accepted;
+    },
     applyLocalContentUpdate,
     boardFileId: filename === "__board__.html" ? fileIdForArgs : undefined,
     canvasBackground: null,
@@ -133,6 +144,7 @@ function makeCreateArgs(
     collabContentFileIdRef: { current: fileIdForArgs },
     collabContentRef: { current: content },
     files: [file],
+    getScreenContent: getFreshScreenContentForFixture,
     id: "design-identity-test",
     isSynced: false,
     markPendingLocalFileContent: vi.fn(),

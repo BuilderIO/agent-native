@@ -130,4 +130,8 @@ autenticação local normal.
 - [Segurança e escopo de dados](/docs/security)
 - [Workspaces multiaplicativo](/docs/multi-app-workspace)
 
-O login corporativo com OIDC ou SAML é diferente da federação de identidade entre aplicativos. O [guia de implantações administradas](/docs/administered-deployments) descreve o modelo corporativo. O login de navegador com Agent-Native continua removido.
+O login corporativo com OIDC ou SAML é diferente da federação de identidade entre aplicativos. O [guia de implantações administradas](/docs/administered-deployments) descreve o modelo corporativo. Com `browser.identity-sso` habilitado, o app tenta uma verificação silenciosa `prompt=none` e mantém o formulário local como fallback. Veja o [design do Cross-App Connect](/docs/cross-app-connect-design).
+
+## Runbook de rollout do SSO de identidade no navegador
+
+Ative `browser.identity-sso` primeiro para um único e-mail de teste. Entre no Dispatch, saia do app de destino e confirme a sondagem silenciosa ao carregá-lo novamente. Repita sem sessão do hub e confirme que `login_required` retorna ao formulário local antes de ampliar o grupo. A primeira ativação pode exigir uma revogação única das sessões existentes.

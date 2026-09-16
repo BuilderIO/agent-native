@@ -571,6 +571,20 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("keeps explicitly selected BYOK provider model ids", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "anthropic",
+        defaultModel: "claude-sonnet-5",
+        supportedModels: ["claude-sonnet-5"],
+        acceptsCustomModels: true,
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "claude-next-preview")).toBe(
+        "claude-next-preview",
+      );
+    });
+
     it("preserves arbitrary Ollama model ids", async () => {
       const { resolveEnginePreservesCustomModels } =
         await import("./registry.js");
@@ -587,6 +601,18 @@ describe("AgentEngine registry", () => {
       await expect(
         resolveEnginePreservesCustomModels({ name: "ai-sdk:openrouter" }),
       ).resolves.toBe(true);
+    });
+
+    it("allows custom IDs for explicitly configured provider entries", async () => {
+      const { resolveEngineAcceptsCustomModels } =
+        await import("./registry.js");
+
+      await expect(
+        resolveEngineAcceptsCustomModels({ acceptsCustomModels: true }),
+      ).resolves.toBe(true);
+      await expect(
+        resolveEngineAcceptsCustomModels({ acceptsCustomModels: false }),
+      ).resolves.toBe(false);
     });
 
     it("falls back an unrecognized first-party OpenAI model to the default without a gateway", async () => {

@@ -9,7 +9,10 @@ import {
 } from "@shared/canvas-math";
 import type { SetStateAction } from "react";
 
-import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
+import {
+  getInitialFrameGeometry,
+  getResponsiveScreenCullGeometry,
+} from "@/components/design/multi-screen/frame-geometry";
 import { OVERVIEW_FRAME_WIDTH } from "@/components/design/multi-screen/overview-layout";
 import type {
   FrameGeometry,
@@ -111,17 +114,23 @@ export function getBoardSelectionFitBounds(args: {
  * content. This must never receive the logical board hit-test surface: that
  * surface is intentionally enormous and including it would make zoom-to-fit
  * and adjacent-screen placement behave as though the design were 131,072px
- * wide even when the board is empty.
+ * wide even when the board is empty. `includeResponsivePreviews` is reserved
+ * for adjacency placement, where each screen must reserve the full painted
+ * width of its breakpoint row; camera and hit-test callers keep primary-only
+ * geometry by default.
  */
 export function getAllScreenFrameEntries(args: {
   overviewScreens: Array<{
     id: string;
     width?: number;
     height?: number;
+    breakpointWidths?: readonly number[];
+    breakpointHeights?: Record<string, number>;
   }>;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   boardContentBounds?: FrameGeometry | null;
   boardFileId?: string | null;
+  includeResponsivePreviews?: boolean;
 }): FrameEntry[] {
   const entries: FrameEntry[] = args.overviewScreens.map((screen, index) => {
     const fallbackGeometry = getInitialFrameGeometry(index, {
@@ -129,9 +138,23 @@ export function getAllScreenFrameEntries(args: {
       height: screen.height ?? 2560,
     });
     const persistedGeometry = args.canvasFrameGeometryById[screen.id] ?? {};
+    const primaryGeometry = { ...fallbackGeometry, ...persistedGeometry };
     return {
       id: screen.id,
-      geometry: { ...fallbackGeometry, ...persistedGeometry },
+      geometry: args.includeResponsivePreviews
+        ? getResponsiveScreenCullGeometry(
+            {
+              id: screen.id,
+              metadata: {
+                width: screen.width ?? 1280,
+                height: screen.height ?? 2560,
+              },
+              breakpointWidths: screen.breakpointWidths,
+            },
+            primaryGeometry,
+            (widthPx) => screen.breakpointHeights?.[String(widthPx)],
+          )
+        : primaryGeometry,
     };
   });
   if (

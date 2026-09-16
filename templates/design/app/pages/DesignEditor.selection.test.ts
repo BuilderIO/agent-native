@@ -1619,6 +1619,15 @@ describe("DesignEditor layer move source snapshots", () => {
     expect(
       getFreshActiveFileContent({
         activeContent: "stale react content",
+        pendingContent: "fresh pending source publication",
+        latestContent: "stale active-file ref",
+        lastLocalContent: "older local content",
+      }),
+    ).toBe("fresh pending source publication");
+
+    expect(
+      getFreshActiveFileContent({
+        activeContent: "stale react content",
         latestContent: null,
         lastLocalContent: "fresh local content",
       }),

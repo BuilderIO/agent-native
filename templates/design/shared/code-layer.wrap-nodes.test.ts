@@ -49,6 +49,290 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(redIdx).toBeGreaterThan(-1);
     expect(blueIdx).toBeGreaterThan(redIdx);
   });
+
+  it("uses measured flow geometry for an intrinsic text child", () => {
+    const content = `<body style="display:flex;flex-direction:column;width:43.6px">
+  <div data-agent-native-node-id="title" style="width:max-content;height:auto;display:inline-block;margin:3px 4px 5px 6px;inset:2px">Title</div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["title"],
+      sizeHints: { title: { width: 25, height: 14.4, left: 6, top: 3 } },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(patch.content);
+    const wrapper = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-group-wrapper"] === "true",
+    );
+    const child = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "title",
+    );
+    expect(wrapper?.style).toMatchObject({
+      position: "relative",
+      width: "25px",
+      height: "14.4px",
+    });
+    expect(child?.style).toMatchObject({
+      position: "absolute",
+      left: "0px",
+      top: "0px",
+      width: "max-content",
+      height: "auto",
+    });
+    expect(child?.style.margin).toBeUndefined();
+    expect(child?.style.inset).toBeUndefined();
+  });
+
+  it("rebases multiple measured flow children from the union origin", () => {
+    const content = `<body style="display:flex;flex-direction:column">
+  <div data-agent-native-node-id="first" style="display:inline-block;width:max-content">First</div>
+  <div data-agent-native-node-id="second" style="display:inline-block;width:max-content">Second</div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["first", "second"],
+      sizeHints: {
+        first: { width: 25, height: 14, left: 8, top: 10 },
+        second: { width: 35, height: 18, left: 12, top: 32 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(patch.content);
+    const wrapper = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-group-wrapper"] === "true",
+    );
+    const first = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "first",
+    );
+    const second = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "second",
+    );
+    expect(wrapper?.style).toMatchObject({
+      position: "relative",
+      width: "39px",
+      height: "40px",
+    });
+    expect(first?.style).toMatchObject({ left: "0px", top: "0px" });
+    expect(second?.style).toMatchObject({ left: "4px", top: "22px" });
+  });
+
+  it("keeps the source-only flow wrapper when a measured offset is missing", () => {
+    const content = `<body style="display:flex;flex-direction:column">
+  <div data-agent-native-node-id="title" style="display:inline-block;width:max-content">Title</div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["title"],
+      sizeHints: { title: { width: 25, height: 14 } },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapper = buildCodeLayerProjection(patch.content).nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-group-wrapper"] === "true",
+    );
+    expect(wrapper?.style).toEqual({});
+  });
+});
+
+describe("applyWrapNodes (Shift+A selection background promotion)", () => {
+  const OVERLAPPING_TEXT = `<body>
+  <div data-agent-native-node-id="rectangle" data-agent-native-layer-name="Rectangle" data-an-primitive="rectangle" style="position:absolute;left:80px;top:80px;width:240px;height:140px;background-color:#D9D9D9"></div>
+  <div data-agent-native-node-id="text" data-agent-native-layer-name="Oracle Text" data-an-primitive="text" style="position:absolute;left:104px;top:132px;width:187px;height:38px">Oracle Text</div>
+</body>`;
+
+  it("promotes a containing painted rectangle in place and preserves exact geometry", () => {
+    const patch = applyVisualEdit(OVERLAPPING_TEXT, {
+      kind: "wrapNodes",
+      targetIds: ["rectangle", "text"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.result.wrapperNodeId).toBe("rectangle");
+    const projection = buildCodeLayerProjection(patch.content);
+    const frame = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "rectangle",
+    );
+    const child = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "text",
+    );
+    expect(frame).toBeDefined();
+    expect(child).toBeDefined();
+    expect(frame?.dataAttributes["data-an-primitive"]).toBe("frame");
+    expect(frame?.dataAttributes["data-agent-native-layer-name"]).toBe(
+      "Frame 1",
+    );
+    expect(frame?.style).toMatchObject({
+      position: "absolute",
+      left: "80px",
+      top: "80px",
+      width: "240px",
+      height: "140px",
+      "background-color": "#D9D9D9",
+      display: "flex",
+      "flex-direction": "row",
+      gap: "10px",
+      "align-items": "center",
+      "justify-content": "center",
+      "box-sizing": "border-box",
+      padding: "52px 29px 50px 24px",
+    });
+    expect(frame?.children).toEqual([child?.id]);
+    expect(
+      projection.nodes.filter(
+        (node) => node.dataAttributes["data-an-primitive"] === "rectangle",
+      ),
+    ).toHaveLength(0);
+    expect(child?.style).toMatchObject({
+      width: "187px",
+      height: "38px",
+    });
+    expect(child?.style.position).toBeUndefined();
+    expect(child?.style.left).toBeUndefined();
+    expect(child?.style.top).toBeUndefined();
+  });
+
+  it("retains the promoted source identity when the same edit is replayed", () => {
+    const first = applyVisualEdit(OVERLAPPING_TEXT, {
+      kind: "wrapNodes",
+      targetIds: ["rectangle", "text"],
+      autoLayout: true,
+    });
+    const replay = applyVisualEdit(OVERLAPPING_TEXT, {
+      kind: "wrapNodes",
+      targetIds: ["rectangle", "text"],
+      autoLayout: true,
+    });
+
+    expect(first.result.status).toBe("applied");
+    expect(replay.result.status).toBe("applied");
+    expect(first.result.wrapperNodeId).toBe("rectangle");
+    expect(replay.result.wrapperNodeId).toBe("rectangle");
+    expect(
+      buildCodeLayerProjection(replay.content).nodes.filter(
+        (node) =>
+          node.dataAttributes["data-agent-native-node-id"] === "rectangle",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("uses live size hints for an auto-sized overlapping text child", () => {
+    const content = OVERLAPPING_TEXT.replace(
+      "width:187px;height:38px",
+      "width:max-content;height:auto",
+    );
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["rectangle", "text"],
+      autoLayout: true,
+      sizeHints: { text: { width: 187, height: 38, left: 104, top: 132 } },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(patch.content);
+    const frame = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "rectangle",
+    );
+    const child = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "text",
+    );
+    expect(frame?.style).toMatchObject({
+      left: "80px",
+      top: "80px",
+      width: "240px",
+      height: "140px",
+      padding: "52px 29px 50px 24px",
+    });
+    expect(child?.style).toMatchObject({
+      width: "max-content",
+      height: "auto",
+    });
+  });
+
+  it("keeps the promoted frame at the topmost selected z-position and defaults asymmetric content to top-left", () => {
+    const content = `<body>
+  <div data-agent-native-node-id="background" data-an-primitive="rectangle" style="position:absolute;left:80px;top:80px;width:424px;height:282px;background-color:#D9D9D9"></div>
+  <div data-agent-native-node-id="unselected" data-an-primitive="rectangle" style="position:absolute;left:120px;top:120px;width:80px;height:80px;background-color:#00FF00"></div>
+  <div data-agent-native-node-id="child" data-an-primitive="rectangle" style="position:absolute;left:221px;top:179px;width:141px;height:70px;background-color:#0000FF"></div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["background", "child"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(patch.content);
+    const frame = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "background",
+    );
+    expect(frame?.style).toMatchObject({
+      "flex-direction": "column",
+      "align-items": "flex-start",
+      "justify-content": "flex-start",
+      padding: "99px 142px 113px 141px",
+    });
+    expect(
+      patch.content.indexOf('data-agent-native-node-id="unselected"'),
+    ).toBeLessThan(
+      patch.content.indexOf('data-agent-native-node-id="background"'),
+    );
+  });
+
+  it("keeps partial overlaps on the generic wrapper path", () => {
+    const partial = OVERLAPPING_TEXT.replace(
+      "width:240px;height:140px",
+      "width:100px;height:100px",
+    );
+    const patch = applyVisualEdit(partial, {
+      kind: "wrapNodes",
+      targetIds: ["rectangle", "text"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.result.wrapperNodeId).not.toBe("rectangle");
+    const projection = buildCodeLayerProjection(patch.content);
+    const rectangle = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "rectangle",
+    );
+    expect(rectangle?.dataAttributes["data-an-primitive"]).toBe("rectangle");
+    expect(
+      projection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-node-id"] ===
+          patch.result.wrapperNodeId,
+      )?.dataAttributes["data-an-primitive"],
+    ).toBe("frame");
+  });
+
+  it.each([
+    ["authored component", 'data-agent-native-component="Card"'],
+    ["authored group", 'data-agent-native-group="true"'],
+  ])("preserves an %s rectangle as a child", (_label, marker) => {
+    const marked = OVERLAPPING_TEXT.replace(
+      'data-agent-native-layer-name="Rectangle"',
+      `data-agent-native-layer-name="Rectangle" ${marker}`,
+    );
+    const patch = applyVisualEdit(marked, {
+      kind: "wrapNodes",
+      targetIds: ["rectangle", "text"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.result.wrapperNodeId).not.toBe("rectangle");
+    expect(patch.content).toContain('data-an-primitive="rectangle"');
+  });
 });
 
 describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
@@ -217,4 +501,28 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
     expect(wrapperOpenTag).not.toContain("position: absolute");
     expect(patch.content).not.toContain("999px");
   });
+
+  it.each(["group", "frame"] as const)(
+    "refuses to wrap an authored-stylesheet out-of-flow target as a %s",
+    (wrapperKind) => {
+      const content = `<body><style>.floating{position:absolute;left:20px;top:40px}</style><div class="floating" data-agent-native-node-id="label">Label</div></body>`;
+      const patch = applyVisualEdit(content, {
+        kind: "wrapNodes",
+        targetIds: ["label"],
+        wrapperKind,
+        sizeHints: {
+          label: {
+            width: 80,
+            height: 20,
+            left: 20,
+            top: 40,
+            outOfFlow: true,
+          },
+        },
+      });
+
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(content);
+    },
+  );
 });

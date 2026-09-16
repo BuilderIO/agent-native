@@ -1,21 +1,24 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, useCallback, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PromptPopover, { assetsPickerUrl } from "./PromptDialog";
 
 interface ComposerStubProps {
+  disabled?: boolean;
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
+  onAttachmentsChange?: (files: File[]) => void;
   onSubmit: (
     text: string,
     files: File[],
     references: unknown[],
     options: Record<string, unknown>,
   ) => void;
+  submitting?: boolean;
 }
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -37,6 +40,10 @@ const mockOrgPending = vi.hoisted(() => ({ current: false }));
 const mockOrgQueryOptions = vi.hoisted(() => ({
   values: [] as Array<{ enabled?: boolean } | undefined>,
 }));
+const mockEagerUpload = vi.hoisted(() => ({
+  implementation: async (files: File[]) =>
+    files.map((file) => ({ path: `/uploads/${file.name}` })),
+}));
 
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: (options?: { enabled?: boolean }) => {
@@ -49,31 +56,67 @@ vi.mock("@agent-native/core/client/org", () => ({
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
-  PromptComposer: (props: ComposerStubProps) => (
-    <div
-      data-testid="prompt-composer"
-      data-draft-scope={props.draftScope ?? ""}
-      data-initial-text={props.initialText ?? ""}
-      data-initial-text-key={String(props.initialTextKey ?? "")}
-    >
-      <button
-        type="button"
-        data-testid="composer-submit"
-        onClick={() => props.onSubmit("  hello world  \n", [], [], {})}
+  PromptComposer: (props: ComposerStubProps) => {
+    const [text, setText] = useState("");
+    const [files, setFiles] = useState<File[]>([]);
+    return (
+      <div
+        data-testid="prompt-composer"
+        data-draft-scope={props.draftScope ?? ""}
+        data-initial-text={props.initialText ?? ""}
+        data-initial-text-key={String(props.initialTextKey ?? "")}
+        data-disabled={String(Boolean(props.disabled))}
       >
-        submit
-      </button>
-    </div>
-  ),
-  useEagerFileUploads: () => ({
-    commitFiles: () => {},
-    discardFiles: () => {},
-    retainFiles: () => {},
-    syncFiles: () => {},
-    uploadFiles: async () => [],
-    uploading: false,
-    reset: () => {},
-  }),
+        <textarea
+          data-testid="prompt-editor"
+          disabled={props.disabled}
+          value={text}
+          onInput={(event) => setText(event.currentTarget.value)}
+        />
+        <input
+          data-testid="prompt-file-input"
+          type="file"
+          disabled={props.disabled}
+          onChange={(event) => {
+            const nextFiles = Array.from(event.currentTarget.files ?? []);
+            setFiles(nextFiles);
+            props.onAttachmentsChange?.(nextFiles);
+          }}
+        />
+        <button
+          type="button"
+          data-testid="composer-submit"
+          disabled={props.disabled || props.submitting}
+          onClick={() =>
+            props.onSubmit(text || "  hello world  \n", files, [], {})
+          }
+        >
+          submit
+        </button>
+      </div>
+    );
+  },
+  useEagerFileUploads: () => {
+    const [uploading, setUploading] = useState(false);
+    const uploadFiles = useCallback(async (files: File[]) => {
+      if (files.length === 0) return [];
+      setUploading(true);
+      try {
+        return await mockEagerUpload.implementation(files);
+      } finally {
+        setUploading(false);
+      }
+    }, []);
+    return {
+      commitFiles: () => {},
+      discardFiles: () => {},
+      retainFiles: () => {},
+      syncFiles: () => {},
+      uploadFiles,
+      uploading,
+      reset: () => {},
+    };
+  },
 }));
 
 vi.mock("@agent-native/core/embedding/react", () => ({
@@ -128,6 +171,8 @@ beforeEach(() => {
   mockActiveOrg.current = { orgId: "org-a" };
   mockOrgPending.current = false;
   mockOrgQueryOptions.values = [];
+  mockEagerUpload.implementation = async (files) =>
+    files.map((file) => ({ path: `/uploads/${file.name}` }));
 });
 
 afterEach(async () => {
@@ -336,6 +381,60 @@ describe("PromptPopover submit failure recovery", () => {
       '[data-testid="prompt-composer"]',
     );
     expect(composer?.getAttribute("data-initial-text")).toBe("");
+  });
+});
+
+describe("PromptPopover attachment editing", () => {
+  it("keeps typing available during eager upload and waits before submitting", async () => {
+    let resolveUpload!: (files: Array<{ path: string }>) => void;
+    const uploadPending = new Promise<Array<{ path: string }>>((resolve) => {
+      resolveUpload = resolve;
+    });
+    mockEagerUpload.implementation = () => uploadPending;
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    await renderPopover({ onSubmit });
+
+    const fileInput = container!.querySelector<HTMLInputElement>(
+      '[data-testid="prompt-file-input"]',
+    );
+    const file = new File(["image"], "hero.png", { type: "image/png" });
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () => {
+      fileInput?.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const editor = container!.querySelector<HTMLTextAreaElement>(
+      '[data-testid="prompt-editor"]',
+    );
+    expect(editor?.disabled).toBe(false);
+    await act(async () => {
+      if (!editor) throw new Error("prompt editor was not rendered");
+      editor.value = "keep typing";
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(editor?.value).toBe("keep typing");
+
+    await act(async () => {
+      container!
+        .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveUpload([{ path: "/uploads/hero.png" }]);
+      await uploadPending;
+    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      "keep typing",
+      [{ path: "/uploads/hero.png" }],
+      expect.anything(),
+    );
   });
 });
 

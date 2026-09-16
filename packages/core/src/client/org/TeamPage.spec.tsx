@@ -14,6 +14,7 @@ vi.mock("./hooks.js", () => ({
   useAppRoles: () => ({ data: undefined }),
   useChangeMemberRole: () => mocks.changeRole,
   useRemoveMember: () => mocks.removeMember,
+  useSetAppMemberRoles: () => mocks.action,
 }));
 
 vi.mock("../use-action.js", () => ({
@@ -32,6 +33,8 @@ vi.mock("../i18n.js", () => ({
     if (key === "org.noPeopleFound") return "No people found";
     if (key === "org.noMembers") return "No members";
     if (key === "org.inviteMembers") return "Invite members";
+    if (key === "org.appPermissions") return "App permissions";
+    if (key === "org.loading") return "Loading";
     if (key === "org.newGroup") return "New group";
     return key;
   },
@@ -100,6 +103,32 @@ describe("MemberRow organization controls", () => {
     ).not.toBeNull();
     expect(
       container.querySelector('[aria-label="Change role"]'),
+    ).not.toBeNull();
+  });
+
+  it("offers an explain-access popover for members with app permissions", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MemberRow
+            email="morgan@example.test"
+            role="member"
+            isCurrentUser={false}
+            currentUserRole="owner"
+            appRoles={{
+              appId: "dispatch",
+              roles: ["editor"],
+              permissions: { approve: ["editor"] },
+            }}
+            appRole={[]}
+            canManageAppRoles
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      container.querySelector('[aria-label="App permissions"]'),
     ).not.toBeNull();
   });
 

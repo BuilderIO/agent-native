@@ -274,6 +274,7 @@ export {
   type ResolveReviewThreadInput,
   type ReviewStatusBadgeProps,
   type ReviewCommentComposerProps,
+  type ReviewCommentFilter,
   type ReviewThread,
   type ReviewThreadPanelProps,
   type SetReviewStatusInput,

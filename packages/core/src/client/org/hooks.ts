@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 import {
   canInviteOrgMembers,
@@ -12,7 +13,7 @@ import type {
   OrgRole,
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
-import { useActionMutation } from "../use-action.js";
+import { useActionMutation, useActionQuery } from "../use-action.js";
 
 const ORG_BASE = agentNativePath("/_agent-native/org");
 
@@ -272,9 +273,16 @@ export function useAcceptInvitation() {
 export function useRemoveMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (email: string) =>
+    mutationFn: ({
+      email,
+      transferTo,
+    }: {
+      email: string;
+      transferTo: string;
+    }) =>
       apiFetch(`${ORG_BASE}/members/${encodeURIComponent(email)}`, {
         method: "DELETE",
+        body: JSON.stringify({ transferTo }),
       }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-members"] });
@@ -367,6 +375,35 @@ export function useSetWorkspaceAppDefaultVisibility() {
       }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
+export type WorkspaceAppAccessMode = "all" | "restricted" | "disabled";
+
+export interface WorkspaceAppAccess {
+  id: string;
+  name: string;
+  description: string | null;
+  path: string;
+  mode: WorkspaceAppAccessMode;
+}
+
+export function useWorkspaceAppAccess(options: { enabled?: boolean } = {}) {
+  return useActionQuery<{ apps: WorkspaceAppAccess[] }>(
+    "list-workspace-app-access",
+    {},
+    { enabled: options.enabled ?? true },
+  );
+}
+
+export function useSetWorkspaceAppAccess() {
+  const qc = useQueryClient();
+  return useActionMutation("set-workspace-app-access", {
+    onSuccess: async () => {
+      await qc.invalidateQueries({
+        queryKey: ["action", "list-workspace-app-access"],
+      });
     },
   });
 }
@@ -564,6 +601,7 @@ export interface AppRolesInfo {
   appId: string;
   roles: string[];
   permissions: Record<string, readonly string[]>;
+  permissionLabels?: Record<string, string>;
   /** Shown for members with no assignment. Never satisfies a server guard. */
   defaultRole: string | null;
   roleLabels: Record<string, string>;
@@ -591,6 +629,57 @@ export function useAppRoles(appId: string | undefined) {
     enabled: Boolean(appId),
     staleTime: 30_000,
   });
+}
+
+export interface AppPermissionsInfo {
+  appId: string;
+  permissions: Record<
+    string,
+    { defaults: string[]; roles: string[]; overridden: boolean }
+  >;
+  roles: string[];
+  can: (permission: string) => boolean;
+}
+
+/** Effective app permissions for the current member. Server guards remain authoritative. */
+export function useAppPermissions(appId: string | undefined) {
+  const roles = useAppRoles(appId);
+  const permissions = useActionQuery(
+    "list-app-permissions",
+    { appId: appId ?? "" },
+    { enabled: Boolean(appId) },
+  );
+  const grants =
+    (
+      permissions.data as
+        | { permissions?: AppPermissionsInfo["permissions"] }
+        | undefined
+    )?.permissions ?? {};
+  const myRoles = roles.data?.myRoles ?? [];
+  return {
+    appId: appId ?? "",
+    permissions: grants,
+    roles: myRoles,
+    can: (permission: string) =>
+      (grants[permission]?.roles ?? []).some((role) => myRoles.includes(role)),
+    isLoading: roles.isLoading || permissions.isLoading,
+    error: roles.error ?? permissions.error ?? null,
+  };
+}
+
+export function RequirePermission({
+  appId,
+  permission,
+  children,
+  fallback = null,
+}: {
+  appId: string | undefined;
+  permission: string;
+  children: ReactNode;
+  fallback?: ReactNode;
+}) {
+  const access = useAppPermissions(appId);
+  return access.can(permission) ? children : fallback;
 }
 
 /** The current user's roles in one app. */

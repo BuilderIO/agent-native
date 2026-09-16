@@ -1,6 +1,7 @@
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
+  type CodeLayerNode,
   type CodeLayerSource,
 } from "@shared/code-layer";
 import {
@@ -1271,6 +1272,12 @@ export function insertClonedHtmlLayers(
     additionalReservedNodeIds?: Iterable<string>;
     /** Current source projections required to keep linked clones in-design. */
     componentLinks?: ComponentCloneBatchContext;
+    /**
+     * Permit insertion below a canonical component main. This is only set by
+     * planLinkedComponentStructureClone, which hands the exact main snapshot
+     * to the linked mutation queue; reference instances stay refused.
+     */
+    allowMainComponentStructure?: boolean;
   } = {},
 ): {
   content: string;
@@ -1345,7 +1352,17 @@ export function insertClonedHtmlLayers(
               (selector) => queryFirstSelector(doc, [selector]) === parent,
             ),
       );
-      if (parentNode && linkedComponentRootForNode(parentNode, projection)) {
+      const linkedRoot = parentNode
+        ? linkedComponentRootForNode(parentNode, projection)
+        : null;
+      const isCanonicalMain = Boolean(
+        linkedRoot?.dataAttributes[COMPONENT_ID_ATTR]?.trim() &&
+        !linkedRoot?.dataAttributes[COMPONENT_REF_ATTR],
+      );
+      if (
+        linkedRoot &&
+        !(options.allowMainComponentStructure && isCanonicalMain)
+      ) {
         options.onUnsupportedStructure?.();
         return null;
       }
@@ -1378,6 +1395,168 @@ export function insertClonedHtmlLayers(
   } catch {
     return null;
   }
+}
+
+export interface LinkedComponentStructureClonePlan {
+  mainBefore: string;
+  mainAfter: string;
+  targetNodeId: string;
+  selectionNodeIds: string[];
+  rootNodeIds: string[];
+  nodeIdMap: Map<string, string>;
+}
+
+function linkedMainInsertionTarget(
+  content: string,
+  options: {
+    targetSelectors?: string[];
+    anchorSelectors?: string[];
+    placement?: "before" | "after" | "inside";
+    componentLinks?: ComponentCloneBatchContext;
+  },
+): { nodeId: string; span: { start: number; end: number } } | null {
+  const doc = new DOMParser().parseFromString(content, "text/html");
+  const target = queryFirstSelector(doc, options.targetSelectors ?? []);
+  const anchor =
+    queryFirstSelector(doc, options.anchorSelectors ?? []) ?? target;
+  const placement = options.placement ?? "after";
+  const parent = anchor
+    ? placement === "inside"
+      ? anchor
+      : anchor.parentElement
+    : null;
+  if (!parent) return null;
+  const projection = buildCodeLayerProjection(content, {
+    source: options.componentLinks?.targetSource,
+  });
+  const parentId = parent.getAttribute(DURABLE_NODE_ID_ATTR);
+  const parentNode = projection.nodes.find((node) =>
+    parentId
+      ? node.dataAttributes[DURABLE_NODE_ID_ATTR] === parentId
+      : node.selectors.some(
+          (selector) => queryFirstSelector(doc, [selector]) === parent,
+        ),
+  );
+  const linkedRoot = parentNode
+    ? linkedComponentRootForNode(parentNode, projection)
+    : null;
+  if (
+    !linkedRoot?.dataAttributes[COMPONENT_ID_ATTR]?.trim() ||
+    linkedRoot.dataAttributes[COMPONENT_REF_ATTR] ||
+    !linkedRoot.source
+  ) {
+    return null;
+  }
+  const nodeId = linkedRoot.dataAttributes[DURABLE_NODE_ID_ATTR]?.trim();
+  if (!nodeId) return null;
+  return { nodeId, span: linkedRoot.source };
+}
+
+/**
+ * Build the exact snapshot needed for a canonical-main clone. The DOM helper
+ * still does all clone preparation and linked-reference validation, while the
+ * returned source replaces only the main root so doctype, head, and sibling
+ * bytes remain eligible for the component structure CAS guard.
+ */
+export function planLinkedComponentStructureClone(
+  content: string,
+  layerHtmls: string[],
+  options: Parameters<typeof insertClonedHtmlLayers>[2] = {},
+): LinkedComponentStructureClonePlan | null {
+  if (layerHtmls.length === 0) return null;
+  const target = linkedMainInsertionTarget(content, options);
+  if (!target) return null;
+  const result = insertClonedHtmlLayers(content, layerHtmls, {
+    ...options,
+    allowMainComponentStructure: true,
+  });
+  if (!result) return null;
+
+  const afterProjection = buildCodeLayerProjection(result.content, {
+    source: options.componentLinks?.targetSource,
+  });
+  const afterRoots = afterProjection.nodes.filter(
+    (node) =>
+      node.dataAttributes[DURABLE_NODE_ID_ATTR]?.trim() === target.nodeId,
+  );
+  const afterRoot = afterRoots.length === 1 ? afterRoots[0] : undefined;
+  if (!afterRoot?.source) return null;
+  const selectionNodeIds = [...result.rootNodeIds];
+  if (
+    selectionNodeIds.length === 0 ||
+    new Set(selectionNodeIds).size !== selectionNodeIds.length ||
+    selectionNodeIds.some(
+      (nodeId) =>
+        !nodeId.trim() ||
+        afterProjection.nodes.filter(
+          (node) =>
+            node.dataAttributes[DURABLE_NODE_ID_ATTR]?.trim() === nodeId,
+        ).length !== 1,
+    )
+  ) {
+    return null;
+  }
+  const mainAfter =
+    content.slice(0, target.span.start) +
+    result.content.slice(afterRoot.source.start, afterRoot.source.end) +
+    content.slice(target.span.end);
+  if (
+    mainAfter.slice(0, target.span.start) !==
+      content.slice(0, target.span.start) ||
+    mainAfter.slice(mainAfter.length - (content.length - target.span.end)) !==
+      content.slice(target.span.end)
+  ) {
+    return null;
+  }
+  const finalProjection = buildCodeLayerProjection(mainAfter, {
+    source: options.componentLinks?.targetSource,
+  });
+  const finalRootMatches = finalProjection.nodes.filter(
+    (node) =>
+      node.dataAttributes[DURABLE_NODE_ID_ATTR]?.trim() === target.nodeId,
+  );
+  const finalRoot = finalRootMatches.length === 1 ? finalRootMatches[0] : null;
+  if (!finalRoot) return null;
+  const nodesById = new Map(
+    finalProjection.nodes.map((node) => [node.id, node]),
+  );
+  const isInsideFinalRoot = (node: CodeLayerNode) => {
+    const visited = new Set<string>();
+    let current: CodeLayerNode | undefined = node;
+    while (current && !visited.has(current.id)) {
+      if (current.id === finalRoot.id) return true;
+      visited.add(current.id);
+      current = current.parentId ? nodesById.get(current.parentId) : undefined;
+    }
+    return false;
+  };
+  const selectedNodes = selectionNodeIds.map((nodeId) => {
+    const matches = finalProjection.nodes.filter(
+      (node) => node.dataAttributes[DURABLE_NODE_ID_ATTR]?.trim() === nodeId,
+    );
+    return matches.length === 1 ? matches[0] : undefined;
+  });
+  if (
+    applyDesignClipboardManagedStyles(
+      mainAfter,
+      options.managedStyleSnapshots ?? [],
+      result.nodeIdMap,
+      { ensureGroupRuntime: false },
+    ) !== mainAfter
+  ) {
+    return null;
+  }
+  if (selectedNodes.some((node) => !node || !isInsideFinalRoot(node))) {
+    return null;
+  }
+  return {
+    mainBefore: content,
+    mainAfter,
+    targetNodeId: target.nodeId,
+    selectionNodeIds,
+    rootNodeIds: result.rootNodeIds,
+    nodeIdMap: result.nodeIdMap,
+  };
 }
 
 export function queryFirstSelector(

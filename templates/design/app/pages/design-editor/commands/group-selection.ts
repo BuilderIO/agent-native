@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -29,7 +30,15 @@ import {
 import { buildActiveFileNodeIdSet } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { collectLiveSizeHints } from "./frame-selection";
+import {
+  dispatchLinkedComponentStructure,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+
 export interface GroupSelectionArgs {
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
+  activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
     nextContent: string,
@@ -60,6 +69,7 @@ export interface GroupSelectionArgs {
   >;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  boardFileId: string | undefined;
   files: DesignFile[];
   getFreshActiveContent: () => string;
   overviewSelectedScreenIds: string[];
@@ -80,12 +90,15 @@ export interface GroupSelectionArgs {
 }
 
 export function runGroupSelection({
+  applyLinkedComponentEdit,
+  activeBreakpointWidthState,
   activeFile,
   applyLocalContentUpdate,
   canEditDesign,
   codeLayerOwnerByNodeIdRef,
   contentHistorySelectionAfterRef,
   contentUndoStackRef,
+  boardFileId,
   files,
   getFreshActiveContent,
   overviewSelectedScreenIds,
@@ -121,15 +134,32 @@ export function runGroupSelection({
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
   if (nodeIds.length === 0) return;
-  const patch = applyVisualEdit(
-    baseContent,
-    {
-      kind: "wrapNodes",
-      targetIds: nodeIds,
-      autoLayout: false,
-    },
-    { source },
+  const activeIframeId =
+    activeBreakpointWidthState !== undefined
+      ? getBreakpointIframeId(activeFile.id, activeBreakpointWidthState)
+      : activeFile.id;
+  const sizeHints = collectLiveSizeHints(
+    nodeIds,
+    baseProjection,
+    activeIframeId,
+    boardFileId,
   );
+  const wrapIntent = {
+    kind: "wrapNodes" as const,
+    targetIds: nodeIds,
+    autoLayout: false,
+    sizeHints,
+  };
+  if (
+    dispatchLinkedComponentStructure({
+      content: baseContent,
+      source,
+      intents: [wrapIntent],
+      applyLinkedComponentEdit,
+    })
+  )
+    return;
+  const patch = applyVisualEdit(baseContent, wrapIntent, { source });
   if (patch.result.status !== "applied") {
     toast.error(
       codeLayerPatchMessage(

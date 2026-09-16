@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["ja-JP"],
   designEditor: {
     ...messagesByLocale["ja-JP"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["ja-JP"].designEditor.componentInstances,
+      restore: "コンポーネントを復元",
+    },
     commenterRoleLabel: "コメント投稿者",
     commenterRoleDescription: "閲覧してレビューコメントを追加できます",
     toasts: {
@@ -56,6 +60,9 @@ const messages = {
     placeholder: "フィードバックを入力…",
     commentingOn: "{{name}} にコメント",
     emptyState: "レビューコメントはまだありません。",
+    filter: "コメントを絞り込む",
+    all: "すべて",
+    open: "未解決",
     clickToPin: "任意の場所をクリックしてフィードバックを固定",
     escToExit: "Esc で終了",
     newComment: "新しいコメント",
@@ -76,6 +83,9 @@ const messages = {
     resolveFailed: "このスレッドを解決できませんでした",
     deleteComment: "コメントを削除",
     moreActions: "その他の操作",
+    copyLink: "リンクをコピー",
+    linkCopied: "リンクをコピーしました",
+    copyLinkFailed: "リンクをコピーできませんでした",
     resolved: "解決済み",
     reviewer: "レビュアー",
     applyFeedback: "フィードバックを適用 ({{count}})",

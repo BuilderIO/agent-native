@@ -11,6 +11,7 @@ import {
   type ReviewThread,
 } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
   IconArrowUp,
@@ -58,7 +59,9 @@ import {
   resolveReviewAnchor,
   type DesignReviewAnchor,
   type ReviewAnchorPoint,
+  type ReviewCanvasPoint,
 } from "../../../shared/review-anchor";
+import { SURFACE_PADDING } from "../design/multi-screen/overview-layout";
 import {
   getReviewPinPosition,
   getReviewPopoverPlacement,
@@ -79,14 +82,21 @@ export interface ReviewFocusRequest {
   targetId?: string;
 }
 
+export interface ReviewCanvasPinRequest {
+  nonce: number;
+  canvasPoint: ReviewCanvasPoint;
+}
+
 interface ReviewCanvasPinsProps {
   active: boolean;
   hidden?: boolean;
   onClose: () => void;
   canvasSelector?: string;
+  showPlacementPlane?: boolean;
   resourceType: string;
   resourceId: string;
-  targetId: string;
+  targetId: string | null;
+  pinRequest?: ReviewCanvasPinRequest | null;
   canPost: boolean;
   canResolve: boolean;
   focusRequest?: ReviewFocusRequest | null;
@@ -106,6 +116,85 @@ interface ReviewFrameNodeGeometry {
 }
 
 type ReviewPopoverPlacement = ReturnType<typeof getReviewPopoverPlacement>;
+
+interface CanvasCameraSnapshot {
+  camera: { x: number; y: number; zoom: number };
+  surfaceOrigin: { x: number; y: number };
+}
+
+function readCanvasCamera(canvas: HTMLElement): CanvasCameraSnapshot | null {
+  const world = canvas.querySelector<HTMLElement>(
+    "[data-multi-screen-canvas-world]",
+  );
+  const transform = world?.style.transform ?? "";
+  const match = transform.match(
+    /translate\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)px\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)px\s*\)\s*scale\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*\)/i,
+  );
+  if (!match) return null;
+  const x = Number(match[1]);
+  const y = Number(match[2]);
+  const scale = Number(match[3]);
+  if (![x, y, scale].every(Number.isFinite) || scale <= 0) return null;
+  const rect = canvas.getBoundingClientRect();
+  return {
+    camera: { x, y, zoom: scale * 100 },
+    surfaceOrigin: { x: rect.left, y: rect.top },
+  };
+}
+
+function canvasPointToClientPoint(
+  canvas: HTMLElement,
+  point: ReviewCanvasPoint,
+): ReviewCanvasPoint | null {
+  const snapshot = readCanvasCamera(canvas);
+  if (!snapshot) return null;
+  return canvasToScreenPoint(
+    point,
+    snapshot.camera,
+    snapshot.surfaceOrigin,
+    SURFACE_PADDING,
+  );
+}
+
+function clientPointToCanvasPoint(
+  canvas: HTMLElement,
+  point: ReviewCanvasPoint,
+): ReviewCanvasPoint | null {
+  const snapshot = readCanvasCamera(canvas);
+  if (!snapshot) return null;
+  return screenToCanvasPoint(
+    point,
+    snapshot.camera,
+    snapshot.surfaceOrigin,
+    SURFACE_PADDING,
+  );
+}
+
+function canvasAnchorAtPoint(
+  canvas: HTMLElement,
+  canvasPoint: ReviewCanvasPoint,
+): { anchor: DesignReviewAnchor; metadata: Record<string, unknown> } {
+  const rect = canvas.getBoundingClientRect();
+  const clientPoint = canvasPointToClientPoint(canvas, canvasPoint);
+  const xPct =
+    clientPoint && rect.width > 0
+      ? Math.min(
+          100,
+          Math.max(0, ((clientPoint.x - rect.left) / rect.width) * 100),
+        )
+      : 50;
+  const yPct =
+    clientPoint && rect.height > 0
+      ? Math.min(
+          100,
+          Math.max(0, ((clientPoint.y - rect.top) / rect.height) * 100),
+        )
+      : 50;
+  return {
+    anchor: { point: { xPct, yPct }, canvasPoint },
+    metadata: {},
+  };
+}
 
 function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
   const iframe = canvas.querySelector<HTMLIFrameElement>(
@@ -330,9 +419,11 @@ export function ReviewCanvasPins({
   hidden = false,
   onClose,
   canvasSelector,
+  showPlacementPlane = true,
   resourceType,
   resourceId,
   targetId,
+  pinRequest,
   canPost,
   canResolve,
   focusRequest,
@@ -354,7 +445,7 @@ export function ReviewCanvasPins({
       limit: 500,
     },
     {
-      enabled: Boolean(!hidden && resourceType && resourceId && targetId),
+      enabled: Boolean(!hidden && resourceType && resourceId),
     },
   );
   const createComment = useCreateReviewComment();
@@ -377,6 +468,7 @@ export function ReviewCanvasPins({
   const lastFocusNonceRef = useRef<number | null>(null);
   const pendingFocusNonceRef = useRef<number | null>(null);
   const lastRepromptDraftNonceRef = useRef<number | null>(null);
+  const lastPinRequestNonceRef = useRef<number | null>(null);
   const frameCallbacksRef = useRef<
     Map<string, (payload: Record<string, unknown>) => void>
   >(new Map());
@@ -444,12 +536,23 @@ export function ReviewCanvasPins({
       "iframe[data-design-preview-iframe]",
     );
     if (iframe) resizeObserver.observe(iframe);
+    const world = canvas.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    const worldObserver = world ? new MutationObserver(bump) : null;
+    if (world && worldObserver) {
+      worldObserver.observe(world, {
+        attributes: true,
+        attributeFilter: ["style"],
+      });
+    }
     window.addEventListener("resize", bump);
     window.addEventListener("scroll", bump, { capture: true, passive: true });
     iframe?.addEventListener("load", bump);
     return () => {
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
+      worldObserver?.disconnect();
       window.removeEventListener("resize", bump);
       window.removeEventListener("scroll", bump, true);
       iframe?.removeEventListener("load", bump);
@@ -715,9 +818,37 @@ export function ReviewCanvasPins({
     if (active) onClose();
   }, [active, cancelDraft, hidden, onClose]);
 
+  const dropCanvasPin = useCallback(
+    (canvasPoint: ReviewCanvasPoint) => {
+      if (!canvas || !canPost) return;
+      const next = canvasAnchorAtPoint(canvas, canvasPoint);
+      setActiveThreadId(null);
+      setReplyDraft("");
+      setDraftMode("comment");
+      setPendingRepromptId(null);
+      setDraftPin((current) =>
+        placeReviewDraftPin(current, {
+          id: crypto.randomUUID(),
+          anchor: next.anchor,
+          metadata: next.metadata,
+        }),
+      );
+      setDraftComposerOpen(true);
+    },
+    [canPost, canvas],
+  );
+
   const dropPin = useCallback(
     (clientX: number, clientY: number) => {
       if (!canvas || !canPost) return;
+      if (targetId === null) {
+        const canvasPoint = clientPointToCanvasPoint(canvas, {
+          x: clientX,
+          y: clientY,
+        });
+        if (canvasPoint) dropCanvasPin(canvasPoint);
+        return;
+      }
       const next = anchorAtPoint(canvas, clientX, clientY);
       if (!next) return;
       setActiveThreadId(null);
@@ -795,8 +926,23 @@ export function ReviewCanvasPins({
         "*",
       );
     },
-    [canPost, canvas],
+    [canPost, canvas, dropCanvasPin, targetId],
   );
+
+  useEffect(() => {
+    if (
+      !active ||
+      hidden ||
+      !canvas ||
+      !canPost ||
+      !pinRequest ||
+      pinRequest.nonce === lastPinRequestNonceRef.current
+    ) {
+      return;
+    }
+    lastPinRequestNonceRef.current = pinRequest.nonce;
+    dropCanvasPin(pinRequest.canvasPoint);
+  }, [active, canPost, canvas, dropCanvasPin, hidden, pinRequest]);
 
   const postDraft = useCallback(
     (pin: ReviewDraftPin) => {
@@ -847,6 +993,7 @@ export function ReviewCanvasPins({
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
+        !targetId ||
         !sourceVersionHash ||
         sourceType !== "inline" ||
         agentSubmitting
@@ -942,6 +1089,7 @@ export function ReviewCanvasPins({
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
+        !targetId ||
         sourceType !== "inline" ||
         agentSubmitting
       ) {
@@ -1011,15 +1159,16 @@ export function ReviewCanvasPins({
     ? getReviewPinPosition(draftPin.anchor)
     : null;
   const pinPlacementEnabled = active && canPost && !pendingRepromptId;
+  const placementPlaneVisible = pinPlacementEnabled && showPlacementPlane;
   const placementHintVisible =
-    pinPlacementEnabled &&
+    placementPlaneVisible &&
     !draftComposerOpen &&
     !activeThreadId &&
     !repromptDraftRequest;
 
   return createPortal(
     <>
-      {pinPlacementEnabled ? (
+      {placementPlaneVisible ? (
         <div
           data-review-click-plane
           className="fixed z-40 cursor-crosshair"
@@ -1048,12 +1197,16 @@ export function ReviewCanvasPins({
       {openThreads.map((thread, index) => {
         const position = getReviewPinPosition(thread.root.anchor);
         if (!position) return null;
+        const clientPoint = position.canvasPoint
+          ? canvasPointToClientPoint(canvas, position.canvasPoint)
+          : null;
         return (
           <ReviewPin
             key={thread.root.threadId}
             index={index}
             canvasRect={rect}
             point={position.point}
+            clientPoint={clientPoint}
             onClick={() => {
               if (!draftPin?.draft.trim()) setDraftPin(null);
               setDraftComposerOpen(false);
@@ -1124,6 +1277,11 @@ export function ReviewCanvasPins({
           index={openThreads.length}
           canvasRect={rect}
           point={draftPinPosition.point}
+          clientPoint={
+            draftPinPosition.canvasPoint
+              ? canvasPointToClientPoint(canvas, draftPinPosition.canvasPoint)
+              : null
+          }
           draft
           pending={Boolean(pendingRepromptId)}
           onClick={() => {
@@ -1181,6 +1339,7 @@ function ReviewPin({
   index,
   point,
   canvasRect,
+  clientPoint,
   active,
   draft = false,
   pending = false,
@@ -1190,6 +1349,7 @@ function ReviewPin({
   index: number;
   point: ReviewAnchorPoint;
   canvasRect: DOMRect;
+  clientPoint?: ReviewCanvasPoint | null;
   active: boolean;
   draft?: boolean;
   pending?: boolean;
@@ -1202,8 +1362,12 @@ function ReviewPin({
       data-review-popover
       className="fixed z-[45]"
       style={{
-        left: canvasRect.left + (point.xPct / 100) * canvasRect.width,
-        top: canvasRect.top + (point.yPct / 100) * canvasRect.height,
+        left:
+          clientPoint?.x ??
+          canvasRect.left + (point.xPct / 100) * canvasRect.width,
+        top:
+          clientPoint?.y ??
+          canvasRect.top + (point.yPct / 100) * canvasRect.height,
       }}
     >
       <button

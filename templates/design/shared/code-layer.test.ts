@@ -290,6 +290,24 @@ describe("code-layer projection", () => {
     expect(componentChild?.name).toBe("NavBar");
   });
 
+  it("keeps explicit human layer names ahead of component identifiers", () => {
+    const html = `
+      <main>
+        <div data-agent-native-node-id="main" data-agent-native-layer-name="Play button" data-agent-native-component="PlayButton" data-agent-native-component-id="cmp-play"></div>
+        <div data-agent-native-node-id="default" data-agent-native-layer-name="Play button" data-agent-native-component="PlayButton" data-agent-native-component-ref="cmp-play"></div>
+        <div data-agent-native-node-id="renamed" data-agent-native-layer-name="Play button instance" data-agent-native-component="PlayButton" data-agent-native-component-ref="cmp-play"></div>
+      </main>
+    `;
+
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const componentNodes = tree[0]?.children ?? [];
+    expect(componentNodes.map((node) => node.name)).toEqual([
+      "Play button",
+      "Play button",
+      "Play button instance",
+    ]);
+  });
+
   it("builds a design-editor DOM layer tree from projection parentage", () => {
     const html = `
       <main data-agent-native-layer-name="Page">

@@ -1,4 +1,6 @@
 export { linkedComponentRootForNode } from "./component-model";
+import { parseFragment } from "parse5";
+
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
@@ -7,14 +9,18 @@ import {
   type CodeLayerNode,
   type CodeLayerProjection,
   type CodeLayerSource,
+  type EditIntent,
 } from "./code-layer";
 import {
+  componentNodeIdMatches,
   linkedComponentRootForNode as nearestComponentRoot,
   COMPONENT_ID_ATTR,
+  COMPONENT_NAME_ATTR,
   COMPONENT_OVERRIDES_ATTR,
   COMPONENT_REF_ATTR,
   COMPONENT_SOURCE_NODE_ID_ATTR,
 } from "./component-model";
+import { ensureGroupRuntime } from "./group-runtime";
 
 const NODE_ID_ATTR = "data-agent-native-node-id";
 
@@ -203,7 +209,7 @@ interface MaterializeComponentLinkInput {
 
 function descendantsOf(
   root: CodeLayerNode,
-  nodesById: Map<string, CodeLayerNode>,
+  nodesById: ReadonlyMap<string, CodeLayerNode>,
 ): CodeLayerNode[] | null {
   const result: CodeLayerNode[] = [];
   const visited = new Set<string>();
@@ -237,11 +243,7 @@ function validateNestedReference(
   outerMain: CodeLayerNode,
 ): { status: "valid"; descendants: CodeLayerNode[] } | null {
   const componentId = identityValue(reference, COMPONENT_REF_ATTR);
-  if (
-    !componentId ||
-    hasIdentityAttribute(reference, COMPONENT_ID_ATTR) ||
-    hasIdentityAttribute(reference, COMPONENT_SOURCE_NODE_ID_ATTR)
-  ) {
+  if (!componentId || hasIdentityAttribute(reference, COMPONENT_ID_ATTR)) {
     return null;
   }
   const resolution = analyzeComponentLinks(projections).components.find(
@@ -252,6 +254,23 @@ function validateNestedReference(
     resolution.status !== "resolved" ||
     resolution.main.id === outerMain.id ||
     !resolution.references.some((node) => node === reference)
+  ) {
+    return null;
+  }
+
+  // A nested root is also a materialized instance of its inner component. Its
+  // source marker therefore belongs to the inner component's source domain,
+  // while the nested root's durable node ID belongs to the outer main. The
+  // marker is optional on a canonical nested root, but an authored marker must
+  // identify the inner canonical root exactly.
+  const nestedSourceNodeId = identityValue(
+    reference,
+    COMPONENT_SOURCE_NODE_ID_ATTR,
+  );
+  const innerMainNodeId = identityValue(resolution.main, NODE_ID_ATTR);
+  if (
+    hasIdentityAttribute(reference, COMPONENT_SOURCE_NODE_ID_ATTR) &&
+    nestedSourceNodeId !== innerMainNodeId
   ) {
     return null;
   }
@@ -703,6 +722,14 @@ export type ComponentPropertyTransformResult =
       nodeId?: string;
       message?: string;
     };
+
+/**
+ * Result shape shared by property and structural component propagation.
+ * Structural callers receive the same typed refusal vocabulary so a rejected
+ * reconciliation cannot be mistaken for a successful save.
+ */
+export type ComponentStructureTransformResult =
+  ComponentPropertyTransformResult;
 
 interface ComponentOverride {
   sourceNodeId: string;
@@ -1189,6 +1216,16 @@ function componentPairs(
   const nestedMainNodeIds = new Map<string, string>();
   for (const nestedRoot of mainTree.nestedRoots) {
     const nestedId = identityValue(nestedRoot, COMPONENT_REF_ATTR);
+    if (
+      !validateNestedReference(
+        nestedRoot,
+        mainDocument.projection,
+        allProjections,
+        main,
+      )
+    ) {
+      return { status: "unsupported-nested-link" };
+    }
     const nestedResolution = nestedId
       ? componentResolution(allProjections, nestedId)
       : null;
@@ -1420,6 +1457,1479 @@ function componentPairs(
     byReference.push({ document, pairs });
   }
   return { status: "ready", byReference };
+}
+
+interface ComponentStructureTree {
+  nodes: CodeLayerNode[];
+  bySourceId: Map<string, CodeLayerNode>;
+  nestedBySourceId: Map<string, CodeLayerNode>;
+}
+
+type ComponentStructureFailureStatus = Exclude<
+  ComponentPropertyTransformResult["status"],
+  "updated"
+>;
+
+function componentStructureTree(
+  root: CodeLayerNode,
+  projection: CodeLayerProjection,
+):
+  | { status: "ready"; value: ComponentStructureTree }
+  | { status: ComponentStructureFailureStatus } {
+  const nodesById = new Map(
+    projection.nodes.map((node) => [node.id, node] as const),
+  );
+  const atomic = atomicComponentSubtree(root, nodesById);
+  if (!atomic) return { status: "incomplete-instance" };
+
+  const sourceIdCounts = new Map<string, number>();
+  for (const node of projection.nodes) {
+    const sourceId = identityValue(node, NODE_ID_ATTR);
+    if (sourceId) {
+      sourceIdCounts.set(sourceId, (sourceIdCounts.get(sourceId) ?? 0) + 1);
+    }
+  }
+
+  const bySourceId = new Map<string, CodeLayerNode>();
+  for (const node of atomic.nodes) {
+    const sourceId = identityValue(node, NODE_ID_ATTR);
+    if (
+      !sourceId ||
+      sourceIdCounts.get(sourceId) !== 1 ||
+      bySourceId.has(sourceId)
+    ) {
+      return {
+        status: sourceId
+          ? "ambiguous-source-node-id"
+          : "missing-source-node-id",
+      };
+    }
+    bySourceId.set(sourceId, node);
+  }
+
+  const nestedBySourceId = new Map<string, CodeLayerNode>();
+  for (const nestedRoot of atomic.nestedRoots) {
+    const sourceId = identityValue(nestedRoot, NODE_ID_ATTR);
+    if (
+      !sourceId ||
+      !identityValue(nestedRoot, COMPONENT_REF_ATTR) ||
+      hasIdentityAttribute(nestedRoot, COMPONENT_ID_ATTR) ||
+      nestedBySourceId.has(sourceId)
+    ) {
+      return { status: "unsupported-nested-link" };
+    }
+    nestedBySourceId.set(sourceId, nestedRoot);
+  }
+
+  return {
+    status: "ready",
+    value: { nodes: atomic.nodes, bySourceId, nestedBySourceId },
+  };
+}
+
+function sourceMarkup(content: string, node: CodeLayerNode): string | null {
+  const span = node.source;
+  if (
+    !span ||
+    span.start < 0 ||
+    span.end <= span.start ||
+    span.end > content.length
+  ) {
+    return null;
+  }
+  return content.slice(span.start, span.end);
+}
+
+interface RenderedComponentChild {
+  sourceNodeId: string;
+  content: string;
+  idMap: Map<string, string>;
+}
+
+/**
+ * Rebuild one projected container from its original source slots. The
+ * projected child list can change order and membership while raw gaps,
+ * comments, and unprojected markup stay in the component.
+ */
+function renderComponentChildren(
+  content: string,
+  sourceContent: string,
+  container: CodeLayerNode,
+  sourceNodesById: ReadonlyMap<string, CodeLayerNode>,
+  children: readonly RenderedComponentChild[],
+): string | null {
+  const span = container.source;
+  if (!span) return null;
+  if (
+    span.start < 0 ||
+    span.end <= span.start ||
+    span.end > sourceContent.length ||
+    span.end - span.start !== content.length
+  ) {
+    return null;
+  }
+  if (span.contentStart === undefined || span.contentEnd === undefined) {
+    return children.length === 0 ? content : null;
+  }
+  if (
+    span.contentStart < span.openEnd ||
+    span.contentEnd < span.contentStart ||
+    span.contentEnd > sourceContent.length
+  ) {
+    return null;
+  }
+
+  const localContentStart = span.contentStart - span.start;
+  const localContentEnd = span.contentEnd - span.start;
+  if (
+    localContentStart < 0 ||
+    localContentEnd < localContentStart ||
+    localContentEnd > content.length
+  ) {
+    return null;
+  }
+
+  const directChildren: CodeLayerNode[] = [];
+  let previousEnd = span.contentStart;
+  for (const childId of container.children) {
+    const child = sourceNodesById.get(childId);
+    if (!child?.source) return null;
+    const childStart = child.source.start;
+    const childEnd = child.source.end;
+    if (
+      childStart < span.contentStart ||
+      childEnd <= childStart ||
+      childEnd > span.contentEnd ||
+      childStart < previousEnd
+    ) {
+      return null;
+    }
+    directChildren.push(child);
+    previousEnd = childEnd;
+  }
+
+  const gaps: string[] = [];
+  let cursor = span.contentStart;
+  for (const child of directChildren) {
+    const childStart = child.source?.start;
+    const childEnd = child.source?.end;
+    if (childStart === undefined || childEnd === undefined) return null;
+    gaps.push(sourceContent.slice(cursor, childStart));
+    cursor = childEnd;
+  }
+  gaps.push(sourceContent.slice(cursor, span.contentEnd));
+
+  const seenChildren = new Set<string>();
+  for (const child of children) {
+    if (seenChildren.has(child.sourceNodeId)) return null;
+    seenChildren.add(child.sourceNodeId);
+  }
+
+  const hasOldSlots = directChildren.length > 0;
+  const middleGaps = hasOldSlots ? gaps.slice(1, -1) : [];
+  const prefix = gaps[0] ?? "";
+  const suffix = hasOldSlots ? (gaps[gaps.length - 1] ?? "") : "";
+  const renderedSourceIds = new Set(
+    children.map((child) => child.sourceNodeId),
+  );
+  const originalSourceIds: string[] = [];
+  for (const child of directChildren) {
+    const sourceNodeId =
+      identityValue(child, COMPONENT_SOURCE_NODE_ID_ATTR) ??
+      identityValue(child, NODE_ID_ATTR);
+    if (!sourceNodeId) return null;
+    originalSourceIds.push(sourceNodeId);
+  }
+  const gapsBeforeSourceId = new Map<string, string>();
+  let trailingGaps = "";
+  let nextRenderedSourceId: string | undefined;
+  for (let index = middleGaps.length - 1; index >= 0; index -= 1) {
+    const candidateSourceId = originalSourceIds[index + 1];
+    if (candidateSourceId && renderedSourceIds.has(candidateSourceId)) {
+      nextRenderedSourceId = candidateSourceId;
+    }
+    const gap = middleGaps[index] ?? "";
+    if (nextRenderedSourceId) {
+      gapsBeforeSourceId.set(
+        nextRenderedSourceId,
+        `${gap}${gapsBeforeSourceId.get(nextRenderedSourceId) ?? ""}`,
+      );
+    } else {
+      trailingGaps = `${gap}${trailingGaps}`;
+    }
+  }
+  let rebuilt = prefix;
+  for (const child of children) {
+    rebuilt += gapsBeforeSourceId.get(child.sourceNodeId) ?? "";
+    rebuilt += child.content;
+  }
+  rebuilt += trailingGaps;
+  rebuilt += suffix;
+
+  return (
+    content.slice(0, localContentStart) +
+    rebuilt +
+    content.slice(localContentEnd)
+  );
+}
+
+function relativeSourceNode(
+  node: CodeLayerNode,
+  baseStart: number,
+): CodeLayerNode {
+  const source = node.source;
+  if (!source) return node;
+  return {
+    ...node,
+    source: {
+      ...source,
+      start: source.start - baseStart,
+      end: source.end - baseStart,
+      openStart: source.openStart - baseStart,
+      openEnd: source.openEnd - baseStart,
+      contentStart:
+        source.contentStart === undefined
+          ? undefined
+          : source.contentStart - baseStart,
+      contentEnd:
+        source.contentEnd === undefined
+          ? undefined
+          : source.contentEnd - baseStart,
+      closeStart:
+        source.closeStart === undefined
+          ? undefined
+          : source.closeStart - baseStart,
+      closeEnd:
+        source.closeEnd === undefined ? undefined : source.closeEnd - baseStart,
+    },
+  };
+}
+
+const COMPONENT_SPACE_IDREF_ATTRIBUTES = new Set([
+  "aria-controls",
+  "aria-describedby",
+  "aria-details",
+  "aria-errormessage",
+  "aria-flowto",
+  "aria-labelledby",
+  "aria-owns",
+  "headers",
+]);
+const COMPONENT_SINGLE_IDREF_ATTRIBUTES = new Set(["for", "form", "list"]);
+const COMPONENT_FRAGMENT_IDREF_ATTRIBUTES = new Set(["href", "xlink:href"]);
+
+interface ComponentMarkupElement {
+  tagName?: string;
+  attrs?: Array<{
+    name: string;
+    value: string;
+    prefix?: string;
+  }>;
+  childNodes?: unknown[];
+  content?: { childNodes?: unknown[] };
+  sourceCodeLocation?: {
+    attrs?: Record<string, { startOffset: number; endOffset: number }>;
+  };
+}
+
+interface ComponentMarkupReplacement {
+  start: number;
+  end: number;
+  value: string;
+}
+
+function componentMarkupElements(content: string): ComponentMarkupElement[] {
+  const elements: ComponentMarkupElement[] = [];
+  const visit = (node: unknown) => {
+    const element = node as ComponentMarkupElement;
+    if (typeof element.tagName === "string") elements.push(element);
+    for (const child of [
+      ...(element.childNodes ?? []),
+      ...(element.content?.childNodes ?? []),
+    ]) {
+      visit(child);
+    }
+  };
+  visit(parseFragment(content, { sourceCodeLocationInfo: true }));
+  return elements;
+}
+
+function componentMarkupAttributeName(attribute: {
+  name: string;
+  prefix?: string;
+}): string {
+  return (attribute.prefix ? `${attribute.prefix}:` : "") + attribute.name;
+}
+
+function componentMarkupAttributeLocation(
+  element: ComponentMarkupElement,
+  name: string,
+): { startOffset: number; endOffset: number } | undefined {
+  const attributes = element.sourceCodeLocation?.attrs;
+  return attributes?.[name] ?? attributes?.[name.toLowerCase()];
+}
+
+function escapeComponentAttributeValue(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function rewriteComponentIdReferences(
+  value: string,
+  attributeName: string,
+  idMap: ReadonlyMap<string, string>,
+): string {
+  if (COMPONENT_SPACE_IDREF_ATTRIBUTES.has(attributeName)) {
+    const ids = value.trim() ? value.trim().split(/\s+/) : [];
+    const mapped = ids.map((id) => idMap.get(id) ?? id);
+    return mapped.some((id, index) => id !== ids[index])
+      ? mapped.join(" ")
+      : value;
+  }
+  if (COMPONENT_SINGLE_IDREF_ATTRIBUTES.has(attributeName)) {
+    return idMap.get(value) ?? value;
+  }
+  if (COMPONENT_FRAGMENT_IDREF_ATTRIBUTES.has(attributeName)) {
+    if (!value.startsWith("#")) return value;
+    const replacement = idMap.get(value.slice(1));
+    return replacement ? `#${replacement}` : value;
+  }
+  if (value.includes("url(")) {
+    const rewritten = value.replace(
+      /url\(\s*(["']?)#([^\s)'";]+)\1\s*\)/g,
+      (match, quote: string, id: string) => {
+        const replacement = idMap.get(id);
+        return replacement ? `url(${quote}#${replacement}${quote})` : match;
+      },
+    );
+    if (rewritten !== value) return rewritten;
+  }
+  if (attributeName === "begin" || attributeName === "end") {
+    const parts = value.split(";");
+    let changed = false;
+    const rewritten = parts
+      .map((part) => {
+        const trimmed = part.trim();
+        const separator = trimmed.indexOf(".");
+        if (separator <= 0) return part;
+        const replacement = idMap.get(trimmed.slice(0, separator));
+        if (!replacement) return part;
+        changed = true;
+        const start = part.indexOf(trimmed);
+        return (
+          part.slice(0, start) +
+          replacement +
+          trimmed.slice(separator) +
+          part.slice(start + trimmed.length)
+        );
+      })
+      .join(";");
+    return changed ? rewritten : value;
+  }
+  return value;
+}
+
+function rewriteComponentMarkupIds(
+  content: string,
+  inheritedIdMap: ReadonlyMap<string, string>,
+  createId?: (sourceId: string) => string,
+): { content: string; idMap: Map<string, string> } | null {
+  const idMap = new Map(inheritedIdMap);
+  const elements = componentMarkupElements(content);
+  const authoredIds = elements.flatMap((element) =>
+    (element.attrs ?? [])
+      .filter(
+        (attribute) => attribute.name.toLowerCase() === "id" && attribute.value,
+      )
+      .map((attribute) => attribute.value),
+  );
+  if (new Set(authoredIds).size !== authoredIds.length) return null;
+  const replacements: ComponentMarkupReplacement[] = [];
+
+  for (const element of elements) {
+    for (const attribute of element.attrs ?? []) {
+      if (attribute.name.toLowerCase() !== "id" || !attribute.value) continue;
+      if (!createId) continue;
+      const nextId = createId(attribute.value);
+      idMap.set(attribute.value, nextId);
+      const name = componentMarkupAttributeName(attribute);
+      const location = componentMarkupAttributeLocation(element, name);
+      if (!location) return null;
+      replacements.push({
+        start: location.startOffset,
+        end: location.endOffset,
+        value: `${name}="${escapeComponentAttributeValue(nextId)}"`,
+      });
+    }
+  }
+
+  for (const element of elements) {
+    for (const attribute of element.attrs ?? []) {
+      const name = componentMarkupAttributeName(attribute);
+      const lowerName = name.toLowerCase();
+      if (lowerName === "id" && createId) continue;
+      const nextValue = rewriteComponentIdReferences(
+        attribute.value,
+        lowerName,
+        idMap,
+      );
+      if (nextValue === attribute.value) continue;
+      const location = componentMarkupAttributeLocation(element, name);
+      if (!location) return null;
+      replacements.push({
+        start: location.startOffset,
+        end: location.endOffset,
+        value: `${name}="${escapeComponentAttributeValue(nextValue)}"`,
+      });
+    }
+  }
+
+  const uniqueReplacements = [
+    ...new Map(
+      replacements.map((replacement) => [replacement.start, replacement]),
+    ).values(),
+  ];
+  let rewritten = content;
+  for (const replacement of uniqueReplacements.sort(
+    (left, right) => right.start - left.start,
+  )) {
+    rewritten =
+      rewritten.slice(0, replacement.start) +
+      replacement.value +
+      rewritten.slice(replacement.end);
+  }
+  return { content: rewritten, idMap };
+}
+
+function componentMarkupIds(content: string): Set<string> {
+  const ids = new Set<string>();
+  for (const element of componentMarkupElements(content)) {
+    for (const attribute of element.attrs ?? []) {
+      if (attribute.name.toLowerCase() === "id" && attribute.value) {
+        ids.add(attribute.value);
+      }
+    }
+  }
+  return ids;
+}
+
+function componentMarkupIdList(content: string): string[] {
+  return componentMarkupElements(content).flatMap((element) =>
+    (element.attrs ?? [])
+      .filter(
+        (attribute) => attribute.name.toLowerCase() === "id" && attribute.value,
+      )
+      .map((attribute) => attribute.value),
+  );
+}
+
+function componentMarkupAuthoredIdMap(
+  sourceContent: string,
+  sourceNode: CodeLayerNode,
+  targetContent: string,
+  targetNode: CodeLayerNode,
+): Map<string, string> | null {
+  const sourceMarkupContent = sourceMarkup(sourceContent, sourceNode);
+  const targetMarkupContent = sourceMarkup(targetContent, targetNode);
+  if (sourceMarkupContent === null || targetMarkupContent === null) {
+    return null;
+  }
+  const sourceIds = componentMarkupIdList(sourceMarkupContent);
+  const targetIds = componentMarkupIdList(targetMarkupContent);
+  if (
+    sourceIds.length !== targetIds.length ||
+    new Set(sourceIds).size !== sourceIds.length ||
+    new Set(targetIds).size !== targetIds.length
+  ) {
+    return null;
+  }
+  const idMap = new Map<string, string>();
+  for (let index = 0; index < sourceIds.length; index += 1) {
+    const sourceId = sourceIds[index];
+    const targetId = targetIds[index];
+    if (sourceId && targetId && sourceId !== targetId) {
+      idMap.set(sourceId, targetId);
+    }
+  }
+  return idMap;
+}
+
+function componentChildPlaceholders(
+  sourceContent: string,
+  children: readonly RenderedComponentChild[],
+): string[] {
+  const usedContent = [
+    sourceContent,
+    ...children.map((child) => child.content),
+  ];
+  return children.map((_, index) => {
+    let attempt = 0;
+    let placeholder = `an-protected-component-child-${index}`;
+    while (usedContent.some((content) => content.includes(placeholder))) {
+      attempt += 1;
+      placeholder = `an-protected-component-child-${index}-${attempt}`;
+    }
+    usedContent.push(placeholder);
+    return placeholder;
+  });
+}
+
+function nextComponentInstanceNodeId(
+  fileId: string,
+  sourceNodeId: string,
+  usedIds: Set<string>,
+): string {
+  const base =
+    "an-instance-" +
+    (fileId + ":" + sourceNodeId).replace(/[^A-Za-z0-9_.:-]/g, "-");
+  let value = base;
+  let suffix = 1;
+  while (usedIds.has(value)) {
+    value = base + ":" + suffix;
+    suffix += 1;
+  }
+  usedIds.add(value);
+  return value;
+}
+
+function nextComponentAuthoredId(
+  fileId: string,
+  sourceNodeId: string,
+  authoredId: string,
+  usedIds: Set<string>,
+): string {
+  const base = (
+    "an-instance-" +
+    fileId +
+    ":" +
+    sourceNodeId +
+    ":id:" +
+    authoredId
+  ).replace(/[^A-Za-z0-9_.:-]/g, "-");
+  let value = base;
+  let suffix = 1;
+  while (usedIds.has(value)) {
+    value = base + ":" + suffix;
+    suffix += 1;
+  }
+  usedIds.add(value);
+  return value;
+}
+
+interface ComponentStructureReferenceContext {
+  source: CodeLayerSource;
+  newMainContent: string;
+  newMainNodesById: ReadonlyMap<string, CodeLayerNode>;
+  oldMainTree: ComponentStructureTree;
+  newMainTree: ComponentStructureTree;
+  oldMainContent: string;
+  oldDocument: ComponentSourceDocument;
+  oldInstanceBySourceId: ReadonlyMap<string, CodeLayerNode>;
+  oldInstanceNodesById: ReadonlyMap<string, CodeLayerNode>;
+  usedInstanceNodeIds: Set<string>;
+  visiting: Set<string>;
+}
+
+function renderNewNestedComponentNode(
+  node: CodeLayerNode,
+  context: ComponentStructureReferenceContext,
+):
+  | { status: "ready"; content: string; idMap: Map<string, string> }
+  | { status: ComponentStructureFailureStatus } {
+  const sourceNodeId = identityValue(node, NODE_ID_ATTR);
+  const span = node.source;
+  if (!sourceNodeId || !span) return { status: "incomplete-instance" };
+  if (
+    !identityValue(node, COMPONENT_REF_ATTR) ||
+    hasIdentityAttribute(node, COMPONENT_ID_ATTR)
+  ) {
+    return { status: "unsupported-nested-link" };
+  }
+  const subtree = descendantsOf(node, context.newMainNodesById);
+  const nodeContent = sourceMarkup(context.newMainContent, node);
+  if (!subtree || nodeContent === null) {
+    return { status: "incomplete-instance" };
+  }
+  if (
+    subtree
+      .slice(1)
+      .some(
+        (descendant) =>
+          hasIdentityAttribute(descendant, COMPONENT_ID_ATTR) ||
+          hasIdentityAttribute(descendant, COMPONENT_REF_ATTR),
+      )
+  ) {
+    return { status: "unsupported-nested-link" };
+  }
+
+  const updates: Array<{
+    node: CodeLayerNode;
+    attributes: Record<string, string | null>;
+  }> = [];
+  for (const descendant of subtree) {
+    const descendantSourceNodeId = identityValue(descendant, NODE_ID_ATTR);
+    if (!descendantSourceNodeId || !descendant.source) {
+      return { status: "missing-source-node-id" };
+    }
+    if (
+      descendant.id !== node.id &&
+      !identityValue(descendant, COMPONENT_SOURCE_NODE_ID_ATTR)
+    ) {
+      return { status: "missing-source-node-id" };
+    }
+    updates.push({
+      node: relativeSourceNode(descendant, span.start),
+      attributes: {
+        [NODE_ID_ATTR]: nextComponentInstanceNodeId(
+          context.source.fileId ?? "document",
+          descendantSourceNodeId,
+          context.usedInstanceNodeIds,
+        ),
+        ...(descendant.id === node.id
+          ? { [COMPONENT_SOURCE_NODE_ID_ATTR]: sourceNodeId }
+          : {}),
+      },
+    });
+  }
+  const patched = patchCodeLayerNodeAttributes(nodeContent, updates);
+  if (patched === null) return { status: "incomplete-instance" };
+  const rewritten = rewriteComponentMarkupIds(
+    patched,
+    new Map(),
+    (authoredId) =>
+      nextComponentAuthoredId(
+        context.source.fileId ?? "document",
+        sourceNodeId,
+        authoredId,
+        context.usedInstanceNodeIds,
+      ),
+  );
+  if (rewritten === null) return { status: "incomplete-instance" };
+  return {
+    status: "ready",
+    content: rewritten.content,
+    idMap: rewritten.idMap,
+  };
+}
+
+function renderComponentStructureNode(
+  node: CodeLayerNode,
+  context: ComponentStructureReferenceContext,
+):
+  | { status: "ready"; content: string; idMap: Map<string, string> }
+  | { status: ComponentStructureFailureStatus } {
+  const sourceNodeId = identityValue(node, NODE_ID_ATTR);
+  if (!sourceNodeId || context.visiting.has(sourceNodeId)) {
+    return { status: "incomplete-instance" };
+  }
+  context.visiting.add(sourceNodeId);
+
+  try {
+    // Nested linked components are one opaque correspondence unit. The
+    // nested component owns its descendants and is handled by its own edit.
+    if (context.newMainTree.nestedBySourceId.has(sourceNodeId)) {
+      const instanceNode = context.oldInstanceBySourceId.get(sourceNodeId);
+      if (!instanceNode) {
+        return renderNewNestedComponentNode(node, context);
+      }
+      const content = sourceMarkup(context.oldDocument.content, instanceNode);
+      const mainNode = context.oldMainTree.bySourceId.get(sourceNodeId);
+      const idMap =
+        mainNode && instanceNode
+          ? componentMarkupAuthoredIdMap(
+              context.oldMainContent,
+              mainNode,
+              context.oldDocument.content,
+              instanceNode,
+            )
+          : new Map<string, string>();
+      if (idMap === null) return { status: "incomplete-instance" };
+      return content === null
+        ? { status: "unsupported-nested-link" }
+        : { status: "ready", content, idMap };
+    }
+
+    const oldMainNode = context.oldMainTree.bySourceId.get(sourceNodeId);
+    const oldInstanceNode = context.oldInstanceBySourceId.get(sourceNodeId);
+    const isExisting = Boolean(oldMainNode);
+    if (isExisting !== Boolean(oldInstanceNode)) {
+      return { status: "incomplete-instance" };
+    }
+
+    const sourceContainer = isExisting ? oldInstanceNode! : node;
+    const sourceContent = isExisting
+      ? context.oldDocument.content
+      : context.newMainContent;
+    const nodeContent = sourceMarkup(sourceContent, sourceContainer);
+    if (nodeContent === null) return { status: "incomplete-instance" };
+
+    const sourceNodesById = isExisting
+      ? context.oldInstanceNodesById
+      : context.newMainNodesById;
+    const renderedChildren: RenderedComponentChild[] = [];
+    for (const childId of node.children) {
+      const child = context.newMainNodesById.get(childId);
+      if (!child) return { status: "incomplete-instance" };
+      const rendered = renderComponentStructureNode(child, context);
+      if (rendered.status !== "ready") return rendered;
+      const childSourceNodeId = identityValue(child, NODE_ID_ATTR);
+      if (!childSourceNodeId) return { status: "missing-source-node-id" };
+      renderedChildren.push({
+        sourceNodeId: childSourceNodeId,
+        content: rendered.content,
+        idMap: rendered.idMap,
+      });
+    }
+
+    const childIdMap =
+      isExisting && oldMainNode && oldInstanceNode
+        ? componentMarkupAuthoredIdMap(
+            context.oldMainContent,
+            oldMainNode,
+            context.oldDocument.content,
+            oldInstanceNode,
+          )
+        : new Map<string, string>();
+    if (childIdMap === null) return { status: "incomplete-instance" };
+    for (const child of renderedChildren) {
+      for (const [sourceId, instanceId] of child.idMap) {
+        const prior = childIdMap.get(sourceId);
+        if (prior && prior !== instanceId) {
+          return { status: "ambiguous-source-node-id" };
+        }
+        childIdMap.set(sourceId, instanceId);
+      }
+    }
+    const placeholders = componentChildPlaceholders(
+      nodeContent,
+      renderedChildren,
+    );
+    const rendered = renderComponentChildren(
+      nodeContent,
+      sourceContent,
+      sourceContainer,
+      sourceNodesById,
+      renderedChildren.map((child, index) => ({
+        ...child,
+        content: placeholders[index]!,
+      })),
+    );
+    if (rendered === null) return { status: "incomplete-instance" };
+    let markup = rendered;
+    if (!isExisting) {
+      if (
+        hasIdentityAttribute(node, COMPONENT_ID_ATTR) ||
+        hasIdentityAttribute(node, COMPONENT_REF_ATTR)
+      ) {
+        return { status: "unsupported-nested-link" };
+      }
+      const instanceNodeId = nextComponentInstanceNodeId(
+        context.source.fileId ?? "document",
+        sourceNodeId,
+        context.usedInstanceNodeIds,
+      );
+      const patched = patchCodeLayerNodeAttributes(markup, [
+        {
+          node: relativeSourceNode(node, node.source?.start ?? 0),
+          attributes: {
+            [NODE_ID_ATTR]: instanceNodeId,
+            [COMPONENT_SOURCE_NODE_ID_ATTR]: sourceNodeId,
+            [COMPONENT_ID_ATTR]: null,
+            [COMPONENT_REF_ATTR]: null,
+            [COMPONENT_OVERRIDES_ATTR]: null,
+          },
+        },
+      ]);
+      if (patched === null) return { status: "incomplete-instance" };
+      markup = patched;
+    }
+    const rewritten = rewriteComponentMarkupIds(
+      markup,
+      childIdMap,
+      isExisting
+        ? undefined
+        : (authoredId) =>
+            nextComponentAuthoredId(
+              context.source.fileId ?? "document",
+              sourceNodeId,
+              authoredId,
+              context.usedInstanceNodeIds,
+            ),
+    );
+    if (rewritten === null) return { status: "incomplete-instance" };
+    let content = rewritten.content;
+    const normalizedChildren: RenderedComponentChild[] = [];
+    for (const child of renderedChildren) {
+      const normalized = rewriteComponentMarkupIds(
+        child.content,
+        rewritten.idMap,
+      );
+      if (normalized === null) return { status: "incomplete-instance" };
+      normalizedChildren.push({
+        sourceNodeId: child.sourceNodeId,
+        content: normalized.content,
+        idMap: child.idMap,
+      });
+    }
+    for (const [index, placeholder] of placeholders.entries()) {
+      const child = normalizedChildren[index];
+      if (!child || !content.includes(placeholder)) {
+        return { status: "incomplete-instance" };
+      }
+      content = content.split(placeholder).join(child.content);
+    }
+    return { status: "ready", content, idMap: rewritten.idMap };
+  } finally {
+    context.visiting.delete(sourceNodeId);
+  }
+}
+
+function referenceNodeForSource(
+  projection: CodeLayerProjection,
+  sourceNodeId: string,
+  mainRootSourceNodeId: string,
+  referenceRootNodeId: string,
+):
+  | { status: "resolved"; node: CodeLayerNode }
+  | { status: ComponentStructureFailureStatus } {
+  if (sourceNodeId === mainRootSourceNodeId) {
+    const root = uniqueNodeByDurableId(projection, referenceRootNodeId);
+    return root.status === "resolved" ? root : { status: root.status };
+  }
+  const matches = projection.nodes.filter(
+    (node) =>
+      node.dataAttributes[COMPONENT_SOURCE_NODE_ID_ATTR] === sourceNodeId,
+  );
+  if (matches.length === 0) return { status: "missing-source-node-id" };
+  return matches.length === 1 && matches[0]
+    ? { status: "resolved", node: matches[0] }
+    : { status: "ambiguous-source-node-id" };
+}
+
+function applyStructureValueEdit(
+  content: string,
+  source: CodeLayerSource,
+  node: CodeLayerNode,
+  edit: ComponentPropertyEdit,
+):
+  | { status: "applied"; content: string }
+  | { status: ComponentStructureFailureStatus; message?: string } {
+  const intent = editIntent(edit, node.id, node.selector);
+  if (!intent) return { status: "unsupported-edit" };
+  const result = applyVisualEdit(content, intent, { source });
+  if (result.result.status !== "applied") {
+    return { status: "edit-refused", message: result.result.message };
+  }
+  return { status: "applied", content: result.content };
+}
+
+const STRUCTURE_INSTANCE_ATTRIBUTES = new Set([
+  "id",
+  NODE_ID_ATTR,
+  COMPONENT_NAME_ATTR,
+  COMPONENT_ID_ATTR,
+  COMPONENT_REF_ATTR,
+  COMPONENT_SOURCE_NODE_ID_ATTR,
+  COMPONENT_OVERRIDES_ATTR,
+  "data-agent-native-hidden",
+  "data-agent-native-locked",
+]);
+
+function canSyncStructureAttribute(name: string): boolean {
+  const lowerName = name.toLowerCase();
+  return (
+    !STRUCTURE_INSTANCE_ATTRIBUTES.has(lowerName) &&
+    !lowerName.startsWith("data-agent-native-prop-") &&
+    lowerName !== "style"
+  );
+}
+
+function structureAttributeValue(
+  value: string | true | undefined,
+): string | null {
+  if (value === undefined) return null;
+  return value === true ? "" : value;
+}
+
+function syncInheritedStructureValues(args: {
+  content: string;
+  source: CodeLayerSource;
+  mainRootSourceNodeId: string;
+  referenceRootNodeId: string;
+  oldMainTree: ComponentStructureTree;
+  newMainTree: ComponentStructureTree;
+  oldMainContent: string;
+  newMainContent: string;
+}):
+  | { status: "ready"; content: string }
+  | { status: ComponentStructureFailureStatus; message?: string } {
+  let content = args.content;
+
+  for (const sourceNodeId of [...args.newMainTree.bySourceId.keys()].sort()) {
+    const oldMainNode = args.oldMainTree.bySourceId.get(sourceNodeId);
+    const newMainNode = args.newMainTree.bySourceId.get(sourceNodeId);
+    if (!oldMainNode || !newMainNode) continue;
+    if (
+      args.oldMainTree.nestedBySourceId.has(sourceNodeId) ||
+      args.newMainTree.nestedBySourceId.has(sourceNodeId)
+    ) {
+      continue;
+    }
+
+    const projection = buildCodeLayerProjection(content, {
+      source: args.source,
+    });
+    const current = referenceNodeForSource(
+      projection,
+      sourceNodeId,
+      args.mainRootSourceNodeId,
+      args.referenceRootNodeId,
+    );
+    if (current.status !== "resolved") return current;
+    const overrides = readOverrides(current.node);
+    if (!overrides) return { status: "invalid-override-metadata" };
+
+    const attributes: Record<string, string | null> = {};
+    const attributeNames = new Set([
+      ...Object.keys(oldMainNode.attributes),
+      ...Object.keys(newMainNode.attributes),
+    ]);
+    for (const name of [...attributeNames].sort()) {
+      if (!canSyncStructureAttribute(name)) continue;
+      const before = oldMainNode.attributes[name];
+      const after = newMainNode.attributes[name];
+      if (before === after) continue;
+      if (
+        overrides.some(
+          (entry) =>
+            entry.sourceNodeId === sourceNodeId &&
+            entry.property === "attribute:" + name,
+        )
+      ) {
+        continue;
+      }
+      attributes[name] = structureAttributeValue(after);
+    }
+    if (Object.keys(attributes).length > 0) {
+      const patched = patchCodeLayerNodeAttributes(content, [
+        { node: current.node, attributes },
+      ]);
+      if (patched === null) return { status: "incomplete-instance" };
+      content = patched;
+    }
+
+    const styleProperties = new Set([
+      ...Object.keys(oldMainNode.style),
+      ...Object.keys(newMainNode.style),
+    ]);
+    for (const property of [...styleProperties].sort()) {
+      const before = oldMainNode.style[property];
+      const after = newMainNode.style[property];
+      const normalizedProperty = stylePropertyName(property);
+      if (
+        before === after ||
+        (sourceNodeId === args.mainRootSourceNodeId &&
+          ["left", "top", "rotate", "transform"].includes(normalizedProperty))
+      ) {
+        continue;
+      }
+      if (
+        overrides.some(
+          (entry) =>
+            entry.sourceNodeId === sourceNodeId &&
+            entry.property === "style:" + normalizedProperty,
+        )
+      ) {
+        continue;
+      }
+      const applied = applyStructureValueEdit(
+        content,
+        args.source,
+        current.node,
+        { kind: "style", property, value: after ?? null },
+      );
+      if (applied.status !== "applied") return applied;
+      content = applied.content;
+    }
+
+    const beforeText = readCodeLayerNodeTextContent(
+      args.oldMainContent,
+      oldMainNode,
+    );
+    const afterText = readCodeLayerNodeTextContent(
+      args.newMainContent,
+      newMainNode,
+    );
+    if (
+      beforeText !== null &&
+      afterText !== null &&
+      beforeText !== afterText &&
+      !overrides.some(
+        (entry) =>
+          entry.sourceNodeId === sourceNodeId &&
+          entry.property === "textContent",
+      )
+    ) {
+      const applied = applyStructureValueEdit(
+        content,
+        args.source,
+        current.node,
+        { kind: "textContent", value: afterText },
+      );
+      if (applied.status !== "applied") return applied;
+      content = applied.content;
+    }
+  }
+
+  return { status: "ready", content };
+}
+
+interface ComponentStructureReplacement {
+  span: { start: number; end: number } | null;
+  content: string;
+}
+
+/**
+ * Reconcile one canonical MAIN snapshot against every materialized reference.
+ * The caller owns persistence; this function only returns an all-or-nothing
+ * set of source changes after validating both identity graphs.
+ */
+export function applyComponentStructureEdit(args: {
+  documents: readonly ComponentSourceDocument[];
+  target: ComponentNodeHandle;
+  mainBefore: string;
+  mainAfter: string;
+}): ComponentStructureTransformResult {
+  const prepared = projectionForDocuments(args.documents, args.target.fileId);
+  if (prepared.status !== "ready") return { status: prepared.status };
+  const targetDocument = prepared.values.find(
+    ({ document }) => document.source.fileId === args.target.fileId,
+  );
+  if (!targetDocument) {
+    return { status: "missing-file", fileId: args.target.fileId };
+  }
+  if (targetDocument.document.content !== args.mainBefore) {
+    return {
+      status: "edit-refused",
+      fileId: args.target.fileId,
+      nodeId: args.target.nodeId,
+      message: "main-before-snapshot-mismatch",
+    };
+  }
+
+  const targetResult = uniqueNodeByDurableId(
+    targetDocument.projection,
+    args.target.nodeId,
+  );
+  if (targetResult.status !== "resolved") {
+    return {
+      status: targetResult.status,
+      fileId: args.target.fileId,
+      nodeId: args.target.nodeId,
+    };
+  }
+  const selectedRoot = nearestComponentRoot(
+    targetResult.node,
+    targetDocument.projection,
+  );
+  if (!selectedRoot) {
+    return {
+      status: "not-linked",
+      fileId: args.target.fileId,
+      nodeId: args.target.nodeId,
+    };
+  }
+  const mainRoot = hasIdentityAttribute(selectedRoot, COMPONENT_REF_ATTR)
+    ? nearestAncestorComponentMain(selectedRoot, targetDocument.projection)
+    : selectedRoot;
+  if (!mainRoot || !hasIdentityAttribute(mainRoot, COMPONENT_ID_ATTR)) {
+    return {
+      status: "unsupported-nested-link",
+      fileId: args.target.fileId,
+      nodeId: args.target.nodeId,
+    };
+  }
+
+  const componentId = identityValue(mainRoot, COMPONENT_ID_ATTR);
+  const mainRootSourceNodeId = identityValue(mainRoot, NODE_ID_ATTR);
+  if (!componentId || !mainRootSourceNodeId) {
+    return { status: "invalid-link", fileId: args.target.fileId };
+  }
+
+  const projections = prepared.values.map(({ projection }) => projection);
+  const resolved = componentResolution(projections, componentId);
+  if (resolved.status !== "resolved") {
+    return {
+      status: resolved.status,
+      componentId,
+      fileId: args.target.fileId,
+      nodeId: args.target.nodeId,
+    };
+  }
+  if (resolved.value.main.id !== mainRoot.id) {
+    return { status: "incomplete-instance", componentId };
+  }
+  const mainDocument = documentForNode(prepared.values, mainRoot);
+  if (
+    !mainDocument ||
+    mainDocument.document.source.fileId !== args.target.fileId
+  ) {
+    return { status: "incomplete-instance", componentId };
+  }
+
+  const oldTree = componentStructureTree(mainRoot, mainDocument.projection);
+  if (oldTree.status !== "ready")
+    return { status: oldTree.status, componentId };
+  const targetSourceNodeId = identityValue(targetResult.node, NODE_ID_ATTR);
+  if (!targetSourceNodeId) {
+    return { status: "missing-source-node-id", componentId };
+  }
+  if (!oldTree.value.bySourceId.has(targetSourceNodeId)) {
+    return { status: "unsupported-nested-link", componentId };
+  }
+  if (oldTree.value.nestedBySourceId.has(targetSourceNodeId)) {
+    return { status: "unsupported-nested-link", componentId };
+  }
+
+  const pairResult = componentPairs(
+    mainRoot,
+    mainDocument,
+    resolved.value.references,
+    prepared.values,
+  );
+  if (pairResult.status !== "ready") {
+    return { status: pairResult.status, componentId };
+  }
+  for (const reference of pairResult.byReference) {
+    for (const pair of reference.pairs) {
+      if (
+        oldTree.value.bySourceId.has(pair.sourceNodeId) &&
+        !readOverrides(pair.instance)
+      ) {
+        return { status: "invalid-override-metadata", componentId };
+      }
+    }
+  }
+
+  const mainSpan = mainRoot.source;
+  if (
+    !mainSpan ||
+    mainSpan.start < 0 ||
+    mainSpan.end <= mainSpan.start ||
+    mainSpan.end > args.mainBefore.length
+  ) {
+    return {
+      status: "edit-refused",
+      componentId,
+      message: "structure-edit-outside-main-root",
+    };
+  }
+  const mainBeforePrefix = args.mainBefore.slice(0, mainSpan.start);
+  const mainBeforeSuffix = args.mainBefore.slice(mainSpan.end);
+  if (
+    !args.mainAfter.startsWith(mainBeforePrefix) ||
+    !args.mainAfter.endsWith(mainBeforeSuffix) ||
+    args.mainAfter.length < mainBeforePrefix.length + mainBeforeSuffix.length
+  ) {
+    return {
+      status: "edit-refused",
+      componentId,
+      message: "structure-edit-outside-main-root",
+    };
+  }
+
+  const afterDocuments = args.documents.map((document) =>
+    document.source.fileId === args.target.fileId
+      ? { ...document, content: args.mainAfter }
+      : document,
+  );
+  const afterPrepared = projectionForDocuments(
+    afterDocuments,
+    args.target.fileId,
+  );
+  if (afterPrepared.status !== "ready") {
+    return { status: afterPrepared.status, componentId };
+  }
+  const afterMainDocument = afterPrepared.values.find(
+    ({ document }) => document.source.fileId === args.target.fileId,
+  );
+  if (!afterMainDocument) return { status: "missing-file", componentId };
+  const afterRootResult = uniqueNodeByDurableId(
+    afterMainDocument.projection,
+    mainRootSourceNodeId,
+  );
+  if (afterRootResult.status !== "resolved") {
+    return { status: afterRootResult.status, componentId };
+  }
+  const afterRoot = afterRootResult.node;
+  const afterSpan = afterRoot.source;
+  if (
+    afterRoot.tag !== mainRoot.tag ||
+    identityValue(afterRoot, COMPONENT_ID_ATTR) !== componentId ||
+    hasIdentityAttribute(afterRoot, COMPONENT_REF_ATTR) ||
+    !afterSpan ||
+    afterSpan.start !== mainBeforePrefix.length ||
+    afterSpan.end !== args.mainAfter.length - mainBeforeSuffix.length ||
+    args.mainAfter.slice(0, afterSpan.start) !== mainBeforePrefix ||
+    args.mainAfter.slice(afterSpan.end) !== mainBeforeSuffix
+  ) {
+    return {
+      status: "edit-refused",
+      componentId,
+      message: "structure-edit-outside-main-root",
+    };
+  }
+
+  const afterResolved = componentResolution(
+    afterPrepared.values.map(({ projection }) => projection),
+    componentId,
+  );
+  if (
+    afterResolved.status !== "resolved" ||
+    afterResolved.value.main.id !== afterRoot.id
+  ) {
+    return {
+      status:
+        afterResolved.status === "resolved"
+          ? "incomplete-instance"
+          : afterResolved.status,
+      componentId,
+    };
+  }
+
+  const newTree = componentStructureTree(
+    afterRoot,
+    afterMainDocument.projection,
+  );
+  if (newTree.status !== "ready")
+    return { status: newTree.status, componentId };
+  const afterNodesById = new Map(
+    afterMainDocument.projection.nodes.map((node) => [node.id, node] as const),
+  );
+  for (const [sourceNodeId, newNestedRoot] of newTree.value.nestedBySourceId) {
+    const nestedReferenceId = identityValue(newNestedRoot, COMPONENT_REF_ATTR);
+    const nestedResolution = nestedReferenceId
+      ? componentResolution(
+          afterPrepared.values.map(({ projection }) => projection),
+          nestedReferenceId,
+        )
+      : null;
+    const nestedSubtree = descendantsOf(newNestedRoot, afterNodesById);
+    if (
+      !nestedReferenceId ||
+      nestedResolution?.status !== "resolved" ||
+      !validateNestedReference(
+        newNestedRoot,
+        afterMainDocument.projection,
+        afterPrepared.values.map(({ projection }) => projection),
+        afterRoot,
+      ) ||
+      !nestedSubtree ||
+      nestedSubtree
+        .slice(1)
+        .some(
+          (node) =>
+            hasIdentityAttribute(node, COMPONENT_ID_ATTR) ||
+            hasIdentityAttribute(node, COMPONENT_REF_ATTR),
+        )
+    ) {
+      return { status: "unsupported-nested-link", componentId };
+    }
+    const oldNestedRoot = oldTree.value.nestedBySourceId.get(sourceNodeId);
+    if (
+      oldNestedRoot &&
+      identityValue(oldNestedRoot, COMPONENT_REF_ATTR) !== nestedReferenceId
+    ) {
+      return { status: "unsupported-nested-link", componentId };
+    }
+  }
+  for (const [sourceNodeId, oldNestedRoot] of oldTree.value.nestedBySourceId) {
+    const newNestedRoot = newTree.value.nestedBySourceId.get(sourceNodeId);
+    if (!newNestedRoot) continue;
+    const oldMarkup = sourceMarkup(
+      mainDocument.document.content,
+      oldNestedRoot,
+    );
+    const newMarkup = sourceMarkup(
+      afterMainDocument.document.content,
+      newNestedRoot,
+    );
+    if (oldMarkup === null || newMarkup === null || oldMarkup !== newMarkup) {
+      return { status: "unsupported-nested-link", componentId };
+    }
+  }
+  for (const [sourceNodeId, oldNode] of oldTree.value.bySourceId) {
+    const next = newTree.value.bySourceId.get(sourceNodeId);
+    if (next && next.tag !== oldNode.tag) {
+      return { status: "incomplete-instance", componentId };
+    }
+  }
+
+  const original = new Map(
+    prepared.values.map(({ document }) => [
+      document.source.fileId ?? "",
+      document.content,
+    ]),
+  );
+  const documentsByFileId = new Map(
+    prepared.values.map(({ document }) => [
+      document.source.fileId ?? "",
+      document,
+    ]),
+  );
+  const replacementsByFileId = new Map<
+    string,
+    ComponentStructureReplacement[]
+  >();
+  const reservedInstanceNodeIdsByFileId = new Map<string, Set<string>>();
+
+  for (const reference of pairResult.byReference) {
+    const referenceRoot = reference.pairs.find(
+      ({ sourceNodeId }) => sourceNodeId === mainRootSourceNodeId,
+    )?.instance;
+    if (!referenceRoot) {
+      return { status: "incomplete-instance", componentId };
+    }
+    const referenceRootNodeId = identityValue(referenceRoot, NODE_ID_ATTR);
+    if (!referenceRootNodeId || !referenceRoot.source) {
+      return { status: "incomplete-instance", componentId };
+    }
+
+    const oldInstanceBySourceId = new Map<string, CodeLayerNode>();
+    for (const pair of reference.pairs) {
+      if (oldTree.value.bySourceId.has(pair.sourceNodeId)) {
+        oldInstanceBySourceId.set(pair.sourceNodeId, pair.instance);
+      }
+    }
+    const fileId = reference.document.document.source.fileId!;
+    let usedInstanceNodeIds = reservedInstanceNodeIdsByFileId.get(fileId);
+    if (!usedInstanceNodeIds) {
+      usedInstanceNodeIds = new Set<string>();
+      const reservationDocument =
+        fileId === args.target.fileId ? afterMainDocument : reference.document;
+      for (const node of reservationDocument.projection.nodes) {
+        const durableId = identityValue(node, NODE_ID_ATTR);
+        if (durableId) usedInstanceNodeIds.add(durableId);
+      }
+      for (const authoredId of componentMarkupIds(
+        reservationDocument.document.content,
+      )) {
+        usedInstanceNodeIds.add(authoredId);
+      }
+      reservedInstanceNodeIdsByFileId.set(fileId, usedInstanceNodeIds);
+    }
+
+    const context: ComponentStructureReferenceContext = {
+      source: reference.document.document.source,
+      newMainContent: afterMainDocument.document.content,
+      newMainNodesById: new Map(
+        afterMainDocument.projection.nodes.map((node) => [node.id, node]),
+      ),
+      oldMainTree: oldTree.value,
+      newMainTree: newTree.value,
+      oldMainContent: mainDocument.document.content,
+      oldDocument: reference.document.document,
+      oldInstanceBySourceId,
+      oldInstanceNodesById: new Map(
+        reference.document.projection.nodes.map((node) => [node.id, node]),
+      ),
+      usedInstanceNodeIds,
+      visiting: new Set(),
+    };
+    const rendered = renderComponentStructureNode(afterRoot, context);
+    if (rendered.status !== "ready") {
+      return { status: rendered.status, componentId };
+    }
+    const synced = syncInheritedStructureValues({
+      content: rendered.content,
+      source: reference.document.document.source,
+      mainRootSourceNodeId,
+      referenceRootNodeId,
+      oldMainTree: oldTree.value,
+      newMainTree: newTree.value,
+      oldMainContent: mainDocument.document.content,
+      newMainContent: afterMainDocument.document.content,
+    });
+    if (synced.status !== "ready") {
+      return { status: synced.status, componentId };
+    }
+
+    const entries = replacementsByFileId.get(fileId) ?? [];
+    entries.push({
+      span: referenceRoot.source,
+      content: synced.content,
+    });
+    replacementsByFileId.set(fileId, entries);
+  }
+
+  for (const [fileId, entries] of replacementsByFileId) {
+    const document = documentsByFileId.get(fileId);
+    if (!document) return { status: "incomplete-instance", componentId };
+    const sorted = [...entries].sort(
+      (left, right) => (left.span?.start ?? 0) - (right.span?.start ?? 0),
+    );
+    for (let index = 1; index < sorted.length; index += 1) {
+      const previous = sorted[index - 1]!.span;
+      const current = sorted[index]!.span;
+      if (!previous || !current || previous.end > current.start) {
+        return { status: "incomplete-instance", componentId };
+      }
+    }
+    if (
+      fileId === args.target.fileId &&
+      entries.some(({ span }) => {
+        if (!span) return true;
+        return span.start < mainSpan.end && mainSpan.start < span.end;
+      })
+    ) {
+      return { status: "incomplete-instance", componentId };
+    }
+  }
+
+  const updated = new Map(original);
+  updated.set(args.target.fileId, args.mainAfter);
+  for (const [fileId, entries] of replacementsByFileId) {
+    let content = updated.get(fileId);
+    if (content === undefined)
+      return { status: "incomplete-instance", componentId };
+    const mainDelta =
+      fileId === args.target.fileId
+        ? args.mainAfter.length - args.mainBefore.length
+        : 0;
+    for (const replacement of [...entries].sort(
+      (left, right) => (right.span?.start ?? 0) - (left.span?.start ?? 0),
+    )) {
+      const span = replacement.span;
+      if (!span) return { status: "incomplete-instance", componentId };
+      const shift =
+        fileId === args.target.fileId && mainSpan.start < span.start
+          ? mainDelta
+          : 0;
+      const start = span.start + shift;
+      const end = span.end + shift;
+      if (start < 0 || end <= start || end > content.length) {
+        return { status: "incomplete-instance", componentId };
+      }
+      content =
+        content.slice(0, start) + replacement.content + content.slice(end);
+    }
+    updated.set(fileId, content);
+  }
+
+  for (const [fileId, content] of updated) {
+    if (content !== original.get(fileId)) {
+      updated.set(fileId, ensureGroupRuntime(content));
+    }
+  }
+
+  return {
+    status: "updated",
+    componentId,
+    changes: resultChanges(prepared.values, original, updated),
+  };
 }
 
 export function isValidComponentReferenceSubtree(args: {
@@ -1833,6 +3343,150 @@ export function applyComponentPropertyEdit(args: {
     status: "updated",
     componentId,
     changes: resultChanges(prepared.values, original, updated),
+  };
+}
+
+export interface ComponentStyleTarget {
+  fileId: string;
+  nodeId: string;
+  styles: Record<string, string>;
+}
+
+export function applyComponentStructureIntent(args: {
+  content: string;
+  intent: EditIntent;
+  source: CodeLayerSource;
+}) {
+  const intent =
+    args.intent.kind === "style" &&
+    (args.intent.operation ?? "set") === "remove"
+      ? {
+          kind: "style" as const,
+          operation: "remove" as const,
+          target: args.intent.target,
+          property: args.intent.property,
+        }
+      : args.intent.kind === "style"
+        ? {
+            kind: "style" as const,
+            operation: "set" as const,
+            target: args.intent.target,
+            property: args.intent.property,
+            value: "value" in args.intent ? args.intent.value : "",
+          }
+        : args.intent;
+  return applyVisualEdit(args.content, intent, {
+    source: args.source,
+    allowMainComponentStructure: true,
+  });
+}
+
+/** Apply one inspector commit across linked and ordinary selected targets. */
+export function applyComponentStyleTargetsEdit(args: {
+  documents: readonly ComponentSourceDocument[];
+  targets: readonly ComponentStyleTarget[];
+}): ComponentPropertyTransformResult {
+  let currentDocuments = [...args.documents];
+  let componentId = "";
+  for (const target of args.targets) {
+    const targetDocument = currentDocuments.find(
+      (document) => document.source.fileId === target.fileId,
+    );
+    if (!targetDocument) {
+      return { status: "missing-file", fileId: target.fileId };
+    }
+    const projection = buildCodeLayerProjection(targetDocument.content, {
+      source: targetDocument.source,
+    });
+    const node = projection.nodes.find((candidate) =>
+      componentNodeIdMatches(candidate, target.nodeId),
+    );
+    if (!node) {
+      return {
+        status: "missing-node",
+        fileId: target.fileId,
+        nodeId: target.nodeId,
+      };
+    }
+    const linked = nearestComponentRoot(node, projection) !== null;
+    for (const [property, value] of Object.entries(target.styles)) {
+      if (linked) {
+        const next = applyComponentPropertyEdit({
+          documents: currentDocuments,
+          target: { fileId: target.fileId, nodeId: target.nodeId },
+          edit: { kind: "style", property, value },
+        });
+        if (next.status !== "updated") return next;
+        componentId = next.componentId;
+        const changesByFileId = new Map(
+          next.changes.map((change) => [change.fileId, change.after]),
+        );
+        currentDocuments = currentDocuments.map((document) => ({
+          ...document,
+          content:
+            changesByFileId.get(document.source.fileId ?? "") ??
+            document.content,
+        }));
+        continue;
+      }
+      const targetSource = currentDocuments.find(
+        (document) => document.source.fileId === target.fileId,
+      )!;
+      const patch = applyVisualEdit(
+        targetSource.content,
+        {
+          kind: "style",
+          target: { nodeId: target.nodeId },
+          property,
+          value,
+        },
+        { source: targetSource.source },
+      );
+      if (patch.result.status !== "applied") {
+        return {
+          status: "edit-refused",
+          fileId: target.fileId,
+          nodeId: target.nodeId,
+          message: patch.result.message,
+        };
+      }
+      currentDocuments = currentDocuments.map((document) =>
+        document.source.fileId === target.fileId
+          ? { ...document, content: patch.content }
+          : document,
+      );
+    }
+  }
+  if (!componentId) {
+    return {
+      status: "not-linked",
+      fileId: args.targets[0]?.fileId,
+      nodeId: args.targets[0]?.nodeId,
+    };
+  }
+  const original = new Map(
+    args.documents.map((document) => [
+      document.source.fileId ?? "",
+      document.content,
+    ]),
+  );
+  return {
+    status: "updated",
+    componentId,
+    changes: currentDocuments.flatMap((document) => {
+      const fileId = document.source.fileId ?? "";
+      const before = original.get(fileId);
+      return before === undefined || before === document.content
+        ? []
+        : [
+            {
+              fileId,
+              source: document.source,
+              before,
+              after: document.content,
+            },
+          ];
+    }),
   };
 }
 

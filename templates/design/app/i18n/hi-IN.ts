@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["hi-IN"],
   designEditor: {
     ...messagesByLocale["hi-IN"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["hi-IN"].designEditor.componentInstances,
+      restore: "कॉम्पोनेंट पुनर्स्थापित करें",
+    },
     commenterRoleLabel: "टिप्पणीकार",
     commenterRoleDescription: "समीक्षा टिप्पणियाँ देख और जोड़ सकते हैं",
     toasts: {
@@ -56,6 +60,9 @@ const messages = {
     placeholder: "अपनी प्रतिक्रिया दें…",
     commentingOn: "{{name}} पर टिप्पणी",
     emptyState: "अभी तक कोई समीक्षा टिप्पणी नहीं है।",
+    filter: "टिप्पणियाँ फ़िल्टर करें",
+    all: "सभी",
+    open: "खुली",
     clickToPin: "प्रतिक्रिया पिन करने के लिए कहीं भी क्लिक करें",
     escToExit: "बाहर निकलने के लिए Esc दबाएँ",
     newComment: "नई टिप्पणी",
@@ -76,6 +83,9 @@ const messages = {
     resolveFailed: "यह थ्रेड हल नहीं किया जा सका",
     deleteComment: "टिप्पणी हटाएँ",
     moreActions: "अधिक कार्रवाइयाँ",
+    copyLink: "लिंक कॉपी करें",
+    linkCopied: "लिंक कॉपी हो गया",
+    copyLinkFailed: "लिंक कॉपी नहीं किया जा सका",
     resolved: "हल किया गया",
     reviewer: "समीक्षक",
     applyFeedback: "प्रतिक्रिया लागू करें ({{count}})",
