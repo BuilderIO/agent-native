@@ -114,6 +114,9 @@ previously identified candidate. Every actionable item must have an owning
 source seam and focused verification, with one explicit disposition: fixed,
 awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
+`Clarification needed` is an active, eye-held disposition and blocks merge
+until answered or expired; only a terminal disposition with its marker clears
+the gate.
 
 The handoff must preserve the feedback workflow's automation disclosure:
 every Slack reply it posts ends with `this was sent from a bot.`
@@ -411,7 +414,8 @@ branch, stay on it.
   fix real bugs if CI or review feedback flags them.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
-  fix or a reply before merge.
+  verified fix and reply, or a disposition-specific terminal outcome, before
+  merge; an active/evidence-limited state remains a blocker.
 - Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
   comment handling, local-file push discipline, and merge gates. Update
   `babysit-pr` first if the watcher behavior changes.
