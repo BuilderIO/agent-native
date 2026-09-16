@@ -115,7 +115,7 @@ pub struct FeatureConfig {
     pub voice_cleanup_enabled: bool,
     #[serde(default = "default_launch_at_login_enabled")]
     pub launch_at_login_enabled: bool,
-    #[serde(default)]
+    #[serde(default = "default_auto_hide_popover_enabled")]
     pub auto_hide_popover_enabled: bool,
     #[serde(default = "default_meeting_transcription_mode")]
     pub meeting_transcription_mode: MeetingTranscriptionMode,
@@ -158,6 +158,10 @@ pub enum LocalRecordingMode {
 }
 
 fn default_launch_at_login_enabled() -> bool {
+    true
+}
+
+fn default_auto_hide_popover_enabled() -> bool {
     true
 }
 
@@ -230,7 +234,7 @@ impl Default for FeatureConfig {
             voice_enabled: true,
             voice_cleanup_enabled: default_voice_cleanup_enabled(),
             launch_at_login_enabled: true,
-            auto_hide_popover_enabled: false,
+            auto_hide_popover_enabled: default_auto_hide_popover_enabled(),
             meeting_transcription_mode: default_meeting_transcription_mode(),
             local_recording_mode: LocalRecordingMode::Off,
             show_meeting_widget_enabled: default_show_meeting_widget_enabled(),
@@ -441,6 +445,16 @@ mod tests {
 
         assert_eq!(config.whisper_model_id, "base");
         assert!(config.voice_cleanup_enabled);
+        assert!(config.auto_hide_popover_enabled);
+
+        let opt_out: FeatureConfig = serde_json::from_value(serde_json::json!({
+            "clipsEnabled": true,
+            "meetingsEnabled": true,
+            "voiceEnabled": true,
+            "autoHidePopoverEnabled": false
+        }))
+        .unwrap();
+        assert!(!opt_out.auto_hide_popover_enabled);
     }
 
     #[test]
