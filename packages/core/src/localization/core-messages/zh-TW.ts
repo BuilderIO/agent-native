@@ -84,6 +84,11 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.voiceInput.keySummary": "瀏覽器語音辨識或語音轉文字",
   "onboarding.capability.voiceInput.why":
     "語音輸入會將口述要求轉換為文字；隨時都可以使用鍵盤輸入。",
+  "onboarding.capability.embeddings.label": "嵌入向量",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere 或 Voyage 金鑰",
+  "onboarding.capability.embeddings.why":
+    "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
   "onboarding.capability.assetsImageGeneration.label": "影像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 點數或影像提供者金鑰",

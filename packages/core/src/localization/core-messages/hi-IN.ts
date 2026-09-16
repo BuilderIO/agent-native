@@ -86,6 +86,10 @@ const messages: AgentChatTranslation = {
     "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
   "onboarding.capability.voiceInput.why":
     "वॉइस इनपुट बोले गए अनुरोधों को टेक्स्ट में बदलता है; टाइप करना हमेशा उपलब्ध है।",
+  "onboarding.capability.embeddings.label": "एंबेडिंग",
+  "onboarding.capability.embeddings.keySummary": "Gemini, Cohere या Voyage कुंजी",
+  "onboarding.capability.embeddings.why":
+    "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder क्रेडिट या इमेज प्रदाता की कुंजी",

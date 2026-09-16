@@ -51,6 +51,9 @@ const EMBEDDINGS_CAPABILITY: OnboardingCapability = {
   suggested: true,
   builderIncluded: true,
   keySummary: "Gemini, Cohere, or Voyage key",
+  labelKey: "agentChat.onboarding.capability.embeddings.label",
+  keySummaryKey: "agentChat.onboarding.capability.embeddings.keySummary",
+  whyKey: "agentChat.onboarding.capability.embeddings.why",
   why: "Embeddings improve semantic search. Keyword search still works without them.",
 };
 

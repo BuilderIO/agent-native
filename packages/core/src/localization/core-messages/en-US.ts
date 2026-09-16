@@ -88,6 +88,11 @@ const messages = {
     "Browser speech recognition or speech-to-text",
   "onboarding.capability.voiceInput.why":
     "Voice input turns spoken requests into text; typing always works without it.",
+  "onboarding.capability.embeddings.label": "Embeddings",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini, Cohere, or Voyage key",
+  "onboarding.capability.embeddings.why":
+    "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder credits or an image provider key",

@@ -96,6 +96,11 @@ const messages: AgentChatTranslation = {
     "Browser-Spracherkennung oder Sprache-zu-Text",
   "onboarding.capability.voiceInput.why":
     "Spracheingabe wandelt gesprochene Anfragen in Text um; Tippen funktioniert weiterhin.",
+  "onboarding.capability.embeddings.label": "Semantische Vektoren",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini-, Cohere- oder Voyage-Schlüssel",
+  "onboarding.capability.embeddings.why":
+    "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
   "onboarding.capability.assetsImageGeneration.label": "Bilderzeugung",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder-Credits oder Schlüssel eines Bildanbieters",
