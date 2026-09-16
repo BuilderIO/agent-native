@@ -1,4 +1,14 @@
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import {
   Avatar,
   AvatarFallback,
   AvatarImage,
@@ -16,7 +26,10 @@ import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconCircleCheck,
   IconDots,
+  IconLink,
   IconMessageCircle,
+  IconMoodSmile,
+  IconMail,
   IconSend,
   IconTrash,
   IconX,
@@ -25,6 +38,7 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import type {
   ReviewComment,
+  ReviewCommentReaction,
   ReviewResolutionTarget,
 } from "../../review/types.js";
 import { useFormatters } from "../i18n.js";
@@ -36,16 +50,18 @@ import { ReviewStatusBadge } from "./ReviewStatusBadge.js";
 import {
   useCreateReviewComment,
   useDeleteReviewComment,
+  useReactToReviewComment,
   useReplyReviewComment,
   useResolveReviewThread,
   useReviewComments,
 } from "./use-review.js";
 
+const DEFAULT_REACTION_CHOICES = ["👍", "❤️", "🎉", "👀"] as const;
+
 export interface ReviewThread {
   root: ReviewComment;
   replies: ReviewComment[];
 }
-
 export type ReviewThreadCapability =
   | boolean
   | ((thread: ReviewThread) => boolean);
@@ -86,6 +102,27 @@ export interface ReviewThreadPanelProps {
   agentLabel?: string;
   onSelectThread?: (thread: ReviewThread) => void;
   onCommentCreated?: (comment: ReviewComment) => void;
+  /** Filter already-loaded threads without changing the review query. */
+  threadFilter?: (thread: ReviewThread) => boolean;
+  /** Optional actions matching the Figma thread menu. */
+  onCopyThreadLink?: (thread: ReviewThread) => void;
+  onMarkThreadUnread?: (thread: ReviewThread) => void;
+  copyLinkLabel?: string;
+  markUnreadLabel?: string;
+  /** Show reaction chips and an emoji picker under each comment. */
+  showReactions?: boolean;
+  reactionChoices?: readonly string[];
+  addReactionLabel?: string;
+  onReactionError?: () => void;
+  /** Called after a resolve/reopen mutation has been verified by the action. */
+  onThreadResolved?: (thread: ReviewThread) => void;
+  onThreadReopened?: (thread: ReviewThread) => void;
+  reopenLabel?: string;
+  reopeningLabel?: string;
+  confirmDeleteTitle?: string;
+  confirmDeleteDescription?: string;
+  confirmDeleteLabel?: string;
+  cancelDeleteLabel?: string;
   /** Allow signed-in commenters to reply. Omitted capabilities fail closed. */
   canReply?: ReviewThreadCapability;
   /** Allow editors to resolve a thread. Omitted capabilities fail closed. */
@@ -128,6 +165,23 @@ export function ReviewThreadPanel({
   agentLabel,
   onSelectThread,
   onCommentCreated,
+  threadFilter,
+  onCopyThreadLink,
+  onMarkThreadUnread,
+  copyLinkLabel = "Copy link",
+  markUnreadLabel = "Mark as unread",
+  showReactions = false,
+  reactionChoices = DEFAULT_REACTION_CHOICES,
+  addReactionLabel = "Add reaction",
+  onReactionError,
+  onThreadResolved,
+  onThreadReopened,
+  reopenLabel = "Reopen",
+  reopeningLabel = "Reopening…",
+  confirmDeleteTitle = "Delete comment?",
+  confirmDeleteDescription = "This removes the comment from the review thread.",
+  confirmDeleteLabel = "Delete",
+  cancelDeleteLabel = "Cancel",
   canReply = false,
   canResolve = false,
   canDeleteComment = false,
@@ -141,6 +195,9 @@ export function ReviewThreadPanel({
     useState<ReviewResolutionTarget | null>(null);
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [deleteCandidate, setDeleteCandidate] = useState<ReviewComment | null>(
+    null,
+  );
   const formatters = useFormatters();
   const formatDate = formatters.formatDate.bind(formatters);
   const comments = useReviewComments({
@@ -153,10 +210,30 @@ export function ReviewThreadPanel({
   const replyComment = useReplyReviewComment();
   const resolveThread = useResolveReviewThread();
   const deleteComment = useDeleteReviewComment();
-  const threads = useMemo(
-    () => buildReviewThreads(comments.data?.comments ?? []),
-    [comments.data?.comments],
-  );
+  const reactToComment = useReactToReviewComment();
+  const threads = useMemo(() => {
+    const next = buildReviewThreads(comments.data?.comments ?? []);
+    return threadFilter ? next.filter(threadFilter) : next;
+  }, [comments.data?.comments, threadFilter]);
+
+  const handleReaction = (
+    comment: ReviewComment,
+    reaction: string,
+    active: boolean,
+  ) => {
+    if (!comments.data?.discussion?.canReact || reactToComment.isPending)
+      return;
+    reactToComment.mutate(
+      {
+        resourceType,
+        resourceId,
+        commentId: comment.id,
+        reaction,
+        active,
+      },
+      { onError: onReactionError },
+    );
+  };
 
   const submitDraft = (resolutionTarget: ReviewResolutionTarget) => {
     const body = draft.trim();
@@ -183,276 +260,395 @@ export function ReviewThreadPanel({
   };
 
   return (
-    <section
-      className={cn(
-        "@container/review overflow-hidden text-card-foreground",
-        variant === "card"
-          ? "rounded-lg border border-border bg-card"
-          : "bg-transparent",
-        className,
-      )}
-    >
-      {showHeader ? (
-        <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5">
-          <div className="flex min-w-0 items-center gap-2">
-            <IconMessageCircle className="size-4 shrink-0 text-muted-foreground" />
-            <h2 className="truncate text-sm font-medium">{title}</h2>
-          </div>
-          <ReviewStatusBadge
-            status={comments.data?.reviewStatus?.status}
-            className="shrink-0"
-          />
-        </div>
-      ) : null}
-
-      {showComposer ? (
-        <ReviewCommentComposer
-          className="border-b border-border px-3 py-3"
-          value={draft}
-          onChange={setDraft}
-          onSubmit={submitDraft}
-          submittingTarget={submittingTarget}
-          disabled={createComment.isPending}
-          showAgentAction={showComposerTargetPicker}
-          placeholder={placeholder}
-          commentLabel={composerCommentLabel}
-          agentLabel={composerAgentLabel}
-          contextLabel={composerContextLabel}
-        />
-      ) : null}
-
-      <div className="divide-y divide-border">
-        {comments.isLoading ? (
-          <div
-            className="flex flex-col gap-3 px-3 py-4"
-            aria-label={loadingLabel}
-          >
-            <div className="flex items-center gap-2.5">
-              <Skeleton className="size-7 rounded-full" />
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <Skeleton className="h-3 w-2/5" />
-                <Skeleton className="h-3 w-4/5" />
-              </div>
+    <>
+      <section
+        className={cn(
+          "@container/review overflow-hidden text-card-foreground",
+          variant === "card"
+            ? "rounded-lg border border-border bg-card"
+            : "bg-transparent",
+          className,
+        )}
+      >
+        {showHeader ? (
+          <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <IconMessageCircle className="size-4 shrink-0 text-muted-foreground" />
+              <h2 className="truncate text-sm font-medium">{title}</h2>
             </div>
-            <Skeleton className="h-8 w-full" />
+            <ReviewStatusBadge
+              status={comments.data?.reviewStatus?.status}
+              className="shrink-0"
+            />
           </div>
-        ) : threads.length ? (
-          threads.map((thread) => {
-            const replyDraft = replyDrafts[thread.root.id] ?? "";
-            const replying = replyingThreadId === thread.root.threadId;
-            const threadIsOpen = thread.root.status === "open";
-            const replyAllowed =
-              threadIsOpen && capabilityAllowsThread(canReply, thread);
-            const resolveAllowed =
-              threadIsOpen && capabilityAllowsThread(canResolve, thread);
-            const deleteAllowed = capabilityAllowsComment(
-              canDeleteComment,
-              thread.root,
-              thread,
-            );
-            const threadActions = renderThreadActions?.(thread);
-            const hasActions =
-              replyAllowed ||
-              resolveAllowed ||
-              deleteAllowed ||
-              Boolean(threadActions);
-            return (
-              <article
-                key={thread.root.threadId}
-                className={cn(
-                  "group/thread px-3 py-3 transition-colors",
-                  onSelectThread && "cursor-pointer hover:bg-muted/30",
-                )}
-                onClick={() => onSelectThread?.(thread)}
-              >
-                <CommentBubble
-                  comment={thread.root}
-                  resolvedLabel={resolvedLabel}
-                  reviewerLabel={reviewerLabel}
-                  agentLabel={agentLabel}
-                  formatDate={formatDate}
-                />
-                {thread.replies.length ? (
-                  <div className="ms-3 mt-3 flex flex-col gap-3 border-s border-border ps-3">
-                    {thread.replies.map((reply) => (
-                      <CommentBubble
-                        key={reply.id}
-                        comment={reply}
-                        compact
-                        resolvedLabel={resolvedLabel}
-                        reviewerLabel={reviewerLabel}
-                        agentLabel={agentLabel}
-                        formatDate={formatDate}
-                      />
-                    ))}
-                  </div>
-                ) : null}
+        ) : null}
 
-                {replying && replyAllowed ? (
-                  <form
-                    className="mt-3 flex min-w-0 items-center gap-1.5"
-                    onClick={(event) => event.stopPropagation()}
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const body = replyDraft.trim();
-                      if (!body || replyComment.isPending) return;
-                      replyComment.mutate(
-                        {
-                          resourceType,
-                          resourceId,
-                          commentId: thread.root.id,
-                          body,
-                        },
-                        {
-                          onSuccess: () => {
-                            setReplyDrafts((current) => ({
-                              ...current,
-                              [thread.root.id]: "",
-                            }));
-                            setReplyingThreadId(null);
+        {showComposer ? (
+          <ReviewCommentComposer
+            className="border-b border-border px-3 py-3"
+            value={draft}
+            onChange={setDraft}
+            onSubmit={submitDraft}
+            submittingTarget={submittingTarget}
+            disabled={createComment.isPending}
+            showAgentAction={showComposerTargetPicker}
+            placeholder={placeholder}
+            commentLabel={composerCommentLabel}
+            agentLabel={composerAgentLabel}
+            contextLabel={composerContextLabel}
+          />
+        ) : null}
+
+        <div className="divide-y divide-border">
+          {comments.isLoading ? (
+            <div
+              className="flex flex-col gap-3 px-3 py-4"
+              aria-label={loadingLabel}
+            >
+              <div className="flex items-center gap-2.5">
+                <Skeleton className="size-7 rounded-full" />
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <Skeleton className="h-3 w-2/5" />
+                  <Skeleton className="h-3 w-4/5" />
+                </div>
+              </div>
+              <Skeleton className="h-8 w-full" />
+            </div>
+          ) : threads.length ? (
+            threads.map((thread) => {
+              const replyDraft = replyDrafts[thread.root.id] ?? "";
+              const replying = replyingThreadId === thread.root.threadId;
+              const threadIsOpen = thread.root.status === "open";
+              const replyAllowed =
+                threadIsOpen && capabilityAllowsThread(canReply, thread);
+              const resolveAllowed =
+                threadIsOpen && capabilityAllowsThread(canResolve, thread);
+              const deleteAllowed = capabilityAllowsComment(
+                canDeleteComment,
+                thread.root,
+                thread,
+              );
+              const threadActions = renderThreadActions?.(thread);
+              const reopenAllowed =
+                thread.root.status === "resolved" &&
+                capabilityAllowsThread(canResolve, thread);
+              const hasMenuActions =
+                deleteAllowed ||
+                Boolean(onCopyThreadLink) ||
+                Boolean(onMarkThreadUnread);
+              const hasActions =
+                replyAllowed ||
+                resolveAllowed ||
+                reopenAllowed ||
+                hasMenuActions ||
+                Boolean(threadActions);
+              return (
+                <article
+                  key={thread.root.threadId}
+                  className={cn(
+                    "group/thread px-3 py-3 transition-colors",
+                    onSelectThread && "cursor-pointer hover:bg-muted/30",
+                  )}
+                  onClick={() => onSelectThread?.(thread)}
+                >
+                  <CommentBubble
+                    comment={thread.root}
+                    resolvedLabel={resolvedLabel}
+                    reviewerLabel={reviewerLabel}
+                    agentLabel={agentLabel}
+                    formatDate={formatDate}
+                    reactions={
+                      comments.data?.discussion?.reactions[thread.root.id]
+                    }
+                    canReact={comments.data?.discussion?.canReact ?? false}
+                    showReactions={showReactions}
+                    reactionChoices={reactionChoices}
+                    addReactionLabel={addReactionLabel}
+                    onReact={handleReaction}
+                  />
+                  {thread.replies.length ? (
+                    <div className="ms-3 mt-3 flex flex-col gap-3 border-s border-border ps-3">
+                      {thread.replies.map((reply) => (
+                        <CommentBubble
+                          key={reply.id}
+                          comment={reply}
+                          compact
+                          resolvedLabel={resolvedLabel}
+                          reviewerLabel={reviewerLabel}
+                          agentLabel={agentLabel}
+                          formatDate={formatDate}
+                          reactions={
+                            comments.data?.discussion?.reactions[reply.id]
+                          }
+                          canReact={
+                            comments.data?.discussion?.canReact ?? false
+                          }
+                          showReactions={showReactions}
+                          reactionChoices={reactionChoices}
+                          addReactionLabel={addReactionLabel}
+                          onReact={handleReaction}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {replying && replyAllowed ? (
+                    <form
+                      className="mt-3 flex min-w-0 items-center gap-1.5"
+                      onClick={(event) => event.stopPropagation()}
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const body = replyDraft.trim();
+                        if (!body || replyComment.isPending) return;
+                        replyComment.mutate(
+                          {
+                            resourceType,
+                            resourceId,
+                            commentId: thread.root.id,
+                            body,
                           },
-                        },
-                      );
-                    }}
-                  >
-                    <Input
-                      autoFocus
-                      value={replyDraft}
-                      onChange={(event) =>
-                        setReplyDrafts((current) => ({
-                          ...current,
-                          [thread.root.id]: event.currentTarget.value,
-                        }))
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setReplyingThreadId(null);
-                        }
+                          {
+                            onSuccess: () => {
+                              setReplyDrafts((current) => ({
+                                ...current,
+                                [thread.root.id]: "",
+                              }));
+                              setReplyingThreadId(null);
+                            },
+                          },
+                        );
                       }}
-                      placeholder={replyPlaceholder}
-                      className="h-8 min-w-0 flex-1 text-sm"
-                    />
-                    <Button
-                      type="submit"
-                      size="icon"
-                      variant="outline"
-                      className="size-8 shrink-0"
-                      disabled={!replyDraft.trim() || replyComment.isPending}
-                      aria-label={replyLabel}
                     >
-                      {replyComment.isPending ? (
-                        <Spinner className="size-3.5" />
-                      ) : (
-                        <IconSend className="size-3.5" />
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="size-8 shrink-0"
-                      aria-label={cancelReplyLabel}
-                      onClick={() => setReplyingThreadId(null)}
-                    >
-                      <IconX className="size-3.5" />
-                    </Button>
-                  </form>
-                ) : hasActions ? (
-                  <div
-                    className="mt-2.5 flex min-w-0 items-center gap-0.5"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    {replyAllowed ? (
+                      <Input
+                        autoFocus
+                        value={replyDraft}
+                        onChange={(event) =>
+                          setReplyDrafts((current) => ({
+                            ...current,
+                            [thread.root.id]: event.currentTarget.value,
+                          }))
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setReplyingThreadId(null);
+                          }
+                        }}
+                        placeholder={replyPlaceholder}
+                        className="h-8 min-w-0 flex-1 text-sm"
+                      />
+                      <Button
+                        type="submit"
+                        size="icon"
+                        variant="outline"
+                        className="size-8 shrink-0"
+                        disabled={!replyDraft.trim() || replyComment.isPending}
+                        aria-label={replyLabel}
+                      >
+                        {replyComment.isPending ? (
+                          <Spinner className="size-3.5" />
+                        ) : (
+                          <IconSend className="size-3.5" />
+                        )}
+                      </Button>
                       <Button
                         type="button"
+                        size="icon"
                         variant="ghost"
-                        size="sm"
-                        className="h-7 min-w-0 gap-1.5 px-1.5 text-xs @xs/review:px-2"
-                        aria-label={replyLabel}
-                        onClick={() =>
-                          setReplyingThreadId(thread.root.threadId)
-                        }
+                        className="size-8 shrink-0"
+                        aria-label={cancelReplyLabel}
+                        onClick={() => setReplyingThreadId(null)}
                       >
-                        <IconMessageCircle className="size-3.5" />
-                        <span className="hidden @2xs/review:inline">
-                          {replyLabel}
-                        </span>
+                        <IconX className="size-3.5" />
                       </Button>
-                    ) : null}
-                    <div className="ms-auto flex min-w-0 items-center gap-0.5">
-                      {threadActions}
-                      {resolveAllowed ? (
+                    </form>
+                  ) : hasActions ? (
+                    <div
+                      className="mt-2.5 flex min-w-0 items-center gap-0.5"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {replyAllowed ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           className="h-7 min-w-0 gap-1.5 px-1.5 text-xs @xs/review:px-2"
-                          disabled={resolveThread.isPending}
-                          aria-label={resolveLabel}
+                          aria-label={replyLabel}
                           onClick={() =>
-                            resolveThread.mutate({
-                              resourceType,
-                              resourceId,
-                              threadId: thread.root.threadId,
-                            })
+                            setReplyingThreadId(thread.root.threadId)
                           }
                         >
-                          {resolveThread.isPending ? (
-                            <Spinner className="size-3.5" />
-                          ) : (
-                            <IconCircleCheck className="size-3.5" />
-                          )}
-                          <span className="hidden @xs/review:inline">
-                            {resolveLabel}
+                          <IconMessageCircle className="size-3.5" />
+                          <span className="hidden @2xs/review:inline">
+                            {replyLabel}
                           </span>
                         </Button>
                       ) : null}
-                      {deleteAllowed ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 shrink-0"
-                              aria-label={moreActionsLabel}
-                            >
-                              <IconDots className="size-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem
-                              disabled={deleteComment.isPending}
-                              className="text-destructive focus:text-destructive"
-                              onSelect={() =>
-                                deleteComment.mutate({
+                      <div className="ms-auto flex min-w-0 items-center gap-0.5">
+                        {threadActions}
+                        {resolveAllowed ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 min-w-0 gap-1.5 px-1.5 text-xs @xs/review:px-2"
+                            disabled={resolveThread.isPending}
+                            aria-label={resolveLabel}
+                            onClick={() =>
+                              resolveThread.mutate(
+                                {
                                   resourceType,
                                   resourceId,
-                                  commentId: thread.root.id,
-                                })
-                              }
-                            >
-                              <IconTrash className="size-4" />
-                              {deleteLabel}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : null}
+                                  threadId: thread.root.threadId,
+                                },
+                                {
+                                  onSuccess: () => onThreadResolved?.(thread),
+                                },
+                              )
+                            }
+                          >
+                            {resolveThread.isPending ? (
+                              <Spinner className="size-3.5" />
+                            ) : (
+                              <IconCircleCheck className="size-3.5" />
+                            )}
+                            <span className="hidden @xs/review:inline">
+                              {resolveLabel}
+                            </span>
+                          </Button>
+                        ) : null}
+                        {reopenAllowed ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 min-w-0 gap-1.5 px-1.5 text-xs @xs/review:px-2"
+                            disabled={resolveThread.isPending}
+                            aria-label={reopenLabel}
+                            onClick={() =>
+                              resolveThread.mutate(
+                                {
+                                  resourceType,
+                                  resourceId,
+                                  threadId: thread.root.threadId,
+                                  status: "open",
+                                },
+                                {
+                                  onSuccess: () => onThreadReopened?.(thread),
+                                },
+                              )
+                            }
+                          >
+                            {resolveThread.isPending ? (
+                              <Spinner className="size-3.5" />
+                            ) : (
+                              <IconCircleCheck className="size-3.5" />
+                            )}
+                            <span className="hidden @xs/review:inline">
+                              {resolveThread.isPending
+                                ? reopeningLabel
+                                : reopenLabel}
+                            </span>
+                          </Button>
+                        ) : null}
+                        {hasMenuActions ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 shrink-0"
+                                aria-label={moreActionsLabel}
+                              >
+                                <IconDots className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              {onMarkThreadUnread ? (
+                                <DropdownMenuItem
+                                  onSelect={() => onMarkThreadUnread(thread)}
+                                >
+                                  <IconMail className="size-4" />
+                                  {markUnreadLabel}
+                                </DropdownMenuItem>
+                              ) : null}
+                              {onCopyThreadLink ? (
+                                <DropdownMenuItem
+                                  onSelect={() => onCopyThreadLink(thread)}
+                                >
+                                  <IconLink className="size-4" />
+                                  {copyLinkLabel}
+                                </DropdownMenuItem>
+                              ) : null}
+                              {deleteAllowed ? (
+                                <DropdownMenuItem
+                                  disabled={deleteComment.isPending}
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={() =>
+                                    setDeleteCandidate(thread.root)
+                                  }
+                                >
+                                  <IconTrash className="size-4" />
+                                  {deleteLabel}
+                                </DropdownMenuItem>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                ) : null}
-              </article>
-            );
-          })
-        ) : (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            {emptyState}
-          </div>
-        )}
-      </div>
-    </section>
+                  ) : null}
+                </article>
+              );
+            })
+          ) : (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {emptyState}
+            </div>
+          )}
+        </div>
+      </section>
+      <AlertDialog
+        open={Boolean(deleteCandidate)}
+        onOpenChange={(open) => {
+          if (!open && !deleteComment.isPending) setDeleteCandidate(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDeleteTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmDeleteDescription}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteComment.isPending}>
+              {cancelDeleteLabel}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!deleteCandidate || deleteComment.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                const candidate = deleteCandidate;
+                if (!candidate) return;
+                deleteComment.mutate(
+                  {
+                    resourceType,
+                    resourceId,
+                    commentId: candidate.id,
+                  },
+                  { onSettled: () => setDeleteCandidate(null) },
+                );
+              }}
+            >
+              {confirmDeleteLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -483,6 +679,12 @@ function CommentBubble({
   reviewerLabel,
   agentLabel,
   formatDate,
+  reactions = [],
+  canReact = false,
+  showReactions = false,
+  reactionChoices,
+  addReactionLabel,
+  onReact,
 }: {
   comment: ReviewComment;
   compact?: boolean;
@@ -490,6 +692,12 @@ function CommentBubble({
   reviewerLabel: string;
   agentLabel?: string;
   formatDate: ReturnType<typeof useFormatters>["formatDate"];
+  reactions?: ReviewCommentReaction[];
+  canReact?: boolean;
+  showReactions?: boolean;
+  reactionChoices: readonly string[];
+  addReactionLabel: string;
+  onReact: (comment: ReviewComment, reaction: string, active: boolean) => void;
 }) {
   const author =
     (comment.createdBy === "agent" ? agentLabel : undefined) ??
@@ -545,6 +753,60 @@ function CommentBubble({
               content={resolutionNote}
               className="min-w-0 text-xs leading-4"
             />
+          </div>
+        ) : null}
+        {showReactions ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            {reactions.map((item) => (
+              <button
+                key={item.reaction}
+                type="button"
+                disabled={!canReact}
+                className={cn(
+                  "inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs transition-colors",
+                  item.reactedByMe
+                    ? "border-primary/50 bg-primary/10 text-foreground"
+                    : "border-border bg-background text-muted-foreground hover:bg-muted",
+                )}
+                onClick={() =>
+                  onReact(comment, item.reaction, !item.reactedByMe)
+                }
+                aria-label={`${item.reaction} ${item.count}`}
+              >
+                <span aria-hidden="true">{item.reaction}</span>
+                <span>{item.count}</span>
+              </button>
+            ))}
+            {canReact ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 rounded-full text-muted-foreground"
+                    aria-label={addReactionLabel}
+                  >
+                    <IconMoodSmile className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="flex w-auto gap-0.5 p-1"
+                >
+                  {reactionChoices.map((reaction) => (
+                    <DropdownMenuItem
+                      key={reaction}
+                      className="size-8 justify-center p-0 text-base"
+                      onSelect={() => onReact(comment, reaction, true)}
+                    >
+                      <span aria-hidden="true">{reaction}</span>
+                      <span className="sr-only">{reaction}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
           </div>
         ) : null}
       </div>

@@ -9303,6 +9303,8 @@ function DesignEditor() {
         ? {
             designId: id,
             canComment: canCommentDesign,
+            currentUserEmail: session?.email,
+            currentTargetId: activeFile?.id ?? null,
             canResolve: canEditDesign,
             canDeleteComment: (comment) =>
               canEditDesign ||
@@ -9320,6 +9322,7 @@ function DesignEditor() {
     [
       canCommentDesign,
       canEditDesign,
+      activeFile?.id,
       handleReviewThreadSelect,
       handleSendReviewThreadToAgent,
       id,
@@ -15560,23 +15563,14 @@ function DesignEditor() {
       return;
     }
     setCommentsHidden(false);
-    // Comment pins are an editing overlay on the infinite canvas, not a third
-    // focused view. If invoked from Interact, leave it before arming the pin.
-    if (viewMode !== "overview") {
-      enterOverviewFromZoom("annotate");
-    }
+    setActiveInspectorTab("comments");
+    // Comment pins are an editing overlay on the current canvas. Keep the
+    // focused screen mounted so Screen-local anchors have a live target.
     setActiveTool("comment");
     setMode("annotate");
     setPinMode(true);
     setDrawMode(false);
-  }, [
-    activeFile,
-    canCommentDesign,
-    enterOverviewFromZoom,
-    handleExitReviewCommentMode,
-    pinMode,
-    viewMode,
-  ]);
+  }, [activeFile, canCommentDesign, handleExitReviewCommentMode, pinMode]);
 
   const handleShowKeyboardShortcutsFromMenu = useCallback(() => {
     keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
@@ -21353,6 +21347,16 @@ function DesignEditor() {
           onExitPinMode={handleExitReviewCommentMode}
           designId={id}
           designTitle={design?.title}
+          reviewCanPost={canCommentDesign}
+          reviewCanResolve={canEditDesign}
+          reviewFocusRequest={reviewFocusRequest}
+          onDispatchCommentToAgent={
+            canEditDesign ? handleDispatchCommentToAgent : undefined
+          }
+          onSendThreadToAgent={
+            canEditDesign ? handleSendReviewThreadToAgent : undefined
+          }
+          reviewSendingThreadId={reviewSendingThreadId}
           commentContextId={`${id}:${screen.id}`}
           commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(screen.filename)}`}
           repromptDraftRequest={
@@ -21398,9 +21402,14 @@ function DesignEditor() {
       overviewCanvasZoom,
       mode,
       canEditDesign,
+      canCommentDesign,
       activeTool,
       pinMode,
       commentsHidden,
+      reviewFocusRequest,
+      handleDispatchCommentToAgent,
+      handleSendReviewThreadToAgent,
+      reviewSendingThreadId,
       spacePanActive,
       overviewClearSelectionRequest,
       selectedCanvasSelector,

@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   createMutate: vi.fn(),
   replyMutate: vi.fn(),
   resolveMutate: vi.fn(),
+  reactMutate: vi.fn(),
+  updateAnchorMutate: vi.fn(),
   callAction: vi.fn().mockResolvedValue({ cancelled: true }),
   setClientAppState: vi.fn().mockResolvedValue(undefined),
   sendToAgent: vi.fn().mockResolvedValue({ delivered: true }),
@@ -103,6 +105,14 @@ vi.mock("@agent-native/core/client/review", () => ({
   }),
   useResolveReviewThread: () => ({
     mutate: mocks.resolveMutate,
+    isPending: false,
+  }),
+  useReactToReviewComment: () => ({
+    mutate: mocks.reactMutate,
+    isPending: false,
+  }),
+  useUpdateReviewCommentAnchor: () => ({
+    mutate: mocks.updateAnchorMutate,
     isPending: false,
   }),
   useReviewComments: () => ({ data: { comments: [comment] } }),

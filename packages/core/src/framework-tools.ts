@@ -353,6 +353,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "create-review-comment": "review",
   "reply-review-comment": "review",
   "resolve-review-thread": "review",
+  "update-review-comment-anchor": "review",
   "delete-review-comment": "review",
   "consume-review-feedback": "review",
   "get-review-feedback": "review",

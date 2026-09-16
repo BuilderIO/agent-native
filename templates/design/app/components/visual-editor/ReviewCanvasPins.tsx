@@ -4,19 +4,28 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   buildReviewThreads,
   ReviewCommentComposer,
+  useReactToReviewComment,
   useCreateReviewComment,
   useReplyReviewComment,
   useResolveReviewThread,
+  useUpdateReviewCommentAnchor,
   useReviewComments,
   type ReviewThread,
 } from "@agent-native/core/client/review";
+import { uploadEditorImage } from "@agent-native/core/client/uploads";
 import type { ReviewComment } from "@agent-native/core/review";
+import type {
+  ReviewCommentReaction,
+  ReviewDiscussionState,
+} from "@agent-native/core/review";
+import { useMentionSearch } from "@agent-native/toolkit/composer/use-mention-search";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
-  IconArrowUp,
   IconChevronDown,
   IconCircleCheck,
   IconMessageCircle,
+  IconMoodSmile,
+  IconPaperclip,
   IconRobot,
   IconSend,
   IconX,
@@ -27,6 +36,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -37,11 +47,11 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
@@ -104,6 +114,14 @@ interface ReviewFrameNodeGeometry {
   viewportWidth: number;
   viewportHeight: number;
 }
+
+interface ReviewImageAttachment {
+  url: string;
+  name: string;
+  contentType?: string;
+}
+
+const MAX_REVIEW_IMAGE_ATTACHMENTS = 4;
 
 type ReviewPopoverPlacement = ReturnType<typeof getReviewPopoverPlacement>;
 
@@ -350,7 +368,7 @@ export function ReviewCanvasPins({
       resourceType,
       resourceId,
       targetId,
-      includeResolved: false,
+      includeResolved: true,
       limit: 500,
     },
     {
@@ -360,12 +378,21 @@ export function ReviewCanvasPins({
   const createComment = useCreateReviewComment();
   const replyComment = useReplyReviewComment();
   const resolveThread = useResolveReviewThread();
+  const reactToComment = useReactToReviewComment();
+  const updateAnchor = useUpdateReviewCommentAnchor();
   const [canvas, setCanvas] = useState<HTMLElement | null>(null);
   const [layoutTick, setLayoutTick] = useState(0);
   const [draftPin, setDraftPin] = useState<ReviewDraftPin | null>(null);
   const [draftComposerOpen, setDraftComposerOpen] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
+  const [replyAttachments, setReplyAttachments] = useState<
+    ReviewImageAttachment[]
+  >([]);
+  const [draftAttachments, setDraftAttachments] = useState<
+    ReviewImageAttachment[]
+  >([]);
+  const [pendingReaction, setPendingReaction] = useState<string | null>(null);
   const [draftMode, setDraftMode] = useState<"comment" | "reprompt">("comment");
   const [pendingRepromptId, setPendingRepromptId] = useState<string | null>(
     null,
@@ -383,6 +410,7 @@ export function ReviewCanvasPins({
 
   const cancelDraft = useCallback(() => {
     setDraftPin(null);
+    setDraftAttachments([]);
     setDraftComposerOpen(false);
     setDraftMode("comment");
     setPendingRepromptId(null);
@@ -425,7 +453,12 @@ export function ReviewCanvasPins({
     };
     findCanvas();
     const timer = window.setTimeout(findCanvas, 60);
-    return () => window.clearTimeout(timer);
+    const observer = new MutationObserver(findCanvas);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+    };
   }, [canvasSelector, targetId]);
 
   useEffect(() => {
@@ -643,6 +676,7 @@ export function ReviewCanvasPins({
         : null) ?? { xPct: 50, yPct: 50 };
     setActiveThreadId(null);
     setReplyDraft("");
+    setReplyAttachments([]);
     setPendingRepromptId(null);
     setDraftMode("reprompt");
     setDraftPin({
@@ -702,6 +736,7 @@ export function ReviewCanvasPins({
     cancelDraft();
     setActiveThreadId(null);
     setReplyDraft("");
+    setReplyAttachments([]);
     setFrameNodeGeometry({});
     frameCallbacksRef.current.clear();
     pendingFocusNonceRef.current = null;
@@ -712,6 +747,7 @@ export function ReviewCanvasPins({
     cancelDraft();
     setActiveThreadId(null);
     setReplyDraft("");
+    setReplyAttachments([]);
     if (active) onClose();
   }, [active, cancelDraft, hidden, onClose]);
 
@@ -799,7 +835,7 @@ export function ReviewCanvasPins({
   );
 
   const postDraft = useCallback(
-    (pin: ReviewDraftPin) => {
+    (pin: ReviewDraftPin, attachments: ReviewImageAttachment[] = []) => {
       const body = pin.draft.trim();
       if (!body || createComment.isPending) return;
       createComment.mutate(
@@ -811,7 +847,10 @@ export function ReviewCanvasPins({
           anchor: pin.anchor,
           body,
           resolutionTarget: pin.resolutionTarget,
-          metadata: pin.metadata,
+          metadata: {
+            ...pin.metadata,
+            ...(attachments.length ? { attachments } : {}),
+          },
         },
         {
           onSuccess: (comment) => {
@@ -1000,13 +1039,32 @@ export function ReviewCanvasPins({
     [agentSubmitting, cancelDraft, canvas, resourceId, sourceType, t, targetId],
   );
 
+  const moveThreadPin = useCallback(
+    (thread: ReviewThread, point: ReviewAnchorPoint) => {
+      const anchor =
+        thread.root.anchor &&
+        typeof thread.root.anchor === "object" &&
+        !Array.isArray(thread.root.anchor)
+          ? (thread.root.anchor as Record<string, unknown>)
+          : {};
+      updateAnchor.mutate(
+        {
+          resourceType,
+          resourceId,
+          commentId: thread.root.id,
+          anchor: { ...anchor, point },
+        },
+        { onError: () => toast.error(t("review.moveFailed")) },
+      );
+    },
+    [resourceId, resourceType, t, updateAnchor],
+  );
+
   if (hidden || !canvas) return null;
   const rect = canvas.getBoundingClientRect();
   void layoutTick;
 
-  const openThreads = threads.filter(
-    (thread) => thread.root.status === "open" && thread.root.anchor,
-  );
+  const visibleThreads = threads.filter((thread) => thread.root.anchor);
   const draftPinPosition = draftPin
     ? getReviewPinPosition(draftPin.anchor)
     : null;
@@ -1045,7 +1103,7 @@ export function ReviewCanvasPins({
           </span>
         </div>
       ) : null}
-      {openThreads.map((thread, index) => {
+      {visibleThreads.map((thread, index) => {
         const position = getReviewPinPosition(thread.root.anchor);
         if (!position) return null;
         return (
@@ -1054,10 +1112,15 @@ export function ReviewCanvasPins({
             index={index}
             canvasRect={rect}
             point={position.point}
+            resolved={thread.root.status === "resolved"}
+            onDragEnd={
+              canPost ? (point) => moveThreadPin(thread, point) : undefined
+            }
             onClick={() => {
               if (!draftPin?.draft.trim()) setDraftPin(null);
               setDraftComposerOpen(false);
               setReplyDraft("");
+              setReplyAttachments([]);
               setActiveThreadId(thread.root.threadId);
             }}
             active={activeThreadId === thread.root.threadId}
@@ -1066,14 +1129,36 @@ export function ReviewCanvasPins({
               <ReviewThreadPopover
                 thread={thread}
                 canResolve={canResolve}
+                discussion={comments.data?.discussion}
+                pendingReaction={pendingReaction}
+                onReact={(commentId, reaction, active) => {
+                  if (reactToComment.isPending) return;
+                  setPendingReaction(`${commentId}:${reaction}`);
+                  reactToComment.mutate(
+                    {
+                      resourceType,
+                      resourceId,
+                      commentId,
+                      reaction,
+                      active,
+                    },
+                    {
+                      onError: () => toast.error(t("review.reactionFailed")),
+                      onSettled: () => setPendingReaction(null),
+                    },
+                  );
+                }}
                 sending={sendingThreadId === thread.root.threadId}
                 canReply={canPost}
                 placement={getReviewPopoverPlacement(position.point)}
                 replyDraft={replyDraft}
+                replyAttachments={replyAttachments}
+                onReplyAttachmentsChange={setReplyAttachments}
                 onReplyDraftChange={setReplyDraft}
                 onClose={() => {
                   setActiveThreadId(null);
                   setReplyDraft("");
+                  setReplyAttachments([]);
                 }}
                 onReply={() => {
                   const body = replyDraft.trim();
@@ -1084,22 +1169,46 @@ export function ReviewCanvasPins({
                       resourceId,
                       commentId: thread.root.id,
                       body,
+                      ...(replyAttachments.length
+                        ? { metadata: { attachments: replyAttachments } }
+                        : {}),
                     },
                     {
-                      onSuccess: () => setReplyDraft(""),
+                      onSuccess: () => {
+                        setReplyDraft("");
+                        setReplyAttachments([]);
+                      },
                       onError: () => toast.error(t("review.replyFailed")),
                     },
                   );
                 }}
-                onResolve={() =>
+                onStatusChange={() =>
                   resolveThread.mutate(
                     {
                       resourceType,
                       resourceId,
                       threadId: thread.root.threadId,
+                      status:
+                        thread.root.status === "open" ? "resolved" : "open",
                     },
                     {
-                      onSuccess: () => setActiveThreadId(null),
+                      onSuccess: (result) => {
+                        setActiveThreadId(null);
+                        if (result.status === "resolved") {
+                          toast.success(t("review.resolved"), {
+                            action: {
+                              label: t("review.undo"),
+                              onClick: () =>
+                                resolveThread.mutate({
+                                  resourceType,
+                                  resourceId,
+                                  threadId: thread.root.threadId,
+                                  status: "open",
+                                }),
+                            },
+                          });
+                        }
+                      },
                       onError: () => toast.error(t("review.resolveFailed")),
                     },
                   )
@@ -1121,7 +1230,7 @@ export function ReviewCanvasPins({
       {draftPin && draftPinPosition ? (
         <ReviewPin
           key={draftPin.id}
-          index={openThreads.length}
+          index={visibleThreads.length}
           canvasRect={rect}
           point={draftPinPosition.point}
           draft
@@ -1130,6 +1239,7 @@ export function ReviewCanvasPins({
             if (pendingRepromptId) return;
             setActiveThreadId(null);
             setReplyDraft("");
+            setReplyAttachments([]);
             setDraftComposerOpen(true);
           }}
           active={draftComposerOpen}
@@ -1137,6 +1247,8 @@ export function ReviewCanvasPins({
           {draftComposerOpen ? (
             <DraftComposer
               value={draftPin.draft}
+              attachments={draftAttachments}
+              onAttachmentsChange={setDraftAttachments}
               onChange={(value) =>
                 setDraftPin((current) =>
                   current ? { ...current, draft: value } : current,
@@ -1147,7 +1259,7 @@ export function ReviewCanvasPins({
                 setDraftPin((current) =>
                   current ? { ...current, resolutionTarget } : current,
                 );
-                postDraft({ ...draftPin, resolutionTarget });
+                postDraft({ ...draftPin, resolutionTarget }, draftAttachments);
               }}
               onSmartSubmit={(mode) => {
                 if (mode === "preview") void submitReprompt(draftPin);
@@ -1184,7 +1296,9 @@ function ReviewPin({
   active,
   draft = false,
   pending = false,
+  resolved = false,
   onClick,
+  onDragEnd,
   children,
 }: {
   index: number;
@@ -1193,17 +1307,43 @@ function ReviewPin({
   active: boolean;
   draft?: boolean;
   pending?: boolean;
+  resolved?: boolean;
   onClick: () => void;
+  onDragEnd?: (point: ReviewAnchorPoint) => void;
   children?: ReactNode;
 }) {
   const t = useT();
+  const [dragPoint, setDragPoint] = useState(point);
+  const dragRef = useRef<{
+    pointerId: number;
+    moved: boolean;
+  } | null>(null);
+  useEffect(() => setDragPoint(point), [point]);
+  const pointToCanvas = (event: PointerEvent): ReviewAnchorPoint => ({
+    xPct: Math.min(
+      100,
+      Math.max(
+        0,
+        ((event.clientX - canvasRect.left) / Math.max(1, canvasRect.width)) *
+          100,
+      ),
+    ),
+    yPct: Math.min(
+      100,
+      Math.max(
+        0,
+        ((event.clientY - canvasRect.top) / Math.max(1, canvasRect.height)) *
+          100,
+      ),
+    ),
+  });
   return (
     <div
       data-review-popover
       className="fixed z-[45]"
       style={{
-        left: canvasRect.left + (point.xPct / 100) * canvasRect.width,
-        top: canvasRect.top + (point.yPct / 100) * canvasRect.height,
+        left: canvasRect.left + (dragPoint.xPct / 100) * canvasRect.width,
+        top: canvasRect.top + (dragPoint.yPct / 100) * canvasRect.height,
       }}
     >
       <button
@@ -1213,13 +1353,49 @@ function ReviewPin({
           "flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full rounded-bl-none border text-[10px] font-semibold shadow-md transition-transform hover:scale-110",
           draft
             ? "border-primary bg-primary text-primary-foreground"
-            : "border-amber-200 bg-amber-400 text-amber-950",
+            : resolved
+              ? "border-muted-foreground/50 bg-muted text-muted-foreground"
+              : "border-amber-200 bg-amber-400 text-amber-950",
           active && "ring-2 ring-primary/40",
         )}
         onClick={(event) => {
           event.stopPropagation();
+          if (dragRef.current?.moved) {
+            dragRef.current = null;
+            return;
+          }
           onClick();
         }}
+        onPointerDown={(event) => {
+          if (draft || pending || !onDragEnd) return;
+          event.stopPropagation();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          dragRef.current = { pointerId: event.pointerId, moved: false };
+        }}
+        onPointerMove={(event) => {
+          if (dragRef.current?.pointerId !== event.pointerId) return;
+          const next = pointToCanvas(event);
+          if (
+            Math.abs(next.xPct - point.xPct) > 0.2 ||
+            Math.abs(next.yPct - point.yPct) > 0.2
+          ) {
+            dragRef.current.moved = true;
+          }
+          if (dragRef.current.moved) setDragPoint(next);
+        }}
+        onPointerUp={(event) => {
+          if (dragRef.current?.pointerId !== event.pointerId) return;
+          const next = pointToCanvas(event);
+          const moved = dragRef.current.moved;
+          dragRef.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          if (moved) onDragEnd?.(next);
+        }}
+        onPointerCancel={() => {
+          dragRef.current = null;
+          setDragPoint(point);
+        }}
+        style={{ touchAction: onDragEnd ? "none" : undefined }}
         aria-label={t("review.commentNumber", { count: index + 1 })}
       >
         {pending ? <Spinner className="size-3" /> : index + 1}
@@ -1229,8 +1405,122 @@ function ReviewPin({
   );
 }
 
+function ReviewImageAttachments({
+  attachments,
+  disabled,
+  onChange,
+}: {
+  attachments: ReviewImageAttachment[];
+  disabled: boolean;
+  onChange: (attachments: ReviewImageAttachment[]) => void;
+}) {
+  const t = useT();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFiles = async (files: FileList | null) => {
+    const selected = Array.from(files ?? [])
+      .filter((file) => file.type.startsWith("image/"))
+      .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS - attachments.length);
+    if (!selected.length) return;
+    setUploading(true);
+    const results = await Promise.allSettled(
+      selected.map(async (file) => {
+        const uploaded = await uploadEditorImage(file);
+        if (!uploaded.src || uploaded.src.startsWith("data:")) {
+          throw new Error("Image upload did not return a durable URL.");
+        }
+        return {
+          url: uploaded.src,
+          name: file.name || "image",
+          contentType: file.type || undefined,
+        } satisfies ReviewImageAttachment;
+      }),
+    );
+    const uploaded = results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    );
+    if (uploaded.length) {
+      onChange(
+        [...attachments, ...uploaded].slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS),
+      );
+    }
+    if (results.some((result) => result.status === "rejected")) {
+      toast.error(t("review.postFailed"));
+    }
+    setUploading(false);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  return (
+    <div
+      data-review-attachments
+      className="flex flex-wrap items-center gap-1.5 px-3 pb-2"
+    >
+      {attachments.map((attachment, index) => (
+        <div
+          key={`${attachment.url}-${index}`}
+          className="group relative size-10 overflow-hidden rounded-md border border-border bg-muted"
+        >
+          <img
+            src={attachment.url}
+            alt={attachment.name}
+            className="size-full object-cover"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="absolute right-0.5 top-0.5 size-5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            disabled={disabled || uploading}
+            onClick={() =>
+              onChange(
+                attachments.filter(
+                  (_, attachmentIndex) => attachmentIndex !== index,
+                ),
+              )
+            }
+            aria-label={t("designEditor.close")}
+          >
+            <IconX className="size-3" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-8 text-muted-foreground"
+        disabled={
+          disabled ||
+          uploading ||
+          attachments.length >= MAX_REVIEW_IMAGE_ATTACHMENTS
+        }
+        onClick={() => inputRef.current?.click()}
+        aria-label={t("review.attachImage")}
+      >
+        {uploading ? (
+          <Spinner className="size-3.5" />
+        ) : (
+          <IconPaperclip className="size-3.5" />
+        )}
+      </Button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="sr-only"
+        onChange={(event) => void handleFiles(event.currentTarget.files)}
+      />
+    </div>
+  );
+}
+
 function DraftComposer({
   value,
+  attachments,
+  onAttachmentsChange,
   onChange,
   onCancel,
   onSubmit,
@@ -1244,6 +1534,8 @@ function DraftComposer({
   agentSubmitting,
 }: {
   value: string;
+  attachments: ReviewImageAttachment[];
+  onAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onChange: (value: string) => void;
   onCancel: () => void;
   onSubmit: (target: "agent" | "human") => void;
@@ -1387,6 +1679,133 @@ function DraftComposer({
         enterSubmitTarget={initialAgentMode === "preview" ? "agent" : "human"}
         onEscape={onCancel}
       />
+      <ReviewMentionSuggestions value={value} onChange={onChange} />
+      <ReviewImageAttachments
+        attachments={attachments}
+        disabled={submitting}
+        onChange={onAttachmentsChange}
+      />
+    </div>
+  );
+}
+
+function ReviewReactionControls({
+  commentId,
+  reactions,
+  canReact,
+  pendingReaction,
+  onReact,
+}: {
+  commentId: string;
+  reactions: ReviewCommentReaction[];
+  canReact: boolean;
+  pendingReaction: string | null;
+  onReact: (commentId: string, reaction: string, active: boolean) => void;
+}) {
+  const t = useT();
+  const choices = ["👍", "❤️", "🎉", "👀"];
+  return (
+    <div
+      data-review-reactions
+      className="mt-2 flex flex-wrap items-center gap-1"
+      onClick={(event) => event.stopPropagation()}
+    >
+      {reactions.map((item) => (
+        <button
+          key={item.reaction}
+          type="button"
+          disabled={!canReact || Boolean(pendingReaction)}
+          aria-pressed={item.reactedByMe}
+          className="inline-flex h-6 items-center gap-1 rounded-full border border-border px-2 text-xs hover:bg-muted aria-pressed:bg-primary/10"
+          onClick={() => onReact(commentId, item.reaction, !item.reactedByMe)}
+        >
+          <span aria-hidden="true">{item.reaction}</span>
+          <span>{item.count}</span>
+        </button>
+      ))}
+      {canReact ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 rounded-full text-muted-foreground"
+              disabled={Boolean(pendingReaction)}
+              aria-label={t("review.addReaction")}
+            >
+              <IconMoodSmile className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="flex w-auto gap-0.5 p-1"
+          >
+            {choices.map((reaction) => (
+              <DropdownMenuItem
+                key={reaction}
+                className="size-8 justify-center p-0 text-base"
+                onSelect={() => onReact(commentId, reaction, true)}
+              >
+                <span aria-hidden="true">{reaction}</span>
+                <span className="sr-only">{reaction}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </div>
+  );
+}
+
+function ReviewMentionSuggestions({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const t = useT();
+  const match = value.match(/(?:^|\s)@([\w.-]*)$/);
+  const query = match?.[1] ?? "";
+  const { items, isLoading } = useMentionSearch(query, Boolean(match));
+  if (!match || (!items.length && !isLoading)) return null;
+  return (
+    <div
+      data-review-mention-menu
+      role="listbox"
+      aria-label={t("review.mention")}
+      className="mx-3 mb-2 max-h-40 overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-md"
+    >
+      {isLoading ? (
+        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+          {t("review.searching")}
+        </div>
+      ) : (
+        items.slice(0, 6).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="option"
+            className="flex w-full items-center rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              const emailCandidate =
+                item.refId ??
+                (typeof item.metadata?.email === "string"
+                  ? item.metadata.email
+                  : undefined);
+              const replacement = emailCandidate?.includes("@")
+                ? `@[${item.label}](mailto:${emailCandidate}) `
+                : `@${item.label} `;
+              const start = value.lastIndexOf("@");
+              onChange(`${value.slice(0, start)}${replacement}`);
+            }}
+          >
+            {item.label}
+          </button>
+        ))
+      )}
     </div>
   );
 }
@@ -1394,30 +1813,40 @@ function DraftComposer({
 function ReviewThreadPopover({
   thread,
   canResolve,
+  discussion,
+  pendingReaction,
+  onReact,
   sending,
   replying,
   resolving,
   canReply,
   placement,
   replyDraft,
+  replyAttachments,
+  onReplyAttachmentsChange,
   onReplyDraftChange,
   onClose,
   onReply,
-  onResolve,
+  onStatusChange,
   onSendToAgent,
 }: {
   thread: ReviewThread;
   canResolve: boolean;
+  discussion?: ReviewDiscussionState;
+  pendingReaction: string | null;
+  onReact: (commentId: string, reaction: string, active: boolean) => void;
   sending: boolean;
   replying: boolean;
   resolving: boolean;
   canReply: boolean;
   placement: ReviewPopoverPlacement;
   replyDraft: string;
+  replyAttachments: ReviewImageAttachment[];
+  onReplyAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onReplyDraftChange: (value: string) => void;
   onClose: () => void;
   onReply: () => void;
-  onResolve: () => void;
+  onStatusChange: () => void;
   onSendToAgent?: () => void;
 }) {
   const t = useT();
@@ -1447,6 +1876,13 @@ function ReviewThreadPopover({
           <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
             {thread.root.body}
           </p>
+          <ReviewReactionControls
+            commentId={thread.root.id}
+            reactions={discussion?.reactions[thread.root.id] ?? []}
+            canReact={discussion?.canReact ?? false}
+            pendingReaction={pendingReaction}
+            onReact={onReact}
+          />
         </div>
         <Button
           variant="ghost"
@@ -1468,51 +1904,47 @@ function ReviewThreadPopover({
               <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-5 text-foreground/90">
                 {reply.body}
               </p>
+              <ReviewReactionControls
+                commentId={reply.id}
+                reactions={discussion?.reactions[reply.id] ?? []}
+                canReact={discussion?.canReact ?? false}
+                pendingReaction={pendingReaction}
+                onReact={onReact}
+              />
             </div>
           ))}
         </div>
       ) : null}
-      {canReply || (canResolve && thread.root.status === "open") ? (
+      {(canReply && thread.root.status === "open") ||
+      (canResolve && thread.root.status !== "deleted") ? (
         <div className="border-t border-border bg-muted/25 p-2.5">
-          {canReply ? (
-            <div className="flex items-center gap-1.5">
-              <Input
+          {canReply && thread.root.status === "open" ? (
+            <>
+              <ReviewCommentComposer
                 value={replyDraft}
                 disabled={replying || resolving}
-                onChange={(event) =>
-                  onReplyDraftChange(event.currentTarget.value)
-                }
+                onChange={onReplyDraftChange}
+                onSubmit={() => onReply()}
+                submittingTarget={replying ? "human" : null}
                 placeholder={t("review.replyPlaceholder")}
-                className="h-8 min-w-0 flex-1 bg-background text-xs"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && replyDraft.trim() && !replying) {
-                    event.preventDefault();
-                    onReply();
-                  }
-                  if (event.key === "Escape") {
-                    event.stopPropagation();
-                    event.preventDefault();
-                    onClose();
-                  }
-                }}
+                commentLabel={t("review.reply")}
+                submitOnEnter
+                onEscape={onClose}
               />
-              <Button
-                type="button"
-                size="icon"
-                className="size-8 shrink-0"
-                disabled={!replyDraft.trim() || replying}
-                onClick={onReply}
-                aria-label={t("review.reply")}
-              >
-                {replying ? (
-                  <Spinner className="size-3.5" />
-                ) : (
-                  <IconArrowUp className="size-3.5" />
-                )}
-              </Button>
-            </div>
+              <ReviewMentionSuggestions
+                value={replyDraft}
+                onChange={onReplyDraftChange}
+              />
+              <ReviewImageAttachments
+                attachments={replyAttachments}
+                disabled={replying || resolving}
+                onChange={onReplyAttachmentsChange}
+              />
+            </>
           ) : null}
-          {canResolve && thread.root.status === "open" ? (
+          {canResolve &&
+          (thread.root.status === "open" ||
+            thread.root.status === "resolved") ? (
             <div className="mt-2 flex items-center gap-1">
               {onSendToAgent ? (
                 <Button
@@ -1540,14 +1972,18 @@ function ReviewThreadPopover({
                 size="sm"
                 className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
                 disabled={resolving || sending}
-                onClick={onResolve}
+                onClick={onStatusChange}
               >
                 {resolving ? (
                   <Spinner className="size-3.5" />
                 ) : (
                   <IconCircleCheck className="size-3.5" />
                 )}
-                {resolving ? t("review.resolving") : t("review.resolve")}
+                {resolving
+                  ? t("review.resolving")
+                  : thread.root.status === "open"
+                    ? t("review.resolve")
+                    : t("review.reopen")}
               </Button>
             </div>
           ) : null}

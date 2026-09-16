@@ -94,6 +94,15 @@ export interface SetReviewThreadMutedInput {
   muted: boolean;
 }
 
+export interface UpdateReviewCommentAnchorInput {
+  resourceType: string;
+  resourceId: string;
+  commentId: string;
+  anchor: unknown;
+}
+
+export type ReviewThreadStatus = "open" | "resolved";
+
 export function useReactToReviewComment() {
   const queryClient = useQueryClient();
   return useActionMutation<
@@ -141,12 +150,29 @@ export function useSetReviewThreadMuted() {
   });
 }
 
+export function useUpdateReviewCommentAnchor() {
+  return useActionMutation<
+    { commentId: string; anchor: unknown; updatedCount: number },
+    UpdateReviewCommentAnchorInput
+  >("update-review-comment-anchor");
+}
+
 export interface ResolveReviewThreadInput {
   resourceType: string;
   resourceId: string;
   threadId?: string;
   commentId?: string;
+  status?: ReviewThreadStatus;
   resolutionNote?: string;
+}
+
+export interface ResolveReviewThreadResult {
+  threadId: string;
+  status: ReviewThreadStatus;
+  resolved: boolean;
+  updatedCount: number;
+  resolutionNote: string | null;
+  comment: ReviewComment;
 }
 
 export interface DeleteReviewCommentInput {
@@ -249,16 +275,9 @@ export function useReplyReviewComment() {
 }
 
 export function useResolveReviewThread() {
-  return useActionMutation<
-    {
-      threadId: string;
-      resolved: true;
-      updatedCount: number;
-      resolutionNote: string | null;
-      comment: ReviewComment;
-    },
-    ResolveReviewThreadInput
-  >("resolve-review-thread");
+  return useActionMutation<ResolveReviewThreadResult, ResolveReviewThreadInput>(
+    "resolve-review-thread",
+  );
 }
 
 export function useDeleteReviewComment() {

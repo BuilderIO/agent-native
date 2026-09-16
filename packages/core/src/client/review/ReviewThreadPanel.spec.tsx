@@ -51,6 +51,7 @@ vi.mock("./use-review.js", () => ({
   useDeleteReviewComment: () => ({ mutate, isPending: false }),
   useReplyReviewComment: () => ({ mutate, isPending: false }),
   useResolveReviewThread: () => ({ mutate, isPending: false }),
+  useReactToReviewComment: () => ({ mutate, isPending: false }),
 }));
 
 import { ReviewThreadPanel } from "./ReviewThreadPanel.js";

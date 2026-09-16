@@ -17,6 +17,8 @@ import type {
 
 let reviewTablesInitPromise: Promise<void> | undefined;
 
+type ReviewThreadStatus = "open" | "resolved";
+
 export interface InsertReviewCommentInput {
   resourceType: string;
   resourceId: string;
@@ -646,11 +648,37 @@ export async function getReviewThreadRoot(
   return row ? mapCommentRow(row) : null;
 }
 
+export async function updateReviewCommentAnchor(input: {
+  commentId: string;
+  resourceType: string;
+  resourceId: string;
+  anchor: unknown;
+}): Promise<number> {
+  await ensureReviewTables();
+  const result = await getDbExec().execute({
+    sql: `UPDATE agent_review_comments
+             SET anchor_json = ?, updated_at = ?
+           WHERE id = ?
+             AND resource_type = ?
+             AND resource_id = ?
+             AND deleted_at IS NULL`,
+    args: [
+      stringifyOptionalJson(input.anchor),
+      new Date().toISOString(),
+      input.commentId,
+      input.resourceType,
+      input.resourceId,
+    ],
+  });
+  return result.rowsAffected ?? 0;
+}
+
 export async function resolveReviewThread(
   threadId: string,
   resolvedBy?: string | null,
   resource?: { resourceType: string; resourceId: string },
   resolutionNote?: string,
+  status: ReviewThreadStatus = "resolved",
 ): Promise<number> {
   await ensureReviewTables();
   const client = getDbExec();
@@ -661,6 +689,7 @@ export async function resolveReviewThread(
       resolvedBy,
       resource,
       resolutionNote,
+      status,
     );
   return client.transaction ? client.transaction(resolve) : resolve(client);
 }
@@ -671,60 +700,78 @@ export async function resolveReviewThreadWithClient(
   resolvedBy?: string | null,
   resource?: { resourceType: string; resourceId: string },
   resolutionNote?: string,
+  status: ReviewThreadStatus = "resolved",
 ): Promise<number> {
+  if (status === "open" && resolutionNote !== undefined) {
+    throw new Error("Resolution notes are only supported when resolving");
+  }
   const now = new Date().toISOString();
   const resourceClause = resource
     ? "AND resource_type = ? AND resource_id = ?"
     : "";
-  let rootMetadata: Record<string, unknown> | null = null;
-  if (resolutionNote !== undefined) {
-    const root = await client.execute({
-      sql: `SELECT metadata_json
-         FROM agent_review_comments
-        WHERE thread_id = ?
-          AND parent_comment_id IS NULL
-          AND deleted_at IS NULL
-          ${resourceClause}
-        ORDER BY created_at ASC, id ASC
-        LIMIT 1`,
-      args: [
-        threadId,
-        ...(resource ? [resource.resourceType, resource.resourceId] : []),
-      ],
-    });
-    if (!root.rows?.[0]) {
-      return 0;
-    }
-    rootMetadata = {
-      ...(parseObject(root.rows[0].metadata_json) ?? {}),
-      resolutionNote,
-    };
+  const root = await client.execute({
+    sql: `SELECT metadata_json
+       FROM agent_review_comments
+      WHERE thread_id = ?
+        AND parent_comment_id IS NULL
+        AND deleted_at IS NULL
+        ${resourceClause}
+      ORDER BY created_at ASC, id ASC
+      LIMIT 1`,
+    args: [
+      threadId,
+      ...(resource ? [resource.resourceType, resource.resourceId] : []),
+    ],
+  });
+  if (!root.rows?.[0]) {
+    return 0;
   }
 
+  const rootMetadata = parseObject(root.rows[0].metadata_json);
+  const nextRootMetadata =
+    status === "open"
+      ? withoutResolutionNote(rootMetadata)
+      : resolutionNote === undefined
+        ? undefined
+        : { ...(rootMetadata ?? {}), resolutionNote };
   const metadataAssignment =
-    resolutionNote === undefined
+    nextRootMetadata === undefined
       ? ""
       : ", metadata_json = CASE WHEN parent_comment_id IS NULL THEN ? ELSE metadata_json END";
   const result = await client.execute({
     sql: `UPDATE agent_review_comments
-        SET status = 'resolved',
-            resolved_by = ?,
-            resolved_at = ?,
+        SET status = ?,
+            resolved_by = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
+            resolved_at = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
             updated_at = ?
             ${metadataAssignment}
       WHERE thread_id = ? AND deleted_at IS NULL ${resourceClause}`,
     args: [
+      status,
+      status,
       resolvedBy ?? null,
+      status,
+      status === "resolved" ? now : null,
       now,
-      now,
-      ...(resolutionNote === undefined
+      ...(nextRootMetadata === undefined
         ? []
-        : [stringifyOptionalJson(rootMetadata)]),
+        : [stringifyOptionalJson(nextRootMetadata)]),
       threadId,
       ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
   return result.rowsAffected ?? 0;
+}
+
+function withoutResolutionNote(
+  metadata: Record<string, unknown> | null,
+): Record<string, unknown> | null | undefined {
+  if (!metadata || !("resolutionNote" in metadata)) {
+    return undefined;
+  }
+  const next = { ...metadata };
+  delete next.resolutionNote;
+  return Object.keys(next).length > 0 ? next : null;
 }
 
 export async function routeReviewThread(

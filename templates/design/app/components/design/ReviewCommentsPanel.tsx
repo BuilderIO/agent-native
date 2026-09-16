@@ -1,12 +1,23 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  useResolveReviewThread,
+  useSetReviewThreadUnread,
   ReviewThreadPanel,
   type ReviewThread,
 } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
-import { IconSend } from "@tabler/icons-react";
+import { IconFilter, IconSend } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
@@ -22,8 +33,12 @@ export interface ReviewCommentsPanelProps {
   canDispatchToAgent?: boolean;
   sendingThreadId?: string | null;
   onSendThreadToAgent?: (thread: ReviewThread) => void;
+  currentTargetId?: string | null;
+  currentUserEmail?: string | null;
   className?: string;
 }
+
+type ReviewFilter = "all" | "resolved" | "yours" | "current";
 
 export function ReviewCommentsPanel({
   designId,
@@ -35,9 +50,76 @@ export function ReviewCommentsPanel({
   canDispatchToAgent = false,
   sendingThreadId,
   onSendThreadToAgent,
+  currentTargetId = null,
+  currentUserEmail = null,
   className,
 }: ReviewCommentsPanelProps) {
   const t = useT();
+  const [filter, setFilter] = useState<ReviewFilter>("all");
+  const resolveThread = useResolveReviewThread();
+  const markUnread = useSetReviewThreadUnread();
+  const threadFilter = useMemo(
+    () => (thread: ReviewThread) => {
+      if (filter === "resolved") return thread.root.status === "resolved";
+      if (filter === "current") {
+        return (
+          Boolean(currentTargetId) && thread.root.targetId === currentTargetId
+        );
+      }
+      if (filter === "yours") {
+        const email = currentUserEmail?.trim().toLowerCase();
+        if (!email) return false;
+        return [thread.root, ...thread.replies].some(
+          (comment) => comment.authorEmail?.toLowerCase() === email,
+        );
+      }
+      return true;
+    },
+    [currentTargetId, currentUserEmail, filter],
+  );
+  const filterLabel =
+    filter === "resolved"
+      ? t("review.resolved")
+      : filter === "yours"
+        ? t("review.yours")
+        : filter === "current"
+          ? t("review.thisScreen")
+          : t("review.allScreens");
+  const copyThreadLink = async (thread: ReviewThread) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("comment", thread.root.id);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      toast.success(t("review.linkCopied"));
+    } catch {
+      toast.error(t("review.copyLinkFailed"));
+    }
+  };
+  const markThreadUnread = (thread: ReviewThread) => {
+    markUnread.mutate(
+      {
+        resourceType: "design",
+        resourceId: designId,
+        threadId: thread.root.threadId,
+        unread: true,
+      },
+      { onSuccess: () => toast.success(t("review.markedUnread")) },
+    );
+  };
+  const onThreadResolved = (thread: ReviewThread) => {
+    toast.success(t("review.resolved"), {
+      action: {
+        label: t("review.undo"),
+        onClick: () =>
+          resolveThread.mutate({
+            resourceType: "design",
+            resourceId: designId,
+            threadId: thread.root.threadId,
+            status: "open",
+          }),
+      },
+    });
+  };
 
   return (
     <div
@@ -58,6 +140,44 @@ export function ReviewCommentsPanel({
         </Button>
       ) : null}
 
+      <div className="flex items-center justify-end border-b border-border px-2 py-1.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              aria-label={t("review.filter")}
+            >
+              <IconFilter className="size-3.5" />
+              {filterLabel}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuRadioGroup
+              value={filter}
+              onValueChange={(value) => setFilter(value as ReviewFilter)}
+            >
+              <DropdownMenuRadioItem value="all">
+                {t("review.allScreens")}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem
+                value="current"
+                disabled={!currentTargetId}
+              >
+                {t("review.thisScreen")}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="yours" disabled={!currentUserEmail}>
+                {t("review.yours")}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="resolved">
+                {t("review.resolved")}
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <ReviewThreadPanel
           resourceType="design"
@@ -71,8 +191,22 @@ export function ReviewCommentsPanel({
           resolveLabel={t("review.resolve")}
           deleteLabel={t("review.deleteComment")}
           moreActionsLabel={t("review.moreActions")}
+          copyLinkLabel={t("review.copyLink")}
+          markUnreadLabel={t("review.markUnread")}
+          addReactionLabel={t("review.addReaction")}
+          reopenLabel={t("review.reopen")}
+          reopeningLabel={t("review.reopening")}
+          confirmDeleteTitle={t("review.confirmDeleteTitle")}
+          confirmDeleteDescription={t("review.confirmDeleteDescription")}
+          confirmDeleteLabel={t("review.deleteComment")}
+          cancelDeleteLabel={t("review.cancelDelete")}
           resolvedLabel={t("review.resolved")}
           reviewerLabel={t("review.reviewer")}
+          threadFilter={threadFilter}
+          onCopyThreadLink={(thread) => void copyThreadLink(thread)}
+          onMarkThreadUnread={markThreadUnread}
+          showReactions
+          onThreadResolved={onThreadResolved}
           includeResolved
           showHeader={false}
           variant="plain"

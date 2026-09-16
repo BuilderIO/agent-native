@@ -713,6 +713,7 @@ describe("review actions", () => {
     );
 
     expect(result).toMatchObject({
+      status: "resolved",
       resolved: true,
       updatedCount: 2,
       resolutionNote: "Updated the section and verified the example.",
@@ -755,5 +756,49 @@ describe("review actions", () => {
         { userEmail: EDITOR_EMAIL, caller: "frontend" },
       ),
     ).rejects.toThrow();
+
+    const reopened = await resolveReviewThreadAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        threadId: root.threadId,
+        status: "open",
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    expect(reopened).toMatchObject({
+      threadId: root.threadId,
+      status: "open",
+      resolved: false,
+      resolutionNote: null,
+      comment: { id: root.id, status: "open", resolutionNote: null },
+    });
+    expect(
+      (
+        await queryReviewComments({
+          resourceType: "doc",
+          resourceId: "private",
+          scope: { userEmail: OWNER_EMAIL },
+          includeResolved: true,
+        })
+      ).find((comment) => comment.id === root.id),
+    ).toMatchObject({
+      status: "open",
+      resolutionNote: null,
+      metadata: { severity: "medium" },
+    });
+
+    await expect(
+      resolveReviewThreadAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          threadId: root.threadId,
+          status: "open",
+          resolutionNote: "Cannot attach a note while reopening.",
+        },
+        { userEmail: EDITOR_EMAIL, caller: "frontend" },
+      ),
+    ).rejects.toThrow(/only supported when resolving/);
   });
 });

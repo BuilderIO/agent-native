@@ -876,6 +876,10 @@ export async function mergeCoreSharingActions(
       () => import("../review/actions/resolve-review-thread.js"),
     ],
     [
+      "update-review-comment-anchor",
+      () => import("../review/actions/update-review-comment-anchor.js"),
+    ],
+    [
       "delete-review-comment",
       () => import("../review/actions/delete-review-comment.js"),
     ],
