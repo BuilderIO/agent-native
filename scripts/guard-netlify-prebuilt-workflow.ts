@@ -923,7 +923,8 @@ if (
   !previewSmokeRun.includes("PREVIEW_ALIAS") ||
   !previewSmokeRun.includes("resolveNetlifyPreviewAliasUrl") ||
   !previewSmokeRun.includes('if [[ "$alias_url" == "$immutable_url" ]]') ||
-  previewSmokeNodeHeredocs.some((body) => /\bimmutable_url\b/.test(body))
+  previewSmokeNodeHeredocs.some((body) => /\bimmutable_url\b/.test(body)) ||
+  !previewSmokeRun.includes("aliasUrl === process.env.IMMUTABLE_URL")
 ) {
   issues.push(
     `${reusablePath} PR preview smoke must probe both the immutable deploy URL and the mutable alias`,
