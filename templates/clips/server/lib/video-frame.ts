@@ -237,8 +237,12 @@ async function withMediaValidationSlot<T>(
   try {
     return await fn();
   } finally {
-    activeMediaValidations = Math.max(0, activeMediaValidations - 1);
-    mediaValidationWaiters.shift()?.();
+    const waiter = mediaValidationWaiters.shift();
+    if (waiter) {
+      waiter();
+    } else {
+      activeMediaValidations = Math.max(0, activeMediaValidations - 1);
+    }
   }
 }
 
