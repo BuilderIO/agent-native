@@ -493,6 +493,74 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("cancels an embedded popup wait when the popup closes before loading", async () => {
+    vi.useFakeTimers();
+    setEmbeddedWindow(true);
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    (popup as unknown as { closed: boolean }).closed = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(popup.location.href).toBe("");
+    expect(container.textContent).toContain(
+      "Couldn't navigate the Builder popup",
+    );
+    expect(popup.removeEventListener).toHaveBeenCalledWith(
+      "load",
+      expect.any(Function),
+    );
+  });
+
+  it("cancels an embedded popup wait when the flow unmounts", async () => {
+    vi.useFakeTimers();
+    setEmbeddedWindow(true);
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => root.unmount());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(popup.removeEventListener).toHaveBeenCalledWith(
+      "load",
+      expect.any(Function),
+    );
+  });
+
   it("marks the first-run popup for account provisioning", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
