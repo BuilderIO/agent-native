@@ -13,6 +13,7 @@ import {
   markExternalEmailRefresh,
   parseAccountErrorsHeader,
   rebasePinnedLabelsUpdate,
+  releaseSuppression,
   rollbackReadMutation,
   suppressThread,
   unsuppressThread,
@@ -55,7 +56,7 @@ describe("filterSuppressedThreads", () => {
   });
 
   it("keeps an archived thread hidden from stale inbox refetches", () => {
-    suppressThread("thread-archived", "archive");
+    suppressThread("thread-archived", "archive", { view: "archive" });
 
     const visible = filterSuppressedThreads(
       [
@@ -69,7 +70,7 @@ describe("filterSuppressedThreads", () => {
   });
 
   it("allows an archived thread in the archive destination view", () => {
-    suppressThread("thread-archived", "archive");
+    suppressThread("thread-archived", "archive", { view: "archive" });
 
     const visible = filterSuppressedThreads(
       [makeEmail("msg-archived", "thread-archived")],
@@ -561,20 +562,22 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(hook).toContain(
       "reconcilePartialInboxMutation(qc, context, succeededThreadIds)",
     );
-    expect(hook).toContain('suppressThread(threadId, "move")');
-    expect(hook).toContain("unsuppressThread(threadId)");
+    expect(hook).toContain('suppressThread(threadId, "move", { label })');
+    expect(hook).toContain(
+      "releaseSuppression(threadId, context.suppressionIds[threadId])",
+    );
     // Restoring the whole ["emails"] snapshot here would also revert a move
     // that completed while this one was still pending.
     expect(hook).not.toContain("previous.forEach");
   });
 
   it("keeps a later mutation hidden when an earlier move rolls back", () => {
-    suppressThread("thread-moved", "move");
-    suppressThread("thread-archived-later", "archive");
+    const moved = suppressThread("thread-moved", "move", { label: "Receipts" });
+    suppressThread("thread-archived-later", "archive", { view: "archive" });
 
     // The move failed for its own thread only; an archive that landed while it
     // was still pending must stay hidden.
-    unsuppressThread("thread-moved");
+    releaseSuppression("thread-moved", moved);
 
     const visible = filterSuppressedThreads(
       [
@@ -586,6 +589,35 @@ describe("inbox-thread cache rollback on mutation error", () => {
 
     expect(visible.map((email) => email.id)).toEqual(["msg-moved"]);
     unsuppressThread("thread-archived-later");
+  });
+
+  it("keeps the same thread hidden when an overlapping mutation rolls back", () => {
+    // Move, then archive the same thread, then fail the move. The archive is
+    // still pending, so releasing the move's claim must not reveal the row.
+    const moved = suppressThread("thread-both", "move", { label: "Receipts" });
+    suppressThread("thread-both", "archive", { view: "archive" });
+
+    releaseSuppression("thread-both", moved);
+
+    expect(
+      filterSuppressedThreads([makeEmail("msg-both", "thread-both")], "inbox"),
+    ).toEqual([]);
+
+    unsuppressThread("thread-both");
+    expect(
+      filterSuppressedThreads([makeEmail("msg-both", "thread-both")], "inbox"),
+    ).toHaveLength(1);
+  });
+
+  it("shows a moved thread in the label it was moved to", () => {
+    const moved = suppressThread("thread-filed", "move", { label: "Receipts" });
+    const row = () => [makeEmail("msg-filed", "thread-filed")];
+
+    expect(filterSuppressedThreads(row(), "inbox")).toEqual([]);
+    expect(filterSuppressedThreads(row(), "label", "Receipts")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "label", "Invoices")).toEqual([]);
+
+    releaseSuppression("thread-filed", moved);
   });
 
   it("rolls spam, block, and mute back per thread instead of by snapshot", () => {
