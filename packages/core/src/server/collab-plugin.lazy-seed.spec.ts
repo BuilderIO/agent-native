@@ -294,7 +294,7 @@ describe("collab lazy source seeding", () => {
       ) {
         lockAttempts += 1;
         return {
-          rows: [{ acquired: lockAttempts > 1 }],
+          rows: [{ acquired: lockAttempts > 1 ? "t" : "f" }],
           rowsAffected: 0,
         };
       }

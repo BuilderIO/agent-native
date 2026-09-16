@@ -326,7 +326,7 @@ export function createCollabPlugin(
             // An arbitrary forward resolver cannot be inverted. Preserve
             // existing consumers with a request-lazy compatibility scan; new
             // configs should provide the reverse resolver to use the indexed
-            // source-id lookup above.
+            // source-id lookup.
             const { rows } = await getDbExec().execute({
               sql: `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
             });
@@ -388,12 +388,18 @@ export function createCollabPlugin(
                 timeoutMs: 1_000,
               });
               const result = rows[0]?.acquired;
-              if (result === false) return false;
-              if (result !== true) {
+              const acquired =
+                result === true || result === "t"
+                  ? true
+                  : result === false || result === "f"
+                    ? false
+                    : null;
+              if (acquired === null) {
                 throw new Error(
                   `[collab] advisory lock result for ${docId} is unreadable`,
                 );
               }
+              if (!acquired) return false;
               await withDbExec(tx, () => run(tx));
               return true;
             });
