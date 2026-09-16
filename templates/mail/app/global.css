@@ -349,6 +349,13 @@
   font-size: 0.875rem;
 }
 
+.compose-autocomplete-ghost {
+  color: hsl(var(--muted-foreground));
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+
 .compose-editor > *:first-child {
   margin-top: 0;
 }

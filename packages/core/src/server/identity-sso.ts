@@ -25,7 +25,9 @@ import { canonicalA2AAudience, signA2AToken } from "../a2a/index.js";
 import { getAppConfig } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
+  authProviderRequiredMessage,
   GOOGLE_AUTH_REQUIRED_MESSAGE,
+  getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
 import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
@@ -47,12 +49,14 @@ import {
   consumeSsoState,
   createSsoState,
   CANONICAL_IDENTITY_SSO_HUB_URL,
+  NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL,
   getIdentityHubUrl,
   identitySsoLoginButtonHtml,
   isCanonicalIdentitySsoClientRequest,
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
   isIdentitySsoEnabled,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
   isJtiReplayed,
   SSO_STATE_TTL_MS,
 } from "./identity-sso-store.js";
@@ -360,13 +364,27 @@ interface SsoClientBinding {
   authority: string;
 }
 
+function resolveIdentitySsoClientOrigin(event: H3Event): string {
+  const host = getHeader(event, "host")?.trim();
+  if (
+    host &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      host,
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return `https://${host.toLowerCase()}`;
+  }
+  return getOrigin(event);
+}
+
 function resolveClientBinding(
   event: H3Event,
   hub: string,
 ): SsoClientBinding | null {
   const appId = resolveIdentitySsoAppId(event);
   const clientId = resolveClientId(appId);
-  const redirectUri = `${getOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
+  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
   const authority = normalizeAuthority(hub);
   if (!authority || !appId || !clientId || !redirectUri) return null;
   return { appId, clientId, redirectUri, authority };
@@ -389,6 +407,15 @@ export function resolveIdentityHubUrl(event: H3Event): string | undefined {
     )
   ) {
     return CANONICAL_IDENTITY_SSO_HUB_URL;
+  }
+  if (
+    !isDesktopSsoUserAgent(getHeader(event, "user-agent")) &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      getHeader(event, "host"),
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL;
   }
   if (!isDesktopSsoUserAgent(getHeader(event, "user-agent"))) {
     return undefined;
@@ -416,7 +443,7 @@ interface VerifiedIdentity {
   orgId?: string;
   orgName?: string;
   orgRole?: "owner" | "admin" | "member";
-  authProvider?: "google";
+  authProvider?: "google" | `sso:${string}`;
   sub: string;
   jti: string;
 }
@@ -473,6 +500,14 @@ async function verifyIdentityAssertion(
     if ((orgId || orgName || orgRole) && (!orgId || !orgName || !orgRole)) {
       return null;
     }
+    const identityAuthProvider = payload.identity_auth_provider;
+    const authProvider =
+      identityAuthProvider === "google"
+        ? ("google" as const)
+        : typeof identityAuthProvider === "string" &&
+            /^sso:[^:]+$/.test(identityAuthProvider)
+          ? (identityAuthProvider as `sso:${string}`)
+          : undefined;
     return {
       email,
       name:
@@ -486,8 +521,7 @@ async function verifyIdentityAssertion(
       ...(orgId ? { orgId } : {}),
       ...(orgName ? { orgName } : {}),
       ...(orgRole ? { orgRole } : {}),
-      authProvider:
-        payload.identity_auth_provider === "google" ? "google" : undefined,
+      ...(authProvider ? { authProvider } : {}),
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
       jti,
     };
@@ -1017,11 +1051,22 @@ export async function handleIdentitySso(
         loginPath,
       );
     }
-    if (
-      (await isGoogleSignInRequiredForEmail(identity.email)) &&
-      identity.authProvider !== "google"
-    ) {
-      return errorPage(GOOGLE_AUTH_REQUIRED_MESSAGE, loginPath);
+    const requiredAuthProvider =
+      typeof getRequiredAuthProviderForEmail === "function"
+        ? await getRequiredAuthProviderForEmail(identity.email)
+        : (await isGoogleSignInRequiredForEmail(identity.email))
+          ? "google"
+          : null;
+    if (requiredAuthProvider) {
+      const identityProvider = identity.authProvider ?? null;
+      if (identityProvider !== requiredAuthProvider) {
+        return errorPage(
+          authProviderRequiredMessage
+            ? authProviderRequiredMessage(requiredAuthProvider)
+            : GOOGLE_AUTH_REQUIRED_MESSAGE,
+          loginPath,
+        );
+      }
     }
 
     try {

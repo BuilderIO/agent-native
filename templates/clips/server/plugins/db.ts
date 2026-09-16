@@ -1245,6 +1245,11 @@ export const migrations = runMigrations(
       CREATE INDEX IF NOT EXISTS clips_intake_sessions_expires_idx
         ON clips_intake_sessions (status, expires_at)`,
     },
+    {
+      version: 73,
+      name: "recording-browser-diagnostics-interaction-events",
+      sql: `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS interaction_events_json TEXT NOT NULL DEFAULT '[]'`,
+    },
   ],
   { table: "clips_migrations" },
 );

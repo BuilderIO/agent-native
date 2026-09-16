@@ -11,6 +11,11 @@ import {
   codeLayerPatchMessage,
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "@/pages/design-editor/commands/selection-publication";
 import {
   captureContentUndoStackTop,
   captureYjsUndoStackTop,
@@ -40,7 +45,7 @@ export interface GroupSelectionArgs {
       clipboardMutation?: ClipboardContentMutationPublication;
       selectionBefore?: YjsUndoSelectionSnapshot;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
@@ -101,6 +106,7 @@ export function runGroupSelection({
     return;
   }
   const baseContent = getFreshActiveContent();
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
   // Collect the DOM-node layer ids that belong to the active screen.
   // Build a set of ids present in the active content so stale ids from
   // other files (which can persist in selectedLayerIdsState after a
@@ -109,27 +115,33 @@ export function runGroupSelection({
   // cause wrapNodes to return "conflict" even for a valid same-file
   // selection.
   const fileIds = new Set(files.map((f) => f.id));
-  const baseProjection = buildCodeLayerProjection(baseContent);
+  const baseProjection = buildCodeLayerProjection(baseContent, { source });
   const activeNodeIdSet = buildActiveFileNodeIdSet(baseProjection);
   const nodeIds = selectedLayerIdsState.filter(
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
   if (nodeIds.length === 0) return;
-  const patch = applyVisualEdit(baseContent, {
-    kind: "wrapNodes",
-    targetIds: nodeIds,
-    autoLayout: false,
-  });
+  const patch = applyVisualEdit(
+    baseContent,
+    {
+      kind: "wrapNodes",
+      targetIds: nodeIds,
+      autoLayout: false,
+    },
+    { source },
+  );
   if (patch.result.status !== "applied") {
     toast.error(
       codeLayerPatchMessage(
         patch.result.message,
         t("designEditor.toasts.layerMoveFailed"),
+        t,
       ),
       { duration: 4000 },
     );
     return;
   }
+  const nextContent = patch.content;
   // Figma-parity undo/redo selection restore: capture the ORIGINAL (ungrouped)
   // selection before the write so undo can hand it back. Figma groups a
   // single object too (see canGroup in DesignEditor.tsx), and undoing THAT
@@ -154,48 +166,56 @@ export function runGroupSelection({
   const contentUndoStackTopBeforeGroup = captureContentUndoStackTop(
     contentUndoStackRef.current,
   );
-  applyLocalContentUpdate(patch.content, {
+  const submittedProjection = buildCodeLayerProjection(nextContent, { source });
+  const submittedWrapper = patch.result.wrapperNodeId
+    ? submittedProjection.nodes.find(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] ===
+          patch.result.wrapperNodeId,
+      )
+    : undefined;
+  const publication = applyLocalContentUpdate(nextContent, {
     forcePreviewFullDocument: true,
     selectionBefore: selectionBeforeGroup,
   });
+  if (publication.status !== "accepted") return;
+  const acceptedProjection = projectAcceptedSource(publication, source);
+  const wrapperNode = mapAcceptedSelectionNode(
+    publication,
+    acceptedProjection,
+    submittedWrapper,
+  );
   stampYjsUndoSelection(
     undoManagerRef.current,
     undoStackTopBeforeGroup,
     selectionBeforeGroup,
   );
   // Select the new wrapper node if the substrate reported its id.
-  const wrapperId = patch.result.wrapperNodeId;
-  if (wrapperId) {
-    // Find the projection node whose data-agent-native-node-id matches.
-    const wrapperNode = patch.projection.nodes.find(
-      (n) => n.dataAttributes["data-agent-native-node-id"] === wrapperId,
+  if (wrapperNode) {
+    setSelectedLayerIdsState([wrapperNode.id]);
+    setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
+    // Figma parity: redo re-selects the group this gesture produced, not
+    // the pre-group selection undo restores. The write lands on whichever
+    // of the two stacks is actually tracking it (Yjs in single-screen
+    // mode, the plain content-history stack in overview mode); both
+    // stamps are harmless no-ops on the stack that didn't receive it.
+    stampYjsUndoSelectionAfter(
+      undoManagerRef.current,
+      undoStackTopBeforeGroup,
+      {
+        selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
+        selectedLayerIds: [wrapperNode.id],
+      },
     );
-    if (wrapperNode) {
-      setSelectedLayerIdsState([wrapperNode.id]);
-      setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
-      // Figma parity: redo re-selects the group this gesture produced, not
-      // the pre-group selection undo restores. The write lands on whichever
-      // of the two stacks is actually tracking it (Yjs in single-screen
-      // mode, the plain content-history stack in overview mode); both
-      // stamps are harmless no-ops on the stack that didn't receive it.
-      stampYjsUndoSelectionAfter(
-        undoManagerRef.current,
-        undoStackTopBeforeGroup,
-        {
-          selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
-          selectedLayerIds: [wrapperNode.id],
-        },
-      );
-      stampContentHistorySelectionAfter(
-        contentUndoStackRef.current,
-        contentHistorySelectionAfterRef.current,
-        contentUndoStackTopBeforeGroup,
-        {
-          overviewSelectedScreenIds,
-          selectedLayerIds: [wrapperNode.id],
-          activeFileId: activeFile.id,
-        },
-      );
-    }
+    stampContentHistorySelectionAfter(
+      contentUndoStackRef.current,
+      contentHistorySelectionAfterRef.current,
+      contentUndoStackTopBeforeGroup,
+      {
+        overviewSelectedScreenIds,
+        selectedLayerIds: [wrapperNode.id],
+        activeFileId: activeFile.id,
+      },
+    );
   }
 }

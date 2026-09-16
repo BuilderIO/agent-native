@@ -1,50 +1,9 @@
 // @vitest-environment happy-dom
 
-/**
- * Escape-key ordering regression (adversarial-review item 2): does an
- * Escape keypress inside DesignColorPicker's open popover (wired at
- * `onEscapeKeyDown={revertToOpenSnapshot}`, ~DesignColorPicker.tsx:1368)
- * also reach `useDesignHotkeys`' `onEscape` (handleEscapeHotkey in
- * DesignEditor.tsx), which pops/clears the canvas selection? If so, one
- * Escape press would both revert+close the picker AND pop canvas
- * selection — two distinct effects from a single keypress.
- *
- * This does NOT render the full DesignColorPicker/DesignEditor tree (out of
- * scope and too heavy); instead it wires the two REAL, unmocked mechanisms
- * that decide the outcome — Radix's `@radix-ui/react-dismissable-layer`
- * (via the shared `PopoverContent` wrapper, same `onEscapeKeyDown` prop
- * DesignColorPicker uses) and the real `useDesignHotkeys` hook (same
- * `onEscape` prop DesignEditor.tsx wires to `handleEscapeHotkey`) — and
- * dispatches a real, bubbling, cancelable "Escape" keydown at a plain
- * (non-editable) inner element, matching the SV field / ColorTrack slider /
- * gradient stop buttons named in the review: none of them are
- * input/textarea/select/contenteditable/role=textbox, so
- * `isDesignHotkeyEditableTarget` would NOT skip them on its own.
- *
- * Finding: the double-fire cannot happen, and no code change was made here.
- * Radix's `DismissableLayer` (see
- * @radix-ui/react-dismissable-layer/dist/index.mjs) adds its Escape listener
- * on `ownerDocument` with `{ capture: true }`, and always calls
- * `event.preventDefault()` after `onEscapeKeyDown` fires whenever the layer
- * has an `onDismiss` (Popover always wires one — `onDismiss: () =>
- * context.onOpenChange(false)` — regardless of what `onEscapeKeyDown` does).
- * `useDesignHotkeys` (DesignEditor.tsx's call has no `target`/`capture`
- * override) listens on `window` with the default bubble phase. Native keydown
- * dispatch order is: capture phase window -> document -> ... -> target, then
- * bubble phase target -> ... -> document -> window. Radix's document-capture
- * listener therefore always runs and calls `preventDefault()` *before* the
- * event ever reaches the target or bubbles back up to `window`, so by the
- * time `useDesignHotkeys`' handler runs, `event.defaultPrevented` is already
- * `true` and its very first guard (`if (event.defaultPrevented ...) return;`)
- * bails out before `onEscape` is invoked. The ordering is a structural
- * guarantee of the DOM event model (document is always an ancestor of
- * window's bubble-phase delivery point in this browser event model — more
- * precisely: capture always fully completes down to target before any
- * bubble listener runs), not an accident of registration order, so this test
- * pins the guarantee rather than proposing a fix.
- */
+// Radix handles Escape before canvas hotkeys, so closing the picker must
+// preserve both committed paint changes and the canvas selection.
 
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -53,12 +12,21 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useDesignHotkeys } from "@/hooks/useDesignHotkeys";
+
+import {
+  parseGradientLayer,
+  splitCssLayers,
+} from "../edit-panel/fill-gradient-helpers";
+import { ColorInput } from "../edit-panel/panel-primitives";
+import { DesignColorPicker } from "./DesignColorPicker";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -67,6 +35,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.unstubAllGlobals();
 });
 
 function Harness({
@@ -105,6 +74,101 @@ function Harness({
 }
 
 describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () => {
+  it("closes the picker without reverting a committed hex edit or clearing selection", async () => {
+    const onCanvasEscape = vi.fn();
+    const onChange = vi.fn();
+    const onCommit = vi.fn();
+    function PickerHarness() {
+      const [value, setValue] = useState("#ffffff");
+      useDesignHotkeys({ onEscape: onCanvasEscape });
+      return (
+        <TooltipProvider>
+          <DesignColorPicker
+            value={value}
+            onChange={(next) => {
+              onChange(next);
+              setValue(next);
+            }}
+            onChangeComplete={(next) => {
+              onCommit(next);
+              setValue(next);
+            }}
+          />
+        </TooltipProvider>
+      );
+    }
+    await act(() => root.render(<PickerHarness />));
+    await act(() =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Hex"]',
+    )!;
+    expect(input).not.toBeNull();
+    await act(() => {
+      input.focus();
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "DEDCF9");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(container.textContent).toContain("DEDCF9");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith("#dedcf9");
+    await act(() =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(document.querySelector('input[aria-label="Hex"]')).toBeNull();
+    expect(container.textContent).toContain("DEDCF9");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCanvasEscape).not.toHaveBeenCalled();
+
+    await act(() =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    const draft = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Hex"]',
+    )!;
+    await act(() => {
+      draft.focus();
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(draft, "FF0000");
+      draft.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() =>
+      draft.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(container.textContent).toContain("DEDCF9");
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCanvasEscape).not.toHaveBeenCalled();
+  });
+
   it("an Escape keydown on a non-editable popover-content target fires the popover's onEscapeKeyDown but never reaches useDesignHotkeys' onEscape", () => {
     const onPopoverEscape = vi.fn();
     const onCanvasEscapeHotkey = vi.fn();
@@ -167,5 +231,211 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
     });
 
     expect(onCanvasEscapeHotkey).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DesignColorPicker Hex commit callbacks", () => {
+  async function enterHex(hex: string) {
+    await act(() =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Hex"]',
+    )!;
+    await act(() => {
+      input.focus();
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, hex);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+  }
+
+  it("uses the authoritative completion callback without sending a preview", async () => {
+    const onChange = vi.fn();
+    const onChangeComplete = vi.fn();
+
+    await act(() =>
+      root.render(
+        <TooltipProvider>
+          <DesignColorPicker
+            value="#ffffff"
+            onChange={onChange}
+            onChangeComplete={onChangeComplete}
+          />
+        </TooltipProvider>,
+      ),
+    );
+    await enterHex("EC4899");
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onChangeComplete).toHaveBeenCalledTimes(1);
+    expect(onChangeComplete).toHaveBeenCalledWith("#ec4899");
+  });
+
+  it("falls back to onPaintValueChange for a gradient Hex commit", async () => {
+    const onChange = vi.fn();
+    const onPaintValueChange = vi.fn();
+
+    await act(() =>
+      root.render(
+        <TooltipProvider>
+          <DesignColorPicker
+            value="linear-gradient(90deg, #000000 0%, #ffffff 100%)"
+            paintType="linear"
+            onChange={onChange}
+            onPaintValueChange={onPaintValueChange}
+          />
+        </TooltipProvider>,
+      ),
+    );
+    await enterHex("EC4899");
+
+    expect(onPaintValueChange).toHaveBeenCalledTimes(1);
+    expect(onPaintValueChange.mock.calls[0]?.[0]).toMatch(/#ec4899/i);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("routes a gradient Hex commit through the paint callback when provided", async () => {
+    const onChange = vi.fn();
+    const onPaintValueChange = vi.fn();
+    const onChangeComplete = vi.fn();
+
+    await act(() =>
+      root.render(
+        <TooltipProvider>
+          <DesignColorPicker
+            value="linear-gradient(90deg, #000000 0%, #ffffff 100%)"
+            paintType="linear"
+            onChange={onChange}
+            onPaintValueChange={onPaintValueChange}
+            onChangeComplete={onChangeComplete}
+          />
+        </TooltipProvider>,
+      ),
+    );
+    await enterHex("EC4899");
+
+    expect(onPaintValueChange).toHaveBeenCalledTimes(1);
+    expect(onPaintValueChange.mock.calls[0]?.[0]).toMatch(/#ec4899/i);
+    expect(onChangeComplete).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("commits a layered gradient Hex edit without touching sibling paints or the solid callback", async () => {
+    const firstSibling = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const secondSibling =
+      "radial-gradient(circle at center, #00ff00 0%, #ff00ff 100%)";
+    const onChange = vi.fn();
+    const onBackgroundImageChange = vi.fn();
+
+    function LayeredColorInput() {
+      const [backgroundImage, setBackgroundImage] = useState(
+        `${firstSibling}, ${secondSibling}`,
+      );
+      return (
+        <TooltipProvider>
+          <ColorInput
+            label="Fill"
+            value="#123456"
+            onChange={onChange}
+            open
+            supportsLayeredFills
+            backgroundImage={backgroundImage}
+            onBackgroundImageChange={(next) => {
+              onBackgroundImageChange(next);
+              setBackgroundImage(next);
+            }}
+          />
+        </TooltipProvider>
+      );
+    }
+
+    await act(() => root.render(<LayeredColorInput />));
+    await act(() =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .click(),
+    );
+    onChange.mockClear();
+    onBackgroundImageChange.mockClear();
+
+    await enterHex("EC4899");
+
+    expect(onBackgroundImageChange).toHaveBeenCalledTimes(1);
+    const layers = splitCssLayers(onBackgroundImageChange.mock.calls[0]![0]);
+    expect(layers).toHaveLength(3);
+    expect(layers[0]).toBe(firstSibling);
+    expect(layers[1]).toBe(secondSibling);
+    expect(parseGradientLayer(layers[2])?.stops[0]?.color).toBe("#ec4899");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("commits the displayed color after selecting another gradient stop", async () => {
+    const onPaintValueChange = vi.fn();
+
+    await act(() =>
+      root.render(
+        <TooltipProvider>
+          <DesignColorPicker
+            value="linear-gradient(90deg, #000000 0%, #ffffff 100%)"
+            paintType="linear"
+            onChange={vi.fn()}
+            onPaintValueChange={onPaintValueChange}
+          />
+        </TooltipProvider>,
+      ),
+    );
+    await act(() =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    const secondStop = document.querySelector<HTMLButtonElement>(
+      'button[aria-label^="#ffffff at"]',
+    )!;
+    await act(() => secondStop.click());
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Hex"]',
+    )!;
+    expect(input.value).toBe("FFFFFF");
+
+    await act(() =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+
+    expect(onPaintValueChange).toHaveBeenCalledTimes(1);
+    const gradient = parseGradientLayer(onPaintValueChange.mock.calls[0]![0]);
+    expect(gradient?.stops[1]?.color).toBe("#ffffff");
+  });
+
+  it("falls back to onChange for a solid Hex commit without a completion callback", async () => {
+    const onChange = vi.fn();
+
+    await act(() =>
+      root.render(
+        <TooltipProvider>
+          <DesignColorPicker value="#ffffff" onChange={onChange} />
+        </TooltipProvider>,
+      ),
+    );
+    await enterHex("EC4899");
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith("#ec4899");
   });
 });

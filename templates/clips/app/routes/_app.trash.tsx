@@ -3,9 +3,11 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconArrowBackUp,
+  IconChevronLeft,
+  IconChevronRight,
   IconTrash,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/library/empty-state";
@@ -23,7 +25,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { useRecordings, type RecordingSummary } from "@/hooks/use-library";
+import {
+  useRecordings,
+  useRecordingsCount,
+  type RecordingSummary,
+} from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -42,6 +48,8 @@ function Skeleton() {
   );
 }
 
+const PAGE_SIZE = 100;
+
 export default function TrashRoute() {
   const t = useT();
   const [sort, setSort] = useState<SortKey>("recent");
@@ -50,8 +58,32 @@ export default function TrashRoute() {
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [singlePurgeId, setSinglePurgeId] = useState<string | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
+  const [page, setPage] = useState(1);
 
-  const args = useMemo(() => ({ view: "trash" as const, sort }), [sort]);
+  const countArgs = useMemo(() => ({ view: "trash" as const }), []);
+  const { data: totalCount } = useRecordingsCount(countArgs);
+  const total = totalCount ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(1);
+    setSelected(new Set());
+    setLastSelectedId(null);
+  }, [sort]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const args = useMemo(
+    () => ({
+      view: "trash" as const,
+      sort,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    }),
+    [page, sort],
+  );
   const { data, isLoading, isError, isFetching, refetch } = useRecordings(args);
   const recordings = (data?.recordings ?? []) as RecordingSummary[];
 
@@ -276,6 +308,43 @@ export default function TrashRoute() {
           </div>
         )}
       </div>
+
+      {!isLoading && recordings.length > 0 && totalPages > 1 && (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-2.5">
+          <span className="text-xs text-muted-foreground">
+            {t("libraryGrid.paginationRange", {
+              start: (page - 1) * PAGE_SIZE + 1,
+              end: (page - 1) * PAGE_SIZE + recordings.length,
+              total,
+            })}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              <IconChevronLeft className="h-3.5 w-3.5" />
+              {t("libraryGrid.paginationPrevious")}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {t("libraryGrid.paginationPage", { page, totalPages })}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              {t("libraryGrid.paginationNext")}
+              <IconChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       <AlertDialog open={confirmPurge} onOpenChange={setConfirmPurge}>
         <AlertDialogContent>

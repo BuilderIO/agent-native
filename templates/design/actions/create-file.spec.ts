@@ -9,6 +9,10 @@
  * depending on a client-side backfill the first time someone opens it.
  */
 
+import { readFileSync } from "node:fs";
+
+import { QueryClient } from "@tanstack/react-query";
+import { transformSync } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -118,7 +122,46 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
+import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import action from "./create-file.js";
+
+function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
+  const source = readFileSync(
+    new URL("../app/pages/DesignEditor.tsx", import.meta.url),
+    "utf8",
+  );
+  const start = source.indexOf(
+    "const optimisticallyInsertCreatedFile = useCallback(",
+  );
+  const end = source.indexOf("\n  const focusCreatedScreen", start);
+  if (start < 0 || end < 0) {
+    throw new Error("Could not extract created-file optimistic cache callback");
+  }
+  const callback = transformSync(source.slice(start, end), {
+    loader: "tsx",
+    format: "cjs",
+  }).code;
+  const create = new Function(
+    "useCallback",
+    "id",
+    "queryClient",
+    "annotateScreenHtmlForPersist",
+    `${callback}\nreturn optimisticallyInsertCreatedFile;`,
+  );
+  return create(
+    (value: unknown) => value,
+    "design-1",
+    queryClient,
+    annotateScreenHtmlForPersist,
+  ) as (args: {
+    fileId: string;
+    filename: string;
+    fileType: "html";
+    content: string;
+    result?: Record<string, unknown> | null;
+  }) => void;
+}
 
 describe("create-file: node-id annotation", () => {
   beforeEach(() => {
@@ -165,6 +208,134 @@ describe("create-file: node-id annotation", () => {
       expect.any(String),
       insertedValues.content,
     );
+  });
+
+  it("keeps optimistic created-screen bytes aligned with the persisted source projection", async () => {
+    const rawContent = "<main><button>Buy</button></main>";
+    const result = await action.run({
+      designId: "design-1",
+      filename: "index.html",
+      content: rawContent,
+      fileType: "html",
+    });
+    const persisted = mocks.insertValues.mock.calls[0]![0] as {
+      content: string;
+    };
+    const queryClient = new QueryClient();
+    const queryKey = ["action", "get-design", { id: "design-1" }] as const;
+    queryClient.setQueryData(queryKey, {
+      files: [] as Array<Record<string, unknown>>,
+    });
+    const insertOptimistically =
+      loadOptimisticCreatedFileInsertion(queryClient);
+
+    try {
+      insertOptimistically({
+        fileId: result.id,
+        filename: "index.html",
+        fileType: "html",
+        content: rawContent,
+        result,
+      });
+      const optimistic = queryClient
+        .getQueryData<{ files: Array<Record<string, unknown>> }>(queryKey)
+        ?.files.find((file) => file.id === result.id);
+      expect(optimistic?.content).toBe(persisted.content);
+      expect(mocks.seedFromText).toHaveBeenCalledWith(
+        result.id,
+        persisted.content,
+      );
+
+      const preparedForSourceIdentity = ensureCodeLayerNodeIdsInHtml(
+        String(optimistic?.content),
+        { source: { kind: "design-file", fileId: result.id } },
+      );
+      expect(preparedForSourceIdentity).toEqual({
+        content: persisted.content,
+        changed: false,
+        stamped: 0,
+      });
+    } finally {
+      queryClient.clear();
+    }
+  });
+
+  it("cancels a pre-create get-design read before inserting the created file", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "index.html",
+      content: "<main><button>Buy</button></main>",
+      fileType: "html",
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity, staleTime: 0 },
+      },
+    });
+    const queryKey = ["action", "get-design", { id: "design-1" }] as const;
+    const staleResult = {
+      id: "design-1",
+      files: [{ id: "old-file", filename: "index.html", content: "old" }],
+    };
+    queryClient.setQueryData(queryKey, staleResult);
+
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    let resolveRead!: (value: typeof staleResult) => void;
+    let requestSignal: AbortSignal | undefined;
+    const oldRead = queryClient
+      .fetchQuery({
+        queryKey,
+        staleTime: 0,
+        queryFn: ({ signal }) => {
+          requestSignal = signal;
+          resolveStarted();
+          return new Promise<typeof staleResult>((resolve) => {
+            resolveRead = resolve;
+          });
+        },
+      })
+      .catch((error: unknown) => error);
+
+    try {
+      await started;
+      const insertOptimistically =
+        loadOptimisticCreatedFileInsertion(queryClient);
+      insertOptimistically({
+        fileId: result.id,
+        filename: "index.html",
+        fileType: "html",
+        content: "<main><button>Buy</button></main>",
+        result,
+      });
+
+      const immediatelyAfterInsert =
+        queryClient
+          .getQueryData<{ files: Array<{ id: string }> }>(queryKey)
+          ?.files.map((file) => file.id) ?? [];
+      const fetchStatusAfterInsert =
+        queryClient.getQueryState(queryKey)?.fetchStatus;
+      const requestAbortedAfterInsert = requestSignal?.aborted;
+
+      // Resolve even though the fetch was cancelled to prove a late stale
+      // response cannot replace the new file row.
+      resolveRead(staleResult);
+      await oldRead;
+      expect(immediatelyAfterInsert).toEqual(["old-file", result.id]);
+      expect(
+        queryClient
+          .getQueryData<{ files: Array<{ id: string }> }>(queryKey)
+          ?.files.map((file) => file.id),
+      ).toEqual(["old-file", result.id]);
+      expect(fetchStatusAfterInsert).toBe("idle");
+      expect(requestAbortedAfterInsert).toBe(true);
+    } finally {
+      resolveRead(staleResult);
+      await oldRead;
+      queryClient.clear();
+    }
   });
 
   it("is idempotent: does not double-stamp elements that already have a clean id", async () => {

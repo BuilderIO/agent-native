@@ -19,6 +19,7 @@ import {
   useSensors,
   DragEndEvent,
 } from "@dnd-kit/core";
+import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import { hashSlideContent } from "@shared/slide-fit";
 import { nanoid } from "nanoid";
 import {
@@ -101,7 +102,9 @@ import {
 } from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
 import {
+  isGoogleSlidesCommentShortcut,
   shouldActivateSlidesCommentShortcut,
+  shouldCreateSlideWithShortcut,
   shouldSuppressSlidesItalicShortcut,
 } from "@/lib/editor-shortcuts";
 import {
@@ -130,6 +133,7 @@ import {
   resolveSlideClipboardsForPaste,
   writeSlideClipboards,
 } from "@/lib/slide-clipboard";
+import { slideCommentAnchorFromRange } from "@/lib/slide-comment-anchor";
 import {
   applyOptimisticImagePreview,
   captureOptimisticImagePreview,
@@ -159,6 +163,17 @@ type PendingImagePreview = OptimisticImagePreview & {
 type PendingImagePreviewUpdate =
   | PendingImagePreview[]
   | ((current: PendingImagePreview[]) => PendingImagePreview[]);
+
+type CommentComposerAnchor = SlideCommentAnchor | Range;
+
+function isDomRange(value: CommentComposerAnchor | undefined): value is Range {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "commonAncestorContainer" in value &&
+    typeof value.getBoundingClientRect === "function",
+  );
+}
 
 type AccessRequestCapability =
   | { available: true; token: string }
@@ -549,7 +564,9 @@ export default function DeckEditor() {
     setSidePanel(opening ? "comments" : null);
   }, [sidePanel]);
   const [pendingComment, setPendingComment] = useState<{
+    slideId: string;
     quotedText: string;
+    anchor?: SlideCommentAnchor;
   } | null>(null);
   // Track which image src to replace
   const [replaceImageSrc, setReplaceImageSrc] = useState<string | null>(null);
@@ -630,6 +647,66 @@ export default function DeckEditor() {
   // loading when `createdByMe` already confirms ownership — otherwise a
   // viewer would briefly see (and could click) edit affordances.
   const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
+  const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
+  const openCommentComposer = useCallback(
+    (
+      quotedText: string,
+      requestedAnchor?: CommentComposerAnchor,
+      editingEl?: HTMLElement,
+    ) => {
+      if (!canComment) return;
+      const commentSlideId = activeSlideId ?? fallbackCommentSlideId;
+      if (!commentSlideId) return;
+      if (sidePanel !== "comments") {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "comments",
+        });
+      }
+      const normalizedAnchor = isDomRange(requestedAnchor)
+        ? (() => {
+            const canvas = document.querySelector<HTMLElement>(
+              "[data-main-slide-canvas='true']",
+            );
+            if (!canvas) return undefined;
+            const selectionNode = requestedAnchor.commonAncestorContainer;
+            const selectionElement =
+              selectionNode instanceof Element
+                ? selectionNode
+                : selectionNode.parentElement;
+            const target =
+              editingEl?.closest<HTMLElement>("[data-slide-object-id]") ??
+              selectionElement?.closest<HTMLElement>("[data-slide-object-id]");
+            return slideCommentAnchorFromRange({
+              range: requestedAnchor,
+              slideRect: canvas.getBoundingClientRect(),
+              objectId: target?.getAttribute("data-slide-object-id"),
+              objectRect: target?.getBoundingClientRect(),
+              targetText: quotedText,
+            });
+          })()
+        : requestedAnchor;
+      setPendingComment({
+        slideId: commentSlideId,
+        quotedText,
+        ...(normalizedAnchor ? { anchor: normalizedAnchor } : {}),
+      });
+      setSidePanel("comments");
+    },
+    [activeSlideId, canComment, fallbackCommentSlideId, sidePanel],
+  );
+  useEffect(() => {
+    const currentSlideId = activeSlideId ?? fallbackCommentSlideId;
+    if (pendingComment && pendingComment.slideId !== currentSlideId) {
+      setPendingComment(null);
+    }
+  }, [activeSlideId, fallbackCommentSlideId, pendingComment]);
+  const flushCommentWrites = useCallback(async () => {
+    if (!id) return;
+    flushPendingSaves();
+    await flushDeckSave(id);
+  }, [flushDeckSave, id]);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -967,6 +1044,18 @@ export default function DeckEditor() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const handleReorderSlidesFromRail = useCallback(
+    (
+      activeSlideId: string,
+      overSlideId: string,
+      selectedSlideIds?: string[],
+    ) => {
+      if (!deck || !id || !canEdit || sourceImportedDeck) return;
+      reorderSlides(id, activeSlideId, overSlideId, selectedSlideIds);
+    },
+    [canEdit, deck, id, reorderSlides, sourceImportedDeck],
   );
 
   const handleDragEnd = useCallback(
@@ -1459,13 +1548,15 @@ export default function DeckEditor() {
 
   useEffect(() => {
     const handleCommentShortcut = (event: KeyboardEvent) => {
+      const googleCommentShortcut = isGoogleSlidesCommentShortcut(event);
       const activeElement = document.activeElement;
       if (
         !shouldActivateSlidesCommentShortcut(event, {
           canComment,
           activeElement,
-          focusedCanvas:
-            activeElement?.closest("[data-slide-canvas-focus='true']") !== null,
+          focusedCanvas: Boolean(
+            activeElement?.closest("[data-slide-canvas-focus='true']"),
+          ),
           blockingSurfaceOpen:
             document.querySelector(
               "[role='dialog'], [role='menu'], [role='listbox'], [data-slide-comment-popover], [data-pin-popover]",
@@ -1479,13 +1570,60 @@ export default function DeckEditor() {
       event.stopPropagation();
       setDrawMode(false);
       setTextBoxMode(false);
-      setPinMode(true);
       setShapeType(null);
+      const selection = window.getSelection();
+      const range =
+        selection?.rangeCount && !selection.isCollapsed
+          ? selection.getRangeAt(0)
+          : null;
+      const quotedText = selection?.toString().trim() ?? "";
+      const focusedCanvas = activeElement?.closest<HTMLElement>(
+        "[data-slide-canvas-focus='true']",
+      );
+      if (googleCommentShortcut) {
+        setPinMode(false);
+        if (
+          range &&
+          quotedText &&
+          focusedCanvas?.contains(range.commonAncestorContainer)
+        ) {
+          const canvas =
+            focusedCanvas.closest<HTMLElement>(
+              "[data-main-slide-canvas='true']",
+            ) ?? focusedCanvas;
+          const selectionNode = range.commonAncestorContainer;
+          const selectionElement =
+            selectionNode instanceof Element
+              ? selectionNode
+              : selectionNode.parentElement;
+          const object = selectionElement?.closest<HTMLElement>(
+            "[data-slide-object-id]",
+          );
+          openCommentComposer(
+            quotedText,
+            slideCommentAnchorFromRange({
+              range,
+              slideRect: canvas.getBoundingClientRect(),
+              objectId: object?.getAttribute("data-slide-object-id"),
+              objectRect: object?.getBoundingClientRect(),
+              targetText: quotedText,
+            }),
+          );
+        } else {
+          // Google opens the shared comment draft immediately when the slide
+          // itself is focused; the pin tool remains a separate, explicit C
+          // interaction for choosing a precise slide position.
+          openCommentComposer("");
+        }
+      } else {
+        setPinMode(true);
+      }
     };
 
-    document.addEventListener("keydown", handleCommentShortcut);
-    return () => document.removeEventListener("keydown", handleCommentShortcut);
-  }, [canComment]);
+    document.addEventListener("keydown", handleCommentShortcut, true);
+    return () =>
+      document.removeEventListener("keydown", handleCommentShortcut, true);
+  }, [canComment, openCommentComposer]);
 
   useEffect(() => {
     const handleItalicShortcut = (event: KeyboardEvent) => {
@@ -1716,16 +1854,15 @@ export default function DeckEditor() {
     [deck, id, selectedSlideIdsForAction, updateSlides],
   );
 
-  // Command/Ctrl+C then Command/Ctrl+V on the slide rail copies/pastes the
-  // selected slide directly below itself. Only claims the shortcut when no
-  // slide element is selected — SlideEditor owns Cmd+C/V for object copy/paste
-  // in that case.
+  // Command/Ctrl+C then Command/Ctrl+V on the focused slide rail copies/pastes
+  // the selected slide directly below itself. Canvas shortcuts own these keys
+  // only while the canvas has focus, even if its selection remains visible.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !canEdit) return;
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (key !== "c" && key !== "v" && key !== "d") return;
+      if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;
       if (pinMode || drawMode) return;
       if (!document.activeElement?.closest("[data-slide-thumbnail-id]")) {
         return;
@@ -1734,7 +1871,10 @@ export default function DeckEditor() {
       // A live browser text selection (e.g. the user triple-clicked rendered,
       // non-editable slide copy) means Cmd/Ctrl+C is a normal text copy —
       // let it through instead of hijacking it into a slide duplicate.
-      if (key === "c" && (window.getSelection()?.toString().length ?? 0) > 0) {
+      if (
+        (key === "c" || key === "x") &&
+        (window.getSelection()?.toString().length ?? 0) > 0
+      ) {
         return;
       }
 
@@ -1786,7 +1926,13 @@ export default function DeckEditor() {
         ).some(isBlockingPopperWrapper)
       )
         return;
-      if (document.querySelector("[data-slide-element-selected='true']"))
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      if (
+        !focusedThumbnail &&
+        document.querySelector("[data-slide-element-selected='true']")
+      )
         return;
 
       if (key === "c") {
@@ -1799,11 +1945,25 @@ export default function DeckEditor() {
         return;
       }
 
-      if (key === "d") {
-        if (!activeSlideId) return;
+      if (key === "x") {
+        if (!activeSlideId || sourceImportedDeck) return;
+        const slideIds =
+          selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId];
+        if (slideIds.length >= deck.slides.length) return;
         e.preventDefault();
         e.stopPropagation();
-        handleDuplicateSlideFromRail([activeSlideId]);
+        cutSlides(slideIds);
+        return;
+      }
+
+      if (key === "d") {
+        if (!activeSlideId) return;
+        const slideIds = selectedSlideIds.includes(activeSlideId)
+          ? selectedSlideIds
+          : [activeSlideId];
+        e.preventDefault();
+        e.stopPropagation();
+        handleDuplicateSlideFromRail(slideIds);
         return;
       }
 
@@ -1831,12 +1991,14 @@ export default function DeckEditor() {
     canEdit,
     activeSlideId,
     copySlides,
+    cutSlides,
     handleDuplicateSlideFromRail,
     hasSlideClipboard,
     pasteSlideAfter,
     selectedSlideIds,
     pinMode,
     drawMode,
+    sourceImportedDeck,
   ]);
 
   useEffect(() => {
@@ -2085,6 +2247,69 @@ export default function DeckEditor() {
     (t) => !t.resolved,
   ).length;
 
+  const insertSlideAfterActive = useCallback(
+    (layout: Slide["layout"]) => {
+      if (!deck || !id || sourceImportedDeck) return;
+      const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
+      // Immediate persistence keeps the selected new slide durable before
+      // subsequent editor work or an agent update reaches the server.
+      const newId = addSlide(
+        id,
+        layout,
+        activeIdx >= 0 ? activeIdx : undefined,
+        {
+          persistence: "immediate",
+        },
+      );
+      selectionAnchorSlideIdRef.current = newId;
+      setSelectedSlideIds([newId]);
+      setActiveSlideId(newId);
+      return newId;
+    },
+    [activeSlideId, addSlide, deck, id, sourceImportedDeck],
+  );
+
+  useEffect(() => {
+    const handleNewSlideShortcut = (event: KeyboardEvent) => {
+      if (
+        !deck ||
+        !id ||
+        pinMode ||
+        drawMode ||
+        !shouldCreateSlideWithShortcut(event, {
+          canEdit: canEdit && !sourceImportedDeck,
+          activeElement: document.activeElement,
+          blockingSurfaceOpen: Boolean(
+            document.querySelector(
+              "[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
+            ),
+          ),
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const slide =
+        deck.slides.find((s) => s.id === activeSlideId) ?? deck.slides[0];
+      insertSlideAfterActive(slide?.layout ?? "content");
+    };
+
+    document.addEventListener("keydown", handleNewSlideShortcut);
+    return () =>
+      document.removeEventListener("keydown", handleNewSlideShortcut);
+  }, [
+    activeSlideId,
+    canEdit,
+    deck,
+    drawMode,
+    id,
+    insertSlideAfterActive,
+    pinMode,
+    sourceImportedDeck,
+  ]);
+
   if (
     shouldShowDeckEditorSkeleton({
       deckFound: Boolean(deck),
@@ -2292,25 +2517,7 @@ export default function DeckEditor() {
     void uploadAndApplyImage(null, file);
   };
 
-  const handleAddEmptySlide = () => {
-    if (!deck || !id || sourceImportedDeck) return;
-    const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
-    // Immediate persistence: this placeholder is immediately followed by an
-    // agent request to `update-slide` it, which can reach the server before
-    // the default 500ms debounce would have flushed the `add-slide` op.
-    const newId = addSlide(
-      id,
-      "blank",
-      activeIdx >= 0 ? activeIdx : undefined,
-      {
-        persistence: "immediate",
-      },
-    );
-    selectionAnchorSlideIdRef.current = newId;
-    setSelectedSlideIds([newId]);
-    setActiveSlideId(newId);
-    return newId;
-  };
+  const handleAddEmptySlide = () => insertSlideAfterActive("blank");
 
   const handleNewSlideClick = () => {
     const newId = handleAddEmptySlide();
@@ -2569,6 +2776,7 @@ export default function DeckEditor() {
                       ? undefined
                       : handleDuplicateSlideFromRail
                   }
+                  onReorderSlides={handleReorderSlidesFromRail}
                   onToggleSkipSlide={handleToggleSkipSlide}
                 />
               </DndContext>
@@ -2627,6 +2835,7 @@ export default function DeckEditor() {
             flushInlineEditRef={inlineEditFlushRef}
             readOnly={!canEdit}
             canComment={canComment}
+            currentUserEmail={session?.email ?? null}
             comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
@@ -2757,18 +2966,7 @@ export default function DeckEditor() {
                 currentSlide.id === deck.slides[deck.slides.length - 1]?.id)
             }
             recentEdits={deckRecentEdits}
-            onComment={(quotedText) => {
-              if (!canComment) return;
-              if (sidePanel !== "comments") {
-                trackEvent("slide_panel_opened", {
-                  app_name: "slides",
-                  template_name: "slides",
-                  panel: "comments",
-                });
-              }
-              setPendingComment({ quotedText });
-              setSidePanel("comments");
-            }}
+            onComment={openCommentComposer}
             drawMode={drawMode}
             onExitDrawMode={() => setDrawMode(false)}
             pinMode={pinMode}
@@ -2798,7 +2996,15 @@ export default function DeckEditor() {
             deckId={id}
             slideId={currentSlide?.id ?? null}
             canComment={canComment}
-            pendingComment={pendingComment}
+            canEdit={canEdit}
+            currentUserEmail={session?.email ?? null}
+            onBeforeCommentSubmit={flushCommentWrites}
+            onSelectSlide={handleSlideSelection}
+            pendingComment={
+              pendingComment?.slideId === currentSlide?.id
+                ? pendingComment
+                : null
+            }
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
               setSidePanel(null);

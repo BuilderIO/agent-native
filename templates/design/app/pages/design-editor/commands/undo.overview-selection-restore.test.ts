@@ -1,7 +1,7 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 
-import { runUndo } from "./undo";
+import { runUndo } from "@/pages/design-editor/commands/undo";
 
 /**
  * Figma parity — "deleting an element then one undo restores it with its
@@ -25,7 +25,9 @@ const CONTENT_WITH_BOX_A = `<!doctype html><html><body>
 const CONTENT_WITHOUT_BOX_A = `<!doctype html><html><body></body></html>`;
 
 function boxANodeId(): string {
-  const node = buildCodeLayerProjection(CONTENT_WITH_BOX_A).nodes.find(
+  const node = buildCodeLayerProjection(CONTENT_WITH_BOX_A, {
+    source: { kind: "design-file", fileId: "file-1" },
+  }).nodes.find(
     (candidate) =>
       candidate.dataAttributes["data-agent-native-node-id"] === "box-a",
   );
@@ -37,13 +39,22 @@ function overviewArgs(overrides: Record<string, unknown> = {}) {
   return {
     activeEditorDragRef: { current: false },
     activeFile: { id: "file-1" },
-    applyFileContentUpdate: vi.fn(),
-    applyLocalContentUpdate: vi.fn(),
+    applyFileContentUpdate: vi.fn((fileId: string, content: string) => ({
+      status: "accepted" as const,
+      content,
+      nodeIdMap: new Map(),
+    })),
+    applyLocalContentUpdate: vi.fn((content: string) => ({
+      status: "accepted" as const,
+      content,
+      nodeIdMap: new Map(),
+    })),
     canEditDesign: true,
     clipboardPasteRedoStackRef: { current: [] },
     clipboardPasteUndoStackRef: { current: [] },
     contentRedoSelectionStackRef: { current: [] },
     contentRedoStackRef: { current: [] },
+    contentHistorySelectionAfterRef: { current: new WeakMap() },
     contentUndoSelectionStackRef: { current: [] },
     contentUndoStackRef: { current: [] },
     designDataJsonRef: { current: {} },
@@ -138,7 +149,9 @@ describe("runUndo — overview content-undo restores an ElementInfo, not just th
     );
     expect(directRestoreCall).toBeDefined();
     const restored = directRestoreCall![0];
-    expect(restored?.sourceId ?? restored?.selector).toBeTruthy();
+    expect(restored).toMatchObject({
+      sourceLayerIdentity: { screenId: "file-1", nodeId },
+    });
   });
 
   it("does not touch selectedElement when nothing was selected for the entry", () => {

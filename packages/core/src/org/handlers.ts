@@ -37,6 +37,7 @@ const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { warnAgent } from "../agent/action-warnings.js";
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
@@ -51,9 +52,14 @@ import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { isEmailDerivedName } from "../user-profile/shared.js";
 import { getUserProfiles } from "../user-profile/store.js";
 import { setActiveOrgId } from "./active-org.js";
+import { applyInvitationAppRoles, getRegisteredAppRoles } from "./app-roles.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
 import { invalidateDomainMatchCache } from "./auto-join-domain.js";
-import { getOrgContext, createOrganization } from "./context.js";
+import {
+  bootstrapAdminOrganization,
+  getOrgContext,
+  createOrganization,
+} from "./context.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import {
   addFederatedOrganizationMember,
@@ -63,6 +69,7 @@ import {
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
+import { isBootstrapAdmin } from "./signup-admission.js";
 import type {
   OrgRole,
   RequiredAuthProvider,
@@ -72,6 +79,14 @@ import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
 const pendingFederatedOrgSyncs = new Map<string, Promise<void>>();
+
+function parseRequiredAuthProvider(value: unknown): RequiredAuthProvider {
+  if (value === null || value === undefined) return null;
+  if (value === "google") return "google";
+  if (typeof value === "string" && value.startsWith("sso:") && value.slice(4))
+    return value as `sso:${string}`;
+  throw new Error(`Unsupported organization auth provider: ${String(value)}`);
+}
 
 async function syncFederatedOrgBestEffort(
   event: H3Event,
@@ -234,13 +249,9 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
       allowedDomain =
         String((adRes.rows[0] as any).allowed_domain ?? "") || null;
       workspaceUrl = String((adRes.rows[0] as any).workspace_url ?? "") || null;
-      const provider = String(
-        (adRes.rows[0] as any).required_auth_provider ?? "",
+      requiredAuthProvider = parseRequiredAuthProvider(
+        (adRes.rows[0] as any).required_auth_provider ?? null,
       );
-      if (provider && provider !== "google") {
-        throw new Error(`Unsupported organization auth provider: ${provider}`);
-      }
-      requiredAuthProvider = provider === "google" ? "google" : null;
       a2aSecretSet = Boolean(
         String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
       );
@@ -282,6 +293,12 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     orgId: ctx.orgId,
     orgName: ctx.orgName,
     role: ctx.role,
+    access: {
+      signup: getAppConfig().access.signup,
+      orgCreation: getAppConfig().access.orgCreation,
+      sso: { enabled: getAppConfig().access.sso.enabled },
+      scim: { enabled: getAppConfig().access.scim.enabled },
+    },
     orgs,
     pendingRemovals,
     pendingInvitations,
@@ -424,6 +441,54 @@ export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
 export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event);
   const email = requireAuthEmail(session);
+  const emailVerified = session?.emailVerified === true;
+
+  if (getAppConfig().access.orgCreation === "closed") {
+    // Closed means closed: only a verified configured bootstrap admin may
+    // create the canonical organization, whether the database is empty or
+    // already has one.
+    const orgs = await getDbExec().execute({
+      sql: "SELECT id FROM organizations LIMIT 1",
+      args: [],
+    });
+    if (orgs.rows.length > 0) {
+      const bootstrapped =
+        emailVerified &&
+        isBootstrapAdmin(email) &&
+        (await bootstrapAdminOrganization(email));
+      if (!bootstrapped) {
+        throw createError({
+          statusCode: 403,
+          message:
+            "Organization creation is disabled. Ask an administrator for access.",
+        });
+      }
+      return { success: true };
+    }
+
+    if (isBootstrapAdmin(email)) {
+      if (!emailVerified) {
+        throw createError({
+          statusCode: 403,
+          message: "Verify your email before bootstrapping this workspace.",
+        });
+      }
+      if (!(await bootstrapAdminOrganization(email))) {
+        throw createError({
+          statusCode: 403,
+          message:
+            "Organization creation is disabled. Ask an administrator for access.",
+        });
+      }
+      return { success: true };
+    }
+
+    throw createError({
+      statusCode: 403,
+      message:
+        "Organization creation is disabled. Configure AUTH_BOOTSTRAP_ADMINS so a workspace administrator can create the first organization.",
+    });
+  }
 
   const body = await readBody(event);
   const name = body?.name?.trim();
@@ -566,6 +631,8 @@ async function inviteOne(
   rawEmail: string,
   role: "member" | "admin",
   event: H3Event,
+  appId?: string,
+  appRoles?: string[],
 ): Promise<SingleInviteResult> {
   const email = rawEmail.trim().toLowerCase();
   if (!email) {
@@ -603,9 +670,27 @@ async function inviteOne(
   }
 
   const id = nanoid();
+  let appRolesJson: string | null = null;
+  if (appId !== undefined || appRoles !== undefined) {
+    const descriptor = appId ? getRegisteredAppRoles(appId) : undefined;
+    if (
+      !descriptor ||
+      !Array.isArray(appRoles) ||
+      appRoles.some((item) => !descriptor.roles.includes(item))
+    ) {
+      throw createError({
+        statusCode: 400,
+        message:
+          "Invitation app roles must use a registered app and declared roles",
+      });
+    }
+    appRolesJson = JSON.stringify({
+      [descriptor.appId]: [...new Set(appRoles)],
+    });
+  }
   await e.execute({
-    sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-    args: [id, ctx.orgId, email, ctx.email, Date.now(), role],
+    sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
   });
 
   let emailSent = false;
@@ -658,13 +743,19 @@ export const createInvitationHandler = defineEventHandler(
     // Bulk shape: { invites: [{ email, role }, ...] } — preferred for any
     // multi-recipient flow (paste-many, CSV upload). Single shape:
     // { email, role } — kept for backwards compatibility.
-    const invitesInput: Array<{ email: string; role?: string }> | null =
-      Array.isArray(body?.invites)
-        ? body.invites.map((inv: any) => ({
-            email: String(inv?.email ?? ""),
-            role: inv?.role,
-          }))
-        : null;
+    const invitesInput: Array<{
+      email: string;
+      role?: string;
+      appId?: string;
+      appRoles?: string[];
+    }> | null = Array.isArray(body?.invites)
+      ? body.invites.map((inv: any) => ({
+          email: String(inv?.email ?? ""),
+          role: inv?.role,
+          appId: inv?.appId,
+          appRoles: inv?.appRoles,
+        }))
+      : null;
 
     if (invitesInput) {
       const succeeded: SingleInviteResult[] = [];
@@ -683,6 +774,8 @@ export const createInvitationHandler = defineEventHandler(
             inv.email,
             normalizeInviteRole(inv.role),
             event,
+            inv.appId,
+            inv.appRoles,
           );
           succeeded.push(result);
         } catch (err) {
@@ -705,6 +798,8 @@ export const createInvitationHandler = defineEventHandler(
       body?.email ?? "",
       role,
       event,
+      body?.appId,
+      body?.appRoles,
     );
     return result;
   },
@@ -718,7 +813,7 @@ export const listInvitationsHandler = defineEventHandler(
 
     const e = await exec();
     const { rows } = await e.execute({
-      sql: `SELECT id, email, invited_by AS "invitedBy", created_at AS "createdAt", status, role
+      sql: `SELECT id, email, invited_by AS "invitedBy", created_at AS "createdAt", status, role, app_roles_json AS "appRolesJson"
             FROM org_invitations
             WHERE org_id = ? AND status = 'pending'`,
       args: [ctx.orgId],
@@ -733,6 +828,7 @@ export const listInvitationsHandler = defineEventHandler(
         (String(r.role ?? "member") as OrgRole) === "admin"
           ? "admin"
           : "member",
+      appRoles: r.appRolesJson ? JSON.parse(String(r.appRolesJson)) : {},
     }));
     return { invitations };
   },
@@ -757,7 +853,7 @@ export const acceptInvitationHandler = defineEventHandler(
     const invRes = await e.execute({
       // Case-insensitive on email — see comment on the analogous
       // pending-invitations query in getMyOrgHandler.
-      sql: `SELECT id, org_id AS "orgId", role, invited_by AS "invitedBy" FROM org_invitations
+      sql: `SELECT id, org_id AS "orgId", role, invited_by AS "invitedBy", app_roles_json AS "appRolesJson" FROM org_invitations
             WHERE id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
       args: [invitationId, email.toLowerCase()],
     });
@@ -796,6 +892,14 @@ export const acceptInvitationHandler = defineEventHandler(
       String(organization?.identity_id ?? "").trim();
 
     if (existingMembership.rows.length > 0) {
+      // Keep the invitation pending when a pre-assigned role cannot be
+      // applied. A later acceptance retry can repair the assignment.
+      await applyInvitationAppRoles({
+        appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
+        orgId: invOrgId,
+        email,
+        updatedBy: String(inv.invitedBy ?? inv.invited_by),
+      });
       await e.execute({
         sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
         args: [invitationId],
@@ -874,6 +978,15 @@ export const acceptInvitationHandler = defineEventHandler(
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
     invalidateMemberOrgCaches();
+
+    // Leave the invitation pending if a role assignment fails. The inserted
+    // membership is safe to reuse on a retry through the branch above.
+    await applyInvitationAppRoles({
+      appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
+      orgId: invOrgId,
+      email,
+      updatedBy: inviterEmail,
+    });
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
@@ -1492,7 +1605,7 @@ export const setWorkspaceUrlHandler = defineEventHandler(
   },
 );
 
-/** PUT /_agent-native/org/auth-provider — require Google sign-in (owner/admin only) */
+/** PUT /_agent-native/org/auth-provider — require an approved sign-in provider (owner/admin only) */
 export const setRequiredAuthProviderHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1502,16 +1615,19 @@ export const setRequiredAuthProviderHandler = defineEventHandler(
     if (ctx.role !== "owner" && ctx.role !== "admin") {
       throw createError({
         statusCode: 403,
-        message: "Only owners and admins can require Google sign-in",
+        message:
+          "Only owners and admins can require an organization sign-in provider",
       });
     }
 
     const body = await readBody(event);
-    const provider = body?.provider;
-    if (provider !== "google" && provider !== null) {
+    let provider: RequiredAuthProvider;
+    try {
+      provider = parseRequiredAuthProvider(body?.provider);
+    } catch {
       throw createError({
         statusCode: 400,
-        message: 'Provider must be "google" or null',
+        message: 'Provider must be "google", "sso:<providerId>", or null',
       });
     }
 

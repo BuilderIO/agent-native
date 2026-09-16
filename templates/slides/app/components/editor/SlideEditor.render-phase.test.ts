@@ -204,6 +204,34 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("keeps object clipboard shortcuts scoped to the focused slide canvas", () => {
+    const keyStart = source.indexOf(
+      "// One window listener for object copy/paste/duplicate",
+    );
+    const pasteStart = source.indexOf(
+      "// The native paste event is authoritative",
+      keyStart,
+    );
+    const appearanceStart = source.indexOf(
+      "// Appearance clipboard shortcuts",
+      pasteStart,
+    );
+    const placementStart = source.indexOf(
+      "const placeTextBoxAt = useCallback",
+      appearanceStart,
+    );
+
+    expect(source.slice(keyStart, pasteStart)).toContain(
+      "isSlideCanvasShortcutTarget(active, slideCanvasRef.current)",
+    );
+    expect(source.slice(pasteStart, appearanceStart)).toContain(
+      "isSlideCanvasShortcutTarget(active, slideCanvasRef.current)",
+    );
+    expect(source.slice(appearanceStart, placementStart)).toContain(
+      "isSlideCanvasShortcutTarget(active, slideCanvasRef.current)",
+    );
+  });
+
   it("ends native text editing before entering a multi-selection", () => {
     const start = source.indexOf("const applyMultiSelection");
     const end = source.indexOf("const clearMultiSelection", start);
@@ -213,6 +241,25 @@ describe("SlideEditor render-phase safety", () => {
       "if (ids.size > 0 && editingElRef.current) exitInlineEdit();",
     );
     expect(source).toContain("window.getSelection()?.removeAllRanges();");
+  });
+
+  it("does not let selection rerenders clear a newly selected object set", () => {
+    const start = source.indexOf("const applyMultiSelectionRef");
+    const end = source.indexOf("// One Escape owner", start);
+    const reconciliationBody = source.slice(start, end);
+
+    expect(reconciliationBody).toContain(
+      "applyMultiSelectionRef.current(new Set());",
+    );
+    expect(reconciliationBody).toContain(
+      "applyMultiSelectionRef.current(ids);",
+    );
+    expect(reconciliationBody).toContain(
+      "}, [slide.content, getSlideContent]);",
+    );
+    expect(reconciliationBody).not.toContain(
+      "[slide.content, getSlideContent, applyMultiSelection]",
+    );
   });
 
   it("collapses a grouped multi-selection to the new group", () => {

@@ -24,6 +24,11 @@ Read the relevant skill before deeper work:
 | `navigate` | Move the UI to a deck, slide, or view |
 | `create-deck` | Create a deck, optionally pre-populated with slides |
 | `add-slide` | Append one slide to a deck |
+| `add-slide-comment` | Add or reply to a comment |
+| `list-slide-comments` | List slide comments |
+| `update-slide-comment` | Edit, resolve, or reopen |
+| `delete-slide-comment` | Delete a comment or thread |
+| `toggle-slide-comment-reaction` | Toggle an emoji reaction |
 | `update-slide` | Edit one slide's content or style |
 | `patch-deck` | Delete, reorder, or patch multiple slides in one call |
 | `delete-deck` | Delete a deck and its saved versions |
@@ -44,10 +49,8 @@ Read the relevant skill before deeper work:
 - Never hardcode secrets or private/customer data; use vault/OAuth/runtime
   configuration and fake placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first.
-- Use actions (table above) for every deck/slide write; never write rows
-  directly. Read the schema when unclear.
-- Use `view-screen` before editing when the active deck, selected slide, or
-  current layout is unclear.
+- Use listed actions for every deck/slide write; never write rows directly.
+- Use `view-screen` when the active deck, slide, or layout is unclear.
 - Preserve deck structure; prefer focused slide edits over regenerating decks.
 - New-deck attachments arrive pre-read; never ignore one. Import into a deck
   only on explicit request or the Import control; imports follow
@@ -60,16 +63,12 @@ Read the relevant skill before deeper work:
   `slide-editing`).
 - Freeform dragging snaps within tolerance (Cmd/Ctrl bypasses); align via the
   contextual toolbar with 2+ selected objects, distribute with 3+.
-- Follow linked design-system tokens.
 - Import/export actions are shortcuts, not capability limits. For exact Google
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth.
 - `import-google-slides-reference` accepts a Picker `fileId` or
   `presentationUrl`; pasted URLs may need a one-time Google reconnect. Preserve
   imported PPTX timing metadata, including by-paragraph reveals.
-- For per-click reveals, follow `slide-editing`'s click-to-reveal rules.
-- For images, use `generate-image-api` with provenance; show results as
-  `![alt](url)`.
 - For focused edits, prefer `view-screen`'s exact `selectedText` with `find`,
   `expectedMatches: 1`, and `baseContentHash`; without it, use `objectId` with
   `replace` and the same hash, else exact `find` and `expectedMatches: 1` (see
@@ -112,5 +111,5 @@ Deck data lives in SQL and all writes go through server-side actions. Read
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`; see
+`customizing-agent-native`.

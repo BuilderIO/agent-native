@@ -1,5 +1,6 @@
 import type { CalendarEvent } from "@shared/api";
 
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import {
   getBrowserTimezone,
   getEventSegmentForCalendarDay,
@@ -135,14 +136,16 @@ export function computeTimedEventLayout(
       const left = useStartLanes ? sameStartIndex * sameStartWidth : 0;
       const width = 100 - left;
 
-      result.set(entry.event.id, {
+      const layout = {
         left,
         width,
         indent: isGroupStart && sameStartIndex === 0 ? 0 : OVERLAP_INDENT_PX,
         col,
         totalCols,
         stackOrder: stackOrder++,
-      });
+      };
+      result.set(entry.event.id, layout);
+      result.set(getCalendarEventRenderKey(entry.event), layout);
     }
   }
 

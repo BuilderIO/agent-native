@@ -1,3 +1,4 @@
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 import {
   IconChevronDown,
   IconLayoutSidebarLeftCollapse,
@@ -11,6 +12,8 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useEffect,
+  useRef,
   useState,
   type AnchorHTMLAttributes,
   type ComponentType,
@@ -25,6 +28,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../ui/collapsible.js";
+import { ScrollBar } from "../ui/scroll-area.js";
 import {
   Tooltip,
   TooltipContent,
@@ -744,6 +748,8 @@ export interface AppSidebarProps extends HTMLAttributes<HTMLElement> {
   onMobileOpenChange?: (open: boolean) => void;
   /** Router-aware link component. Defaults to a native `<a href>`. */
   linkComponent?: AppSidebarLinkComponent;
+  /** Show a persistent scrollbar and edge cues while the sidebar overflows. */
+  overflowAffordances?: boolean;
 
   // Header
   brandName?: ReactNode;
@@ -778,6 +784,7 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
       mobileOpen,
       onMobileOpenChange,
       linkComponent,
+      overflowAffordances = false,
 
       brandName,
       brandHref = "/",
@@ -900,7 +907,7 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
               />
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <AppSidebarScrollRegion affordances={overflowAffordances}>
               {showCollapsedSidebar ? (
                 <nav className="flex flex-col items-center gap-1 px-2 py-3">
                   {items?.map((item) => (
@@ -990,7 +997,7 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
                   )}
                 </nav>
               )}
-            </div>
+            </AppSidebarScrollRegion>
 
             {footerContent ?? (
               <AppSidebarFooter
@@ -1009,3 +1016,96 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
   },
 );
 AppSidebar.displayName = "AppSidebar";
+
+function AppSidebarScrollRegion({
+  affordances,
+  children,
+}: {
+  affordances: boolean;
+  children: ReactNode;
+}) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ above: false, below: false });
+
+  useEffect(() => {
+    if (!affordances) return;
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    if (!viewport || !content) return;
+
+    const update = () => {
+      const remaining = viewport.scrollHeight - viewport.clientHeight;
+      const overflowing = remaining > 1;
+      const above = overflowing && viewport.scrollTop > 1;
+      const below = overflowing && viewport.scrollTop < remaining - 1;
+      setEdges((current) =>
+        current.above === above && current.below === below
+          ? current
+          : { above, below },
+      );
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    observer.observe(content);
+    viewport.addEventListener("scroll", update, { passive: true });
+    update();
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [affordances]);
+
+  if (!affordances) {
+    return <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
+  }
+
+  return (
+    <ScrollAreaPrimitive.Root
+      type={edges.above || edges.below ? "always" : "auto"}
+      className="relative min-h-0 flex-1 overflow-hidden"
+      data-app-sidebar-scroll-area
+    >
+      <ScrollAreaPrimitive.Viewport
+        ref={viewportRef}
+        // Radix's intrinsic table sizing would widen truncated rows beyond the sidebar.
+        className="size-full scroll-py-2 [&>div]:!block"
+        data-app-sidebar-scroll-viewport
+        onFocusCapture={(event) => {
+          const viewport = event.currentTarget;
+          const target = event.target;
+          if (
+            !(target instanceof HTMLElement) ||
+            target === viewport ||
+            !viewport.contains(target)
+          )
+            return;
+          const bounds = viewport.getBoundingClientRect();
+          const focused = target.getBoundingClientRect();
+          if (focused.top < bounds.top + 8) {
+            viewport.scrollTop += focused.top - bounds.top - 8;
+          } else if (focused.bottom > bounds.bottom - 8) {
+            viewport.scrollTop += focused.bottom - bounds.bottom + 8;
+          }
+        }}
+      >
+        <div ref={contentRef}>{children}</div>
+      </ScrollAreaPrimitive.Viewport>
+      <ScrollBar className="z-10 w-1.5 border-none p-px [&>div]:bg-muted-foreground/50" />
+      {edges.above && (
+        <div
+          aria-hidden="true"
+          data-scroll-edge="top"
+          className="pointer-events-none absolute inset-x-0 top-0 h-2 bg-gradient-to-b from-sidebar to-transparent"
+        />
+      )}
+      {edges.below && (
+        <div
+          aria-hidden="true"
+          data-scroll-edge="bottom"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-2 bg-gradient-to-t from-sidebar to-transparent"
+        />
+      )}
+    </ScrollAreaPrimitive.Root>
+  );
+}

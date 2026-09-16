@@ -148,6 +148,7 @@ type SharePageMetaRecording = {
   title: string;
   description: string;
   ownerInitial: string;
+  brandLogoUrl: string | null;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   visibility: "private" | "org" | "public";
@@ -238,7 +239,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     import("@agent-native/core/sharing"),
   ]);
 
-  const [rec] = await getDb()
+  const db = getDb();
+  const [rec] = await db
     .select({
       id: schema.recordings.id,
       title: schema.recordings.title,
@@ -248,6 +250,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
+      organizationId: schema.recordings.organizationId,
       password: schema.recordings.password,
       expiresAt: schema.recordings.expiresAt,
       archivedAt: schema.recordings.archivedAt,
@@ -290,11 +293,22 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     }
   }
 
+  const [organizationSettings] = rec.organizationId
+    ? await db
+        .select({ brandLogoUrl: schema.organizationSettings.brandLogoUrl })
+        .from(schema.organizationSettings)
+        .where(
+          eq(schema.organizationSettings.organizationId, rec.organizationId),
+        )
+        .limit(1)
+    : [];
+
   const recording: SharePageMetaRecording = {
     id: rec.id,
     title: rec.title,
     description: rec.description,
     ownerInitial: rec.ownerEmail.trim().charAt(0).toUpperCase() || "C",
+    brandLogoUrl: organizationSettings?.brandLogoUrl?.trim() || null,
     thumbnailUrl: rec.password
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
@@ -847,6 +861,12 @@ export default function ShareRoute() {
     ownerEmail.charAt(0).toUpperCase() ||
     loaderData.recording?.ownerInitial ||
     "C";
+  const liveBrandLogoUrl =
+    typeof recording?.brandLogoUrl === "string"
+      ? recording.brandLogoUrl.trim()
+      : "";
+  const brandLogoUrl =
+    liveBrandLogoUrl || loaderData.recording?.brandLogoUrl || null;
   const recordedOn = formatRecordedOn(recording?.createdAt, !hasHydrated);
   const visibilityLabel = recording
     ? t(`shareUi.visibility.${recording.visibility}.label`)
@@ -1404,10 +1424,19 @@ export default function ShareRoute() {
             aria-label={t("navigation.brand")}
             className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <AgentNativeIcon
-              aria-hidden="true"
-              className="h-3.5 w-6 shrink-0 text-foreground"
-            />
+            {brandLogoUrl ? (
+              <img
+                src={brandLogoUrl}
+                alt=""
+                aria-hidden="true"
+                className="h-5 w-5 shrink-0 object-contain"
+              />
+            ) : (
+              <AgentNativeIcon
+                aria-hidden="true"
+                className="h-3.5 w-6 shrink-0 text-foreground"
+              />
+            )}
             <span className="truncate text-sm font-semibold text-foreground">
               {t("navigation.brand")}
             </span>
@@ -1793,6 +1822,7 @@ export default function ShareRoute() {
               status={transcriptStatus}
               failureReason={transcriptFailureReason}
               recordingTitle={recording.title}
+              audience="viewer"
             />
           </TabsContent>
         </RecordingSidePanel>

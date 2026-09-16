@@ -16,7 +16,10 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 import type { ElementInfo } from "../types";
-import { LayoutContextProperties } from "./layout-properties";
+import {
+  LayoutContextProperties,
+  LayoutGuideProperties,
+} from "./layout-properties";
 
 describe("LayoutContextProperties interactions", () => {
   it("commits Grid atomically while preserving authored custom tracks", async () => {
@@ -189,6 +192,103 @@ describe("LayoutContextProperties interactions", () => {
     expect(
       container.querySelector('button[aria-label="Unlink padding"]'),
     ).not.toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("keeps W/H sizing primary and reveals flex CSS fields in a popover", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const element = {
+      tagName: "span",
+      primitiveKind: "text",
+      textContent: "Text",
+      classes: [],
+      computedStyles: {
+        display: "inline",
+        width: "120px",
+        height: "80px",
+        flexGrow: "2",
+        flexShrink: "1",
+        flexBasis: "auto",
+        order: "0",
+      },
+      inlineStyles: { width: "120px", height: "80px" },
+      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+      isFlexChild: true,
+      isFlexContainer: false,
+      isGridContainer: false,
+      childElementCount: 0,
+      sourceId: "text-child",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties element={element} onStyleChange={vi.fn()} />,
+      );
+    });
+
+    const section = container.querySelector("section.design-sidebar-section");
+    const heading = section?.querySelector(".design-sidebar-section-title");
+    expect(heading?.textContent).toBe("editPanel.sections.layout");
+    expect(heading?.closest("button")).toBeNull();
+    expect(section?.textContent).toContain("editPanel.labels.width");
+    expect(section?.textContent).toContain("editPanel.labels.height");
+    expect(section?.textContent).not.toContain("editPanel.labels.flexGrow");
+    expect(section?.querySelector('button[aria-label^="W "]')).not.toBeNull();
+    expect(section?.querySelector('button[aria-label^="H "]')).not.toBeNull();
+
+    const advanced = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.layoutContext.flexChild"]',
+    );
+    expect(advanced).not.toBeNull();
+    await act(async () => advanced?.click());
+    expect(document.body.textContent).toContain("editPanel.labels.flexGrow");
+    expect(document.body.textContent).toContain("editPanel.labels.flexShrink");
+    expect(document.body.textContent).toContain("editPanel.labels.flexBasis");
+    expect(document.body.textContent).toContain("editPanel.labels.order");
+    expect(document.body.textContent).toContain("editPanel.labels.alignSelf");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("keeps the empty Layout guide section add-only", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: { display: "block" },
+      inlineStyles: {},
+      boundingRect: { x: 0, y: 0, width: 300, height: 200 },
+      isFlexChild: false,
+      isFlexContainer: true,
+      isGridContainer: false,
+      childElementCount: 0,
+      sourceId: "empty-frame",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutGuideProperties element={element} onStyleChange={vi.fn()} />,
+      );
+    });
+
+    const section = container.querySelector("section.design-sidebar-section");
+    const heading = section?.querySelector(".design-sidebar-section-title");
+    expect(heading?.textContent).toBe("Layout guide");
+    expect(heading?.closest("button")).toBeNull();
+    expect(section?.textContent).not.toContain("No layout guides");
+    expect(
+      section?.querySelector('button[aria-label="Add layout guide"]'),
+    ).not.toBeNull();
+    expect(
+      section?.querySelector(".design-sidebar-section-content"),
+    ).toBeNull();
 
     await act(async () => root.unmount());
     container.remove();

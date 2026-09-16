@@ -82,6 +82,7 @@ vi.mock("drizzle-orm", () => ({
     kind: "and",
     conditions,
   }),
+  sql: vi.fn(),
   isNull: (value: unknown): Predicate => ({ kind: "isNull", value }),
 }));
 
@@ -407,6 +408,31 @@ describe("update-design data concurrency", () => {
         }),
       } as never),
     ).rejects.toThrow(/must be a finite JSON number/);
+  });
+
+  it("rejects array frames through the action schema and legacy snapshots without writing", async () => {
+    const before = { ...mocks.state.row };
+    const input = {
+      id: "design-1",
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "frame-a"],
+          value: ["390", "auto"],
+        },
+      ],
+    };
+    expect(action.schema.safeParse(input).success).toBe(false);
+    await expect(action.run(input as never)).rejects.toThrow(
+      /must be an object/,
+    );
+    await expect(
+      action.run({
+        id: "design-1",
+        data: JSON.stringify({ canvasFrames: { "frame-a": ["390", "auto"] } }),
+      } as never),
+    ).rejects.toThrow(/must be an object/);
+    expect(mocks.state.row).toEqual(before);
   });
 
   it("CAS-matches a legacy null data row", async () => {

@@ -31,6 +31,7 @@ export async function ensureAuditTables(): Promise<void> {
           action TEXT NOT NULL,
           caller TEXT NOT NULL,
           actor_kind TEXT NOT NULL,
+          -- guard:allow-identity-column - immutable audit attribution
           actor_email TEXT,
           org_id TEXT,
           thread_id TEXT,
@@ -41,6 +42,7 @@ export async function ensureAuditTables(): Promise<void> {
           summary TEXT,
           input TEXT,
           error_code TEXT,
+          -- guard:allow-identity-column - immutable audit ownership snapshot
           owner_email TEXT,
           visibility TEXT NOT NULL DEFAULT 'private'
           ,run_id TEXT

@@ -1212,14 +1212,14 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(wsYaml).toContain('"@tiptap/extension-code-block": "3.28.0"');
   });
 
-  it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {
+  it("pins the upgraded Better Auth version in workspace roots", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const wsYaml = fs.readFileSync(
       path.join(wsDir, "pnpm-workspace.yaml"),
       "utf-8",
     );
     expect(wsYaml).toContain("better-auth");
-    expect(wsYaml).toContain("1.6.0");
+    expect(wsYaml).toContain("1.7.4");
   });
 
   it("keeps the default workspace chat app branded as Chat", async () => {

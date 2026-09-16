@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
+import type { ActionRunContext } from "../action.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -7,7 +9,15 @@ import {
 import type { TrackingEvent } from "../tracking/types.js";
 
 const callAgentMock = vi.hoisted(() => vi.fn());
+const managedHandlerMock = vi.hoisted(() => vi.fn());
 const invokeActionMock = vi.hoisted(() => vi.fn());
+const findAgentMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    name: "Slides",
+    url: "https://slides.agent-native.test",
+  })),
+);
+const resolveRemoteAgentTokenMock = vi.hoisted(() => vi.fn());
 const insertA2AContinuationMock = vi.hoisted(() => vi.fn());
 const getA2AContinuationsMock = vi.hoisted(() => vi.fn());
 const dispatchA2AContinuationMock = vi.hoisted(() => vi.fn());
@@ -30,11 +40,19 @@ const slackIntegrationContext = {
 };
 
 vi.mock("../server/agent-discovery.js", () => ({
-  findAgent: vi.fn(async () => ({
-    name: "Slides",
-    url: "https://slides.agent-native.test",
-  })),
+  findAgent: findAgentMock,
   discoverAgents: vi.fn(async () => []),
+}));
+
+vi.mock("../a2a/remote-agent-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../a2a/remote-agent-auth.js")>()),
+  resolveRemoteAgentToken: resolveRemoteAgentTokenMock,
+}));
+
+vi.mock("../a2a/anthropic-managed-agents.js", () => ({
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY:
+    "agent-native/anthropic-managed-agents",
+  createAnthropicManagedAgentsHandler: managedHandlerMock,
 }));
 
 vi.mock("../a2a/client.js", () => ({
@@ -138,6 +156,12 @@ vi.mock("../agent/run-store.js", () => ({
 describe("call-agent action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    findAgentMock.mockResolvedValue({
+      name: "Slides",
+      url: "https://slides.agent-native.test",
+    });
+    resolveRemoteAgentTokenMock.mockResolvedValue(undefined);
+    managedHandlerMock.mockReset();
     delete process.env.NETLIFY;
     delete process.env.NETLIFY_LOCAL;
     delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
@@ -165,6 +189,107 @@ describe("call-agent action", () => {
     );
   });
 
+  it("routes a managed-agent manifest through its A2A handler adapter", async () => {
+    const handler = vi.fn(async () => ({
+      message: {
+        role: "agent" as const,
+        parts: [{ type: "text" as const, text: "managed answer" }],
+      },
+    }));
+    managedHandlerMock.mockReturnValueOnce(handler);
+    findAgentMock.mockResolvedValueOnce({
+      id: "anthropic-research",
+      name: "Anthropic Research",
+      url: "https://api.anthropic.com",
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    });
+    const { run } = await import("./call-agent.js");
+    const send = vi.fn();
+    const actionContext: ActionRunContext = {
+      caller: "tool",
+      send,
+      threadId: "thread-managed",
+      turnId: "turn-managed",
+    };
+
+    const result = await run(
+      { agent: "anthropic-research", message: "Summarize this repository." },
+      actionContext,
+      "dispatch",
+    );
+
+    expect(result).toBe("managed answer");
+    expect(callAgentMock).not.toHaveBeenCalled();
+    expect(managedHandlerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+        apiBaseUrl: "https://api.anthropic.com",
+      }),
+    );
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "user",
+        parts: [{ type: "text", text: "Summarize this repository." }],
+      }),
+      expect.objectContaining({
+        taskId: "turn-managed",
+        contextId: "thread-managed",
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call",
+        agent: "Anthropic Research",
+        status: "done",
+      }),
+    );
+  });
+
+  it("passes a managed continuation token without exposing the session ID", async () => {
+    const handler = vi.fn(async () => ({
+      message: {
+        role: "agent" as const,
+        parts: [{ type: "text" as const, text: "Approval required" }],
+        metadata: {
+          "agent-native/anthropic-managed-agents": {
+            continuationToken: "opaque-fixture-token",
+            pendingToolUseIds: ["tool_fixture"],
+          },
+        },
+      },
+      taskState: "input-required" as const,
+    }));
+    managedHandlerMock.mockReturnValueOnce(handler);
+    findAgentMock.mockResolvedValueOnce({
+      id: "anthropic-research",
+      name: "Anthropic Research",
+      url: "https://api.anthropic.com",
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    });
+
+    const { run } = await import("./call-agent.js");
+    const result = await run({
+      agent: "anthropic-research",
+      message: "Inspect the working tree.",
+    });
+
+    expect(result).toContain('taskId="opaque-fixture-token"');
+    expect(result).not.toContain("ses_fixture");
+    expect(result).not.toContain("in session");
+  });
+
   it("forwards the user's exact downstream action authorization", async () => {
     callAgentMock.mockResolvedValueOnce("sent");
     const { run } = await import("./call-agent.js");
@@ -188,6 +313,51 @@ describe("call-agent action", () => {
     );
     expect(callAgentMock.mock.calls[0]?.[1]).toContain("<a2a-caller-hint>");
     expect(callAgentMock.mock.calls[0]?.[1]).toContain("</a2a-caller-hint>");
+    expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("cardUrl");
+  });
+
+  it("labels an ordinary peer's rejected A2A credentials clearly", async () => {
+    callAgentMock.mockRejectedValueOnce(
+      new RemoteAgentCredentialRejectedError({ status: 401 }),
+    );
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run({ agent: "slides", message: "make a deck" }),
+    ).rejects.toMatchObject({
+      errorCode: "a2a_auth_rejected",
+      message: expect.stringContaining("HTTP 401"),
+    });
+  });
+
+  it("uses the resolved token and lets the client derive the hosted card root", async () => {
+    findAgentMock.mockResolvedValueOnce({
+      name: "Hosted Slides",
+      url: "https://slides.agent-native.test/_agent-native/a2a",
+      auth: { type: "bearer", credentialRef: "slides-token" },
+    });
+    resolveRemoteAgentTokenMock.mockResolvedValueOnce("resolved-token");
+    callAgentMock.mockResolvedValueOnce("sent");
+    const { run } = await import("./call-agent.js");
+
+    await run({ agent: "hosted-slides", message: "make a deck" });
+
+    expect(resolveRemoteAgentTokenMock).toHaveBeenCalledWith(
+      { type: "bearer", credentialRef: "slides-token" },
+      expect.objectContaining({
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-qa",
+      }),
+    );
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test/_agent-native/a2a",
+      expect.any(String),
+      expect.objectContaining({
+        apiKey: "resolved-token",
+      }),
+    );
+    expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("cardUrl");
+    expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("orgSecret");
   });
 
   it("forwards Slack source context as structured A2A data", async () => {

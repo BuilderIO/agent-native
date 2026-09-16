@@ -1,6 +1,7 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 
 import {
+  appPath,
   cdpScreenshot,
   createFixtureDesign,
   designFrame,
@@ -262,6 +263,14 @@ test("text fills hide and restore without losing the original color", async ({
   const hideFillButton = fillSection.locator('button[aria-label="Hide layer"]');
   const showFillButton = fillSection.locator('button[aria-label="Show layer"]');
   await expect(fillSection).toBeVisible();
+  await fillSection.getByRole("button", { name: "Open color picker" }).click();
+  const fillOpacity = page.getByRole("spinbutton", {
+    name: "Opacity",
+    exact: true,
+  });
+  await fillOpacity.fill("50");
+  await fillOpacity.press("Enter");
+  await page.keyboard.press("Escape");
 
   const initialColor = await selectedElementStyle(
     page,
@@ -270,11 +279,15 @@ test("text fills hide and restore without losing the original color", async ({
   );
   expect(initialColor).not.toBe("");
   const initialChannels = await resolvedColorChannels(page, initialColor);
+  expect(initialChannels.alpha).toBe(0.5);
 
   await expect(hideFillButton).toBeVisible();
   await expect(
     fillSection.locator('button[aria-label="Remove layer"]').first(),
   ).toBeVisible();
+  await expect(
+    fillSection.getByRole("button", { name: "Add fill" }),
+  ).toHaveCount(0);
 
   await hideFillButton.click();
   await expect
@@ -284,16 +297,90 @@ test("text fills hide and restore without losing the original color", async ({
         "E2E Hero Heading",
         "color",
       );
-      return resolvedColorChannels(page, hiddenColor);
+      return (await resolvedColorChannels(page, hiddenColor)).alpha;
     })
-    .toEqual({ rgb: initialChannels.rgb, alpha: 0 });
+    .toBe(0);
   await expect(showFillButton).toBeVisible();
 
+  await page.reload();
+  await selectLayerFromTree(page, "E2E Hero Heading");
+  await expect(showFillButton).toBeVisible();
   await showFillButton.click();
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "color"))
     .toBe(initialColor);
   await expect(heading).toBeVisible();
+});
+
+test("selection hide and Appearance visibility stay in sync with opacity", async ({
+  page,
+}) => {
+  await selectByText(page, "E2E Hero Heading");
+  const appearanceSection = inspectorSection(page, /^Appearance$/i);
+  const layerRow = page
+    .getByRole("treeitem")
+    .filter({ hasText: "E2E Hero Heading" })
+    .first();
+  const shortcut =
+    process.platform === "darwin" ? "Meta+Shift+h" : "Control+Shift+h";
+  const initialDisplay = await selectedElementStyle(
+    page,
+    "E2E Hero Heading",
+    "display",
+  );
+  const initialOpacity = await selectedElementStyle(
+    page,
+    "E2E Hero Heading",
+    "opacity",
+  );
+
+  await page.keyboard.press(shortcut);
+  await expect(
+    appearanceSection.getByRole("button", { name: "Show", exact: true }),
+  ).toBeVisible();
+  await expect(
+    layerRow.locator('button[aria-label="Show layer"]'),
+  ).toBeVisible();
+
+  await appearanceSection
+    .getByRole("button", { name: "Show", exact: true })
+    .click();
+  await expect
+    .poll(() => selectedElementStyle(page, "E2E Hero Heading", "display"))
+    .toBe(initialDisplay);
+
+  await appearanceSection
+    .getByRole("button", { name: "Hide", exact: true })
+    .click();
+  await expect(
+    layerRow.locator('button[aria-label="Show layer"]'),
+  ).toBeVisible();
+  await page.keyboard.press(shortcut);
+  await expect(
+    layerRow.locator('button[aria-label="Hide layer"]'),
+  ).toBeVisible();
+  await expect
+    .poll(() => selectedElementStyle(page, "E2E Hero Heading", "display"))
+    .toBe(initialDisplay);
+
+  await setScrubInput(appearanceSection, "Opacity", "0");
+  await expect
+    .poll(() => selectedElementStyle(page, "E2E Hero Heading", "opacity"))
+    .toBe("0");
+  await expect(
+    appearanceSection.getByRole("button", { name: "Hide", exact: true }),
+  ).toBeVisible();
+
+  // This spec shares the seeded document with later cases. Restore its paint
+  // state so a transparent heading does not disappear from later hit testing.
+  await setScrubInput(
+    appearanceSection,
+    "Opacity",
+    String(Number.parseFloat(initialOpacity) * 100),
+  );
+  await expect
+    .poll(() => selectedElementStyle(page, "E2E Hero Heading", "opacity"))
+    .toBe(initialOpacity);
 });
 
 test("text gradient apply and removal survive reselection; box gradient editor persists", async ({
@@ -444,7 +531,7 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
   await expect(typographySection).toBeVisible();
 
   await expect(
-    typographySection.getByRole("combobox", { name: "Font" }),
+    typographySection.getByRole("button", { name: "Font" }),
   ).toContainText(/\S/);
   await expect(
     typographySection.getByRole("button", { name: "Auto width" }),
@@ -467,7 +554,7 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
   await page.keyboard.press("Escape");
 
   await setScrubInput(typographySection, "Size", "52");
-  await setScrubInput(typographySection, "Line height", "1.25");
+  await setScrubInput(typographySection, "Line height", "125%");
   await setScrubInput(typographySection, "Letter spacing", "2");
 
   await expect
@@ -475,12 +562,81 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
     .toBe("52px");
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "line-height"))
-    .toBe("1.25");
+    .toBe("125%");
   await expect
     .poll(() =>
       selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
     )
     .toBe("2px");
+});
+
+test("search selects Lato Medium and keeps custom font names offline", async ({
+  page,
+}) => {
+  await selectByText(page, "E2E Hero Heading");
+  const typographySection = inspectorSection(page, /^Typography$/i);
+  const fontPicker = typographySection.getByRole("button", { name: "Font" });
+  const latoMediumUrl =
+    "https://raw.githubusercontent.com/google/fonts/809e4d8b8d7e9364a914909bb777679606c178b8/ofl/lato/Lato-Medium.ttf";
+
+  await fontPicker.click();
+  const search = page.getByRole("combobox", { name: "Search" });
+  await search.fill("Lato");
+  const latoOption = page.getByRole("option", { name: "Lato", exact: true });
+  await expect(latoOption).toBeVisible();
+  const mediumFontResponse = page.waitForResponse(
+    (response) => response.url() === latoMediumUrl,
+  );
+  await latoOption.click();
+  expect(await (await mediumFontResponse).status()).toBe(200);
+
+  const loadedFaces = await designFrame(page)
+    .locator("body")
+    .evaluate(async (body) => {
+      const faces = await body.ownerDocument.fonts.load(
+        '500 16px "Lato"',
+        "Card",
+      );
+      return faces.map((face) => ({
+        family: face.family,
+        weight: face.weight,
+        status: face.status,
+      }));
+    });
+  expect(loadedFaces).toContainEqual({
+    family: "Lato",
+    weight: "500",
+    status: "loaded",
+  });
+
+  await page.reload();
+  await selectLayerFromTree(page, "E2E Hero Heading");
+  const persistedFrame = designFrame(page);
+  await expect(
+    persistedFrame.locator('style[data-agent-native-font-face="Lato-500"]'),
+  ).toHaveCount(1);
+  await expect(
+    inspectorSection(page, /^Typography$/i).getByRole("button", {
+      name: "Font",
+    }),
+  ).toContainText("Lato");
+
+  await fontPicker.click();
+  await search.fill("Custom Display Face");
+  const customOption = page.getByRole("option", {
+    name: "Custom Display Face",
+    exact: true,
+  });
+  await expect(customOption).toBeVisible();
+  await customOption.click();
+  await expect
+    .poll(() => selectedElementStyle(page, "E2E Hero Heading", "font-family"))
+    .toContain("Custom Display Face");
+  await expect(
+    persistedFrame.locator(
+      'link[href*="fonts.googleapis.com"][href*="Custom"]',
+    ),
+  ).toHaveCount(0);
 });
 
 test("numeric scrub handles use terse tooltips and drag from compact labels", async ({
@@ -538,6 +694,76 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   await constraintsTrigger.click();
   await expect(constraintsTrigger).toHaveAttribute("aria-pressed", "false");
   await expect(horizontalConstraints).toBeHidden();
+});
+
+test("numeric input applies Figma math and starts an Option scrub drag", async ({
+  page,
+}) => {
+  await selectByText(page, "Alpha Button");
+  const input = page.locator('input[aria-label="X-position" i]');
+  await expect(input).toBeVisible();
+
+  await input.fill("-5");
+  await input.press("Enter");
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+    .toBe("-5px");
+  await expect(input).toHaveValue("-5px");
+
+  await input.fill("+5");
+  await input.press("Enter");
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+    .toBe("5px");
+
+  await input.fill("*2");
+  await input.press("Enter");
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+    .toBe("5px");
+  await expect(input).toHaveValue("5px");
+
+  await input.fill("(10+5)*2");
+  await input.press("Enter");
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+    .toBe("30px");
+
+  await input.fill("2^3");
+  await input.press("Enter");
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+    .toBe("8px");
+
+  await input.fill("10");
+  await input.press("Enter");
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+    .toBe("10px");
+  await input.click();
+  await input.press("ArrowRight");
+  await input.pressSequentially("*2");
+  await expect(input).toHaveValue("10px*2");
+  await input.press("Enter");
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+    .toBe("20px");
+
+  const box = await input.boundingBox();
+  if (!box) throw new Error("missing X-position input bounds");
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.keyboard.down("Alt");
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 5, y);
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+    .toBe("25px");
+  await expect(input).toHaveValue("25px");
 });
 
 test("appearance controls use droplet blend menu and inline independent corners", async ({
@@ -643,6 +869,129 @@ test("resizing a selected element emits a visual-style-change payload", async ({
   expect(styles.position ?? "").not.toBe("");
   expect((message.payload?.tagName ?? "").toUpperCase()).toBe("BUTTON");
   expect(String(message.payload?.textContent ?? "")).toContain("Alpha Button");
+});
+
+test("pointercancel restores a scrubbed value without adding a history step", async ({
+  page,
+}) => {
+  const scratchDesignId = await createFixtureDesign(
+    page,
+    `Scrub pointer cancel ${Date.now()}`,
+  );
+  try {
+    await gotoEditor(page, scratchDesignId);
+    await selectByText(page, "Alpha Button");
+    const input = page.locator('input[aria-label="X-position" i]');
+    await expect(input).toBeVisible();
+    const inputId = await input.getAttribute("id");
+    if (!inputId) throw new Error("X-position input has no id");
+    const label = page.locator(`label[for="${cssAttrValue(inputId)}"]`);
+    // The shared fixture button is static. Move it from its displayed canvas
+    // coordinate so this regression starts from an authored numeric position.
+    const initialXText =
+      (await input.inputValue()) ||
+      (await input.getAttribute("placeholder")) ||
+      "";
+    const initialX = Number.parseFloat(initialXText);
+    if (!Number.isFinite(initialX)) {
+      throw new Error(`invalid initial X-position: ${initialXText}`);
+    }
+    const fixtureX = initialX + 10;
+    await input.fill(String(fixtureX));
+    await input.press("Enter");
+    await expect
+      .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+      .toBe(`${fixtureX}px`);
+
+    const originalLeft = await selectedElementStyle(
+      page,
+      "Alpha Button",
+      "left",
+    );
+    const originalNumber = Number.parseFloat(originalLeft);
+    if (!Number.isFinite(originalNumber)) {
+      throw new Error(`invalid original X-position: ${originalLeft}`);
+    }
+
+    const committedLeft = `${originalNumber + 40}px`;
+    await input.fill(String(originalNumber + 40));
+    await input.press("Enter");
+    await expect(input).toHaveValue(committedLeft);
+    await expect
+      .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+      .toBe(committedLeft);
+
+    const labelBox = await label.boundingBox();
+    if (!labelBox) throw new Error("X-position scrub label is not visible");
+    await page.evaluate((id) => {
+      const target = document.querySelector<HTMLLabelElement>(
+        `label[for="${CSS.escape(id)}"]`,
+      );
+      if (!target) throw new Error("X-position scrub label disappeared");
+      (
+        window as Window & { __qaScrubPointerId?: number | null }
+      ).__qaScrubPointerId = null;
+      target.addEventListener(
+        "pointerdown",
+        (event) => {
+          (
+            window as Window & { __qaScrubPointerId?: number | null }
+          ).__qaScrubPointerId = event.pointerId;
+        },
+        { capture: true, once: true },
+      );
+    }, inputId);
+
+    const startX = labelBox.x + labelBox.width / 2;
+    const startY = labelBox.y + labelBox.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 32, startY, { steps: 8 });
+    await expect.poll(() => input.inputValue()).not.toBe(committedLeft);
+
+    const cancelled = await page.evaluate((id) => {
+      const target = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+      const pointerId = (
+        window as Window & { __qaScrubPointerId?: number | null }
+      ).__qaScrubPointerId;
+      if (!target || pointerId == null) {
+        throw new Error("scrub pointerdown was not observed");
+      }
+      return target.dispatchEvent(
+        new PointerEvent("pointercancel", {
+          bubbles: true,
+          cancelable: true,
+          pointerId,
+          pointerType: "mouse",
+        }),
+      );
+    }, inputId);
+    expect(cancelled).toBe(true);
+    await expect(input).toHaveValue(committedLeft);
+    await expect
+      .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+      .toBe(committedLeft);
+    await page.mouse.up();
+
+    // The next Undo must consume the earlier typed commit. A scrub-cancel
+    // history entry would instead restore the discarded preview value.
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(input).toHaveValue(originalLeft);
+    await expect
+      .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+      .toBe(originalLeft);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(input).toHaveValue(committedLeft);
+    await expect
+      .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+      .toBe(committedLeft);
+  } finally {
+    const response = await page.request.post(
+      appPath("/_agent-native/actions/delete-design"),
+      { data: { id: scratchDesignId } },
+    );
+    if (!response.ok()) throw new Error(await response.text());
+  }
 });
 
 test("can capture a screenshot of inspector coverage via CDP", async ({

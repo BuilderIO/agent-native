@@ -7,6 +7,10 @@ description: "Hosten Sie viele agentennative Apps in einem Monorepo mit gemeinsa
 
 > **Welches Arbeitsbereichsdokument?** Diese Seite behandelt die **Bereitstellungsform** – ein Monorepo, viele Apps, gemeinsame Authentifizierung und eine einheitliche Bereitstellung. Informationen zur Anpassungsebene des Agenten (Agent-Ressourcen: `AGENTS.md`, Speicher, skills, benutzerdefinierte Agenten) finden Sie unter [Agent-Ressourcen](/docs/agent-resources); Informationen zur Governance (wer überprüft, genehmigt und besitzt was) finden Sie unter [Workspace Governance](/docs/workspace-management).
 
+## Standalone oder Workspace? {#standalone-or-workspace}
+
+Wählen Sie einen Workspace, wenn ein Unternehmen mehrere interne Apps mit gemeinsamer Bereitstellungskonfiguration und Organisationskontext betreibt. Eine Standalone-App eignet sich für ein einzelnes unabhängiges Tool oder einen Prototyp. Sie ist ein unterstütztes Bereitstellungsmodell, bietet aber keine gemeinsamen Workspace-Pakete oder Root-Konfiguration. Siehe [Verwaltete Bereitstellungen](/docs/administered-deployments).
+
 Wenn die Vibe-Codierung eines internen Tools einen Nachmittag in Anspruch nimmt, hören Sie nicht bei einem auf. Am Ende hat ein Team einen CRM, einen Support-Posteingang, ein Dashboard, eine Betriebskonsole – zehn kleine Apps, die jeweils unabhängig voneinander aufgebaut sind. Das ist großartig, bis Sie an allen etwas ändern müssen.
 
 Zu diesem Zeitpunkt hat jede App ihr eigenes `AGENTS.md`, ihr eigenes Authentifizierungs-Plugin, ihre eigene kopierte und eingefügte Layoutkomponente, ihr eigenes fest codiertes Slack-Token und ihre eigene Vorstellung davon, was eine „Organisation“ ist. Eine Änderung der Compliance-Regeln bedeutet zehn PRs. Das Rotieren eines API-Schlüssels bedeutet zehn Neubereitstellungen. Eine Markenaktualisierung bedeutet, dass zehn verschiedene Header nicht mehr synchron sind. Was es einfach gemacht hat, sie zu erstellen, macht es jetzt schwierig, sie zu verwalten.

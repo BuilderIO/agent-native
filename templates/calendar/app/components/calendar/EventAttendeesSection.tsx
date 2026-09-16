@@ -36,6 +36,7 @@ import {
   getAttendeeLocalTimeLabel,
   resolveAttendeeTimeZone,
 } from "@/lib/attendee-local-time";
+import { withCalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
 import { getLocalTimezone } from "@/lib/event-form-utils";
 import {
   canInlineRsvp,
@@ -50,6 +51,20 @@ type RecurringScope = "single" | "all" | "thisAndFollowing";
 type Attendee = NonNullable<CalendarEvent["attendees"]>[number];
 type EditableRsvpStatus = Exclude<RsvpStatus, "needsAction">;
 type ProposalAction = "propose" | "review";
+type AttendeeCalendarEvent = Pick<
+  CalendarEvent,
+  | "id"
+  | "accountEmail"
+  | "start"
+  | "startTimeZone"
+  | "allDay"
+  | "source"
+  | "sourceId"
+  | "calendarSourceKey"
+  | "canonicalKey"
+  | "calendarId"
+  | "overlayEmail"
+>;
 
 const ATTENDEE_TRUNCATE_THRESHOLD = 5;
 const ATTENDEE_INITIAL_SHOW = 3;
@@ -118,8 +133,7 @@ function AttendeeAvatar({
 }
 
 function RsvpControls({
-  eventId,
-  accountEmail,
+  event,
   value,
   note,
   onChange,
@@ -127,8 +141,7 @@ function RsvpControls({
   proposalAction,
   googleCalendarLink,
 }: {
-  eventId: string;
-  accountEmail?: string;
+  event: AttendeeCalendarEvent;
   value: RsvpStatus;
   note?: string;
   onChange: (status: RsvpStatus, note: string) => void;
@@ -190,7 +203,16 @@ function RsvpControls({
     const nextNote = status === "accepted" ? "" : noteValue.trim();
     onChange(status, nextNote);
     mutation.mutate(
-      { id: eventId, status, accountEmail, scope, note: nextNote },
+      withCalendarEventSourceIdentity(
+        {
+          id: event.id,
+          status,
+          accountEmail: event.accountEmail,
+          scope,
+          note: nextNote,
+        },
+        event,
+      ),
       { onError: () => onChange(previous, previousNote) },
     );
   };
@@ -420,10 +442,7 @@ function AttendeeRow({
   onSetTimezone,
 }: {
   attendee: Attendee;
-  event: Pick<
-    CalendarEvent,
-    "id" | "accountEmail" | "start" | "startTimeZone" | "allDay"
-  >;
+  event: AttendeeCalendarEvent;
   photoUrl?: string;
   inlineRsvp?: boolean;
   currentStatus?: RsvpStatus;
@@ -641,8 +660,7 @@ function AttendeeRow({
       )}
       {inlineRsvp && currentStatus && onResponseChange && (
         <RsvpControls
-          eventId={event.id}
-          accountEmail={event.accountEmail}
+          event={event}
           value={currentStatus}
           note={currentNote}
           onChange={onResponseChange}
@@ -670,21 +688,7 @@ export function EventAttendeesSection({
   canEditOptional = false,
   onToggleOptional,
 }: {
-  event: Pick<
-    CalendarEvent,
-    | "id"
-    | "accountEmail"
-    | "attendees"
-    | "overlayEmail"
-    | "responseStatus"
-    | "source"
-    | "recurringEventId"
-    | "start"
-    | "startTimeZone"
-    | "allDay"
-    | "htmlLink"
-    | "organizer"
-  >;
+  event: CalendarEvent;
   canEditOptional?: boolean;
   onToggleOptional?: (email: string, optional: boolean) => void;
 }) {

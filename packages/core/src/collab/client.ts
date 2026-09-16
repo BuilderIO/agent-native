@@ -372,6 +372,10 @@ class CollabDocConnection {
   // Local-update batching (debounced + coalesced with Y.mergeUpdates).
   private pendingUpdates: Uint8Array[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private updateInFlight = false;
+  private keepaliveInFlight = false;
+  private updateErrors = 0;
+  private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
 
   // Poll loop + SSE fast path.
@@ -430,6 +434,13 @@ class CollabDocConnection {
 
   private get registryKey(): string {
     return collabRegistryKey(this.docId, this.baseUrl);
+  }
+
+  private get retiredUpdatesKey(): string | null {
+    const email = this.lastSetUser?.email?.trim().toLowerCase();
+    return email
+      ? `${this.registryKey}\0${email}\0${this.requestSource ?? ""}`
+      : null;
   }
 
   // -------------------------------------------------------------------------
@@ -499,7 +510,11 @@ class CollabDocConnection {
     this.stopSync();
     this.unsubscribeAwarenessEvents?.();
     this.unsubscribeAwarenessEvents = null;
-    this.flushPendingUpdates(true);
+    this.updateAbortController?.abort();
+    if (this.pendingUpdates.length && this.retiredUpdatesKey) {
+      retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
+    }
+    void this.flushPendingUpdates(true);
     this.detachUpdateHandler();
     if (this.agentTimer) {
       clearTimeout(this.agentTimer);
@@ -577,6 +592,16 @@ class CollabDocConnection {
   setUser(user: CollabUser): void {
     if (this.disposed) return;
     const prev = this.lastSetUser;
+    if (prev && prev.email !== user.email) {
+      if (this.pendingUpdates.length && this.retiredUpdatesKey) {
+        retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
+      }
+      this.pendingUpdates = [];
+      this.updateAbortController?.abort();
+      if (this.flushTimer) clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+      this.updateErrors = 0;
+    }
     if (
       prev &&
       prev.name === user.name &&
@@ -596,6 +621,19 @@ class CollabDocConnection {
       color: user.color,
       ...(avatarUrl ? { avatarUrl } : {}),
     };
+    const retiredKey = this.retiredUpdatesKey;
+    const retired = retiredKey
+      ? retiredCollabUpdates.get(retiredKey)
+      : undefined;
+    if (retired && retiredKey) {
+      retiredCollabUpdates.delete(retiredKey);
+      this.pendingUpdates.push(...retired);
+      if (this.snapshot.initialization.status === "ready") {
+        for (const update of retired)
+          Y.applyUpdate(this.ydoc, update, "remote");
+        void this.flushPendingUpdates();
+      }
+    }
     this.awareness.setLocalStateField("user", {
       name: user.name,
       email: user.email,
@@ -734,6 +772,9 @@ class CollabDocConnection {
               validationDoc.destroy();
             }
             Y.applyUpdate(this.ydoc, binary, "remote");
+            for (const update of this.pendingUpdates) {
+              Y.applyUpdate(this.ydoc, update, "remote");
+            }
           } catch {
             this.markInitializationFailed("invalid-payload");
             return;
@@ -762,7 +803,6 @@ class CollabDocConnection {
     category: CollabInitializationErrorCategory,
   ): void {
     this.docMissing = true;
-    this.pendingUpdates = [];
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
@@ -818,11 +858,12 @@ class CollabDocConnection {
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
     if (origin === "remote") return;
     this.pendingUpdates.push(update);
+    if (this.updateErrors && this.flushTimer) return;
     if (this.flushTimer) clearTimeout(this.flushTimer);
-    this.flushTimer = setTimeout(
-      () => this.flushPendingUpdates(),
-      UPDATE_DEBOUNCE_MS,
-    );
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      void this.flushPendingUpdates();
+    }, UPDATE_DEBOUNCE_MS);
   };
 
   private handlePageHide = (): void => {
@@ -847,25 +888,85 @@ class CollabDocConnection {
     }
   }
 
-  private flushPendingUpdates(keepalive = false): void {
+  private async flushPendingUpdates(keepalive = false): Promise<void> {
+    if (
+      keepalive
+        ? this.keepaliveInFlight
+        : this.disposed ||
+          this.updateInFlight ||
+          (this.updateErrors > 0 && this.flushTimer !== null)
+    )
+      return;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
     if (this.pendingUpdates.length === 0) return;
-    const toSend = this.pendingUpdates;
-    this.pendingUpdates = [];
-
+    const toSend = this.pendingUpdates.slice();
+    const retiredKey = this.retiredUpdatesKey;
     const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
-    fetch(`${this.baseUrl}/${this.docId}/update`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        update: uint8ArrayToBase64(merged),
-        requestSource: this.requestSource,
-      }),
-      ...(keepalive ? { keepalive: true } : {}),
-    }).catch(() => {});
+    const controller = new AbortController();
+    if (keepalive) this.keepaliveInFlight = true;
+    else {
+      this.updateInFlight = true;
+      this.updateAbortController = controller;
+    }
+    const timeout = setTimeout(
+      () => controller.abort(),
+      STATE_VECTOR_FETCH_TIMEOUT_MS,
+    );
+    try {
+      const response = await fetch(`${this.baseUrl}/${this.docId}/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          update: uint8ArrayToBase64(merged),
+          requestSource: this.requestSource,
+        }),
+        signal: controller.signal,
+        ...(keepalive ? { keepalive: true } : {}),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const previous = this.pendingUpdates;
+      const acknowledged = new Set(toSend);
+      this.pendingUpdates = previous.filter(
+        (update) => !acknowledged.has(update),
+      );
+      const retired = retiredKey
+        ? retiredCollabUpdates.get(retiredKey)
+        : undefined;
+      if (retired && retiredKey) {
+        const remaining = retired.filter((update) => !acknowledged.has(update));
+        if (remaining.length) {
+          retiredCollabUpdates.set(retiredKey, remaining);
+        } else {
+          retiredCollabUpdates.delete(retiredKey);
+        }
+      }
+      this.updateErrors = 0;
+    } catch {
+      // Retain the original operations: a failed response may follow a durable
+      // server write, and replaying Yjs operations is idempotent.
+      this.updateErrors++;
+    } finally {
+      clearTimeout(timeout);
+      if (keepalive) this.keepaliveInFlight = false;
+      else {
+        this.updateInFlight = false;
+        this.updateAbortController = null;
+      }
+      if (!this.disposed && this.pendingUpdates.length && !this.flushTimer) {
+        this.flushTimer = setTimeout(
+          () => {
+            this.flushTimer = null;
+            void this.flushPendingUpdates();
+          },
+          this.updateErrors
+            ? calcBackoff(this.updateErrors)
+            : UPDATE_DEBOUNCE_MS,
+        );
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1321,6 +1422,9 @@ class CollabDocConnection {
  * hook instances in the same browser tab.
  */
 const collabConnectionRegistry = new Map<string, CollabDocConnection>();
+// ponytail: in-memory retention survives component remounts; use a durable
+// outbox if offline reload recovery becomes supported. No retired retry loop.
+const retiredCollabUpdates = new Map<string, Uint8Array[]>();
 
 function collabRegistryKey(docId: string, baseUrl: string): string {
   return `${baseUrl}\0${docId}`;
@@ -1348,6 +1452,7 @@ export function _resetCollabDocRegistryForTests(): void {
     conn.dispose();
   }
   collabConnectionRegistry.clear();
+  retiredCollabUpdates.clear();
 }
 
 /** @internal — current registry size, for leak assertions in tests. */
