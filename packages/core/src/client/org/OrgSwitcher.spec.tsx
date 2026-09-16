@@ -292,6 +292,27 @@ describe("OrgSwitcher", () => {
     });
 
     expect(document.body.textContent).not.toContain("Invite member");
+  });
+
+  it("keeps workspace resources and agent management in Settings", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "owner" }],
+        domainMatches: [],
+        pendingInvitations: [],
+        role: "owner",
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+
     expect(document.body.textContent).not.toContain("Workspace");
     expect(document.body.textContent).not.toContain("Apps");
     expect(document.body.textContent).not.toContain("Manage agent");
