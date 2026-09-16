@@ -119,6 +119,35 @@ describe("MultiScreenCanvas camera command delivery", () => {
     );
   });
 
+  it("keeps the latest controlled zoom when a fit waits for a measurable surface", async () => {
+    const fitBounds = {
+      left: 100,
+      top: 200,
+      right: 300,
+      bottom: 300,
+      width: 200,
+      height: 100,
+      centerX: 200,
+      centerY: 250,
+    };
+    const cameraCommand = { fitBounds, nonce: 1 };
+    await renderCanvas(cameraCommand, { zoom: 240 });
+
+    // A toolbar or keyboard zoom can arrive while the overview remount still
+    // has a zero-sized surface. The eventual retry must not close over 240.
+    await renderCanvas(cameraCommand, { zoom: 320 });
+    measurable = true;
+    await waitForAnimationFrame();
+
+    const world = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    expect(world?.style.transform).toContain("scale(3.2)");
+
+    await new Promise((resolve) => window.setTimeout(resolve, 140));
+    expect(world?.style.transform).toContain("scale(3.2)");
+  });
+
   it("writes the chrome counter-scale on the same imperative tick as the world transform", async () => {
     // applyViewToDom is the only place an imperative pan/zoom lands during a
     // gesture — React state is not reconciled until the debounced commit. If
