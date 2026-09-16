@@ -250,7 +250,8 @@ An upvoted item is a **feature or UX change**: it skips the clear-bug bar but
 keeps the same eye, fix-altitude gate, verification, and question budget. The
 upvote overrides the bug gate, not ownership; name Sid or Alice in the recap
 without waiting for them. Build the smallest endorsed version, do not ask for
-a variant, and audit it as **Shipped** or **Open - no reply** under Phase 0.
+a variant, and keep an evidence-limited disposition until Phase 2's four bars
+hold; only then audit it as **Shipped** with `✅`.
 
 Phase 0 already claimed these with `👀`. If this workflow earlier eyed
 something out of scope, release it with `:no_entry_sign:`; do not post a
