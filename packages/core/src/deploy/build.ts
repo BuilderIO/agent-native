@@ -2406,7 +2406,7 @@ function patchReactRouterServerManifestSource(
   }
 
   const assignments =
-    /\b[A-Za-z_$][\w$]*\s*=\s*(\{\s*(?:entry|["']entry["'])\s*:)/g;
+    /(?:\b[A-Za-z_][\w$]*|\$[\w$]*)\s*=\s*(\{\s*(?:entry|["']entry["'])\s*:)/g;
   for (const match of source.matchAll(assignments)) {
     const valueStart = match.index! + match[0].lastIndexOf("{");
     const valueEnd = findJavaScriptObjectEnd(source, valueStart);

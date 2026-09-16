@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -50,6 +51,29 @@ describe("agent packs", () => {
         { path: ".env", content: "SECRET=not-for-import" },
       ]),
     ).toThrow("ignored or private");
+  });
+
+  it("rejects a pack with no profile file as a clean validation error, not a crash", () => {
+    // Reproduces the reported bug: selecting a folder containing only a CSV
+    // (e.g. "Course Enrollment Form-2026-05-07.csv") and clicking "Import
+    // agent pack" must surface an actionable message, not an unhandled 500.
+    let caught: unknown;
+    try {
+      normalizeAgentPack([
+        {
+          path: "Course Enrollment Form-2026-05-07.csv",
+          content: "name,email\nJane,jane@example.test\n",
+        },
+      ]);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    expect(isActionContractError(caught)).toBe(true);
+    expect((caught as { statusCode?: number }).statusCode).toBe(400);
+    expect((caught as Error).message).toContain(
+      "An agent pack needs an agent.md, CLAUDE.md, or Markdown profile file.",
+    );
   });
 
   it("rejects a pack file the import logic cannot read as text", () => {

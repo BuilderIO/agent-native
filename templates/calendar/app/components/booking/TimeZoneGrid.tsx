@@ -1,5 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronRight, IconPlus, IconX } from "@tabler/icons-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconPlus,
+  IconX,
+} from "@tabler/icons-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 
 import {
@@ -263,18 +268,46 @@ export function TimeZoneGrid({
           </div>
         </div>
         {canScrollLeft && (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent"
-          />
+          <>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-background to-transparent"
+            />
+            <button
+              type="button"
+              aria-label={t("bookingLinks.scrollToEarlierTimes")}
+              className="absolute left-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border bg-background/90 text-muted-foreground shadow-sm hover:text-foreground"
+              onClick={() =>
+                scrollContainerRef.current?.scrollBy({
+                  left: -scrollContainerRef.current.clientWidth * 0.8,
+                  behavior: "smooth",
+                })
+              }
+            >
+              <IconChevronLeft className="h-4 w-4" />
+            </button>
+          </>
         )}
         {canScrollRight && (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-background to-transparent pr-0.5"
-          >
-            <IconChevronRight className="h-4 w-4 animate-pulse text-muted-foreground" />
-          </div>
+          <>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background to-transparent"
+            />
+            <button
+              type="button"
+              aria-label={t("bookingLinks.scrollToLaterTimes")}
+              className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border bg-background/90 text-muted-foreground shadow-sm hover:text-foreground"
+              onClick={() =>
+                scrollContainerRef.current?.scrollBy({
+                  left: scrollContainerRef.current.clientWidth * 0.8,
+                  behavior: "smooth",
+                })
+              }
+            >
+              <IconChevronRight className="h-4 w-4" />
+            </button>
+          </>
         )}
       </div>
       {addingTimezone ? (

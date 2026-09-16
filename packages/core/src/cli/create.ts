@@ -2128,7 +2128,12 @@ function postProcessStandalone(
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-    } catch {}
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
+        cause: error,
+      });
+    }
   }
 
   // Write pnpm-workspace.yaml for pnpm v11 compatibility. pnpm v11 no longer
@@ -4144,12 +4149,15 @@ function renameGitignore(dir: string): void {
   if (!fs.existsSync(src)) return;
   fs.renameSync(src, dst);
   const contents = fs.readFileSync(dst, "utf8");
-  if (!contents.includes("data/*.lock")) {
-    fs.appendFileSync(
-      dst,
-      `${contents.endsWith("\n") ? "" : "\n"}data/*.lock\n`,
-    );
-  }
+  const missingRules = [
+    !contents.includes("data/*.lock") ? "data/*.lock" : null,
+    !contents.includes(".agent-native/") ? ".agent-native/" : null,
+  ].filter((rule): rule is string => Boolean(rule));
+  if (missingRules.length === 0) return;
+  fs.appendFileSync(
+    dst,
+    `${contents.endsWith("\n") ? "" : "\n"}${missingRules.join("\n")}\n`,
+  );
 }
 
 function replacePlaceholders(
