@@ -249,331 +249,194 @@ describe("verifyPendingStructureRuntime", () => {
     ).toBe(true);
   });
 
-  it("proves a replacement by the new identity and the old identity's absence", () => {
-    const replacement = `<!doctype html><body>
-      <section data-agent-native-node-id="replacement">Replacement</section>
-    </body>`;
-    const replaceEdit = edit({
-      selector: "#subject",
-      sourceId: "subject",
-      anchorSelector: "",
-      anchorSourceId: null,
-      insertedHtml:
-        '<section data-agent-native-node-id="replacement">Replacement</section>',
-      replaced: true,
-      replacementSelector: '[data-agent-native-node-id="replacement"]',
-      replacementSourceId: "replacement",
-      replacementSignature: {
-        tag: "section",
-        text: "Replacement",
-        classes: [],
-      },
-    });
-
-    expect(verifyPendingStructureRuntime(replacement, replaceEdit)).toEqual({
-      ok: true,
-    });
-    expect(
-      verifyPendingStructureRuntime(
-        replacement.replace(
-          "</body>",
-          '<div data-agent-native-node-id="subject"></div></body>',
-        ),
-        replaceEdit,
-      ),
-    ).toEqual({ ok: false, failure: "subject-still-present" });
+  const originalSignature = { tag: "p", text: "Original", classes: [] };
+  const replacementSignature = {
+    tag: "section",
+    text: "Replacement",
+    classes: [],
+  };
+  const replacementHtml =
+    '<section data-agent-native-node-id="replacement">Replacement</section>';
+  const replacementEdit = edit({
+    replaced: true,
+    selector: "main > p:nth-of-type(1)",
+    subjectSignature: originalSignature,
+    insertedHtml: replacementHtml,
+    replacementSourceId: "replacement",
+    replacementSelector: '[data-agent-native-node-id="replacement"]',
+    replacementSignature,
   });
 
-  it("does not acknowledge replacement when the stable subject changed shape", () => {
-    const replaceEdit = edit({
-      selector: '[data-agent-native-node-id="subject"]',
-      sourceId: "subject",
-      insertedHtml:
-        '<section data-agent-native-node-id="replacement">Replacement</section>',
-      replaced: true,
-      replacementSelector: '[data-agent-native-node-id="replacement"]',
-      replacementSourceId: "replacement",
-      subjectSignature: { tag: "div", text: "Original", classes: [] },
-      replacementSignature: {
-        tag: "section",
-        text: "Replacement",
-        classes: [],
-      },
-    });
-    const html = `<!doctype html><body>
-      <div data-agent-native-node-id="subject">Changed</div>
-      <section data-agent-native-node-id="replacement">Replacement</section>
-    </body>`;
-    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
-      ok: false,
+  it.each<{
+    name: string;
+    html: string;
+    overrides?: Partial<PendingLiveStructureEdit>;
+    failure?: string;
+  }>([
+    {
+      name: "accepts a shape-changing replacement after the old identity disappears",
+      html: replacementHtml,
+    },
+    {
+      name: "ignores a stale old selector pointing at the replacement",
+      html: replacementHtml,
+      overrides: { selector: "main > section:nth-of-type(1)" },
+    },
+    {
+      name: "ignores a stale old selector pointing at an unrelated sibling",
+      html: "<div>Unrelated</div>" + replacementHtml,
+      overrides: { selector: "main > div:nth-of-type(1)" },
+    },
+    {
+      name: "rejects a surviving old identity even after its shape changes",
+      html:
+        '<div data-agent-native-node-id="subject">Changed</div>' +
+        replacementHtml,
       failure: "subject-still-present",
-    });
-  });
-
-  it("does not acknowledge replacement when a changed-shape old node is unresolved", () => {
-    const replaceEdit = edit({
-      selector: "main > p:nth-of-type(1)",
-      sourceId: "subject",
-      insertedHtml:
-        '<section data-agent-native-node-id="replacement">Replacement</section>',
-      replaced: true,
-      replacementSelector: '[data-agent-native-node-id="replacement"]',
-      replacementSourceId: "replacement",
-      subjectSignature: { tag: "p", text: "Original", classes: [] },
-      replacementSignature: {
-        tag: "section",
-        text: "Replacement",
-        classes: [],
-      },
-    });
-    const html = `<!doctype html><body><main>
-      <div>Changed</div>
-      <section data-agent-native-node-id="replacement">Replacement</section>
-    </main></body>`;
-    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
-      ok: false,
-      failure: "missing-subject",
-    });
-  });
-
-  it("does not use a replacement signature after an ambiguous source-id lookup", () => {
-    const sameShapeSignature = {
-      tag: "section",
-      text: "Original",
-      classes: [],
-    };
-    const replaceEdit = edit({
-      selector: '[data-agent-native-node-id="subject"]',
-      sourceId: "subject",
-      insertedHtml: "<section>Original</section>",
-      replaced: true,
-      replacementSelector:
-        'body > main > section[data-agent-native-node-id="subject"]',
-      replacementSourceId: "subject",
-      subjectSignature: sameShapeSignature,
-      replacementSignature: sameShapeSignature,
-    });
-    const html = `<!doctype html><body><main>
-      <div data-agent-native-node-id="subject">Changed</div>
-      <section data-agent-native-node-id="subject">Original</section>
-    </main></body>`;
-    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
-      ok: false,
+    },
+    {
+      name: "rejects an unchanged old subject whose identity was regenerated",
+      html:
+        '<p data-agent-native-node-id="new-subject">Original</p>' +
+        replacementHtml,
+      failure: "subject-still-present",
+    },
+    {
+      name: "rejects ambiguous old identities even with a unique selector",
+      html:
+        '<p data-agent-native-node-id="subject">Original</p><div data-agent-native-node-id="subject">Changed</div>' +
+        replacementHtml,
       failure: "ambiguous-subject",
-    });
-  });
-
-  it("does not acknowledge replacement when a changed old node shares its signature", () => {
-    const sameShapeSignature = {
-      tag: "section",
-      text: "Same",
-      classes: [],
-    };
-    const replaceEdit = edit({
-      selector: "main > p:nth-of-type(1)",
-      sourceId: "subject",
-      insertedHtml:
-        '<section data-agent-native-node-id="replacement">Same</section>',
-      replaced: true,
-      replacementSelector: '[data-agent-native-node-id="replacement"]',
-      replacementSourceId: "replacement",
-      subjectSignature: sameShapeSignature,
-      replacementSignature: sameShapeSignature,
-    });
-    const html = `<!doctype html><body><main>
-      <div>Changed</div>
-      <section data-agent-native-node-id="replacement">Same</section>
-    </main></body>`;
-    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
-      ok: false,
-      failure: "missing-subject",
-    });
-  });
-
-  it("accepts an identity-less same-shaped replacement when its new identity is stable", () => {
-    const sameShapeSignature = {
-      tag: "section",
-      text: "Same",
-      classes: [],
-    };
-    const replaceEdit = edit({
-      selector: '[data-agent-native-node-id="subject"]',
-      sourceId: null,
-      insertedHtml:
-        '<section data-agent-native-node-id="replacement">Same</section>',
-      replaced: true,
-      replacementSelector: '[data-agent-native-node-id="replacement"]',
-      replacementSourceId: "replacement",
-      subjectSignature: sameShapeSignature,
-      replacementSignature: sameShapeSignature,
-    });
-    const html = `<!doctype html><body>
-      <section data-agent-native-node-id="replacement">Same</section>
-    </body>`;
-    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
-      ok: true,
-    });
-  });
-
-  it("does not use a shifted subject selector that points at the replacement", () => {
-    const sameShapeSignature = {
-      tag: "section",
-      text: "Same",
-      classes: [],
-    };
-    const replaceEdit = edit({
-      selector: "main > section:nth-of-type(1)",
-      sourceId: "subject",
-      insertedHtml: "<section>Same</section>",
-      replaced: true,
-      replacementSelector: "main > section:nth-of-type(1)",
-      replacementSourceId: null,
-      subjectSignature: sameShapeSignature,
-      replacementSignature: sameShapeSignature,
-    });
-    expect(
-      verifyPendingStructureRuntime(
-        `<!doctype html><body><main>
-          <section>Same</section>
-        </main></body>`,
-        replaceEdit,
-      ),
-    ).toEqual({ ok: false, failure: "subject-still-present" });
-  });
-
-  it("accepts an identity-less same-shaped replacement at a unique structural position", () => {
-    const sameShapeSignature = {
-      tag: "section",
-      text: "Same",
-      classes: [],
-    };
-    const replaceEdit = edit({
-      selector: "main > section:nth-of-type(2)",
-      sourceId: null,
-      insertedHtml: "<section>Same</section>",
-      replaced: true,
-      replacementSelector: "main > section:nth-of-type(2)",
-      replacementSourceId: null,
-      subjectSignature: sameShapeSignature,
-      replacementSignature: sameShapeSignature,
-    });
-    expect(
-      verifyPendingStructureRuntime(
-        `<!doctype html><body><main>
-          <section>Same</section>
-          <section>Same</section>
-        </main></body>`,
-        replaceEdit,
-      ),
-    ).toEqual({ ok: true });
-  });
-
-  it("re-anchors an identity-less replacement when both selectors shift", () => {
-    const sameShapeSignature = {
-      tag: "section",
-      text: "Same",
-      classes: [],
-    };
-    const replaceEdit = edit({
-      selector: "main > section:nth-of-type(2)",
-      sourceId: null,
-      insertedHtml: "<section>Same</section>",
-      replaced: true,
-      replacementSelector: "main > section:nth-of-type(3)",
-      replacementSourceId: null,
-      subjectSignature: sameShapeSignature,
-      replacementSignature: sameShapeSignature,
-    });
-    expect(
-      verifyPendingStructureRuntime(
-        `<!doctype html><body><main>
-          <section>Same</section>
-        </main></body>`,
-        replaceEdit,
-      ),
-    ).toEqual({ ok: true });
-  });
-
-  it("rejects a wrong-shape direct selector over a matching sibling", () => {
-    const replaceEdit = edit({
-      selector: "main > p:nth-of-type(1)",
-      sourceId: null,
-      insertedHtml: "<section>Replacement</section>",
-      replaced: true,
-      replacementSelector: "main > div:nth-of-type(1)",
-      replacementSourceId: null,
-      subjectSignature: {
-        tag: "p",
-        text: "Original",
-        classes: [],
+    },
+    {
+      name: "rejects duplicate replacement identities despite a disambiguating selector",
+      html:
+        replacementHtml +
+        '<div data-agent-native-node-id="replacement">Wrong</div>',
+      overrides: {
+        replacementSelector:
+          'body > main > section[data-agent-native-node-id="replacement"]',
       },
-      replacementSignature: {
-        tag: "section",
-        text: "Replacement",
-        classes: [],
+      failure: "ambiguous-replacement",
+    },
+    {
+      name: "rejects an absent replacement",
+      html: "",
+      failure: "missing-replacement",
+    },
+    {
+      name: "rejects a replacement identity with the wrong shape",
+      html: '<div data-agent-native-node-id="replacement">Wrong</div><section>Replacement</section>',
+      failure: "missing-replacement",
+    },
+    {
+      name: "accepts same-shaped content with distinct stable replacement identity",
+      html: replacementHtml,
+      overrides: { subjectSignature: replacementSignature },
+    },
+    {
+      name: "rejects reuse of the old identity as a replacement",
+      html: replacementHtml,
+      overrides: {
+        sourceId: "replacement",
+        subjectSignature: replacementSignature,
       },
-    });
-    expect(
-      verifyPendingStructureRuntime(
-        `<!doctype html><body><main>
-          <div>Wrong shape</div>
-          <section>Replacement</section>
-        </main></body>`,
-        replaceEdit,
-      ),
-    ).toEqual({ ok: false, failure: "missing-replacement" });
-  });
-
-  it("rejects an ambiguous direct replacement over a unique signature match", () => {
-    const replaceEdit = edit({
-      selector: "main > p:nth-of-type(1)",
-      sourceId: null,
-      insertedHtml: "<section>Replacement</section>",
-      replaced: true,
-      replacementSelector: '[data-testid="replacement"]',
-      replacementSourceId: null,
-      replacementSignature: {
-        tag: "section",
-        text: "Replacement",
-        classes: [],
+      failure: "subject-still-present",
+    },
+    {
+      name: "accepts an identity-less shape change when the old selector shifts",
+      html: replacementHtml,
+      overrides: {
+        sourceId: null,
+        selector: "main > section:nth-of-type(1)",
+        replacementSourceId: null,
       },
-    });
+    },
+    {
+      name: "accepts an identity-less shape change through unique signature fallback",
+      html: "<section>Replacement</section>",
+      overrides: { sourceId: null, replacementSourceId: null },
+    },
+    {
+      name: "rejects unchanged identity-less content at the same selector",
+      html: "<section>Replacement</section>",
+      overrides: {
+        sourceId: null,
+        selector: "main > section:nth-of-type(1)",
+        subjectSignature: replacementSignature,
+        replacementSourceId: null,
+        replacementSelector: "main > section:nth-of-type(1)",
+      },
+      failure: "subject-still-present",
+    },
+    {
+      name: "rejects unchanged identity-less content reached by signature fallback",
+      html: "<section>Replacement</section>",
+      overrides: {
+        sourceId: null,
+        selector: "main > section:nth-of-type(2)",
+        subjectSignature: replacementSignature,
+        replacementSourceId: null,
+        replacementSelector: "main > section:nth-of-type(3)",
+      },
+      failure: "subject-still-present",
+    },
+    {
+      name: "rejects a positional replacement with the old signature despite a missing source id",
+      html: "<section>Replacement</section>",
+      overrides: {
+        selector: "main > section:nth-of-type(1)",
+        subjectSignature: replacementSignature,
+        replacementSourceId: null,
+        replacementSelector: "main > section:nth-of-type(1)",
+      },
+      failure: "subject-still-present",
+    },
+    {
+      name: "accepts a distinct stable replacement after the identity-less old selector disappears",
+      html: replacementHtml,
+      overrides: { sourceId: null, subjectSignature: replacementSignature },
+    },
+    {
+      name: "rejects an unchanged old selector even when it matches the replacement identity",
+      html: replacementHtml,
+      overrides: {
+        sourceId: null,
+        selector: '[data-agent-native-node-id="replacement"]',
+        subjectSignature: replacementSignature,
+      },
+      failure: "subject-still-present",
+    },
+    {
+      name: "rejects an ambiguous replacement selector over a unique signature",
+      html: '<div data-testid="replacement">Wrong</div><section data-testid="replacement">Replacement</section>',
+      overrides: {
+        replacementSourceId: null,
+        replacementSelector: '[data-testid="replacement"]',
+      },
+      failure: "ambiguous-replacement",
+    },
+    {
+      name: "rejects a wrong-shape replacement selector over a matching sibling",
+      html: "<div>Wrong</div><section>Replacement</section>",
+      overrides: {
+        replacementSourceId: null,
+        replacementSelector: "main > div:nth-of-type(1)",
+      },
+      failure: "missing-replacement",
+    },
+    {
+      name: "rejects ambiguous old signatures",
+      html: "<p>Original</p><p>Original</p>" + replacementHtml,
+      failure: "ambiguous-subject",
+    },
+  ])("$name", ({ html, overrides, failure }) => {
     expect(
       verifyPendingStructureRuntime(
-        `<!doctype html><body><main>
-          <div data-testid="replacement">Wrong shape</div>
-          <section data-testid="replacement">Replacement</section>
-        </main></body>`,
-        replaceEdit,
+        `<!doctype html><body><main>${html}</main></body>`,
+        { ...replacementEdit, ...overrides },
       ),
-    ).toEqual({ ok: false, failure: "ambiguous-replacement" });
-  });
-
-  it("fails closed when an identity-less replacement selector is ambiguous", () => {
-    const sameShapeSignature = {
-      tag: "section",
-      text: "Same",
-      classes: [],
-    };
-    const replaceEdit = edit({
-      selector: '[data-agent-native-node-id="old-subject"]',
-      sourceId: null,
-      insertedHtml: "<section>Same</section>",
-      replaced: true,
-      replacementSelector: "section",
-      replacementSourceId: null,
-      subjectSignature: sameShapeSignature,
-      replacementSignature: sameShapeSignature,
-    });
-    expect(
-      verifyPendingStructureRuntime(
-        `<!doctype html><body><main>
-          <section>Same</section>
-          <section>Same</section>
-        </main></body>`,
-        replaceEdit,
-      ),
-    ).toEqual({ ok: false, failure: "ambiguous-replacement" });
+    ).toEqual(failure ? { ok: false, failure } : { ok: true });
   });
 
   it("requires every affected screen relationship", () => {

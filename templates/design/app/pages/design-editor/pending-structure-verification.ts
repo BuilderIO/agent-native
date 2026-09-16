@@ -4,7 +4,6 @@ import {
 } from "@shared/code-layer";
 
 import {
-  bridgeSourceIdForCodeLayerNode,
   collapsedElementText,
   resolveCodeLayerTargetFromBridge,
 } from "./code-layer-state";
@@ -37,7 +36,6 @@ type RuntimeStructureNodeRole = "subject" | "replacement" | "anchor";
 interface RuntimeStructureNodeResolution {
   node?: CodeLayerNode;
   failure?: RuntimeStructureVerificationFailure;
-  matchedBy?: "identity" | "selector" | "signature";
 }
 
 function runtimeStructureResolutionFailure(
@@ -85,16 +83,11 @@ function resolveRuntimeStructureNode(args: {
     args.sourceId ?? undefined,
   );
   if (direct.status === "resolved") {
-    const matchedBy =
-      args.sourceId &&
-      bridgeSourceIdForCodeLayerNode(direct.node) === args.sourceId
-        ? "identity"
-        : "selector";
     if (
       !args.signature ||
       runtimeStructureNodeMatchesSignature(direct.node, args.signature)
     ) {
-      return { node: direct.node, matchedBy };
+      return { node: direct.node };
     }
     // A live identity is stronger evidence than a stale content signature.
     // Do not let an unrelated sibling with the old signature validate this
@@ -114,53 +107,7 @@ function resolveRuntimeStructureNode(args: {
     };
   }
 
-  if (!args.signature) {
-    return {
-      failure: runtimeStructureResolutionFailure("absent", args.role),
-    };
-  }
-
-  const matches = args.projection.nodes.filter((node) =>
-    runtimeStructureNodeMatchesSignature(node, args.signature!),
-  );
-  if (matches.length === 1) {
-    return { node: matches[0], matchedBy: "signature" };
-  }
-  return {
-    failure: runtimeStructureResolutionFailure(
-      matches.length > 1 ? "ambiguous" : "absent",
-      args.role,
-    ),
-  };
-}
-
-function resolveRuntimeStructureNodeByIdentity(args: {
-  projection: { nodes: CodeLayerNode[] };
-  selector?: string;
-  sourceId?: string | null;
-  role: RuntimeStructureNodeRole;
-}): RuntimeStructureNodeResolution {
-  const direct = resolveCodeLayerTargetFromBridge(
-    args.projection,
-    args.selector,
-    args.sourceId ?? undefined,
-  );
-  if (direct.status === "resolved") {
-    return {
-      node: direct.node,
-      matchedBy:
-        args.sourceId &&
-        bridgeSourceIdForCodeLayerNode(direct.node) === args.sourceId
-          ? "identity"
-          : "selector",
-    };
-  }
-  return {
-    failure: runtimeStructureResolutionFailure(
-      direct.status === "ambiguous" ? "ambiguous" : "absent",
-      args.role,
-    ),
-  };
+  return resolveRuntimeStructureNodeBySignature(args);
 }
 
 function resolveRuntimeStructureNodeBySignature(args: {
@@ -178,7 +125,7 @@ function resolveRuntimeStructureNodeBySignature(args: {
       runtimeStructureNodeMatchesSignature(node, args.signature!),
   );
   if (matches.length === 1) {
-    return { node: matches[0], matchedBy: "signature" };
+    return { node: matches[0] };
   }
   return {
     failure: runtimeStructureResolutionFailure(
@@ -188,39 +135,58 @@ function resolveRuntimeStructureNodeBySignature(args: {
   };
 }
 
-function resolveRuntimeStructureNodeForPresence(args: {
-  projection: { nodes: CodeLayerNode[] };
-  selector?: string;
-  sourceId?: string | null;
-  signature?: RuntimeStructureNodeSignature;
-  role: RuntimeStructureNodeRole;
-}): RuntimeStructureNodeResolution {
-  // A source id remains a stable identity; a selector-only match is a
-  // positional hint and may point at a different node after replacement.
-  const identity = resolveRuntimeStructureNodeByIdentity(args);
-  if (identity.failure?.startsWith("ambiguous")) return identity;
+function verifyRuntimeStructureSubjectAbsent(
+  projection: { nodes: CodeLayerNode[] },
+  edit: PendingLiveStructureEdit,
+  replacement?: CodeLayerNode,
+): RuntimeStructureVerificationResult {
+  // Absence must inspect the old identity alone: a positional selector may
+  // now point at the replacement or an unrelated sibling.
+  const subject = resolveCodeLayerTargetFromBridge(
+    projection,
+    edit.sourceId ? undefined : edit.selector,
+    edit.sourceId ?? undefined,
+  );
+  if (subject.status === "ambiguous") {
+    return { ok: false, failure: "ambiguous-subject" };
+  }
   if (
-    identity.node &&
-    (!args.signature ||
-      runtimeStructureNodeMatchesSignature(identity.node, args.signature))
+    subject.status === "resolved" &&
+    (edit.sourceId ||
+      subject.node !== replacement ||
+      !edit.subjectSignature ||
+      runtimeStructureNodeMatchesSignature(subject.node, edit.subjectSignature))
   ) {
-    return identity;
+    return { ok: false, failure: "subject-still-present" };
   }
-  if (identity.node) {
-    return {
-      failure:
-        args.role === "subject"
-          ? "subject-still-present"
-          : args.role === "replacement"
-            ? "missing-replacement"
-            : "missing-anchor",
-    };
+
+  // A signature/position match cannot distinguish unchanged old content
+  // from a same-shaped replacement. Only its independently resolved new
+  // identity lets us exclude that node from the old-content search.
+  const replacementIdentity = edit.replacementSourceId
+    ? resolveCodeLayerTargetFromBridge(
+        projection,
+        undefined,
+        edit.replacementSourceId,
+      )
+    : undefined;
+  const signature = resolveRuntimeStructureNodeBySignature({
+    projection,
+    signature: edit.subjectSignature,
+    role: "subject",
+    excludedNodeIds:
+      replacement &&
+      replacementIdentity?.status === "resolved" &&
+      replacementIdentity.node === replacement
+        ? new Set([replacement.id])
+        : undefined,
+  });
+  if (signature.failure === "ambiguous-subject") {
+    return { ok: false, failure: signature.failure };
   }
-  // A changed original can leave the replacement as the only node matching
-  // its old signature. Do not turn that signature match into absence proof
-  // while the pending subject still has a source identity.
-  if (args.sourceId && args.role === "subject") return identity;
-  return resolveRuntimeStructureNodeBySignature(args);
+  return signature.node
+    ? { ok: false, failure: "subject-still-present" }
+    : { ok: true };
 }
 
 function runtimeStructureNodeForNoOp(
@@ -252,9 +218,9 @@ export function verifyPendingStructureRuntime(
 ): RuntimeStructureVerificationResult {
   const projection = buildCodeLayerProjection(snapshotHtml);
   if (edit.replaced) {
-    const replacementResolution = resolveRuntimeStructureNodeForPresence({
+    const replacementResolution = resolveRuntimeStructureNode({
       projection,
-      selector: edit.replacementSelector,
+      selector: edit.replacementSourceId ? undefined : edit.replacementSelector,
       sourceId: edit.replacementSourceId,
       signature: edit.replacementSignature,
       role: "replacement",
@@ -266,68 +232,14 @@ export function verifyPendingStructureRuntime(
       };
     }
 
-    const subjectResolution = resolveRuntimeStructureNodeForPresence({
+    return verifyRuntimeStructureSubjectAbsent(
       projection,
-      selector: edit.selector,
-      sourceId: edit.sourceId,
-      signature: edit.subjectSignature,
-      role: "subject",
-    });
-    if (subjectResolution.failure === "ambiguous-subject") {
-      return { ok: false, failure: "ambiguous-subject" };
-    }
-    if (subjectResolution.failure === "subject-still-present") {
-      return { ok: false, failure: "subject-still-present" };
-    }
-    // A supplied source id needs positive absence evidence; a changed old
-    // node can disappear from both the identity and signature lookups.
-    if (edit.sourceId && edit.subjectSignature && !subjectResolution.node) {
-      return {
-        ok: false,
-        failure: subjectResolution.failure ?? "missing-subject",
-      };
-    }
-    if (subjectResolution.node) {
-      const sameNode =
-        subjectResolution.node.id === replacementResolution.node.id;
-      if (
-        !sameNode ||
-        (edit.sourceId && subjectResolution.matchedBy !== "signature")
-      ) {
-        return { ok: false, failure: "subject-still-present" };
-      }
-    }
-    return { ok: true };
+      edit,
+      replacementResolution.node,
+    );
   }
-  // A removal proves itself by ABSENCE. Running it through the anchor/order
-  // checks below would report "missing-subject" for the exact outcome it
-  // asked for, and the apply flow would sit in awaiting-runtime until it
-  // timed out on a source write that actually succeeded.
   if (edit.removed) {
-    const subjectIdentityResolution = resolveRuntimeStructureNodeByIdentity({
-      projection,
-      selector: edit.selector,
-      sourceId: edit.sourceId,
-      role: "subject",
-    });
-    if (subjectIdentityResolution.failure === "ambiguous-subject") {
-      return { ok: false, failure: "ambiguous-subject" };
-    }
-    if (subjectIdentityResolution.node) {
-      return { ok: false, failure: "subject-still-present" };
-    }
-    const subjectSignatureResolution = resolveRuntimeStructureNodeBySignature({
-      projection,
-      signature: edit.subjectSignature,
-      role: "subject",
-    });
-    if (subjectSignatureResolution.failure === "ambiguous-subject") {
-      return { ok: false, failure: "ambiguous-subject" };
-    }
-    if (subjectSignatureResolution.node) {
-      return { ok: false, failure: "subject-still-present" };
-    }
-    return { ok: true };
+    return verifyRuntimeStructureSubjectAbsent(projection, edit);
   }
 
   const subjectResolution = resolveRuntimeStructureNode({
