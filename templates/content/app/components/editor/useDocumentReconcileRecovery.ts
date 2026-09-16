@@ -109,6 +109,12 @@ export function useDocumentReconcileRecovery({
     [current, publish],
   );
 
+  const reportRetentionFailure = useCallback(() => {
+    const latest = current.current;
+    if (!latest) return;
+    publish({ ...latest, reason: "save-failed", saving: false });
+  }, [current, publish]);
+
   const resolve = useCallback(
     async (base: ReconcileSaveBase): Promise<boolean> => {
       if (!current.current || inFlight.current) return false;
@@ -233,6 +239,7 @@ export function useDocumentReconcileRecovery({
     state,
     report,
     updateDraft,
+    reportRetentionFailure,
     resolve,
     resolveChoice,
     release,

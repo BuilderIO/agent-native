@@ -188,6 +188,69 @@ describe("private preview document drafts", () => {
     );
   });
 
+  it("finishes an already-applied Keep mine claim after resolution marking was interrupted", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "keep_mine",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Local recovery",
+        expectedDocumentUpdatedAt: before.updatedAt,
+      }),
+    );
+    const [claim] = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, documentId),
+          eq(
+            schema.documentVersions.operation,
+            "claim-preview-draft-keep_mine",
+          ),
+        ),
+      );
+    const claimPayload = JSON.parse(claim.chatContext);
+    await getDb()
+      .update(schema.documentVersions)
+      .set({
+        chatContext: JSON.stringify({
+          ...claimPayload,
+          status: "processing",
+          processingToken: "interrupted-request",
+          processingStartedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      })
+      .where(eq(schema.documentVersions.id, claim.id));
+
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: before.updatedAt,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
+  });
+
   it("preserves a matching leading H1 when Keep mine resolves a draft", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()

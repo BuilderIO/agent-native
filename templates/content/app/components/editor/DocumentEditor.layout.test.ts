@@ -514,7 +514,7 @@ describe("document editor layout", () => {
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
-    expect(handler).toContain("void reconcileRetainRef.current({");
+    expect(handler).toContain("retainActiveRecoveryDraft({");
     expect(handler.indexOf("return;")).toBeLessThan(
       handler.indexOf("debouncedSave("),
     );
@@ -522,6 +522,10 @@ describe("document editor layout", () => {
       handler.indexOf("debouncedSave("),
     );
     expect(source).toContain("if (reconcileRecoveryStateRef.current) return;");
+    expect(handler).toContain("retainActiveRecoveryDraft({");
+    expect(source).toContain(
+      "void reconcileRetainRef.current(draft).catch(reportRetentionFailure)",
+    );
     expect(source).toContain("<DocumentReconcileRecovery");
     expect(source).toContain("onKeepMine={handleResolveReconcile}");
     expect(source).toContain("contentBase: reconcileBase");

@@ -252,6 +252,19 @@ describe("document reconcile recovery", () => {
     });
   });
 
+  it("surfaces a failed background retention as retryable", () => {
+    mount(async () => true);
+    act(() => {
+      recovery.reportRetentionFailure();
+    });
+    expect(recovery.state).toEqual({
+      reason: "save-failed",
+      localDraft: "my edits",
+      localTitle: "",
+      saving: false,
+    });
+  });
+
   it("blocks duplicate submissions and supports retry after a lost CAS", async () => {
     const first = deferred();
     const save = vi

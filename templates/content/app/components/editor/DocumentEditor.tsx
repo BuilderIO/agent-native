@@ -1857,7 +1857,14 @@ function PageEditorSessionBody({
     resolve: resolveReconcile,
     resolveChoice: resolveReconcileChoice,
     updateDraft: updateReconcileDraft,
+    reportRetentionFailure,
   } = reconcileRecovery;
+  const retainActiveRecoveryDraft = useCallback(
+    (draft: ReconcileRecoveryDraft) => {
+      void reconcileRetainRef.current(draft).catch(reportRetentionFailure);
+    },
+    [reportRetentionFailure],
+  );
   const [acknowledgedLocalSnapshot, setAcknowledgedLocalSnapshot] = useState<{
     value: string;
     revision: string;
@@ -3394,7 +3401,7 @@ function PageEditorSessionBody({
       localTitleRef.current = newTitle;
       setLocalTitle(newTitle);
       if (updateReconcileDraft(localContentRef.current, newTitle)) {
-        void reconcileRetainRef.current({
+        retainActiveRecoveryDraft({
           localTitle: newTitle,
           localDraft: localContentRef.current,
         });
@@ -3415,6 +3422,7 @@ function PageEditorSessionBody({
       editorCanEdit,
       isSuggesting,
       queryClient,
+      retainActiveRecoveryDraft,
       updateReconcileDraft,
     ],
   );
@@ -3886,7 +3894,7 @@ function PageEditorSessionBody({
       localContentRef.current = newContent;
       setLocalContent(newContent);
       if (updateReconcileDraft(newContent)) {
-        void reconcileRetainRef.current({
+        retainActiveRecoveryDraft({
           localTitle: localTitleRef.current,
           localDraft: newContent,
         });
@@ -3894,7 +3902,12 @@ function PageEditorSessionBody({
       }
       debouncedSave(localTitleRef.current, newContent);
     },
-    [debouncedSave, editorCanEdit, updateReconcileDraft],
+    [
+      debouncedSave,
+      editorCanEdit,
+      retainActiveRecoveryDraft,
+      updateReconcileDraft,
+    ],
   );
 
   const handleImmediateContentChange = useCallback(
@@ -3932,6 +3945,10 @@ function PageEditorSessionBody({
         result.status === "conflict" ? "conflict" : "failed",
         result.content,
       );
+      retainActiveRecoveryDraft({
+        localTitle: localTitleRef.current,
+        localDraft: result.content,
+      });
       if (result.status === "merged") {
         if (documentContentRef.current === result.serverContent) {
           void resolveReconcile({
@@ -3943,7 +3960,7 @@ function PageEditorSessionBody({
         }
       }
     },
-    [reportReconcile, resolveReconcile],
+    [reportReconcile, resolveReconcile, retainActiveRecoveryDraft],
   );
 
   const handleResolveReconcile = useCallback(
