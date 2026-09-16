@@ -6,13 +6,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const FRAME_EXTRACTION_TIMEOUT_MS = 20_000;
-const COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS = 120_000;
+const COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS = 45_000;
 const MAX_CONCURRENT_FRAME_EXTRACTIONS = 2;
+const MAX_CONCURRENT_MEDIA_VALIDATIONS = 1;
 const STDERR_LIMIT = 16 * 1024;
 const requireFromThisFile = createRequire(import.meta.url);
 let cachedFfmpegStaticPath: string | null | undefined;
 let activeFrameExtractions = 0;
 const frameExtractionWaiters: Array<() => void> = [];
+let activeMediaValidations = 0;
+const mediaValidationWaiters: Array<() => void> = [];
 
 export type VideoFrameExtractionErrorCode =
   | "NO_VIDEO"
@@ -164,7 +167,11 @@ export async function probeMediaDurationMs(
 
   const requireComplete = options.requireComplete === true;
 
-  return withFrameExtractionSlot(async () => {
+  const runInSlot = requireComplete
+    ? withMediaValidationSlot
+    : withFrameExtractionSlot;
+
+  return runInSlot(async () => {
     const dir = await mkdtemp(join(tmpdir(), "clips-duration-probe-"));
     const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
 
@@ -180,7 +187,7 @@ export async function probeMediaDurationMs(
             "-i",
             inputPath,
             ...(requireComplete
-              ? ["-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"]
+              ? ["-map", "0:V:0", "-map", "0:a?", "-f", "null", "-"]
               : ["-map", "0:v:0?", "-frames:v", "1", "-f", "null", "-"]),
           ],
           requireComplete ? COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS : undefined,
@@ -206,6 +213,19 @@ async function withFrameExtractionSlot<T>(fn: () => Promise<T>): Promise<T> {
   } finally {
     activeFrameExtractions = Math.max(0, activeFrameExtractions - 1);
     frameExtractionWaiters.shift()?.();
+  }
+}
+
+async function withMediaValidationSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeMediaValidations >= MAX_CONCURRENT_MEDIA_VALIDATIONS) {
+    await new Promise<void>((resolve) => mediaValidationWaiters.push(resolve));
+  }
+  activeMediaValidations += 1;
+  try {
+    return await fn();
+  } finally {
+    activeMediaValidations = Math.max(0, activeMediaValidations - 1);
+    mediaValidationWaiters.shift()?.();
   }
 }
 

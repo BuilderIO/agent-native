@@ -29,11 +29,25 @@ describe("probeMediaDurationMs", () => {
     async () => {
       const root = await mkdtemp(join(tmpdir(), "clips-video-frame-test-"));
       const fullPath = join(root, "full.mp4");
-      const audioOnlyPath = join(root, "audio-only.mp4");
+      const coverImagePath = join(root, "cover.jpg");
+      const coverArtPath = join(root, "audio-with-cover-art.mp4");
       const previousFfmpegPath = process.env.FFMPEG_PATH;
       process.env.FFMPEG_PATH = availableFfmpegPath!;
 
       try {
+        await execFileAsync(availableFfmpegPath!, [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          "color=c=red:s=32x32",
+          "-frames:v",
+          "1",
+          coverImagePath,
+        ]);
         await execFileAsync(availableFfmpegPath!, [
           "-hide_banner",
           "-loglevel",
@@ -72,16 +86,27 @@ describe("probeMediaDurationMs", () => {
           "lavfi",
           "-i",
           "anullsrc=channel_layout=stereo:sample_rate=44100",
+          "-i",
+          coverImagePath,
           "-t",
           "2",
-          "-vn",
+          "-map",
+          "0:a:0",
+          "-map",
+          "1:v:0",
           "-c:a",
           "aac",
-          audioOnlyPath,
+          "-c:v",
+          "mjpeg",
+          "-disposition:v:0",
+          "attached_pic",
+          "-movflags",
+          "+faststart",
+          coverArtPath,
         ]);
 
         const fullBytes = new Uint8Array(await readFile(fullPath));
-        const audioOnlyBytes = new Uint8Array(await readFile(audioOnlyPath));
+        const coverArtBytes = new Uint8Array(await readFile(coverArtPath));
         const truncatedBytes = fullBytes.slice(
           0,
           Math.floor(fullBytes.byteLength * 0.9),
@@ -98,7 +123,7 @@ describe("probeMediaDurationMs", () => {
           }),
         ).resolves.toBeNull();
         await expect(
-          probeMediaDurationMs(audioOnlyBytes, "video/mp4", {
+          probeMediaDurationMs(coverArtBytes, "video/mp4", {
             requireComplete: true,
           }),
         ).resolves.toBeNull();
