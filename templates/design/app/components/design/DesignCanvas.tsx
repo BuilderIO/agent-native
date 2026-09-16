@@ -5535,6 +5535,10 @@ export function DesignCanvas({
           data-design-preview-iframe
           onLoad={(event) => {
             setPreviewFrameLoaded(true);
+            if (onBootReady && externalPreviewUrl && !bootReadyRef.current) {
+              bootReadyRef.current = true;
+              onBootReady();
+            }
             sendBridgeToContainer();
             // The bridge logs into the IFRAME console and cannot read
             // import.meta.env, so dev has to switch it on from out here.

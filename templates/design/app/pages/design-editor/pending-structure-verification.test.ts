@@ -142,7 +142,7 @@ describe("verifyPendingStructureRuntime", () => {
     ).toEqual({ ok: false, failure: "ambiguous-subject" });
   });
 
-  it("does not treat a look-alike as a removed subject", () => {
+  it("uses a unique signature to detect a renamed removed subject", () => {
     const html = `<!doctype html><body>
       <button data-agent-native-node-id="new-button">Delete</button>
     </body>`;
@@ -156,7 +156,7 @@ describe("verifyPendingStructureRuntime", () => {
           subjectSignature: { tag: "button", text: "Delete", classes: [] },
         }),
       ),
-    ).toEqual({ ok: true });
+    ).toEqual({ ok: false, failure: "subject-still-present" });
   });
 
   it("deduplicates repeated class tokens before matching a signature", () => {
@@ -216,6 +216,11 @@ describe("verifyPendingStructureRuntime", () => {
       replaced: true,
       replacementSelector: '[data-agent-native-node-id="replacement"]',
       replacementSourceId: "replacement",
+      replacementSignature: {
+        tag: "section",
+        text: "Replacement",
+        classes: [],
+      },
     });
 
     expect(verifyPendingStructureRuntime(replacement, replaceEdit)).toEqual({

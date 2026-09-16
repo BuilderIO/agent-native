@@ -104,16 +104,22 @@ export function runRecordPendingLiveStructureEdit(
     rootPath: connectionRootPath,
   });
   const fallbackName = screen?.filename ?? screenId;
+  const subjectInfo = details?.replaced
+    ? details.anchorElementInfo
+    : elementInfo;
+  const subjectSourceId = details?.replaced
+    ? details.anchorSourceId
+    : (details?.sourceId ?? elementInfo?.sourceId);
   const nextEdit: PendingLiveStructureEdit = {
     kind: "structure",
     screenId,
     filename: fallbackName,
     screenName: prettyScreenName(fallbackName),
     selector,
-    sourceId: details?.sourceId ?? elementInfo?.sourceId ?? null,
+    sourceId: subjectSourceId ?? null,
     sourceAnchor: reactSourceAnchorForPendingEdit({
-      info: elementInfo,
-      id: details?.sourceId ?? elementInfo?.sourceId,
+      info: subjectInfo,
+      id: subjectSourceId,
       rootPath: (() => {
         const connectionId = overviewScreens.find(
           (candidate) => candidate.id === screenId,
@@ -164,9 +170,14 @@ export function runRecordPendingLiveStructureEdit(
     updatedAt: Date.now(),
   };
   nextEdit.subjectSignature = runtimeStructureNodeSignature({
-    info: elementInfo,
+    info: subjectInfo,
     sourceAnchor: nextEdit.sourceAnchor,
   });
+  if (details?.replaced) {
+    nextEdit.replacementSignature = runtimeStructureNodeSignature({
+      info: elementInfo,
+    });
+  }
   nextEdit.anchorSignature = runtimeStructureNodeSignature({
     info: details?.anchorElementInfo,
     sourceAnchor: nextEdit.anchorSourceAnchor,

@@ -298,6 +298,7 @@ export interface MultiScreenCanvasProps {
       displayWidth: number;
       displayHeight: number;
       active: boolean;
+      onBootReady?: () => void;
     },
   ) => ReactNode;
   onScreenSelectionChange?: (ids: string[]) => void;

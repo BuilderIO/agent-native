@@ -112,9 +112,8 @@ states. Keep the Screens section readable so Layers remains useful while
 editing. Do not expand beyond 7 frames unless the user explicitly asks for an
 exhaustive audit or a complete route inventory.
 
-Do not expand every discovered route or every viewport unless the user asks for
-an exhaustive audit. Preserve the user's labels and sequence so the canvas reads
-like the workflow they described.
+Only expand routes or viewports for an exhaustive audit; preserve the user's
+labels and sequence.
 
 ## Select And Reprompt
 
@@ -146,10 +145,6 @@ check meaningful URL, hover, focus, scroll, and modal states.
 
 ## Account And Sharing Model
 
-- `/visual-edit/:id` is the dedicated local-editor surface. The one-time
-  handoff returned by `open-visual-edit` opens it with edit access without a
-  Design login. A copied or bare `/visual-edit/:id` URL is read-only because it
-  does not carry the capability.
 - The capability permits live iframe inspection, session-local edits, undo/redo,
   **Apply design updates**, and **Copy prompt**. These hand bounded source
   instructions to the coding agent; they do not persist account-owned Design data.

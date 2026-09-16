@@ -1178,26 +1178,46 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const bootStatusByScreenIdRef = useRef<Map<string, LiveScreenBootStatus>>(
     new Map(),
   );
+  const bootFrameCountByScreenIdRef = useRef<Map<string, number>>(new Map());
+  const bootReadyFrameIdsByScreenIdRef = useRef<Map<string, Set<string>>>(
+    new Map(),
+  );
   const bootTimeoutByScreenIdRef = useRef<Map<string, number>>(new Map());
-  const bridgeReadyCallbackByScreenIdRef = useRef<Map<string, () => void>>(
+  const bridgeReadyCallbackByFrameIdRef = useRef<Map<string, () => void>>(
     new Map(),
   );
   const [bootStatusRevision, setBootStatusRevision] = useState(0);
-  const markScreenBootReady = useCallback((screenId: string) => {
-    const status = bootStatusByScreenIdRef.current.get(screenId);
-    if (status === "ready") return;
-    const timeoutId = bootTimeoutByScreenIdRef.current.get(screenId);
-    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-    bootTimeoutByScreenIdRef.current.delete(screenId);
-    bootStatusByScreenIdRef.current.set(screenId, "ready");
-    setBootStatusRevision((revision) => revision + 1);
-  }, []);
+  const markScreenBootReady = useCallback(
+    (screenId: string, frameId?: string) => {
+      const status = bootStatusByScreenIdRef.current.get(screenId);
+      if (status === "ready") return;
+      if (frameId !== undefined) {
+        const readyFrameIds =
+          bootReadyFrameIdsByScreenIdRef.current.get(screenId) ?? new Set();
+        readyFrameIds.add(frameId);
+        bootReadyFrameIdsByScreenIdRef.current.set(screenId, readyFrameIds);
+        if (
+          readyFrameIds.size <
+          (bootFrameCountByScreenIdRef.current.get(screenId) ?? 1)
+        ) {
+          return;
+        }
+      }
+      const timeoutId = bootTimeoutByScreenIdRef.current.get(screenId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      bootTimeoutByScreenIdRef.current.delete(screenId);
+      bootStatusByScreenIdRef.current.set(screenId, "ready");
+      setBootStatusRevision((revision) => revision + 1);
+    },
+    [],
+  );
   const getScreenBootReadyCallback = useCallback(
-    (screenId: string) => {
-      const existing = bridgeReadyCallbackByScreenIdRef.current.get(screenId);
+    (screenId: string, frameId = "primary") => {
+      const callbackKey = `${screenId}\0${frameId}`;
+      const existing = bridgeReadyCallbackByFrameIdRef.current.get(callbackKey);
       if (existing) return existing;
-      const callback = () => markScreenBootReady(screenId);
-      bridgeReadyCallbackByScreenIdRef.current.set(screenId, callback);
+      const callback = () => markScreenBootReady(screenId, frameId);
+      bridgeReadyCallbackByFrameIdRef.current.set(callbackKey, callback);
       return callback;
     },
     [markScreenBootReady],
@@ -1229,7 +1249,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       bootTimeoutByScreenIdRef.current.delete(id);
       bootStatusByScreenIdRef.current.delete(id);
-      bridgeReadyCallbackByScreenIdRef.current.delete(id);
+      bootFrameCountByScreenIdRef.current.delete(id);
+      bootReadyFrameIdsByScreenIdRef.current.delete(id);
+      for (const key of bridgeReadyCallbackByFrameIdRef.current.keys()) {
+        if (key.startsWith(`${id}\0`)) {
+          bridgeReadyCallbackByFrameIdRef.current.delete(key);
+        }
+      }
     }
   }, [screens]);
   useEffect(
@@ -1239,7 +1265,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       bootTimeoutByScreenIdRef.current.clear();
       bootStatusByScreenIdRef.current.clear();
-      bridgeReadyCallbackByScreenIdRef.current.clear();
+      bootFrameCountByScreenIdRef.current.clear();
+      bootReadyFrameIdsByScreenIdRef.current.clear();
+      bridgeReadyCallbackByFrameIdRef.current.clear();
     },
     [],
   );
@@ -9158,28 +9186,48 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     protectedLiveScreenIds,
     surfaceSize,
   ]);
+  const liveBootFrameCountByScreenId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const { screen, metadata } of canvasFrames) {
+      if (!isRunningAppSourceType(metadata.source)) continue;
+      counts.set(
+        screen.id,
+        1 +
+          visibleBreakpointWidths(screen.breakpointWidths, metadata.width)
+            .length,
+      );
+    }
+    return counts;
+  }, [canvasFrames, screenCullTierById]);
+  bootFrameCountByScreenIdRef.current = liveBootFrameCountByScreenId;
   const liveBootCandidates = useMemo(
     () =>
-      Array.from(liveScreenIdsRef.current).filter((screenId) => {
-        const frame = canvasFrames.find(({ screen }) => screen.id === screenId);
-        return Boolean(frame && isRunningAppSourceType(frame.metadata.source));
-      }),
-    [canvasFrames, screenCullTierById],
+      Array.from(liveScreenIdsRef.current).filter((screenId) =>
+        liveBootFrameCountByScreenId.has(screenId),
+      ),
+    [liveBootFrameCountByScreenId, screenCullTierById],
   );
   const bootAdmittedScreenIds = useMemo(
     () =>
       admitBootBudget({
         candidates: liveBootCandidates,
         bootStatusById: bootStatusByScreenIdRef.current,
+        costById: liveBootFrameCountByScreenId,
         protectedIds: protectedLiveScreenIds,
       }),
-    [bootStatusRevision, liveBootCandidates, protectedLiveScreenIds],
+    [
+      bootStatusRevision,
+      liveBootCandidates,
+      liveBootFrameCountByScreenId,
+      protectedLiveScreenIds,
+    ],
   );
   useEffect(() => {
     let changed = false;
     for (const screenId of bootAdmittedScreenIds) {
       if (bootStatusByScreenIdRef.current.has(screenId)) continue;
       bootStatusByScreenIdRef.current.set(screenId, "booting");
+      bootReadyFrameIdsByScreenIdRef.current.set(screenId, new Set());
       const timeoutId = window.setTimeout(
         () => markScreenBootReady(screenId),
         8_000,
@@ -9197,6 +9245,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       bootTimeoutByScreenIdRef.current.delete(screenId);
       bootStatusByScreenIdRef.current.delete(screenId);
+      bootReadyFrameIdsByScreenIdRef.current.delete(screenId);
       changed = true;
     }
     if (changed) setBootStatusRevision((revision) => revision + 1);
@@ -9208,11 +9257,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           .filter(
             ({ screen, metadata }) =>
               isRunningAppSourceType(metadata.source) &&
+              liveScreenIdsRef.current.has(screen.id) &&
+              liveBootFrameCountByScreenId.has(screen.id) &&
               !bootAdmittedScreenIds.has(screen.id),
           )
           .map(({ screen }) => screen.id),
       ),
-    [bootAdmittedScreenIds, canvasFrames],
+    [
+      bootAdmittedScreenIds,
+      canvasFrames,
+      liveBootFrameCountByScreenId,
+      screenCullTierById,
+    ],
   );
   // No dependency array on purpose: any render can mount, unmount, or reorder a
   // screen's content wrapper, and a wrapper React just mounted carries none of
@@ -9663,6 +9719,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               bootDeferred={bootDeferredScreenIds.has(screen.id)}
               snapshotHtml={screenSnapshotsById?.[screen.id]?.html}
               renderBreakpointContent={renderBreakpointContent}
+              getBootReadyCallback={getScreenBootReadyCallback}
               cullTier={cullTier}
               isExportPreview={isExportPreview}
               isActive={screen.id === activeId}
@@ -11126,6 +11183,7 @@ interface ScreenProps {
   bootDeferred: boolean;
   snapshotHtml?: string;
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
+  getBootReadyCallback?: (screenId: string, frameId: string) => () => void;
   /** Overview viewport culling tier (PF22) — see computeScreenCullTier.
    *  "visible": render screenContent normally. "culled": screenContent (if
    *  any) stays mounted but is hidden from paint (visibility/
@@ -11214,6 +11272,7 @@ const Screen = memo(function Screen({
   bootDeferred,
   snapshotHtml,
   renderBreakpointContent,
+  getBootReadyCallback,
   cullTier,
   isExportPreview,
   onAddBreakpoint,
@@ -11296,7 +11355,7 @@ const Screen = memo(function Screen({
   }, [screen.content]);
 
   const deferredSnapshot =
-    bootDeferred && snapshotHtml ? (
+    cullTier === "visible" && bootDeferred && snapshotHtml ? (
       <iframe
         data-screen-snapshot
         aria-hidden="true"
@@ -11615,59 +11674,71 @@ const Screen = memo(function Screen({
               screenRootComputedStyles?.borderBottomLeftRadius,
           }}
         >
-          {!shouldMountContent || bootDeferred
-            ? (deferredSnapshot ?? (
-                // Tier A/evicted (PF22 + bounded follow-up): no live browsing
-                // context is mounted. Render inert chrome-only filler that keeps
-                // the same wrapper geometry as real content so selection, drag,
-                // marquee, and measurement math stay unaffected. The content
-                // descriptor remains cached for direct revisit restoration.
-                <div
-                  data-screen-placeholder
-                  aria-hidden="true"
-                  className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground"
-                >
-                  <span className="max-w-[80%] truncate px-2 text-center !text-[11px] font-medium">
-                    {display}
-                  </span>
-                </div>
-              ))
-            : (screenContent ?? (
-                <iframe
-                  {...{
-                    [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
+          {!shouldMountContent ? (
+            // Tier A/evicted (PF22 + bounded follow-up): no live browsing
+            // context is mounted. Render inert chrome-only filler that keeps
+            // the same wrapper geometry as real content so selection, drag,
+            // marquee, and measurement math stay unaffected. The content
+            // descriptor remains cached for direct revisit restoration.
+            <div
+              data-screen-placeholder
+              aria-hidden="true"
+              className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground"
+            >
+              <span className="max-w-[80%] truncate px-2 text-center !text-[11px] font-medium">
+                {display}
+              </span>
+            </div>
+          ) : bootDeferred ? (
+            (deferredSnapshot ?? (
+              <div
+                data-screen-placeholder
+                aria-hidden="true"
+                className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground"
+              >
+                <span className="max-w-[80%] truncate px-2 text-center !text-[11px] font-medium">
+                  {display}
+                </span>
+              </div>
+            ))
+          ) : (
+            (screenContent ?? (
+              <iframe
+                {...{
+                  [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
+                    ? undefined
+                    : "",
+                }}
+                data-screen-iframe-id={screen.id}
+                src={previewUrl}
+                srcDoc={previewUrl ? undefined : srcdocWithHitTest}
+                sandbox="allow-scripts"
+                // Visible includes the generous overscan band, so eager load
+                // here prewarms the document before it crosses the raw
+                // viewport edge. Warm hidden iframes are already loaded.
+                loading={
+                  isExportPreview || cullTier === "visible" ? "eager" : "lazy"
+                }
+                className="pointer-events-none border-0"
+                style={{
+                  width: previewViewport.viewportWidth,
+                  height: previewViewport.viewportHeight,
+                  // Untouched same-aspect overview thumbnails may scale uniformly.
+                  // User-resized frames use their real iframe viewport so
+                  // responsive layouts recompute instead of getting stretched.
+                  transform:
+                    previewViewport.scale === 1
                       ? undefined
-                      : "",
-                  }}
-                  data-screen-iframe-id={screen.id}
-                  src={previewUrl}
-                  srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                  sandbox="allow-scripts"
-                  // Visible includes the generous overscan band, so eager load
-                  // here prewarms the document before it crosses the raw
-                  // viewport edge. Warm hidden iframes are already loaded.
-                  loading={
-                    isExportPreview || cullTier === "visible" ? "eager" : "lazy"
-                  }
-                  className="pointer-events-none border-0"
-                  style={{
-                    width: previewViewport.viewportWidth,
-                    height: previewViewport.viewportHeight,
-                    // Untouched same-aspect overview thumbnails may scale uniformly.
-                    // User-resized frames use their real iframe viewport so
-                    // responsive layouts recompute instead of getting stretched.
-                    transform:
-                      previewViewport.scale === 1
-                        ? undefined
-                        : `scale(${previewViewport.scale})`,
-                    transformOrigin: "top left",
-                    backgroundColor: "white",
-                    colorScheme: "light",
-                    ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
-                  }}
-                  title={screen.filename}
-                />
-              ))}
+                      : `scale(${previewViewport.scale})`,
+                  transformOrigin: "top left",
+                  backgroundColor: "white",
+                  colorScheme: "light",
+                  ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+                }}
+                title={screen.filename}
+              />
+            ))
+          )}
           {layoutGridBoardSize > 0 ? (
             <span
               data-layout-grid={screen.id}
@@ -11755,6 +11826,7 @@ const Screen = memo(function Screen({
           metadata={metadata}
           screenRootComputedStylesById={screenRootComputedStylesById}
           renderBreakpointContent={renderBreakpointContent}
+          getBootReadyCallback={getBootReadyCallback}
           activeBreakpointWidth={screen.activeBreakpointWidth}
           isScreenSelected={isSelected}
           penActive={penActive}
@@ -11830,6 +11902,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.bootDeferred === next.bootDeferred &&
     prev.snapshotHtml === next.snapshotHtml &&
     prev.renderBreakpointContent === next.renderBreakpointContent &&
+    prev.getBootReadyCallback === next.getBootReadyCallback &&
     prev.cullTier === next.cullTier &&
     prev.isExportPreview === next.isExportPreview &&
     sameResolvedMetadata(prev.metadata, next.metadata) &&
@@ -11925,6 +11998,7 @@ function BreakpointPreviewRow({
   metadata,
   screenRootComputedStylesById,
   renderBreakpointContent,
+  getBootReadyCallback,
   activeBreakpointWidth,
   isScreenSelected,
   penActive,
@@ -11968,6 +12042,7 @@ function BreakpointPreviewRow({
   metadata: ResolvedScreenMetadata;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
+  getBootReadyCallback?: ScreenProps["getBootReadyCallback"];
   activeBreakpointWidth: number | undefined;
   /** Whether the OWNING screen (base frame) is the current selection —
    *  mirrors `Screen`'s own `isSelected`, used so a breakpoint frame's chrome
@@ -12058,6 +12133,10 @@ function BreakpointPreviewRow({
               displayWidth: frameWidth,
               displayHeight: frameHeight,
               active: isActive,
+              onBootReady: getBootReadyCallback?.(
+                screen.id,
+                `breakpoint:${widthPx}`,
+              ),
             });
         const currentOffsetX = offsetX;
         offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
@@ -12412,6 +12491,12 @@ function BreakpointPreviewRow({
                     src={previewUrl}
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
                     sandbox="allow-scripts"
+                    onLoad={() => {
+                      getBootReadyCallback?.(
+                        screen.id,
+                        `breakpoint:${widthPx}`,
+                      )?.();
+                    }}
                     loading={cullTier === "visible" ? "eager" : "lazy"}
                     className="pointer-events-none border-0"
                     style={{

@@ -73,6 +73,21 @@ describe("MultiScreenCanvas viewport culling", () => {
       ).toEqual(new Set(candidates.slice(0, 8)));
     });
 
+    it("charges breakpoint preview frames against the boot budget", () => {
+      expect(
+        admitBootBudget({
+          candidates: ["responsive", "plain"],
+          bootStatusById: new Map(),
+          bootBudget: 3,
+          costById: new Map([
+            ["responsive", 3],
+            ["plain", 1],
+          ]),
+          protectedIds: new Set(),
+        }),
+      ).toEqual(new Set(["responsive"]));
+    });
+
     it("admits an unbooted protected screen over budget", () => {
       const candidates = ["nearest", "protected", "later"];
       expect(

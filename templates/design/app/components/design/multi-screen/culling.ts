@@ -73,27 +73,30 @@ export function admitBootBudget({
   candidates,
   bootStatusById,
   bootBudget = OVERVIEW_LIVE_BOOT_BUDGET,
+  costById,
   protectedIds,
 }: {
   candidates: readonly string[];
   bootStatusById: ReadonlyMap<string, LiveScreenBootStatus>;
   bootBudget?: number;
+  costById?: ReadonlyMap<string, number>;
   protectedIds: ReadonlySet<string>;
 }): Set<string> {
   const admitted = new Set<string>();
   let bootingCount = 0;
   const limit = Math.max(0, Math.floor(bootBudget));
+  const cost = (id: string) => Math.max(1, Math.floor(costById?.get(id) ?? 1));
   for (const id of candidates) {
     const status = bootStatusById.get(id);
     if (!status) continue;
     admitted.add(id);
-    if (status === "booting") bootingCount += 1;
+    if (status === "booting") bootingCount += cost(id);
   }
   for (const id of candidates) {
     if (admitted.has(id)) continue;
-    if (!protectedIds.has(id) && bootingCount >= limit) continue;
+    if (!protectedIds.has(id) && bootingCount + cost(id) > limit) continue;
     admitted.add(id);
-    if (!protectedIds.has(id)) bootingCount += 1;
+    if (!protectedIds.has(id)) bootingCount += cost(id);
   }
   return admitted;
 }

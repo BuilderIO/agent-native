@@ -1322,8 +1322,9 @@ function DesignEditor() {
   >([]);
   const [pendingEditSessionMarker, setPendingEditSessionMarker] =
     useState<PendingEditSessionMarkerResult>({ status: "absent" });
-  const hadPendingEditSessionRef = useRef(false);
+  const pendingEditSessionDesignIdRef = useRef<string | null>(null);
   useEffect(() => {
+    pendingEditSessionDesignIdRef.current = null;
     setPendingEditSessionMarker(readPendingEditSessionMarker(id));
   }, [id]);
   const [pendingVisualStyleRevertRequest, setPendingVisualStyleRevertRequest] =
@@ -1537,13 +1538,15 @@ function DesignEditor() {
   const clearPendingLiveEditState = useCallback(() => {
     stagedSourceHandoffRef.current = "idle";
     setApplyingViaHost(false);
-    hadPendingEditSessionRef.current = false;
-    const markerResult = clearPendingEditSessionMarker(id);
-    setPendingEditSessionMarker(
-      markerResult.status === "cleared"
-        ? { status: "absent" }
-        : { status: "unavailable", reason: markerResult.reason },
-    );
+    if (pendingEditSessionDesignIdRef.current === id) {
+      pendingEditSessionDesignIdRef.current = null;
+      const markerResult = clearPendingEditSessionMarker(id);
+      setPendingEditSessionMarker(
+        markerResult.status === "cleared"
+          ? { status: "absent" }
+          : { status: "unavailable", reason: markerResult.reason },
+      );
+    }
     if (stagedHandoffStartTimerRef.current !== undefined) {
       window.clearTimeout(stagedHandoffStartTimerRef.current);
       stagedHandoffStartTimerRef.current = undefined;
@@ -16501,7 +16504,7 @@ function DesignEditor() {
   useEffect(() => {
     if (!id) return;
     if (pendingVisualEditCount > 0) {
-      hadPendingEditSessionRef.current = true;
+      pendingEditSessionDesignIdRef.current = id;
       const result = writePendingEditSessionMarker(id, pendingVisualEditCount);
       setPendingEditSessionMarker(
         result.status === "stored"
@@ -16510,8 +16513,8 @@ function DesignEditor() {
       );
       return;
     }
-    if (hadPendingEditSessionRef.current) {
-      hadPendingEditSessionRef.current = false;
+    if (pendingEditSessionDesignIdRef.current === id) {
+      pendingEditSessionDesignIdRef.current = null;
       const result = clearPendingEditSessionMarker(id);
       if (result.status === "unavailable") {
         setPendingEditSessionMarker(result);
@@ -21533,6 +21536,7 @@ function DesignEditor() {
           height: frame.displayHeight,
         },
         frame,
+        { onBootReady: frame.onBootReady },
       ),
     [renderEditableScreenContent],
   );

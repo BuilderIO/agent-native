@@ -59,11 +59,15 @@ export function normalizeRuntimeStructureText(
 }
 
 export function runtimeStructureNodeSignature(args: {
-  info?: Pick<ElementInfo, "tagName" | "textContent" | "classes"> | null;
+  info?: Pick<
+    ElementInfo,
+    "tagName" | "textContent" | "classes" | "componentName"
+  > | null;
   sourceAnchor?: ReactSourceAnchor;
 }): RuntimeStructureNodeSignature | undefined {
   if (!args.info?.tagName) return undefined;
-  const component = args.sourceAnchor?.component?.trim();
+  const component =
+    args.sourceAnchor?.component?.trim() || args.info.componentName?.trim();
   return {
     tag: args.info.tagName.trim().toLowerCase(),
     text: normalizeRuntimeStructureText(args.info.textContent),
@@ -321,6 +325,7 @@ export interface PendingLiveStructureEdit {
   /** Runtime identity of the optimistic replacement used for verification. */
   replacementSelector?: string;
   replacementSourceId?: string | null;
+  replacementSignature?: RuntimeStructureNodeSignature;
   /**
    * This edit DELETED the subject from the running app. A removal has no
    * anchor — `anchorSelector`/`placement` carry no meaning for it — so every
@@ -1257,6 +1262,9 @@ export function formatPendingVisualStylePrompt(args: {
               replaced: true as const,
               replacementSelector: edit.replacementSelector,
               replacementSourceId: edit.replacementSourceId ?? null,
+              ...(edit.replacementSignature
+                ? { replacementSignature: edit.replacementSignature }
+                : {}),
             }
         : {
             anchorSelector: edit.anchorSelector,

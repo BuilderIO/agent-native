@@ -5,7 +5,6 @@ import {
 
 import {
   collapsedElementText,
-  resolveCodeLayerNodeFromBridge,
   resolveCodeLayerTargetFromBridge,
 } from "./code-layer-state";
 import {
@@ -141,18 +140,23 @@ export function verifyPendingStructureRuntime(
   });
   const subject = subjectResolution.node;
   if (edit.replaced) {
-    const originalSubject = resolveCodeLayerNodeFromBridge(
+    const replacementResolution = resolveRuntimeStructureNode({
       projection,
-      edit.selector,
-      edit.sourceId ?? undefined,
-    );
-    const replacement = resolveCodeLayerNodeFromBridge(
-      projection,
-      edit.replacementSelector ?? "",
-      edit.replacementSourceId ?? undefined,
-    );
-    if (!replacement) return { ok: false, failure: "missing-subject" };
-    return originalSubject
+      selector: edit.replacementSelector,
+      sourceId: edit.replacementSourceId,
+      signature: edit.replacementSignature,
+      role: "subject",
+    });
+    if (!replacementResolution.node) {
+      return {
+        ok: false,
+        failure: replacementResolution.failure ?? "missing-subject",
+      };
+    }
+    if (subjectResolution.failure === "ambiguous-subject") {
+      return { ok: false, failure: "ambiguous-subject" };
+    }
+    return subject
       ? { ok: false, failure: "subject-still-present" }
       : { ok: true };
   }
@@ -161,12 +165,10 @@ export function verifyPendingStructureRuntime(
   // asked for, and the apply flow would sit in awaiting-runtime until it
   // timed out on a source write that actually succeeded.
   if (edit.removed) {
-    const originalSubject = resolveCodeLayerNodeFromBridge(
-      projection,
-      edit.selector,
-      edit.sourceId ?? undefined,
-    );
-    return originalSubject
+    if (subjectResolution.failure === "ambiguous-subject") {
+      return { ok: false, failure: "ambiguous-subject" };
+    }
+    return subject
       ? { ok: false, failure: "subject-still-present" }
       : { ok: true };
   }
