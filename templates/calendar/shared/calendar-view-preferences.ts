@@ -16,11 +16,21 @@ export const CALENDAR_COLORS = [
 
 export type CalendarColorMode = "multi" | "single";
 
+export const MIN_CALENDAR_DAYS = 1;
+export const MAX_CALENDAR_DAYS = 31;
+export const DEFAULT_CALENDAR_DAYS = 7;
+
 /** Account-scoped key: a Google account email, or `"ics:<externalCalendarId>"`. */
 export type CalendarColorSourceKey = string;
 
 export interface CalendarViewPreferences {
   hideWeekends: boolean;
+  /** Number of days shown by the week-style calendar view. */
+  numberOfDays: number;
+  /** Whether events declined by the current account remain visible. */
+  showDeclinedEvents: boolean;
+  /** Whether month view reserves a leading column for week numbers. */
+  showWeekNumbers: boolean;
   /** @deprecated kept for back-compat migration; use accountColorModes */
   colorMode: CalendarColorMode;
   /** @deprecated kept for back-compat migration; use accountColors */
@@ -37,6 +47,9 @@ export interface CalendarViewPreferences {
 
 export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
   hideWeekends: false,
+  numberOfDays: DEFAULT_CALENDAR_DAYS,
+  showDeclinedEvents: true,
+  showWeekNumbers: false,
   colorMode: "multi",
   singleColor: CALENDAR_COLORS[0],
   accountColorModes: {},
@@ -44,6 +57,19 @@ export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
   googleCalendarVisibility: {},
   googleCalendarColors: {},
 };
+
+export function normalizeNumberOfDays(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.min(MAX_CALENDAR_DAYS, Math.max(MIN_CALENDAR_DAYS, value))
+    : DEFAULT_CALENDAR_DAYS;
+}
+
+export function isEventVisibleForDeclinedPreference(
+  responseStatus: string | undefined,
+  showDeclinedEvents: boolean,
+): boolean {
+  return showDeclinedEvents || responseStatus !== "declined";
+}
 
 export function isValidCalendarColorMode(
   value: unknown,
@@ -114,6 +140,13 @@ export function normalizeCalendarViewPreferences(
   if (typeof input.hideWeekends === "boolean") {
     next.hideWeekends = input.hideWeekends;
   }
+  next.numberOfDays = normalizeNumberOfDays(input.numberOfDays);
+  if (typeof input.showDeclinedEvents === "boolean") {
+    next.showDeclinedEvents = input.showDeclinedEvents;
+  }
+  if (typeof input.showWeekNumbers === "boolean") {
+    next.showWeekNumbers = input.showWeekNumbers;
+  }
   if (isValidCalendarColorMode(input.colorMode)) {
     next.colorMode = input.colorMode;
   }
@@ -135,6 +168,9 @@ export function calendarViewPreferencesEqual(
 ): boolean {
   return (
     a.hideWeekends === b.hideWeekends &&
+    a.numberOfDays === b.numberOfDays &&
+    a.showDeclinedEvents === b.showDeclinedEvents &&
+    a.showWeekNumbers === b.showWeekNumbers &&
     a.colorMode === b.colorMode &&
     a.singleColor === b.singleColor &&
     recordsEqual(a.accountColorModes, b.accountColorModes) &&

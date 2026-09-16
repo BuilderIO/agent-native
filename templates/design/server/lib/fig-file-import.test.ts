@@ -271,7 +271,9 @@ describe("editable .fig conversion", () => {
       preferredFrame: { title: "Card", width: 320, height: 200 },
     });
     expect(result.files[0]!.content).toContain("Editable title");
-    expect(result.files[0]!.content).toContain('layer-name="Card"');
+    expect(result.files[0]!.content).toContain(
+      'data-agent-native-layer-name="Card"',
+    );
     expect(result.files[0]!.content).not.toMatch(/data:[^;]+;base64/i);
     expect(result.warnings).toEqual([]);
     expect(result.stats).toMatchObject({

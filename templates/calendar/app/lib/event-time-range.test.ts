@@ -5,6 +5,7 @@ import {
   applyEndTimeChange,
   buildTimeOptions,
   eventDurationMinutes,
+  shiftEndForDateChange,
   shiftEndForStartChange,
   TIME_SLOTS,
   timeValueToMinutes,
@@ -226,6 +227,48 @@ describe("applyEndTimeChange", () => {
       expect(duration).not.toBeNull();
       expect(duration).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("shiftEndForDateChange", () => {
+  const range = {
+    date: "2026-03-10",
+    startTime: "09:00",
+    endDate: "2026-03-10",
+    endTime: "09:30",
+  };
+
+  it("preserves a same-day duration when the start date moves", () => {
+    expect(shiftEndForDateChange(range, "2026-03-12")).toEqual({
+      ...range,
+      date: "2026-03-12",
+      endDate: "2026-03-12",
+    });
+  });
+
+  it("shifts a multi-day end date by the same calendar-day delta", () => {
+    expect(
+      shiftEndForDateChange(
+        { ...range, endDate: "2026-03-12", endTime: "17:00" },
+        "2026-03-08",
+      ),
+    ).toEqual({
+      ...range,
+      date: "2026-03-08",
+      endDate: "2026-03-10",
+      endTime: "17:00",
+    });
+  });
+
+  it("repairs an invalid range after a date change", () => {
+    expect(
+      shiftEndForDateChange({ ...range, endDate: "2026-03-09" }, "2026-03-12"),
+    ).toEqual({
+      ...range,
+      date: "2026-03-12",
+      endDate: "2026-03-12",
+      endTime: "09:15",
+    });
   });
 });
 

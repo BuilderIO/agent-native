@@ -470,11 +470,6 @@ export function validateGoogleCallbackVerificationWorkflow(
         `${reusablePath} Google OAuth verification must not depend on a package-script indirection`,
       );
     }
-    if (verify.includes("source_template != 'macros'")) {
-      issues.push(
-        `${reusablePath} Google OAuth verification must use the deployed capability contract instead of a template allowlist`,
-      );
-    }
     if (
       !rollback.includes("id: google_callback_rollback") ||
       !rollback.includes("restored_deploy_id") ||
@@ -1577,16 +1572,13 @@ if (
 }
 if (
   !betaResolveSourceScript.includes(
-    "context.eventName === 'workflow_dispatch'",
+    "const comparison = await github.rest.repos.compareCommits({",
   ) ||
   !betaResolveSourceScript.includes(
-    "sourceSha.toLowerCase() !== mainSha.toLowerCase()",
-  ) ||
-  !betaResolveSourceScript.includes(
-    "Manual beta source_ref must equal current main",
+    "source_ref ${sourceSha} is not an ancestor of main ${mainSha}.",
   )
 ) {
-  issues.push(`${betaPath} must reject stale manual source_ref values`);
+  issues.push(`${betaPath} must reject manual source_ref values outside main`);
 }
 
 if (issues.length) {

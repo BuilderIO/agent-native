@@ -1059,6 +1059,41 @@ describe("McpIntegrationDialog", () => {
     ).toBe("user");
   });
 
+  // GitHub's authorization server cannot register a client, so an OAuth entry
+  // here rendered a Connect button whose only outcome was a raw JSON error page.
+  it("asks GitHub for a token instead of starting OAuth", () => {
+    const github = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "github",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="github"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[github]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const headerField = [
+      ...document.body.querySelectorAll("input, textarea"),
+    ].find((field) =>
+      field
+        .getAttribute("placeholder")
+        ?.includes("Authorization: Bearer <github-token>"),
+    );
+    expect(headerField).toBeTruthy();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+  });
+
   it("does not offer an unauthenticated test for setup-gated integrations", () => {
     const slack = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "slack",

@@ -53,6 +53,16 @@ function cardCacheKey(agent: DiscoveredAgent, authenticate = true): string {
     agent.auth?.type === "bearer"
       ? agent.auth.credentialRef
       : (agent.auth?.clientSecretRef ?? ""),
+    agent.kind?.provider ?? "",
+    agent.kind?.provider === "anthropic-managed-agents"
+      ? agent.kind.agentId
+      : "",
+    agent.kind?.provider === "anthropic-managed-agents"
+      ? agent.kind.environmentId
+      : "",
+    agent.kind?.provider === "anthropic-managed-agents"
+      ? agent.kind.credentialRef
+      : "",
     authenticate ? "authenticated" : "anonymous",
   ].join("\u0000");
 }
@@ -127,6 +137,14 @@ async function fetchCapabilities(
   agent: DiscoveredAgent,
   authenticate: boolean,
 ): Promise<PeerCapabilities> {
+  if (agent.kind?.provider === "anthropic-managed-agents") {
+    return {
+      agent,
+      skills: [],
+      cardDescription:
+        "Anthropic Managed Agent; send a natural-language message through the native adapter.",
+    };
+  }
   try {
     // Discover as ourselves. An anonymous card lists only publicly-safe
     // actions, which never overlap the set `actions/invoke` accepts, so an

@@ -43,9 +43,12 @@ type MailPreferences = {
 
 async function resolveRootInboxHref(): Promise<string> {
   try {
+    const signal = AbortSignal.timeout(10_000);
     const [prefRes, googleRes] = await Promise.allSettled([
-      fetch(agentNativePath("/_agent-native/actions/get-mail-preferences")),
-      fetch(agentNativePath("/_agent-native/google/status")),
+      fetch(agentNativePath("/_agent-native/actions/get-mail-preferences"), {
+        signal,
+      }),
+      fetch(agentNativePath("/_agent-native/google/status"), { signal }),
     ]);
     if (prefRes.status !== "fulfilled" || !prefRes.value.ok) return "/inbox";
     if (googleRes.status !== "fulfilled" || !googleRes.value.ok)

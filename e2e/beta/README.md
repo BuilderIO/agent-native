@@ -166,8 +166,8 @@ validates certificates can see it.
 
 **Google checks follow what each app renders.** The shared login document ships
 Google markup for every app and hides it when the provider is not configured,
-so asserting unconditionally would fail CRM and Macros, which legitimately
-offer password and Supabase sign-in instead. The suite reads the rendered page
+so asserting unconditionally would fail apps that legitimately offer password
+and Supabase sign-in instead. The suite reads the rendered page
 and only holds an app to the Google contract when it shows a Google button.
 
 **A condition production already has is not a promotion blocker.** When a beta

@@ -73,6 +73,66 @@ describe("resource metadata", () => {
     });
   });
 
+  it("parses native Anthropic Managed Agents provider configuration", () => {
+    const manifest = parseRemoteAgentManifest(
+      JSON.stringify({
+        id: "anthropic-managed",
+        name: "Anthropic Managed Agent",
+        url: "https://api.anthropic.com",
+        kind: {
+          provider: "anthropic-managed-agents",
+          agentId: "agt_123",
+          environmentId: "env_123",
+          credentialRef: "ANTHROPIC_API_KEY",
+        },
+      }),
+      "remote-agents/anthropic-managed.json",
+    );
+
+    expect(manifest).toMatchObject({
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_123",
+        environmentId: "env_123",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    });
+  });
+
+  it("defaults the native provider to Claude Platform when url is omitted", () => {
+    const manifest = parseRemoteAgentManifest(
+      JSON.stringify({
+        id: "anthropic-managed",
+        kind: {
+          provider: "anthropic-managed-agents",
+          agentId: "agt_123",
+          environmentId: "env_123",
+          credentialRef: "ANTHROPIC_API_KEY",
+        },
+      }),
+      "remote-agents/anthropic-managed.json",
+    );
+
+    expect(manifest?.url).toBe("https://api.anthropic.com");
+  });
+
+  it("rejects incomplete native provider configuration", () => {
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "https://api.anthropic.com",
+          kind: {
+            provider: "anthropic-managed-agents",
+            agentId: "agt_123",
+            environmentId: "",
+            credentialRef: "ANTHROPIC_API_KEY",
+          },
+        }),
+        "remote-agents/invalid-anthropic.json",
+      ),
+    ).toBeNull();
+  });
+
   it("rejects auth entries that contain values instead of references", () => {
     expect(
       parseRemoteAgentManifest(

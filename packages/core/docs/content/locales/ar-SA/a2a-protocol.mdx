@@ -457,6 +457,49 @@ const client = new A2AClient(geminiEndpoint, googleBearerToken, {
 المستهدف قبل عرضه في منتقي مساحة العمل. راجع [استدعاء وكيل Gemini Enterprise](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
 لعنوان المورد ومتطلبات IAM.
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+لا توفّر Anthropic Managed Agents نقطة نهاية A2A واردة. استخدم محوّل الإطار
+عندما يجب أن تملك Agent-Native سطح A2A وحالة سير العمل والموافقات، بينما يملك
+الوكيل المستضاف جلسته وسياقه وأدواته. ينشئ المحوّل جلسة Managed Agents، ويرسل
+أحداث `user.message`، ويقرأ تدفق أحداث الجلسة. يتحول حدث حظر
+`agent.tool_use` أو `agent.mcp_tool_use` إلى مهمة A2A بحالة `input-required`
+وحدث تشغيل `approval-request`. استأنف الجلسة بتأكيدات منظمة وصريحة في
+البيانات الوصفية المعادة، ولا تستنتج الموافقة من رسالة:
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` هو مرجع خزنة لمفتاح Anthropic API. يحله المحوّل ضمن نطاق
+المستخدم والمؤسسة للمتصل، ويرسل العناوين المطلوبة
+`anthropic-beta: managed-agents-2026-04-01` و`anthropic-version: 2023-06-01`.
+سجّل `anthropic-managed-agents` في كتالوج اتصالات مساحة العمل لإعادة استخدام
+منح الاتصال الحالية لكل تطبيق. يتم تركيب المحوّل على حد `A2AConfig.handler`
+المعتاد:
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// مرّر `handler` في A2AConfig المعطى إلى mountA2A()
+```
+
 ## استدعاء مساحة العمل الآلية {#programmatic-invoke}
 
 بالنسبة لمساحات العمل الأصلية للوكيل، تفضل مساعد `agentNative` عند استخدام الكود أو

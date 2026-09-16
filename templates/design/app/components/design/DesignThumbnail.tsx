@@ -8,6 +8,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { withLocalRuntimes } from "@/components/design/design-canvas/local-runtime";
 
+import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
+
 export function DesignThumbnail({ html }: { html: string | null }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +75,7 @@ export function DesignThumbnail({ html }: { html: string | null }) {
           border: 0,
           pointerEvents: "none",
           opacity: loaded ? 1 : 0,
+          ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
         }}
       />
     </div>

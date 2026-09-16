@@ -42,7 +42,6 @@ export const ENVIRONMENT_BETA_HOSTS = {
   "dispatch.agent-native.com": "beta.dispatch.agent-native.com",
   "factory.agent-native.com": "beta.factory.agent-native.com",
   "forms.agent-native.com": "beta.forms.agent-native.com",
-  "macros.agent-native.com": "beta.macros.agent-native.com",
   "mail.agent-native.com": "beta.mail.agent-native.com",
   "plan.agent-native.com": "beta.plan.agent-native.com",
   "slides.agent-native.com": "beta.slides.agent-native.com",

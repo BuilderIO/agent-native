@@ -49,6 +49,23 @@ export { canonicalA2AAudience } from "./audience.js";
 export { resolveA2ACallerAuth } from "./caller-auth.js";
 export type { A2ACallerAuth } from "./caller-auth.js";
 export {
+  ANTHROPIC_MANAGED_AGENTS_BETA_HEADER,
+  ANTHROPIC_MANAGED_AGENTS_API_URL,
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY,
+  AnthropicManagedAgentsError,
+  createAnthropicManagedAgentsHandler,
+} from "./anthropic-managed-agents.js";
+export type {
+  AnthropicManagedAgentApproval,
+  AnthropicManagedAgentConfirmation,
+  AnthropicManagedAgentContinuation,
+  AnthropicManagedAgentHandlerOptions,
+  AnthropicManagedAgentsHandlerOptions,
+  AnthropicManagedAgentRuntimeEvent,
+  AnthropicManagedAgentEvent,
+  AnthropicManagedAgentsErrorCode,
+} from "./anthropic-managed-agents.js";
+export {
   AgentInvocationError,
   buildAgentInvocationPrompt,
   invokeAgent,
@@ -94,6 +111,8 @@ export type {
   RemoteAgentAuth,
   RemoteAgentBearerAuth,
   RemoteAgentManifest,
+  RemoteAgentKind,
+  AnthropicManagedAgentsRemoteAgentKind,
   RemoteAgentOAuthClientCredentialsAuth,
 } from "../resources/metadata.js";
 export type {
