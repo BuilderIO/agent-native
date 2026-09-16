@@ -315,6 +315,16 @@ function reportUnwrittenText(
   error: unknown,
   reason: string,
 ): void {
+  // Never the error OBJECT and never its message: a thrown error routinely
+  // quotes the value that failed, so logging it hands back the very characters
+  // this path refuses to log. Class and code identify the failure; the length
+  // and ids make it actionable.
+  const errorType =
+    error === null || error === undefined
+      ? undefined
+      : ((error as { constructor?: { name?: string } }).constructor?.name ??
+        typeof error);
+  const errorCode = (error as { code?: unknown } | null)?.code;
   console.error(
     `[design] typed text could not be written to ${record.owner}/${record.nodeId} after ${record.commitAttempts} attempts; the empty layer is kept so the text can be retyped into it`,
     {
@@ -322,7 +332,8 @@ function reportUnwrittenText(
       nodeId: record.nodeId,
       length: record.buffer.length,
       reason,
-      error,
+      errorType,
+      errorCode: typeof errorCode === "string" ? errorCode : undefined,
     },
   );
 }
@@ -639,20 +650,27 @@ export function releasePendingTextCapture(
 /** An explicit failure on the save or mount path: a rolled-back save of the
  *  owner's file, or a ready owner reporting the node missing. Interception
  *  ends now, and typed text is committed host-side or reported loudly. Omit
- *  `nodeId` to fail whichever creation `owner` holds. */
+ *  `nodeId` to fail whichever creation `owner` holds.
+ *
+ *  Reports what happened to the payload, because the caller's next act depends
+ *  on it: `write-queued` means a detached host write now owes this node its
+ *  text and is inside its backoff, so the node must outlive that write —
+ *  deleting it here landed an accepted write in a node that no longer existed.
+ *  `nothing-owed` is the terminal empty case the creation cleans up. */
 export function failPendingTextCapture(
   owner: OwnerIdentity,
   nodeId?: string,
-): void {
+): "write-queued" | "nothing-owed" {
   const capture = liveCapture();
-  if (capture?.owner !== owner) return;
-  if (nodeId !== undefined && capture.nodeId !== nodeId) return;
+  if (capture?.owner !== owner) return "nothing-owed";
+  if (nodeId !== undefined && capture.nodeId !== nodeId) return "nothing-owed";
   stopIntercepting(capture);
   if (!capture.buffer) {
     cancelActive();
-    return;
+    return "nothing-owed";
   }
   commitOwedHostSide(capture);
+  return "write-queued";
 }
 
 /** Stands this exact request down from a path that cannot reach the capture's

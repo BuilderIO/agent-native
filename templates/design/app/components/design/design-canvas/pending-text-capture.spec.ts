@@ -430,6 +430,61 @@ describe("pending text capture", () => {
 
     expect(writerB).toHaveBeenCalledTimes(2);
     expect(writerA).toHaveBeenCalledTimes(1);
+    // Each writer only ever sees its own editor's screen, node and text —
+    // crossing them would write one design's text through another's writer.
+    expect(writerA.mock.calls).toEqual([["board-a", "text-a", "Alpha"]]);
+    expect(writerB.mock.calls).toEqual([
+      ["board-b", "text-b", "Beta"],
+      ["board-b", "text-b", "Beta"],
+    ]);
+    error.mockRestore();
+  });
+
+  it("never lets a thrown error carry the text into the log", () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const secret = "Standalone";
+    // A writer that quotes the value it failed on — the ordinary shape of a
+    // validation or parse error, and the way the characters we refuse to log
+    // come back in through the error object.
+    const commit = vi.fn(() => {
+      const thrown = new RangeError(`could not write ${secret} to source`);
+      (thrown as { payload?: string }).payload = secret;
+      throw thrown;
+    });
+    unregisterAll.push(registerPendingTextHostCommit(commit));
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-secret");
+    type(secret);
+
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
+    for (const delay of HOST_COMMIT_RETRY_DELAYS_MS) {
+      vi.advanceTimersByTime(delay);
+    }
+
+    expect(error).toHaveBeenCalledOnce();
+    // Across EVERY argument, not just the payload object.
+    const logged = error.mock.calls[0]!.map((argument) => {
+      try {
+        return typeof argument === "string"
+          ? argument
+          : JSON.stringify(argument, (_key, value) =>
+              value instanceof Error
+                ? { name: value.name, message: value.message }
+                : value,
+            );
+      } catch {
+        return String(argument);
+      }
+    }).join(" ");
+    expect(logged).not.toContain(secret);
+    expect(error.mock.calls[0]?.[1]).toMatchObject({
+      screenId: "board",
+      nodeId: "text-secret",
+      length: secret.length,
+      errorType: "RangeError",
+    });
     error.mockRestore();
   });
 

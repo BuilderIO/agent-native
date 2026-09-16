@@ -2,7 +2,9 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 import {
+  HOST_COMMIT_RETRY_DELAYS_MS,
   peekPendingTextCapture,
+  registerPendingTextHostCommit,
   registerTextEditOwner,
   releasePendingTextCapture,
 } from "@/components/design/design-canvas/pending-text-capture";
@@ -222,4 +224,72 @@ it("keeps the node and commits the keystrokes when Escape lands after typing", (
 
   vi.advanceTimersByTime(PENDING_TEXT_EDIT_TIMEOUT_MS + 1);
   expect(removeEmptyTextNodeWithRetry).not.toHaveBeenCalled();
+});
+
+it("keeps the node while a queued host write still owes it text", () => {
+  vi.useFakeTimers();
+  ladderOutcome = "node-missing";
+  const removeEmptyTextNodeWithRetry = vi.fn();
+  // Refuses once, then accepts — the write is still in its backoff when the
+  // ladder reports the node missing.
+  const commit = vi
+    .fn<(screenId: string, nodeId: string, text: string) => boolean>()
+    .mockImplementationOnce(() => false)
+    .mockImplementationOnce(() => true);
+  const unregisterCommit = registerPendingTextHostCommit(commit);
+  try {
+    runPrimitiveCreated(
+      createArgs(removeEmptyTextNodeWithRetry),
+      "board",
+      "text-1",
+    );
+    for (const char of "Sta") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+
+    // node-missing hands the payload to the detached writer.
+    vi.advanceTimersByTime(1);
+    expect(commit).toHaveBeenCalledTimes(1);
+
+    // Deleting the node here lands the accepted retry in something that no
+    // longer exists — so the node has to outlive the writer.
+    vi.advanceTimersByTime(PENDING_TEXT_EDIT_TIMEOUT_MS + 1);
+    expect(removeEmptyTextNodeWithRetry).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(HOST_COMMIT_RETRY_DELAYS_MS[0]);
+    expect(commit.mock.calls).toEqual([
+      ["board", "text-1", "Sta"],
+      ["board", "text-1", "Sta"],
+    ]);
+    expect(removeEmptyTextNodeWithRetry).not.toHaveBeenCalled();
+  } finally {
+    unregisterCommit();
+  }
+});
+
+it("cleans the node up when the failure leaves nothing owed", () => {
+  vi.useFakeTimers();
+  ladderOutcome = "node-missing";
+  const removeEmptyTextNodeWithRetry = vi.fn();
+  const commit = vi.fn(() => true);
+  const unregisterCommit = registerPendingTextHostCommit(commit);
+  try {
+    // Nothing was typed, so no write is queued: this is the terminal case the
+    // empty-node cleanup exists for.
+    runPrimitiveCreated(
+      createArgs(removeEmptyTextNodeWithRetry),
+      "board",
+      "text-1",
+    );
+
+    vi.advanceTimersByTime(1);
+    expect(commit).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(PENDING_TEXT_EDIT_TIMEOUT_MS + 1);
+    expect(removeEmptyTextNodeWithRetry).toHaveBeenCalledExactlyOnceWith(
+      "board",
+      "text-1",
+    );
+  } finally {
+    unregisterCommit();
+  }
 });

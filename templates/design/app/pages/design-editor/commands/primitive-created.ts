@@ -201,7 +201,13 @@ export function runPrimitiveCreated(
         // A READY owner answering without the node is a failure, not a slow
         // mount: end interception and put what was typed into the source.
         if (finalStatus === "node-missing") {
-          failPendingTextCapture(screenId, textNodeId);
+          // A queued host write owes this node its text and is still inside
+          // its backoff. Deleting the node now lands that write in something
+          // that no longer exists — or deletes it right after it landed — so
+          // the node outlives the writer, which preserves it either way.
+          if (failPendingTextCapture(screenId, textNodeId) === "write-queued") {
+            return;
+          }
         }
         // While the creation's request is open, the capture decides the node's
         // fate: it delivers the typed text, commits it host-side, or stands
