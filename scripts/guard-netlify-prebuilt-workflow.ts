@@ -908,6 +908,11 @@ if (
   );
 }
 const previewSmokeRun = String(parsedPreviewSmokeStep?.run ?? "");
+const previewSmokeNodeHeredocs = [
+  ...previewSmokeRun.matchAll(
+    /node(?: --experimental-strip-types)? <<'NODE'\n([\s\S]*?)\n\s*NODE/g,
+  ),
+].map((match) => match[1]);
 if (
   parsedPreviewSmokeIndex < 0 ||
   !previewSmokeRun.includes("immutable_url") ||
@@ -917,7 +922,8 @@ if (
   !previewSmokeRun.includes("NETLIFY_SITE_ID") ||
   !previewSmokeRun.includes("PREVIEW_ALIAS") ||
   !previewSmokeRun.includes("resolveNetlifyPreviewAliasUrl") ||
-  !previewSmokeRun.includes("aliasUrl === immutable_url")
+  !previewSmokeRun.includes('if [[ "$alias_url" == "$immutable_url" ]]') ||
+  previewSmokeNodeHeredocs.some((body) => /\bimmutable_url\b/.test(body))
 ) {
   issues.push(
     `${reusablePath} PR preview smoke must probe both the immutable deploy URL and the mutable alias`,
