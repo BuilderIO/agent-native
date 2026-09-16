@@ -181,6 +181,59 @@ describe("get-recording-insights", () => {
     });
   });
 
+  it("reports no completion sample for a clip only agents have read", async () => {
+    mockViewerRows.mockResolvedValue([]);
+    mockViewLogRows.mockResolvedValue([{ value: 0 }]);
+    mockCountAgentViews.mockResolvedValue(8);
+    mockListAgentViewers.mockResolvedValue([
+      {
+        agentLabel: null,
+        userAgent: "unknown-agent/1.0",
+        views: 8,
+        lastSeenAt: "2026-09-15T00:00:00Z",
+      },
+    ]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.agentViews).toBe(8);
+    expect(result.completionRate).toBeNull();
+    expect(result.ctaConversionRate).toBeNull();
+  });
+
+  it("reports a real zero only when counted viewers watched nothing", async () => {
+    mockViewerRows.mockResolvedValue([
+      { ...countedViewer("viewer-1", "a@example.com"), completedPct: 0 },
+    ]);
+    mockViewLogRows.mockResolvedValue([{ value: 1 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.completionRate).toBe(0);
+    expect(result.ctaConversionRate).toBe(0);
+  });
+
+  it("keeps completion unknown when only uncounted preview rows exist", async () => {
+    mockViewerRows.mockResolvedValue([
+      {
+        ...countedViewer("viewer-1", "a@example.com"),
+        completedPct: 3,
+        countedView: false,
+      },
+    ]);
+    mockViewLogRows.mockResolvedValue([{ value: 0 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.completionRate).toBeNull();
+  });
+
   it("falls back to counted viewers when the view log is empty", async () => {
     mockViewerRows.mockResolvedValue([
       countedViewer("viewer-1", "a@example.com"),

@@ -130,6 +130,82 @@ export const CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT = {
 } as const;
 
 /**
+ * Terminal error for a subscriber whose run row is not in `agent_runs` at all.
+ *
+ * `getRunById` returns null for three different situations — the row was pruned
+ * by retention, the producer never committed the INSERT, or the read hit a
+ * replica that has not caught up — and none of them can be told apart from
+ * "finished normally". The SSE subscription used to close the stream with no
+ * terminal frame here, which the client renders as the interrupted /
+ * unknown-outcome tool card plus "stopped without sending a final message": the
+ * user cannot tell whether their work landed. Recoverable so the client keeps
+ * its retry affordance.
+ */
+export const RUN_RECORD_MISSING_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run record is no longer available, so this turn could not be confirmed as finished. Retry if the result is missing.",
+  errorCode: "run_record_missing",
+  recoverable: true,
+  details:
+    "No agent_runs row existed for this run when the live connection last checked, and no terminal event was persisted for it. The run may have completed before its record was pruned.",
+} as const;
+
+/**
+ * Terminal error for a run row whose `status` is neither 'running' nor any
+ * status the SSE subscription knows how to convert into a terminal event.
+ *
+ * `agent_runs.status` is a plain TEXT column, so the subscription's branch list
+ * is an assumption about the column's domain rather than something the type
+ * system enforces. Falling through those branches silently closed the stream
+ * with no terminal frame; failing loudly here keeps a future status value from
+ * reintroducing the same ambiguous card.
+ */
+export const UNKNOWN_RUN_STATUS_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run ended in a state this app does not recognize, so the result could not be confirmed. Retry if the result is missing.",
+  errorCode: "unknown_run_status",
+  recoverable: true,
+  details:
+    "The run row left 'running' with a status the live connection has no terminal event for. Partial output and tool calls were preserved when available.",
+} as const;
+
+/**
+ * Terminal error for a subscriber that could not READ the run's last terminal
+ * event, as opposed to establishing that there is none.
+ *
+ * `RUN_RECORD_MISSING_ERROR_EVENT` and `UNKNOWN_RUN_STATUS_ERROR_EVENT` both
+ * diagnose an ABSENCE, so reporting either one off a failed lookup would claim
+ * a confirmed outcome the subscription never established. Distinct code so
+ * "we looked and there is nothing" stays separable from "we could not look" in
+ * triage. Recoverable so the client offers a manual retry.
+ */
+export const RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run's final state could not be read, so this turn could not be confirmed as finished. Retry if the result is missing.",
+  errorCode: "run_terminal_lookup_failed",
+  recoverable: true,
+  details:
+    "Reading the run's last persisted terminal event failed. The run may have completed; its outcome is unknown to this connection rather than known to be absent.",
+} as const;
+
+/**
+ * How long a subscriber keeps polling a run id with NO `agent_runs` row before
+ * treating the absence as terminal.
+ *
+ * A client can legitimately attach to a run id before the producer's INSERT is
+ * visible: the id is minted in the request handler, and the events endpoint
+ * frequently runs in a different isolate (and against a pooled/replica
+ * connection). Without a grace window, that ordinary startup race closes the
+ * stream on the very first status probe. 15s comfortably exceeds a cold-start
+ * dispatch plus replica lag while still surfacing a genuinely absent row well
+ * inside the client's own idle timeout.
+ */
+export const RUN_RECORD_MISSING_GRACE_MS = 15_000;
+
+/**
  * Grace period before a never-claimed background run (dispatch_mode still
  * 'background', no worker claim) is treated as a dead handoff and reaped.
  *

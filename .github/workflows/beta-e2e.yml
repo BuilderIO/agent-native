@@ -63,8 +63,6 @@ on:
         required: false
       BETA_E2E_SESSION_TOKENS:
         required: false
-      BETA_E2E_SESSION_TOKEN_MACROS:
-        required: false
       BETA_E2E_SESSION_TOKEN_CRM:
         required: false
       BETA_E2E_SESSION_TOKEN_CHAT:
@@ -293,7 +291,6 @@ jobs:
       BETA_E2E_REPORT_SLOT: authed-${{ matrix.cluster }}
       BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
       BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
-      BETA_E2E_SESSION_TOKEN_MACROS: ${{ secrets.BETA_E2E_SESSION_TOKEN_MACROS }}
       BETA_E2E_SESSION_TOKEN_CRM: ${{ secrets.BETA_E2E_SESSION_TOKEN_CRM }}
       BETA_E2E_SESSION_TOKEN_CHAT: ${{ secrets.BETA_E2E_SESSION_TOKEN_CHAT }}
       BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}

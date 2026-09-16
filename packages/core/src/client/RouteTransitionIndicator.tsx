@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigation } from "react-router";
 
 export const ROUTE_TRANSITION_INDICATOR_DELAY_MS = 180;
+export const ROUTE_TRANSITION_INDICATOR_MAX_DURATION_MS = 15_000;
 
 /**
  * A top progress bar while the next route loads.
@@ -25,6 +26,10 @@ export function RouteTransitionIndicator() {
     navigation.state === "loading" && navigation.location
       ? `${navigation.location.pathname}${navigation.location.search}${navigation.location.hash}`
       : null;
+  const navigationKey =
+    navigation.state === "loading" && navigation.location
+      ? navigation.location.key
+      : null;
   const [visibleDestination, setVisibleDestination] = useState<string | null>(
     null,
   );
@@ -39,9 +44,15 @@ export function RouteTransitionIndicator() {
     const timer = window.setTimeout(() => {
       setVisibleDestination(destination);
     }, ROUTE_TRANSITION_INDICATOR_DELAY_MS);
+    const maxDurationTimer = window.setTimeout(() => {
+      setVisibleDestination(null);
+    }, ROUTE_TRANSITION_INDICATOR_MAX_DURATION_MS);
 
-    return () => window.clearTimeout(timer);
-  }, [destination]);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(maxDurationTimer);
+    };
+  }, [destination, navigation, navigationKey]);
 
   if (!destination || visibleDestination !== destination) return null;
 

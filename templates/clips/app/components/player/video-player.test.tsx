@@ -162,6 +162,81 @@ describe("VideoPlayer playback", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a paused clip paused when its playback speed changes", () => {
+    const video = getVideo();
+    const playSpy = vi.spyOn(video, "play");
+
+    act(() => {
+      getPlayerSurface().click();
+    });
+    expect(video.paused).toBe(false);
+
+    act(() => {
+      handleRef.current?.pause();
+      handleRef.current?.setSpeed(1.5);
+      vi.advanceTimersByTime(20);
+    });
+
+    expect(video.playbackRate).toBe(1.5);
+    expect(video.paused).toBe(true);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops picture-in-picture playback when the player unmounts", () => {
+    const video = getVideo();
+    const exitPictureInPicture = vi.fn().mockResolvedValue(undefined);
+    const pipElementDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "pictureInPictureElement",
+    );
+    const exitPipDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "exitPictureInPicture",
+    );
+
+    Object.defineProperty(document, "pictureInPictureElement", {
+      configurable: true,
+      value: video,
+    });
+    Object.defineProperty(document, "exitPictureInPicture", {
+      configurable: true,
+      value: exitPictureInPicture,
+    });
+
+    try {
+      act(() => {
+        getPlayerSurface().click();
+      });
+      expect(video.paused).toBe(false);
+
+      act(() => {
+        root.render(null);
+      });
+
+      expect(video.paused).toBe(true);
+      expect(exitPictureInPicture).toHaveBeenCalledOnce();
+    } finally {
+      if (pipElementDescriptor) {
+        Object.defineProperty(
+          document,
+          "pictureInPictureElement",
+          pipElementDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "pictureInPictureElement");
+      }
+      if (exitPipDescriptor) {
+        Object.defineProperty(
+          document,
+          "exitPictureInPicture",
+          exitPipDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "exitPictureInPicture");
+      }
+    }
+  });
+
   it("shows buffering while autoplay starts instead of a second play button", () => {
     act(() => {
       root.render(
