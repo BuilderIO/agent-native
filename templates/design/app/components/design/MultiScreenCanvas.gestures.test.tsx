@@ -351,6 +351,37 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     );
   });
 
+  it("caches the surface rect across marquee move frames", async () => {
+    const onLayerMarqueeSelectionChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={100}
+          activeTool="move"
+          onPick={() => {}}
+          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+    const surfaceRectSpy = vi.spyOn(surface!, "getBoundingClientRect");
+    surfaceRectSpy.mockClear();
+
+    await act(async () => {
+      dispatchMouse(surface!, "mousedown", 100, 100);
+      for (const point of [140, 180, 220, 260]) {
+        dispatchMouse(window, "mousemove", point, point);
+        await nextAnimationFrame();
+      }
+      dispatchMouse(window, "mouseup", 260, 260);
+    });
+
+    expect(surfaceRectSpy).toHaveBeenCalledTimes(1);
+    surfaceRectSpy.mockRestore();
+  });
+
   it("keeps the selection box moving when the drag also selects the frame", async () => {
     const { frame, label } = await renderSelectedFrame(320, false);
     expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
