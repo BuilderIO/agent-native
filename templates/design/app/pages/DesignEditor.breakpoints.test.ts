@@ -359,8 +359,9 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     );
     expect(source).toContain("previewFrameId={");
     expect(source).toContain("breakpointWidthPx,");
+    expect(canvasSource).toContain("const editableContent = bootDeferred");
     expect(canvasSource).toContain(
-      "const editableContent = renderBreakpointContent?.(",
+      "renderBreakpointContent?.(screen, metadata, {",
     );
     expect(canvasSource).toContain("editableContent ? (");
     expect(source).toContain(

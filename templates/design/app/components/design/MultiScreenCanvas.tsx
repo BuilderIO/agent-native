@@ -11473,6 +11473,7 @@ const Screen = memo(function Screen({
           transformOrigin: "top left",
           backgroundColor: "white",
           colorScheme: "light",
+          ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
         }}
         title={`${screen.filename} snapshot`}
       />
