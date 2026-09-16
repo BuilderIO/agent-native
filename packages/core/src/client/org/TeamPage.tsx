@@ -1344,9 +1344,9 @@ export function MembersTableCard({
         </div>
       )}
       {appRoles && (
-        <div className="hidden items-center justify-end gap-2 px-5 pt-2 text-[11px] text-muted-foreground sm:flex">
-          <span>{t("org.role")}</span>
-          <span className="min-w-24 text-center">
+        <div className="hidden grid-cols-[minmax(0,1fr)_auto_minmax(9rem,auto)_auto] items-center gap-x-3 px-5 pt-2 text-[11px] text-muted-foreground sm:grid">
+          <span className="col-start-2 text-end">{t("org.role")}</span>
+          <span className="min-w-36 text-start">
             {appRoles.label ?? t("org.appRolesOptional")}
           </span>
         </div>
@@ -1401,6 +1401,7 @@ export function MembersTableCard({
                             <CommandItem
                               key={role}
                               value={role}
+                              className="gap-2"
                               onSelect={() =>
                                 setBulkAppRoles(
                                   checked
@@ -1778,7 +1779,7 @@ function roleLabel(role: string, t: ReturnType<typeof useT>) {
 function RoleBadge({ role }: { role: string }) {
   const t = useT();
   return (
-    <span className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+    <span className="inline-flex h-8 items-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
       <RoleIcon role={role} />
       {roleLabel(role, t)}
     </span>
@@ -1840,7 +1841,7 @@ function AppRoleControl({
   // An unassigned member shows the app's default only as a hint. The default
   // never satisfies a server guard, so it must not read as a granted role.
   const display = draftRoles.length ? (
-    <span className="inline-flex items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+    <span className="inline-flex min-h-8 items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
       {draftRoles.map(labelFor).join(", ")}
     </span>
   ) : (
@@ -1850,13 +1851,13 @@ function AppRoleControl({
   );
 
   return canManage ? (
-    <div className="flex flex-wrap items-start gap-1">
-      <div className="flex flex-col items-start gap-1">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+      <div className="min-w-0">
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
               type="button"
-              className="cursor-pointer rounded hover:opacity-80"
+              className="min-h-8 cursor-pointer rounded hover:opacity-80"
               disabled={setAppRoles.isPending}
               aria-busy={setAppRoles.isPending}
             >
@@ -1874,6 +1875,7 @@ function AppRoleControl({
                       <CommandItem
                         key={role}
                         value={role}
+                        className="gap-2"
                         onSelect={() => {
                           const roles = selected
                             ? draftRoles.filter((item) => item !== role)
@@ -1899,7 +1901,9 @@ function AppRoleControl({
             </Command>
           </PopoverContent>
         </Popover>
-        <ErrorText error={setAppRoles.error} />
+        <div className="basis-full">
+          <ErrorText error={setAppRoles.error} />
+        </div>
       </div>
       {Object.keys(appRoles.permissions ?? {}).length > 0 && (
         <ExplainAccessPopover appRoles={appRoles} email={email} />
@@ -1932,7 +1936,7 @@ function ExplainAccessPopover({
         <Button
           type="button"
           aria-label={t("org.appPermissions")}
-          className="mt-1 inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="inline-flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <IconHelpCircle className="size-3" />
         </Button>
@@ -2040,12 +2044,12 @@ function AppPermissionsPanel({
         {Object.entries(draftPermissions).map(([permission, grant]) => (
           <div
             key={permission}
-            className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2"
+            className="grid items-center gap-x-4 gap-y-2 border-t border-border pt-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,auto)]"
           >
             <span className="text-sm">
               {appRoles.permissionLabels?.[permission] ?? permission}
             </span>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end">
               {appRoles.roles.map((role) => (
                 <label
                   key={role}
@@ -2173,7 +2177,14 @@ export function MemberRow({
   const canChangeRole = canManage && currentUserRole === "owner";
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-3.5 sm:flex-row sm:items-center">
+    <div
+      className={cn(
+        "flex flex-col gap-3 rounded-lg bg-card px-5 py-3.5 sm:items-center",
+        appRoles
+          ? "sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(9rem,auto)_auto] sm:gap-x-3"
+          : "sm:flex-row",
+      )}
+    >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {canSelect ? (
           <Checkbox
@@ -2202,18 +2213,22 @@ export function MemberRow({
           )}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-        <RoleBadge role={role} />
-        {appRoles && (
-          <AppRoleControl
-            email={email}
-            appRoles={appRoles}
-            assignedRoles={appRole ?? []}
-            canManage={Boolean(canManageAppRoles)}
-          />
-        )}
+      <div className="flex flex-wrap items-center gap-2 sm:contents">
+        <div className="flex items-center gap-2 sm:justify-self-end">
+          <RoleBadge role={role} />
+        </div>
+        {appRoles ? (
+          <div className="flex min-w-36 items-center gap-1">
+            <AppRoleControl
+              email={email}
+              appRoles={appRoles}
+              assignedRoles={appRole ?? []}
+              canManage={Boolean(canManageAppRoles)}
+            />
+          </div>
+        ) : null}
         {canManage && (
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex flex-wrap items-center justify-end gap-1 sm:justify-self-end">
             {canChangeRole && editing ? (
               <Select
                 defaultOpen
@@ -2252,7 +2267,7 @@ export function MemberRow({
                     type="button"
                     aria-label={t("org.changeRole")}
                     onClick={() => setEditing(true)}
-                    className="text-muted-foreground hover:text-foreground"
+                    className="inline-flex size-8 items-center justify-center text-muted-foreground hover:text-foreground"
                   >
                     <IconPencil size={14} />
                   </Button>
@@ -2332,7 +2347,7 @@ export function MemberRow({
                       setTransferTo(currentUserEmail ?? "");
                       setConfirmingRemove(true);
                     }}
-                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                    className="inline-flex size-8 items-center justify-center text-muted-foreground hover:text-destructive disabled:opacity-50"
                   >
                     <IconTrash size={14} />
                   </Button>
@@ -2417,6 +2432,7 @@ function InviteAppRolePicker({
                   <CommandItem
                     key={role}
                     value={role}
+                    className="gap-2"
                     onSelect={() =>
                       onChange(
                         checked

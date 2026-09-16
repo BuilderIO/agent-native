@@ -70,6 +70,7 @@ class AnthropicEngine implements AgentEngine {
   readonly label = "Claude (Anthropic SDK)";
   readonly defaultModel = ANTHROPIC_DEFAULT_MODEL;
   readonly supportedModels = ANTHROPIC_SUPPORTED_MODELS;
+  readonly acceptsCustomModels = true;
   readonly capabilities = ANTHROPIC_CAPABILITIES;
 
   private readonly apiKey: string;
@@ -407,6 +408,7 @@ export function createAnthropicEngine(
       label: "Claude (Anthropic SDK)",
       defaultModel: ANTHROPIC_DEFAULT_MODEL,
       supportedModels: ANTHROPIC_SUPPORTED_MODELS,
+      acceptsCustomModels: true,
       capabilities: ANTHROPIC_CAPABILITIES,
       async *stream() {
         yield {

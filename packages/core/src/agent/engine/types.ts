@@ -383,6 +383,8 @@ export interface AgentEngine {
   readonly defaultModel: string;
   /** Models this engine supports */
   readonly supportedModels: readonly string[];
+  /** Whether explicit user-selected model IDs may be outside the curated catalog. */
+  readonly acceptsCustomModels?: boolean;
   /** Whether the configured endpoint accepts provider-defined model ids. */
   readonly preserveCustomModels?: boolean;
   /** Capability flags used to gate provider-specific features */

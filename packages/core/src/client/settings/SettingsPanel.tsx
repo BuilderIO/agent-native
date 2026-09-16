@@ -776,6 +776,7 @@ interface EngineInfo {
   description: string;
   defaultModel: string;
   supportedModels: string[];
+  acceptsCustomModels?: boolean;
   requiredEnvVars: string[];
   installPackage?: string;
   packageInstalled?: boolean;
@@ -1074,8 +1075,8 @@ function LLMSectionInner({
     isEndpointProvider && (!!baseUrl.trim() || clearBaseUrl);
   const providerSettingsChanged = !!apiKey.trim() || endpointChanged;
 
-  const modelOptions: SettingsSelectOption[] = latestModelsOnly(
-    selectedEngineInfo?.supportedModels ?? [],
+  const modelOptions: SettingsSelectOption[] = (
+    selectedEngineInfo?.supportedModels ?? []
   ).map((m) => ({ value: m, label: friendlyModelName(m) }));
 
   const handleSave = async () => {
@@ -1090,6 +1091,7 @@ function LLMSectionInner({
         ...(apiKey.trim() ? { apiKey } : {}),
         ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
         ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
+        scope: "org",
       });
       setSaved(true);
       setSelectionState((previous) => ({
@@ -1323,8 +1325,8 @@ function LLMSectionInner({
                   }}
                 />
 
-                {/* Free-form input so OpenRouter/Ollama custom model IDs can
-                be typed — the registry's supportedModels is only suggestions. */}
+                {/* Catalog entries are suggestions; every provider also accepts
+                a model ID typed here so new releases need no UI update. */}
                 <div className="space-y-1.5">
                   <p className={fieldLabelClass(isPage)}>Model</p>
                   <input
