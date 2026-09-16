@@ -5,7 +5,7 @@ import { Badge } from "../../ui/badge";
 // `default` fills with --primary, which flips with the theme: a dark badge on
 // the light site, a light one on the dark site.
 const BADGE_CLASS =
-  "ml-2 shrink-0 overflow-hidden rounded-[6px] px-2 py-0.5 font-[family-name:var(--b-font-sans)] text-[10px] uppercase leading-none tracking-[0.08em]";
+  "ml-[5px] shrink-0 overflow-hidden rounded-[6px] px-2 py-0.5 font-[family-name:var(--b-font-sans)] text-[10px] uppercase leading-none tracking-[0.08em]";
 
 export function AppStatusBadge({
   appId,
