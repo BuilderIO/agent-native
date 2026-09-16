@@ -679,6 +679,14 @@ async function main() {
     console.log(
       `[export] wrote ${pptxPath} (${exportResult.byteLength} bytes, blankShapes=${exportResult.blankShapes})`,
     );
+    // A blank shape is a graphic that rasterized to nothing, so it is missing
+    // from the deck — and a text-only comparison cannot see that it went.
+    if (exportResult.blankShapes > 0) {
+      console.error(
+        `[export] FAILED: ${exportResult.blankShapes} shape(s) rasterized empty and are missing from ${pptxPath}`,
+      );
+      process.exitCode = 1;
+    }
 
     await writeFile(
       path.join(outDir, "meta.json"),

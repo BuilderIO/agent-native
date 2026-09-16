@@ -121,6 +121,14 @@ async function main() {
     console.log(
       `[google-export] ${target} → ${out} (${result.byteLength} bytes, blankShapes=${result.blankShapes})`,
     );
+    // Same policy as export.ts: a shape that rasterized empty is content the
+    // deck lost, and no layout comparison downstream can notice it.
+    if (result.blankShapes > 0) {
+      console.error(
+        `[google-export] FAILED: ${result.blankShapes} shape(s) rasterized empty and are missing from ${out}`,
+      );
+      process.exitCode = 1;
+    }
   } finally {
     await browser.close();
   }

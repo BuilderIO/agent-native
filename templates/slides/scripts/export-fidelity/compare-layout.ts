@@ -20,7 +20,7 @@ const google: G[] = readFileSync(googleFile, "utf8")
   .filter((line) => line.includes("|"))
   .map((line) => {
     const [slide, x, base, right, ...text] = line.split("|");
-    return {
+    const row = {
       slide: Number(slide),
       x: Number(x),
       base: Number(base),
@@ -28,6 +28,13 @@ const google: G[] = readFileSync(googleFile, "utf8")
       text: norm(text.join("|")),
       used: false,
     };
+    // A row that parsed to NaN compares false against every tolerance, so it
+    // would sail through as a line nobody actually measured.
+    if (![row.slide, row.x, row.base, row.right].every(Number.isFinite)) {
+      console.error(`Malformed row in ${googleFile}: ${line}`);
+      process.exit(1);
+    }
+    return row;
   });
 
 let lines = 0,

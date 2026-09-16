@@ -672,20 +672,9 @@ async function main() {
   );
   zip.file("[Content_Types].xml", contentTypes);
 
-  // --- ppt/presentation.xml: replace sldIdLst, drop embeddedFontLst.
-  let presentation = await zip.file("ppt/presentation.xml")!.async("string");
-  const newSldIdLst =
-    "<p:sldIdLst>" +
-    SLIDES.map((_, i) => `<p:sldId id="${256 + i}" r:id="rId${i + 2}"/>`).join(
-      "",
-    ) +
-    "</p:sldIdLst>";
-  presentation = presentation
-    .replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/, newSldIdLst)
-    .replace(/<p:embeddedFontLst>[\s\S]*?<\/p:embeddedFontLst>/, "");
-  zip.file("ppt/presentation.xml", presentation);
-
   // --- ppt/_rels/presentation.xml.rels: drop old slide + font rels, add new.
+  // Done before the sldIdLst below, because the ids the slides get are
+  // whatever these leave free.
   let presRels = await zip
     .file("ppt/_rels/presentation.xml.rels")!
     .async("string");
@@ -695,15 +684,36 @@ async function main() {
       "",
     )
     .replace(/<Relationship Id="rId201314"[^>]*\/>/g, "");
+  // The template's own master, theme, notesMaster and tableStyles rels survive
+  // here, and commonly sit on rId2..rId7 — numbering the slides from rId2
+  // would duplicate those ids and point a slide entry at the theme.
+  const firstSlideRel =
+    Math.max(
+      0,
+      ...[...presRels.matchAll(/Id="rId(\d+)"/g)].map((m) => Number(m[1])),
+    ) + 1;
   const newSlideRels = SLIDES.map(
     (_, i) =>
-      `<Relationship Id="rId${i + 2}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>`,
+      `<Relationship Id="rId${firstSlideRel + i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>`,
   ).join("");
   presRels = presRels.replace(
     "</Relationships>",
     `${newSlideRels}</Relationships>`,
   );
   zip.file("ppt/_rels/presentation.xml.rels", presRels);
+
+  // --- ppt/presentation.xml: replace sldIdLst, drop embeddedFontLst.
+  let presentation = await zip.file("ppt/presentation.xml")!.async("string");
+  const newSldIdLst =
+    "<p:sldIdLst>" +
+    SLIDES.map(
+      (_, i) => `<p:sldId id="${256 + i}" r:id="rId${firstSlideRel + i}"/>`,
+    ).join("") +
+    "</p:sldIdLst>";
+  presentation = presentation
+    .replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/, newSldIdLst)
+    .replace(/<p:embeddedFontLst>[\s\S]*?<\/p:embeddedFontLst>/, "");
+  zip.file("ppt/presentation.xml", presentation);
 
   // --- write the pptx
   const outBuf = await zip.generateAsync({
