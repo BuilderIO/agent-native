@@ -226,6 +226,25 @@ describe("patchAuthoredInlineStyles", () => {
       height: "fit-content",
     });
   });
+  it("carries committed flex, gap and padding authoring onto the snapshot", () => {
+    const committed = {
+      flexDirection: "column",
+      flexWrap: "wrap",
+      columnGap: "12px",
+      rowGap: "8px",
+      justifyContent: "space-between",
+      paddingTop: "4px",
+      paddingRight: "6px",
+      paddingBottom: "10px",
+      paddingLeft: "2px",
+    };
+    expect(
+      patchAuthoredInlineStyles(
+        { flexDirection: "row", paddingTop: "0px" },
+        committed,
+      ),
+    ).toEqual(committed);
+  });
 });
 
 describe("clearAuthoredSizeStylesForCommit", () => {
