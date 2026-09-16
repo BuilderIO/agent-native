@@ -53,6 +53,17 @@ export type RemoteAgentAuth =
   | RemoteAgentBearerAuth
   | RemoteAgentOAuthClientCredentialsAuth;
 
+/** A managed agent provider that is reached through its native API adapter. */
+export interface AnthropicManagedAgentsRemoteAgentKind {
+  provider: "anthropic-managed-agents";
+  agentId: string;
+  environmentId: string;
+  /** Name of the vault credential containing the Anthropic API key. */
+  credentialRef: string;
+}
+
+export type RemoteAgentKind = AnthropicManagedAgentsRemoteAgentKind;
+
 export interface RemoteAgentManifest {
   id: string;
   path: string;
@@ -64,6 +75,8 @@ export interface RemoteAgentManifest {
   cardUrl?: string;
   /** Authentication references only; secret values never belong in a manifest. */
   auth?: RemoteAgentAuth;
+  /** Optional native provider adapter configuration. */
+  kind?: RemoteAgentKind;
 }
 
 export const REMOTE_AGENT_RESOURCE_PREFIX = "remote-agents/";
@@ -279,7 +292,14 @@ export function parseRemoteAgentManifest(
       typeof data.id === "string" && data.id.trim()
         ? data.id.trim()
         : getRemoteAgentIdFromPath(path);
-    const rawUrl = typeof data.url === "string" ? data.url.trim() : "";
+    const kind = parseRemoteAgentKind(data.kind);
+    if (data.kind !== undefined && data.kind !== null && !kind) return null;
+    const rawUrl =
+      typeof data.url === "string" && data.url.trim()
+        ? data.url.trim()
+        : kind?.provider === "anthropic-managed-agents"
+          ? "https://api.anthropic.com"
+          : "";
     if (!rawUrl || !parseRemoteAgentUrl(rawUrl)) return null;
 
     const cardUrl = parseRemoteAgentUrl(data.cardUrl);
@@ -290,11 +310,12 @@ export function parseRemoteAgentManifest(
     const auth = parseRemoteAgentAuth(data.auth);
     if (data.auth !== undefined && data.auth !== null && !auth) return null;
     if (
-      auth &&
-      (!parseRemoteAgentUrl(rawUrl, {
-        allowLoopbackHttp: true,
-        requireHttps: true,
-      }) ||
+      (auth || kind) &&
+      (Boolean(auth && kind) ||
+        !parseRemoteAgentUrl(rawUrl, {
+          allowLoopbackHttp: true,
+          requireHttps: true,
+        }) ||
         (cardUrl &&
           !parseRemoteAgentUrl(cardUrl, {
             allowLoopbackHttp: true,
@@ -319,11 +340,35 @@ export function parseRemoteAgentManifest(
           : undefined,
       ...(cardUrl ? { cardUrl } : {}),
       ...(auth ? { auth } : {}),
+      ...(kind ? { kind } : {}),
     };
   } catch {
     // coercion-ok: malformed JSON or an invalid manifest is absent, never a connected agent.
     return null;
   }
+}
+
+export function parseRemoteAgentKind(
+  value: unknown,
+): RemoteAgentKind | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const kind = value as Record<string, unknown>;
+  if (kind.provider !== "anthropic-managed-agents") return undefined;
+  const agentId = typeof kind.agentId === "string" ? kind.agentId.trim() : "";
+  const environmentId =
+    typeof kind.environmentId === "string" ? kind.environmentId.trim() : "";
+  const credentialRef =
+    typeof kind.credentialRef === "string" ? kind.credentialRef.trim() : "";
+  if (!agentId || !environmentId || !credentialRef) return undefined;
+  return {
+    provider: "anthropic-managed-agents",
+    agentId,
+    environmentId,
+    credentialRef,
+  };
 }
 
 export function parseRemoteAgentUrl(

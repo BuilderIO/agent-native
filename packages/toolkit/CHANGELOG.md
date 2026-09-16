@@ -1,5 +1,28 @@
 # @agent-native/toolkit
 
+## 0.20.1
+
+### Patch Changes
+
+- 9f08f5d: Fix "Connect Builder.io" doing nothing when it is clicked before the first Builder status read lands. `BuilderConnectPopover` rendered an ordinary enabled-looking trigger for the whole duration of that read, then discarded any click that arrived during it — on a cold serverless instance that window is seconds long, which is exactly when a brand-new signup reaches the Connect AI step. The trigger now holds the intent, marks itself `aria-busy`, and opens the provisioning consent choice as soon as the capability resolves. It never replays the intent into `flow.start()`, because that reaches `window.open` and browsers only permit it inside the click that asked for it; when the resolved capability has no consent choice to show, the intent is released and the now-resolved trigger answers the next click synchronously.
+
+  `useBuilderConnectFlow` also exposes `statusReadSettledCount`, which increments whenever a status read settles regardless of outcome. `statusResolved` alone cannot bound a caller waiting on a read: a second failure leaves it `false` with no observable change, so a queued click keyed on it would wait forever. `retry()` now returns whether a read actually started, so a caller cannot wait on a disabled flow that will never read. The composer runtime adapter contract (`ComposerBuilderConnectFlow`) declares `retry` alongside it, so a non-core runtime can supply it and get the same behavior in `TiptapComposer`.
+
+- cd40555: Give the sidebar chat rail's "more chats" control a disclosure chevron that
+  flips with its state instead of the `IconDots` glyph the chat rows above it
+  already use for their overflow menus. Hosts are free to pass the same label for
+  both disclosure states — Brain, Assets, Factory, Plan, and Dispatch all pass a
+  plain "Chats" — so the glyph was the only part of the control that could report
+  state, and it never moved. Pressing it did expand the rail, but the button
+  looked like a menu trigger that had silently failed.
+- 1f43d89: Let apps opt into persistent sidebar scroll controls and edge cues.
+- 25dc407: Unmount dismissed tooltips immediately so an exiting tooltip cannot consume Escape before the overlay beneath it handles the key.
+- e32e1d5: Show on filter and sort triggers when the list they control is narrowed, via the new `FilterTriggerIndicator` primitive.
+- Release all public npm packages with a patch version bump.
+- 657bba1: Reserve a minimum gap between a menu item's label and its shortcut hint in `ContextMenuShortcut`, `DropdownMenuShortcut`, and `MenubarShortcut`. Previously the shortcut relied solely on an auto margin to push itself to the right edge, which collapses to zero when the menu's width is sized to fit its own widest row (e.g. "Send backward ⌘↓" in the Slides layer-order context menu), crowding the label and shortcut together.
+- 25dc407: Improve visual numeric fields with parentheses, powers, opt-in per-target mixed-value math, and Option-drag scrubbing. Keep shared fields focused after Enter by default, with opt-in canvas focus return for Design inspector fields. Add optional text-value commits for unit-aware fields and an opt-in searchable font-family picker.
+- 6ba23d3: Show a tooltip on every icon in the collapsed app sidebar rail. Sidebar link components now forward refs and unknown props, so the tooltip triggers around nav links, nav groups, and the brand mark actually attach, and the compact org switcher uses the shared tooltip instead of a native `title`.
+
 ## 0.20.0
 
 ### Minor Changes

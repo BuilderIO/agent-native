@@ -1,6 +1,12 @@
 export const MAX_BROWSER_DIAGNOSTIC_CONSOLE_LOGS = 400;
 export const MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS = 400;
+export const MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS = 800;
+export const MAX_BROWSER_DIAGNOSTIC_TIMELINE_EVENTS =
+  MAX_BROWSER_DIAGNOSTIC_CONSOLE_LOGS +
+  MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS * 2 +
+  MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS;
 export const MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH = 2_000;
+export const MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH = 200;
 export const MAX_BROWSER_DIAGNOSTIC_URL_LENGTH = 1_000;
 
 const SECRET_KEY_FRAGMENT =
@@ -40,6 +46,29 @@ export function redactBrowserDiagnosticString(
     : redacted;
 }
 
+export function sanitizeBrowserDiagnosticNavigationUrl(raw: string): string {
+  const redacted = redactBrowserDiagnosticString(raw, {
+    redactQueryValues: true,
+  });
+  try {
+    const parsed = new URL(redacted, "https://clips.local");
+    parsed.username = "";
+    parsed.password = "";
+    parsed.hash = "";
+    const params = new URLSearchParams();
+    for (const key of parsed.searchParams.keys()) {
+      params.set(key, "<redacted>");
+    }
+    parsed.search = params.toString();
+    return `${parsed.pathname}${parsed.search}`.slice(
+      0,
+      MAX_BROWSER_DIAGNOSTIC_URL_LENGTH,
+    );
+  } catch {
+    return "<redacted>";
+  }
+}
+
 export type BrowserDiagnosticConsoleLevel =
   | "debug"
   | "log"
@@ -68,6 +97,50 @@ export interface BrowserDiagnosticNetworkRequest {
   error?: string;
 }
 
+export type BrowserDiagnosticInteractionKind =
+  | "navigation"
+  | "click"
+  | "input"
+  | "scroll";
+
+export interface BrowserDiagnosticInteractionEvent {
+  timestampMs: number;
+  elapsedMs: number;
+  kind: BrowserDiagnosticInteractionKind;
+  target?: string;
+  url?: string;
+}
+
+type BrowserDiagnosticTimelineBase = Pick<
+  BrowserDiagnosticInteractionEvent,
+  "timestampMs" | "elapsedMs"
+>;
+
+export type BrowserDiagnosticTimelineEvent =
+  | (BrowserDiagnosticTimelineBase & {
+      kind: BrowserDiagnosticInteractionKind;
+      target?: string;
+      url?: string;
+    })
+  | (BrowserDiagnosticTimelineBase & {
+      kind: "console";
+      level: BrowserDiagnosticConsoleLevel;
+      message: string;
+      stack?: string;
+    })
+  | (BrowserDiagnosticTimelineBase & {
+      kind: "network";
+      phase: "request" | "response";
+      type: BrowserDiagnosticNetworkRequest["type"];
+      method: string;
+      url: string;
+      status?: number;
+      statusText?: string;
+      ok?: boolean;
+      durationMs?: number;
+      error?: string;
+    });
+
 export interface BrowserDiagnosticsSnapshot {
   pageUrl: string | null;
   userAgent: string | null;
@@ -75,6 +148,7 @@ export interface BrowserDiagnosticsSnapshot {
   endedAt: string;
   consoleLogs: BrowserDiagnosticConsoleLog[];
   networkRequests: BrowserDiagnosticNetworkRequest[];
+  interactionEvents?: BrowserDiagnosticInteractionEvent[];
 }
 
 export interface BrowserDiagnosticsSummary {
@@ -88,6 +162,7 @@ export interface BrowserDiagnosticsSummary {
 
 export interface BrowserDiagnosticsData extends BrowserDiagnosticsSnapshot {
   summary: BrowserDiagnosticsSummary;
+  timeline?: BrowserDiagnosticTimelineEvent[];
 }
 
 function safeArray(value: string | null | undefined): unknown[] {
@@ -176,6 +251,93 @@ export function normalizeBrowserDiagnosticNetworkRequest(
   };
 }
 
+export function normalizeBrowserDiagnosticInteractionEvent(
+  value: unknown,
+): BrowserDiagnosticInteractionEvent | null {
+  if (!value || typeof value !== "object") return null;
+  const entry = value as Record<string, unknown>;
+  const timestampMs = safeNumber(entry.timestampMs);
+  const elapsedMs = safeNumber(entry.elapsedMs);
+  const kind =
+    entry.kind === "navigation" ||
+    entry.kind === "click" ||
+    entry.kind === "input" ||
+    entry.kind === "scroll"
+      ? entry.kind
+      : null;
+  if (timestampMs === null || elapsedMs === null || !kind) return null;
+  const target = safeString(entry.target, MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH);
+  const rawUrl = safeString(entry.url, MAX_BROWSER_DIAGNOSTIC_URL_LENGTH);
+  const url = rawUrl ? sanitizeBrowserDiagnosticNavigationUrl(rawUrl) : null;
+  return {
+    timestampMs,
+    elapsedMs,
+    kind,
+    ...(target ? { target } : {}),
+    ...(url ? { url } : {}),
+  };
+}
+
+export function buildBrowserDiagnosticTimeline({
+  consoleLogs,
+  networkRequests,
+  interactionEvents = [],
+}: Pick<
+  BrowserDiagnosticsSnapshot,
+  "consoleLogs" | "networkRequests" | "interactionEvents"
+>): BrowserDiagnosticTimelineEvent[] {
+  const entries: Array<{
+    event: BrowserDiagnosticTimelineEvent;
+    order: number;
+  }> = [];
+  let order = 0;
+  const add = (event: BrowserDiagnosticTimelineEvent) => {
+    entries.push({ event, order: order++ });
+  };
+
+  for (const event of interactionEvents) add(event);
+  for (const entry of consoleLogs) {
+    add({
+      timestampMs: entry.timestampMs,
+      elapsedMs: entry.elapsedMs,
+      kind: "console",
+      level: entry.level,
+      message: entry.message,
+      ...(entry.stack ? { stack: entry.stack } : {}),
+    });
+  }
+  for (const entry of networkRequests) {
+    add({
+      timestampMs: entry.timestampMs,
+      elapsedMs: entry.elapsedMs,
+      kind: "network",
+      phase: "request",
+      type: entry.type,
+      method: entry.method,
+      url: entry.url,
+    });
+    add({
+      timestampMs: entry.timestampMs + entry.durationMs,
+      elapsedMs: entry.elapsedMs + entry.durationMs,
+      kind: "network",
+      phase: "response",
+      type: entry.type,
+      method: entry.method,
+      url: entry.url,
+      ...(typeof entry.status === "number" ? { status: entry.status } : {}),
+      ...(entry.statusText ? { statusText: entry.statusText } : {}),
+      ...(typeof entry.ok === "boolean" ? { ok: entry.ok } : {}),
+      durationMs: entry.durationMs,
+      ...(entry.error ? { error: entry.error } : {}),
+    });
+  }
+
+  return entries
+    .sort((a, b) => a.event.elapsedMs - b.event.elapsedMs || a.order - b.order)
+    .slice(0, MAX_BROWSER_DIAGNOSTIC_TIMELINE_EVENTS)
+    .map(({ event }) => event);
+}
+
 export function summarizeBrowserDiagnostics(
   snapshot: Pick<
     BrowserDiagnosticsSnapshot,
@@ -209,6 +371,7 @@ export function parseBrowserDiagnosticsRow(
         endedAt?: string | null;
         consoleLogsJson?: string | null;
         networkRequestsJson?: string | null;
+        interactionEventsJson?: string | null;
       }
     | null
     | undefined,
@@ -222,6 +385,12 @@ export function parseBrowserDiagnosticsRow(
     .map(normalizeBrowserDiagnosticNetworkRequest)
     .filter((entry): entry is BrowserDiagnosticNetworkRequest => Boolean(entry))
     .slice(0, MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS);
+  const interactionEvents = safeArray(row.interactionEventsJson)
+    .map(normalizeBrowserDiagnosticInteractionEvent)
+    .filter((entry): entry is BrowserDiagnosticInteractionEvent =>
+      Boolean(entry),
+    )
+    .slice(0, MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS);
   const snapshot: BrowserDiagnosticsSnapshot = {
     pageUrl: row.pageUrl ?? null,
     userAgent: row.userAgent ?? null,
@@ -229,9 +398,11 @@ export function parseBrowserDiagnosticsRow(
     endedAt: row.endedAt ?? "",
     consoleLogs,
     networkRequests,
+    interactionEvents,
   };
   return {
     ...snapshot,
     summary: summarizeBrowserDiagnostics(snapshot),
+    timeline: buildBrowserDiagnosticTimeline(snapshot),
   };
 }

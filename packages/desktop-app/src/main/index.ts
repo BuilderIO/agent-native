@@ -478,16 +478,11 @@ function forwardDesktopNavigationShortcut(
   event: { preventDefault(): void },
   input: DesktopNavigationShortcutInput,
 ): boolean {
-  return forwardDesktopNavigationShortcutInput(
-    event,
-    input,
-    (payload) => {
-      const win = mainWindow;
-      if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
-      win.webContents.send("shortcut:keydown", payload);
-    },
-    activeAppId === "content",
-  );
+  return forwardDesktopNavigationShortcutInput(event, input, (payload) => {
+    const win = mainWindow;
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+    win.webContents.send("shortcut:keydown", payload);
+  });
 }
 
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;

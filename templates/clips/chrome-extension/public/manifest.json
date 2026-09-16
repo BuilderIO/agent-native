@@ -48,6 +48,13 @@
     },
     {
       "matches": ["<all_urls>"],
+      "js": ["assets/content-history-bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": ["<all_urls>"],
       "js": ["assets/content-script.js"],
       "run_at": "document_idle",
       "all_frames": false

@@ -3446,10 +3446,33 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "none" || cs.visibility === "hidden";
     }
-    function collectSelectableElementInfos(deep) {
-      return collectSelectableElements(deep).map(function(target) {
+    function readSelectablePoint(raw) {
+      if (raw === void 0 || raw === null) return null;
+      var point = raw;
+      if (typeof point.x !== "number" || typeof point.y !== "number" || !isFinite(point.x) || !isFinite(point.y)) {
+        throw new Error(
+          "agent-native:collect-selectable-rects received a malformed atPoint"
+        );
+      }
+      return { x: point.x, y: point.y };
+    }
+    function collectSelectableElementInfos(deep, atPoint) {
+      var targets = collectSelectableElements(deep);
+      if (atPoint) {
+        targets = targets.filter(function(el) {
+          return documentSpaceBoundsContainPoint(el, atPoint);
+        });
+      }
+      return targets.map(function(target) {
         return getElementInfo(target);
       });
+    }
+    function documentSpaceBoundsContainPoint(el, point) {
+      var bounds = selectableBounds(el);
+      var scrollX = window.scrollX || window.pageXOffset || 0;
+      var scrollY = window.scrollY || window.pageYOffset || 0;
+      var tolerance = 1;
+      return point.x >= bounds.left + scrollX - tolerance && point.x <= bounds.right + scrollX + tolerance && point.y >= bounds.top + scrollY - tolerance && point.y <= bounds.bottom + scrollY + tolerance;
     }
     var shieldOverlay = document.createElement("div");
     shieldOverlay.setAttribute("data-agent-native-edit-overlay", "shield");
@@ -4034,15 +4057,41 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (pos.indexOf("e") !== -1) handle.style.right = -4 * sx + "px";
       });
     }
+    var passiveSelectionOverlayPoolStyle = "default";
+    function syncPassiveSelectionOverlayPool(count, style) {
+      if (style !== passiveSelectionOverlayPoolStyle) {
+        removePassiveSelectionOverlays();
+        passiveSelectionOverlayPoolStyle = style;
+      }
+      while (passiveSelectionOverlays.length > count) {
+        var extra = passiveSelectionOverlays.pop();
+        if (extra && extra.parentNode) extra.parentNode.removeChild(extra);
+      }
+      while (passiveSelectionOverlays.length < count) {
+        passiveSelectionOverlays.push(makePassiveSelectionOverlay(style));
+      }
+    }
+    function samePassiveSelectionElements(current, next) {
+      if (current.length !== next.length) return false;
+      for (var index = 0; index < current.length; index += 1) {
+        if (current[index] !== next[index]) return false;
+      }
+      return true;
+    }
     function setPassiveSelectionElements(elements, style = "default") {
-      passiveSelectionEls = elements.filter(function(el, index, all) {
+      var nextPassiveEls = elements.filter(function(el, index, all) {
         return el && el !== selectedEl && document.documentElement.contains(el) && all.indexOf(el) === index;
       });
-      removePassiveSelectionOverlays();
-      passiveSelectionEls.forEach(function(el) {
-        var overlay = makePassiveSelectionOverlay(style);
-        passiveSelectionOverlays.push(overlay);
-        positionOverlay(overlay, el);
+      if (style === passiveSelectionOverlayPoolStyle && passiveSelectionOverlays.length === nextPassiveEls.length && samePassiveSelectionElements(passiveSelectionEls, nextPassiveEls)) {
+        passiveSelectionEls = nextPassiveEls;
+        positionMultiSelectionBounds();
+        return;
+      }
+      passiveSelectionEls = nextPassiveEls;
+      syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
+      passiveSelectionEls.forEach(function(el, index) {
+        var overlay = passiveSelectionOverlays[index];
+        if (overlay) positionOverlay(overlay, el);
       });
       positionMultiSelectionBounds();
     }
@@ -4957,11 +5006,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var paddingRight = readPx(cs.paddingRight);
       var paddingBottom = readPx(cs.paddingBottom);
       var paddingLeft = readPx(cs.paddingLeft);
-      var sx = chromeScaleX();
-      var sy = chromeScaleY();
       var line = chromeLineScale();
-      var hLineWidth = Math.max(6, Math.min(18, rect.width * 0.12)) * sx;
-      var vLineHeight = Math.max(6, Math.min(18, rect.height * 0.12)) * sy;
+      var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
       var innerLeft = borderLeft;
       var innerTop = borderTop;
       var innerWidth = Math.max(1, rect.width - borderLeft - borderRight);
@@ -4983,9 +5029,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               height: paddingTop
             },
             line: {
-              x: rect.width / 2 - hLineWidth / 2,
+              x: rect.width / 2 - tickLength / 2,
               y: innerTop + paddingTop / 2 - line / 2,
-              width: hLineWidth,
+              width: tickLength,
               height: line
             }
           })
@@ -5008,9 +5054,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               height: paddingBottom
             },
             line: {
-              x: rect.width / 2 - hLineWidth / 2,
+              x: rect.width / 2 - tickLength / 2,
               y: rect.height - borderBottom - paddingBottom / 2 - line / 2,
-              width: hLineWidth,
+              width: tickLength,
               height: line
             }
           })
@@ -5034,9 +5080,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             line: {
               x: innerLeft + paddingLeft / 2 - line / 2,
-              y: rect.height / 2 - vLineHeight / 2,
+              y: rect.height / 2 - tickLength / 2,
               width: line,
-              height: vLineHeight
+              height: tickLength
             }
           })
         );
@@ -5059,9 +5105,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             line: {
               x: rect.width - borderRight - paddingRight / 2 - line / 2,
-              y: rect.height / 2 - vLineHeight / 2,
+              y: rect.height / 2 - tickLength / 2,
               width: line,
-              height: vLineHeight
+              height: tickLength
             }
           })
         );
@@ -5072,11 +5118,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var children = visibleLayoutChildren(el);
       if (children.length < 2) return [];
       var handles = [];
-      var sx = chromeScaleX();
-      var sy = chromeScaleY();
       var line = chromeLineScale();
-      var hLineWidth = 8 * sx;
-      var vLineHeight = 8 * sy;
+      var tickLength = 8 * line;
       var isFlex = cs.display === "flex" || cs.display === "inline-flex";
       var isGrid = cs.display === "grid" || cs.display === "inline-grid";
       if (!isFlex && !isGrid) return handles;
@@ -5112,9 +5155,9 @@ export const editorChromeBridgeScript: string = `"use strict";
                 region: { x: a.right, y: top, width: gap, height },
                 line: {
                   x: a.right + gap / 2 - line / 2,
-                  y: top + height / 2 - vLineHeight / 2,
+                  y: top + height / 2 - tickLength / 2,
                   width: line,
-                  height: vLineHeight
+                  height: tickLength
                 }
               })
             );
@@ -5132,9 +5175,9 @@ export const editorChromeBridgeScript: string = `"use strict";
                 value: cssGap,
                 region: { x: left, y: a.bottom, width, height: gap },
                 line: {
-                  x: left + width / 2 - hLineWidth / 2,
+                  x: left + width / 2 - tickLength / 2,
                   y: a.bottom + gap / 2 - line / 2,
-                  width: hLineWidth,
+                  width: tickLength,
                   height: line
                 }
               })
@@ -5716,7 +5759,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
       if (!placedRotatedLocalBox) {
-        var rect = el.getBoundingClientRect();
+        var rect = overlay === selectionOverlay ? el.getBoundingClientRect() : void 0;
         var box = selectableBounds(el);
         overlay.style.display = "block";
         overlay.style.top = box.top + "px";
@@ -6701,6 +6744,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function clearActiveMarqueeSelection() {
       if (!activeMarqueeSelection) return;
+      if (activeMarqueeSelection.moveFrame != null) {
+        window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
+        activeMarqueeSelection.moveFrame = null;
+      }
       document.removeEventListener(
         activeMarqueeSelection.move,
         activeMarqueeSelection.onMove,
@@ -6736,13 +6783,19 @@ export const editorChromeBridgeScript: string = `"use strict";
     function rectsIntersect(a, b) {
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
-    function postElementMarqueeSelect(elements, additive, e, final) {
+    function postElementMarqueeSelect(elements, additive, e, final, infoCache) {
       window.parent.postMessage(
         {
           type: "agent-native:layer-marquee-selection",
           phase: "change",
           payload: elements.map(function(el) {
-            return getElementInfo(el);
+            if (!infoCache) return getElementInfo(el);
+            var cached = infoCache.get(el);
+            if (cached === void 0) {
+              cached = getElementInfo(el);
+              infoCache.set(el, cached);
+            }
+            return cached;
           }),
           intent: {
             additive,
@@ -6775,22 +6828,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
       if (!activeMarqueeSelection.candidates) {
-        activeMarqueeSelection.candidates = collectSelectableElements(
-          activeMarqueeSelection.deep
-        );
+        var collected = collectSelectableElements(activeMarqueeSelection.deep);
+        activeMarqueeSelection.candidates = collected;
+        activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
       }
-      var hitElements = activeMarqueeSelection.candidates.filter(function(el) {
-        var bounds = selectableBounds(el);
+      var candidates = activeMarqueeSelection.candidates;
+      var candidateBounds = activeMarqueeSelection.candidateBounds || [];
+      var hitElements = [];
+      for (var index = 0; index < candidates.length; index += 1) {
+        var bounds = candidateBounds[index];
+        if (!bounds) continue;
         if (bounds.left <= rect.left && bounds.top <= rect.top && bounds.right >= rect.right && bounds.bottom >= rect.bottom) {
-          return false;
+          continue;
         }
-        return rectsIntersect(rect, {
-          left: bounds.left,
-          top: bounds.top,
-          right: bounds.right,
-          bottom: bounds.bottom
-        });
-      });
+        if (rectsIntersect(rect, bounds)) {
+          hitElements.push(candidates[index]);
+        }
+      }
       var primary = hitElements[hitElements.length - 1] || null;
       if (primary) {
         selectedEl = primary;
@@ -6804,7 +6858,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         hitElements,
         activeMarqueeSelection.additive,
         e,
-        final
+        final,
+        activeMarqueeSelection.infoCache
       );
     }
     function beginMarqueeSelection(e) {
@@ -6813,6 +6868,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       clearActiveMarqueeSelection();
       var events = dragEventNames(e);
       var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+      function flushMarqueeMove() {
+        var session = activeMarqueeSelection;
+        if (!session) return;
+        if (session.moveFrame != null) {
+          window.cancelAnimationFrame(session.moveFrame);
+          session.moveFrame = null;
+        }
+        var ev = session.pendingMoveEvent;
+        if (!ev) return;
+        session.pendingMoveEvent = null;
+        updateMarqueeSelection(ev);
+      }
       function onMove(ev) {
         if (!activeMarqueeSelection) return;
         if (!activeMarqueeSelection.moved && Math.hypot(
@@ -6826,12 +6893,26 @@ export const editorChromeBridgeScript: string = `"use strict";
           suppressNextShieldClickBriefly();
         }
         stopNativeInteraction(ev);
-        updateMarqueeSelection(ev);
+        activeMarqueeSelection.pendingMoveEvent = ev;
+        if (activeMarqueeSelection.moveFrame != null) return;
+        activeMarqueeSelection.moveFrame = window.requestAnimationFrame(
+          function() {
+            if (!activeMarqueeSelection) return;
+            activeMarqueeSelection.moveFrame = null;
+            flushMarqueeMove();
+          }
+        );
       }
       function onUp(ev) {
         var didMove = Boolean(activeMarqueeSelection?.moved);
         if (didMove) {
           stopNativeInteraction(ev);
+          if (activeMarqueeSelection && activeMarqueeSelection.moveFrame != null) {
+            window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
+            activeMarqueeSelection.moveFrame = null;
+          }
+          if (activeMarqueeSelection)
+            activeMarqueeSelection.pendingMoveEvent = null;
           updateMarqueeSelection(ev, true);
           suppressNextShieldClickBriefly();
         }
@@ -6844,6 +6925,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         additive,
         deep: Boolean(e && (e.metaKey || e.ctrlKey)),
         moved: false,
+        infoCache: /* @__PURE__ */ new Map(),
+        moveFrame: null,
+        pendingMoveEvent: null,
         pointerId: e.pointerId,
         move: events.move,
         up: events.up,
@@ -10220,7 +10304,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalSelectedEl = selectedEl;
       var duplicatedForDrag = false;
       var duplicatedSourceNodeIdMap;
+      var duplicateGrabOffset = null;
       if (e.altKey && selectedEl && selectedEl !== document.body && selectedEl !== document.documentElement) {
+        var grabbedRect = selectedEl.getBoundingClientRect();
         var clone = selectedEl.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
         selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
@@ -10228,8 +10314,23 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectedEl = clone;
         duplicatedForDrag = true;
         gestureEl = clone;
+        var insertedRect = clone.getBoundingClientRect();
+        duplicateGrabOffset = {
+          x: grabbedRect.left - insertedRect.left,
+          y: grabbedRect.top - insertedRect.top
+        };
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
+      }
+      function dragGrabRect(el) {
+        var rect = el.getBoundingClientRect();
+        if (!duplicateGrabOffset || el !== gestureEl) return rect;
+        return new DOMRect(
+          rect.left + duplicateGrabOffset.x,
+          rect.top + duplicateGrabOffset.y,
+          rect.width,
+          rect.height
+        );
       }
       var groupEls = duplicatedForDrag || e.altKey ? [gestureEl] : collectMoveGroupMembers(gestureEl);
       if (groupEls.indexOf(gestureEl) === -1) groupEls = [gestureEl];
@@ -10316,7 +10417,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               el.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.18)";
               el.style.pointerEvents = "none";
             }
-            el.style.transform = "translate(" + dx + "px, " + dy + "px)" + (snap.authoredTransform ? " " + snap.authoredTransform : "");
+            var liftDx = dx + (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+            var liftDy = dy + (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
+            el.style.transform = "translate(" + liftDx + "px, " + liftDy + "px)" + (snap.authoredTransform ? " " + snap.authoredTransform : "");
           });
         }, clearReorderLift2 = function() {
           reorderLiftedMembers.forEach(function(snap) {
@@ -10735,7 +10838,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, containerIsSimplePacked = containerIsSimplePacked2, reorderMainGap = reorderMainGap2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
-          return member.getBoundingClientRect();
+          return dragGrabRect(member);
         });
         var reorderOrigins = groupEls.map(function(member) {
           return {
@@ -10745,7 +10848,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             prevInlinePositionStyles: snapshotInlinePositionStyles(member)
           };
         });
-        var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+        var reorderGestureStartRect = dragGrabRect(reorderEl);
         var reorderLastTargetKey = null;
         var keepCurrentFlowParent = bridgeSpaceKeyPressed;
         var reorderIgnoresAutoLayout = Boolean(e.ctrlKey || e.metaKey);
@@ -10766,7 +10869,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
         crossScreenClaimedByHost = false;
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
-        var reorderRect = reorderEl.getBoundingClientRect();
+        var reorderRect = dragGrabRect(reorderEl);
         var reorderPointerStart = pointerStartParam || e;
         var reorderPointerOffset = {
           x: reorderPointerStart.clientX - reorderRect.left,
@@ -10786,6 +10889,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
         }
         var reorderLiftedMembers = [];
+        if (duplicateGrabOffset && (duplicateGrabOffset.x !== 0 || duplicateGrabOffset.y !== 0)) {
+          applyReorderLift2(0, 0);
+          positionOverlay(selectionOverlay, selectedEl);
+        }
         var reorderCommittedTarget = null;
         var reorderCommittedSlot = null;
         var reorderCommittedAt = 0;
@@ -13583,7 +13690,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           {
             type: "agent-native:selectable-rects-result",
             correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
-            payload: collectSelectableElementInfos(Boolean(e.data.deep))
+            payload: collectSelectableElementInfos(
+              Boolean(e.data.deep),
+              readSelectablePoint(e.data.atPoint)
+            )
           },
           "*"
         );

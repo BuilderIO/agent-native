@@ -136,6 +136,21 @@ const messages = {
   "common.retry": "Retry",
   "common.save": "Save",
   "agents.hostedAgent": "Hosted agent",
+  "agents.provider": "Provider",
+  "agents.providerA2A": "A2A (Foundry, Gemini, or custom)",
+  "agents.providerAnthropic": "Anthropic Managed Agents",
+  "agents.agentId": "Agent ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "Environment ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API base URL (optional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Complete the Anthropic Managed Agents fields.",
+  "agents.managedAgentCheck":
+    "Connection is checked when you delegate from chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent saved. Delegate to it from chat.",
   "agents.cardUrl": "Agent card URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Authentication",
