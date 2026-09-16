@@ -107,7 +107,11 @@ export function isSlideCanvasShortcutTarget(
   activeElement: Element | null,
   canvas: HTMLElement | null,
 ): boolean {
-  return Boolean(activeElement && canvas?.contains(activeElement));
+  return Boolean(
+    activeElement &&
+    (canvas?.contains(activeElement) ||
+      activeElement === canvas?.ownerDocument.body),
+  );
 }
 
 /**

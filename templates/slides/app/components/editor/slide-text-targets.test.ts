@@ -52,6 +52,7 @@ describe("slide text targets", () => {
     expect(isSlideCanvasShortcutTarget(toolbarButton, canvas)).toBe(false);
     expect(isSlideCanvasShortcutTarget(activeElement, null)).toBe(false);
     expect(isSlideCanvasShortcutTarget(null, canvas)).toBe(false);
+    expect(isSlideCanvasShortcutTarget(document.body, canvas)).toBe(true);
   });
 
   it("keeps inline style runs inside their containing text block", () => {

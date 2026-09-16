@@ -12,6 +12,7 @@ import {
   SlideBold,
   contentForSlideTextContainer,
   normalizeSlideEditorContent,
+  normalizeSlideClipboardHtml,
   restoreSlideTextContainerContent,
   selectionOffsetsWithin,
 } from "./SlideRichTextEditor";
@@ -69,7 +70,30 @@ describe("slide rich text normalization", () => {
     expect(items[0]?.style.fontSize).toBe("24px");
     expect(items[0]?.style.color).toBe("red");
     expect(list.style.getPropertyValue("--slide-legacy-list")).toBe("1");
-    expect(html).not.toContain("<p></p>");
+    expect(html).toContain("<p></p>");
+  });
+
+  it("preserves explicit blank paragraphs as line breaks", () => {
+    expect(
+      normalizeSlideEditorContent("<p>First</p><p></p><p>Second</p>"),
+    ).toBe("<p>First</p><p></p><p>Second</p>");
+  });
+
+  it("keeps rich clipboard styling without source layout or editor context", () => {
+    const html = normalizeSlideClipboardHtml(
+      '<p data-pm-slice="1 1 []" style="position:absolute;left:80px;font-size:34px;font-weight:500">First</p><p style="font-size:34px"><strong><br></strong></p><p style="visibility:hidden;pointer-events:none;height:76px">Spacer</p><p style="position:absolute;top:185px;width:800px;font-size:34px;font-weight:500"><span style="color:rgb(34,211,238)"><strong>Blue text</strong></span></p>',
+    );
+
+    expect(html).toContain("First");
+    expect(html).toContain("Blue text");
+    expect(html).toContain("font-size: 34px");
+    expect(html).toContain("font-weight: 500");
+    expect(html).toContain("color: rgb(34, 211, 238)");
+    expect(html).toContain("<br>");
+    expect(html).not.toContain("data-pm-slice");
+    expect(html).not.toContain("position:");
+    expect(html).not.toContain("visibility:");
+    expect(html).not.toContain("Spacer");
   });
 
   it("restores styled bullet rows after editing their semantic list", () => {
@@ -158,6 +182,18 @@ describe("slide rich text normalization", () => {
     // margin is asserted below because the matching rule sets it to a literal
     // "0" rather than "inherit".
     expect(getComputedStyle(inner).margin).toBe("0px");
+  });
+
+  it("renders an empty slide paragraph as a visible line break", () => {
+    document.body.innerHTML = `
+      <div class="slide-content">
+        <div class="fmd-slide"><p></p></div>
+      </div>
+    `;
+
+    expect(getComputedStyle(document.querySelector("p")!).minHeight).toBe(
+      "16px",
+    );
   });
 
   it("keeps raw-html slide paragraphs on the block's own metrics", () => {

@@ -1473,6 +1473,17 @@ button[title="Open agent sidebar"] {
   display: contents;
 }
 
+/* TipTap's relative editor root must not become the containing block for
+   persisted absolute slide objects when a text layer receives focus. */
+.slide-content .slide-shared-rich-editor .ProseMirror {
+  position: static;
+}
+
+/* An empty paragraph is an intentional line break, not editor-only chrome. */
+.slide-content .fmd-slide p:empty {
+  min-height: 1em;
+}
+
 /* Editing one list item renders it inside its own list, so hide the outer
    marker and let the inner one take its place. */
 .slide-content .fmd-slide li[data-editing-block="true"] {
