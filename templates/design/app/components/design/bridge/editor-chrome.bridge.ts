@@ -1557,7 +1557,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function serializeRuntimeLayerSnapshot(): {
+  function serializeRuntimeLayerSnapshot(excludedRoot?: Element): {
     html: string;
     nodeCount: number;
   } | null {
@@ -1666,7 +1666,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       var sourceNode = sourceNodes[index];
       var cloneNode = cloneNodes[index];
-      if (!isRuntimeLayerVisualNode(sourceNode)) {
+      if (
+        excludedRoot?.contains(sourceNode) ||
+        !isRuntimeLayerVisualNode(sourceNode)
+      ) {
         cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
         continue;
       }
@@ -13636,6 +13639,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         insertedHtml:
           typeof insertedHtml === "string" ? insertedHtml : undefined,
         replaced: replaced === true ? true : undefined,
+        // The original is still connected here so its selector/provenance
+        // remain readable. Excluding its exact DOM subtree captures the
+        // expected replacement without guessing from a later snapshot.
+        replacementSnapshotHtml:
+          replaced === true && origin?.originalElement
+            ? serializeRuntimeLayerSnapshot(origin.originalElement)?.html
+            : undefined,
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),

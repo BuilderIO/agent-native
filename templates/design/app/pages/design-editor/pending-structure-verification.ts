@@ -2,6 +2,7 @@ import {
   buildCodeLayerProjection,
   type CodeLayerNode,
 } from "@shared/code-layer";
+import { parse, type DefaultTreeAdapterMap } from "parse5";
 
 import {
   collapsedElementText,
@@ -19,6 +20,8 @@ export type RuntimeStructureVerificationFailure =
   | "ambiguous-subject"
   | "subject-still-present"
   | "missing-replacement"
+  | "missing-replacement-evidence"
+  | "replacement-context-changed"
   | "ambiguous-replacement"
   | "missing-anchor"
   | "ambiguous-anchor"
@@ -189,6 +192,37 @@ function verifyRuntimeStructureSubjectAbsent(
     : { ok: true };
 }
 
+/** Full visual-tree evidence, not a node count: sibling order, nesting and
+ * content must match the captured replacement. Unrelated structure, text or
+ * class changes fail closed; runtime ids and computed styles may change. */
+export function runtimeStructureSnapshotSignature(
+  snapshotHtml: string,
+): string {
+  function structure(node: DefaultTreeAdapterMap["node"]): unknown[] {
+    if ("value" in node && node.nodeName === "#text") {
+      const text = collapsedElementText(node.value);
+      return text ? [text] : [];
+    }
+    if ("tagName" in node && node.tagName === "head") return [];
+    const children =
+      "childNodes" in node ? node.childNodes.flatMap(structure) : [];
+    if (!("tagName" in node) || node.tagName === "html") return children;
+    return [
+      [
+        node.tagName,
+        normalizeRuntimeStructureClasses(
+          (
+            node.attrs.find((attribute) => attribute.name === "class")?.value ??
+            ""
+          ).split(/\s+/),
+        ),
+        children,
+      ],
+    ];
+  }
+  return JSON.stringify(structure(parse(snapshotHtml)));
+}
+
 function runtimeStructureNodeForNoOp(
   projection: { nodes: CodeLayerNode[] },
   selector: string,
@@ -232,11 +266,19 @@ export function verifyPendingStructureRuntime(
       };
     }
 
-    return verifyRuntimeStructureSubjectAbsent(
+    const absence = verifyRuntimeStructureSubjectAbsent(
       projection,
       edit,
       replacementResolution.node,
     );
+    if (!absence.ok) return absence;
+    if (!edit.replacementSnapshotSignature) {
+      return { ok: false, failure: "missing-replacement-evidence" };
+    }
+    return runtimeStructureSnapshotSignature(snapshotHtml) ===
+      edit.replacementSnapshotSignature
+      ? { ok: true }
+      : { ok: false, failure: "replacement-context-changed" };
   }
   if (edit.removed) {
     return verifyRuntimeStructureSubjectAbsent(projection, edit);
@@ -353,14 +395,30 @@ export function isPendingStructureDropNoOp(
   );
 }
 
+function replacementSnapshotsByScreen(
+  edits: readonly PendingLiveStructureEdit[],
+) {
+  // Later replacement gestures include the earlier optimistic replacements.
+  // Verify the composed screen without discarding each edit's identity checks.
+  return new Map(
+    edits
+      .filter((edit) => edit.replaced)
+      .map((edit) => [edit.screenId, edit.replacementSnapshotSignature]),
+  );
+}
+
 export function verifyPendingStructuresRuntime(
   snapshots: Record<string, { html: string } | undefined>,
   edits: readonly PendingLiveStructureEdit[],
 ): RuntimeStructureVerificationResult {
+  const replacementSnapshots = replacementSnapshotsByScreen(edits);
   for (const edit of edits) {
     const snapshot = snapshots[edit.screenId];
     if (!snapshot) return { ok: false, failure: "missing-subject" };
-    const result = verifyPendingStructureRuntime(snapshot.html, edit);
+    const result = verifyPendingStructureRuntime(snapshot.html, {
+      ...edit,
+      replacementSnapshotSignature: replacementSnapshots.get(edit.screenId),
+    });
     if (!result.ok) return result;
   }
   return { ok: true };
@@ -373,11 +431,30 @@ export function partitionPendingStructuresRuntime(
   verified: PendingLiveStructureEdit[];
   remaining: PendingLiveStructureEdit[];
 } {
+  const replacementSnapshots = replacementSnapshotsByScreen(edits);
+  const results = edits.map((edit) => {
+    const snapshot = snapshots[edit.screenId];
+    return {
+      edit,
+      ok: Boolean(
+        snapshot &&
+        verifyPendingStructureRuntime(snapshot.html, {
+          ...edit,
+          replacementSnapshotSignature: replacementSnapshots.get(edit.screenId),
+        }).ok,
+      ),
+    };
+  });
+  // Keep the shared evidence until every replacement using it verifies.
+  const blockedScreens = new Set(
+    results
+      .filter(({ edit, ok }) => edit.replaced && !ok)
+      .map(({ edit }) => edit.screenId),
+  );
   const verified: PendingLiveStructureEdit[] = [];
   const remaining: PendingLiveStructureEdit[] = [];
-  for (const edit of edits) {
-    const snapshot = snapshots[edit.screenId];
-    if (snapshot && verifyPendingStructureRuntime(snapshot.html, edit).ok) {
+  for (const { edit, ok } of results) {
+    if (ok && (!edit.replaced || !blockedScreens.has(edit.screenId))) {
       verified.push(edit);
     } else {
       remaining.push(edit);

@@ -20,16 +20,23 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import {
+  runRecordPendingLiveStructureEdit,
+  type RecordPendingLiveStructureEditArgs,
+} from "./commands/record-pending-live-structure-edit";
+import {
   formatPendingVisualStylePrompt,
   mergePendingLiveNonStyleEdits,
   pendingLiveStructureEditsMatch,
   pendingStructureEditSourcePaths,
   pendingStructureRedoCommand,
-  reactSourceAnchorForPendingEdit,
   type PendingLiveNonStyleEdit,
   type PendingLiveStructureEdit,
   type PendingLiveStructureUndoEntry,
 } from "./pending-edits";
+import {
+  runtimeStructureSnapshotSignature,
+  verifyPendingStructureRuntime,
+} from "./pending-structure-verification";
 
 const SCREEN_ID = "live-screen";
 const ANCHOR_SELECTOR = '[data-agent-native-node-id="card"]';
@@ -72,6 +79,7 @@ interface StructureChangeMessage {
   dropMode?: "flow-insert" | "absolute-container";
   insertedHtml?: string;
   replaced?: boolean;
+  replacementSnapshotHtml?: string;
   payload?: { provenance?: unknown };
   anchorPayload?: { provenance?: unknown };
 }
@@ -110,56 +118,52 @@ async function nextStructureChange(
   )[seen]!;
 }
 
-/** Mirrors recordPendingLiveStructureEdit's mapping of a bridge echo. */
 function pendingEditFromEcho(
   message: StructureChangeMessage,
 ): PendingLiveStructureEdit {
-  if (message.replaced) {
-    return {
-      kind: "structure",
-      screenId: SCREEN_ID,
-      filename: "home",
-      screenName: "Home",
-      selector: message.anchorSelector,
-      sourceId: message.anchorSourceId ?? null,
-      sourceAnchor: reactSourceAnchorForPendingEdit({
-        info: message.anchorPayload as never,
-        id: message.anchorSourceId,
-      }),
-      anchorSelector: "",
-      anchorSourceId: null,
-      placement: message.placement,
-      insertedHtml: message.insertedHtml,
-      replaced: true,
-      replacementSelector: message.selector,
-      replacementSourceId: message.sourceId ?? null,
-      requestId: message.requestId,
-      updatedAt: Date.now(),
-    };
-  }
-  return {
-    kind: "structure",
-    screenId: SCREEN_ID,
-    filename: "home",
-    screenName: "Home",
-    selector: message.selector,
-    sourceId: message.sourceId ?? null,
-    sourceAnchor: reactSourceAnchorForPendingEdit({
-      info: message.payload as never,
-      id: message.sourceId,
-    }),
-    anchorSelector: message.anchorSelector,
-    anchorSourceId: message.anchorSourceId ?? null,
-    anchorSourceAnchor: reactSourceAnchorForPendingEdit({
-      info: message.anchorPayload as never,
-      id: message.anchorSourceId,
-    }),
-    placement: message.placement,
-    dropMode: message.dropMode,
-    insertedHtml: message.insertedHtml,
-    requestId: message.requestId,
-    updatedAt: Date.now(),
+  const state: RecordPendingLiveStructureEditArgs = {
+    canEditDesign: true,
+    cancelPendingStructureVerification: () => {},
+    files: [],
+    localhostConnectionRootPathByIdRef: { current: new Map() },
+    overviewScreens: [],
+    pendingLiveNonStyleEditsRef: { current: [] },
+    pendingLiveNonStyleRedoStackRef: { current: [] },
+    pendingLiveNonStyleUndoStackRef: { current: [] },
+    pendingStructureRedoReplayRef: { current: undefined },
+    pendingStructureRedoReplayTimerRef: { current: undefined },
+    pendingVisualStyleRedoStackRef: { current: [] },
+    runtimeLayerSnapshotsById: {},
+    setPendingLiveNonStyleEdits: () => {},
   };
+  runRecordPendingLiveStructureEdit(
+    state,
+    SCREEN_ID,
+    message.replaced ? message.anchorSelector : message.selector,
+    message.replaced ? "" : message.anchorSelector,
+    message.placement,
+    (message.replaced ? message.anchorPayload : message.payload) as never,
+    {
+      sourceId: message.replaced ? message.anchorSourceId : message.sourceId,
+      anchorSourceId: message.replaced ? undefined : message.anchorSourceId,
+      anchorElementInfo: message.anchorPayload as never,
+      requestId: message.requestId,
+      dropMode: message.dropMode,
+      insertedHtml: message.insertedHtml,
+      ...(message.replaced
+        ? {
+            replaced: true,
+            replacementSelector: message.selector,
+            replacementSourceId: message.sourceId,
+            replacementElementInfo: message.payload as never,
+            replacementSnapshotHtml: message.replacementSnapshotHtml,
+          }
+        : {}),
+    },
+  );
+  expect(state.pendingLiveNonStyleEditsRef.current).toHaveLength(1);
+  return state.pendingLiveNonStyleEditsRef
+    .current[0] as PendingLiveStructureEdit;
 }
 
 describe("live insert lifecycle", () => {
@@ -413,7 +417,9 @@ describe("live insert lifecycle", () => {
       const browser = await chromium.launch({ headless: true });
       try {
         const page = await browser.newPage();
-        await page.setContent(FIXTURE);
+        await page.setContent(
+          FIXTURE.replace("</main>", "<aside>Unrelated sibling</aside></main>"),
+        );
         await page.locator("#card").evaluate((element) => {
           Object.defineProperty(element, "__reactFiber$replace", {
             configurable: true,
@@ -455,6 +461,18 @@ describe("live insert lifecycle", () => {
 
         const replaceEcho = await nextStructureChange(page, 0);
         expect(replaceEcho.replaced).toBe(true);
+        expect(replaceEcho.replacementSnapshotHtml).toContain("Replacement");
+        expect(replaceEcho.replacementSnapshotHtml).toContain(
+          "Unrelated sibling",
+        );
+        expect(replaceEcho.replacementSnapshotHtml).not.toContain(
+          'node-id="card"',
+        );
+        expect(replaceEcho.replacementSnapshotHtml).not.toContain("Copy");
+        expect(replaceEcho.replacementSnapshotHtml).not.toContain("<script");
+        expect(replaceEcho.replacementSnapshotHtml).not.toContain(
+          "data-agent-native-edit-overlay",
+        );
         expect(await page.locator(ANCHOR_SELECTOR).count()).toBe(0);
         expect(
           await page
@@ -464,6 +482,34 @@ describe("live insert lifecycle", () => {
 
         const replaceEdit = pendingEditFromEcho(replaceEcho);
         expect(replaceEdit.replaced).toBe(true);
+        expect(replaceEdit.sourceId).toBe("card");
+        expect(replaceEdit.replacementSnapshotSignature).toBe(
+          runtimeStructureSnapshotSignature(
+            replaceEcho.replacementSnapshotHtml!,
+          ),
+        );
+        const rebuiltHtml = `<body><main>${replacementHtml}<aside>Unrelated sibling</aside></main></body>`;
+        expect(verifyPendingStructureRuntime(rebuiltHtml, replaceEdit)).toEqual(
+          { ok: true },
+        );
+        expect(
+          verifyPendingStructureRuntime(
+            rebuiltHtml.replace(
+              "</main>",
+              '<div class="changed">Changed original</div></main>',
+            ),
+            replaceEdit,
+          ).ok,
+        ).toBe(false);
+        expect(
+          verifyPendingStructureRuntime(
+            rebuiltHtml.replace(
+              replacementHtml,
+              `<div class="changed">${replacementHtml}</div>`,
+            ),
+            replaceEdit,
+          ).ok,
+        ).toBe(false);
         expect(replaceEdit.sourceAnchor?.relPath).toBe("app/routes/home.tsx");
         expect(pendingStructureEditSourcePaths(replaceEdit)).toEqual([
           "app/routes/home.tsx",
@@ -494,6 +540,9 @@ describe("live insert lifecycle", () => {
             .count(),
         ).toBe(0);
 
+        await page.locator("aside").evaluate((element) => {
+          element.textContent = "Sibling changed before redo";
+        });
         const redoCommand = pendingStructureRedoCommand(replaceEdit);
         if (redoCommand.kind !== "insert") throw new Error("unreachable");
         await page.evaluate(
@@ -517,7 +566,27 @@ describe("live insert lifecycle", () => {
             redoCommand.replaceAnchor,
           ] as const,
         );
-        await nextStructureChange(page, 1);
+        const redoEcho = await nextStructureChange(page, 1);
+        const redoEdit = pendingEditFromEcho(redoEcho);
+        expect(redoEcho.replacementSnapshotHtml).toContain(
+          "Sibling changed before redo",
+        );
+        expect(redoEcho.replacementSnapshotHtml).not.toContain(
+          'node-id="card"',
+        );
+        expect(redoEdit.replacementSnapshotSignature).not.toBe(
+          replaceEdit.replacementSnapshotSignature,
+        );
+        const redoneHtml = rebuiltHtml.replace(
+          "Unrelated sibling",
+          "Sibling changed before redo",
+        );
+        expect(verifyPendingStructureRuntime(redoneHtml, redoEdit)).toEqual({
+          ok: true,
+        });
+        expect(verifyPendingStructureRuntime(rebuiltHtml, redoEdit).ok).toBe(
+          false,
+        );
         expect(await page.locator(ANCHOR_SELECTOR).count()).toBe(0);
         expect(
           await page

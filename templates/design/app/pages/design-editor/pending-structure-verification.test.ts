@@ -4,6 +4,7 @@ import type { PendingLiveStructureEdit } from "./pending-edits";
 import {
   isPendingStructureDropNoOp,
   partitionPendingStructuresRuntime,
+  runtimeStructureSnapshotSignature,
   verifyPendingStructureRuntime,
   verifyPendingStructuresRuntime,
 } from "./pending-structure-verification";
@@ -270,6 +271,7 @@ describe("verifyPendingStructureRuntime", () => {
   it.each<{
     name: string;
     html: string;
+    expectedHtml?: string;
     overrides?: Partial<PendingLiveStructureEdit>;
     failure?: string;
   }>([
@@ -285,7 +287,58 @@ describe("verifyPendingStructureRuntime", () => {
     {
       name: "ignores a stale old selector pointing at an unrelated sibling",
       html: "<div>Unrelated</div>" + replacementHtml,
+      expectedHtml: "<div>Unrelated</div>" + replacementHtml,
       overrides: { selector: "main > div:nth-of-type(1)" },
+    },
+    {
+      name: "rejects a surviving old node that lost both identity and shape",
+      html: "<div>Changed</div>" + replacementHtml,
+      failure: "replacement-context-changed",
+    },
+    {
+      name: "accepts the identical snapshot when Changed was a captured unrelated sibling",
+      html: "<div>Changed</div>" + replacementHtml,
+      expectedHtml: "<div>Changed</div>" + replacementHtml,
+    },
+    {
+      name: "rejects a changed old node wrapping the valid replacement",
+      html: "<div>Changed" + replacementHtml + "</div>",
+      failure: "replacement-context-changed",
+    },
+    {
+      name: "compares full replacement text beyond the node-signature prefix",
+      html:
+        '<section data-agent-native-node-id="replacement">' +
+        "x".repeat(200) +
+        "Wrong</section>",
+      expectedHtml:
+        '<section data-agent-native-node-id="replacement">' +
+        "x".repeat(200) +
+        "Expected</section>",
+      overrides: {
+        replacementSignature: {
+          tag: "section",
+          text: "x".repeat(120),
+          classes: [],
+        },
+      },
+      failure: "replacement-context-changed",
+    },
+    {
+      name: "tolerates regenerated runtime identities and computed styles",
+      html: '<section data-agent-native-node-id="hmr-replacement" style="color:red">Replacement</section>',
+    },
+    {
+      name: "requires captured replacement evidence even when old identity and signature vanish",
+      html: replacementHtml,
+      overrides: { replacementSnapshotSignature: undefined },
+      failure: "missing-replacement-evidence",
+    },
+    {
+      name: "fails closed when a previously captured unrelated sibling disappears",
+      html: replacementHtml,
+      expectedHtml: "<div>Unrelated</div>" + replacementHtml,
+      failure: "replacement-context-changed",
     },
     {
       name: "rejects a surviving old identity even after its shape changes",
@@ -430,13 +483,74 @@ describe("verifyPendingStructureRuntime", () => {
       html: "<p>Original</p><p>Original</p>" + replacementHtml,
       failure: "ambiguous-subject",
     },
-  ])("$name", ({ html, overrides, failure }) => {
-    expect(
-      verifyPendingStructureRuntime(
-        `<!doctype html><body><main>${html}</main></body>`,
-        { ...replacementEdit, ...overrides },
+  ])(
+    "$name",
+    ({ html, expectedHtml = replacementHtml, overrides, failure }) => {
+      expect(
+        verifyPendingStructureRuntime(
+          `<!doctype html><body><main>${html}</main></body>`,
+          {
+            ...replacementEdit,
+            replacementSnapshotSignature: runtimeStructureSnapshotSignature(
+              `<!doctype html><body><main>${expectedHtml}</main></body>`,
+            ),
+            ...overrides,
+          },
+        ),
+      ).toEqual(failure ? { ok: false, failure } : { ok: true });
+    },
+  );
+
+  it("verifies multiple replacements against the latest captured screen while retaining identity checks", () => {
+    const secondHtml =
+      '<article data-agent-native-node-id="second">Second</article>';
+    const html = `<!doctype html><body><main>${replacementHtml}${secondHtml}</main></body>`;
+    const first = {
+      ...replacementEdit,
+      replacementSnapshotSignature: runtimeStructureSnapshotSignature(
+        `<!doctype html><body><main>${replacementHtml}<p data-agent-native-node-id="old-second">Old second</p></main></body>`,
       ),
-    ).toEqual(failure ? { ok: false, failure } : { ok: true });
+    };
+    const second = {
+      ...replacementEdit,
+      selector: '[data-agent-native-node-id="old-second"]',
+      sourceId: "old-second",
+      subjectSignature: { tag: "p", text: "Old second", classes: [] },
+      replacementSourceId: "second",
+      replacementSignature: { tag: "article", text: "Second", classes: [] },
+      replacementSnapshotSignature: runtimeStructureSnapshotSignature(html),
+    };
+    const snapshots = { home: { html } };
+    const settling = {
+      home: {
+        html: html.replace('node-id="replacement"', 'node-id="subject"'),
+      },
+    };
+    const pending = partitionPendingStructuresRuntime(settling, [
+      first,
+      second,
+    ]);
+    expect(pending).toEqual({ verified: [], remaining: [first, second] });
+    expect(
+      partitionPendingStructuresRuntime(snapshots, pending.remaining),
+    ).toEqual({ verified: [first, second], remaining: [] });
+    expect(verifyPendingStructuresRuntime(snapshots, [first, second])).toEqual({
+      ok: true,
+    });
+    expect(
+      partitionPendingStructuresRuntime(snapshots, [first, second]),
+    ).toEqual({ verified: [first, second], remaining: [] });
+    const lingering = {
+      home: {
+        html: html.replace(
+          "</main>",
+          '<div data-agent-native-node-id="subject">Changed</div></main>',
+        ),
+      },
+    };
+    expect(
+      partitionPendingStructuresRuntime(lingering, [first, second]),
+    ).toEqual({ verified: [], remaining: [first, second] });
   });
 
   it("requires every affected screen relationship", () => {

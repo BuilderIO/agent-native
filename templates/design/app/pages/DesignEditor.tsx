@@ -7828,6 +7828,7 @@ function DesignEditor() {
         replacementSelector?: string;
         replacementSourceId?: string;
         replacementElementInfo?: ElementInfo;
+        replacementSnapshotHtml?: string;
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
@@ -12092,6 +12093,7 @@ function DesignEditor() {
         replacementSelector?: string;
         replacementSourceId?: string;
         replacementElementInfo?: ElementInfo;
+        replacementSnapshotHtml?: string;
       },
     ) =>
       runVisualStructureChange(
@@ -12334,6 +12336,7 @@ function DesignEditor() {
         replacementSelector?: string;
         replacementSourceId?: string;
         replacementElementInfo?: ElementInfo;
+        replacementSnapshotHtml?: string;
       },
     ) =>
       runScreenVisualStructureChange(

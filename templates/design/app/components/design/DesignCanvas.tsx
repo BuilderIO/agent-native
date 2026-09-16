@@ -698,6 +698,7 @@ interface DesignCanvasProps {
       replacementSelector?: string;
       replacementSourceId?: string;
       replacementElementInfo?: ElementInfo;
+      replacementSnapshotHtml?: string;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -3667,6 +3668,11 @@ export function DesignCanvas({
                     replaced: true as const,
                     replacementSelector: selector,
                     replacementSourceId: sourceId,
+                    replacementSnapshotHtml:
+                      typeof e.data.replacementSnapshotHtml === "string" &&
+                      e.data.replacementSnapshotHtml.length <= 2_000_000
+                        ? e.data.replacementSnapshotHtml
+                        : undefined,
                     replacementElementInfo: isElementInfoPayload(e.data.payload)
                       ? e.data.payload
                       : undefined,

@@ -1840,7 +1840,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return !(isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]"));
     }
-    function serializeRuntimeLayerSnapshot() {
+    function serializeRuntimeLayerSnapshot(excludedRoot) {
       if (!document.body) return null;
       var snapshotComputedProperties = [
         "box-sizing",
@@ -1931,7 +1931,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var index = 0; index < sourceNodes.length && index < cloneNodes.length; index += 1) {
         var sourceNode = sourceNodes[index];
         var cloneNode = cloneNodes[index];
-        if (!isRuntimeLayerVisualNode(sourceNode)) {
+        if (excludedRoot?.contains(sourceNode) || !isRuntimeLayerVisualNode(sourceNode)) {
           cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
           continue;
         }
@@ -9770,6 +9770,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           // element the source file has never contained.
           insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
           replaced: replaced === true ? true : void 0,
+          // The original is still connected here so its selector/provenance
+          // remain readable. Excluding its exact DOM subtree captures the
+          // expected replacement without guessing from a later snapshot.
+          replacementSnapshotHtml: replaced === true && origin?.originalElement ? serializeRuntimeLayerSnapshot(origin.originalElement)?.html : void 0,
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el),
