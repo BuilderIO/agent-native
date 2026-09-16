@@ -226,6 +226,19 @@ describe("patchAuthoredInlineStyles", () => {
       height: "fit-content",
     });
   });
+  it("carries committed alignment and shorthand authoring onto the snapshot", () => {
+    const committed = {
+      alignItems: "center",
+      alignContent: "space-between",
+      justifyItems: "start",
+      gap: "16px",
+      padding: "12px",
+    };
+    expect(
+      patchAuthoredInlineStyles({ alignItems: "flex-start" }, committed),
+    ).toEqual(committed);
+  });
+
   it("carries committed flex, gap and padding authoring onto the snapshot", () => {
     const committed = {
       flexDirection: "column",
