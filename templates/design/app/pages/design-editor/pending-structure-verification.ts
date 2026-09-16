@@ -156,9 +156,13 @@ function verifyRuntimeStructureSubjectAbsent(
   if (
     subject.status === "resolved" &&
     (edit.sourceId ||
-      subject.node !== replacement ||
-      !edit.subjectSignature ||
-      runtimeStructureNodeMatchesSignature(subject.node, edit.subjectSignature))
+      replacement === undefined ||
+      (subject.node === replacement &&
+        (!edit.subjectSignature ||
+          runtimeStructureNodeMatchesSignature(
+            subject.node,
+            edit.subjectSignature,
+          ))))
   ) {
     return { ok: false, failure: "subject-still-present" };
   }
@@ -194,7 +198,16 @@ function verifyRuntimeStructureSubjectAbsent(
 const runtimeSnapshotMetadataAttributes = new Set([
   "style",
   "data-agent-native-node-id",
+  "data-agent-native-node-rewrite-proposal",
+  "data-agent-native-group-runtime-state",
+  "data-agent-native-runtime-hidden",
+  "data-agent-native-runtime-locked",
+  "data-agent-native-previous-display",
+  "data-agent-native-text-editing",
   "data-an-runtime-layer-snapshot",
+  "data-an-pending-node-id",
+  "data-an-state-preview",
+  "data-an-state-preview-key",
   "data-source-framework",
   "data-source-file",
   "data-source-line",

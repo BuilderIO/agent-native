@@ -288,7 +288,10 @@ describe("verifyPendingStructureRuntime", () => {
       name: "ignores a stale old selector pointing at an unrelated sibling",
       html: "<div>Unrelated</div>" + replacementHtml,
       expectedHtml: "<div>Unrelated</div>" + replacementHtml,
-      overrides: { selector: "main > div:nth-of-type(1)" },
+      overrides: {
+        sourceId: null,
+        selector: "main > div:nth-of-type(1)",
+      },
     },
     {
       name: "rejects a surviving old node that lost both identity and shape",
@@ -511,6 +514,20 @@ describe("verifyPendingStructureRuntime", () => {
     },
   );
 
+  it("keeps an identity-less removal fail-closed when its selector resolves", () => {
+    expect(
+      verifyPendingStructureRuntime(
+        "<!doctype html><body><main><div>Still here</div></main></body>",
+        edit({
+          sourceId: null,
+          selector: "main > div:nth-of-type(1)",
+          removed: true,
+          subjectSignature: { tag: "div", text: "Original", classes: [] },
+        }),
+      ),
+    ).toEqual({ ok: false, failure: "subject-still-present" });
+  });
+
   it.each([
     ["a", "href", "/expected", "/wrong"],
     ["img", "src", "/expected.png", "/wrong.png"],
@@ -559,9 +576,18 @@ describe("verifyPendingStructureRuntime", () => {
     );
   });
 
-  it("ignores exactly the runtime snapshot serializer identity, style and provenance attributes", () => {
+  it("ignores bridge runtime-only attributes but preserves authored data", () => {
     const metadata = [
       "data-agent-native-node-id",
+      "data-agent-native-node-rewrite-proposal",
+      "data-agent-native-group-runtime-state",
+      "data-agent-native-runtime-hidden",
+      "data-agent-native-runtime-locked",
+      "data-agent-native-previous-display",
+      "data-agent-native-text-editing",
+      "data-an-pending-node-id",
+      "data-an-state-preview",
+      "data-an-state-preview-key",
       "data-an-runtime-layer-snapshot",
       "data-source-framework",
       "data-source-file",
@@ -585,6 +611,15 @@ describe("verifyPendingStructureRuntime", () => {
         `<body ${metadata}><section ${metadata}>Replacement</section></body>`,
       ),
     ).toBe(
+      runtimeStructureSnapshotSignature(
+        "<body><section>Replacement</section></body>",
+      ),
+    );
+    expect(
+      runtimeStructureSnapshotSignature(
+        '<body><section data-agent-native-hidden="true">Replacement</section></body>',
+      ),
+    ).not.toBe(
       runtimeStructureSnapshotSignature(
         "<body><section>Replacement</section></body>",
       ),
