@@ -336,6 +336,33 @@ describe("verifyPendingStructureRuntime", () => {
     });
   });
 
+  it("does not use a replacement signature after an ambiguous source-id lookup", () => {
+    const sameShapeSignature = {
+      tag: "section",
+      text: "Original",
+      classes: [],
+    };
+    const replaceEdit = edit({
+      selector: '[data-agent-native-node-id="subject"]',
+      sourceId: "subject",
+      insertedHtml: "<section>Original</section>",
+      replaced: true,
+      replacementSelector:
+        'body > main > section[data-agent-native-node-id="subject"]',
+      replacementSourceId: "subject",
+      subjectSignature: sameShapeSignature,
+      replacementSignature: sameShapeSignature,
+    });
+    const html = `<!doctype html><body><main>
+      <div data-agent-native-node-id="subject">Changed</div>
+      <section data-agent-native-node-id="subject">Original</section>
+    </main></body>`;
+    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
+      ok: false,
+      failure: "ambiguous-subject",
+    });
+  });
+
   it("accepts a same-shaped replacement when its new identity is stable", () => {
     const sameShapeSignature = {
       tag: "section",

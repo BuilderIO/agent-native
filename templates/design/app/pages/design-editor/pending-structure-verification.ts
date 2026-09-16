@@ -108,6 +108,11 @@ function resolveRuntimeStructureNode(args: {
             : "missing-anchor",
     };
   }
+  if (direct.status === "ambiguous") {
+    return {
+      failure: runtimeStructureResolutionFailure("ambiguous", args.role),
+    };
+  }
 
   if (!args.signature) {
     return {
