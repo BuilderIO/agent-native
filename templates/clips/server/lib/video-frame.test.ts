@@ -29,6 +29,7 @@ describe("probeMediaDurationMs", () => {
     async () => {
       const root = await mkdtemp(join(tmpdir(), "clips-video-frame-test-"));
       const fullPath = join(root, "full.mp4");
+      const audioOnlyPath = join(root, "audio-only.mp4");
       const previousFfmpegPath = process.env.FFMPEG_PATH;
       process.env.FFMPEG_PATH = availableFfmpegPath!;
 
@@ -62,8 +63,25 @@ describe("probeMediaDurationMs", () => {
           "+faststart",
           fullPath,
         ]);
+        await execFileAsync(availableFfmpegPath!, [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          "anullsrc=channel_layout=stereo:sample_rate=44100",
+          "-t",
+          "2",
+          "-vn",
+          "-c:a",
+          "aac",
+          audioOnlyPath,
+        ]);
 
         const fullBytes = new Uint8Array(await readFile(fullPath));
+        const audioOnlyBytes = new Uint8Array(await readFile(audioOnlyPath));
         const truncatedBytes = fullBytes.slice(
           0,
           Math.floor(fullBytes.byteLength * 0.9),
@@ -76,6 +94,11 @@ describe("probeMediaDurationMs", () => {
         ).resolves.toBeGreaterThan(0);
         await expect(
           probeMediaDurationMs(truncatedBytes, "video/mp4", {
+            requireComplete: true,
+          }),
+        ).resolves.toBeNull();
+        await expect(
+          probeMediaDurationMs(audioOnlyBytes, "video/mp4", {
             requireComplete: true,
           }),
         ).resolves.toBeNull();

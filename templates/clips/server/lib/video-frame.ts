@@ -180,7 +180,7 @@ export async function probeMediaDurationMs(
             "-i",
             inputPath,
             ...(requireComplete
-              ? ["-map", "0", "-f", "null", "-"]
+              ? ["-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"]
               : ["-map", "0:v:0?", "-frames:v", "1", "-f", "null", "-"]),
           ],
           requireComplete ? COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS : undefined,
