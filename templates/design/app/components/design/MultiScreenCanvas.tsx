@@ -8512,7 +8512,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           };
         });
         updateFrameGeometry(() => next);
-        onGeometryCommitRef.current?.(before, cloneFrameGeometryById(next));
+        onGeometryCommitRef.current?.(before, cloneFrameGeometryById(next), {
+          source: "keyboard",
+        });
       }
       if (targetDraftIds.length > 0) {
         updateDraftPrimitives((current) =>

@@ -22,6 +22,7 @@ function runCommit(
 ) {
   const geometryUndoStackRef = { current: [] as GeometryHistoryEntry[] };
   const historyOrderRef = { current: [] as UndoRedoOrderKind[] };
+  const liveFrameGeometryRef = { current: before };
   const writeFrameGeometrySnapshot = vi.fn();
   const captureLinkedContentChanges = vi.fn(() => []);
   const selection: GeometryHistorySelection = {
@@ -40,6 +41,7 @@ function runCommit(
       geometryUndoStackRef,
       historyOrderRef,
       id: "design",
+      liveFrameGeometryRef,
       lastGeometryCommitAtRef: { current: 0 },
       locallyPinnedHeightIdsRef: { current: new Set<string>() },
       queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
@@ -56,6 +58,7 @@ function runCommit(
     captureLinkedContentChanges,
     committed,
     geometryUndoStackRef,
+    liveFrameGeometryRef,
     writeFrameGeometrySnapshot,
   };
 }
@@ -86,6 +89,7 @@ describe("runGeometryCommit", () => {
       expect.objectContaining({ syncViewportFrameIds: ["screen"] }),
     );
     expect(result.geometryUndoStackRef.current[0]?.after).toEqual(expected);
+    expect(result.liveFrameGeometryRef.current).toEqual(expected);
     expect(result.captureLinkedContentChanges).toHaveBeenCalledWith(
       ["screen"],
       { screen: [] },
@@ -104,6 +108,7 @@ describe("runGeometryCommit", () => {
       expect.objectContaining({ syncViewportFrameIds: ["screen"] }),
     );
     expect(result.geometryUndoStackRef.current[0]?.after).toEqual(expected);
+    expect(result.liveFrameGeometryRef.current).toEqual(expected);
   });
 
   it("does not round unchanged fractional geometry on selected or unselected frames", () => {

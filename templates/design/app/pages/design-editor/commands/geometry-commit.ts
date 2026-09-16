@@ -38,6 +38,7 @@ export interface GeometryCommitArgs {
     direction: "commit" | "undo" | "redo",
   ) => void;
   lastGeometryCommitAtRef: RefObject<number>;
+  liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
   locallyPinnedHeightIdsRef: RefObject<Set<string>>;
   queryClient: QueryClient;
   queueFrameGeometrySave: (geometryById: CanvasFrameGeometryById) => void;
@@ -60,6 +61,7 @@ export function runGeometryCommit(
     id,
     applyLinkedContentChanges,
     lastGeometryCommitAtRef,
+    liveFrameGeometryRef,
     locallyPinnedHeightIdsRef,
     queryClient,
     queueFrameGeometrySave,
@@ -122,6 +124,9 @@ export function runGeometryCommit(
     return false;
   }
   const linkedContentChanges = linkedContentChangesResult ?? [];
+  // Keep the freshness guard on the accepted persisted snapshot, not the
+  // render-time geometry that React may not have committed before Undo.
+  liveFrameGeometryRef.current = afterSnapshot;
   // U9: keyboard nudge (arrow-key auto-repeat) fires one onGeometryCommit
   // per tick, each previously pushing its own undo entry AND its own
   // immediate (non-debounced) server write — a held arrow key could evict
