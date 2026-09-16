@@ -2283,7 +2283,7 @@ jobs:
             );
           NODE
           )"
-          alias_url="$(node --experimental-strip-types <<'NODE'
+          alias_url="$(IMMUTABLE_URL="$immutable_url" node --experimental-strip-types <<'NODE'
             const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
             const { resolveNetlifyPreviewAliasUrl } = await import("./scripts/netlify-prebuilt-target.ts");
 
@@ -2303,7 +2303,7 @@ jobs:
               process.env.PREVIEW_ALIAS,
               site.name,
             );
-            if (aliasUrl === immutable_url) {
+            if (aliasUrl === process.env.IMMUTABLE_URL) {
               throw new Error("Netlify preview alias resolved to the immutable deploy URL.");
             }
             process.stdout.write(aliasUrl);
