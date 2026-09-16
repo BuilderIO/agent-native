@@ -112,6 +112,7 @@ import {
   resolveStableContentSizeSample,
   type ContentSizeSample,
 } from "./design-canvas/content-size-report";
+import { getDesignCanvasIframeSandbox } from "./design-canvas/external-preview";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { roundGeo, trace, type TraceArea } from "./design-trace";
@@ -11934,7 +11935,10 @@ const Screen = memo(function Screen({
                 data-screen-iframe-id={screen.id}
                 src={previewUrl}
                 srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                sandbox="allow-scripts"
+                sandbox={getDesignCanvasIframeSandbox({
+                  externalPreview: Boolean(previewUrl),
+                  readOnly: true,
+                })}
                 // Visible includes the generous overscan band, so eager load
                 // here prewarms the document before it crosses the raw
                 // viewport edge. Warm hidden iframes are already loaded.
@@ -12720,7 +12724,10 @@ function BreakpointPreviewRow({
                     }}
                     src={previewUrl}
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                    sandbox="allow-scripts"
+                    sandbox={getDesignCanvasIframeSandbox({
+                      externalPreview: Boolean(previewUrl),
+                      readOnly: true,
+                    })}
                     onLoad={() => {
                       getBootStartCallback?.(
                         screen.id,
