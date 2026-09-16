@@ -57,7 +57,18 @@ const SLIDE_STARTER_KIT = { bold: false, trailingNode: false } as const;
 // should create a bold mark while entering edit mode.
 export const SlideBold = Bold.extend({
   parseHTML() {
-    return [{ tag: "strong" }, { tag: "b" }];
+    return [
+      { tag: "strong" },
+      {
+        tag: "b",
+        getAttrs: (node) =>
+          (node as HTMLElement).style.fontWeight !== "normal" && null,
+      },
+      {
+        style: "font-weight=400",
+        clearMark: (mark) => mark.type.name === this.name,
+      },
+    ];
   },
 });
 

@@ -54,6 +54,22 @@ describe("slide rich text normalization", () => {
     }
   });
 
+  it("clears an existing bold mark for an explicit normal weight", () => {
+    const editor = new Editor({
+      extensions: [StarterKit.configure({ bold: false }), SlideBold],
+      content:
+        '<p><strong><span style="font-weight:400">Normal</span></strong></p>',
+    });
+
+    try {
+      expect(
+        editor.getJSON().content?.[0]?.content?.[0]?.marks,
+      ).toBeUndefined();
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("converts legacy bullet rows without losing row styling", () => {
     const html = normalizeSlideEditorContent(
       '<div><div style="font-size: 24px; color: red"><span>●</span><span>First</span></div><div><span>●</span><span>Second</span></div></div><p></p>',
