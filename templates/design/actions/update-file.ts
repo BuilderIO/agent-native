@@ -390,23 +390,6 @@ export default defineAction({
             persistedFile.contentOperationResultHash === persistedContentHash;
         }
 
-        // Several rapid saves may all have been queued from the same acked
-        // base. A successor from the SAME tab may advance from the previous
-        // accepted result even when its queue-time expected hash predates that
-        // result. Only trust this lineage if the current SQL mirror still
-        // equals the result hash recorded with the prior operation; an
-        // intervening writer breaks the chain and keeps the ordinary hash
-        // conflict guard fully active.
-        const sameSourceSuccessorHash =
-          sameOperationSource &&
-          !skippedStaleOperation &&
-          requestedOperationRevision !== null &&
-          requestedOperationRevision >
-            persistedFile.contentOperationRevision! &&
-          persistedFile.contentOperationResultHash === persistedContentHash
-            ? persistedContentHash
-            : undefined;
-
         // SQL-mirror-only skip path: when the caller explicitly opted OUT of
         // collab sync (syncCollab: false) and supplied an expectedVersionHash
         // that no longer matches the LIVE collab text, and a live collab doc
@@ -443,19 +426,15 @@ export default defineAction({
           expectedVersionHash !== undefined &&
           content !== undefined
         ) {
-          const acceptedBaseHashes = new Set([
-            expectedVersionHash,
-            ...(sameSourceSuccessorHash ? [sameSourceSuccessorHash] : []),
-          ]);
           if (
             liveContent !== content &&
-            !acceptedBaseHashes.has(sourceContentHash(liveContent))
+            sourceContentHash(liveContent) !== expectedVersionHash
           ) {
             if (syncCollab === false && collabExists) {
               // A delayed client transport does not invalidate the SQL lineage.
               // Preserve the mirror CAS, but keep CRDT authorship with the client:
               // its original deltas can still arrive after this HTTP save.
-              if (!acceptedBaseHashes.has(persistedContentHash)) {
+              if (persistedContentHash !== expectedVersionHash) {
                 skipContentWrite = true;
                 skippedStaleMirror = true;
               }
@@ -510,8 +489,8 @@ export default defineAction({
         // cannot both validate the same snapshot and let the later SQL update
         // clobber the winner. If another instance moves any part of the content
         // lineage first, rowsAffected is zero and this loop re-reads the row;
-        // the next pass then classifies the request as a stale no-op, a valid
-        // same-source successor, or a real cross-writer hash conflict.
+        // the next pass then classifies the request as a stale no-op or a real
+        // source-version conflict.
         const requiresContentCas =
           hasVersionedContentOperation && !skipContentWrite;
         const contentCasWhere = requiresContentCas

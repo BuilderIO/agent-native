@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["fr-FR"],
   designEditor: {
     ...messagesByLocale["fr-FR"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["fr-FR"].designEditor.componentInstances,
+      restore: "Restaurer le composant",
+    },
     commenterRoleLabel: "Commentateur",
     commenterRoleDescription:
       "Peut consulter et ajouter des commentaires de révision",
@@ -57,6 +61,9 @@ const messages = {
     placeholder: "Laissez un commentaire…",
     commentingOn: "Commentaire sur {{name}}",
     emptyState: "Aucun commentaire de révision pour le moment.",
+    filter: "Filtrer les commentaires",
+    all: "Tous",
+    open: "Ouverts",
     clickToPin: "Cliquez n’importe où pour épingler un commentaire",
     escToExit: "Appuyez sur Esc pour quitter",
     newComment: "Nouveau commentaire",
@@ -78,6 +85,9 @@ const messages = {
     resolveFailed: "Impossible de résoudre cette discussion",
     deleteComment: "Supprimer le commentaire",
     moreActions: "Plus d’actions",
+    copyLink: "Copier le lien",
+    linkCopied: "Lien copié",
+    copyLinkFailed: "Impossible de copier le lien",
     resolved: "Résolu",
     reviewer: "Évaluateur",
     applyFeedback: "Appliquer les retours ({{count}})",

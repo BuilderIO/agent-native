@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ElementInfo } from "../types";
 import { cssElementSize } from "./element-classification";
 import {
+  clearAuthoredSizeStylesForCommit,
   patchAuthoredInlineStyles,
   authoredStyleValue,
   elementWithInteractionStateStyles,
@@ -224,5 +225,22 @@ describe("patchAuthoredInlineStyles", () => {
       left: "10px",
       height: "fit-content",
     });
+  });
+});
+
+describe("clearAuthoredSizeStylesForCommit", () => {
+  it("drops changed native hints while retaining unrelated axes", () => {
+    expect(
+      clearAuthoredSizeStylesForCommit(
+        { width: "240px", height: "auto" },
+        { width: "fit-content" },
+      ),
+    ).toEqual({ height: "auto" });
+  });
+
+  it("preserves absence when the snapshot has no native hints", () => {
+    expect(
+      clearAuthoredSizeStylesForCommit(undefined, { width: "120px" }),
+    ).toBe(undefined);
   });
 });

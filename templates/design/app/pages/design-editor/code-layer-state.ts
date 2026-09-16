@@ -1302,6 +1302,10 @@ export function refreshElementInfoFromContent(
       ),
       computedStyles,
       inlineStyles: sourceInfo.inlineStyles ?? {},
+      // Source projection refreshes cannot recompute the live CSS cascade;
+      // discard any bridge hint so it cannot outrank these fresh inline
+      // values until the next selection payload.
+      authoredSizeStyles: undefined,
       boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: sourceInfo.textContent,
       childElementCount: sourceInfo.childElementCount,
@@ -1332,6 +1336,7 @@ export function refreshElementInfoFromContent(
       classes,
       computedStyles,
       inlineStyles,
+      authoredSizeStyles: undefined,
       boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: element.textContent?.slice(0, 200) ?? info.textContent,
       childElementCount: element.children.length,

@@ -2,11 +2,13 @@ import {
   parseReviewAnchor,
   type DesignReviewAnchor,
   type ReviewAnchorPoint,
+  type ReviewCanvasPoint,
 } from "../../../shared/review-anchor";
 
 export interface ReviewPinPosition {
   point: ReviewAnchorPoint;
   source: "node" | "selector" | "point";
+  canvasPoint?: ReviewCanvasPoint;
 }
 
 // Layer identity enriches the comment; the point remains user-authored.
@@ -18,6 +20,7 @@ export function getReviewPinPosition(
   return {
     point: parsed.point,
     source: parsed.nodeId ? "node" : parsed.selector ? "selector" : "point",
+    ...(parsed.canvasPoint ? { canvasPoint: parsed.canvasPoint } : {}),
   };
 }
 

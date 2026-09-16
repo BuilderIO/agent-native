@@ -724,7 +724,10 @@ export function mergeLocalContentHistoryFallback(
 }
 
 export interface ContentHistoryReservation {
-  commit: (changes: ContentHistoryChange[]) => void;
+  commit: (
+    changes: ContentHistoryChange[],
+    selectionAfter?: GeometryHistorySelection,
+  ) => void;
   cancel: () => void;
 }
 
@@ -773,7 +776,7 @@ export function reserveLinkedComponentContentHistory<T extends string>(args: {
   };
   return {
     cancel,
-    commit: (changes) => {
+    commit: (changes, selectionAfter) => {
       const persistedChanges = changes.filter(hasContentHistoryChange);
       if (persistedChanges.length === 0) {
         cancel();
@@ -794,8 +797,8 @@ export function reserveLinkedComponentContentHistory<T extends string>(args: {
       );
       args.after?.current.set(
         entry,
-        captureHistorySelectionSources(args.selection, {
-          ...args.selection.sourceContentByFileId,
+        captureHistorySelectionSources(selectionAfter ?? args.selection, {
+          ...(selectionAfter ?? args.selection).sourceContentByFileId,
           ...Object.fromEntries(
             changes.map(({ fileId, after }) => [fileId, after]),
           ),

@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["de-DE"],
   designEditor: {
     ...messagesByLocale["de-DE"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["de-DE"].designEditor.componentInstances,
+      restore: "Komponente wiederherstellen",
+    },
     commenterRoleLabel: "Kommentator",
     commenterRoleDescription: "Kann ansehen und Prüfkommentare hinzufügen",
     toasts: {
@@ -56,6 +60,9 @@ const messages = {
     placeholder: "Feedback hinterlassen…",
     commentingOn: "Kommentar zu {{name}}",
     emptyState: "Noch keine Prüfkommentare.",
+    filter: "Kommentare filtern",
+    all: "Alle",
+    open: "Offen",
     clickToPin: "Klicke an eine beliebige Stelle, um Feedback anzuheften",
     escToExit: "Esc zum Beenden",
     newComment: "Neuer Kommentar",
@@ -76,6 +83,9 @@ const messages = {
     resolveFailed: "Dieser Thread konnte nicht erledigt werden",
     deleteComment: "Kommentar löschen",
     moreActions: "Weitere Aktionen",
+    copyLink: "Link kopieren",
+    linkCopied: "Link kopiert",
+    copyLinkFailed: "Link konnte nicht kopiert werden",
     resolved: "Erledigt",
     reviewer: "Prüfende Person",
     applyFeedback: "Feedback anwenden ({{count}})",
