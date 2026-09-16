@@ -77,9 +77,20 @@ For each slide N:
 
 1. Fully load `.../edit#slide=id.p<N>` (a real navigation, not a hash change
    — hash-only navigation freezes a hidden tab and the SVG never updates).
-2. Run `extractGoogleSlideLayout(N)` in the page. For a deck that is not 16:9,
-   pass its ratio and coordinate width — e.g.
-   `extractGoogleSlideLayout(N, { aspect: 4 / 5, width: 720 })` — or the frame
+2. Emit browser JS from the extractor once, since `google-layout.ts` is
+   TypeScript and a console will not parse it:
+
+   ```bash
+   pnpm exec tsc scripts/export-fidelity/google-layout.ts --ignoreConfig \
+     --target es2022 --lib es2022,dom --outDir /tmp/gl
+   sed 's/^export //' /tmp/gl/google-layout.js
+   ```
+
+   Paste that output into the page — or hand the same stripped source to a
+   browser automation tool's page-eval — and then call
+   `extractGoogleSlideLayout(N)`. For a deck that is not 16:9, pass its ratio
+   and coordinate width, e.g.
+   `extractGoogleSlideLayout(N, { aspect: 4 / 5, width: 720 })`, or the frame
    search finds nothing and it throws.
 3. Browser tools may cap output around 1KB per call — page the returned rows
    and append each page to `google.txt`.

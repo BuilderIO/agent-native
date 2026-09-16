@@ -1,5 +1,11 @@
-// Runs INSIDE the Google Slides editor page (paste into devtools, or invoke
-// via a browser automation tool's page-eval), once per slide. Do a full page
+// Runs INSIDE the Google Slides editor page, once per slide. This file is
+// TypeScript, so no console will take it as it stands — emit browser JS first,
+// from templates/slides:
+//   pnpm exec tsc scripts/export-fidelity/google-layout.ts --ignoreConfig \
+//     --target es2022 --lib es2022,dom --outDir /tmp/gl
+//   sed 's/^export //' /tmp/gl/google-layout.js
+// Paste that output into the page (or hand the same stripped source to a
+// browser automation tool's page-eval), then call the function. Do a full page
 // navigation to `.../edit#slide=id.p<N>` first — hash-only navigation freezes
 // a hidden tab, so the slide must actually be (re)loaded before this runs.
 // See README.md for the full import + extraction procedure.
