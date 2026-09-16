@@ -216,6 +216,21 @@ describe("code-layer projection", () => {
     expect(button?.layerNameSource).toBe("semantic");
   });
 
+  it("keeps names from the legacy .fig layer-name attribute", () => {
+    const projection = buildCodeLayerProjection(
+      '<body><section data-agent-native-node-id="legacy" layer-name="Legacy hero"><h1>Fallback text</h1></section></body>',
+    );
+    const section = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "legacy",
+    );
+
+    expect(section).toMatchObject({
+      layerName: "Legacy hero",
+      layerNameSource: "attribute",
+      layerNameAttribute: "layer-name",
+    });
+  });
+
   it("marks component instance nodes with componentInstance metadata", () => {
     const html = `
       <section class="flex gap-4">

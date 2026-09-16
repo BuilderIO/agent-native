@@ -511,6 +511,15 @@ function MethodBody({
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
+  const trackMethodClick = () => {
+    trackOnboardingEvent("onboarding_method_clicked", {
+      flow: "checklist",
+      step_id: stepId,
+      method_id: method.id,
+      method_kind: method.kind,
+    });
+  };
+
   if (method.disabled) {
     return (
       <button
@@ -527,7 +536,11 @@ function MethodBody({
   switch (method.kind) {
     case "link":
       return (
-        <LinkMethod method={method} onMarkComplete={onMarkManualComplete} />
+        <LinkMethod
+          method={method}
+          onMarkComplete={onMarkManualComplete}
+          onClick={trackMethodClick}
+        />
       );
     case "form":
       return <FormMethod method={method} onCompleted={onCompleted} />;
@@ -536,10 +549,17 @@ function MethodBody({
         <BuilderCliAuthMethod
           onCompleted={onCompleted}
           primary={method.primary}
+          onClick={trackMethodClick}
         />
       );
     case "agent-task":
-      return <AgentTaskMethod method={method} stepId={stepId} />;
+      return (
+        <AgentTaskMethod
+          method={method}
+          stepId={stepId}
+          onClick={trackMethodClick}
+        />
+      );
   }
 }
 
@@ -548,9 +568,11 @@ function MethodBody({
 function LinkMethod({
   method,
   onMarkComplete,
+  onClick,
 }: {
   method: Extract<OnboardingMethod, { kind: "link" }>;
   onMarkComplete: () => void;
+  onClick: () => void;
 }) {
   const { url, external } = method.payload;
   const isNoop = !url || url === "#";
@@ -560,7 +582,10 @@ function LinkMethod({
       <button
         type="button"
         style={buttonPrimary(method.primary)}
-        onClick={onMarkComplete}
+        onClick={() => {
+          onClick();
+          onMarkComplete();
+        }}
       >
         Use this option
       </button>
@@ -571,6 +596,7 @@ function LinkMethod({
       href={url}
       target={external ? "_blank" : undefined}
       rel={external ? "noopener noreferrer" : undefined}
+      onClick={onClick}
       style={{ ...buttonPrimary(method.primary), textDecoration: "none" }}
     >
       Continue
@@ -694,9 +720,11 @@ function FormMethod({
 function BuilderCliAuthMethod({
   onCompleted,
   primary,
+  onClick,
 }: {
   onCompleted: () => Promise<void>;
   primary?: boolean;
+  onClick: () => void;
 }) {
   const connectFlow = useBuilderConnectFlow({
     provisionAccount: true,
@@ -711,6 +739,7 @@ function BuilderCliAuthMethod({
         <button
           type="button"
           disabled={connecting}
+          onClick={onClick}
           style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
         >
           {connecting ? (
@@ -743,11 +772,14 @@ function BuilderCliAuthMethod({
 function AgentTaskMethod({
   method,
   stepId: _stepId,
+  onClick,
 }: {
   method: Extract<OnboardingMethod, { kind: "agent-task" }>;
   stepId: string;
+  onClick: () => void;
 }) {
   const handleClick = () => {
+    onClick();
     sendToAgentChat({ message: method.payload.prompt, submit: true });
   };
   return (

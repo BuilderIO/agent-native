@@ -1632,6 +1632,120 @@ export function materializeClipPathShapes(root: HTMLElement) {
   }
 }
 
+const BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
+const BORDER_CORNERS = [
+  "top-left",
+  "top-right",
+  "bottom-right",
+  "bottom-left",
+] as const;
+const TRANSPARENT_COLOR = /^(?:transparent|rgba\([^)]*,\s*0(?:\.0+)?\))$/;
+
+/**
+ * Redraws a border whose sides differ as boxes of its own.
+ *
+ * dom-to-pptx calls any border that is not identical on all four sides
+ * `composite` (`getBorderInfo`) and lays an SVG picture over the shape, so a
+ * table rule or a divider reaches Slides as an image nobody can edit. Each
+ * side's width moves into that side's padding, which is neutral under either
+ * `box-sizing`, so the boxes the geometry passes pinned stay where they are.
+ */
+export function materializeCompositeBorders(root: HTMLElement) {
+  // The slide root carries its own border into the export, and is not part of
+  // its own `querySelectorAll`.
+  for (const element of [
+    root,
+    ...Array.from(root.querySelectorAll<HTMLElement>("*")),
+  ]) {
+    const style = window.getComputedStyle(element);
+    const edges = BORDER_SIDES.map((side) => ({
+      color: style.getPropertyValue(`border-${side}-color`),
+      side,
+      stroke: style.getPropertyValue(`border-${side}-style`),
+      width: computedLength(style.getPropertyValue(`border-${side}-width`), 0),
+    }));
+    const [first] = edges;
+    if (!edges.some((edge) => edge.width > 0)) continue;
+    if (
+      edges.every(
+        (edge) =>
+          edge.width === first.width &&
+          edge.stroke === first.stroke &&
+          edge.color === first.color,
+      )
+    ) {
+      continue;
+    }
+    // A dashed rule keeps its picture: a plain box would redraw it solid.
+    if (edges.some((edge) => edge.width > 0 && edge.stroke !== "solid")) {
+      continue;
+    }
+    // Rounded corners would come back square.
+    if (
+      BORDER_CORNERS.some(
+        (corner) =>
+          computedLength(style.getPropertyValue(`border-${corner}-radius`), 0) >
+          0,
+      )
+    ) {
+      continue;
+    }
+    // CSS mitres the corner where two sides meet, and two bars would simply
+    // stack there, so a border with a real join keeps its picture.
+    if (
+      edges.some((edge, index) => {
+        const next = edges[(index + 1) % edges.length];
+        return (
+          edge.width > 0 &&
+          next.width > 0 &&
+          (edge.width !== next.width || edge.color !== next.color)
+        );
+      })
+    ) {
+      continue;
+    }
+    // A border moved into the padding grows the padding box, which is the
+    // containing block anything inside is positioned against — and making a
+    // static box relative would hand it descendants it never held.
+    const positioned = Array.from(
+      element.querySelectorAll<HTMLElement>("*"),
+    ).some((child) => {
+      const position = window.getComputedStyle(child).position;
+      return position === "absolute" || position === "fixed";
+    });
+    if (positioned) continue;
+    if (style.position === "static") element.style.position = "relative";
+
+    for (const edge of edges) {
+      if (!(edge.width > 0)) continue;
+      const padding = computedLength(
+        style.getPropertyValue(`padding-${edge.side}`),
+        0,
+      );
+      element.style.setProperty(
+        `padding-${edge.side}`,
+        `${padding + edge.width}px`,
+      );
+      element.style.setProperty(`border-${edge.side}-width`, "0");
+      if (TRANSPARENT_COLOR.test(edge.color)) continue;
+      const bar = element.ownerDocument.createElement("div");
+      bar.style.position = "absolute";
+      bar.style.backgroundColor = edge.color;
+      bar.style.setProperty(edge.side, "0");
+      if (edge.side === "top" || edge.side === "bottom") {
+        bar.style.left = "0";
+        bar.style.right = "0";
+        bar.style.height = `${edge.width}px`;
+      } else {
+        bar.style.top = "0";
+        bar.style.bottom = "0";
+        bar.style.width = `${edge.width}px`;
+      }
+      element.append(bar);
+    }
+  }
+}
+
 /**
  * Rasterize every inline `<svg>` in place, and return how many came back with
  * nothing painted. A blank bitmap is a shape that vanished from the deck, so
@@ -2240,6 +2354,7 @@ export async function buildDeckPptxBlob(
       // Runs after that restore, which re-applies each image's own measured
       // box — the uncropped one — and would undo the crop.
       await flattenCroppedImages(clone.element);
+      materializeCompositeBorders(clone.element);
       // Runs last: it prepends a child to the slide root, which shifts every
       // child index the geometry passes above resolve their recorded paths
       // through.

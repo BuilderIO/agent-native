@@ -255,7 +255,7 @@ Todo el proceso está diseñado para sobrevivir en todos los hosts sin servidor 
 
 Tres breves pasos:
 
-1. **Crea un espacio de trabajo que incluya Dispatch.** Ejecute `npx @agent-native/core@latest create my-company-platform` y elija `dispatch` junto con las plantillas de dominio que desee. Dispatch vive en `apps/dispatch` y el resto de las aplicaciones se encuentran a su lado. Ver [Multi-App Workspace](/docs/multi-app-workspace).
+1. **Crea un espacio de trabajo que incluya Dispatch.** Ejecute `npx --yes @agent-native/core@latest create my-company-platform` y elija `dispatch` junto con las plantillas de dominio que desee. Dispatch vive en `apps/dispatch` y el resto de las aplicaciones se encuentran a su lado. Ver [Multi-App Workspace](/docs/multi-app-workspace).
 2. **Conectar mensajes.** Abra **Administración → Mensajes** en Dispatch y haga clic en conectar para Slack, correo electrónico, Telegram o WhatsApp. Los campos del formulario coinciden con las variables de entorno en el documento [Messaging](/docs/messaging); consulte allí lo que necesita cada plataforma.
 3. **Agregue otras aplicaciones.** Ejecute `npx @agent-native/core@latest add-app` desde la raíz del espacio de trabajo para cada aplicación de dominio. Aparecen automáticamente como pares A2A en `list-workspace-apps` de Dispatch: sin registro manual ni edición de tarjetas de agente. Dispatch comenzará a delegarles tan pronto como sus tarjetas de agente estén disponibles.
 

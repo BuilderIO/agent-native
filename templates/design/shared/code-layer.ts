@@ -17,6 +17,7 @@ import {
 } from "./component-model";
 import type { TailwindBreakpointPrefix } from "./design-state.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
+import { resolveLayerNameAttribute } from "./layer-name.js";
 import {
   getPropertyClasses,
   parseClassGroups,
@@ -1017,11 +1018,6 @@ const STABLE_NODE_ID_ATTRIBUTES = [
   "data-loc",
 ] as const;
 
-const LAYER_NAME_ATTRIBUTE_PRIORITY = [
-  "data-agent-native-layer-name",
-  "data-layer-name",
-] as const;
-
 const SEMANTIC_LABEL_ATTRIBUTE_PRIORITY = [
   "aria-label",
   "title",
@@ -1613,14 +1609,16 @@ function explicitLayerNameFor(element: ParsedElement): {
   source: CodeLayerNode["layerNameSource"];
   attribute?: string;
 } | null {
-  for (const attribute of LAYER_NAME_ATTRIBUTE_PRIORITY) {
-    const value = attributeValue(element, attribute);
-    if (value) {
-      const name = truncateLayerName(value);
-      if (name) return { name, source: "attribute", attribute };
-    }
-  }
-  return null;
+  const explicit = resolveLayerNameAttribute((attribute) =>
+    attributeValue(element, attribute),
+  );
+  return explicit
+    ? {
+        name: truncateLayerName(explicit.value),
+        source: "attribute",
+        attribute: explicit.attribute,
+      }
+    : null;
 }
 
 function semanticLayerNameFor(element: ParsedElement): {

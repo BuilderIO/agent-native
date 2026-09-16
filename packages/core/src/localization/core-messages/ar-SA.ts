@@ -69,10 +69,21 @@ const messages: AgentChatTranslation = {
     "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
+  "onboarding.builderReadyWithCodeChanges":
+    "اعتمادات الذكاء الاصطناعي وتغييرات التعليمات البرمجية السحابية جاهزة للاستخدام.",
+  "onboarding.builderReadyCreditsOnly":
+    "اعتمادات الذكاء الاصطناعي جاهزة للاستخدام. تتطلب تعديلات التعليمات البرمجية السحابية مشروع Builder في إعدادات الوكيل في الخلفية.",
+  "onboarding.openBackgroundAgentSettings": "فتح إعدادات الوكيل في الخلفية",
   "onboarding.capability.llm.keySummary":
     "اربط مزود ذكاء اصطناعي أو نموذجًا محليًا",
   "onboarding.capability.fileStorage.keySummary":
     "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.fileStorage.title": "اختر تخزين الملفات",
+  "onboarding.fileStorage.description":
+    "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
+  "onboarding.fileStorage.custom": "استخدم مفاتيح تخزين مخصصة",
+  "onboarding.fileStorage.customDescription":
+    "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
   "onboarding.capability.voiceInput.label": "الإدخال الصوتي",
   "onboarding.capability.voiceInput.keySummary":
     "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",

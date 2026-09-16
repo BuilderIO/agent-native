@@ -36,7 +36,7 @@ Forking the template is the secondary path, for self-hosting or customizing the
 Plan app itself:
 
 ```bash
-npx @agent-native/core@latest create my-plan --standalone --template plan
+npx --yes @agent-native/core@latest create my-plan --standalone --template plan
 cd my-plan
 pnpm install
 pnpm dev

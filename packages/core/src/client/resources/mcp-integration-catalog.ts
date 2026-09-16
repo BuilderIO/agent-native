@@ -97,6 +97,8 @@ export interface McpOAuthStartParams {
   description: string;
   scope: "user" | "org";
   returnUrl: string;
+  trackingFlow?: "first_run";
+  trackingIntegrationId?: string;
 }
 
 export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
@@ -1006,6 +1008,8 @@ export function buildMcpOAuthStartUrl({
   description,
   scope,
   returnUrl,
+  trackingFlow,
+  trackingIntegrationId,
 }: McpOAuthStartParams): string {
   const params = new URLSearchParams({
     name,
@@ -1015,6 +1019,10 @@ export function buildMcpOAuthStartUrl({
     // keep a personal scope off a server that only accepts a workspace one.
     scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
+    ...(trackingFlow ? { tracking_flow: trackingFlow } : {}),
+    ...(trackingIntegrationId
+      ? { tracking_integration_id: trackingIntegrationId }
+      : {}),
   });
   return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
 }
