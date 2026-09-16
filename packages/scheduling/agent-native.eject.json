@@ -1,0 +1,45 @@
+{
+  "manifestVersion": 1,
+  "package": "@agent-native/scheduling",
+  "catalogs": ["domain-packages"],
+  "units": [
+    {
+      "id": "package/scheduling",
+      "label": "Scheduling domain package",
+      "catalog": "domain-packages",
+      "catalogItems": ["scheduling"],
+      "entrypoints": [
+        ".",
+        "./schema",
+        "./schema/event-types",
+        "./schema/schedules",
+        "./schema/bookings",
+        "./schema/teams",
+        "./schema/credentials",
+        "./schema/calendar-cache",
+        "./schema/workflows",
+        "./schema/routing-forms",
+        "./core",
+        "./server",
+        "./server/providers",
+        "./actions/*",
+        "./react",
+        "./react/components",
+        "./shared",
+        "./manifest"
+      ],
+      "strategy": "package-eject",
+      "sourceEntries": [
+        "src",
+        "docs",
+        "agent-native.eject.json",
+        "agent-native.package.json",
+        "package.json",
+        "tsconfig.json"
+      ],
+      "targetRoot": "packages/scheduling",
+      "protectedImports": ["@agent-native/core"],
+      "verification": ["pnpm --dir packages/scheduling typecheck"]
+    }
+  ]
+}
