@@ -174,4 +174,114 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
     expect(onSelectionChange).not.toHaveBeenCalledWith(["b"]);
     expect(onPrimaryContentHeightChange).toHaveBeenCalledWith("b", 950);
   });
+
+  it("preserves URL origin across fallback previews without changing inline isolation", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "remote-settings",
+              filename: "settings.html",
+              content: "https://preview.builderio.xyz/settings",
+              sourceType: "fusion",
+              breakpointWidths: [390],
+            },
+            {
+              id: "remote-library",
+              filename: "library.html",
+              content: "https://preview.builderio.xyz/library",
+              sourceType: "fusion",
+            },
+            {
+              id: "localhost-settings",
+              filename: "localhost-settings.html",
+              content: "http://localhost:8081/settings",
+              sourceType: "localhost",
+            },
+            {
+              id: "same-origin",
+              filename: "editor-owned.html",
+              content: `${window.location.origin}/editor-owned`,
+              sourceType: "localhost",
+            },
+            {
+              id: "hostile-fusion",
+              filename: "fusion.attacker.html",
+              content: "https://fusion.attacker.example/landing",
+            },
+            {
+              id: "inline",
+              filename: "inline.html",
+              content: "<!doctype html><html><body>Inline</body></html>",
+              breakpointWidths: [390],
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          readOnly
+          selectedScreenIds={[
+            "remote-settings",
+            "remote-library",
+            "localhost-settings",
+            "same-origin",
+            "hostile-fusion",
+            "inline",
+          ]}
+          geometryById={{
+            "remote-settings": { x: 0, y: 0, width: 400, height: 300 },
+            "remote-library": { x: 500, y: 0, width: 400, height: 300 },
+            "localhost-settings": { x: 1000, y: 0, width: 400, height: 300 },
+            "same-origin": { x: 0, y: 400, width: 400, height: 300 },
+            "hostile-fusion": { x: 500, y: 400, width: 400, height: 300 },
+            inline: { x: 1000, y: 0, width: 400, height: 300 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const primaryFrames = Array.from(
+      container.querySelectorAll<HTMLIFrameElement>(
+        "iframe[data-screen-iframe-id]",
+      ),
+    );
+    const primarySandboxById = new Map(
+      primaryFrames.map((iframe) => [
+        iframe.dataset.screenIframeId,
+        iframe.getAttribute("sandbox"),
+      ]),
+    );
+    expect(primarySandboxById.get("remote-settings")).toBe(
+      "allow-scripts allow-same-origin",
+    );
+    expect(primarySandboxById.get("remote-library")).toBe(
+      "allow-scripts allow-same-origin",
+    );
+    expect(primarySandboxById.get("localhost-settings")).toBe(
+      "allow-scripts allow-same-origin",
+    );
+    expect(primarySandboxById.get("same-origin")).toBe("allow-scripts");
+    expect(primarySandboxById.get("hostile-fusion")).toBe("allow-scripts");
+    expect(primarySandboxById.get("inline")).toBe("allow-scripts");
+
+    const breakpointFrames = Array.from(
+      container.querySelectorAll<HTMLIFrameElement>(
+        "[data-breakpoint-frame] iframe[data-screen-iframe-id]",
+      ),
+    );
+    expect(breakpointFrames).toHaveLength(2);
+    expect(
+      breakpointFrames
+        .find((iframe) =>
+          iframe.dataset.screenIframeId?.startsWith("remote-settings"),
+        )
+        ?.getAttribute("sandbox"),
+    ).toBe("allow-scripts allow-same-origin");
+    expect(
+      breakpointFrames
+        .find((iframe) => iframe.dataset.screenIframeId?.startsWith("inline"))
+        ?.getAttribute("sandbox"),
+    ).toBe("allow-scripts");
+  });
 });

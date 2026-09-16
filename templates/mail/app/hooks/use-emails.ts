@@ -405,12 +405,43 @@ export function useAddOptimisticReply() {
 // When we archive/trash/snooze/etc., we track the thread ID so that stale data
 // from subsequent refetches is filtered out via `select` in useEmails.
 
-const suppressedThreads = new Map<
-  string,
-  { action: string; timestamp: number }
->();
+type SuppressionAction =
+  | "archive"
+  | "trash"
+  | "spam"
+  | "block"
+  | "mute"
+  | "snooze"
+  | "move";
+
+// What the action removed the thread from — never where it might still be
+// listed. Only the mutation knows this: archive and move drop INBOX plus the
+// `removeLabel` they were handed and leave every other label attached, so
+// describing the remaining locations instead hid threads from labels they
+// still carry.
+type SuppressionRemoval = {
+  // Set when the action moved the thread into exactly one list (trash, spam).
+  // It is gone from every other view and label.
+  onlyIn?: string;
+  // Views the thread left, plus the single label the action removed, if any.
+  // Every other list — including labels it still carries — keeps showing it.
+  views?: string[];
+  label?: string;
+};
+
+type SuppressionEntry = {
+  action: SuppressionAction;
+  removed?: SuppressionRemoval;
+  timestamp: number;
+};
+
+// Keyed by thread, then by entry id: two mutations can hide the same thread at
+// once, and each must be able to drop its own claim without revealing a thread
+// the other still hides.
+const suppressedThreads = new Map<string, Map<number, SuppressionEntry>>();
 const suppressionListeners = new Set<() => void>();
 let suppressionVersion = 0;
+let nextSuppressionId = 1;
 const SUPPRESS_DURATION = 60_000; // 60s — covers Gmail's consistency window
 
 function notifySuppressionListeners() {
@@ -423,39 +454,82 @@ function subscribeToSuppression(listener: () => void) {
   return () => suppressionListeners.delete(listener);
 }
 
-/** Suppress a thread from appearing in views it was removed from. */
+/**
+ * Suppress a thread from the lists the action removed it from. Returns the
+ * entry id so a rollback can drop only this mutation's claim.
+ */
 export function suppressThread(
   threadId: string,
-  action: "archive" | "trash" | "spam" | "block" | "mute" | "snooze",
-) {
-  suppressedThreads.set(threadId, { action, timestamp: Date.now() });
+  action: SuppressionAction,
+  removed?: SuppressionRemoval,
+): number {
+  const id = nextSuppressionId++;
+  const entries = suppressedThreads.get(threadId) ?? new Map();
+  entries.set(id, { action, removed, timestamp: Date.now() });
+  suppressedThreads.set(threadId, entries);
+  notifySuppressionListeners();
+  return id;
+}
+
+/** Drop one mutation's claim — used on mutation error rollback. */
+export function releaseSuppression(threadId: string, id: number | undefined) {
+  if (id === undefined) return;
+  const entries = suppressedThreads.get(threadId);
+  if (!entries?.delete(id)) return;
+  if (entries.size === 0) suppressedThreads.delete(threadId);
   notifySuppressionListeners();
 }
 
-/** Remove suppression — used on mutation error rollback. */
+/** Clear every claim on a thread — used by undo, where the thread really is back. */
 export function unsuppressThread(threadId: string) {
   if (suppressedThreads.delete(threadId)) notifySuppressionListeners();
 }
 
-function isSuppressedInView(threadId: string, view: string): boolean {
-  const entry = suppressedThreads.get(threadId);
-  if (!entry) return false;
-  if (Date.now() - entry.timestamp > SUPPRESS_DURATION) {
-    suppressedThreads.delete(threadId);
-    return false;
+function isSuppressedInView(
+  threadId: string,
+  view: string,
+  label?: string,
+): boolean {
+  const entries = suppressedThreads.get(threadId);
+  if (!entries) return false;
+  const now = Date.now();
+  let newest: SuppressionEntry | undefined;
+  let newestId = 0;
+  for (const [id, entry] of entries) {
+    if (now - entry.timestamp > SUPPRESS_DURATION) {
+      entries.delete(id);
+      continue;
+    }
+    if (id > newestId) {
+      newestId = id;
+      newest = entry;
+    }
   }
-  // Don't suppress in the "destination" view for the action
-  if (entry.action === "archive" && view === "archive") return false;
-  if (entry.action === "trash" && view === "trash") return false;
-  return true;
+  if (entries.size === 0) suppressedThreads.delete(threadId);
+  if (!newest) return false;
+  // Only the newest claim says where the thread now lives: an archive claim
+  // must stop hiding it from Trash once a later trash put it there. Older
+  // claims stay in the map purely so their own rollback stays scoped.
+  const removed = newest.removed;
+  if (!removed) return true;
+  // Trash and spam leave exactly one list and nothing else, labels included.
+  if (removed.onlyIn) return view !== removed.onlyIn;
+  // A label tab is fetched as view "all" with that label, so only the label
+  // the action actually removed may stop listing the thread; every label it
+  // still carries keeps it.
+  if (label) return removed.label === label;
+  return removed.views?.includes(view) ?? false;
 }
 
 export function filterSuppressedThreads(
   emails: EmailMessage[],
   view: string,
+  label?: string,
 ): EmailMessage[] {
   if (suppressedThreads.size === 0) return emails;
-  return emails.filter((e) => !isSuppressedInView(e.threadId || e.id, view));
+  return emails.filter(
+    (e) => !isSuppressedInView(e.threadId || e.id, view, label),
+  );
 }
 
 // ─── Optimistic property overrides ──────────────────────────────────────────
@@ -968,7 +1042,7 @@ export function useEmails(
   const data = useMemo(() => {
     if (!q.data) return undefined;
     const all = q.data.pages.flatMap((p: EmailsPage) => p.emails);
-    const visible = applyOverrides(filterSuppressedThreads(all, view));
+    const visible = applyOverrides(filterSuppressedThreads(all, view, label));
     return applyRecentSentEmails(visible, view, search, label);
   }, [q.data, view, search, label, currentSuppressionVersion]);
 
@@ -1460,6 +1534,7 @@ export function useArchiveEmail() {
       }),
     onMutate: async ({
       id,
+      removeLabel,
       threadId: hintedThreadId,
     }: {
       id: string;
@@ -1480,16 +1555,20 @@ export function useArchiveEmail() {
         target?.threadId ||
         findInboxThreadIdByMessageId(qc, id) ||
         id;
-      suppressThread(threadId, "archive");
+      const suppressionId = suppressThread(threadId, "archive", {
+        views: ["inbox", "unread"],
+        label: removeLabel,
+      });
       invalidateCachedThread(threadId);
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
       );
-      return { threadId, inboxMutationId };
+      return { threadId, suppressionId, inboxMutationId };
     },
     onError: (err, _vars, context) => {
-      if (context?.threadId) unsuppressThread(context.threadId);
+      if (context?.threadId)
+        releaseSuppression(context.threadId, context.suppressionId);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -1604,15 +1683,18 @@ export function useTrashEmail() {
         target?.threadId ||
         findInboxThreadIdByMessageId(qc, id) ||
         id;
-      suppressThread(threadId, "trash");
+      const suppressionId = suppressThread(threadId, "trash", {
+        onlyIn: "trash",
+      });
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
       );
-      return { threadId, inboxMutationId };
+      return { threadId, suppressionId, inboxMutationId };
     },
     onError: (err, _id, context) => {
-      if (context?.threadId) unsuppressThread(context.threadId);
+      if (context?.threadId)
+        releaseSuppression(context.threadId, context.suppressionId);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -1727,7 +1809,7 @@ export function useBulkArchiveEmails() {
         ...target,
         removeLabel,
       })).then(() => `Queued archive for ${targets.length} email(s)`),
-    onMutate: async ({ targets }: BulkArchiveVars) => {
+    onMutate: async ({ targets, removeLabel }: BulkArchiveVars) => {
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
@@ -1747,14 +1829,19 @@ export function useBulkArchiveEmails() {
         return threadId;
       });
       const threadIdSet = new Set(threadIds);
+      const suppressionIds: Record<string, number> = {};
       for (const threadId of threadIdSet) {
-        suppressThread(threadId, "archive");
+        suppressionIds[threadId] = suppressThread(threadId, "archive", {
+          views: ["inbox", "unread"],
+          label: removeLabel,
+        });
         invalidateCachedThread(threadId);
       }
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIdSet);
       return {
         threadIds: [...threadIdSet],
         threadIdsByEmailId,
+        suppressionIds,
         inboxMutationId,
       };
     },
@@ -1766,7 +1853,8 @@ export function useBulkArchiveEmails() {
         const succeededThreadIds = new Set(
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
-        for (const threadId of failedThreadIds) unsuppressThread(threadId);
+        for (const threadId of failedThreadIds)
+          releaseSuppression(threadId, context.suppressionIds[threadId]);
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(
           archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
@@ -1774,7 +1862,7 @@ export function useBulkArchiveEmails() {
         return;
       }
       for (const threadId of context?.threadIds ?? []) {
-        unsuppressThread(threadId);
+        releaseSuppression(threadId, context?.suppressionIds[threadId]);
       }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
@@ -1819,11 +1907,16 @@ export function useBulkTrashEmails() {
         return threadId;
       });
       const threadIdSet = new Set(threadIds);
-      for (const threadId of threadIdSet) suppressThread(threadId, "trash");
+      const suppressionIds: Record<string, number> = {};
+      for (const threadId of threadIdSet)
+        suppressionIds[threadId] = suppressThread(threadId, "trash", {
+          onlyIn: "trash",
+        });
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIdSet);
       return {
         threadIds: [...threadIdSet],
         threadIdsByEmailId,
+        suppressionIds,
         inboxMutationId,
       };
     },
@@ -1835,13 +1928,14 @@ export function useBulkTrashEmails() {
         const succeededThreadIds = new Set(
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
-        for (const threadId of failedThreadIds) unsuppressThread(threadId);
+        for (const threadId of failedThreadIds)
+          releaseSuppression(threadId, context.suppressionIds[threadId]);
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
       }
       for (const threadId of context?.threadIds ?? []) {
-        unsuppressThread(threadId);
+        releaseSuppression(threadId, context?.suppressionIds[threadId]);
       }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
@@ -2099,12 +2193,12 @@ export function useMoveEmail() {
         throw new MoveEmailPartialFailure(result);
       return result;
     },
-    onMutate: async ({ id }) => {
+    onMutate: async ({ id, removeLabel }) => {
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      const previous = qc.getQueriesData<InfiniteEmails>({
+      const cached = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       const ids = id
@@ -2112,7 +2206,7 @@ export function useMoveEmail() {
         .map((value) => value.trim())
         .filter(Boolean);
       const threadIdsByEmailId: Record<string, string> = {};
-      const targetEmails = previous.flatMap(([, data]) =>
+      const targetEmails = cached.flatMap(([, data]) =>
         flattenInfiniteEmails(data),
       );
       for (const emailId of ids) {
@@ -2123,16 +2217,24 @@ export function useMoveEmail() {
           emailId;
       }
       const threadIds = new Set(Object.values(threadIdsByEmailId));
-      for (const threadId of threadIds) invalidateCachedThread(threadId);
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((email) => !threadIds.has(email.threadId || email.id)),
-        ),
-      );
+      const suppressionIds: Record<string, number> = {};
+      for (const threadId of threadIds) {
+        invalidateCachedThread(threadId);
+        // Suppress per thread rather than snapshotting the legacy cache: a
+        // snapshot restore also reverts whatever landed after this move
+        // started, which is how an overlapping move gets resurrected. The
+        // move drops INBOX and the source label it was handed; every other
+        // label the thread carries still lists it.
+        suppressionIds[threadId] = suppressThread(threadId, "move", {
+          views: ["inbox", "unread"],
+          label: removeLabel,
+        });
+      }
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIds);
       return {
-        previous,
+        threadIds: [...threadIds],
         threadIdsByEmailId,
+        suppressionIds,
         inboxMutationId,
       };
     },
@@ -2144,26 +2246,18 @@ export function useMoveEmail() {
             (id) => context.threadIdsByEmailId[id] || id,
           ),
         );
-        context.previous.forEach(([key, data]) =>
-          qc.setQueryData(
-            key,
-            mapInfiniteEmails(data, (emails) =>
-              emails.filter(
-                (email) => !succeededThreadIds.has(email.threadId || email.id),
-              ),
-            ),
-          ),
-        );
-        if (context.inboxMutationId) {
-          forgetInboxMutation(qc, context.inboxMutationId);
+        for (const threadId of context.threadIds) {
+          if (!succeededThreadIds.has(threadId))
+            releaseSuppression(threadId, context.suppressionIds[threadId]);
         }
-        removeInboxThreadsOptimistic(qc, succeededThreadIds);
+        reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         return;
       }
+      for (const threadId of context.threadIds)
+        releaseSuppression(threadId, context.suppressionIds[threadId]);
       if (context.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
-      context.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: (_data, _error, _variables, context) =>
       delayedInvalidate(
@@ -2413,29 +2507,37 @@ export function useReportSpam() {
         body: JSON.stringify({ accountEmail, threadId }),
       }),
     onMutate: async ({ threadId }) => {
-      await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
+      // Suppression hides the thread in the legacy list and the journal hides
+      // it in the synced inbox, so rollback drops this thread's own entries.
+      // Restoring a whole cache snapshot here would revert a concurrent
+      // mutation that landed after this one started.
+      const suppressionId = suppressThread(threadId, "spam", {
+        onlyIn: "spam",
       });
-      suppressThread(threadId, "spam");
-      // Filter out entire thread, not just the single message
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => (e.threadId || e.id) !== threadId),
-        ),
+      const inboxMutationId = removeInboxThreadsOptimistic(
+        qc,
+        new Set([threadId]),
       );
-      return { previous, threadId };
+      return { threadId, suppressionId, inboxMutationId };
     },
     onError: (_err, _vars, context) => {
-      if (context?.threadId) unsuppressThread(context.threadId);
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.threadId)
+        releaseSuppression(context.threadId, context.suppressionId);
+      if (context?.inboxMutationId) {
+        forgetInboxMutation(qc, context.inboxMutationId);
+      }
     },
-    onSettled: () =>
-      delayedInvalidate(qc, [
-        ["emails"],
-        LABELS_QUERY_KEY,
-        INBOX_THREADS_QUERY_KEY,
-      ]),
+    onSettled: (_data, _error, _variables, context) =>
+      delayedInvalidate(
+        qc,
+        [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY],
+        3_000,
+        () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
+      ),
   });
 }
 
@@ -2458,29 +2560,33 @@ export function useBlockSender() {
         body: JSON.stringify({ senderEmail, accountEmail }),
       }),
     onMutate: async ({ threadId }) => {
-      await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
+      const suppressionId = suppressThread(threadId, "block", {
+        onlyIn: "spam",
       });
-      suppressThread(threadId, "block");
-      // Filter out entire thread, not just the single message
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => (e.threadId || e.id) !== threadId),
-        ),
+      const inboxMutationId = removeInboxThreadsOptimistic(
+        qc,
+        new Set([threadId]),
       );
-      return { previous, threadId };
+      return { threadId, suppressionId, inboxMutationId };
     },
     onError: (_err, _vars, context) => {
-      if (context?.threadId) unsuppressThread(context.threadId);
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.threadId)
+        releaseSuppression(context.threadId, context.suppressionId);
+      if (context?.inboxMutationId) {
+        forgetInboxMutation(qc, context.inboxMutationId);
+      }
     },
-    onSettled: () =>
-      delayedInvalidate(qc, [
-        ["emails"],
-        LABELS_QUERY_KEY,
-        INBOX_THREADS_QUERY_KEY,
-      ]),
+    onSettled: (_data, _error, _variables, context) =>
+      delayedInvalidate(
+        qc,
+        [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY],
+        3_000,
+        () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
+      ),
   });
 }
 
@@ -2504,28 +2610,35 @@ export function useMuteThread() {
       threadId: string;
       accountEmail?: string;
     }) => {
-      await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
+      // Muting only drops the thread out of the inbox; All Mail and every
+      // label it carries still list it.
+      const suppressionId = suppressThread(threadId, "mute", {
+        views: ["inbox", "unread"],
       });
-      suppressThread(threadId, "mute");
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => (e.threadId || e.id) !== threadId),
-        ),
+      const inboxMutationId = removeInboxThreadsOptimistic(
+        qc,
+        new Set([threadId]),
       );
-      return { previous, threadId };
+      return { threadId, suppressionId, inboxMutationId };
     },
     onError: (_err, _id, context) => {
-      if (context?.threadId) unsuppressThread(context.threadId);
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.threadId)
+        releaseSuppression(context.threadId, context.suppressionId);
+      if (context?.inboxMutationId) {
+        forgetInboxMutation(qc, context.inboxMutationId);
+      }
     },
-    onSettled: () =>
-      delayedInvalidate(qc, [
-        ["emails"],
-        LABELS_QUERY_KEY,
-        INBOX_THREADS_QUERY_KEY,
-      ]),
+    onSettled: (_data, _error, _variables, context) =>
+      delayedInvalidate(
+        qc,
+        [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY],
+        3_000,
+        () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
+      ),
   });
 }
 
