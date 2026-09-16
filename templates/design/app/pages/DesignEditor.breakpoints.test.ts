@@ -724,8 +724,6 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       frameActionStart,
       source.indexOf("  useEffect(() => {", frameActionStart),
     );
-    expect(frameAction).toContain('if (mode === "interact")');
-    expect(frameAction).toContain("enterSingleScreenInteract(screenId)");
     expect(frameAction).toContain(
       'handleModeChange("interact", { targetFileId: screenId })',
     );

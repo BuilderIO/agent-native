@@ -30,6 +30,7 @@ import type { H3Event } from "h3";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getAppConfig } from "../app-config/index.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import { isLoopbackRequest } from "./auth.js";
@@ -58,6 +59,82 @@ export interface DevActionDiscovery {
 /** Hash a resolved `DATABASE_URL` so the discovery file never carries the raw connection string. */
 export function hashDatabaseKey(databaseUrl: string): string {
   return crypto.createHash("sha256").update(databaseUrl).digest("hex");
+}
+
+const DEV_ACTION_HANDOFF_KEYS = ["embedStartUrl", "startUrl"] as const;
+const DEV_ACTION_HANDOFF_PATH = "/_agent-native/embed/start";
+
+function withoutDevActionHandoffSecrets(
+  value: unknown,
+  ancestors = new WeakSet<object>(),
+): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (ancestors.has(value)) return "[Circular]";
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((child) =>
+        withoutDevActionHandoffSecrets(child, ancestors),
+      );
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(
+          ([key]) => !DEV_ACTION_HANDOFF_KEYS.some((name) => name === key),
+        )
+        .map(([key, child]) => [
+          key,
+          withoutDevActionHandoffSecrets(child, ancestors),
+        ]),
+    );
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function isLoopbackAppUrl(value: string): URL | undefined {
+  if (!URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  const hostname = url.hostname.toLowerCase();
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    (hostname !== "localhost" &&
+      hostname !== "127.0.0.1" &&
+      hostname !== "::1" &&
+      hostname !== "[::1]")
+  ) {
+    return undefined;
+  }
+  return url;
+}
+
+export function isValidDevActionHandoffUrl(
+  value: unknown,
+  loopbackAppUrl = getAppConfig().app.url,
+): value is string {
+  if (typeof value !== "string") return false;
+  if (value.startsWith(`${DEV_ACTION_HANDOFF_PATH}?`)) return true;
+  const appUrl = loopbackAppUrl ? isLoopbackAppUrl(loopbackAppUrl) : undefined;
+  if (!appUrl) return false;
+  if (!URL.canParse(value)) return false;
+  const candidate = new URL(value);
+  return (
+    candidate.origin === appUrl.origin &&
+    candidate.pathname === DEV_ACTION_HANDOFF_PATH &&
+    candidate.search.length > 1
+  );
+}
+
+/** Read the private browser handoff without making it part of action output. */
+export function devActionHandoffUrl(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  for (const key of DEV_ACTION_HANDOFF_KEYS) {
+    const value = (result as Record<string, unknown>)[key];
+    if (isValidDevActionHandoffUrl(value)) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 // Module-level state must survive independent instances of this module: the
@@ -208,6 +285,9 @@ export interface MountDevActionForwardRouteOptions {
  * 404 when `name` isn't in this server's action registry (the CLI falls
  * back to running in-process — e.g. a core script like `db-query` that was
  * never mounted here), and 401 for every auth/production/loopback failure.
+ * A private `devHandoffUrl` may accompany a successful result so the CLI can
+ * open a one-time browser handoff that the action intentionally hides from
+ * enumerable/MCP output.
  */
 export function mountDevActionForwardRoute(
   nitroApp: any,
@@ -286,7 +366,12 @@ export function mountDevActionForwardRoute(
           if (!actionCallIsReadOnly(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }
-          return { ok: true, result };
+          const devHandoffUrl = devActionHandoffUrl(result);
+          return {
+            ok: true,
+            result: withoutDevActionHandoffSecrets(result),
+            ...(devHandoffUrl ? { devHandoffUrl } : {}),
+          };
         } catch (error: any) {
           setResponseStatus(event, 500);
           return { ok: false, error: error?.message ?? String(error) };

@@ -228,6 +228,8 @@ temporary agent-link path:
   raw provider URLs.
 
 Public agent context also exposes the recording's redacted browser diagnostics:
+the bounded relative event sequence as `browserDiagnostics.timeline`, including
+navigation, click/input targets, console events, and request/response markers;
 the console stream (all levels) as `browserDiagnostics.consoleLogs` and the
 fetch/XHR stream as `browserDiagnostics.networkRequests` (method, sanitized URL
 with query values redacted, status, duration), plus `consoleIssues` and

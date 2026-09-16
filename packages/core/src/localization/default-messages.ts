@@ -1558,7 +1558,7 @@ const messages = {
         useCase:
           "Repositories, issues, pull requests, code, engineering analytics",
         setupNote:
-          "GitHub does not use a Figma-style vendor client allowlist. Its hosted endpoint is tied to GitHub Copilot integrations; clients need a registered OAuth app, and organizations may enforce OAuth App Access Policies.",
+          "GitHub's sign-in provider does not let apps register themselves, so the Connect button cannot complete OAuth. Connect with a GitHub personal access token instead, and note that organizations may enforce OAuth App Access Policies.",
       },
       slack: {
         description:

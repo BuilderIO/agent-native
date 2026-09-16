@@ -99,9 +99,16 @@ pnpm action edit-document --id abc123 --find "delete me" --replace ""
 pnpm action edit-document --id abc123 --edits '[{"find":"old","replace":"new"},{"find":"also old","replace":"also new"}]'
 ```
 
+External MCP, WebMCP, tool, and A2A callers first read the document, then pass
+its `baseRevision` and one stable `idempotencyKey`. When the returned body is
+literally empty, pass non-whitespace `initializeContent` instead of `find` or `edits`.
+Initialization rejects whitespace-only and all other nonempty bodies, preserves
+the Markdown bytes exactly, and safely replays an identical retry.
+
 ### update-document
 
-Update an existing document. Use for **full rewrites or new content**, not for small changes (use `edit-document` instead).
+Update an existing document's metadata or browser-owned content. External
+callers use the revisioned `edit-document` protocol for every body change.
 
 ```bash
 pnpm action update-document --id abc123 --title "New Title"

@@ -444,9 +444,9 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
   const emailVerified = session?.emailVerified === true;
 
   if (getAppConfig().access.orgCreation === "closed") {
-    // Closed deployments still need a first authenticated creator when the
-    // database has no organization yet. Once any organization exists, only a
-    // verified configured bootstrap admin may create/access the canonical one.
+    // Closed means closed: only a verified configured bootstrap admin may
+    // create the canonical organization, whether the database is empty or
+    // already has one.
     const orgs = await getDbExec().execute({
       sql: "SELECT id FROM organizations LIMIT 1",
       args: [],
@@ -483,20 +483,11 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
       return { success: true };
     }
 
-    // If operators configured bootstrap admins, do not let the first ordinary
-    // signup seize the canonical organization before one of those admins logs
-    // in. The first-creator fallback is only safe when no bootstrap roster was
-    // declared at all.
-    if (getAppConfig().access.bootstrapAdmins.length > 0) {
-      throw createError({
-        statusCode: 403,
-        message:
-          "Waiting for a workspace administrator to bootstrap this organization.",
-      });
-    }
-    console.warn(
-      "[org] ORG_CREATION=closed has no AUTH_BOOTSTRAP_ADMINS; allowing the first authenticated creator",
-    );
+    throw createError({
+      statusCode: 403,
+      message:
+        "Organization creation is disabled. Configure AUTH_BOOTSTRAP_ADMINS so a workspace administrator can create the first organization.",
+    });
   }
 
   const body = await readBody(event);

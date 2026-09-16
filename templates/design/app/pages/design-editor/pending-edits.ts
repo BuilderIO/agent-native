@@ -981,6 +981,9 @@ export function formatPendingVisualStylePrompt(args: {
   /** Screen id → the route it renders, for naming screens the way the app does. */
   screenRoutes?: Readonly<Record<string, string>>;
 }): string {
+  if (args.edits.length === 0 && (args.liveEdits?.length ?? 0) === 0) {
+    return "";
+  }
   const codingAgent = args.audience === "coding-agent";
   const nameScreen = (screenId: string, filename: string) =>
     (codingAgent ? args.screenRoutes?.[screenId] : undefined) ?? filename;
@@ -1266,6 +1269,10 @@ export function formatPendingVisualStylePrompt(args: {
       : "",
     hasReactSourceAnchors && !codingAgent
       ? "React sourceAnchor fields are source provenance; runtime source ids and selectors are correlation hints only. For a single-instance leaf text, literal className/class, or flat literal style-object edit, call apply-visual-edit with source.kind=local-file plus designId, connectionId, the verified project-relative path, and target.sourceAnchor. First omit persist and inspect proposedDiff; then retry with persist=true only when the diff matches the preview. That write still requires human localhost consent and exact version-hash concurrency. Verify every file, line, column, component, and surrounding control flow before editing. Never use a generic AST reparent, group, wrapper, breakpoint, dynamic expression, repeated render, or shared component transform through this path. For semantic structure edits, follow the embedded semanticHandoff packet and use this exact guarded sequence: read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash and requireExpectedVersionHash: true, then keep the preview pending until HMR proves the intended runtime relationship. On a version conflict, re-read and re-plan; never overwrite blindly."
+      : "",
+    codingAgent &&
+    (args.liveEdits ?? []).some((edit) => edit.kind === "structure")
+      ? "Design verifies each structure edit via HMR as you write; write file-by-file rather than one final batch write."
       : "",
     hasRepeatedOrSharedReactScope
       ? "At least one React anchor is repeated at runtime or resolves to a shared component definition. Inspect map/conditional/component call sites and confirm whether the change should affect one instance or every instance before writing source."

@@ -9,6 +9,23 @@ const CredentialStoreUnavailableErrorMock = vi.hoisted(
       readonly retryable = true;
     },
 );
+const McpOAuthRegistrationUnsupportedErrorMock = vi.hoisted(
+  () =>
+    class McpOAuthRegistrationUnsupportedErrorMock extends Error {
+      readonly issuer?: string;
+      readonly authorizationServerUrl?: string;
+
+      constructor(details: {
+        issuer?: string;
+        authorizationServerUrl?: string;
+      }) {
+        super("MCP OAuth dynamic client registration is unsupported");
+        this.name = "McpOAuthRegistrationUnsupportedError";
+        this.issuer = details.issuer;
+        this.authorizationServerUrl = details.authorizationServerUrl;
+      }
+    },
+);
 
 vi.mock("../server/credential-provider.js", () => ({
   CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
@@ -43,6 +60,8 @@ vi.mock("../server/framework-request-handler.js", () => ({
 vi.mock("./oauth-client.js", () => ({
   finishMcpOAuthAuthorization: callbackMocks.finishMcpOAuthAuthorization,
   isGoogleWorkspaceMcpServer: () => false,
+  McpOAuthRegistrationUnsupportedError:
+    McpOAuthRegistrationUnsupportedErrorMock,
   startMcpOAuthAuthorization: callbackMocks.startMcpOAuthAuthorization,
   validateMcpOAuthCallbackIssuer: callbackMocks.validateMcpOAuthCallbackIssuer,
 }));
@@ -66,10 +85,12 @@ import {
   mcpUrlRequiresOrganizationScope,
 } from "../client/resources/mcp-integration-catalog.js";
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
+import { McpOAuthRegistrationUnsupportedError } from "./oauth-client.js";
 import {
   bindMcpOAuthAuthorizationScope,
   clearMcpOAuthFlowCookies,
   isValidMcpOAuthFlow,
+  mcpOAuthStartFailureResponse,
   readMcpOAuthFlowCookie,
   redirectWithStagedCookies,
   resolveMcpOAuthStartError,
@@ -81,6 +102,7 @@ import {
   mountMcpOAuthRoutes,
   setMcpOAuthFlowCookie,
   stripMcpOAuthAppBasePath,
+  wantsHtmlResponse,
   type McpOAuthFlow,
   trackFirstRunMcpOAuthEvent,
 } from "./oauth-routes.js";
@@ -465,7 +487,8 @@ describe("MCP OAuth callback flow validation", () => {
 
     expect(result).toEqual({
       error:
-        "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+        "This MCP server could not start OAuth. Check that the server URL is correct, then try again.",
+      errorCode: "oauth_start_failed",
     });
     expect(event.res.status).toBe(400);
     expect(trackMock).toHaveBeenCalledWith(
@@ -859,9 +882,139 @@ describe("MCP OAuth start failures", () => {
       status: 400,
       body: {
         error:
-          "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+          "This MCP server could not start OAuth. Check that the server URL is correct, then try again.",
+        errorCode: "oauth_start_failed",
       },
     });
+  });
+
+  // GitHub's authorization server advertises no registration_endpoint, so the
+  // generic message told users to retry a flow that can never succeed.
+  it("names the authorization server that cannot register a client", () => {
+    const failure = resolveMcpOAuthStartError(
+      new McpOAuthRegistrationUnsupportedError({
+        issuer: "https://github.com/login/oauth",
+        authorizationServerUrl: "https://github.com/login/oauth",
+      }),
+    );
+
+    expect(failure.status).toBe(400);
+    expect(failure.body.errorCode).toBe(
+      "oauth_dynamic_registration_unsupported",
+    );
+    expect(failure.body.retryable).toBe(false);
+    expect(failure.body.error).toContain("github.com/login/oauth");
+    expect(failure.body.error).toContain("Authorization: Bearer <token>");
+  });
+
+  it("falls back to the authorization server URL when no issuer was published", () => {
+    const failure = resolveMcpOAuthStartError(
+      new McpOAuthRegistrationUnsupportedError({
+        authorizationServerUrl: "https://auth.example.com/tenant/",
+      }),
+    );
+
+    expect(failure.body.error).toContain("auth.example.com/tenant");
+  });
+
+  it("still describes the failure when discovery named no server at all", () => {
+    const failure = resolveMcpOAuthStartError(
+      new McpOAuthRegistrationUnsupportedError({}),
+    );
+
+    expect(failure.body.errorCode).toBe(
+      "oauth_dynamic_registration_unsupported",
+    );
+    expect(failure.body.error).toContain("sign-in provider");
+  });
+});
+
+describe("MCP OAuth start failure rendering", () => {
+  const htmlEvent = () =>
+    mockEvent(
+      new Request(
+        "http://app.example.com/_agent-native/mcp/servers/oauth/start",
+        {
+          headers: { accept: "text/html,application/xhtml+xml" },
+        },
+      ),
+    );
+  const jsonEvent = () =>
+    mockEvent(
+      new Request(
+        "http://app.example.com/_agent-native/mcp/servers/oauth/start",
+        {
+          headers: { accept: "application/json" },
+        },
+      ),
+    );
+
+  it("recognizes a browser navigation from its Accept header", () => {
+    expect(wantsHtmlResponse(htmlEvent())).toBe(true);
+    expect(wantsHtmlResponse(jsonEvent())).toBe(false);
+  });
+
+  // The Connect button opens this route in a popup, so a JSON body was painted
+  // across the window as a raw error object.
+  it("renders an HTML page for the popup instead of the raw JSON body", async () => {
+    const response = mcpOAuthStartFailureResponse(htmlEvent(), {
+      status: 400,
+      body: { error: "GitHub cannot register a client.", errorCode: "x" },
+    });
+
+    expect(response).toBeInstanceOf(Response);
+    const html = await (response as Response).text();
+    expect((response as Response).status).toBe(400);
+    expect((response as Response).headers.get("content-type")).toContain(
+      "text/html",
+    );
+    expect(html).toContain("GitHub cannot register a client.");
+    expect(html).not.toContain('{"error"');
+  });
+
+  it("escapes the message it renders", async () => {
+    const response = mcpOAuthStartFailureResponse(htmlEvent(), {
+      status: 400,
+      body: { error: "<img src=x onerror=alert(1)>" },
+    });
+
+    const html = await (response as Response).text();
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&lt;img");
+  });
+
+  // The callback stages the flow-cookie deletion before it validates anything,
+  // and h3 does not merge staged Set-Cookie headers into a returned Response.
+  it("carries the staged flow-cookie deletion onto the HTML page", async () => {
+    const event = htmlEvent();
+    clearMcpOAuthFlowCookies(event);
+    const staged = event.res.headers.getSetCookie();
+    expect(staged.length).toBeGreaterThan(0);
+
+    const response = mcpOAuthStartFailureResponse(event, {
+      status: 400,
+      body: { error: "MCP OAuth state is invalid or expired." },
+    }) as Response;
+
+    expect(response.headers.getSetCookie()).toEqual(staged);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    await expect(response.text()).resolves.toContain(
+      "MCP OAuth state is invalid or expired.",
+    );
+  });
+
+  it("keeps the JSON body for non-browser callers", () => {
+    const event = jsonEvent();
+    const response = mcpOAuthStartFailureResponse(event, {
+      status: 503,
+      body: { error: "store down", errorCode: "credential_store_unavailable" },
+    });
+
+    expect(response).toEqual({
+      error: "store down",
+      errorCode: "credential_store_unavailable",
+    });
+    expect(event.res.status).toBe(503);
   });
 });
 

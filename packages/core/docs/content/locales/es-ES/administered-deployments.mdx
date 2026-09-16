@@ -21,6 +21,8 @@ Con `AUTH_SIGNUP=invited`, una cuenta nueva necesita una invitación pendiente, 
 
 El primer administrador de inicio que accede crea la organización canónica y se convierte en propietario. Si ya hay una organización, se incorpora como propietario. Si hay varias, el sistema no elige una. Después configura el dominio permitido e invita al equipo desde **Team settings**.
 
+Con `ORG_CREATION=closed`, la creación de organizaciones se rechaza hasta que `AUTH_BOOTSTRAP_ADMINS` incluya al menos un administrador verificado, que crea la organización canónica en su primer inicio de sesión.
+
 ## Claves y roles de empresa
 
 Un propietario o administrador puede guardar una clave LLM de la organización. La clave personal tiene prioridad hasta que el miembro elige usar la clave de organización. Los roles de aplicación corresponden a una aplicación y una persona puede tener varios. Los administradores pueden asignar permisos definidos en código a roles sin desplegar la aplicación.
