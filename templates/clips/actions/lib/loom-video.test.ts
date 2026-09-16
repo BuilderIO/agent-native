@@ -214,7 +214,36 @@ describe("downloadLoomVideo", () => {
     expect(mockProbeMediaDurationMs).toHaveBeenCalledWith(
       expect.any(Uint8Array),
       "video/mp4",
+      { requireComplete: true },
     );
+  });
+
+  it("rejects substantially incomplete short recordings", async () => {
+    mockIsFfmpegAvailable.mockReturnValue(true);
+    mockProbeMediaDurationMs.mockResolvedValue(1_000);
+    mockSsrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            url: "https://cdn.loom.com/sessions/transcoded/video-id.mp4",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "video/mp4" },
+        }),
+      );
+
+    await expect(
+      downloadLoomVideo({
+        loomId: "abcDEF_123456",
+        shareUrl: "https://www.loom.com/share/abcDEF_123456",
+        expectedDurationMs: 5_000,
+      }),
+    ).rejects.toThrow(/incomplete/i);
   });
 
   it("falls back when ffmpeg cannot find a playable video track", async () => {

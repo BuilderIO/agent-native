@@ -1,0 +1,82 @@
+import { execFile, execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+import ffmpegPath from "ffmpeg-static";
+import { describe, expect, it } from "vitest";
+
+import { probeMediaDurationMs } from "./video-frame.js";
+
+const execFileAsync = promisify(execFile);
+const availableFfmpegPath =
+  ffmpegPath && existsSync(ffmpegPath)
+    ? ffmpegPath
+    : (() => {
+        try {
+          execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+          return "ffmpeg";
+        } catch {
+          return null;
+        }
+      })();
+
+describe("probeMediaDurationMs", () => {
+  it.skipIf(!availableFfmpegPath)(
+    "rejects a truncated faststart MP4 when complete validation is requested",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "clips-video-frame-test-"));
+      const fullPath = join(root, "full.mp4");
+      const previousFfmpegPath = process.env.FFMPEG_PATH;
+      process.env.FFMPEG_PATH = availableFfmpegPath!;
+
+      try {
+        await execFileAsync(availableFfmpegPath!, [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          "color=c=black:s=160x90:r=30",
+          "-t",
+          "2",
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          "-movflags",
+          "+faststart",
+          fullPath,
+        ]);
+
+        const fullBytes = new Uint8Array(await readFile(fullPath));
+        const truncatedBytes = fullBytes.slice(
+          0,
+          Math.floor(fullBytes.byteLength * 0.9),
+        );
+
+        await expect(
+          probeMediaDurationMs(fullBytes, "video/mp4", {
+            requireComplete: true,
+          }),
+        ).resolves.toBeGreaterThan(0);
+        await expect(
+          probeMediaDurationMs(truncatedBytes, "video/mp4", {
+            requireComplete: true,
+          }),
+        ).resolves.toBeNull();
+      } finally {
+        if (previousFfmpegPath === undefined) {
+          delete process.env.FFMPEG_PATH;
+        } else {
+          process.env.FFMPEG_PATH = previousFfmpegPath;
+        }
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+});

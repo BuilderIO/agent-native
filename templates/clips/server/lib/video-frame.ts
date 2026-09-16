@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const FRAME_EXTRACTION_TIMEOUT_MS = 20_000;
+const COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS = 120_000;
 const MAX_CONCURRENT_FRAME_EXTRACTIONS = 2;
 const STDERR_LIMIT = 16 * 1024;
 const requireFromThisFile = createRequire(import.meta.url);
@@ -104,7 +105,10 @@ function mapFfmpegError(err: unknown): VideoFrameExtractionError {
   );
 }
 
-async function runFfmpeg(args: string[]): Promise<string> {
+async function runFfmpeg(
+  args: string[],
+  timeoutMs = FRAME_EXTRACTION_TIMEOUT_MS,
+): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const child = spawn(ffmpegCommand(), args, {
       stdio: ["ignore", "ignore", "pipe"],
@@ -113,7 +117,7 @@ async function runFfmpeg(args: string[]): Promise<string> {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new FfmpegRunError("ffmpeg timed out", stderr));
-    }, FRAME_EXTRACTION_TIMEOUT_MS);
+    }, timeoutMs);
 
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
@@ -154,8 +158,11 @@ function parseDurationMs(stderr: string): number | null {
 export async function probeMediaDurationMs(
   mediaBytes: Uint8Array,
   mimeType: string,
+  options: { requireComplete?: boolean } = {},
 ): Promise<number | null> {
   if (mediaBytes.byteLength === 0) return null;
+
+  const requireComplete = options.requireComplete === true;
 
   return withFrameExtractionSlot(async () => {
     const dir = await mkdtemp(join(tmpdir(), "clips-duration-probe-"));
@@ -165,19 +172,21 @@ export async function probeMediaDurationMs(
       await writeFile(inputPath, mediaBytes);
       let stderr: string;
       try {
-        stderr = await runFfmpeg([
-          "-hide_banner",
-          "-nostdin",
-          "-i",
-          inputPath,
-          "-map",
-          "0:v:0?",
-          "-frames:v",
-          "1",
-          "-f",
-          "null",
-          "-",
-        ]);
+        stderr = await runFfmpeg(
+          [
+            "-hide_banner",
+            ...(requireComplete ? ["-xerror"] : []),
+            "-nostdin",
+            "-i",
+            inputPath,
+            "-map",
+            requireComplete ? "0:v:0" : "0:v:0?",
+            ...(requireComplete
+              ? ["-an", "-f", "null", "-"]
+              : ["-frames:v", "1", "-f", "null", "-"]),
+          ],
+          requireComplete ? COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS : undefined,
+        );
       } catch (error) {
         if (error instanceof FfmpegRunError) return null;
         throw error;

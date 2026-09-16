@@ -22,7 +22,7 @@ export type LoomVideoDownload = {
 
 const LOOM_VIDEO_UNAVAILABLE_MESSAGE =
   "Loom did not provide a downloadable MP4 for this video. Download the original from Loom and use Upload video in Clips.";
-const MIN_EXPECTED_DURATION_TOLERANCE_MS = 5_000;
+const MAX_EXPECTED_DURATION_TOLERANCE_MS = 5_000;
 
 export class LoomVideoUnavailableError extends Error {
   statusCode = 422;
@@ -119,7 +119,9 @@ async function validateDownloadedVideo({
 }): Promise<void> {
   if (!isFfmpegAvailable()) return;
 
-  const actualDurationMs = await probeMediaDurationMs(bytes, mimeType);
+  const actualDurationMs = await probeMediaDurationMs(bytes, mimeType, {
+    requireComplete: true,
+  });
   if (actualDurationMs === null || actualDurationMs <= 0) {
     throw new LoomVideoUnavailableError(
       "Loom returned media without a playable video track.",
@@ -127,8 +129,8 @@ async function validateDownloadedVideo({
   }
 
   if (expectedDurationMs && expectedDurationMs > 0) {
-    const toleranceMs = Math.max(
-      MIN_EXPECTED_DURATION_TOLERANCE_MS,
+    const toleranceMs = Math.min(
+      MAX_EXPECTED_DURATION_TOLERANCE_MS,
       Math.round(expectedDurationMs * 0.1),
     );
     if (actualDurationMs + toleranceMs < expectedDurationMs) {
@@ -166,7 +168,7 @@ export async function downloadLoomVideo({
       `Loom video download failed (${response.status} ${response.statusText}).`,
     );
   }
-  if (response.status === 206) {
+  if (response.status === 206 || response.headers.has("content-range")) {
     throw new LoomVideoUnavailableError("Loom returned a partial video file.");
   }
 
