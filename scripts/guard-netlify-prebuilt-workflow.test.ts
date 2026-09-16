@@ -1548,10 +1548,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(previewSmoke.run), /NETLIFY_SITE_ID/);
     assert.match(String(previewSmoke.run), /PREVIEW_ALIAS/);
     assert.match(String(previewSmoke.run), /resolveNetlifyPreviewAliasUrl/);
-    assert.match(
-      String(previewSmoke.run),
-      /aliasUrl === process\.env\.DEPLOY_URL/,
-    );
+    assert.match(String(previewSmoke.run), /aliasUrl === immutable_url/);
     assert.doesNotMatch(String(previewSmoke.run), /--allow-missing-health/);
 
     assert(previewDatabaseMirror);

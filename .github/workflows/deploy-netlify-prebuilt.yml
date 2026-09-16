@@ -2303,7 +2303,7 @@ jobs:
               process.env.PREVIEW_ALIAS,
               site.name,
             );
-            if (aliasUrl === process.env.DEPLOY_URL) {
+            if (aliasUrl === immutable_url) {
               throw new Error("Netlify preview alias resolved to the immutable deploy URL.");
             }
             process.stdout.write(aliasUrl);

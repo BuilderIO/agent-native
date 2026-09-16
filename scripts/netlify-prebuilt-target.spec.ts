@@ -9,13 +9,19 @@ import {
 } from "./netlify-prebuilt-target.ts";
 
 test("resolves an immutable deploy URL from its id and site slug", () => {
+  const immutableUrl = resolveNetlifyImmutableDeployUrl(
+    "6aaa4de7a7e321b6bf866103",
+    "agent-native-dispatch",
+  );
+  const cliAliasUrl = resolveNetlifyPreviewAliasUrl(
+    "pr-5154",
+    "agent-native-dispatch",
+  );
   assert.equal(
-    resolveNetlifyImmutableDeployUrl(
-      "6aaa4de7a7e321b6bf866103",
-      "agent-native-dispatch",
-    ),
+    immutableUrl,
     "https://6aaa4de7a7e321b6bf866103--agent-native-dispatch.netlify.app",
   );
+  assert.notEqual(immutableUrl, cliAliasUrl);
   assert.throws(
     () =>
       resolveNetlifyImmutableDeployUrl("deploy/5154", "agent-native-dispatch"),

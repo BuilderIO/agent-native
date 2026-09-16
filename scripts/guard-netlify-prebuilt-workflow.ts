@@ -917,7 +917,7 @@ if (
   !previewSmokeRun.includes("NETLIFY_SITE_ID") ||
   !previewSmokeRun.includes("PREVIEW_ALIAS") ||
   !previewSmokeRun.includes("resolveNetlifyPreviewAliasUrl") ||
-  !previewSmokeRun.includes("aliasUrl === process.env.DEPLOY_URL")
+  !previewSmokeRun.includes("aliasUrl === immutable_url")
 ) {
   issues.push(
     `${reusablePath} PR preview smoke must probe both the immutable deploy URL and the mutable alias`,
