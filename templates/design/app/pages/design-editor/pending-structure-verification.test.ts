@@ -335,6 +335,30 @@ describe("verifyPendingStructureRuntime", () => {
     });
   });
 
+  it("fails closed when a same-shaped replacement has no stable identity", () => {
+    const sameShapeSignature = {
+      tag: "section",
+      text: "Same",
+      classes: [],
+    };
+    const replaceEdit = edit({
+      selector: '[data-agent-native-node-id="old-subject"]',
+      sourceId: "old-subject",
+      insertedHtml: "<section>Same</section>",
+      replaced: true,
+      replacementSelector: "section",
+      replacementSourceId: "missing-replacement",
+      subjectSignature: sameShapeSignature,
+      replacementSignature: sameShapeSignature,
+    });
+    expect(
+      verifyPendingStructureRuntime(
+        `<!doctype html><body><section>Same</section></body>`,
+        replaceEdit,
+      ),
+    ).toEqual({ ok: false, failure: "subject-still-present" });
+  });
+
   it("requires every affected screen relationship", () => {
     const html = `<!doctype html><body><section data-agent-native-node-id="anchor"><div data-agent-native-node-id="subject">Subject</div></section></body>`;
     expect(

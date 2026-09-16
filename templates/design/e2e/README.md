@@ -51,6 +51,21 @@ overlay sits on top. So:
 `helpers.ts` wraps all of this: `gotoEditor`, `selectByText`, `dragCanvasByText`,
 `installBridge`/`waitForBridge`, `cdpScreenshot`, `readSeedDesignId`.
 
+## Live multi-screen runtime proof
+
+With the Design app, Slides app, and localhost bridge running, this committed
+Playwright harness opens 30 real URL-backed screens, records the boot drain and
+bridge failures, and writes screenshots under `.tmp/visual-edit-proof`:
+
+```bash
+corepack pnpm --dir templates/design exec tsx scripts/visual-edit-runtime-proof.ts
+```
+
+Set `VISUAL_EDIT_EDITOR_URL` to inspect an existing design instead of creating
+and deleting a temporary one. Authenticated sign-in/sign-out propagation remains
+a separate manual proof because the harness must not receive a real account's
+credentials; attach the signed-out and signed-in screenshots from that run.
+
 ## Driving your REAL, logged-in Chrome (chrome-devtools-mcp)
 
 Playwright (above) is best for deterministic CI against a local throwaway DB.

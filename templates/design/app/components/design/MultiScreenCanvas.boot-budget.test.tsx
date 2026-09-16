@@ -109,4 +109,70 @@ describe("MultiScreenCanvas live boot budget", () => {
     });
     expect(renderCalls).toContain("live-4");
   });
+
+  it("keeps a deferred screen deferred when a ready frame starts a new document", async () => {
+    const screens = Array.from({ length: 6 }, (_, index) => ({
+      id: `live-${index}`,
+      filename: `live-${index}.html`,
+      content: "<!doctype html><html><body>live</body></html>",
+      source: "localhost",
+      sourceType: "localhost",
+      previewUrl: `http://127.0.0.1:8084/route-${index}`,
+    }));
+    const readyById = new Map<string, () => void>();
+    const startById = new Map<string, () => void>();
+
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={100}
+          activeTool="move"
+          geometryById={Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 10, y: 0, width: 320, height: 640 },
+            ]),
+          )}
+          screenSnapshotsById={Object.fromEntries(
+            screens.map((screen) => [screen.id, { html: "<p>snapshot</p>" }]),
+          )}
+          renderScreenContent={(screen, _metadata, _geometry, options) => {
+            if (options?.onBootReady) {
+              readyById.set(screen.id, options.onBootReady);
+            }
+            if (options?.onBootStart) {
+              startById.set(screen.id, options.onBootStart);
+            }
+            return <div data-live-screen={screen.id} />;
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(4);
+      expect(container.querySelectorAll("[data-screen-snapshot]")).toHaveLength(
+        2,
+      );
+    });
+
+    const firstScreenId = readyById.keys().next().value as string;
+    await act(async () => readyById.get(firstScreenId)?.());
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(5);
+      expect(container.querySelectorAll("[data-screen-snapshot]")).toHaveLength(
+        1,
+      );
+    });
+
+    await act(async () => startById.get(firstScreenId)?.());
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(5);
+      expect(container.querySelectorAll("[data-screen-snapshot]")).toHaveLength(
+        1,
+      );
+    });
+  });
 });

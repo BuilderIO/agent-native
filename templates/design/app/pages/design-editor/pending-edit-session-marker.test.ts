@@ -8,9 +8,35 @@ import {
   writePendingEditSessionMarker,
 } from "./pending-edit-session-marker";
 
+const storage = new Map<string, string>();
+const localStorageMock: Storage = {
+  get length() {
+    return storage.size;
+  },
+  clear() {
+    storage.clear();
+  },
+  getItem(key) {
+    return storage.get(key) ?? null;
+  },
+  key(index) {
+    return Array.from(storage.keys())[index] ?? null;
+  },
+  removeItem(key) {
+    storage.delete(key);
+  },
+  setItem(key, value) {
+    storage.set(key, value);
+  },
+};
+
 describe("pending visual edit session marker", () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: localStorageMock,
+    });
+    localStorageMock.clear();
     vi.restoreAllMocks();
   });
 
@@ -43,6 +69,24 @@ describe("pending visual edit session marker", () => {
     expect(readPendingEditSessionMarker("design-2")).toEqual({
       status: "unavailable",
       reason: "browser storage could not be read",
+    });
+  });
+
+  it("keeps a session-ended marker across reload reads until explicit clear", () => {
+    expect(writePendingEditSessionMarker("design-reload", 2)).toEqual({
+      status: "stored",
+    });
+    expect(readPendingEditSessionMarker("design-reload")).toMatchObject({
+      status: "present",
+    });
+    expect(readPendingEditSessionMarker("design-reload")).toMatchObject({
+      status: "present",
+    });
+    expect(clearPendingEditSessionMarker("design-reload")).toEqual({
+      status: "cleared",
+    });
+    expect(readPendingEditSessionMarker("design-reload")).toEqual({
+      status: "absent",
     });
   });
 });
