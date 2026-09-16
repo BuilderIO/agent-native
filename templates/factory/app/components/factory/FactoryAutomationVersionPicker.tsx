@@ -1,14 +1,12 @@
 import {
-  type GetResourceVersionResult,
-  type ListResourceVersionsResult,
-  useDeleteResourceVersion,
-  useResourceVersions,
-} from "@agent-native/core/client/history";
-import { callAction } from "@agent-native/core/client/hooks";
+  callAction,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconLoader2, IconX } from "@tabler/icons-react";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -31,13 +29,49 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-import {
-  automationPromptPreview,
-  parseFactoryAutomationVersionSnapshot,
-  type FactoryAutomationVersionSnapshot,
-} from "./factory-automation-form";
+import { type FactoryAutomationVersionSnapshot } from "./factory-automation-form";
 
-type VersionRow = ListResourceVersionsResult["versions"][number];
+type VersionRow = {
+  id: string;
+  automationId: string;
+  factoryId: string;
+  version: number;
+  displayName: string | null;
+  source: string;
+  summary: string;
+  createdAt: string;
+  createdBy: string;
+  isCurrent: boolean;
+};
+
+type ListFactoryAutomationVersionsResult = {
+  automationId: string;
+  factoryId: string;
+  currentVersion: number | null;
+  hasMore: boolean;
+  nextBeforeVersion: number | null;
+  versions: VersionRow[];
+};
+
+type GetFactoryAutomationVersionResult = FactoryAutomationVersionSnapshot & {
+  id: string;
+  automationId: string;
+  factoryId: string;
+  version: number;
+  rawContent: string;
+  source: string;
+  summary: string;
+  createdAt: string;
+  createdBy: string;
+  isCurrent: boolean;
+};
+
+type DeleteFactoryAutomationVersionResult = {
+  ok: true;
+  automationId: string;
+  versionId: string;
+  version: number;
+};
 
 function formatAutomationDate(value: string | number | null | undefined) {
   if (!value) return "";
@@ -48,36 +82,29 @@ function formatAutomationDate(value: string | number | null | undefined) {
 function versionRowLabel(
   t: ReturnType<typeof useT>,
   version: VersionRow,
-  snapshot: FactoryAutomationVersionSnapshot | undefined,
 ): string {
-  const historySavedAt = snapshot?.configSavedAt
-    ? formatAutomationDate(snapshot.configSavedAt)
-    : formatAutomationDate(version.createdAt);
-  return snapshot
-    ? t("factoryRoute.automationVersionRowDetail", {
-        promptVersion: snapshot.promptVersion,
-        savedAt: historySavedAt,
-      })
-    : t("factoryRoute.automationVersionHistoryRowDetail", {
-        savedAt: historySavedAt,
-        summary: version.summary ?? "",
-      });
+  return t("factoryRoute.automationVersionHistoryRowDetail", {
+    savedAt: formatAutomationDate(version.createdAt),
+    summary: version.summary ?? "",
+  });
 }
 
 async function fetchAutomationVersionSnapshot(
-  resourceId: string,
-  versionNumber: number,
-): Promise<FactoryAutomationVersionSnapshot | null> {
-  const result = await callAction<GetResourceVersionResult>(
-    "get-resource-version",
-    {
-      resourceType: "factory-automation",
-      resourceId,
-      versionNumber,
-    },
+  automationId: string,
+  versionId: string,
+): Promise<FactoryAutomationVersionSnapshot> {
+  const result = await callAction<GetFactoryAutomationVersionResult>(
+    "get-factory-automation-version",
+    { automationId, versionId },
     { method: "GET" },
   );
-  return parseFactoryAutomationVersionSnapshot(result.version.snapshot);
+  return {
+    userPrompt: result.userPrompt,
+    displayName: result.displayName,
+    config: result.config,
+    promptVersion: result.promptVersion,
+    configSavedAt: result.configSavedAt,
+  };
 }
 
 export function FactoryAutomationVersionPicker({
@@ -98,72 +125,34 @@ export function FactoryAutomationVersionPicker({
   const t = useT();
   const queryClient = useQueryClient();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [selectingVersion, setSelectingVersion] = useState<number | null>(null);
+  const [selectingVersion, setSelectingVersion] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<VersionRow | null>(null);
   const pendingDeleteVersionRef = useRef<VersionRow | null>(null);
-  const deleteMutation = useDeleteResourceVersion();
-  const versionsQuery = useResourceVersions(
-    { resourceType: "factory-automation", resourceId, limit: 50 },
+  const deleteMutation = useActionMutation<
+    DeleteFactoryAutomationVersionResult,
+    { automationId: string; versionId: string }
+  >("delete-factory-automation-version");
+  const versionsQuery = useActionQuery<ListFactoryAutomationVersionsResult>(
+    "list-factory-automation-versions",
+    { automationId: resourceId, limit: 50 },
     { enabled: Boolean(resourceId) },
   );
   const versionRows = versionsQuery.data?.versions ?? [];
-  const snapshotQueries = useQueries({
-    queries: versionRows.map((version) => ({
-      queryKey: [
-        "action",
-        "get-resource-version",
-        {
-          resourceType: "factory-automation",
-          resourceId,
-          versionNumber: version.versionNumber,
-        },
-      ] as const,
-      queryFn: () =>
-        fetchAutomationVersionSnapshot(resourceId, version.versionNumber),
-      enabled: menuOpen && Boolean(resourceId),
-      staleTime: 60_000,
-    })),
-  });
-  const snapshotsByVersion = useMemo(() => {
-    const map = new Map<number, FactoryAutomationVersionSnapshot>();
-    for (const [index, version] of versionRows.entries()) {
-      const snapshot = snapshotQueries[index]?.data;
-      if (snapshot) {
-        map.set(version.versionNumber, snapshot);
-      }
-    }
-    return map;
-  }, [snapshotQueries, versionRows]);
   const hasHistoryRows = versionRows.length > 0;
   const hasSavedState = savedConfigSavedAt != null || savedPromptVersion > 0;
   const canOpen = hasHistoryRows || hasSavedState;
-  const loadingSnapshots =
-    menuOpen && snapshotQueries.some((query) => query.isLoading);
-  const snapshotLoadFailed =
-    menuOpen &&
-    snapshotQueries.some((query) => query.isError) &&
-    snapshotsByVersion.size === 0;
   const savedAtLabel = savedConfigSavedAt
     ? formatAutomationDate(savedConfigSavedAt)
     : null;
 
   const selectHistoryVersion = useCallback(
     async (version: VersionRow) => {
-      const cached = snapshotsByVersion.get(version.versionNumber);
-      if (cached) {
-        onSelectSnapshot(cached);
-        return;
-      }
-      setSelectingVersion(version.versionNumber);
+      setSelectingVersion(version.id);
       try {
         const snapshot = await fetchAutomationVersionSnapshot(
           resourceId,
-          version.versionNumber,
+          version.id,
         );
-        if (!snapshot) {
-          toast.error(t("factoryRoute.automationVersionLoadFailed"));
-          return;
-        }
         onSelectSnapshot(snapshot);
       } catch (error) {
         toast.error(
@@ -175,7 +164,7 @@ export function FactoryAutomationVersionPicker({
         setSelectingVersion(null);
       }
     },
-    [onSelectSnapshot, resourceId, snapshotsByVersion, t],
+    [onSelectSnapshot, resourceId, t],
   );
 
   const requestDeleteVersion = useCallback((version: VersionRow) => {
@@ -191,13 +180,12 @@ export function FactoryAutomationVersionPicker({
     if (!deleteTarget) return;
     try {
       await deleteMutation.mutateAsync({
-        resourceType: "factory-automation",
-        resourceId,
-        versionNumber: deleteTarget.versionNumber,
+        automationId: resourceId,
+        versionId: deleteTarget.id,
       });
       setDeleteTarget(null);
       await queryClient.invalidateQueries({
-        queryKey: ["action", "list-resource-versions"],
+        queryKey: ["action", "list-factory-automation-versions"],
       });
       toast.success(t("factoryRoute.automationVersionDeleted"));
     } catch (error) {
@@ -208,10 +196,6 @@ export function FactoryAutomationVersionPicker({
       );
     }
   }, [deleteMutation, deleteTarget, queryClient, resourceId, t]);
-
-  const deleteTargetSnapshot = deleteTarget
-    ? snapshotsByVersion.get(deleteTarget.versionNumber)
-    : undefined;
 
   return (
     <AlertDialog
@@ -274,14 +258,14 @@ export function FactoryAutomationVersionPicker({
               </p>
             </div>
           </DropdownMenuItem>
-          {loadingSnapshots ? (
+          {versionsQuery.isLoading ? (
             <DropdownMenuItem disabled>
               <span className="text-xs text-muted-foreground">
                 {t("factoryRoute.automationVersionsLoading")}
               </span>
             </DropdownMenuItem>
           ) : null}
-          {snapshotLoadFailed ? (
+          {versionsQuery.isError ? (
             <DropdownMenuItem disabled>
               <span className="text-xs text-destructive">
                 {t("factoryRoute.automationVersionsLoadFailed")}
@@ -289,8 +273,7 @@ export function FactoryAutomationVersionPicker({
             </DropdownMenuItem>
           ) : null}
           {versionRows.map((version) => {
-            const snapshot = snapshotsByVersion.get(version.versionNumber);
-            const selecting = selectingVersion === version.versionNumber;
+            const selecting = selectingVersion === version.id;
             return (
               <DropdownMenuItem
                 key={version.id}
@@ -303,13 +286,9 @@ export function FactoryAutomationVersionPicker({
                         displayName: that's constant across every row and reads
                         as duplicate rows when it's the only bold text. */}
                     <p className="truncate text-sm font-medium">
-                      {versionRowLabel(t, version, snapshot)}
+                      {versionRowLabel(t, version)}
                     </p>
-                    {snapshot?.userPrompt ? (
-                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                        {automationPromptPreview(snapshot.userPrompt)}
-                      </p>
-                    ) : version.summary ? (
+                    {version.summary ? (
                       <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                         {version.summary}
                       </p>
@@ -340,9 +319,7 @@ export function FactoryAutomationVersionPicker({
         <AlertDialogHeader>
           <AlertDialogTitle>
             {t("factoryRoute.automationVersionDeleteTitle", {
-              label: deleteTarget
-                ? versionRowLabel(t, deleteTarget, deleteTargetSnapshot)
-                : "",
+              label: deleteTarget ? versionRowLabel(t, deleteTarget) : "",
             })}
           </AlertDialogTitle>
           <AlertDialogDescription>

@@ -335,7 +335,6 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-resource-versions": "history",
   "get-resource-version": "history",
   "restore-resource-version": "history",
-  "delete-resource-version": "history",
   "list-resource-history": "history",
 
   "list-transactional-emails": "emailCatalog",

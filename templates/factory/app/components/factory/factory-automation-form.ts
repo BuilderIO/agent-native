@@ -203,40 +203,6 @@ export type FactoryAutomationVersionSnapshot = {
   configSavedAt: string | null;
 };
 
-function isAutomationSnapshotConfig(
-  value: unknown,
-): value is FactoryAutomationSnapshotConfig {
-  if (!value || typeof value !== "object") return false;
-  const config = value as Record<string, unknown>;
-  return (
-    typeof config.source === "string" &&
-    typeof config.template === "string" &&
-    typeof config.authorMode === "string" &&
-    Array.isArray(config.authorIds)
-  );
-}
-
-export function parseFactoryAutomationVersionSnapshot(
-  value: unknown,
-): FactoryAutomationVersionSnapshot | null {
-  if (!value || typeof value !== "object") return null;
-  const snapshot = value as Record<string, unknown>;
-  if (typeof snapshot.promptVersion !== "number") return null;
-  if (typeof snapshot.userPrompt !== "string") return null;
-  if (!isAutomationSnapshotConfig(snapshot.config)) return null;
-  return {
-    userPrompt: snapshot.userPrompt,
-    displayName:
-      typeof snapshot.displayName === "string" ? snapshot.displayName : null,
-    config: snapshot.config,
-    promptVersion: snapshot.promptVersion,
-    configSavedAt:
-      typeof snapshot.configSavedAt === "string"
-        ? snapshot.configSavedAt
-        : null,
-  };
-}
-
 export function applyAutomationSnapshotToDraft<
   T extends AutomationEditorSnapshot,
 >(current: T, snapshot: FactoryAutomationVersionSnapshot): T {

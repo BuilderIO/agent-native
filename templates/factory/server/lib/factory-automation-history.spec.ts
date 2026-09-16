@@ -2,18 +2,36 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
-const insertResourceVersionMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-);
+const insertValuesMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const getDbMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/history", () => ({
-  insertResourceVersion: insertResourceVersionMock,
-}));
+vi.mock("../db/index.js", () => ({ getDb: getDbMock }));
 
 vi.mock("@agent-native/core/resources", () => ({
   resourceGetByPath: resourceGetByPathMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
 }));
+
+const sampleConfig = {
+  source: "slack" as const,
+  template: "slack-feedback" as const,
+  slackWorkspace: "primary" as const,
+  slackChannelId: "C123",
+  slackChannelName: null,
+  repository: null,
+  sentryOrgSlug: null,
+  sentryProjectSlug: null,
+  sentryEnvironment: null,
+  authorMode: "exclude" as const,
+  authorIds: [],
+  scheduleMode: "interval" as const,
+  intervalMinutes: 5 as const,
+  dailyHour: 9,
+  dailyMinute: 0,
+  timezone: "UTC",
+  inboxLimit: 25,
+  workLimit: 5,
+};
 
 const currentContent = `---
 factoryId: myfact
@@ -22,43 +40,45 @@ promptVersion: 2
 configSavedAt: 2026-09-15T12:00:00.000Z
 source: slack
 template: slack-feedback
+slackWorkspace: primary
 slackChannelId: C123
+authorMode: exclude
+scheduleMode: interval
+intervalMinutes: 5
+timezone: UTC
+inboxLimit: 25
+workLimit: 5
 ---
 
 Current prompt.
 `;
 
-const snapshot = {
-  userPrompt: "Restored prompt.",
-  displayName: "Slack feedback",
-  config: {
-    source: "slack" as const,
-    template: "slack-feedback" as const,
-    slackWorkspace: "primary" as const,
-    slackChannelId: "C123",
-    slackChannelName: null,
-    repository: null,
-    sentryOrgSlug: null,
-    sentryProjectSlug: null,
-    sentryEnvironment: null,
-    authorMode: "exclude" as const,
-    authorIds: [],
-    scheduleMode: "interval" as const,
-    intervalMinutes: 5 as const,
-    dailyHour: 9,
-    dailyMinute: 0,
-    timezone: "UTC",
-    inboxLimit: 25,
-    workLimit: 5,
-  },
-  promptVersion: 1,
-  alignmentRevision: 1,
-  configSavedAt: "2026-09-01T10:00:00.000Z",
-  factoryId: "myfact",
-};
+const historicalContent = `---
+factoryId: myfact
+displayName: Slack feedback
+promptVersion: 1
+configSavedAt: 2026-09-01T10:00:00.000Z
+source: slack
+template: slack-feedback
+slackWorkspace: primary
+slackChannelId: C123
+authorMode: exclude
+scheduleMode: interval
+intervalMinutes: 5
+timezone: UTC
+inboxLimit: 25
+workLimit: 5
+---
+
+Restored prompt.
+`;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  insertValuesMock.mockResolvedValue(undefined);
+  getDbMock.mockReturnValue({
+    insert: () => ({ values: insertValuesMock }),
+  });
   resourceGetByPathMock.mockResolvedValue({
     id: "resource-1",
     owner: "__organization__:org-1",
@@ -78,22 +98,24 @@ beforeEach(() => {
 });
 
 describe("resolvePromptVersionForSnapshot", () => {
-  const config = snapshot.config;
-
   it("keeps the current version when the saved identity is unchanged", async () => {
     const { resolvePromptVersionForSnapshot } =
       await import("./factory-automation-history.js");
     const previous = {
-      ...snapshot,
       userPrompt: "Current prompt.",
+      displayName: "Slack feedback",
+      config: sampleConfig,
       promptVersion: 3,
+      alignmentRevision: 1,
+      configSavedAt: "2026-09-15T12:00:00.000Z",
+      factoryId: "myfact",
     };
     expect(
       resolvePromptVersionForSnapshot(
         {
           userPrompt: previous.userPrompt,
           displayName: previous.displayName,
-          config,
+          config: sampleConfig,
         },
         previous,
       ),
@@ -104,16 +126,20 @@ describe("resolvePromptVersionForSnapshot", () => {
     const { resolvePromptVersionForSnapshot } =
       await import("./factory-automation-history.js");
     const previous = {
-      ...snapshot,
       userPrompt: "Current prompt.",
+      displayName: "Slack feedback",
+      config: sampleConfig,
       promptVersion: 3,
+      alignmentRevision: 1,
+      configSavedAt: "2026-09-15T12:00:00.000Z",
+      factoryId: "myfact",
     };
     expect(
       resolvePromptVersionForSnapshot(
         {
-          userPrompt: snapshot.userPrompt,
-          displayName: snapshot.displayName,
-          config,
+          userPrompt: "Restored prompt.",
+          displayName: "Slack feedback",
+          config: sampleConfig,
         },
         previous,
       ),
@@ -124,16 +150,20 @@ describe("resolvePromptVersionForSnapshot", () => {
     const { resolvePromptVersionForSnapshot } =
       await import("./factory-automation-history.js");
     const previous = {
-      ...snapshot,
       userPrompt: "Current prompt.",
+      displayName: "Slack feedback",
+      config: sampleConfig,
       promptVersion: 3,
+      alignmentRevision: 1,
+      configSavedAt: "2026-09-15T12:00:00.000Z",
+      factoryId: "myfact",
     };
     expect(
       resolvePromptVersionForSnapshot(
         {
           userPrompt: "Brand new prompt.",
-          displayName: snapshot.displayName,
-          config,
+          displayName: "Slack feedback",
+          config: sampleConfig,
         },
         previous,
       ),
@@ -141,14 +171,14 @@ describe("resolvePromptVersionForSnapshot", () => {
   });
 });
 
-describe("restoreFactoryAutomationSnapshot", () => {
+describe("restoreFactoryAutomationVersion", () => {
   it("uses the authoritative resource row for conditional writes", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-15T13:00:00.000Z"));
     try {
-      const { restoreFactoryAutomationSnapshot } =
+      const { restoreFactoryAutomationVersion } =
         await import("./factory-automation-history.js");
-      const result = await restoreFactoryAutomationSnapshot({
+      const result = await restoreFactoryAutomationVersion({
         resource: {
           id: "resource-1",
           owner: "__organization__:org-1",
@@ -165,11 +195,13 @@ describe("restoreFactoryAutomationSnapshot", () => {
           expiresAt: null,
           metadata: null,
         },
+        automationId: "resource-1",
         automationName: "factory-slack-feedback",
         factoryId: "myfact",
-        snapshot,
+        historicalContent,
         userEmail: "owner@example.com",
         orgId: "org-1",
+        summary: "Before restoring version 1",
       });
 
       expect(resourceGetByPathMock).toHaveBeenCalledWith(
@@ -184,8 +216,17 @@ describe("restoreFactoryAutomationSnapshot", () => {
       );
       // currentContent is promptVersion 2; restoring different content always
       // advances past it rather than reusing the restored snapshot's own v1.
-      expect(result.promptVersion).toBe(3);
+      expect(result.version).toBe(3);
       expect(result.configSavedAt).toBe("2026-09-15T13:00:00.000Z");
+      // The predecessor row stores the CURRENT content verbatim, not the
+      // restored content, and inserts before the live write commits.
+      expect(insertValuesMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawContent: currentContent,
+          version: 2,
+          source: "restore",
+        }),
+      );
     } finally {
       vi.useRealTimers();
     }

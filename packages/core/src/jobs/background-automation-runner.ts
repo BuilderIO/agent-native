@@ -342,7 +342,6 @@ export async function runBackgroundAutomation(
         scope: options.orgId ? "organization" : "personal",
         orgId: options.orgId ?? null,
         appId: deps.appId,
-        promptSnapshot: automation.resource.content,
       });
     } catch (err) {
       console.error(

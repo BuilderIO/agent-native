@@ -1110,7 +1110,7 @@ function AutomationsView({
       syncedConfigKeyRef.current = null;
       await automationsQuery.refetch();
       void queryClient.invalidateQueries({
-        queryKey: ["action", "list-resource-versions"],
+        queryKey: ["action", "list-factory-automation-versions"],
       });
       toast.success(t("factoryRoute.automationSaved"));
     } catch (error) {

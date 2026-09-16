@@ -1,9 +1,4 @@
 import { subscribe } from "@agent-native/core/event-bus";
-import {
-  deleteResourceVersionById,
-  insertResourceVersion,
-  type ResourceVersion,
-} from "@agent-native/core/history";
 import { notify } from "@agent-native/core/notifications";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
@@ -47,8 +42,9 @@ import {
   type FactoryAutomationTemplateId,
 } from "../lib/factory-automation-config.js";
 import {
-  FACTORY_AUTOMATION_RESOURCE_TYPE,
-  snapshotFromAutomationResource,
+  deleteFactoryAutomationVersionRow,
+  insertFactoryAutomationVersionRow,
+  type FactoryAutomationVersionRow,
 } from "../lib/factory-automation-history.js";
 import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
 import { listFactoryAutomationDefinitions } from "../lib/factory-automation-resources.js";
@@ -91,9 +87,6 @@ export type AutomationRunFinishedEvent = {
   threadId: string | null;
   status: "success" | "error" | "interrupted";
   error: string | null;
-  /** The automation's exact content as read at dispatch time, before the run
-   *  started. Null when it predates this column or capture failed. */
-  promptSnapshot: string | null;
 };
 
 let failureAlertSubscription: string | null = null;
@@ -205,17 +198,18 @@ export async function recordFinishedAutomationPrompt(
   ) {
     return;
   }
-  // Read from the content captured at dispatch time, not the live resource:
-  // re-reading the live resource here would record whatever prompt is
-  // current when the run happens to finish, not the one it actually ran
-  // with, if the automation was edited while the run was in flight.
-  if (event.promptSnapshot == null) return;
   // list-factory-audit joins audit events by the agent run id (event.runId),
   // not the core history-row id (event.automationRunId) — every other writer
   // of factoryAuditEvents.automationRunId already stores the agent run id.
   // Without one, this row can never be joined to a displayed run.
   if (!event.runId) return;
-  const { body } = splitAutomationFrontmatter(event.promptSnapshot);
+  // Reads the live resource: known gap (Cause 1 in
+  // .tmp/notes/factory-prompt-audit-gap.md) — an edit mid-run can make this
+  // describe a newer prompt than the one that actually executed. Parked
+  // pending the factory_automation_versions rework.
+  const resource = await resourceGetByPath(event.owner, event.path);
+  if (!resource) return;
+  const { body } = splitAutomationFrontmatter(resource.content);
   const factoryId =
     readFactoryIdFromAutomationPath(event.path) ?? DEFAULT_FACTORY_ID;
   await recordFactoryAutomationRunPrompt({
@@ -223,7 +217,7 @@ export async function recordFinishedAutomationPrompt(
     automationRunId: event.runId,
     factoryId,
     path: event.path,
-    promptVersion: readPromptVersion(event.promptSnapshot),
+    promptVersion: readPromptVersion(resource.content),
     executionPromptHash: computeExecutionPromptHash(body),
   });
 }
@@ -641,24 +635,22 @@ export async function ensureFactoryAutomations(
       // as save/restore: if the write below fails, this is just an unused
       // extra row, but the reverse order would let the repair commit with no
       // recoverable pre-repair version when the history insert fails.
-      let insertedRepairVersion: ResourceVersion | null = null;
+      let insertedRepairVersion: FactoryAutomationVersionRow | null = null;
       if (bodyRepairNeeded) {
         const automationName = factoryAutomationRunHistoryKey(path);
-        insertedRepairVersion = await insertResourceVersion({
-          resourceType: FACTORY_AUTOMATION_RESOURCE_TYPE,
-          resourceId: existing.id,
-          createdBy: ownerEmail,
-          actorKind: "system",
-          ownerEmail,
+        // Unconditional, not the no-op-skipping insert: repair's whole
+        // purpose is recording a change (deduped injected blocks) that the
+        // user-facing-identity no-op check would otherwise treat as
+        // unchanged, since normalizing strips those blocks either way.
+        insertedRepairVersion = await insertFactoryAutomationVersionRow({
+          automationId: existing.id,
+          factoryId,
           orgId,
-          visibility: "org",
+          userEmail: ownerEmail,
+          automationName,
+          content: originalContent,
           summary: "Before deduped injected prompt blocks",
-          snapshot: snapshotFromAutomationResource(
-            originalContent,
-            automationName,
-            factoryId,
-          ),
-          metadata: { factoryId },
+          source: "repair",
         });
       }
       // A thrown write failure must compensate exactly like a falsy return —
@@ -679,11 +671,10 @@ export async function ensureFactoryAutomations(
         writeError = error;
       }
       if (!updated && insertedRepairVersion) {
-        await deleteResourceVersionById(
-          insertedRepairVersion.id,
-          { userEmail: ownerEmail, orgId },
-          { bypassScope: true },
-        ).catch(() => {});
+        await deleteFactoryAutomationVersionRow({
+          id: insertedRepairVersion.id,
+          orgId,
+        }).catch(() => {});
       }
       if (writeError) {
         console.warn(

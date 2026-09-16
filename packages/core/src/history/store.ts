@@ -62,16 +62,6 @@ export async function ensureResourceVersionsTable(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS idx_agent_resource_versions_org
            ON agent_resource_versions (org_id, created_at)`,
       ];
-      // Separate from agent_resource_versions on purpose: version numbers must
-      // never be reused after a row is deleted (a stale reference or cached
-      // picker entry would then resolve to a different snapshot), so the
-      // counter cannot be derived from MAX(version_number) over live rows.
-      const counterCreateSql = `CREATE TABLE IF NOT EXISTS agent_resource_version_counters (
-      resource_type TEXT NOT NULL,
-      resource_id TEXT NOT NULL,
-      last_version_number BIGINT NOT NULL DEFAULT 0,
-      PRIMARY KEY (resource_type, resource_id)
-    )`;
 
       {
         await ensureTableExists("agent_resource_versions", createSql);
@@ -84,23 +74,6 @@ export async function ensureResourceVersionsTable(): Promise<void> {
           indexes[1],
         );
         await ensureIndexExists("idx_agent_resource_versions_org", indexes[2]);
-        await ensureTableExists(
-          "agent_resource_version_counters",
-          counterCreateSql,
-        );
-        // Idempotent backfill: a resource with pre-existing history rows
-        // (seeded before this counter table existed) must not start
-        // allocating from 1 again, or every allocation collides with an
-        // already-used version_number until the retry budget is exhausted.
-        // ON CONFLICT DO NOTHING makes this safe to run on every init.
-        await getDbExec().execute({
-          sql: `INSERT INTO agent_resource_version_counters (resource_type, resource_id, last_version_number)
-             SELECT resource_type, resource_id, MAX(version_number)
-               FROM agent_resource_versions
-              GROUP BY resource_type, resource_id
-             ON CONFLICT (resource_type, resource_id) DO NOTHING`,
-          args: [],
-        });
       }
     })();
   }
@@ -129,10 +102,17 @@ export async function insertResourceVersion(
 
   let lastError: unknown;
   for (let attempt = 0; attempt < VERSION_INSERT_MAX_ATTEMPTS; attempt++) {
-    const versionNumber = await allocateNextVersionNumber(
-      input.resourceType,
-      input.resourceId,
-    );
+    const maxRows = await client.execute({
+      sql: `SELECT MAX(version_number) as max_version
+       FROM agent_resource_versions
+      WHERE resource_type = ? AND resource_id = ?`,
+      args: [input.resourceType, input.resourceId],
+    });
+    const versionNumber =
+      Number(
+        (maxRows.rows?.[0] as Record<string, unknown> | undefined)
+          ?.max_version ?? 0,
+      ) + 1;
     const id = createVersionId();
     const createdAt = new Date().toISOString();
     const version: ResourceVersion = {
@@ -243,23 +223,6 @@ export async function getResourceVersionById(
   return row ? mapVersionRow(row, true) : null;
 }
 
-export async function deleteResourceVersionById(
-  id: string,
-  scope: ResourceHistoryScope,
-  options: { bypassScope?: boolean } = {},
-): Promise<boolean> {
-  await ensureResourceVersionsTable();
-  const client = getDbExec();
-  const { clause, params } = options.bypassScope
-    ? { clause: "1 = 1", params: [] as unknown[] }
-    : scopedResourceClause(scope);
-  const result = await client.execute({
-    sql: `DELETE FROM agent_resource_versions WHERE id = ? AND ${clause}`,
-    args: [id, ...params],
-  });
-  return result.rowsAffected > 0;
-}
-
 export async function getResourceVersionByNumber(
   resourceType: string,
   resourceId: string,
@@ -359,25 +322,6 @@ function mapVersionRow(
     version.snapshot = parseRequiredJson(row.snapshot_json);
   }
   return version;
-}
-
-async function allocateNextVersionNumber(
-  resourceType: string,
-  resourceId: string,
-): Promise<number> {
-  const client = getDbExec();
-  const result = await client.execute({
-    sql: `INSERT INTO agent_resource_version_counters (resource_type, resource_id, last_version_number)
-       VALUES (?, ?, 1)
-       ON CONFLICT (resource_type, resource_id)
-       DO UPDATE SET last_version_number = agent_resource_version_counters.last_version_number + 1
-       RETURNING last_version_number`,
-    args: [resourceType, resourceId],
-  });
-  return Number(
-    (result.rows?.[0] as Record<string, unknown> | undefined)
-      ?.last_version_number ?? 1,
-  );
 }
 
 function createVersionId(): string {

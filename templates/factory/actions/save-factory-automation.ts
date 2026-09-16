@@ -1,5 +1,4 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { deleteResourceVersionById } from "@agent-native/core/history";
 import { isValidCron, nextOccurrence } from "@agent-native/core/jobs";
 import {
   resourceGetByPath,
@@ -26,6 +25,7 @@ import {
   scheduleCron,
 } from "../server/lib/factory-automation-config.js";
 import {
+  deleteFactoryAutomationVersionRow,
   insertFactoryAutomationVersionIfChanged,
   resolvePromptVersionForSnapshot,
   snapshotFromAutomationResource,
@@ -301,23 +301,21 @@ export default defineAction({
       ).toISOString();
       content = setAutomationFrontmatterField(content, "nextRun", nextRun);
     }
-    // Insert the predecessor snapshot before the live write commits: if the
-    // write below fails, this is just an unused extra row, but if the order
-    // were reversed a crash or history-insert failure after a successful
-    // write would report a failed save while silently losing the last
-    // pre-save state with no way to recover it.
+    // Insert the predecessor's raw content before the live write commits: if
+    // the write below fails, this is just an unused extra row, but if the
+    // order were reversed a crash or history-insert failure after a
+    // successful write would report a failed save while silently losing the
+    // last pre-save state with no way to recover it.
     const insertedVersion = await insertFactoryAutomationVersionIfChanged({
-      resourceId: definition.resource.id,
+      automationId: definition.resource.id,
+      factoryId: input.factoryId,
       orgId,
       userEmail,
-      displayName: resolveAutomationDisplayName(definition.name, content),
-      previousSnapshot,
-      nextSnapshot: snapshotFromAutomationResource(
-        content,
-        input.name,
-        input.factoryId,
-      ),
+      automationName: input.name,
+      previousContent: resource.content,
+      nextContent: content,
       summary: "Automation save",
+      source: "save",
     });
     // A thrown write failure (DB/provider error) must compensate exactly like
     // a falsy return (optimistic-concurrency mismatch) — resourcePutIfCurrent
@@ -339,11 +337,10 @@ export default defineAction({
       writeError = error;
     }
     if (!updated && insertedVersion) {
-      await deleteResourceVersionById(
-        insertedVersion.id,
-        { userEmail, orgId },
-        { bypassScope: true },
-      ).catch(() => {});
+      await deleteFactoryAutomationVersionRow({
+        id: insertedVersion.id,
+        orgId,
+      }).catch(() => {});
     }
     if (writeError) throw writeError;
     if (!updated) {

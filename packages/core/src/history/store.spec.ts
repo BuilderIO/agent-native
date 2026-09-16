@@ -12,12 +12,7 @@ const rawClient = {
     }
     const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    // The real db client always returns `rows` from the driver, regardless of
-    // statement type — an INSERT/UPDATE with RETURNING produces rows just
-    // like a SELECT does. Matching that here, not only `SELECT`, is what lets
-    // this fixture exercise an upsert-and-RETURNING allocator the same way
-    // production does.
-    if (/^\s*select/i.test(input.sql) || /\breturning\b/i.test(input.sql)) {
+    if (/^\s*select/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
     const info = await stmt.run(...args);
@@ -36,7 +31,6 @@ vi.mock("../db/client.js", () => ({
 
 const {
   __resetHistoryInitForTests,
-  deleteResourceVersionById,
   ensureResourceVersionsTable,
   getResourceVersionById,
   insertResourceVersion,
@@ -94,50 +88,6 @@ describe("resource history store", () => {
       blocks: [{ id: "intro" }],
     });
     expect(full?.metadata).toEqual({ source: "test" });
-  });
-
-  it("backfills the counter from pre-existing history so allocation continues past them", async () => {
-    // Simulate versions 1-8 already present before the counter table
-    // existed (e.g. seeded under an earlier MAX(version_number) scheme).
-    for (let n = 1; n <= 8; n++) {
-      await rawClient.execute({
-        sql: `INSERT INTO agent_resource_versions (
-          id, resource_type, resource_id, version_number, created_at, created_by,
-          actor_kind, owner_email, org_id, visibility, title, summary,
-          snapshot_json, metadata_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          `ver_legacy_${n}`,
-          "doc",
-          "legacy-doc",
-          n,
-          new Date().toISOString(),
-          null,
-          "human",
-          "alice@example.com",
-          null,
-          "private",
-          null,
-          null,
-          JSON.stringify({ n }),
-          null,
-        ],
-      });
-    }
-
-    // Re-run table init, as a fresh process would, so the backfill
-    // reconciles the counter table against rows that already exist.
-    __resetHistoryInitForTests();
-    await ensureResourceVersionsTable();
-
-    const next = await insertResourceVersion({
-      resourceType: "doc",
-      resourceId: "legacy-doc",
-      ownerEmail: "alice@example.com",
-      snapshot: { n: 9 },
-    });
-
-    expect(next.versionNumber).toBe(9);
   });
 
   it("enforces unique version numbers per resource", async () => {
@@ -218,58 +168,5 @@ describe("resource history store", () => {
         scope: {},
       }),
     ).toHaveLength(1);
-  });
-
-  it("deletes a version by id and leaves the others in place", async () => {
-    const first = await insertResourceVersion({
-      resourceType: "doc",
-      resourceId: "d1",
-      ownerEmail: "alice@example.com",
-      snapshot: { n: 1 },
-    });
-    const second = await insertResourceVersion({
-      resourceType: "doc",
-      resourceId: "d1",
-      ownerEmail: "alice@example.com",
-      snapshot: { n: 2 },
-    });
-
-    const deleted = await deleteResourceVersionById(first.id, {
-      userEmail: "alice@example.com",
-    });
-    expect(deleted).toBe(true);
-
-    const remaining = await queryResourceVersions({
-      resourceType: "doc",
-      resourceId: "d1",
-      scope: { userEmail: "alice@example.com" },
-    });
-    expect(remaining.map((row) => row.id)).toEqual([second.id]);
-  });
-
-  it("does not delete a version outside the caller's scope", async () => {
-    const version = await insertResourceVersion({
-      resourceType: "doc",
-      resourceId: "scoped",
-      ownerEmail: "alice@example.com",
-      snapshot: { n: 1 },
-    });
-
-    const deleted = await deleteResourceVersionById(version.id, {
-      userEmail: "mallory@example.com",
-    });
-    expect(deleted).toBe(false);
-
-    const stillThere = await getResourceVersionById(version.id, {
-      userEmail: "alice@example.com",
-    });
-    expect(stillThere).not.toBeNull();
-  });
-
-  it("reports false for a version id that does not exist", async () => {
-    const deleted = await deleteResourceVersionById("ver_missing", {
-      userEmail: "alice@example.com",
-    });
-    expect(deleted).toBe(false);
   });
 });

@@ -50,17 +50,13 @@ vi.mock("../server/connectors/credentials.js", () => ({
   VaultUnavailableError,
 }));
 
-const insertResourceVersionMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ id: "ver-inserted" }),
+const insertValuesMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const deleteReturningMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue([{ id: "ver-deleted" }]),
 );
-const deleteResourceVersionByIdMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(true),
-);
+const getDbMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/history", () => ({
-  insertResourceVersion: insertResourceVersionMock,
-  deleteResourceVersionById: deleteResourceVersionByIdMock,
-}));
+vi.mock("../server/db/index.js", () => ({ getDb: getDbMock }));
 
 const existingContent = `---
 domain: factory
@@ -109,6 +105,12 @@ beforeEach(() => {
   });
   resourcePutIfCurrentMock.mockResolvedValue({ id: "resource-1" });
   assertFactoryConnectorReadyMock.mockResolvedValue(undefined);
+  insertValuesMock.mockResolvedValue(undefined);
+  deleteReturningMock.mockResolvedValue([{ id: "ver-deleted" }]);
+  getDbMock.mockReturnValue({
+    insert: () => ({ values: insertValuesMock }),
+    delete: () => ({ where: () => ({ returning: deleteReturningMock }) }),
+  });
 });
 
 describe("save-factory-automation", () => {
@@ -420,11 +422,8 @@ Babysit pull requests.
       ),
     ).rejects.toThrow("changed concurrently");
 
-    expect(deleteResourceVersionByIdMock).toHaveBeenCalledWith(
-      "ver-inserted",
-      { userEmail: "teammate@example.com", orgId: "org-1" },
-      { bypassScope: true },
-    );
+    expect(insertValuesMock).toHaveBeenCalledTimes(1);
+    expect(deleteReturningMock).toHaveBeenCalledTimes(1);
   });
 
   it("deletes the inserted predecessor snapshot when the live write throws", async () => {
@@ -444,10 +443,7 @@ Babysit pull requests.
       ),
     ).rejects.toThrow("db unavailable");
 
-    expect(deleteResourceVersionByIdMock).toHaveBeenCalledWith(
-      "ver-inserted",
-      { userEmail: "teammate@example.com", orgId: "org-1" },
-      { bypassScope: true },
-    );
+    expect(insertValuesMock).toHaveBeenCalledTimes(1);
+    expect(deleteReturningMock).toHaveBeenCalledTimes(1);
   });
 });

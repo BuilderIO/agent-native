@@ -15,18 +15,10 @@ const recordFactoryAutomationRunPromptMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
 
-const insertResourceVersionMock = vi.hoisted(() =>
+const insertAutomationVersionValuesMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
-
-vi.mock("@agent-native/core/history", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@agent-native/core/history")>();
-  return {
-    ...actual,
-    insertResourceVersion: insertResourceVersionMock,
-  };
-});
+const getDbMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../triage/audit.js", () => ({
   recordFactoryGovernanceAudit: recordFactoryGovernanceAuditMock,
@@ -70,7 +62,7 @@ vi.mock("@agent-native/core/triggers", () => ({
 }));
 
 vi.mock("../db/index.js", () => ({
-  getDb: vi.fn(),
+  getDb: getDbMock,
 }));
 
 vi.mock("../lib/factory-automation-repair.js", () => ({
@@ -93,6 +85,10 @@ beforeEach(() => {
   resourceListContentMock.mockResolvedValue([]);
   resourceDeleteByPathMock.mockResolvedValue(true);
   deleteAutomationRunsMock.mockResolvedValue(undefined);
+  insertAutomationVersionValuesMock.mockResolvedValue(undefined);
+  getDbMock.mockReturnValue({
+    insert: () => ({ values: insertAutomationVersionValuesMock }),
+  });
 });
 
 describe("ensureFactoryAutomations", () => {
@@ -336,7 +332,7 @@ ${userPrompt}
     expect(saved).toContain("authorIds: U096KN3EL2Y");
     expect(saved).toContain(userPrompt);
     expect(saved!.split(start).length - 1).toBe(1);
-    expect(insertResourceVersionMock).toHaveBeenCalled();
+    expect(insertAutomationVersionValuesMock).toHaveBeenCalled();
     expect(recordFactoryGovernanceAuditMock).toHaveBeenCalledWith(
       { userEmail: "owner@example.com", orgId: "org-1" },
       expect.objectContaining({
@@ -496,12 +492,10 @@ describe("snapshotFactoryAutomations", () => {
 describe("recordFinishedAutomationPrompt", () => {
   const path = "jobs/factories/support-triage/factory-slack-feedback.md";
 
-  it("audits the prompt captured at dispatch, not the live resource", async () => {
-    // If this read the live resource, it would see promptVersion 9 here —
-    // proving the fix by making the live and dispatch-time content disagree.
+  it("audits the live resource's prompt version under the agent run id", async () => {
     resourceGetByPathMock.mockResolvedValue({
       path,
-      content: "---\npromptVersion: 9\n---\nEdited after the run started.\n",
+      content: "---\npromptVersion: 3\n---\nCurrent prompt.\n",
     });
 
     await recordFinishedAutomationPrompt({
@@ -514,10 +508,9 @@ describe("recordFinishedAutomationPrompt", () => {
       threadId: null,
       status: "success",
       error: null,
-      promptSnapshot: "---\npromptVersion: 3\n---\nOriginal prompt.\n",
     });
 
-    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+    expect(resourceGetByPathMock).toHaveBeenCalledWith("workspace", path);
     expect(recordFactoryAutomationRunPromptMock).toHaveBeenCalledTimes(1);
     const call = recordFactoryAutomationRunPromptMock.mock.calls[0][0];
     expect(call.promptVersion).toBe(3);
@@ -538,15 +531,17 @@ describe("recordFinishedAutomationPrompt", () => {
       threadId: null,
       status: "success",
       error: null,
-      promptSnapshot: "---\npromptVersion: 1\n---\nPrompt.\n",
     });
 
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
     expect(recordFactoryAutomationRunPromptMock).not.toHaveBeenCalled();
   });
 
-  it("does not guess from the live resource when no snapshot was captured", async () => {
+  it("does not record when the automation resource is gone", async () => {
+    resourceGetByPathMock.mockResolvedValue(null);
+
     await recordFinishedAutomationPrompt({
-      automationRunId: "run-2",
+      automationRunId: "history-row-2",
       owner: "workspace",
       automation: "factory-slack-feedback",
       path,
@@ -555,10 +550,8 @@ describe("recordFinishedAutomationPrompt", () => {
       threadId: null,
       status: "success",
       error: null,
-      promptSnapshot: null,
     });
 
-    expect(resourceGetByPathMock).not.toHaveBeenCalled();
     expect(recordFactoryAutomationRunPromptMock).not.toHaveBeenCalled();
   });
 });

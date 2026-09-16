@@ -323,7 +323,7 @@ export function destinationKey(config: FactoryAutomationConfig): string {
     .join("/");
 }
 
-function readFrontmatterValue(
+export function readFrontmatterValue(
   content: string,
   key: string,
 ): string | undefined {

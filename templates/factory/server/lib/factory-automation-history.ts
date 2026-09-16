@@ -1,20 +1,17 @@
-import {
-  deleteResourceVersionById,
-  insertResourceVersion,
-  type ResourceVersion,
-} from "@agent-native/core/history";
 import { type Resource } from "@agent-native/core/resources";
+import { and, desc, eq, lt } from "drizzle-orm";
 
+import { getDb } from "../db/index.js";
+import { factoryAutomationVersions } from "../db/schema.js";
 import { FACTORY_ALIGNMENT_REVISION } from "../triage/review-skill-alignment.js";
 import type { FactoryAutomationConfig } from "./factory-automation-config.js";
 import {
-  applyAutomationConfigFrontmatter,
   normalizeUserPrompt,
   readAlignmentRevision,
   readConfigSavedAt,
   readFactoryAutomationConfig,
+  readFrontmatterValue,
   readPromptVersion,
-  replaceAutomationContentWithUserPrompt,
 } from "./factory-automation-config.js";
 import { findFactoryAutomationByResourceId } from "./factory-automation-resources.js";
 import {
@@ -22,7 +19,7 @@ import {
   setAutomationFrontmatterField,
 } from "./factory-scope.js";
 
-export const FACTORY_AUTOMATION_RESOURCE_TYPE = "factory-automation";
+export type FactoryAutomationVersionSource = "save" | "restore" | "repair";
 
 export type FactoryAutomationSnapshot = {
   userPrompt: string;
@@ -84,99 +81,228 @@ export function resolvePromptVersionForSnapshot(
   return previous.promptVersion + 1;
 }
 
-export async function insertFactoryAutomationVersionIfChanged(input: {
-  resourceId: string;
+export type FactoryAutomationVersionRow = {
+  id: string;
+  automationId: string;
+  factoryId: string;
+  version: number;
+  rawContent: string;
+  displayName: string | null;
+  source: FactoryAutomationVersionSource;
+  summary: string;
+  createdAt: string;
+  createdBy: string;
+  ownerEmail: string;
+  orgId: string | null;
+};
+
+function createVersionId(): string {
+  return `favr_${globalThis.crypto.randomUUID()}`;
+}
+
+/**
+ * Insert one history row from raw content, unconditionally — the full file,
+ * verbatim, not a reconstructed subset of fields. Reconstructing fields by
+ * hand is what let `restoreFactoryAutomationIdentityFields` become
+ * necessary in the first place (the repair pipeline silently dropped
+ * displayName/slackChannelId/authorIds under some conditions); storing the
+ * exact file means there's no field list left to have gaps in.
+ */
+export async function insertFactoryAutomationVersionRow(input: {
+  automationId: string;
+  factoryId: string;
   orgId: string;
   userEmail: string;
-  displayName: string;
-  previousSnapshot: FactoryAutomationSnapshot;
-  nextSnapshot: FactoryAutomationSnapshot;
+  automationName: string;
+  content: string;
   summary: string;
-}): Promise<ResourceVersion | null> {
+  source: FactoryAutomationVersionSource;
+}): Promise<FactoryAutomationVersionRow> {
+  const snapshot = snapshotFromAutomationResource(
+    input.content,
+    input.automationName,
+    input.factoryId,
+  );
+  const row: FactoryAutomationVersionRow = {
+    id: createVersionId(),
+    automationId: input.automationId,
+    factoryId: input.factoryId,
+    version: snapshot.promptVersion,
+    rawContent: input.content,
+    displayName: snapshot.displayName,
+    source: input.source,
+    summary: input.summary,
+    createdAt: new Date().toISOString(),
+    createdBy: input.userEmail,
+    ownerEmail: input.userEmail,
+    orgId: input.orgId,
+  };
+  await getDb().insert(factoryAutomationVersions).values(row);
+  return row;
+}
+
+/**
+ * Same insert, skipped when the save/restore would be a true no-op: two
+ * different raw files (e.g. differing only in a rewritten configSavedAt)
+ * can still represent the identical user-facing prompt/config, and that
+ * case must not crowd meaningful history out of the picker. Body repair
+ * uses `insertFactoryAutomationVersionRow` directly instead, because its
+ * whole purpose is recording a change (deduped injected blocks) that this
+ * identity check is specifically designed to ignore.
+ */
+export async function insertFactoryAutomationVersionIfChanged(input: {
+  automationId: string;
+  factoryId: string;
+  orgId: string;
+  userEmail: string;
+  automationName: string;
+  previousContent: string;
+  nextContent: string;
+  summary: string;
+  source: FactoryAutomationVersionSource;
+}): Promise<FactoryAutomationVersionRow | null> {
+  const previousSnapshot = snapshotFromAutomationResource(
+    input.previousContent,
+    input.automationName,
+    input.factoryId,
+  );
+  const nextSnapshot = snapshotFromAutomationResource(
+    input.nextContent,
+    input.automationName,
+    input.factoryId,
+  );
   // Compare content identity, not the full snapshot: configSavedAt is
   // rewritten on every save, so a full-snapshot comparison would treat a
-  // true no-op save as a change and insert a duplicate predecessor snapshot.
+  // true no-op save as a change and insert a duplicate predecessor row.
   if (
-    snapshotContentIdentity(input.previousSnapshot) ===
-    snapshotContentIdentity(input.nextSnapshot)
+    snapshotContentIdentity(previousSnapshot) ===
+    snapshotContentIdentity(nextSnapshot)
   ) {
     return null;
   }
-  return insertResourceVersion({
-    resourceType: FACTORY_AUTOMATION_RESOURCE_TYPE,
-    resourceId: input.resourceId,
-    createdBy: input.userEmail,
-    actorKind: "human",
-    ownerEmail: input.userEmail,
+  return insertFactoryAutomationVersionRow({
+    automationId: input.automationId,
+    factoryId: input.factoryId,
     orgId: input.orgId,
-    visibility: "org",
-    title: input.displayName,
+    userEmail: input.userEmail,
+    automationName: input.automationName,
+    content: input.previousContent,
     summary: input.summary,
-    snapshot: input.previousSnapshot,
-    metadata: input.previousSnapshot.factoryId
-      ? { factoryId: input.previousSnapshot.factoryId }
-      : undefined,
+    source: input.source,
   });
 }
 
-export function buildAutomationContentFromSnapshot(
-  originalContent: string,
-  automationName: string,
-  factoryId: string,
-  snapshot: FactoryAutomationSnapshot,
+export async function listFactoryAutomationVersionRows(input: {
+  automationId: string;
+  orgId: string;
+  limit: number;
+  beforeVersion?: number;
+}): Promise<{ rows: FactoryAutomationVersionRow[]; hasMore: boolean }> {
+  const rows = await getDb()
+    .select()
+    .from(factoryAutomationVersions)
+    .where(
+      and(
+        eq(factoryAutomationVersions.automationId, input.automationId),
+        eq(factoryAutomationVersions.orgId, input.orgId),
+        input.beforeVersion === undefined
+          ? undefined
+          : lt(factoryAutomationVersions.version, input.beforeVersion),
+      ),
+    )
+    .orderBy(desc(factoryAutomationVersions.version))
+    .limit(input.limit + 1);
+  return {
+    rows: rows.slice(0, input.limit) as FactoryAutomationVersionRow[],
+    hasMore: rows.length > input.limit,
+  };
+}
+
+export async function getFactoryAutomationVersionRow(input: {
+  id: string;
+  orgId: string;
+}): Promise<FactoryAutomationVersionRow | null> {
+  const row = (
+    await getDb()
+      .select()
+      .from(factoryAutomationVersions)
+      .where(
+        and(
+          eq(factoryAutomationVersions.id, input.id),
+          eq(factoryAutomationVersions.orgId, input.orgId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  return (row as FactoryAutomationVersionRow) ?? null;
+}
+
+export async function deleteFactoryAutomationVersionRow(input: {
+  id: string;
+  orgId: string;
+}): Promise<boolean> {
+  const deleted = await getDb()
+    .delete(factoryAutomationVersions)
+    .where(
+      and(
+        eq(factoryAutomationVersions.id, input.id),
+        eq(factoryAutomationVersions.orgId, input.orgId),
+      ),
+    )
+    .returning({ id: factoryAutomationVersions.id });
+  return deleted.length > 0;
+}
+
+/**
+ * Fields the scheduler owns, not the editor: a restore rewinds prompt/config
+ * content, never execution bookkeeping. Without this, restoring an old
+ * version could resurrect a stale lastRun/nextRun/remote-dispatch state that
+ * has nothing to do with what the user actually wanted rolled back.
+ */
+const OPERATIONAL_FRONTMATTER_FIELDS = [
+  "lastRun",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "nextRun",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+] as const;
+
+function preserveOperationalFrontmatterFields(
+  restoredContent: string,
+  currentContent: string,
 ): string {
-  let content = applyAutomationConfigFrontmatter(
-    originalContent,
-    snapshot.config,
-  );
-  content = replaceAutomationContentWithUserPrompt(
-    content,
-    snapshot.userPrompt,
-    automationName,
-  );
-  content = setAutomationFrontmatterField(
-    content,
-    "promptVersion",
-    String(snapshot.promptVersion),
-  );
-  content = setAutomationFrontmatterField(
-    content,
-    "alignmentRevision",
-    String(FACTORY_ALIGNMENT_REVISION),
-  );
-  if (snapshot.configSavedAt) {
-    content = setAutomationFrontmatterField(
-      content,
-      "configSavedAt",
-      snapshot.configSavedAt,
+  let next = restoredContent;
+  for (const key of OPERATIONAL_FRONTMATTER_FIELDS) {
+    next = setAutomationFrontmatterField(
+      next,
+      key,
+      readFrontmatterValue(currentContent, key) ?? "",
     );
   }
-  // Write unconditionally, not only when truthy: a null displayName means
-  // this snapshot had no name, and the restore must clear a newer one rather
-  // than silently keeping it.
-  content = setAutomationFrontmatterField(
-    content,
-    "displayName",
-    snapshot.displayName ?? "",
-  );
-  content = setAutomationFrontmatterField(content, "factoryId", factoryId);
-  return content;
+  return next;
 }
 
 export type FactoryAutomationRestoreResult = {
   resource: Resource;
-  promptVersion: number;
-  configSavedAt: string | null;
+  version: number;
+  configSavedAt: string;
   displayName: string | null;
 };
 
-export async function restoreFactoryAutomationSnapshot(input: {
+export async function restoreFactoryAutomationVersion(input: {
   resource: Resource;
+  automationId: string;
   automationName: string;
   factoryId: string;
-  snapshot: FactoryAutomationSnapshot;
+  historicalContent: string;
   userEmail: string;
   orgId: string;
+  summary: string;
 }): Promise<FactoryAutomationRestoreResult> {
   const { resourceGetByPath, resourcePutIfCurrent } =
     await import("@agent-native/core/resources");
@@ -187,53 +313,66 @@ export async function restoreFactoryAutomationSnapshot(input: {
   if (!current) {
     throw new Error("Factory automation not found.");
   }
+
   const previousSnapshot = snapshotFromAutomationResource(
     current.content,
     input.automationName,
     input.factoryId,
   );
-  const resolvedPromptVersion = resolvePromptVersionForSnapshot(
-    {
-      userPrompt: input.snapshot.userPrompt,
-      displayName: input.snapshot.displayName,
-      config: input.snapshot.config,
-    },
+  const restoredSnapshot = snapshotFromAutomationResource(
+    input.historicalContent,
+    input.automationName,
+    input.factoryId,
+  );
+  const resolvedVersion = resolvePromptVersionForSnapshot(
+    restoredSnapshot,
     previousSnapshot,
   );
   const configSavedAt = new Date().toISOString();
-  const content = buildAutomationContentFromSnapshot(
+
+  let content = preserveOperationalFrontmatterFields(
+    input.historicalContent,
     current.content,
-    input.automationName,
-    input.factoryId,
-    { ...input.snapshot, promptVersion: resolvedPromptVersion, configSavedAt },
   );
-  // Insert the predecessor snapshot before the live write commits: if the
-  // live write below fails, the resource never changed and the snapshot is
-  // simply an unused extra row, but if it succeeded and this insert had run
-  // after it, a crash or history-insert failure here would silently discard
-  // the last state before restore with no way to recover it.
-  let insertedVersion: ResourceVersion | null = null;
-  if (
-    snapshotContentIdentity(previousSnapshot) !==
-    snapshotContentIdentity(input.snapshot)
-  ) {
-    insertedVersion = await insertResourceVersion({
-      resourceType: FACTORY_AUTOMATION_RESOURCE_TYPE,
-      resourceId: current.id,
-      createdBy: input.userEmail,
-      actorKind: "human",
-      ownerEmail: input.userEmail,
-      orgId: input.orgId,
-      visibility: "org",
-      title: input.snapshot.displayName ?? input.automationName,
-      summary: "Before restore",
-      snapshot: previousSnapshot,
-      metadata: { factoryId: input.factoryId },
-    });
-  }
+  content = setAutomationFrontmatterField(
+    content,
+    "promptVersion",
+    String(resolvedVersion),
+  );
+  content = setAutomationFrontmatterField(
+    content,
+    "alignmentRevision",
+    String(FACTORY_ALIGNMENT_REVISION),
+  );
+  content = setAutomationFrontmatterField(
+    content,
+    "configSavedAt",
+    configSavedAt,
+  );
+  content = setAutomationFrontmatterField(
+    content,
+    "factoryId",
+    input.factoryId,
+  );
+
+  // Insert the predecessor's raw content before the live write commits: if
+  // the write below fails, this is just an unused extra row, but the
+  // reverse order could silently discard the pre-restore state if the
+  // history insert then failed.
+  const insertedVersion = await insertFactoryAutomationVersionIfChanged({
+    automationId: input.automationId,
+    factoryId: input.factoryId,
+    orgId: input.orgId,
+    userEmail: input.userEmail,
+    automationName: input.automationName,
+    previousContent: current.content,
+    nextContent: content,
+    summary: input.summary,
+    source: "restore",
+  });
+
   // A thrown write failure must compensate exactly like a falsy return —
-  // resourcePutIfCurrent has no try/catch of its own, so a throw here would
-  // otherwise skip the cleanup below and leave the inserted version orphaned.
+  // resourcePutIfCurrent has no try/catch of its own.
   let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
   let writeError: unknown;
   try {
@@ -250,11 +389,10 @@ export async function restoreFactoryAutomationSnapshot(input: {
     writeError = error;
   }
   if (!updated && insertedVersion) {
-    await deleteResourceVersionById(
-      insertedVersion.id,
-      { userEmail: input.userEmail, orgId: input.orgId },
-      { bypassScope: true },
-    ).catch(() => {});
+    await deleteFactoryAutomationVersionRow({
+      id: insertedVersion.id,
+      orgId: input.orgId,
+    }).catch(() => {});
   }
   if (writeError) throw writeError;
   if (!updated) {
@@ -264,9 +402,9 @@ export async function restoreFactoryAutomationSnapshot(input: {
   }
   return {
     resource: updated,
-    promptVersion: resolvedPromptVersion,
+    version: resolvedVersion,
     configSavedAt,
-    displayName: input.snapshot.displayName,
+    displayName: restoredSnapshot.displayName,
   };
 }
 
