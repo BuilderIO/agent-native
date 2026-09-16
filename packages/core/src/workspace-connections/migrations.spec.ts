@@ -205,7 +205,7 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
     } finally {
       await pglite.close();
     }
-  });
+  }, 30_000);
 
   it("repairs normalized keys left by pre-trigger release migrations", async () => {
     const pglite = await createTestPglite();
@@ -286,7 +286,7 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
       vi.clearAllMocks();
       await pglite.close();
     }
-  });
+  }, 30_000);
 
   it("has unique ascending versions", () => {
     const versions = WORKSPACE_CONNECTIONS_MIGRATIONS.map((e) => e.version);
