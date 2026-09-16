@@ -107,9 +107,10 @@ export interface PageBreadcrumbItem {
 
 /**
  * Collapses breadcrumb segments only as far as the available header width
- * actually requires. Segments closest to the current page are hidden first;
- * the root and the level right after it are the last to go, so a long path
- * degrades to "Root / Level / … / Current" rather than losing root context.
+ * actually requires. Segments closest to the root are hidden first, so the
+ * current page and the ancestors nearest it — including the parent the back
+ * button returns to — stay visible: a long path degrades to
+ * "Root / … / Parent / Current" rather than hiding where "back" leads.
  * Re-measures on resize so widening the window (or collapsing the sidebar)
  * brings hidden segments back.
  */
@@ -117,7 +118,7 @@ function useBreadcrumbOverflow(itemCount: number) {
   const listRef = useRef<HTMLOListElement>(null);
   const [hiddenCount, setHiddenCount] = useState(0);
   // Middle segments are everything strictly between the root and the
-  // current page; the one right after root is never hidden.
+  // current page; the parent (the one right before current) is never hidden.
   const maxHidden = Math.max(0, itemCount - 2 - 1);
 
   // The path changed — start fully expanded and let the measurement below
@@ -161,11 +162,10 @@ export function PageBreadcrumb({
   const parent = items[items.length - 2];
   const fullPath = items.map((item) => item.label).join(" / ");
   const collapsed = hiddenCount > 0;
+  // Keep the root as an anchor, drop the segments right after it, and keep the
+  // whole tail (parent + current) so the back target stays on screen.
   const visibleItems = collapsed
-    ? [
-        ...items.slice(0, items.length - 1 - hiddenCount),
-        items[items.length - 1],
-      ]
+    ? [items[0], ...items.slice(1 + hiddenCount)]
     : items;
 
   const breadcrumb = (
@@ -173,7 +173,9 @@ export function PageBreadcrumb({
       <BreadcrumbList ref={listRef} className="flex-nowrap overflow-hidden">
         {visibleItems.map((item, index) => {
           const current = index === visibleItems.length - 1;
-          const showEllipsisBefore = collapsed && current;
+          // Ellipsis sits just after the root, standing in for the hidden
+          // left-side ancestors.
+          const showEllipsisBefore = collapsed && index === 1;
 
           return (
             <Fragment key={`${item.to ?? "current"}:${item.label}:${index}`}>

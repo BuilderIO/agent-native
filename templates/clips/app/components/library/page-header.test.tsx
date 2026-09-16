@@ -119,32 +119,33 @@ describe("PageBreadcrumb overflow collapsing", () => {
     }
   });
 
-  it("collapses only as many segments as necessary, keeping root + next level visible", async () => {
+  it("collapses from the left, keeping the tail nearest the current page", async () => {
     const el = await renderBreadcrumb(45);
 
-    // Root and the next level survive even though the path is collapsing...
+    // The root stays as an anchor and the current page always stays visible...
     expect(el.textContent).toContain("Library");
-    expect(el.textContent).toContain("ProjectA");
-    // ...but this isn't a jump straight to the minimum: enough width remains
-    // to also keep one more ancestor visible...
-    expect(el.textContent).toContain("Subfolder1");
-    // ...while the ancestors that still don't fit collapse behind the
-    // ellipsis...
-    expect(el.textContent).not.toContain("Subfolder2");
-    expect(el.textContent).not.toContain("Subfolder3");
-    // ...and the current page always stays visible.
     expect(el.textContent).toContain("CurrentDoc");
+    // ...the ancestors nearest the current page survive, so the user can see
+    // where "back" leads...
+    expect(el.textContent).toContain("Subfolder2");
+    expect(el.textContent).toContain("Subfolder3");
+    // ...while the oldest middle segments, right after the root, collapse
+    // behind the ellipsis first.
+    expect(el.textContent).not.toContain("ProjectA");
+    expect(el.textContent).not.toContain("Subfolder1");
   });
 
-  it("collapses down to root + next level + … + current when space is very tight", async () => {
+  it("collapses down to root + … + parent + current when space is very tight", async () => {
     const el = await renderBreadcrumb(10);
 
     expect(el.textContent).toContain("Library");
-    expect(el.textContent).toContain("ProjectA");
+    // The parent (Subfolder3) is never hidden — it's where the back button
+    // goes, so it survives even at the tightest width.
+    expect(el.textContent).toContain("Subfolder3");
+    expect(el.textContent).toContain("CurrentDoc");
+    expect(el.textContent).not.toContain("ProjectA");
     expect(el.textContent).not.toContain("Subfolder1");
     expect(el.textContent).not.toContain("Subfolder2");
-    expect(el.textContent).not.toContain("Subfolder3");
-    expect(el.textContent).toContain("CurrentDoc");
   });
 });
 
@@ -155,12 +156,13 @@ describe("PageBreadcrumb back button", () => {
   const backLink = (el: HTMLElement) =>
     el.querySelector<HTMLAnchorElement>("a[aria-label]");
 
-  it("links one step back to the parent segment, even when it collapses", async () => {
-    // Width is tight enough that the parent (Subfolder3) is hidden from the
-    // trail, proving the back target comes from the path, not the rendering.
+  it("links one step back to the parent segment, even when the path collapses", async () => {
+    // Tight enough that the left of the path collapses, yet the back target is
+    // still the path's parent (Subfolder3 → /library/folder/4), not whatever
+    // ancestor happens to sit next to the ellipsis.
     const el = await renderBreadcrumb(10);
 
-    expect(el.textContent).not.toContain("Subfolder3");
+    expect(el.textContent).not.toContain("ProjectA");
     expect(backLink(el)?.getAttribute("href")).toBe("/library/folder/4");
   });
 
