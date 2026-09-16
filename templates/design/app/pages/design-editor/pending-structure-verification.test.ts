@@ -173,6 +173,23 @@ describe("verifyPendingStructureRuntime", () => {
     ).toEqual({ ok: false, failure: "subject-still-present" });
   });
 
+  it("does not acknowledge removal when the stable subject changed shape", () => {
+    const html = `<!doctype html><body>
+      <button data-agent-native-node-id="subject">Changed</button>
+    </body>`;
+    expect(
+      verifyPendingStructureRuntime(
+        html,
+        edit({
+          selector: '[data-agent-native-node-id="subject"]',
+          sourceId: "subject",
+          removed: true,
+          subjectSignature: { tag: "button", text: "Original", classes: [] },
+        }),
+      ),
+    ).toEqual({ ok: false, failure: "subject-still-present" });
+  });
+
   it("deduplicates repeated class tokens before matching a signature", () => {
     const html = `<!doctype html><body><main>
       <div data-agent-native-node-id="new-subject" class="a a b">Subject</div>
@@ -249,6 +266,57 @@ describe("verifyPendingStructureRuntime", () => {
         replaceEdit,
       ),
     ).toEqual({ ok: false, failure: "subject-still-present" });
+  });
+
+  it("does not acknowledge replacement when the stable subject changed shape", () => {
+    const replaceEdit = edit({
+      selector: '[data-agent-native-node-id="subject"]',
+      sourceId: "subject",
+      insertedHtml:
+        '<section data-agent-native-node-id="replacement">Replacement</section>',
+      replaced: true,
+      replacementSelector: '[data-agent-native-node-id="replacement"]',
+      replacementSourceId: "replacement",
+      subjectSignature: { tag: "div", text: "Original", classes: [] },
+      replacementSignature: {
+        tag: "section",
+        text: "Replacement",
+        classes: [],
+      },
+    });
+    const html = `<!doctype html><body>
+      <div data-agent-native-node-id="subject">Changed</div>
+      <section data-agent-native-node-id="replacement">Replacement</section>
+    </body>`;
+    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
+      ok: false,
+      failure: "subject-still-present",
+    });
+  });
+
+  it("accepts a same-shaped replacement when its new identity is stable", () => {
+    const sameShapeSignature = {
+      tag: "section",
+      text: "Same",
+      classes: [],
+    };
+    const replaceEdit = edit({
+      selector: '[data-agent-native-node-id="subject"]',
+      sourceId: "subject",
+      insertedHtml:
+        '<section data-agent-native-node-id="replacement">Same</section>',
+      replaced: true,
+      replacementSelector: '[data-agent-native-node-id="replacement"]',
+      replacementSourceId: "replacement",
+      subjectSignature: sameShapeSignature,
+      replacementSignature: sameShapeSignature,
+    });
+    const html = `<!doctype html><body>
+      <section data-agent-native-node-id="replacement">Same</section>
+    </body>`;
+    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
+      ok: true,
+    });
   });
 
   it("requires every affected screen relationship", () => {

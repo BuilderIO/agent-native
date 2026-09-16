@@ -111,6 +111,7 @@ import {
   classifyBridgeRegistrationFailure,
   getDesignCanvasIframeSandbox,
   getSnapshotRetryDelayMs,
+  isPreviewTokenStaleStatus,
   resolveLiveEditPreviewUrl,
   sanitizeLocalhostSourceSnapshotHtml,
   shouldFetchExternalSourceSnapshot,
@@ -467,6 +468,8 @@ type StyleReplayPatch = {
   styles: Record<string, string>;
   interactionState?: string;
 };
+
+type BridgeRegistrationAttemptResult = boolean | "stale-preview-token" | null;
 
 interface DesignCanvasProps {
   content: string;
@@ -2261,111 +2264,125 @@ export function DesignCanvas({
   // handleConnectLocalNetworkAccess) — see bridgeRegistrationAttemptGeneration
   // Ref's comment for why a shared, generation-guarded function is required
   // instead of each caller firing its own independent fetch.
-  // Returns true/false for a definite, still-applicable outcome, or null when
-  // a newer attempt (effect-driven or manual) has already superseded this
-  // one — callers must treat null as "nothing to do", not as a failure, or a
-  // stale attempt could schedule a redundant retry after a later attempt
-  // already succeeded.
-  const attemptBridgeRegistration = useCallback(async (): Promise<
-    boolean | null
-  > => {
-    if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
-      return null;
-    }
-    const generation = ++bridgeRegistrationAttemptGenerationRef.current;
-    // Unmount is covered by the dedicated cleanup-only effect above, which
-    // bumps this same counter — a manual Connect click's fetch has no effect
-    // cleanup of its own to cancel it, but that effect's bump still
-    // invalidates it the same way a superseded attempt is invalidated.
-    const isCurrent = () =>
-      bridgeRegistrationAttemptGenerationRef.current === generation;
-    // A fresh attempt — whether auto-retry or a manual Connect click,
-    // including one retried from the destructive bridgeConnectionLostError
-    // card's own Retry button (see handleConnectLocalNetworkAccess) — means
-    // we're no longer in "connection lost, needs a click" limbo. Clear it now
-    // rather than only on success/failure, or the full-cover destructive card
-    // stays visible (it takes priority in the overlay below) even once this
-    // attempt resolves as an ordinary registration-fetch failure instead.
-    setBridgeConnectionLostError(null);
-    const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-design-preview-token": previewToken,
-        },
-        body: JSON.stringify({
-          script: liveEditBridgeScript,
-          bridgeKey: liveEditBridgeKey,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`Bridge registration failed (${response.status})`);
+  // Returns true/false for a transient definite outcome, a terminal stale-token
+  // outcome, or null when a newer attempt (effect-driven or manual) has already
+  // superseded this one. Callers must treat null and stale-token as "nothing to
+  // retry", or a stale attempt could schedule a redundant retry after a later
+  // attempt already succeeded.
+  const attemptBridgeRegistration =
+    useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
+      if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
+        return null;
       }
-      // coercion-ok: response.ok already confirmed the registration itself
-      // succeeded above; bridgeInstanceId is supplementary metadata for the
-      // restart-detection heuristic only (see classifyLiveEditHealthProbe),
-      // and the null/missing case below is checked explicitly, not treated
-      // as equivalent to a present value.
-      const payload = (await response.json().catch(() => null)) as {
-        bridgeInstanceId?: string;
-      } | null;
-      if (!isCurrent()) return null;
-      if (payload && typeof payload.bridgeInstanceId === "string") {
-        // Cache the instance id from THIS successful registration so a
-        // later suspected-restart probe (see handleSuspectedBridgeRestart)
-        // can tell a genuinely restarted bridge process apart from the same
-        // process rejecting a stale key. Written only after isCurrent()
-        // passes: an older overlapping request resolving after a newer one
-        // must not overwrite the current attempt's instance id, or the
-        // watchdog misdiagnoses a restart and burns its reload/retry budget.
-        bridgeInstanceIdRef.current = payload.bridgeInstanceId;
-      }
-      bridgeRegistrationRetryAttemptRef.current = 0;
-      if (registrationHandoffKey) {
-        liveEditRegistrationHandoff.set(registrationHandoffKey, Date.now());
-      }
-      // liveEditRestartAttemptRef is intentionally NOT reset here: a
-      // successful registration POST only proves the bridge accepted the
-      // script, not that the live document actually loaded it (that's what
-      // the ready-handshake watchdog below still has to confirm). Resetting
-      // the restart budget on every registration success — rather than only
-      // on a genuine agent-native:editor-chrome-ready — would let a
-      // pathological bridge that keeps minting a new bridgeInstanceId
-      // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
-      setBridgeRegistrationError(null);
-      setBridgeRegistrationFailureKind(null);
+      const generation = ++bridgeRegistrationAttemptGenerationRef.current;
+      // Unmount is covered by the dedicated cleanup-only effect above, which
+      // bumps this same counter — a manual Connect click's fetch has no effect
+      // cleanup of its own to cancel it, but that effect's bump still
+      // invalidates it the same way a superseded attempt is invalidated.
+      const isCurrent = () =>
+        bridgeRegistrationAttemptGenerationRef.current === generation;
+      // A fresh attempt — whether auto-retry or a manual Connect click,
+      // including one retried from the destructive bridgeConnectionLostError
+      // card's own Retry button (see handleConnectLocalNetworkAccess) — means
+      // we're no longer in "connection lost, needs a click" limbo. Clear it now
+      // rather than only on success/failure, or the full-cover destructive card
+      // stays visible (it takes priority in the overlay below) even once this
+      // attempt resolves as an ordinary registration-fetch failure instead.
       setBridgeConnectionLostError(null);
-      setConnectingLocalNetworkAccess(false);
-      lateLiveEditReadyRecoveryRef.current = null;
-      setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
-      return true;
-    } catch (error) {
-      if (!isCurrent()) return null;
-      if (registrationHandoffKey) {
-        liveEditRegistrationHandoff.delete(registrationHandoffKey);
+      const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-design-preview-token": previewToken,
+          },
+          body: JSON.stringify({
+            script: liveEditBridgeScript,
+            bridgeKey: liveEditBridgeKey,
+          }),
+        });
+        if (isPreviewTokenStaleStatus(response.status)) {
+          if (!isCurrent()) return null;
+          if (registrationHandoffKey) {
+            liveEditRegistrationHandoff.delete(registrationHandoffKey);
+          }
+          setRegisteredLiveEditBridgeKey(null);
+          setBridgeRegistrationError({
+            bridgeKey: liveEditBridgeKey,
+            message:
+              "The local bridge rejected this screen's preview token (401). Reconnect this screen before retrying.",
+          });
+          setBridgeRegistrationFailureKind("stalePreviewToken");
+          setConnectingLocalNetworkAccess(false);
+          return "stale-preview-token";
+        }
+        if (!response.ok) {
+          throw new Error(`Bridge registration failed (${response.status})`);
+        }
+        // coercion-ok: response.ok already confirmed the registration itself
+        // succeeded above; bridgeInstanceId is supplementary metadata for the
+        // restart-detection heuristic only (see classifyLiveEditHealthProbe),
+        // and the null/missing case below is checked explicitly, not treated
+        // as equivalent to a present value.
+        const payload = (await response.json().catch(() => null)) as {
+          bridgeInstanceId?: string;
+        } | null;
+        if (!isCurrent()) return null;
+        if (payload && typeof payload.bridgeInstanceId === "string") {
+          // Cache the instance id from THIS successful registration so a
+          // later suspected-restart probe (see handleSuspectedBridgeRestart)
+          // can tell a genuinely restarted bridge process apart from the same
+          // process rejecting a stale key. Written only after isCurrent()
+          // passes: an older overlapping request resolving after a newer one
+          // must not overwrite the current attempt's instance id, or the
+          // watchdog misdiagnoses a restart and burns its reload/retry budget.
+          bridgeInstanceIdRef.current = payload.bridgeInstanceId;
+        }
+        bridgeRegistrationRetryAttemptRef.current = 0;
+        if (registrationHandoffKey) {
+          liveEditRegistrationHandoff.set(registrationHandoffKey, Date.now());
+        }
+        // liveEditRestartAttemptRef is intentionally NOT reset here: a
+        // successful registration POST only proves the bridge accepted the
+        // script, not that the live document actually loaded it (that's what
+        // the ready-handshake watchdog below still has to confirm). Resetting
+        // the restart budget on every registration success — rather than only
+        // on a genuine agent-native:editor-chrome-ready — would let a
+        // pathological bridge that keeps minting a new bridgeInstanceId
+        // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
+        setBridgeRegistrationError(null);
+        setBridgeRegistrationFailureKind(null);
+        setBridgeConnectionLostError(null);
+        setConnectingLocalNetworkAccess(false);
+        lateLiveEditReadyRecoveryRef.current = null;
+        setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
+        return true;
+      } catch (error) {
+        if (!isCurrent()) return null;
+        if (registrationHandoffKey) {
+          liveEditRegistrationHandoff.delete(registrationHandoffKey);
+        }
+        console.warn("live-edit bridge registration failed", error);
+        setRegisteredLiveEditBridgeKey(null);
+        setBridgeRegistrationError({
+          bridgeKey: liveEditBridgeKey,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        setConnectingLocalNetworkAccess(false);
+        void classifyBridgeRegistrationFailure().then((kind) => {
+          if (isCurrent()) setBridgeRegistrationFailureKind(kind);
+        });
+        return false;
       }
-      console.warn("live-edit bridge registration failed", error);
-      setRegisteredLiveEditBridgeKey(null);
-      setBridgeRegistrationError({
-        bridgeKey: liveEditBridgeKey,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      setConnectingLocalNetworkAccess(false);
-      void classifyBridgeRegistrationFailure().then((kind) => {
-        if (isCurrent()) setBridgeRegistrationFailureKind(kind);
-      });
-      return false;
-    }
-  }, [
-    bridgeUrl,
-    liveEditBridgeKey,
-    liveEditBridgeScript,
-    previewToken,
-    registrationHandoffKey,
-    usesLiveEditInjectedBridge,
-  ]);
+    }, [
+      bridgeUrl,
+      liveEditBridgeKey,
+      liveEditBridgeScript,
+      previewToken,
+      registrationHandoffKey,
+      usesLiveEditInjectedBridge,
+    ]);
   useEffect(() => {
     if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
       // Invalidate any attempt still in flight from before this branch was
@@ -2755,6 +2772,16 @@ export function DesignCanvas({
           },
           signal: controller.signal,
         });
+        if (isPreviewTokenStaleStatus(response.status)) {
+          if (cancelled) return;
+          setExternalSnapshotState({
+            url: previewUrl,
+            status: "error",
+            message:
+              "The local bridge rejected this screen's preview token (401). Reconnect this screen before retrying.",
+          });
+          return;
+        }
         const payload = (await response.json().catch(() => null)) as {
           ok?: boolean;
           url?: string;
@@ -2764,6 +2791,15 @@ export function DesignCanvas({
           error?: string;
         } | null;
         if (cancelled) return;
+        if (isPreviewTokenStaleStatus(payload?.status ?? 0)) {
+          setExternalSnapshotState({
+            url: previewUrl,
+            status: "error",
+            message:
+              "The local bridge rejected this screen's preview token (401). Reconnect this screen before retrying.",
+          });
+          return;
+        }
         if (!response.ok || !payload?.ok) {
           setExternalSnapshotState({
             url: previewUrl,

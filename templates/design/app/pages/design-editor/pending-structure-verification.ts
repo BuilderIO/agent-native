@@ -34,6 +34,17 @@ type RuntimeStructureNodeRole = "subject" | "anchor";
 interface RuntimeStructureNodeResolution {
   node?: CodeLayerNode;
   failure?: RuntimeStructureVerificationFailure;
+  matchedBy?: "identity" | "signature";
+}
+
+function runtimeStructureResolutionFailure(
+  status: "absent" | "ambiguous",
+  role: RuntimeStructureNodeRole,
+): RuntimeStructureVerificationFailure {
+  if (status === "ambiguous") {
+    return role === "subject" ? "ambiguous-subject" : "ambiguous-anchor";
+  }
+  return role === "subject" ? "missing-subject" : "missing-anchor";
 }
 
 function runtimeStructureNodeMatchesSignature(
@@ -71,36 +82,91 @@ function resolveRuntimeStructureNode(args: {
     (!args.signature ||
       runtimeStructureNodeMatchesSignature(direct.node, args.signature))
   ) {
-    return { node: direct.node };
+    return { node: direct.node, matchedBy: "identity" };
   }
 
   if (!args.signature) {
     return {
-      failure:
-        direct.status === "ambiguous"
-          ? args.role === "subject"
-            ? "ambiguous-subject"
-            : "ambiguous-anchor"
-          : args.role === "subject"
-            ? "missing-subject"
-            : "missing-anchor",
+      failure: runtimeStructureResolutionFailure(
+        direct.status === "ambiguous" ? "ambiguous" : "absent",
+        args.role,
+      ),
     };
   }
 
   const matches = args.projection.nodes.filter((node) =>
     runtimeStructureNodeMatchesSignature(node, args.signature!),
   );
-  if (matches.length === 1) return { node: matches[0] };
+  if (matches.length === 1) {
+    return { node: matches[0], matchedBy: "signature" };
+  }
   return {
-    failure:
-      matches.length > 1
-        ? args.role === "subject"
-          ? "ambiguous-subject"
-          : "ambiguous-anchor"
-        : args.role === "subject"
-          ? "missing-subject"
-          : "missing-anchor",
+    failure: runtimeStructureResolutionFailure(
+      matches.length > 1 ? "ambiguous" : "absent",
+      args.role,
+    ),
   };
+}
+
+function resolveRuntimeStructureNodeByIdentity(args: {
+  projection: { nodes: CodeLayerNode[] };
+  selector?: string;
+  sourceId?: string | null;
+  role: RuntimeStructureNodeRole;
+}): RuntimeStructureNodeResolution {
+  const direct = resolveCodeLayerTargetFromBridge(
+    args.projection,
+    args.selector,
+    args.sourceId ?? undefined,
+  );
+  if (direct.status === "resolved") {
+    return { node: direct.node, matchedBy: "identity" };
+  }
+  return {
+    failure: runtimeStructureResolutionFailure(
+      direct.status === "ambiguous" ? "ambiguous" : "absent",
+      args.role,
+    ),
+  };
+}
+
+function resolveRuntimeStructureNodeBySignature(args: {
+  projection: { nodes: CodeLayerNode[] };
+  signature?: RuntimeStructureNodeSignature;
+  role: RuntimeStructureNodeRole;
+  excludedNodeIds?: ReadonlySet<string>;
+}): RuntimeStructureNodeResolution {
+  if (!args.signature) {
+    return { failure: runtimeStructureResolutionFailure("absent", args.role) };
+  }
+  const matches = args.projection.nodes.filter(
+    (node) =>
+      !args.excludedNodeIds?.has(node.id) &&
+      runtimeStructureNodeMatchesSignature(node, args.signature!),
+  );
+  if (matches.length === 1) {
+    return { node: matches[0], matchedBy: "signature" };
+  }
+  return {
+    failure: runtimeStructureResolutionFailure(
+      matches.length > 1 ? "ambiguous" : "absent",
+      args.role,
+    ),
+  };
+}
+
+function resolveRuntimeStructureNodeForPresence(args: {
+  projection: { nodes: CodeLayerNode[] };
+  selector?: string;
+  sourceId?: string | null;
+  signature?: RuntimeStructureNodeSignature;
+  role: RuntimeStructureNodeRole;
+}): RuntimeStructureNodeResolution {
+  const identity = resolveRuntimeStructureNodeByIdentity(args);
+  if (identity.node || identity.failure?.startsWith("ambiguous")) {
+    return identity;
+  }
+  return resolveRuntimeStructureNodeBySignature(args);
 }
 
 function runtimeStructureNodeForNoOp(
@@ -131,16 +197,8 @@ export function verifyPendingStructureRuntime(
   edit: PendingLiveStructureEdit,
 ): RuntimeStructureVerificationResult {
   const projection = buildCodeLayerProjection(snapshotHtml);
-  const subjectResolution = resolveRuntimeStructureNode({
-    projection,
-    selector: edit.selector,
-    sourceId: edit.sourceId,
-    signature: edit.subjectSignature,
-    role: "subject",
-  });
-  const subject = subjectResolution.node;
   if (edit.replaced) {
-    const replacementResolution = resolveRuntimeStructureNode({
+    const replacementResolution = resolveRuntimeStructureNodeForPresence({
       projection,
       selector: edit.replacementSelector,
       sourceId: edit.replacementSourceId,
@@ -153,25 +211,90 @@ export function verifyPendingStructureRuntime(
         failure: replacementResolution.failure ?? "missing-subject",
       };
     }
-    if (subjectResolution.failure === "ambiguous-subject") {
+
+    const subjectIdentityResolution = resolveRuntimeStructureNodeByIdentity({
+      projection,
+      selector: edit.selector,
+      sourceId: edit.sourceId,
+      role: "subject",
+    });
+    if (subjectIdentityResolution.failure === "ambiguous-subject") {
       return { ok: false, failure: "ambiguous-subject" };
     }
-    return subject
-      ? { ok: false, failure: "subject-still-present" }
-      : { ok: true };
+    if (
+      subjectIdentityResolution.node &&
+      subjectIdentityResolution.node.id !== replacementResolution.node.id
+    ) {
+      return { ok: false, failure: "subject-still-present" };
+    }
+    if (subjectIdentityResolution.node) {
+      return { ok: false, failure: "subject-still-present" };
+    }
+
+    const subjectMatches = projection.nodes.filter((node) =>
+      edit.subjectSignature
+        ? runtimeStructureNodeMatchesSignature(node, edit.subjectSignature)
+        : false,
+    );
+    const remainingSubjectMatches =
+      replacementResolution.matchedBy === "identity"
+        ? subjectMatches.filter(
+            (node) => node.id !== replacementResolution.node!.id,
+          )
+        : subjectMatches;
+    if (remainingSubjectMatches.length > 1) {
+      return { ok: false, failure: "ambiguous-subject" };
+    }
+    if (remainingSubjectMatches.length === 1) {
+      return { ok: false, failure: "subject-still-present" };
+    }
+    if (
+      replacementResolution.matchedBy !== "identity" &&
+      subjectMatches.some((node) => node.id === replacementResolution.node!.id)
+    ) {
+      return { ok: false, failure: "ambiguous-subject" };
+    }
+    return { ok: true };
   }
   // A removal proves itself by ABSENCE. Running it through the anchor/order
   // checks below would report "missing-subject" for the exact outcome it
   // asked for, and the apply flow would sit in awaiting-runtime until it
   // timed out on a source write that actually succeeded.
   if (edit.removed) {
-    if (subjectResolution.failure === "ambiguous-subject") {
+    const subjectIdentityResolution = resolveRuntimeStructureNodeByIdentity({
+      projection,
+      selector: edit.selector,
+      sourceId: edit.sourceId,
+      role: "subject",
+    });
+    if (subjectIdentityResolution.failure === "ambiguous-subject") {
       return { ok: false, failure: "ambiguous-subject" };
     }
-    return subject
-      ? { ok: false, failure: "subject-still-present" }
-      : { ok: true };
+    if (subjectIdentityResolution.node) {
+      return { ok: false, failure: "subject-still-present" };
+    }
+    const subjectSignatureResolution = resolveRuntimeStructureNodeBySignature({
+      projection,
+      signature: edit.subjectSignature,
+      role: "subject",
+    });
+    if (subjectSignatureResolution.failure === "ambiguous-subject") {
+      return { ok: false, failure: "ambiguous-subject" };
+    }
+    if (subjectSignatureResolution.node) {
+      return { ok: false, failure: "subject-still-present" };
+    }
+    return { ok: true };
   }
+
+  const subjectResolution = resolveRuntimeStructureNode({
+    projection,
+    selector: edit.selector,
+    sourceId: edit.sourceId,
+    signature: edit.subjectSignature,
+    role: "subject",
+  });
+  const subject = subjectResolution.node;
   if (!subject) {
     return {
       ok: false,
