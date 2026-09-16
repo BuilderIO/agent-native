@@ -470,6 +470,50 @@ the target project before exposing it in a workspace picker. See [invoke a
 Gemini Enterprise agent](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
 for the resource URL and IAM requirements.
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents does not expose an inbound A2A endpoint. Use the
+framework adapter when Agent-Native should own the A2A surface, workflow state,
+and approvals while the hosted agent owns its session, context, and tools. The
+adapter creates a Managed Agents session, sends `user.message` events, and reads
+the session event stream. A blocking `agent.tool_use` or `agent.mcp_tool_use`
+event becomes an A2A `input-required` task and an `approval-request` runtime
+event. Resume it with explicit structured confirmations in the returned
+metadata; never infer approval from a message:
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` is a vault reference to the Anthropic API key. The adapter
+resolves it in the caller's user and organization scope and sends the required
+`anthropic-beta: managed-agents-2026-04-01` and `anthropic-version: 2023-06-01`
+headers. Register `anthropic-managed-agents` in the workspace connection
+catalog to reuse the existing connection grants for each app. The adapter is
+mounted on the normal `A2AConfig.handler` seam:
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## Programmatic workspace invoke {#programmatic-invoke}
 
 For agent-native workspaces, prefer the `agentNative` helper when code or a

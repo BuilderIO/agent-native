@@ -188,6 +188,35 @@ project before exposing it in the workspace picker. A model provider or SDK
 without an A2A endpoint still needs a server-side adapter before an
 Agent-Native app can call it.
 
+Anthropic Managed Agents has no inbound A2A endpoint. Use
+`createAnthropicManagedAgentsHandler()` as the `A2AConfig.handler` when the
+Agent-Native app should own the A2A task, workflow state, and approvals while
+Anthropic owns the session, context, and tools. Its configuration is a native
+provider kind on the existing remote-agent resource:
+
+```json
+{
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...",
+    "environmentId": "env_01...",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` is a vault reference, resolved in the caller's user and
+organization scope. The adapter calls `POST /v1/sessions`, sends
+`user.message` or `user.tool_confirmation` events to
+`POST /v1/sessions/{id}/events`, and reads
+`GET /v1/sessions/{id}/events/stream` with the
+`managed-agents-2026-04-01` beta header. A `session.status_idle` event whose
+stop reason is `requires_action` becomes A2A `input-required`; each blocking
+tool also emits the normal `approval-request` runtime event. Continue only
+with structured `{ toolUseId, result: "allow" | "deny" }` confirmations in
+the adapter metadata. Register the `anthropic-managed-agents` workspace
+connection provider to reuse existing per-app grants.
+
 Never hardcode either secret in source, docs, prompts, app state, action
 descriptions, client bundles, or examples. Read them from runtime config; never
 log or return them.

@@ -70,11 +70,6 @@
     "server": 29464986,
     "server-agent-background": 23068672
   },
-  "macros": {
-    "agent-native-recurring-jobs": 1758,
-    "server": 26843546,
-    "server-agent-background": 20342374
-  },
   "mail": {
     "agent-native-recurring-jobs": 1758,
     "server": 43725619,
