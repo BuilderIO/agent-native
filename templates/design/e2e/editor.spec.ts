@@ -104,7 +104,14 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
   await agentPanel
     .getByRole("button", { name: "New chat", exact: true })
     .click();
-  await expect(agentPanel.locator('[role="button"].agent-tab')).toHaveCount(2);
+  const conversationTabs = agentPanel.locator('[role="button"].agent-tab');
+  await expect(conversationTabs).toHaveCount(2);
+  expect(
+    await conversationTabs.evaluateAll(
+      (tabs) =>
+        tabs.filter((tab) => tab.classList.contains("bg-accent")).length,
+    ),
+  ).toBe(1);
   await cdpScreenshot(page, testInfo.outputPath("design-agent-header.png"));
 });
 
