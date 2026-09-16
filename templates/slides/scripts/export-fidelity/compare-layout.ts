@@ -35,9 +35,16 @@ let lines = 0,
   unmatched = 0;
 const dys: number[] = [],
   dxs: number[] = [];
-for (const file of readdirSync(anDir)
+const layoutFiles = readdirSync(anDir)
   .filter((name) => /^slide-\d+\.json$/.test(name))
-  .sort()) {
+  .sort();
+// Comparing nothing is not a pass: without this the run prints zero mismatches
+// and NaN statistics, and exits 0.
+if (!layoutFiles.length) {
+  console.error(`No slide-NN.json layout files in ${anDir}`);
+  process.exit(1);
+}
+for (const file of layoutFiles) {
   const { slide, texts } = JSON.parse(
     readFileSync(path.join(anDir, file), "utf8"),
   );
@@ -135,9 +142,20 @@ console.log(
 const outOfTolerance = dys.filter(
   (value, index) => Math.abs(value) > 1.5 || Math.abs(dxs[index]) > 1.5,
 ).length;
-if (unmatched || breakMismatches || outOfTolerance) {
+// Rows Google has that no Chrome line claimed: text the export duplicated or
+// invented, or a whole slide the deck never had.
+const unclaimed = google.filter((entry) => !entry.used);
+if (unclaimed.length) {
+  const slides = [...new Set(unclaimed.map((entry) => entry.slide))].sort(
+    (a, b) => a - b,
+  );
   console.log(
-    `FAIL: ${unmatched} unmatched, ${breakMismatches} break mismatch(es), ${outOfTolerance} line(s) over 1.5px`,
+    `UNCLAIMED ${unclaimed.length} google row(s) on slide(s) ${slides.join(", ")}`,
+  );
+}
+if (unmatched || breakMismatches || outOfTolerance || unclaimed.length) {
+  console.log(
+    `FAIL: ${unmatched} unmatched, ${breakMismatches} break mismatch(es), ${outOfTolerance} line(s) over 1.5px, ${unclaimed.length} unclaimed google row(s)`,
   );
   process.exitCode = 1;
 }

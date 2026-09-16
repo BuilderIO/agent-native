@@ -237,7 +237,15 @@ async function computeSlideLayoutInPage({
     if (!metricsCtx)
       metricsCtx = document.createElement("canvas").getContext("2d");
     const ctx = metricsCtx!;
-    ctx.font = fontShorthand;
+    // `getComputedStyle().font` can carry a line-height ("400 16px / 24px
+    // Inter"), which the canvas font setter rejects — leaving the previously
+    // measured face in place and reporting its metrics as this one's.
+    const canvasFont = fontShorthand.replace(/\s*\/\s*\S+/, "");
+    ctx.font = "10px serif";
+    ctx.font = canvasFont;
+    if (ctx.font === "10px serif" && canvasFont !== "10px serif") {
+      throw new Error(`canvas refused the font shorthand: ${fontShorthand}`);
+    }
     const m: any = ctx.measureText("Hxg");
     const result = {
       ascent: m.fontBoundingBoxAscent,

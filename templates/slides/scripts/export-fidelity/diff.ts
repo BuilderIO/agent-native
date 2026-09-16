@@ -84,6 +84,18 @@ async function main() {
   }
 
   const rows: Row[] = [];
+  // A slide the candidate rendered and the reference never had is a difference
+  // too; walking only the reference list would pass over it in silence.
+  for (const fname of readdirSync(candDir)
+    .filter((f) => /^slide-\d+\.png$/.test(f))
+    .sort()) {
+    if (!refFiles.includes(fname)) {
+      rows.push({
+        slide: fname.replace(/\.png$/, ""),
+        error: "unexpected candidate",
+      });
+    }
+  }
   for (const fname of refFiles) {
     const slide = fname.replace(/\.png$/, "");
     const refPath = path.join(refDir, fname);
@@ -212,6 +224,14 @@ async function main() {
   console.log(
     `[diff] max pixelRatio=${summary.maxPixelRatio} max layoutRatio=${summary.maxLayoutRatio}`,
   );
+  // A slide that never got compared — no candidate render, or a candidate the
+  // reference never had — is not a slide that matched.
+  if (summary.missing.length) {
+    console.error(
+      `[diff] FAILED: ${summary.missing.length} slide(s) with no usable pair: ${summary.missing.join(", ")}`,
+    );
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {

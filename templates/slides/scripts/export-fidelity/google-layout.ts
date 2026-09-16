@@ -40,22 +40,29 @@ export function extractGoogleSlideLayout(slideNumber: number): string[] {
   for (const t of svg.querySelectorAll("text")) {
     const g = t.closest('g[id^="editor-"]:not([id*="paragraph"])');
     const id = g ? g.id : "";
-    const m = t.getScreenCTM();
-    if (!m) continue;
-    const x = Number(t.getAttribute("x")) || 0;
-    // Transform the whole point, not just x: Google keeps each line's offset in
-    // the element's own transform today, so `y` is usually 0 and dropping its
-    // terms happens to land right — until a run carries one.
-    const y = Number(t.getAttribute("y")) || 0;
-    const bb = t.getBoundingClientRect();
-    const runs = byShape.get(id) ?? [];
-    runs.push({
-      text: t.textContent || "",
-      x: (m.a * x + m.c * y + m.e - f.left) * k,
-      base: (m.b * x + m.d * y + m.f - f.top) * k,
-      right: (bb.right - f.left) * k,
-    });
-    byShape.set(id, runs);
+    // A run carrying its own <tspan x/y> is placed by that point, not the
+    // parent's, so measure whichever element states the coordinates.
+    const placed = [...t.querySelectorAll("tspan")].filter(
+      (span) => span.hasAttribute("x") || span.hasAttribute("y"),
+    );
+    for (const node of placed.length ? placed : [t]) {
+      const m = node.getScreenCTM();
+      if (!m) continue;
+      // Transform the whole point rather than x alone: Google keeps each
+      // line's offset in the element's own transform today, so `y` is usually
+      // 0 and dropping its terms happens to land right — until a run has one.
+      const x = Number(node.getAttribute("x") ?? t.getAttribute("x")) || 0;
+      const y = Number(node.getAttribute("y") ?? t.getAttribute("y")) || 0;
+      const bb = node.getBoundingClientRect();
+      const runs = byShape.get(id) ?? [];
+      runs.push({
+        text: node.textContent || "",
+        x: (m.a * x + m.c * y + m.e - f.left) * k,
+        base: (m.b * x + m.d * y + m.f - f.top) * k,
+        right: (bb.right - f.left) * k,
+      });
+      byShape.set(id, runs);
+    }
   }
 
   const lines: Run[] = [];
