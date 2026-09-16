@@ -4,8 +4,24 @@ import test from "node:test";
 
 import {
   resolveNetlifyPrebuiltTarget,
+  resolveNetlifyImmutableDeployUrl,
   resolveNetlifyPreviewAliasUrl,
 } from "./netlify-prebuilt-target.ts";
+
+test("resolves an immutable deploy URL from its id and site slug", () => {
+  assert.equal(
+    resolveNetlifyImmutableDeployUrl(
+      "6aaa4de7a7e321b6bf866103",
+      "agent-native-dispatch",
+    ),
+    "https://6aaa4de7a7e321b6bf866103--agent-native-dispatch.netlify.app",
+  );
+  assert.throws(
+    () =>
+      resolveNetlifyImmutableDeployUrl("deploy/5154", "agent-native-dispatch"),
+    /valid deploy and site slugs/,
+  );
+});
 
 test("resolves a mutable PR alias from the API site slug", () => {
   assert.equal(

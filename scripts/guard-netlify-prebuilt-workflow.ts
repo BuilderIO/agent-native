@@ -912,7 +912,8 @@ if (
   parsedPreviewSmokeIndex < 0 ||
   !previewSmokeRun.includes("immutable_url") ||
   !previewSmokeRun.includes("preview alias") ||
-  !previewSmokeRun.includes("deploy_ssl_url") ||
+  !previewSmokeRun.includes("resolveNetlifyImmutableDeployUrl") ||
+  !previewSmokeRun.includes("deploy?.id") ||
   !previewSmokeRun.includes("NETLIFY_SITE_ID") ||
   !previewSmokeRun.includes("PREVIEW_ALIAS") ||
   !previewSmokeRun.includes("resolveNetlifyPreviewAliasUrl") ||
