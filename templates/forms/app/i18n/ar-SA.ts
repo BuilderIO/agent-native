@@ -355,6 +355,8 @@ const messages = {
     failedSubmit: "فشل إرسال النموذج",
     uncheckablePattern:
       "تعذّر التحقق من قاعدة هذا النموذج الخاصة بـ {label}. يرجى الطلب من مالك النموذج إصلاحها.",
+    patternTooLong:
+      "قيمة {label} طويلة جدًا بحيث يتعذر التحقق منها باستخدام قاعدة هذا النموذج.",
   },
   responseInsights: {
     unavailable: "الرؤى غير متاحة",

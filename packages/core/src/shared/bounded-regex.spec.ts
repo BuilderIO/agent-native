@@ -161,6 +161,15 @@ describe("analyzeRegexSource", () => {
     if (!verdict.safe) expect(verdict.reason).toContain("quadratically");
   });
 
+  it("rejects numeric and named backreferences for uncapped callers", () => {
+    for (const source of ["^(a+)\\1+$", "^(?<word>a+)\\k<word>+$"]) {
+      expect(analyzeRegexSource(source).safe).toBe(true);
+      const verdict = analyzeRegexSource(source, "", { inputBounded: false });
+      expect(verdict.safe).toBe(false);
+      if (!verdict.safe) expect(verdict.reason).toContain("backreference");
+    }
+  });
+
   it("refuses to clear a pattern it cannot parse", () => {
     expect(analyzeRegexSource("^(unclosed").safe).toBe(false);
   });

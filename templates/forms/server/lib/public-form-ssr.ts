@@ -186,27 +186,68 @@ type PublicFieldValidation = Omit<
   "pattern"
 > & { pattern?: string; unsafePattern?: true };
 
-const PUBLIC_FORM_UNCHECKABLE_PATTERN_MESSAGES = {
-  "en-US":
-    "This form's rule for {label} can't be checked. Ask the form owner to fix it.",
-  "zh-CN": "此表单中“{label}”的规则无法校验。请联系表单所有者修复。",
-  "zh-TW": "此表單中「{label}」的規則無法檢核。請聯絡表單擁有者修正。",
-  "es-ES":
-    "La regla de este formulario para {label} no se puede comprobar. Pide al propietario del formulario que la corrija.",
-  "fr-FR":
-    "La règle de ce formulaire pour {label} ne peut pas être vérifiée. Demandez au propriétaire du formulaire de la corriger.",
-  "de-DE":
-    "Die Regel dieses Formulars für {label} kann nicht geprüft werden. Bitten Sie den Formularbesitzer, sie zu korrigieren.",
-  "ja-JP":
-    "このフォームの「{label}」のルールは検証できません。フォームの所有者に修正を依頼してください。",
-  "ko-KR":
-    "이 양식의 {label} 규칙을 확인할 수 없습니다. 양식 소유자에게 수정을 요청하세요.",
-  "pt-BR":
-    "A regra deste formulário para {label} não pode ser verificada. Peça ao proprietário do formulário para corrigi-la.",
-  "hi-IN":
-    "इस फ़ॉर्म में {label} का नियम जाँचा नहीं जा सकता। कृपया फ़ॉर्म स्वामी से इसे ठीक करने को कहें।",
-  "ar-SA":
-    "تعذّر التحقق من قاعدة هذا النموذج الخاصة بـ {label}. يرجى الطلب من مالك النموذج إصلاحها.",
+const PUBLIC_FORM_PATTERN_MESSAGES = {
+  "en-US": {
+    uncheckable:
+      "This form's rule for {label} can't be checked. Ask the form owner to fix it.",
+    tooLong:
+      "The value for {label} is too long to check against this form's rule.",
+  },
+  "zh-CN": {
+    uncheckable: "此表单中“{label}”的规则无法校验。请联系表单所有者修复。",
+    tooLong: "字段“{label}”的值过长，无法使用此表单规则校验。",
+  },
+  "zh-TW": {
+    uncheckable: "此表單中「{label}」的規則無法檢核。請聯絡表單擁有者修正。",
+    tooLong: "欄位「{label}」的值過長，無法使用此表單規則檢核。",
+  },
+  "es-ES": {
+    uncheckable:
+      "La regla de este formulario para {label} no se puede comprobar. Pide al propietario del formulario que la corrija.",
+    tooLong:
+      "El valor de {label} es demasiado largo para comprobarlo con la regla de este formulario.",
+  },
+  "fr-FR": {
+    uncheckable:
+      "La règle de ce formulaire pour {label} ne peut pas être vérifiée. Demandez au propriétaire du formulaire de la corriger.",
+    tooLong:
+      "La valeur de {label} est trop longue pour être vérifiée avec la règle de ce formulaire.",
+  },
+  "de-DE": {
+    uncheckable:
+      "Die Regel dieses Formulars für {label} kann nicht geprüft werden. Bitten Sie den Formularbesitzer, sie zu korrigieren.",
+    tooLong:
+      "Der Wert für {label} ist zu lang, um mit der Regel dieses Formulars geprüft zu werden.",
+  },
+  "ja-JP": {
+    uncheckable:
+      "このフォームの「{label}」のルールは検証できません。フォームの所有者に修正を依頼してください。",
+    tooLong:
+      "「{label}」の値が長すぎて、このフォームのルールを検証できません。",
+  },
+  "ko-KR": {
+    uncheckable:
+      "이 양식의 {label} 규칙을 확인할 수 없습니다. 양식 소유자에게 수정을 요청하세요.",
+    tooLong: "{label} 값이 너무 길어 이 양식의 규칙을 확인할 수 없습니다.",
+  },
+  "pt-BR": {
+    uncheckable:
+      "A regra deste formulário para {label} não pode ser verificada. Peça ao proprietário do formulário para corrigi-la.",
+    tooLong:
+      "O valor de {label} é longo demais para ser verificado pela regra deste formulário.",
+  },
+  "hi-IN": {
+    uncheckable:
+      "इस फ़ॉर्म में {label} का नियम जाँचा नहीं जा सकता। कृपया फ़ॉर्म स्वामी से इसे ठीक करने को कहें।",
+    tooLong:
+      "{label} का मान बहुत लंबा है, इसलिए इस फ़ॉर्म के नियम से जाँचा नहीं जा सकता।",
+  },
+  "ar-SA": {
+    uncheckable:
+      "تعذّر التحقق من قاعدة هذا النموذج الخاصة بـ {label}. يرجى الطلب من مالك النموذج إصلاحها.",
+    tooLong:
+      "قيمة {label} طويلة جدًا بحيث يتعذر التحقق منها باستخدام قاعدة هذا النموذج.",
+  },
 } as const;
 
 /**
@@ -515,24 +556,36 @@ function renderFormPage(
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
   var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: publicValidation(f.validation), label: f.label, conditional: f.conditional, multiple: f.multiple, accept: f.accept, maxSizeBytes: f.maxSizeBytes, maxFiles: f.maxFiles })))};
-  var UNCHECKABLE_PATTERN_MESSAGES = ${JSON.stringify(PUBLIC_FORM_UNCHECKABLE_PATTERN_MESSAGES)};
+  var PATTERN_MESSAGES = ${JSON.stringify(PUBLIC_FORM_PATTERN_MESSAGES)};
   var SENSITIVE_QUERY_PARAMS = ${JSON.stringify(SENSITIVE_QUERY_PARAMS)};
 
-  function localizedUncheckablePattern(label) {
+  function localizedPatternMessage(kind, label) {
     var locales = typeof navigator !== "undefined" && navigator.languages && navigator.languages.length
       ? navigator.languages
       : [typeof navigator !== "undefined" ? navigator.language : "en-US"];
-    var keys = Object.keys(UNCHECKABLE_PATTERN_MESSAGES);
+    var keys = Object.keys(PATTERN_MESSAGES);
     for (var i = 0; i < locales.length; i++) {
       var locale = String(locales[i] || "").replace(/_/g, "-").toLowerCase();
       for (var j = 0; j < keys.length; j++) {
         var key = keys[j].toLowerCase();
-        if (key === locale || key.split("-")[0] === locale.split("-")[0]) {
-          return UNCHECKABLE_PATTERN_MESSAGES[keys[j]].replace("{label}", label);
-        }
+        if (key === locale)
+          return PATTERN_MESSAGES[keys[j]][kind].replace("{label}", label);
+      }
+      for (var j = 0; j < keys.length; j++) {
+        var key = keys[j].toLowerCase();
+        if (key.split("-")[0] === locale.split("-")[0])
+          return PATTERN_MESSAGES[keys[j]][kind].replace("{label}", label);
       }
     }
-    return UNCHECKABLE_PATTERN_MESSAGES["en-US"].replace("{label}", label);
+    return PATTERN_MESSAGES["en-US"][kind].replace("{label}", label);
+  }
+
+  function localizedUncheckablePattern(label) {
+    return localizedPatternMessage("uncheckable", label);
+  }
+
+  function localizedTooLongPattern(label) {
+    return localizedPatternMessage("tooLong", label);
   }
 
   function scrubPageUrl(value) {
@@ -777,7 +830,7 @@ function renderFormPage(
           return localizedUncheckablePattern(f.label);
         if (f.validation.pattern && typeof v === "string" && hasValue) {
           if (v.length > ${MAX_USER_REGEX_INPUT_LENGTH})
-            return f.label + " is too long to check against this form's rule.";
+            return localizedTooLongPattern(f.label);
           if (!new RegExp(f.validation.pattern).test(v))
             return (f.validation.message || f.label + " is invalid");
         }

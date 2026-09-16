@@ -376,6 +376,8 @@ const messages = {
     failedSubmit: "Failed to submit form",
     uncheckablePattern:
       "This form's rule for {label} can't be checked. Ask the form owner to fix it.",
+    patternTooLong:
+      "The value for {label} is too long to check against this form's rule.",
   },
   responseInsights: {
     unavailable: "Insights unavailable",

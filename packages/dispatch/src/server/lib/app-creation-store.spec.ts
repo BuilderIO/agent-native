@@ -367,6 +367,35 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  it.each([401, 403])(
+    "keeps a local gateway denial on the unverified fallback path (%i)",
+    async (status) => {
+      const fetchMock = vi.fn(async () => new Response("denied", { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "clips", name: "Clips", path: "/clips" },
+      ]);
+
+      const apps = await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `workspace apps gateway denied the registry read with HTTP ${status}`,
+        ),
+      );
+      warn.mockRestore();
+    },
+  );
+
   it("derives manifest app URLs from the Vercel preview when no workspace origin is configured", async () => {
     stubNoPendingContext();
     stubManifest([

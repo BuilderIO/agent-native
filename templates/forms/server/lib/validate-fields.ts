@@ -247,6 +247,15 @@ export function assertValidFields(
             `field #${idx + 1} validation.pattern must be a valid regular expression`,
           );
         }
+        if (compiled.status === "too-long" && !patternSafety) {
+          try {
+            new RegExp(v.pattern);
+          } catch {
+            throw new Error(
+              `field #${idx + 1} validation.pattern must be a valid regular expression`,
+            );
+          }
+        }
         if (patternSafety && compiled.status === "too-long") {
           throw new Error(
             `field #${idx + 1} validation.pattern is too long: ${compiled.message}`,

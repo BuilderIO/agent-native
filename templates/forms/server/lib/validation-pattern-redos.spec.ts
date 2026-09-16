@@ -1,3 +1,4 @@
+import { MAX_USER_REGEX_LENGTH } from "@agent-native/core/shared";
 /**
  * Regression coverage for the reported hang: an agent asked to "ensure Full
  * Name accepts at least two words" wrote `^([A-Za-z]+\s?)+$`, the editor tab
@@ -127,6 +128,18 @@ describe("agent-authored validation patterns", () => {
     ).not.toThrow();
     expect(() =>
       assertValidFields([fullNameField("^(unclosed")], {
+        patternSafety: false,
+      }),
+    ).toThrow(/valid regular expression/i);
+  });
+
+  it("keeps syntactically valid overlong legacy patterns editable", () => {
+    const overlong = "a".repeat(MAX_USER_REGEX_LENGTH + 1);
+    expect(() =>
+      assertValidFields([fullNameField(overlong)], { patternSafety: false }),
+    ).not.toThrow();
+    expect(() =>
+      assertValidFields([fullNameField(`(${overlong}`)], {
         patternSafety: false,
       }),
     ).toThrow(/valid regular expression/i);

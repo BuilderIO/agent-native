@@ -359,6 +359,8 @@ const messages = {
     failedSubmit: "Formular konnte nicht gesendet werden",
     uncheckablePattern:
       "Die Regel dieses Formulars für {label} kann nicht geprüft werden. Bitten Sie den Formularbesitzer, sie zu korrigieren.",
+    patternTooLong:
+      "Der Wert für {label} ist zu lang, um mit der Regel dieses Formulars geprüft zu werden.",
   },
   responseInsights: {
     unavailable: "Insights nicht verfügbar",

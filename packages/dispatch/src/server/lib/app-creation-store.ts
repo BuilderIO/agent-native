@@ -1781,6 +1781,9 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
           signal: controller.signal,
         },
       );
+      if (localResponse.status === 401 || localResponse.status === 403) {
+        throw new WorkspaceAppsGatewayAuthorizationError(localResponse.status);
+      }
       if (localResponse.ok) {
         const apps = parseWorkspaceAppsManifest(
           // coercion-ok: malformed gateway JSON is an unavailable registry and

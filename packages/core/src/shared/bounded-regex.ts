@@ -253,6 +253,15 @@ function parseSequence(state: ParseState): RegexAtom[] {
         source = state.source.slice(state.index, close + 1);
         state.index = close + 1;
         kind = "class";
+      } else if (next === "k" && state.source[state.index + 2] === "<") {
+        const close = state.source.indexOf(">", state.index + 2);
+        if (close === -1) {
+          state.bailed = true;
+          break;
+        }
+        source = state.source.slice(state.index, close + 1);
+        state.index = close + 1;
+        kind = "backref";
       } else {
         source = state.source.slice(state.index, state.index + 2);
         state.index += 2;
@@ -579,6 +588,9 @@ function walk(
   ctx: AnalysisContext,
   rejectQuadratic: boolean,
 ): string | null {
+  if (rejectQuadratic && containsBackreference(branches)) {
+    return "backreferences cannot be bounded safely on uncapped input";
+  }
   for (const branch of branches) {
     const chained = analyzeAdjacentRun(branch, ctx, rejectQuadratic);
     if (chained) return chained;
@@ -596,6 +608,16 @@ function walk(
     }
   }
   return null;
+}
+
+function containsBackreference(branches: RegexAtom[][]): boolean {
+  return branches.some((branch) =>
+    branch.some(
+      (atom) =>
+        atom.kind === "backref" ||
+        (atom.kind === "group" && containsBackreference(atom.branches ?? [])),
+    ),
+  );
 }
 
 /**

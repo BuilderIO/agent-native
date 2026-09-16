@@ -344,9 +344,13 @@ describe("public form SSR", () => {
     );
 
     expect(html).toContain("function localizedUncheckablePattern(label)");
+    expect(html).toContain("function localizedTooLongPattern(label)");
     expect(html).toContain("navigator.languages");
     expect(html).toContain("此表单中“{label}”的规则无法校验");
+    expect(html).toContain("字段“{label}”的值过长");
+    expect(html).toContain("if (key === locale)");
     expect(html).toContain("return localizedUncheckablePattern(f.label)");
+    expect(html).toContain("return localizedTooLongPattern(f.label)");
     expect(html).not.toContain(
       'f.label + " has a validation rule that cannot be checked',
     );

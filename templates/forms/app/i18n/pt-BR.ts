@@ -360,6 +360,8 @@ const messages = {
     failedSubmit: "Falha ao enviar o formulário",
     uncheckablePattern:
       "A regra deste formulário para {label} não pode ser verificada. Peça ao proprietário do formulário para corrigi-la.",
+    patternTooLong:
+      "O valor de {label} é longo demais para ser verificado pela regra deste formulário.",
   },
   responseInsights: {
     unavailable: "Insights indisponíveis",

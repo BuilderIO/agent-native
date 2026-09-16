@@ -329,6 +329,7 @@ const messages = {
     failedSubmit: "提交表單失敗",
     uncheckablePattern:
       "此表單中「{label}」的規則無法檢核。請聯絡表單擁有者修正。",
+    patternTooLong: "欄位「{label}」的值過長，無法使用此表單規則檢核。",
   },
   responseInsights: {
     unavailable: "洞察不可用",

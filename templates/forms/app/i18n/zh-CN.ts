@@ -328,6 +328,7 @@ const messages = {
     failedSubmit: "提交表单失败",
     uncheckablePattern:
       "此表单中“{label}”的规则无法校验。请联系表单所有者修复。",
+    patternTooLong: "字段“{label}”的值过长，无法使用此表单规则校验。",
   },
   responseInsights: {
     unavailable: "洞察不可用",
