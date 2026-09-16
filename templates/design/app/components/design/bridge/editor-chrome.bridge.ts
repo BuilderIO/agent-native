@@ -2325,11 +2325,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!descendIntoGroup) {
       var group = target;
       while (group && !isDocumentRootElement(group)) {
-        var groupName =
-          (group.getAttribute &&
-            group.getAttribute("data-agent-native-layer-name")) ||
-          (group.getAttribute && group.getAttribute("data-layer-name")) ||
-          "";
+        var groupName = layerNameForElement(group);
         var generatedGroupMarker =
           group.getAttribute &&
           group.getAttribute("data-agent-native-group-wrapper") === "true" &&
@@ -2508,13 +2504,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function layerNameForElement(el: Element | null): string {
     if (!el || !el.getAttribute) return "";
-    var canonical = el.getAttribute("data-agent-native-layer-name");
-    if (canonical && canonical.trim) {
-      var trimmedCanonical = canonical.trim();
-      if (trimmedCanonical) return trimmedCanonical;
+    var attributes = [
+      "data-agent-native-layer-name",
+      "data-layer-name",
+      "layer-name",
+    ];
+    for (var i = 0; i < attributes.length; i += 1) {
+      var value = el.getAttribute(attributes[i]);
+      var trimmed = value && value.trim ? value.trim() : "";
+      if (trimmed) return trimmed;
     }
-    var legacy = el.getAttribute("data-layer-name");
-    return legacy && legacy.trim ? legacy.trim() : "";
+    return "";
   }
 
   // Only the annotation. The class/layer-name guess this replaced painted
@@ -20641,6 +20641,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "data-agent-native-component",
         "data-agent-native-layer-name",
         "data-layer-name",
+        "layer-name",
         "data-an-primitive",
         "data-component-name",
         "data-source-column",
@@ -20678,6 +20679,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       attributeFilter: [
         "data-agent-native-layer-name",
         "data-layer-name",
+        "layer-name",
         "data-an-primitive",
         "class",
         "style",
