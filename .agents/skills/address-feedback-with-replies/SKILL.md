@@ -59,11 +59,11 @@ Every eyed clear-bug or upvoted item enters the ledger; the eye is not
 completion. Before finishing, re-read each claim and record a reply or
 disposition from the vocabulary below. Evidence-limited states retain the eye
 and carry forward: next run, re-read the thread, act on evidence, and replace
-the state only after verification or blocker resolution. A reply or source change alone never promotes one to
+the state only after verification or blocker resolution. A reply or source change never promotes one to
 **Fixed**. Terminal states need their disposition-specific release marker.
 Record **Owned elsewhere** for a foreign eye without changing it. Pending
-clarification keeps the eye; **In progress** needs real ownership and a revisit.
-Mistaken out-of-scope eyes use the cleanup rule.
+clarification keeps the eye; **In progress** needs ownership and revisit.
+Mistaken out-of-scope eyes use cleanup rule.
 
 ## Prerequisites
 
@@ -164,7 +164,8 @@ handoff first.
 
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
-the invoking identity's terminal disposition for the current cursor, but the next
+the invoking identity's open disposition for the current cursor, not a terminal
+closure; keep the eye. The next
 `review-latest-feedback` run must re-read every thread it previously asked in
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
