@@ -59,12 +59,13 @@ const INTEGRATION_A2A_TOKEN_TTL = "30m";
 const A2A_INVOCATION_EVENT = "$a2a_invocation";
 
 type A2AInvocationStatus = "success" | "pending" | "error";
+type A2AInvocationMode = "message" | "task_poll" | "direct_action";
 
 function trackA2AInvocation(args: {
   invocationId: string;
   callerApp?: string;
   targetApp: string;
-  mode: "message" | "task_poll" | "direct_action";
+  mode: A2AInvocationMode;
   status: A2AInvocationStatus;
   startedAt: number;
   taskId?: string;
@@ -201,6 +202,7 @@ function unresolvableAgentTargetError(
   available: Array<{ id: string; name: string }>,
   callerApp: string | undefined,
   correlation: A2ACorrelationMetadata,
+  mode: A2AInvocationMode,
 ): A2AInvocationError {
   const connected = available.map((a) => a.id).join(", ");
   console.error(
@@ -212,7 +214,7 @@ function unresolvableAgentTargetError(
     invocationId: randomUUID(),
     callerApp,
     targetApp: normalizeAppHandle(requestedAgent) || "unknown",
-    mode: "message",
+    mode,
     status: "error",
     startedAt: Date.now(),
     terminalCode: "agent_not_found",
@@ -735,11 +737,14 @@ export async function run(
 
   const agent = await findAgent(agentIdOrName, selfAppId);
   if (!agent) {
+    // Target resolution runs ahead of the action/taskId dispatch below, so all
+    // three modes reach this branch and must report their own.
     throw unresolvableAgentTargetError(
       agentIdOrName,
       await discoverAgents(selfAppId),
       selfAppId,
       buildDelegationCorrelation(context, selfAppId),
+      action ? "direct_action" : taskId ? "task_poll" : "message",
     );
   }
 

@@ -853,12 +853,60 @@ describe("call-agent action", () => {
         target_app: "nosuchapp",
         status: "error",
         terminal_code: "agent_not_found",
+        mode: "message",
       });
     } finally {
       unregisterTrackingProvider("qa-a2a-not-found");
       consoleError.mockRestore();
     }
   });
+
+  it.each([
+    {
+      label: "direct action",
+      args: { action: "gong-calls" },
+      mode: "direct_action",
+    },
+    { label: "task poll", args: { taskId: "task-1" }, mode: "task_poll" },
+  ])(
+    "reports the caller's own mode when a $label target cannot be resolved",
+    async ({ args, mode }) => {
+      // Target resolution runs before the action/taskId dispatch, so this
+      // branch is reachable in every mode and must not label them all
+      // "message" — that would misattribute the failure in $a2a_invocation.
+      const discovery = await import("../server/agent-discovery.js");
+      vi.mocked(discovery.findAgent).mockResolvedValueOnce(undefined);
+      vi.mocked(discovery.discoverAgents).mockResolvedValueOnce([]);
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const tracked: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: "qa-a2a-not-found-mode",
+        track(event) {
+          tracked.push(event);
+        },
+      });
+
+      try {
+        const { run } = await import("./call-agent.js");
+        await expect(
+          run(
+            { agent: "nosuchapp", ...args },
+            { send: vi.fn() } as any,
+            "brain",
+          ),
+        ).rejects.toMatchObject({ errorCode: "agent_not_found" });
+
+        expect(
+          tracked.find((event) => event.name === "$a2a_invocation")?.properties,
+        ).toMatchObject({ mode, terminal_code: "agent_not_found" });
+      } finally {
+        unregisterTrackingProvider("qa-a2a-not-found-mode");
+        consoleError.mockRestore();
+      }
+    },
+  );
 
   it("does not report an empty delegated response as success", async () => {
     callAgentMock.mockResolvedValueOnce("");
