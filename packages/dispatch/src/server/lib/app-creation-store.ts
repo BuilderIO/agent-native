@@ -119,6 +119,17 @@ class WorkspaceAppsGatewayAuthorizationError extends Error {
   statusCode: 401 | 403;
 }
 
+/** A denied gateway read is visible in logs even when a fallback can answer. */
+function warnWorkspaceAppsGatewayDenial(
+  denial: WorkspaceAppsGatewayAuthorizationError | null,
+  source: string,
+): void {
+  if (!denial) return;
+  console.warn(
+    `[dispatch] workspace apps gateway denied the registry read with HTTP ${denial.statusCode}; served the ${source} instead`,
+  );
+}
+
 type WorkspaceAppAudience = "internal" | "public";
 type WorkspaceAppVisibility = "private" | "org";
 
@@ -152,6 +163,13 @@ export interface WorkspaceAppSummary {
   workspaceSso?: boolean;
   /** Organization admins can keep a row visible while disabling app access. */
   orgEnabled?: boolean;
+}
+
+interface FinalizeWorkspaceAppsOptions {
+  /** Delete org rows absent from an authoritative manifest. */
+  reconcile?: boolean;
+  /** Write registry rows. False for a source the caller could not authenticate. */
+  persist?: boolean;
 }
 
 interface WorkspaceAppDiscovery {
@@ -1259,12 +1277,17 @@ function appRecordTimestamp(value: string | null | undefined): number {
  */
 async function ensureWorkspaceAppRecords(
   apps: WorkspaceAppSummary[],
-  options: { reconcile?: boolean } = {},
+  options: { reconcile?: boolean; persist?: boolean } = {},
 ): Promise<WorkspaceAppSummary[]> {
   const readyApps = apps.filter(
     (app) => app.status !== "pending" && !app.isDispatch,
   );
-  const shouldReconcile = options.reconcile === true;
+  // A source the caller could not authenticate annotates from existing rows
+  // only. Minting a row here would create the very authorization the access
+  // filter then checks, and reconciling would delete rows and shares on the
+  // word of a manifest no authoritative registry confirmed.
+  const shouldPersist = options.persist !== false;
+  const shouldReconcile = options.reconcile === true && shouldPersist;
   if (!shouldReconcile && readyApps.length === 0) return apps;
 
   const orgId = currentOrgId();
@@ -1309,9 +1332,14 @@ async function ensureWorkspaceAppRecords(
       }
     }
 
+    const unresolvedIds: string[] = [];
     for (const app of readyApps) {
       const existing = existingRecords.get(app.id);
       if (!existing) {
+        if (!shouldPersist) {
+          unresolvedIds.push(app.id);
+          continue;
+        }
         const override = metadata.apps[app.id];
         // Never infer ownership from the person who happened to list apps.
         // Legacy manifests without trusted creation metadata remain
@@ -1354,7 +1382,7 @@ async function ensureWorkspaceAppRecords(
         const existingOrgId = cleanOptionalText(existing.org_id) ?? null;
         // A registry row belongs to the org that created it. Never reassign a
         // row from another org just because a caller listed the same manifest.
-        if (existingOrgId && existingOrgId !== orgId) {
+        if (!shouldPersist || (existingOrgId && existingOrgId !== orgId)) {
           records.set(app.id, {
             ownerEmail: existingOwnerEmail,
             orgId: existingOrgId,
@@ -1422,6 +1450,12 @@ async function ensureWorkspaceAppRecords(
             existing.org_enabled !== "0",
         });
       }
+    }
+
+    if (unresolvedIds.length > 0) {
+      console.warn(
+        `[dispatch] unverified workspace app read has no access record for ${unresolvedIds.length} app(s); hidden from this response: ${unresolvedIds.join(", ")}`,
+      );
     }
 
     if (shouldReconcile && orgId) {
@@ -2026,11 +2060,17 @@ export async function updateWorkspaceAppMetadata(input: {
 export async function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
-  const finalize = async (apps: WorkspaceAppSummary[], reconcile = false) => {
+  const finalize = async (
+    apps: WorkspaceAppSummary[],
+    { reconcile = false, persist = true }: FinalizeWorkspaceAppsOptions = {},
+  ) => {
     // Reconcile from the complete manifest. Archive and audience filters only
     // control the response; treating hidden apps as absent deletes their rows.
     const annotated = await applyArchivedAndPending(apps);
-    const recorded = await ensureWorkspaceAppRecords(annotated, { reconcile });
+    const recorded = await ensureWorkspaceAppRecords(annotated, {
+      reconcile,
+      persist,
+    });
     const listed = options.includeArchived
       ? recorded
       : recorded.filter((app) => !app.archived);
@@ -2039,10 +2079,21 @@ export async function listWorkspaceApps(
     );
     return maybeIncludeAgentCards(visible, options);
   };
-  const gatewayApps = await readWorkspaceAppsFromGateway();
-  if (gatewayApps) {
-    return finalize(gatewayApps.apps, gatewayApps.authoritative);
+  let gatewayDenial: WorkspaceAppsGatewayAuthorizationError | null = null;
+  let gatewayApps: WorkspaceAppDiscovery | null = null;
+  try {
+    gatewayApps = await readWorkspaceAppsFromGateway();
+  } catch (error) {
+    if (!(error instanceof WorkspaceAppsGatewayAuthorizationError)) throw error;
+    // A denial answers for the gateway hop, not for what this caller may see.
+    // Serve deployment manifests below, but keep the degraded read read-only
+    // because an unauthenticated manifest must not mint access rows.
+    gatewayDenial = error;
   }
+  if (gatewayApps) {
+    return finalize(gatewayApps.apps, { reconcile: gatewayApps.authoritative });
+  }
+  const unverified = gatewayDenial !== null;
 
   const workspaceRoot = findWorkspaceRoot();
   const localFilesystemApps =
@@ -2050,14 +2101,24 @@ export async function listWorkspaceApps(
       ? await readWorkspaceAppsFromFilesystem(workspaceRoot)
       : null;
   if (localFilesystemApps) {
-    return finalize(localFilesystemApps, true);
+    warnWorkspaceAppsGatewayDenial(gatewayDenial, "local filesystem");
+    return finalize(localFilesystemApps, {
+      reconcile: !unverified,
+      persist: !unverified,
+    });
   }
 
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
   if (manifestApps) {
-    return finalize(manifestApps, true);
+    warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment manifest");
+    return finalize(manifestApps, {
+      reconcile: !unverified,
+      persist: !unverified,
+    });
   }
+
+  if (gatewayDenial) throw gatewayDenial;
 
   if (!workspaceRoot) {
     return finalize([
