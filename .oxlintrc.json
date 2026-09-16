@@ -106,6 +106,7 @@
       "rules": {
         "shadcn/no-restyle": "off",
         "shadcn/no-arbitrary-values": "off",
+        "shadcn/no-unknown-classes": "off",
         "shadcn/require-static-classes": "off"
       }
     },
