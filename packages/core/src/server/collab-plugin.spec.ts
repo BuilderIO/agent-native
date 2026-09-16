@@ -128,14 +128,14 @@ describe("createCollabPlugin access warning", () => {
 });
 
 describe("createCollabPlugin lazy seeding configuration", () => {
-  it("rejects a forward-only document id mapping", () => {
+  it("keeps forward-only document id mappings compatible", () => {
     expect(() =>
       createCollabPlugin({
         table: `mapped_collab_${Date.now()}`,
         resolveCollabDocumentId: (sourceId) => `dash-${sourceId}`,
         access: { mode: "all-authenticated" },
       }),
-    ).toThrow(/requires resolveSourceIdFromCollabDocumentId/);
+    ).not.toThrow();
   });
 });
 

@@ -107,13 +107,13 @@ export interface CollabPluginOptions {
   idColumn?: string;
   /** Whether to lazily seed a source row on its first collab request. Default: true */
   autoSeed?: boolean;
-  /**
-   * Map a source-table id to the id used by the collab document store.
-   * @deprecated Keep paired with resolveSourceIdFromCollabDocumentId while
-   * migrating from startup reconciliation to lazy seeding.
-   */
+  /** Map a source-table id to the id used by the collab document store. */
   resolveCollabDocumentId?: (sourceId: string) => string;
-  /** Map a collab document id back to the source-table id for lazy seeding. */
+  /**
+   * Map a collab document id back to the source-table id for lazy seeding.
+   * Without this, the legacy forward resolver is supported with a first-load
+   * compatibility scan because arbitrary functions are not invertible.
+   */
   resolveSourceIdFromCollabDocumentId?: (docId: string) => string;
   /**
    * Callback invoked after a collab update to sync the content column.
@@ -285,6 +285,7 @@ export function createCollabPlugin(
   const seedColumn = isJson
     ? options.jsonColumn || contentColumn
     : contentColumn;
+  const legacyResolveCollabDocumentId = options.resolveCollabDocumentId;
   const resourceType =
     normalizedAccess.mode === "resource"
       ? normalizedAccess.resourceType
@@ -301,33 +302,54 @@ export function createCollabPlugin(
     warnForImplicitAllAuthenticatedAccess(table);
   }
 
-  if (
-    autoSeed &&
-    options.resolveCollabDocumentId &&
-    !options.resolveSourceIdFromCollabDocumentId
-  ) {
-    throw new Error(
-      "createCollabPlugin requires resolveSourceIdFromCollabDocumentId when resolveCollabDocumentId is used with autoSeed.",
-    );
-  }
-
   const ensureDocumentSeeded = autoSeed
     ? createCollabSourceSeeder({
         hasState: hasCollabState,
         loadSource: async (docId) => {
+          const readSource = (
+            row: Record<string, unknown>,
+            sourceId: string,
+          ): string => {
+            const source = row[seedColumn];
+            if (typeof source !== "string") {
+              throw new Error(
+                `[collab] ${table}.${seedColumn} for ${sourceId} is unreadable`,
+              );
+            }
+            return source;
+          };
+
+          if (
+            legacyResolveCollabDocumentId &&
+            !options.resolveSourceIdFromCollabDocumentId
+          ) {
+            // An arbitrary forward resolver cannot be inverted. Preserve
+            // existing consumers with a request-lazy compatibility scan; new
+            // configs should provide the reverse resolver to use the indexed
+            // source-id lookup above.
+            const { rows } = await getDbExec().execute({
+              sql: `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
+            });
+            for (const row of rows as Record<string, unknown>[]) {
+              const sourceId = row[idColumn];
+              if (typeof sourceId !== "string" || !sourceId) {
+                throw new Error(
+                  `[collab] ${table}.${idColumn} for a legacy lazy seed is unreadable`,
+                );
+              }
+              if (legacyResolveCollabDocumentId(sourceId) !== docId) continue;
+              return readSource(row, sourceId);
+            }
+            return null;
+          }
+
           const sourceId = resolveSourceIdFromCollabDocumentId(docId);
           const { rows } = await getDbExec().execute({
             sql: `SELECT ${seedColumn} FROM ${table} WHERE ${idColumn} = ?`,
             args: [sourceId],
           });
           if (rows.length === 0) return null;
-          const source = rows[0][seedColumn];
-          if (typeof source !== "string") {
-            throw new Error(
-              `[collab] ${table}.${seedColumn} for ${sourceId} is unreadable`,
-            );
-          }
-          return source;
+          return readSource(rows[0] as Record<string, unknown>, sourceId);
         },
         seed: async (docId, source, client) => {
           if (!isJson) {

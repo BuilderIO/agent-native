@@ -199,6 +199,26 @@ describe("collab lazy source seeding", () => {
     expect(mocks.seedFromText).not.toHaveBeenCalled();
   });
 
+  it("supports a legacy forward-only mapping with a request-lazy scan", async () => {
+    mocks.execute.mockResolvedValue({
+      rows: [{ id: "design-file-1", content: "legacy design" }],
+      rowsAffected: 0,
+    });
+    const handler = await mountCollabHandler({
+      resolveCollabDocumentId: (sourceId) => `dash-${sourceId}`,
+    });
+
+    await handler(makeEvent("dash-design-file-1"));
+
+    expect(mocks.execute).toHaveBeenCalledWith({
+      sql: "SELECT id, content FROM design_files",
+    });
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      "dash-design-file-1",
+      "legacy design",
+    );
+  });
+
   it("coalesces first seeds across independent plugin instances", async () => {
     let seeded = false;
     let releaseSeed!: () => void;
