@@ -73,7 +73,7 @@ The same action is available from Design's empty-canvas context menu.
 - The editor page registers a stable page-local WebMCP tool named
   \`get-visual-edit-prompt\`. Call it after canvas edits to retrieve the latest
   bounded source instructions instead of copying stale chat text. It returns
-  \`status: \"empty\"\` when there is nothing to apply.
+  \`status: "empty"\` when there is nothing to apply.
 - The skill enters through local \`pnpm action open-visual-edit\`. When that CLI
   has no account session, the action uses a stable, workspace-scoped local
   principal to register the bridge, create/reuse the local design, and place
@@ -364,10 +364,12 @@ Fallback, only when \`open-visual-edit\` is unavailable:
   \`vscode://builder.agent-native/open?url=<encoded-design-url>\`. Its
   \`Agent-Native: Open Design Canvas\` command also starts the local bridge and
   opens hosted Design in the VS Code side panel.
-- After \`open-visual-edit\`, confirm the Design editor is in overview mode
-  with the requested URL-backed frames visible, and that they render the app
-  rather than a spinner. Do not stop at "screens added" when the user asked to
-  inspect or edit visually.
+- Once \`open-visual-edit\` returns the expected \`screenCount\`, hand back the
+  link and stop. Do not open it yourself in a browser-automation tool to
+  screenshot or poll until it renders — a cold dev server can take 10-30s
+  regardless of who's watching, and that wait adds nothing the response didn't
+  already confirm. Reach for browser automation only if the user later reports
+  the canvas is broken.
 
 ## Applying Visual Edits Back To Source
 
@@ -461,6 +463,10 @@ the connected app's text/code files through the bridge
   the result. Human write consent remains mandatory and agents cannot grant it.
 
 ## Verification
+
+For a plain "open this app" request, \`open-visual-edit\`'s own response is
+the verification — see Open The Design Surface. Reach for the checks below
+only to diagnose an actual report, or to confirm an applied edit landed:
 
 - \`list-localhost-connections\` returns the expected connection and routes.
 - The Design editor opens in overview mode.
