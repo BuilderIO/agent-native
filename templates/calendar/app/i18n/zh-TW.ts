@@ -618,6 +618,8 @@ const messages = {
     saved: "已儲存",
     selectDate: "選取日期",
     selectTime: "選取時間",
+    scrollToEarlierTimes: "捲動到較早的時間",
+    scrollToLaterTimes: "捲動到較晚的時間",
     selectedDateTime: "{{date}} 於 {{time}}",
     selectPlaceholder: "選取...",
     shareBookingLink: "分享預訂連結",

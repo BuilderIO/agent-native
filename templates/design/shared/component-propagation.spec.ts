@@ -683,6 +683,33 @@ describe("linked component property propagation", () => {
     );
   });
 
+  it("resets a layer-name override to a legacy imported attribute", () => {
+    const documents: ComponentSourceDocument[] = [
+      {
+        source: source("legacy-main"),
+        content: `<section ${nodeIdAttr}="legacy-main-root" ${COMPONENT_NAME_ATTR}="Legacy card" ${COMPONENT_ID_ATTR}="legacy-card"><span ${nodeIdAttr}="legacy-label" layer-name="Imported card">Card</span></section>`,
+      },
+      {
+        source: source("legacy-instance"),
+        content: `<section ${nodeIdAttr}="legacy-instance-root" ${COMPONENT_REF_ATTR}="legacy-card"><span ${nodeIdAttr}="legacy-instance-label" ${COMPONENT_SOURCE_NODE_ID_ATTR}="legacy-label" data-agent-native-layer-name="Local card" ${COMPONENT_OVERRIDES_ATTR}="${encodeURIComponent(JSON.stringify([{ sourceNodeId: "legacy-label", property: "attribute:data-agent-native-layer-name" }]))}">Card</span></section>`,
+      },
+    ];
+
+    const reset = resetComponentInstanceOverrides({
+      documents,
+      instance: handle("legacy-instance", "legacy-instance-label"),
+    });
+    expect(reset.status).toBe("updated");
+    if (reset.status !== "updated") return;
+
+    const updated = applyChanges(documents, reset.changes);
+    const instance = durableNode(updated[1]!, "legacy-instance-label");
+    expect(instance.dataAttributes["data-agent-native-layer-name"]).toBe(
+      "Imported card",
+    );
+    expect(instance.dataAttributes[COMPONENT_OVERRIDES_ATTR]).toBeUndefined();
+  });
+
   it("edits and resets the selected instance when the main and peers share a Screen", () => {
     let documents = sameScreenDocuments();
 

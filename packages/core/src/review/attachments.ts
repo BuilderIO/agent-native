@@ -16,9 +16,9 @@ interface ReviewAttachmentRecord {
  */
 export async function sanitizeReviewCommentMetadata(
   metadata: Record<string, unknown> | null | undefined,
-): Promise<Record<string, unknown> | undefined> {
+): Promise<Record<string, unknown> | null> {
   if (!metadata || !Array.isArray(metadata.attachments)) {
-    return metadata ?? undefined;
+    return metadata ?? null;
   }
 
   const provider = await getActiveFileUploadProviderForRequest();
@@ -75,6 +75,7 @@ async function isOwnedReviewAttachmentUrl(
   let url: URL;
   try {
     url = new URL(value);
+    // coercion-ok: malformed attachment URLs are untrusted and must be dropped.
   } catch {
     return false;
   }
@@ -85,6 +86,7 @@ async function isOwnedReviewAttachmentUrl(
   if (!provider?.isOwnedUrl) return false;
   try {
     return Boolean(await provider.isOwnedUrl(value));
+    // coercion-ok: provider ownership failures fail closed for persisted media.
   } catch {
     return false;
   }

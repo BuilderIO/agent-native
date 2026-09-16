@@ -311,7 +311,7 @@ describe("tryForwardToDevServer", () => {
 
     expect(mockIsValidDevActionHandoffUrl).toHaveBeenCalledWith(
       "https://evil.example/_agent-native/embed/start?ticket=secret",
-      undefined,
+      "http://127.0.0.1:1",
     );
     expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
     expect(exit).toHaveBeenCalledWith(0);

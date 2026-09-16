@@ -295,6 +295,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
       const url = new URL(value);
       return url.protocol === "https:" && url.hostname === "cdn.builder.io";
     } catch {
+      // coercion-ok: malformed URLs are an explicit not-owned result.
       return false;
     }
   },

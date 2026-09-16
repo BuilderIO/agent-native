@@ -324,6 +324,7 @@ export const s3FileUploadProvider: FileUploadProvider = {
           url.pathname.startsWith(`${basePath}/`))
       );
     } catch {
+      // coercion-ok: malformed URLs are an explicit not-owned result.
       return false;
     }
   },

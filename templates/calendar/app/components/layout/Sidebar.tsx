@@ -852,6 +852,7 @@ export function Sidebar({
         onCollapsedChange={onCollapsedChange}
         overflowAffordances
         brandName={t("navigation.brand")}
+        appId="calendar"
         brandHref="/home"
         secondaryItems={secondaryItems}
         feedback={feedbackButton}

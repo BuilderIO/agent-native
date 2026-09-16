@@ -62,6 +62,41 @@ async function newTwoScreenDesign(page: Page): Promise<string> {
   return id;
 }
 
+async function readIndexFrame(page: Page, designId: string) {
+  const response = await page.request.get(
+    appPath(`/_agent-native/actions/get-design?id=${designId}`),
+  );
+  if (!response.ok()) throw new Error(await response.text());
+  const record = (await response.json()) as {
+    data?: unknown;
+    files?: Array<{ filename?: string; id?: string }>;
+  };
+  const data = (
+    typeof record.data === "string"
+      ? JSON.parse(record.data || "{}")
+      : record.data
+  ) as
+    | {
+        canvasFrames?: Record<
+          string,
+          { rotation?: number; x?: number; y?: number }
+        >;
+      }
+    | undefined;
+  const file = record.files?.find(
+    (candidate) => candidate.filename === "index.html",
+  );
+  const frame = file?.id ? data?.canvasFrames?.[file.id] : undefined;
+  if (!file?.id || !frame)
+    throw new Error("index.html frame geometry is missing");
+  return {
+    id: file.id,
+    rotation: frame.rotation ?? 0,
+    x: frame.x ?? 0,
+    y: frame.y ?? 0,
+  };
+}
+
 async function box(page: Page, id: string) {
   const b = await node(page, id).boundingBox();
   if (!b) throw new Error(`no boundingBox for ${id}`);
@@ -203,6 +238,117 @@ test("one drag-move is exactly one undo step, and redo re-applies the exact drop
     [redone.left, redone.top],
     `redo must re-apply the EXACT dropped position (${dropped.left},${dropped.top}), not some other value; got (${redone.left},${redone.top})`,
   ).toEqual([dropped.left, dropped.top]);
+});
+
+test("rotating a screen then undoing immediately restores persisted geometry", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+  await page.goto(appPath(`/design/${id}?view=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.locator("[data-screen-card]").first()).toBeVisible({
+    timeout: 30_000,
+  });
+
+  const before = await readIndexFrame(page, id);
+  await page
+    .locator(`[data-frame-id="${before.id}"] [data-frame-label]`)
+    .click();
+  const handle = page
+    .locator(
+      "[data-frame-selection-box]:not([data-board-object-selection-box]) [data-rotate-handle]",
+    )
+    .first();
+  await expect(handle).toBeVisible();
+  const handleBox = await handle.boundingBox();
+  if (!handleBox) throw new Error("rotate handle has no bounding box");
+  const frameBox = await page
+    .locator(`[data-frame-id="${before.id}"]`)
+    .boundingBox();
+  if (!frameBox) throw new Error("screen frame has no bounding box");
+  const startX = handleBox.x + handleBox.width / 2;
+  const startY = handleBox.y + handleBox.height / 2;
+  const centerX = frameBox.x + frameBox.width / 2;
+  const centerY = frameBox.y + frameBox.height / 2;
+  const vectorX = startX - centerX;
+  const vectorY = startY - centerY;
+  const dragAngle = Math.PI / 6;
+  const endX =
+    centerX + vectorX * Math.cos(dragAngle) - vectorY * Math.sin(dragAngle);
+  const endY =
+    centerY + vectorX * Math.sin(dragAngle) + vectorY * Math.cos(dragAngle);
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(endX, endY, { steps: 12 });
+  await page.mouse.up();
+
+  const renderedRotation = await page
+    .locator(`[data-frame-id="${before.id}"]`)
+    .evaluate((element) => {
+      const transform = getComputedStyle(element).transform;
+      if (!transform || transform === "none") return 0;
+      const matrix = new DOMMatrix(transform);
+      return (Math.atan2(matrix.b, matrix.a) * 180) / Math.PI;
+    });
+  expect(renderedRotation).not.toBeCloseTo(before.rotation, 0);
+
+  // Keep this keypress adjacent to mouseup: the regression only appears
+  // before React's render effect catches the accepted geometry up.
+  await page.keyboard.press(UNDO);
+  await page.waitForTimeout(750);
+  await expect
+    .poll(async () => (await readIndexFrame(page, id)).rotation, {
+      timeout: 15_000,
+      message: "immediate undo must persist the pre-rotation frame geometry",
+    })
+    .toBe(before.rotation);
+});
+
+test("nudging a screen then undoing immediately restores persisted geometry", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+  await page.goto(appPath(`/design/${id}?view=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.locator("[data-screen-card]").first()).toBeVisible({
+    timeout: 30_000,
+  });
+
+  const before = await readIndexFrame(page, id);
+  const screen = page.locator(`[data-frame-id="${before.id}"]`);
+  await screen.locator("[data-frame-label]").click();
+  const beforeBox = await screen.boundingBox();
+  if (!beforeBox) throw new Error("screen frame has no bounding box");
+
+  await page.keyboard.down("ArrowRight");
+  await page.keyboard.down("ArrowRight");
+  await page.keyboard.up("ArrowRight");
+  await page.keyboard.up("ArrowRight");
+  const afterBox = await screen.boundingBox();
+  expect(afterBox?.x).not.toBe(beforeBox.x);
+
+  // Keep this keypress adjacent to the nudge: the regression only appears
+  // while the second keyboard commit is still in the debounced save queue.
+  await page.keyboard.press(UNDO);
+  // The assertion must outlive the 500ms debounce or it can pass before a
+  // stale queued save overwrites the history snapshot.
+  await page.waitForTimeout(750);
+  await expect
+    .poll(
+      async () => {
+        const frame = await readIndexFrame(page, id);
+        return [frame.x, frame.y];
+      },
+      {
+        timeout: 15_000,
+        message: "immediate undo must persist the pre-nudge frame geometry",
+      },
+    )
+    .toEqual([before.x, before.y]);
 });
 
 test("a fresh edit after undo clears the redo stack", async ({ page }) => {

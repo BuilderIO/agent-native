@@ -422,6 +422,16 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
       `,
     },
   },
+  {
+    version: 8,
+    name: "better-auth-jwks-alg-crv-columns",
+    sql: {
+      postgres: `
+        ALTER TABLE "jwks" ADD COLUMN IF NOT EXISTS "alg" TEXT;
+        ALTER TABLE "jwks" ADD COLUMN IF NOT EXISTS "crv" TEXT
+      `,
+    },
+  },
 ];
 
 export async function runBetterAuthMigrations(

@@ -12,7 +12,7 @@ const rawClient = {
     }
     const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
+    if (/^\s*(select|with)\b/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
     const info = await stmt.run(...args);
@@ -37,6 +37,7 @@ const {
   upsertReviewStatus,
   setReviewCommentReaction,
   setReviewThreadPreference,
+  setReviewThreadUnreadPreferences,
   getReviewDiscussionStateForComments,
   filterUnmutedReviewThreadRecipients,
 } = await import("./store.js");
@@ -156,6 +157,48 @@ describe("review store", () => {
     ).toEqual({ reactions: {}, threadPreferences: {} });
   });
 
+  it("writes multiple unread preferences with one bulk insert", async () => {
+    const first = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "bulk",
+      body: "First",
+      ownerEmail: "owner@example.com",
+    });
+    const second = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "bulk",
+      body: "Second",
+      ownerEmail: "owner@example.com",
+    });
+    await setReviewThreadPreference({
+      threadId: first.threadId,
+      userEmail: "alice@example.com",
+      muted: true,
+    });
+    rawClient.execute.mockClear();
+
+    const preferences = await setReviewThreadUnreadPreferences({
+      threadIds: [first.threadId, second.threadId],
+      userEmail: "alice@example.com",
+      unread: false,
+      resource: { resourceType: "doc", resourceId: "bulk" },
+    });
+
+    expect(
+      rawClient.execute.mock.calls.filter(
+        ([input]) =>
+          typeof input !== "string" &&
+          input.sql.includes("INSERT INTO agent_review_thread_preferences"),
+      ),
+    ).toHaveLength(1);
+    expect(preferences).toEqual(
+      expect.arrayContaining([
+        { threadId: first.threadId, muted: true, unread: false },
+        { threadId: second.threadId, muted: false, unread: false },
+      ]),
+    );
+  });
+
   it("stores threaded comments with anchors, mentions, and metadata", async () => {
     const root = await insertReviewComment({
       resourceType: "plan",
@@ -194,6 +237,101 @@ describe("review store", () => {
     ]);
     expect(comments[0].metadata).toEqual({ severity: "medium" });
     expect(comments[1].parentCommentId).toBe(root.id);
+  });
+
+  it("keeps legacy replies when filtering comments by the root target", async () => {
+    const currentRoot = await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      targetId: "section-1",
+      body: "Current section",
+      ownerEmail: "alice@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      threadId: currentRoot.threadId,
+      parentCommentId: currentRoot.id,
+      body: "Legacy reply",
+      ownerEmail: "alice@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      threadId: currentRoot.threadId,
+      parentCommentId: currentRoot.id,
+      targetId: "section-1",
+      body: "Inherited target reply",
+      ownerEmail: "alice@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      targetId: "section-2",
+      body: "Other section",
+      ownerEmail: "alice@example.com",
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "plan",
+      resourceId: "p1",
+      scope: { userEmail: "alice@example.com" },
+      targetId: "section-1",
+    });
+
+    expect(comments.map((comment) => comment.body)).toEqual([
+      "Current section",
+      "Legacy reply",
+      "Inherited target reply",
+    ]);
+  });
+
+  it("limits newest-first results by thread activity while retaining each root", async () => {
+    const olderRoot = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      body: "Older thread",
+      ownerEmail: "alice@example.com",
+    });
+    const newerRoot = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      body: "Newer thread",
+      ownerEmail: "alice@example.com",
+    });
+    const newerReply = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      threadId: olderRoot.threadId,
+      parentCommentId: olderRoot.id,
+      body: "Latest activity is a reply on the older thread",
+      ownerEmail: "alice@example.com",
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2020-01-01T00:00:00.000Z", olderRoot.id],
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2025-01-01T00:00:00.000Z", newerRoot.id],
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2030-01-01T00:00:00.000Z", newerReply.id],
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "design",
+      resourceId: "d1",
+      scope: { userEmail: "alice@example.com" },
+      newestFirst: true,
+      limit: 1,
+    });
+
+    expect(comments.map((comment) => comment.id)).toEqual([
+      olderRoot.id,
+      newerReply.id,
+    ]);
   });
 
   it("resolves threads and hides resolved comments by default", async () => {
@@ -243,101 +381,6 @@ describe("review store", () => {
       resolvedBy: null,
       resolvedAt: null,
     });
-  });
-
-  it("can select newest comments before restoring chronological order", async () => {
-    const old = await insertReviewComment({
-      resourceType: "design",
-      resourceId: "d1",
-      body: "Old resolved item",
-      ownerEmail: "alice@example.com",
-    });
-    const oldReply = await insertReviewComment({
-      resourceType: "design",
-      resourceId: "d1",
-      threadId: old.threadId,
-      parentCommentId: old.id,
-      body: "A newer reply on the old item",
-      ownerEmail: "alice@example.com",
-    });
-    const newest = await insertReviewComment({
-      resourceType: "design",
-      resourceId: "d1",
-      body: "Newest open item",
-      ownerEmail: "alice@example.com",
-    });
-    await resolveReviewThread(old.threadId, "alice@example.com");
-    await rawClient.execute({
-      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
-      args: ["2020-01-01T00:00:00.000Z", old.id],
-    });
-    await rawClient.execute({
-      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
-      args: ["2030-01-01T00:00:00.000Z", oldReply.id],
-    });
-    await rawClient.execute({
-      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
-      args: ["2030-01-01T00:00:00.000Z", newest.id],
-    });
-
-    const comments = await queryReviewComments({
-      resourceType: "design",
-      resourceId: "d1",
-      scope: { userEmail: "alice@example.com" },
-      includeResolved: true,
-      newestFirst: true,
-      limit: 1,
-    });
-
-    expect(comments.map((comment) => comment.id)).toEqual([newest.id]);
-  });
-
-  it("limits newest-first results by thread activity while retaining each root", async () => {
-    const olderRoot = await insertReviewComment({
-      resourceType: "design",
-      resourceId: "d1",
-      body: "Older thread",
-      ownerEmail: "alice@example.com",
-    });
-    const newerRoot = await insertReviewComment({
-      resourceType: "design",
-      resourceId: "d1",
-      body: "Newer thread",
-      ownerEmail: "alice@example.com",
-    });
-    const newerReply = await insertReviewComment({
-      resourceType: "design",
-      resourceId: "d1",
-      threadId: olderRoot.threadId,
-      parentCommentId: olderRoot.id,
-      body: "Latest activity is a reply on the older thread",
-      ownerEmail: "alice@example.com",
-    });
-    await rawClient.execute({
-      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
-      args: ["2020-01-01T00:00:00.000Z", olderRoot.id],
-    });
-    await rawClient.execute({
-      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
-      args: ["2025-01-01T00:00:00.000Z", newerRoot.id],
-    });
-    await rawClient.execute({
-      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
-      args: ["2030-01-01T00:00:00.000Z", newerReply.id],
-    });
-
-    const comments = await queryReviewComments({
-      resourceType: "design",
-      resourceId: "d1",
-      scope: { userEmail: "alice@example.com" },
-      newestFirst: true,
-      limit: 1,
-    });
-
-    expect(comments.map((comment) => comment.id)).toEqual([
-      olderRoot.id,
-      newerReply.id,
-    ]);
   });
 
   it("returns zero when resolving a missing thread", async () => {

@@ -612,6 +612,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       >
         <AppSidebarHeader
           brandName={t("navigation.brand")}
+          appId="clips"
           brandHref="/library"
           collapsed={showCollapsedSidebar}
         />

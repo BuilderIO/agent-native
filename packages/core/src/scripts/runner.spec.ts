@@ -603,6 +603,32 @@ describe("runScript package actions", () => {
     ]);
   });
 
+  it("uses a verified discovery origin for a relative handoff", () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const result = openCliHandoff(
+      "/_agent-native/embed/start?ticket=discovered",
+      {
+        env: {},
+        baseUrl: "http://127.0.0.1:8141",
+        platform: "darwin",
+        spawn: (command, args) => {
+          calls.push({ command, args });
+          return { status: 0 };
+        },
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual([
+      {
+        command: "open",
+        args: [
+          "http://127.0.0.1:8141/_agent-native/embed/start?ticket=discovered",
+        ],
+      },
+    ]);
+  });
+
   it("uses the supported gateway fallback for relative handoffs", () => {
     const calls: Array<{ command: string; args: string[] }> = [];
     const result = openCliHandoff(

@@ -15,9 +15,16 @@ import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams, useNavigate, useSearchParams } from "react-router";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
 import { appendHitTestResponder } from "@/components/design/design-canvas/hit-test";
+import { reviewThreadIdFromHash } from "@/components/design/review-link";
 import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
@@ -57,6 +64,7 @@ interface DesignData {
 export default function Present() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { session } = useSession();
@@ -156,7 +164,8 @@ export default function Present() {
   );
 
   useEffect(() => {
-    const commentId = searchParams.get("comment");
+    const commentId =
+      reviewThreadIdFromHash(location.hash) ?? searchParams.get("comment");
     const comments = reviewQuery.data?.comments ?? [];
     if (
       !commentId ||
@@ -181,6 +190,7 @@ export default function Present() {
     files.length,
     handleReviewThreadSelect,
     reviewQuery.data?.comments,
+    location.hash,
     searchParams,
   ]);
 

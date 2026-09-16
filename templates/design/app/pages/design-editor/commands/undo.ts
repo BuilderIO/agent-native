@@ -428,6 +428,7 @@ export interface UndoArgs {
   id: string | undefined;
   isSynced: boolean;
   lastLocalContentRef: RefObject<string | null>;
+  resetGeometryCommitCoalescing?: () => void;
   liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   localContentRedoStackRef: RefObject<ContentHistoryChange[]>;
@@ -520,7 +521,11 @@ export interface UndoArgs {
   viewModeRef: RefObject<"single" | "overview">;
   writeFrameGeometrySnapshot: (
     geometryById: CanvasFrameGeometryById,
-    options?: { syncViewportFrameIds?: string[]; pinHeightFrameIds?: string[] },
+    options?: {
+      replacePendingGeometrySave?: boolean;
+      syncViewportFrameIds?: string[];
+      pinHeightFrameIds?: string[];
+    },
   ) => void;
   ydoc: Y.Doc | null;
 }
@@ -558,6 +563,7 @@ export function runUndo({
   id,
   isSynced,
   lastLocalContentRef,
+  resetGeometryCommitCoalescing,
   liveFrameGeometryRef,
   liveScreenSnapshotsById,
   localContentRedoStackRef,
@@ -626,6 +632,7 @@ export function runUndo({
   // until the drag finishes (or is cancelled).
   if (activeEditorDragRef.current) return;
   if (fileHistoryMutationPendingRef.current) return;
+  resetGeometryCommitCoalescing?.();
   const pendingStyleUndoStack = pendingVisualStyleUndoStackRef.current;
   const pendingStyleUndo =
     pendingStyleUndoStack[pendingStyleUndoStack.length - 1];
@@ -1250,6 +1257,7 @@ export function runUndo({
         "undo",
       ),
       {
+        replacePendingGeometrySave: true,
         syncViewportFrameIds: viewportChangedFrameIds(
           entry.after,
           entry.before,

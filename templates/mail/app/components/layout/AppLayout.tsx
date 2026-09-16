@@ -1684,6 +1684,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             >
               <AppSidebarHeader
                 brandName={t("mail.appName")}
+                appId="mail"
                 brandHref="/inbox"
                 collapsed={showCollapsedSidebar}
               >

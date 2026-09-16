@@ -1154,6 +1154,16 @@ const enUS = {
     registryBlockUnreadable: "Persisted block source is unreadable.",
     blocksFieldRevisionConflict:
       "This Blocks field changed elsewhere. Your edit wasn't saved; the latest version is now shown.",
+    reconcileConflict:
+      "This page changed elsewhere. Your edits aren’t saved yet.",
+    reconcileFailed:
+      "The latest changes couldn’t be combined. Your edits aren’t saved yet.",
+    reconcileSaveFailed: "Your edits couldn’t be saved. Review and try again.",
+    reconcileSaving: "Saving your edits…",
+    reconcileReview: "Review changes",
+    reconcileReviewStale:
+      "The saved version changed again. Review the latest text before saving.",
+    reconcileRefresh: "Review latest version",
     couldNotReadLocalSourceFile: "Could not read local source file",
     couldNotSaveLocalFile: "Could not save local file",
     localFileChangedWithUnsavedEdits:
@@ -1174,6 +1184,9 @@ const enUS = {
     previewDraftSavedToHistory: "Your edits were saved to Version History",
     previewDraftSavedSeparately: "Your edits were saved as a separate page",
     previewDraftOpenSavedPage: "Open page",
+    previewDraftMoreOptions: "More options",
+    previewDraftViewFullVersions: "View full versions",
+    previewDraftShowChanges: "Show changes",
     restorePreviewDraft: "Restore draft",
     previewDraftConflict:
       "This draft conflicts with a newer page version. It was not restored.",

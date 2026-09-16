@@ -7,6 +7,7 @@ import {
   resolveUserProfileName,
 } from "../../user-profile/shared.js";
 import { getUserProfiles } from "../../user-profile/store.js";
+import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import {
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
@@ -51,7 +52,7 @@ export default defineAction({
       userEmail: actionCtx?.userEmail ?? null,
       orgId: actionCtx?.orgId ?? null,
     };
-    const [comments, reviewStatus, summary] = await Promise.all([
+    const [rawComments, reviewStatus, summary] = await Promise.all([
       queryReviewComments({
         resourceType: args.resourceType,
         resourceId: args.resourceId,
@@ -74,6 +75,12 @@ export default defineAction({
         targetId: args.targetId,
       }),
     ]);
+    const comments = await Promise.all(
+      rawComments.map(async (comment) => ({
+        ...comment,
+        metadata: await sanitizeReviewCommentMetadata(comment.metadata),
+      })),
+    );
     const discussion = {
       ...(await getReviewDiscussionStateForComments(
         comments,

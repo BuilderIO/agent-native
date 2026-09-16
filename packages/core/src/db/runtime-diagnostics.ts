@@ -149,7 +149,10 @@ export const BETTER_AUTH_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
     table: "verification",
     columns: ["id", "identifier", "value", "expires_at"],
   },
-  { table: "jwks", columns: ["id", "public_key", "private_key"] },
+  {
+    table: "jwks",
+    columns: ["id", "public_key", "private_key", "alg", "crv"],
+  },
 ];
 
 /** Same AUTH_DISABLED resolution as getRuntimeConfigReport() in shared/runtime-config.ts. */

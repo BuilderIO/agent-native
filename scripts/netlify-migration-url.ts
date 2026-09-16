@@ -35,14 +35,29 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isPostgresUrl = (value: unknown): value is string =>
   typeof value === "string" && value.startsWith("postgres");
 
+/**
+ * Release migrations run DDL, so they must reach the direct endpoint. Neon's
+ * PgBouncer runs in transaction mode: a pooled session can land on a replica
+ * and reject `CREATE TABLE`/`UPDATE` with "cannot execute ... in a read-only
+ * transaction", and retrying the same URL fails identically every time.
+ *
+ * Same rule as `getMigrationDatabaseUrl()` in packages/core/src/db/client.ts.
+ * The region between `-pooler.` and `.neon.tech` can hold several
+ * dot-separated labels (`c-7.us-east-1.aws`), and anchoring on `.neon.tech`
+ * keeps non-Neon hosts untouched.
+ */
+const stripNeonPooler = (url: string): string =>
+  url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
+
 function resolveNetlifyDatabaseUrl(
   response: NetlifyDatabaseResponse,
 ): string | undefined {
   if (isPostgresUrl(response.connection_string)) {
-    return response.connection_string;
+    return stripNeonPooler(response.connection_string);
   }
   if (!isRecord(response.connection_strings)) return undefined;
-  return Object.values(response.connection_strings).find(isPostgresUrl);
+  const pooled = Object.values(response.connection_strings).find(isPostgresUrl);
+  return pooled === undefined ? undefined : stripNeonPooler(pooled);
 }
 
 export function resolveNetlifyMigrationUrl(
@@ -77,7 +92,7 @@ export function resolveNetlifyMigrationUrl(
       .find(Boolean);
     const value = selected?.value;
     if (isPostgresUrl(value)) {
-      return value;
+      return stripNeonPooler(value);
     }
   }
 
