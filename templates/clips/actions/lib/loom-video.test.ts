@@ -2,9 +2,18 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSsrfSafeFetch = vi.fn();
+const mockProbeMediaDurationMs = vi.fn();
+const mockIsFfmpegAvailable = vi.fn();
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
+}));
+vi.mock("../../server/lib/video-frame.js", () => ({
+  probeMediaDurationMs: (...args: unknown[]) =>
+    mockProbeMediaDurationMs(...args),
+}));
+vi.mock("../../server/lib/video-remux.js", () => ({
+  isFfmpegAvailable: () => mockIsFfmpegAvailable(),
 }));
 
 import { downloadLoomVideo, LoomVideoUnavailableError } from "./loom-video";
@@ -12,6 +21,8 @@ import { downloadLoomVideo, LoomVideoUnavailableError } from "./loom-video";
 describe("downloadLoomVideo", () => {
   beforeEach(() => {
     mockSsrfSafeFetch.mockReset();
+    mockProbeMediaDurationMs.mockReset();
+    mockIsFfmpegAvailable.mockReturnValue(false);
   });
 
   it("fetches Loom's signed MP4 URL and downloads bounded bytes", async () => {
@@ -113,5 +124,123 @@ describe("downloadLoomVideo", () => {
         shareUrl: "https://www.loom.com/share/abcDEF_123456",
       }),
     ).rejects.toThrow(/too large/i);
+  });
+
+  it("accepts a video whose probed duration matches Loom metadata", async () => {
+    mockIsFfmpegAvailable.mockReturnValue(true);
+    mockProbeMediaDurationMs.mockResolvedValue(420_000);
+    mockSsrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            url: "https://cdn.loom.com/sessions/transcoded/video-id.mp4",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "video/mp4" },
+        }),
+      );
+
+    await expect(
+      downloadLoomVideo({
+        loomId: "abcDEF_123456",
+        shareUrl: "https://www.loom.com/share/abcDEF_123456",
+        expectedDurationMs: 420_000,
+      }),
+    ).resolves.toMatchObject({
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+    });
+  });
+
+  it("falls back when Loom returns a partial response", async () => {
+    mockSsrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            url: "https://cdn.loom.com/sessions/transcoded/video-id.mp4",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 206,
+          headers: {
+            "content-range": "bytes 0-2/100",
+            "content-type": "video/mp4",
+          },
+        }),
+      );
+
+    await expect(
+      downloadLoomVideo({
+        loomId: "abcDEF_123456",
+        shareUrl: "https://www.loom.com/share/abcDEF_123456",
+      }),
+    ).rejects.toBeInstanceOf(LoomVideoUnavailableError);
+  });
+
+  it("falls back when the downloaded video is shorter than Loom metadata", async () => {
+    mockIsFfmpegAvailable.mockReturnValue(true);
+    mockProbeMediaDurationMs.mockResolvedValue(1_000);
+    mockSsrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            url: "https://cdn.loom.com/sessions/transcoded/video-id.mp4",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "video/mp4" },
+        }),
+      );
+
+    await expect(
+      downloadLoomVideo({
+        loomId: "abcDEF_123456",
+        shareUrl: "https://www.loom.com/share/abcDEF_123456",
+        expectedDurationMs: 420_000,
+      }),
+    ).rejects.toThrow(/incomplete/i);
+    expect(mockProbeMediaDurationMs).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      "video/mp4",
+    );
+  });
+
+  it("falls back when ffmpeg cannot find a playable video track", async () => {
+    mockIsFfmpegAvailable.mockReturnValue(true);
+    mockProbeMediaDurationMs.mockResolvedValue(null);
+    mockSsrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            url: "https://cdn.loom.com/sessions/transcoded/video-id.mp4",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "video/mp4" },
+        }),
+      );
+
+    await expect(
+      downloadLoomVideo({
+        loomId: "abcDEF_123456",
+        shareUrl: "https://www.loom.com/share/abcDEF_123456",
+      }),
+    ).rejects.toBeInstanceOf(LoomVideoUnavailableError);
   });
 });

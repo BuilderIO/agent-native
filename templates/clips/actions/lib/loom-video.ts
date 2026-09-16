@@ -1,6 +1,8 @@
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { z } from "zod";
 
+import { probeMediaDurationMs } from "../../server/lib/video-frame.js";
+import { isFfmpegAvailable } from "../../server/lib/video-remux.js";
 import { readResponseBytesWithLimit } from "./video-download-limits.js";
 
 const LOOM_DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -20,6 +22,7 @@ export type LoomVideoDownload = {
 
 const LOOM_VIDEO_UNAVAILABLE_MESSAGE =
   "Loom did not provide a downloadable MP4 for this video. Download the original from Loom and use Upload video in Clips.";
+const MIN_EXPECTED_DURATION_TOLERANCE_MS = 5_000;
 
 export class LoomVideoUnavailableError extends Error {
   statusCode = 422;
@@ -105,12 +108,45 @@ async function fetchTranscodedVideoUrl({
   return sourceUrl;
 }
 
+async function validateDownloadedVideo({
+  bytes,
+  mimeType,
+  expectedDurationMs,
+}: {
+  bytes: Uint8Array;
+  mimeType: string;
+  expectedDurationMs?: number | null;
+}): Promise<void> {
+  if (!isFfmpegAvailable()) return;
+
+  const actualDurationMs = await probeMediaDurationMs(bytes, mimeType);
+  if (actualDurationMs === null || actualDurationMs <= 0) {
+    throw new LoomVideoUnavailableError(
+      "Loom returned media without a playable video track.",
+    );
+  }
+
+  if (expectedDurationMs && expectedDurationMs > 0) {
+    const toleranceMs = Math.max(
+      MIN_EXPECTED_DURATION_TOLERANCE_MS,
+      Math.round(expectedDurationMs * 0.1),
+    );
+    if (actualDurationMs + toleranceMs < expectedDurationMs) {
+      throw new LoomVideoUnavailableError(
+        "Loom returned an incomplete video file.",
+      );
+    }
+  }
+}
+
 export async function downloadLoomVideo({
   loomId,
   shareUrl,
+  expectedDurationMs,
 }: {
   loomId: string;
   shareUrl: string;
+  expectedDurationMs?: number | null;
 }): Promise<LoomVideoDownload> {
   const sourceUrl = await fetchTranscodedVideoUrl({ loomId, shareUrl });
   const response = await ssrfSafeFetch(
@@ -130,12 +166,20 @@ export async function downloadLoomVideo({
       `Loom video download failed (${response.status} ${response.statusText}).`,
     );
   }
+  if (response.status === 206) {
+    throw new LoomVideoUnavailableError("Loom returned a partial video file.");
+  }
 
   const mimeType = normalizeVideoMimeType(response.headers.get("content-type"));
   const bytes = await readResponseBytesWithLimit(response);
   if (bytes.byteLength <= 0) {
     throw new Error("Loom returned an empty video file.");
   }
+  await validateDownloadedVideo({
+    bytes,
+    mimeType,
+    expectedDurationMs,
+  });
   return {
     bytes,
     mimeType,
