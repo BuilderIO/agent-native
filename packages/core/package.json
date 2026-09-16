@@ -267,7 +267,6 @@
     "./history/actions/list-resource-versions": "./dist/history/actions/list-resource-versions.js",
     "./history/actions/get-resource-version": "./dist/history/actions/get-resource-version.js",
     "./history/actions/restore-resource-version": "./dist/history/actions/restore-resource-version.js",
-    "./history/actions/delete-resource-version": "./dist/history/actions/delete-resource-version.js",
     "./history/actions/list-resource-history": "./dist/history/actions/list-resource-history.js",
     "./review": "./dist/review/index.js",
     "./comments-review": "./dist/comments-review/index.js",

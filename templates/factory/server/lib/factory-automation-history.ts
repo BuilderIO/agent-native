@@ -284,6 +284,11 @@ export async function deleteFactoryAutomationVersionRow(input: {
  * content, never execution bookkeeping. Without this, restoring an old
  * version could resurrect a stale lastRun/nextRun/remote-dispatch state that
  * has nothing to do with what the user actually wanted rolled back.
+ *
+ * `enabled` belongs here too even though the editor sets it: it's a live
+ * on/off switch the user can flip at any time, not part of the prompt/config
+ * content being rolled back. Restoring an old version must not silently
+ * re-enable an automation the user has since paused (or vice versa).
  */
 const OPERATIONAL_FRONTMATTER_FIELDS = [
   "lastRun",
@@ -296,6 +301,7 @@ const OPERATIONAL_FRONTMATTER_FIELDS = [
   "remoteRunId",
   "remoteAutomationRunId",
   "remoteAdvanceSchedule",
+  "enabled",
 ] as const;
 
 function preserveOperationalFrontmatterFields(

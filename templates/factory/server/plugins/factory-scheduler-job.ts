@@ -652,6 +652,16 @@ export async function ensureFactoryAutomations(
           summary: "Before deduped injected prompt blocks",
           source: "repair",
         });
+        // The row above claims the current live version number as its own.
+        // Leaving the live promptVersion unchanged would let the next normal
+        // save try to insert that same number again and collide with the
+        // unique (orgId, automationId, version) index, so the repaired
+        // content must advance past it.
+        repaired = setFrontmatterField(
+          repaired,
+          "promptVersion",
+          String(insertedRepairVersion.version + 1),
+        );
       }
       // A thrown write failure must compensate exactly like a falsy return —
       // resourcePutIfCurrent has no try/catch of its own.
