@@ -22,11 +22,11 @@ describe("AppStatusBadge", () => {
     expect(screen.getByText("beta")).toBeTruthy();
   });
 
-  it("renders a pill that inverts against the page surface", () => {
+  it("renders a rounded badge that inverts against the page surface", () => {
     render(<AppStatusBadge appId="slides" />);
 
     const className = screen.getByText("alpha").className;
-    expect(className).toContain("rounded-full");
+    expect(className).toContain("rounded-[6px]");
     expect(className).toContain("bg-[var(--b-text-primary,var(--fg))]");
     expect(className).toContain("text-[var(--b-bg-page,var(--bg))]");
   });
