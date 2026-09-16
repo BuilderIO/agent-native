@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 import {
+  failPendingTextCapture,
   HOST_COMMIT_RETRY_DELAYS_MS,
   peekPendingTextCapture,
   registerPendingTextHostCommit,
@@ -289,6 +290,83 @@ it("cleans the node up when the failure leaves nothing owed", () => {
       "board",
       "text-1",
     );
+  } finally {
+    unregisterCommit();
+  }
+});
+
+it("keeps the node when a rolled-back save's write is still retrying", () => {
+  vi.useFakeTimers();
+  ladderOutcome = "node-missing";
+  const removeEmptyTextNodeWithRetry = vi.fn();
+  const commit = vi
+    .fn<(screenId: string, nodeId: string, text: string) => boolean>()
+    .mockImplementationOnce(() => false)
+    .mockImplementationOnce(() => true);
+  const unregisterCommit = registerPendingTextHostCommit(commit);
+  try {
+    runPrimitiveCreated(
+      createArgs(removeEmptyTextNodeWithRetry),
+      "board",
+      "text-1",
+    );
+    for (const char of "Sta") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+
+    // The optimistic save rolls back: the payload DETACHES into the write
+    // queue and `active` is cleared while the refused write retries.
+    failPendingTextCapture("board");
+    expect(commit).toHaveBeenCalledTimes(1);
+
+    // The ladder then reports the node missing for that same creation. Judging
+    // from `active` alone said "nothing owed" and deleted the node mid-write.
+    vi.advanceTimersByTime(1);
+    vi.advanceTimersByTime(PENDING_TEXT_EDIT_TIMEOUT_MS + 1);
+    expect(removeEmptyTextNodeWithRetry).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(HOST_COMMIT_RETRY_DELAYS_MS[0]);
+    expect(commit.mock.calls).toEqual([
+      ["board", "text-1", "Sta"],
+      ["board", "text-1", "Sta"],
+    ]);
+    expect(removeEmptyTextNodeWithRetry).not.toHaveBeenCalled();
+  } finally {
+    unregisterCommit();
+  }
+});
+
+it("never deletes the node before a rolled-back save's write lands", () => {
+  vi.useFakeTimers();
+  ladderOutcome = "node-missing";
+  const order: string[] = [];
+  const removeEmptyTextNodeWithRetry = vi.fn(() => {
+    order.push("cleanup");
+  });
+  const commit = vi.fn(() => {
+    order.push("commit");
+    return true;
+  });
+  const unregisterCommit = registerPendingTextHostCommit(commit);
+  try {
+    runPrimitiveCreated(
+      createArgs(removeEmptyTextNodeWithRetry),
+      "board",
+      "text-1",
+    );
+    for (const char of "Sta") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+
+    failPendingTextCapture("board");
+    expect(commit).toHaveBeenCalledExactlyOnceWith("board", "text-1", "Sta");
+
+    vi.advanceTimersByTime(1);
+    vi.advanceTimersByTime(PENDING_TEXT_EDIT_TIMEOUT_MS + 1);
+
+    // The accepted write comes first; any later untouched-node pass runs
+    // against a node that already holds the text.
+    expect(order[0]).toBe("commit");
   } finally {
     unregisterCommit();
   }

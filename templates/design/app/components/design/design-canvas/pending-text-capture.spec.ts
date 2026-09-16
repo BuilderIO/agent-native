@@ -12,6 +12,7 @@ import {
   HOST_COMMIT_RETRY_DELAYS_MS,
   isPendingTextCaptureBound,
   isPendingTextRequestLive,
+  isPendingTextWriteInFlight,
   onPendingTextCaptureCancel,
   peekPendingTextCapture,
   registerPendingTextHostCommit,
@@ -437,6 +438,76 @@ describe("pending text capture", () => {
       ["board-b", "text-b", "Beta"],
       ["board-b", "text-b", "Beta"],
     ]);
+    error.mockRestore();
+  });
+
+  it("never lets an error CODE carry the text into the log", () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const secret = "Standalone";
+    // A code is as free-form as a message: anything that reaches the log can
+    // carry the payload, so nothing free-form may reach it.
+    const commit = vi.fn(() => {
+      const thrown = new Error("write failed");
+      (thrown as { code?: string }).code = `E_WRITE_${secret}`;
+      throw thrown;
+    });
+    unregisterAll.push(registerPendingTextHostCommit(commit));
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-code");
+    type(secret);
+
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
+    for (const delay of HOST_COMMIT_RETRY_DELAYS_MS) {
+      vi.advanceTimersByTime(delay);
+    }
+
+    expect(error).toHaveBeenCalledOnce();
+    const logged = error.mock.calls[0]!.map((argument) => {
+      try {
+        return typeof argument === "string"
+          ? argument
+          : JSON.stringify(argument, (_key, value) =>
+              value instanceof Error
+                ? {
+                    name: value.name,
+                    message: value.message,
+                    code: (value as { code?: string }).code,
+                  }
+                : value,
+            );
+      } catch {
+        return String(argument);
+      }
+    }).join(" ");
+    expect(logged).not.toContain(secret);
+    error.mockRestore();
+  });
+
+  it("still reports an owed write after the record detaches out of `active`", () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Refuses, so the record stays queued and mid-backoff for this whole test.
+    const commit = vi.fn(() => false);
+    unregisterAll.push(registerPendingTextHostCommit(commit));
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-detached");
+    type("Standalone");
+
+    // The rolled-back save hands the payload to the writer: `active` is empty
+    // from here, but the node is still owed its text.
+    expect(failPendingTextCapture("board")).toBe("write-queued");
+    expect(isPendingTextRequestLive("board", "text-detached")).toBe(false);
+    expect(isPendingTextWriteInFlight("board", "text-detached")).toBe(true);
+
+    // Asked AGAIN — exactly what the node-missing path does — the answer has
+    // to stay "owed". Reading `active` alone answered "nothing-owed" here, and
+    // the creation deleted the node out from under the retrying write. This
+    // pins that guard ON ITS OWN, where the cleanup-side guard cannot mask it.
+    expect(failPendingTextCapture("board", "text-detached")).toBe(
+      "write-queued",
+    );
     error.mockRestore();
   });
 

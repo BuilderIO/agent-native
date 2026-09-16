@@ -324,7 +324,6 @@ function reportUnwrittenText(
       ? undefined
       : ((error as { constructor?: { name?: string } }).constructor?.name ??
         typeof error);
-  const errorCode = (error as { code?: unknown } | null)?.code;
   console.error(
     `[design] typed text could not be written to ${record.owner}/${record.nodeId} after ${record.commitAttempts} attempts; the empty layer is kept so the text can be retyped into it`,
     {
@@ -333,7 +332,6 @@ function reportUnwrittenText(
       length: record.buffer.length,
       reason,
       errorType,
-      errorCode: typeof errorCode === "string" ? errorCode : undefined,
     },
   );
 }
@@ -657,13 +655,37 @@ export function releasePendingTextCapture(
  *  text and is inside its backoff, so the node must outlive that write —
  *  deleting it here landed an accepted write in a node that no longer existed.
  *  `nothing-owed` is the terminal empty case the creation cleans up. */
+/** Is a detached host write still owing this exact node its text? A rolled-back
+ *  save hands the payload to the writer and clears `active`, so anything that
+ *  judges the node from `active` alone sees "nothing owed" while the write is
+ *  mid-backoff — and deletes the node out from under it. */
+export function isPendingTextWriteInFlight(
+  owner: OwnerIdentity,
+  nodeId?: string,
+): boolean {
+  for (const record of hostCommitQueue) {
+    if (record.owner !== owner) continue;
+    if (nodeId !== undefined && record.nodeId !== nodeId) continue;
+    if (record.buffer) return true;
+  }
+  return false;
+}
+
 export function failPendingTextCapture(
   owner: OwnerIdentity,
   nodeId?: string,
 ): "write-queued" | "nothing-owed" {
   const capture = liveCapture();
-  if (capture?.owner !== owner) return "nothing-owed";
-  if (nodeId !== undefined && capture.nodeId !== nodeId) return "nothing-owed";
+  const ownsActive =
+    capture?.owner === owner &&
+    (nodeId === undefined || capture.nodeId === nodeId);
+  if (!ownsActive) {
+    // Not active does NOT mean nothing is owed: the rollback path already
+    // detached this payload into the write queue.
+    return isPendingTextWriteInFlight(owner, nodeId)
+      ? "write-queued"
+      : "nothing-owed";
+  }
   stopIntercepting(capture);
   if (!capture.buffer) {
     cancelActive();

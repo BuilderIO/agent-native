@@ -6,6 +6,7 @@ import {
   beginTextEditForOwner,
   failPendingTextCapture,
   isPendingTextRequestLive,
+  isPendingTextWriteInFlight,
   onPendingTextCaptureCancel,
 } from "@/components/design/design-canvas/pending-text-capture";
 import { PENDING_TEXT_EDIT_TIMEOUT_MS } from "@/components/design/design-canvas/pending-text-edit";
@@ -160,6 +161,13 @@ export function runPrimitiveCreated(
     let cleanedUp = false;
     const cleanUpIfUntouched = () => {
       if (cleanedUp) return;
+      // A DETACHED host write can still owe this node its text: a rolled-back
+      // save queues the payload and clears `active`, so judging the node from
+      // the live capture alone deleted it mid-write. Ask the queue. This
+      // deliberately does not mark the creation cleaned up — once that write
+      // settles without landing, a later terminal pass can still remove an
+      // untouched node.
+      if (isPendingTextWriteInFlight(screenId, textNodeId)) return;
       cleanedUp = true;
       capture.cancel();
       removeEmptyTextNodeWithRetry(screenId, textNodeId);
