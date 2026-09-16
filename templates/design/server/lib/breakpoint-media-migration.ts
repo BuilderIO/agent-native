@@ -419,7 +419,6 @@ function applyExactRangeBodyUpdates(
       openTag.slice(0, markerStart) +
       update.marker +
       openTag.slice(markerStart + update.entry.marker.length);
-    const bodyStart = update.entry.openEnd;
     const bodyEnd = update.entry.closeStart;
     migratedHtml =
       migratedHtml.slice(0, update.entry.openStart) +
