@@ -645,8 +645,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
   const zoomRef = useRef(zoom);
-  const latestControlledZoomRef = useRef(zoom);
-  latestControlledZoomRef.current = zoom;
+  const previousControlledZoomRef = useRef(zoom);
+  const controlledZoomRevisionRef = useRef(0);
+  if (previousControlledZoomRef.current !== zoom) {
+    previousControlledZoomRef.current = zoom;
+    controlledZoomRevisionRef.current += 1;
+  }
   const lastReportedZoomRef = useRef(zoom);
   const lineupRecenterCameraRef = useRef({
     x: panRef.current.x,
@@ -1202,6 +1206,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // unrelated screen/selection render.
   const lastCameraCommandZoomRef = useRef<number | null>(null);
   const lastCameraCommandControlledZoomRef = useRef<number | null>(null);
+  const pendingCameraCommandZoomRevisionRef = useRef<{
+    nonce: number;
+    revision: number;
+  } | null>(null);
   const pendingChromeSettleRef = useRef(false);
   const chromeSettleTimerRef = useRef<number | null>(null);
   const [chromeSettling, setChromeSettling] = useState(false);
@@ -8329,8 +8337,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // settled wheel/pinch gesture uses — one `applyViewToDom` + one
   // `scheduleViewCommit`, not a fresh render-per-frame loop.
   useEffect(() => {
-    if (!cameraCommand) return;
+    if (!cameraCommand) {
+      pendingCameraCommandZoomRevisionRef.current = null;
+      return;
+    }
     if (lastCameraCommandNonceRef.current === cameraCommand.nonce) return;
+
+    const pendingCommandRevision =
+      pendingCameraCommandZoomRevisionRef.current?.nonce === cameraCommand.nonce
+        ? pendingCameraCommandZoomRevisionRef.current.revision
+        : controlledZoomRevisionRef.current;
+    pendingCameraCommandZoomRevisionRef.current = {
+      nonce: cameraCommand.nonce,
+      revision: pendingCommandRevision,
+    };
 
     let cancelled = false;
     let retryFrame: number | null = null;
@@ -8351,8 +8371,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // the overview surface to become measurable, that newer action owns the
       // camera. Acknowledge the stale fit without applying it or scheduling a
       // delayed commit that could overwrite the user's zoom.
-      if (latestControlledZoomRef.current !== zoom) {
+      if (controlledZoomRevisionRef.current !== pendingCommandRevision) {
         lastCameraCommandNonceRef.current = cameraCommand.nonce;
+        pendingCameraCommandZoomRevisionRef.current = null;
         resizeObserver?.disconnect();
         return true;
       }
@@ -8383,8 +8404,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       camera.x += chromeInsetLeft;
       zoomRef.current = camera.zoom;
       lastCameraCommandZoomRef.current = camera.zoom;
-      lastCameraCommandControlledZoomRef.current =
-        latestControlledZoomRef.current;
+      lastCameraCommandControlledZoomRef.current = zoom;
       panRef.current = { x: camera.x, y: camera.y };
       applyViewToDom();
       scheduleViewCommit();
@@ -8393,6 +8413,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // command during the brief zero-size overview remount caused by active
       // screen URL synchronization.
       lastCameraCommandNonceRef.current = cameraCommand.nonce;
+      pendingCameraCommandZoomRevisionRef.current = null;
       resizeObserver?.disconnect();
       return true;
     };
