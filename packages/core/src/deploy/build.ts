@@ -2260,49 +2260,12 @@ function copyReactRouterAssetManifestFields(
  * The trusted Functions build starts from the base checkout, while a PR
  * preview supplies the PR's client build. Keep the server route metadata from
  * the trusted build, but make every client asset reference agree with the
- * paired artifact before Nitro bundles the server.
+ * paired artifact in Nitro's emitted server bundle.
  */
-function patchReactRouterServerManifest(
-  serverBuildFile: string,
-  clientDirectory: string,
-): void {
-  const clientManifest = findReactRouterManifest(clientDirectory);
-  const source = fs.readFileSync(serverBuildFile, "utf8");
-  const regionStart = source.indexOf(
-    "//#region \\0virtual:react-router/server-manifest",
-  );
-  if (regionStart < 0) {
-    throw new Error(
-      `React Router server manifest region not found in ${serverBuildFile}`,
-    );
-  }
-
-  const assignmentStart = source.indexOf(
-    "var server_manifest_default = ",
-    regionStart,
-  );
-  const regionEnd = source.indexOf("//#endregion", assignmentStart);
-  const assignmentEnd = source.lastIndexOf(";", regionEnd);
-  if (assignmentStart < 0 || regionEnd < 0 || assignmentEnd < assignmentStart) {
-    throw new Error(
-      `React Router server manifest assignment not found in ${serverBuildFile}`,
-    );
-  }
-
-  const valueStart = assignmentStart + "var server_manifest_default = ".length;
-  let serverManifest: unknown;
-  try {
-    serverManifest = runInNewContext(
-      `(${source.slice(valueStart, assignmentEnd)})`,
-      Object.create(null),
-      { timeout: 1000 },
-    );
-  } catch (error) {
-    throw new Error(
-      `Could not parse React Router server manifest ${serverBuildFile}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
+function mergeReactRouterServerManifest(
+  serverManifest: unknown,
+  clientManifest: ReactRouterAssetManifest,
+): ManifestRecord {
   const serverManifestRecord = asManifestRecord(
     serverManifest,
     "server manifest",
@@ -2346,15 +2309,157 @@ function patchReactRouterServerManifest(
     }
   }
 
-  const replacement = `var server_manifest_default = ${JSON.stringify(serverManifestRecord)};`;
-  fs.writeFileSync(
-    serverBuildFile,
-    source.slice(0, assignmentStart) +
-      replacement +
-      source.slice(assignmentEnd + 1),
+  return serverManifestRecord;
+}
+
+function findJavaScriptObjectEnd(source: string, valueStart: number): number {
+  const stack: string[] = [];
+  let quote: "'" | '"' | "`" | undefined;
+  let escaped = false;
+  for (let index = valueStart; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "{" || character === "[" || character === "(") {
+      stack.push(character === "{" ? "}" : character === "[" ? "]" : ")");
+      continue;
+    }
+    if (character === "}" || character === "]" || character === ")") {
+      if (stack.pop() !== character) {
+        throw new Error("React Router server manifest has unbalanced syntax");
+      }
+      if (stack.length === 0) return index;
+    }
+  }
+  throw new Error("React Router server manifest object is unterminated");
+}
+
+function evaluateReactRouterServerManifest(
+  source: string,
+  serverBuildFile: string,
+  valueStart: number,
+  valueEnd: number,
+): unknown {
+  try {
+    return runInNewContext(
+      `(${source.slice(valueStart, valueEnd + 1)})`,
+      Object.create(null),
+      { timeout: 1000 },
+    );
+  } catch (error) {
+    throw new Error(
+      `Could not parse React Router server manifest ${serverBuildFile}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function patchReactRouterServerManifestSource(
+  source: string,
+  serverBuildFile: string,
+  clientManifest: ReactRouterAssetManifest,
+): string | undefined {
+  const regionStart = source.indexOf(
+    "//#region \\0virtual:react-router/server-manifest",
   );
+  if (regionStart >= 0) {
+    const assignmentStart = source.indexOf(
+      "var server_manifest_default = ",
+      regionStart,
+    );
+    const regionEnd = source.indexOf("//#endregion", assignmentStart);
+    const assignmentEnd = source.lastIndexOf(";", regionEnd);
+    if (
+      assignmentStart < 0 ||
+      regionEnd < 0 ||
+      assignmentEnd < assignmentStart
+    ) {
+      throw new Error(
+        `React Router server manifest assignment not found in ${serverBuildFile}`,
+      );
+    }
+    const valueStart =
+      assignmentStart + "var server_manifest_default = ".length;
+    const serverManifest = evaluateReactRouterServerManifest(
+      source,
+      serverBuildFile,
+      valueStart,
+      assignmentEnd - 1,
+    );
+    const replacement = JSON.stringify(
+      mergeReactRouterServerManifest(serverManifest, clientManifest),
+    );
+    return (
+      source.slice(0, valueStart) + replacement + source.slice(assignmentEnd)
+    );
+  }
+
+  const assignments =
+    /\b[A-Za-z_$][\w$]*\s*=\s*(\{\s*(?:entry|["']entry["'])\s*:)/g;
+  for (const match of source.matchAll(assignments)) {
+    const valueStart = match.index! + match[0].lastIndexOf("{");
+    const valueEnd = findJavaScriptObjectEnd(source, valueStart);
+    const serverManifest = evaluateReactRouterServerManifest(
+      source,
+      serverBuildFile,
+      valueStart,
+      valueEnd,
+    );
+    if (
+      !serverManifest ||
+      typeof serverManifest !== "object" ||
+      Array.isArray(serverManifest) ||
+      !("routes" in serverManifest) ||
+      !("url" in serverManifest)
+    ) {
+      continue;
+    }
+    const replacement = JSON.stringify(
+      mergeReactRouterServerManifest(serverManifest, clientManifest),
+    );
+    return (
+      source.slice(0, valueStart) + replacement + source.slice(valueEnd + 1)
+    );
+  }
+  return undefined;
+}
+
+function patchReactRouterServerManifestInOutput(
+  serverDirectory: string,
+  clientDirectory: string,
+): void {
+  const clientManifest = findReactRouterManifest(clientDirectory);
+  let patchedFile: string | undefined;
+  walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
+    if (patchedFile) return;
+    const source = fs.readFileSync(serverBuildFile, "utf8");
+    const patched = patchReactRouterServerManifestSource(
+      source,
+      serverBuildFile,
+      clientManifest,
+    );
+    if (patched === undefined) return;
+    fs.writeFileSync(serverBuildFile, patched);
+    patchedFile = serverBuildFile;
+  });
+  if (!patchedFile) {
+    throw new Error(
+      `React Router server manifest not found in Nitro output ${serverDirectory}`,
+    );
+  }
   console.log(
-    `[deploy] Paired React Router server manifest with ${path.basename(clientDirectory)}`,
+    `[deploy] Paired React Router server manifest in ${path.relative(process.cwd(), patchedFile)} with ${path.basename(clientDirectory)}`,
   );
 }
 
@@ -5244,13 +5349,6 @@ export async function runNitroBuildPipeline(
     process.env[PREBUILT_CLIENT_DIRECTORY_ENV]?.trim(),
   );
 
-  if (hasClientBuild && usingPairedClientArtifact) {
-    const serverBuildFile = path.join(cwd, "build", "server", "index.js");
-    if (fs.existsSync(serverBuildFile)) {
-      patchReactRouterServerManifest(serverBuildFile, resolvedClientDir);
-    }
-  }
-
   if (hasClientBuild && includeImmutableAssetRouteRules) {
     // Install hashed-asset route rules before Nitro prepares platform output.
     // Some presets materialize headers during prepare/copy phases, not only in
@@ -5284,6 +5382,13 @@ export async function runNitroBuildPipeline(
   }
 
   await hooks.nitroBuild(nitro);
+
+  if (hasClientBuild && usingPairedClientArtifact) {
+    patchReactRouterServerManifestInOutput(
+      nitro.options.output.serverDir,
+      resolvedClientDir,
+    );
+  }
 }
 
 function resolveNitroClientDirectory(

@@ -2756,8 +2756,9 @@ describe("runNitroBuildPipeline", () => {
     // Simulate the cleared publicDir Nitro would set up in `prepare`.
     const publicOutputDir = path.join(cwd, ".output", "public");
     fs.mkdirSync(publicOutputDir, { recursive: true });
+    const serverDir = path.join(cwd, ".output", "server");
 
-    return { cwd, clientDir, publicOutputDir };
+    return { cwd, clientDir, publicOutputDir, serverDir };
   }
 
   it("copies the React Router client build into publicDir before nitroBuild scans it", async () => {
@@ -2807,7 +2808,7 @@ describe("runNitroBuildPipeline", () => {
   });
 
   it("uses the explicitly paired client artifact for the trusted Nitro build", async () => {
-    const { cwd, clientDir, publicOutputDir } = setupFixture();
+    const { cwd, clientDir, publicOutputDir, serverDir } = setupFixture();
     const pairedClientDir = path.join(cwd, "paired-client");
     fs.mkdirSync(path.join(pairedClientDir, "assets"), { recursive: true });
     fs.writeFileSync(
@@ -2839,45 +2840,43 @@ describe("runNitroBuildPipeline", () => {
         version: "paired",
       })};`,
     );
-    const serverBuildFile = path.join(cwd, "build", "server", "index.js");
-    fs.mkdirSync(path.dirname(serverBuildFile), { recursive: true });
-    fs.writeFileSync(
-      serverBuildFile,
-      `//#region \\0virtual:react-router/server-manifest
-var server_manifest_default = ${JSON.stringify({
-        entry: {
-          module: "/assets/entry.client-base.js",
+    const serverManifest = {
+      entry: {
+        module: "/assets/entry.client-base.js",
+        imports: [],
+        css: [],
+      },
+      routes: {
+        root: {
+          id: "root",
+          parentId: undefined,
+          path: "",
+          module: "/assets/root-base.js",
           imports: [],
           css: [],
         },
-        routes: {
-          root: {
-            id: "root",
-            parentId: undefined,
-            path: "",
-            module: "/assets/root-base.js",
-            imports: [],
-            css: [],
-          },
-        },
-        url: "/assets/manifest-base.js",
-        version: "base",
-      })};
-//#endregion
-`,
-    );
+      },
+      url: "/assets/manifest-base.js",
+      version: "base",
+    };
     const previous = process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;
     process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR = pairedClientDir;
     try {
       const nitro: any = {
-        options: { output: { publicDir: publicOutputDir } },
+        options: { output: { publicDir: publicOutputDir, serverDir } },
       };
       await runNitroBuildPipeline({
         nitro,
         hooks: {
           prepare: async () => {},
           copyPublicAssets: async () => {},
-          nitroBuild: async () => {},
+          nitroBuild: async () => {
+            fs.mkdirSync(serverDir, { recursive: true });
+            fs.writeFileSync(
+              path.join(serverDir, "main.mjs"),
+              `const serverManifest = ${JSON.stringify(serverManifest)};`,
+            );
+          },
         },
         clientDir,
         publicOutputDir,
@@ -2894,11 +2893,60 @@ var server_manifest_default = ${JSON.stringify({
           path.join(publicOutputDir, "assets", "entry.client-abc.js"),
         ),
       ).toBe(false);
-      const patchedServerBuild = fs.readFileSync(serverBuildFile, "utf8");
+      const patchedServerBuild = fs.readFileSync(
+        path.join(serverDir, "main.mjs"),
+        "utf8",
+      );
       expect(patchedServerBuild).toContain("/assets/entry.client-paired.js");
       expect(patchedServerBuild).toContain("/assets/root-paired.js");
       expect(patchedServerBuild).toContain("/assets/manifest-paired.js");
       expect(patchedServerBuild).not.toContain("/assets/entry.client-base.js");
+    } finally {
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;
+      else process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR = previous;
+    }
+  });
+
+  it("fails loudly when a paired Nitro output has no server manifest", async () => {
+    const { cwd, clientDir, publicOutputDir, serverDir } = setupFixture();
+    const pairedClientDir = path.join(cwd, "paired-client");
+    fs.mkdirSync(path.join(pairedClientDir, "assets"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pairedClientDir, "assets", "manifest-paired.js"),
+      `window.__reactRouterManifest=${JSON.stringify({
+        entry: { module: "/assets/entry.client-paired.js" },
+        routes: { root: { id: "root", module: "/assets/root-paired.js" } },
+        url: "/assets/manifest-paired.js",
+      })};`,
+    );
+    const previous = process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;
+    process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR = pairedClientDir;
+    try {
+      await expect(
+        runNitroBuildPipeline({
+          nitro: {
+            options: { output: { publicDir: publicOutputDir, serverDir } },
+          },
+          hooks: {
+            prepare: async () => {},
+            copyPublicAssets: async () => {},
+            nitroBuild: async () => {
+              fs.mkdirSync(serverDir, { recursive: true });
+              fs.writeFileSync(
+                path.join(serverDir, "main.mjs"),
+                "export {};\n",
+              );
+            },
+          },
+          clientDir,
+          publicOutputDir,
+          appBasePath: "",
+          cwd,
+        }),
+      ).rejects.toThrow(
+        "React Router server manifest not found in Nitro output",
+      );
     } finally {
       if (previous === undefined)
         delete process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;
