@@ -280,10 +280,10 @@ export function embedApp(
       const record = data && typeof data === "object" ? data : {};
       const structuredOpenLinkUrl = openLinkWebUrlFrom(record.openLink);
       return firstNonEmbedStartUrl([
+        metaUrl,
         record.embedTargetPath,
         record.deepLinkUrl,
         record.deepLink,
-        metaUrl,
         structuredOpenLinkUrl,
         record.openUrl,
         record.url

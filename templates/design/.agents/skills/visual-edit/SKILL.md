@@ -230,12 +230,13 @@ The bridge listens on a single fixed port (7331) and refuses to start for a
 second, different app. It is detached with no log file, so if `--daemon` reports
 a timeout, check for a stale process (`lsof -ti:7331`) before retrying.
 
-If the local Design dev server uses PGlite, call `open-visual-edit` through the
-hosted Design MCP server or the page's `window.__agentNativeWebMcp` helper in
-the running editor. Never invoke the in-process CLI action from the Design
-checkout against that server: it opens the same database directory and PGlite
-rejects the second owner. The CLI is safe only when the action and server use
-separate Postgres-backed databases.
+If local Design uses PGlite, never invoke the in-process CLI against that server:
+both open the same directory and the second owner is rejected. For a signed-out
+local test, start Design with `AUTH_DISABLED=1`, open `/visual-edit`, and call
+the server-action `open-visual-edit` through `window.__agentNativeWebMcp` after
+it registers. This keeps one PGlite owner; `get-visual-edit-prompt` is only the
+post-edit handoff. With auth enabled, sign in to hosted Design MCP or use shared
+Postgres before using the CLI action.
 
 ## Action Flow
 
