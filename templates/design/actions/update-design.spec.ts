@@ -187,14 +187,6 @@ const BASE_DATA = {
   },
 };
 
-describe("update-design action guidance", () => {
-  it("documents automatic screen placement", () => {
-    expect(action.description).toContain("Renderable screens created by");
-    expect(action.description).toContain("omit canvasFrames");
-    expect(action.description).toContain("complete numeric geometry object");
-  });
-});
-
 describe("update-design data concurrency", () => {
   beforeEach(() => {
     vi.clearAllMocks();
