@@ -2154,10 +2154,7 @@ export function useMoveEmail() {
             ),
           ),
         );
-        if (context.inboxMutationId) {
-          forgetInboxMutation(qc, context.inboxMutationId);
-        }
-        removeInboxThreadsOptimistic(qc, succeededThreadIds);
+        reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         return;
       }
       if (context.inboxMutationId) {
@@ -2413,29 +2410,34 @@ export function useReportSpam() {
         body: JSON.stringify({ accountEmail, threadId }),
       }),
     onMutate: async ({ threadId }) => {
-      await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
-      });
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
+      // Suppression hides the thread in the legacy list and the journal hides
+      // it in the synced inbox, so rollback drops this thread's own entries.
+      // Restoring a whole cache snapshot here would revert a concurrent
+      // mutation that landed after this one started.
       suppressThread(threadId, "spam");
-      // Filter out entire thread, not just the single message
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => (e.threadId || e.id) !== threadId),
-        ),
+      const inboxMutationId = removeInboxThreadsOptimistic(
+        qc,
+        new Set([threadId]),
       );
-      return { previous, threadId };
+      return { threadId, inboxMutationId };
     },
     onError: (_err, _vars, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxMutationId) {
+        forgetInboxMutation(qc, context.inboxMutationId);
+      }
     },
-    onSettled: () =>
-      delayedInvalidate(qc, [
-        ["emails"],
-        LABELS_QUERY_KEY,
-        INBOX_THREADS_QUERY_KEY,
-      ]),
+    onSettled: (_data, _error, _variables, context) =>
+      delayedInvalidate(
+        qc,
+        [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY],
+        3_000,
+        () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
+      ),
   });
 }
 
@@ -2458,29 +2460,30 @@ export function useBlockSender() {
         body: JSON.stringify({ senderEmail, accountEmail }),
       }),
     onMutate: async ({ threadId }) => {
-      await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
-      });
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       suppressThread(threadId, "block");
-      // Filter out entire thread, not just the single message
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => (e.threadId || e.id) !== threadId),
-        ),
+      const inboxMutationId = removeInboxThreadsOptimistic(
+        qc,
+        new Set([threadId]),
       );
-      return { previous, threadId };
+      return { threadId, inboxMutationId };
     },
     onError: (_err, _vars, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxMutationId) {
+        forgetInboxMutation(qc, context.inboxMutationId);
+      }
     },
-    onSettled: () =>
-      delayedInvalidate(qc, [
-        ["emails"],
-        LABELS_QUERY_KEY,
-        INBOX_THREADS_QUERY_KEY,
-      ]),
+    onSettled: (_data, _error, _variables, context) =>
+      delayedInvalidate(
+        qc,
+        [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY],
+        3_000,
+        () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
+      ),
   });
 }
 
@@ -2504,28 +2507,30 @@ export function useMuteThread() {
       threadId: string;
       accountEmail?: string;
     }) => {
-      await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
-      });
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       suppressThread(threadId, "mute");
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => (e.threadId || e.id) !== threadId),
-        ),
+      const inboxMutationId = removeInboxThreadsOptimistic(
+        qc,
+        new Set([threadId]),
       );
-      return { previous, threadId };
+      return { threadId, inboxMutationId };
     },
     onError: (_err, _id, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.inboxMutationId) {
+        forgetInboxMutation(qc, context.inboxMutationId);
+      }
     },
-    onSettled: () =>
-      delayedInvalidate(qc, [
-        ["emails"],
-        LABELS_QUERY_KEY,
-        INBOX_THREADS_QUERY_KEY,
-      ]),
+    onSettled: (_data, _error, _variables, context) =>
+      delayedInvalidate(
+        qc,
+        [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY],
+        3_000,
+        () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
+      ),
   });
 }
 

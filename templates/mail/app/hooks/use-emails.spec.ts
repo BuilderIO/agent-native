@@ -559,11 +559,39 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(hook).toContain("throw new MoveEmailPartialFailure(result)");
     expect(hook).toContain("forgetInboxMutation(qc, context.inboxMutationId)");
     expect(hook).toContain(
-      "removeInboxThreadsOptimistic(qc, succeededThreadIds)",
+      "reconcilePartialInboxMutation(qc, context, succeededThreadIds)",
     );
     expect(hook).toContain(
       "context.previous.forEach(([key, data]) =>\n          qc.setQueryData(",
     );
+  });
+
+  it("rolls spam, block, and mute back per thread instead of by snapshot", () => {
+    const source = emailsHookSource();
+    const hooks = [
+      ["useReportSpam", "export function useBlockSender()"],
+      ["useBlockSender", "export function useMuteThread()"],
+      ["useMuteThread", "export type Contact = "],
+    ] as const;
+
+    for (const [name, end] of hooks) {
+      const hook = source.slice(
+        source.indexOf(`export function ${name}()`),
+        source.indexOf(end),
+      );
+
+      expect(hook).toContain("removeInboxThreadsOptimistic(");
+      expect(hook).toContain("new Set([threadId])");
+      expect(hook).toContain(
+        "forgetInboxMutation(qc, context.inboxMutationId)",
+      );
+      expect(hook).toContain(
+        "settleInboxMutationIfObserved(qc, context?.inboxMutationId)",
+      );
+      // A whole-snapshot restore here would revert mutations that landed after
+      // this one started — the bug class this hook set was rewritten to avoid.
+      expect(hook).not.toContain("previous.forEach");
+    }
   });
 
   it("passes per-target account and thread hints to the Move action", () => {
