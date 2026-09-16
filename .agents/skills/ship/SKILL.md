@@ -222,11 +222,12 @@ The ship report and PR description must keep source-tested, built, and merged
 claims separate. A green test or PR does not prove that beta or production is
 live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
-review item is either a verified fix with a concise reply and **Fixed**,
-**Shipped**, or **Live verified** disposition plus `✅`, a non-fixed terminal
-disposition with `:no_entry_sign:`, or an active/evidence-limited disposition
-whose eye still blocks merge. A reply alone never satisfies this gate, and no
-new evidence may be left without a disposition. Items routed to Alice remain outside this workflow's ownership;
+review item is either a verified **Fixed** or **Shipped** result with a concise
+reply and `✅`, a verified **Live verified** result with `✅` (reply only when
+informative), a non-fixed terminal disposition with `:no_entry_sign:`, or an
+active/evidence-limited disposition whose eye still blocks merge. A reply alone
+never satisfies this gate, and no new evidence may be left without a
+disposition. Items routed to Alice remain outside this workflow's ownership;
 explicitly assigned Design items are included. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
   parent marked with `👀` is not thereby complete or non-actionable: preserve the
@@ -415,7 +416,8 @@ branch, stay on it.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
   verified fix and reply, or a disposition-specific terminal outcome, before
-  merge; an active/evidence-limited state remains a blocker.
+  merge; an active/evidence-limited state remains a blocker. Silent terminal
+  closures do not need a manufactured reply.
 - Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
   comment handling, local-file push discipline, and merge gates. Update
   `babysit-pr` first if the watcher behavior changes.

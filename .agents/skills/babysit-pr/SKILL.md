@@ -296,7 +296,9 @@ in the recap rather than treating it as no findings.
 
 ## Responding to feedback
 
-**Every human or bot comment must get a reply** — either a fix or an explanation of why you're skipping it.
+Every human or bot review comment must get a reply when it is fixed or skipped;
+a feedback item already closed by a disposition-specific terminal outcome does
+not need a manufactured reply.
 
 ## Feedback precedence
 
@@ -360,7 +362,7 @@ When the user does ask to merge, all of these must be true **simultaneously for 
 2. **No unpushed commits** — the publishable-path `git log` check from Step 0
    must be empty
 3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
-4. **All review comments addressed** — every human/bot inline comment and review-body item has a fix or a reply
+4. **All review comments addressed** — every human/bot inline comment and review-body item has a verified fix and reply, or a disposition-specific terminal outcome; active/evidence-limited items remain blockers
 5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
 
 The 10-minute soak timer **resets to zero** whenever the branch is pushed, CI

@@ -265,8 +265,8 @@ slack_search: has:reaction in:<#CHANNEL>
 
 Read each matching parent and its reaction metadata. Use other valid workflow
 identities' eyes only to detect **Owned elsewhere**; leave those items out of
-your worklist. The `hasmy::eyes: -hasmy::white_check_mark:
--hasmy::no_entry_sign:` cursor optimizes the current identity's scan but is
+your worklist. The `hasmy::eyes: -hasmy::white_check_mark: -hasmy::no_entry_sign:`
+cursor optimizes the current identity's scan but is
 never the only cursor. Keep your active claims in the worklist until a verified
 fix, targeted clarification, or Phase 0 release.
 
@@ -429,7 +429,9 @@ workflow ends with `this was sent from a bot.` after the plain-language status.
 Reply only where the reply carries information the thread does not already
 have. Three kinds qualify:
 
-- **Fixed** / **Shipped** — all four bars above are met. For package reports,
+- **Fixed** / **Shipped** / **Live verified** — all four bars above are met. A
+  live-verified row may be silent when its live observation is already recorded;
+  do not manufacture a reply. For package reports,
   include the published version and the upgrade or re-scaffold command. Name
   the beta URL/runtime only when it was actually exercised; never use “on beta
   later today” as a substitute for release or live proof. Use **Shipped** for
@@ -526,8 +528,9 @@ to its exact PR or commit; non-coding dispositions link the evidence or named
 owner instead of borrowing a nearby PR link.
 
 If the sweep found no verified fix, finish with the recap and say why no ship
-started. Clarifications, unavailable connectors, and external failures are
-not shipping blockers.
+started. Unavailable connectors and external failures are not shipping blockers.
+An unresolved **Clarification needed** item remains eye-held and blocks an
+authorized merge until answered or expired.
 
 ## Recap
 
