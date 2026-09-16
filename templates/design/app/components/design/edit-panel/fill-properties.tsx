@@ -199,7 +199,12 @@ export function FillProperties({
     ...element.computedStyles,
     backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
   };
-  const isTextFillElement = isTextElement(element);
+  // A DOM control can own text and a real box fill at once. Keep Typography
+  // on the selection, but let Fill edit the visible background paint.
+  const isTextFillElement =
+    isTextElement(element) &&
+    (styles.backgroundClip === "text" ||
+      !colorHasVisibleAlpha(styles.backgroundColor));
   const isVectorFillElement = isVectorShapeElement(element);
   const fillProperty = isTextFillElement
     ? "color"

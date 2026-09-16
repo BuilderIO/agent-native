@@ -225,6 +225,24 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-position="center, 0% 0%"');
   });
 
+  it("uses a visible background for a text-bearing control", () => {
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "button",
+          computedStyles: {
+            color: "#ffffff",
+            backgroundColor: "#0f766e",
+          },
+        }),
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-value="#0f766e"');
+  });
+
   it("offers gradient layers but not image paints for a text fill selection", () => {
     const el = element({
       tagName: "span",

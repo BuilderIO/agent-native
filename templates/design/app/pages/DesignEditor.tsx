@@ -8855,7 +8855,6 @@ function DesignEditor() {
     (fileId: string, beforeContent: string) => {
       const pending = pendingLocalFileContentsRef.current.get(fileId);
       const raw =
-        pending?.identityMigrationSourceContent ??
         pending?.content ??
         (collabContentFileIdRef.current === fileId
           ? collabContentRef.current
