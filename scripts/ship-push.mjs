@@ -101,7 +101,9 @@ function main() {
   try {
     assertFreeDisk();
   } catch (error) {
-    console.error(`ship-push: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `ship-push: ${error instanceof Error ? error.message : String(error)}`,
+    );
     process.exit(1);
   }
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);

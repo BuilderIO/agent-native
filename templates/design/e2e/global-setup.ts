@@ -21,7 +21,8 @@ export const SEED_TITLE = "E2E Seed Design";
 const AUTH_DIR = process.env.E2E_AUTH_DIR
   ? path.resolve(process.env.E2E_AUTH_DIR)
   : path.join(
-      process.env.E2E_RUN_ROOT ?? path.join(import.meta.dirname, "..", "..", ".tmp", "design-e2e"),
+      process.env.E2E_RUN_ROOT ??
+        path.join(import.meta.dirname, "..", "..", ".tmp", "design-e2e"),
       "auth",
     );
 const STATE_PATH = path.join(AUTH_DIR, "state.json");

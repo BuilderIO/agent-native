@@ -56,7 +56,10 @@
       "rules": {}
     },
     {
-      "files": ["templates/design/app/**/*.ts", "templates/design/app/**/*.tsx"],
+      "files": [
+        "templates/design/app/**/*.ts",
+        "templates/design/app/**/*.tsx"
+      ],
       "rules": {
         "eslint/no-constant-condition": "error"
       }

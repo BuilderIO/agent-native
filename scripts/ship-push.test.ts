@@ -17,9 +17,9 @@ describe("free disk preflight", () => {
   });
 
   it("fails loudly below the required floor", () => {
-    expect(() => assertFreeDisk(process.cwd(), Number.MAX_SAFE_INTEGER)).toThrow(
-      /free on .* need at least/i,
-    );
+    expect(() =>
+      assertFreeDisk(process.cwd(), Number.MAX_SAFE_INTEGER),
+    ).toThrow(/free on .* need at least/i);
   });
 });
 
