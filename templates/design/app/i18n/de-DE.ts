@@ -90,6 +90,7 @@ const messages = {
     closeComments: "Kommentare schließen",
     filter: "Filter",
     yours: "Deine",
+    unread: "Ungelesen",
     copyLink: "Link kopieren",
     markUnread: "Als ungelesen markieren",
     addReaction: "Reaktion hinzufügen",

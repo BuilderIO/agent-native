@@ -91,6 +91,7 @@ const messages = {
     closeComments: "Fermer les commentaires",
     filter: "Filtrer",
     yours: "Les vôtres",
+    unread: "Non lus",
     copyLink: "Copier le lien",
     markUnread: "Marquer comme non lu",
     addReaction: "Ajouter une réaction",

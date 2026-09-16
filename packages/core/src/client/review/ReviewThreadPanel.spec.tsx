@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewComment } from "../../review/types.js";
 
 const mutate = vi.hoisted(() => vi.fn());
+const discussion = vi.hoisted(() => ({
+  reactions: {},
+  threadPreferences: {} as Record<string, { unread: boolean }>,
+  canReact: false,
+}));
 const rootComment = vi.hoisted(
   () =>
     ({
@@ -44,6 +49,7 @@ vi.mock("./use-review.js", () => ({
     data: {
       comments: [rootComment],
       reviewStatus: { status: "draft" },
+      discussion,
     },
     isLoading: false,
   }),
@@ -93,6 +99,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     comment.status = "open";
     comment.metadata = null;
     delete comment.resolutionNote;
+    discussion.threadPreferences = {};
     mutate.mockReset();
     vi.unstubAllGlobals();
   });
@@ -126,6 +133,27 @@ describe("ReviewThreadPanel sidebar layout", () => {
     });
     expect(container.textContent).toContain("KI");
     expect(container.textContent).not.toContain("reviewer@example.com");
+  });
+
+  it("shows persisted unread state and filters to unread threads", () => {
+    discussion.threadPreferences["thread-1"] = { unread: true };
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          unreadOnly
+          unreadLabel="Unread feedback"
+          showComposer={false}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-review-thread-unread="true"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Unread feedback");
   });
 
   it("uses a flat container and progressively discloses reply and narrow actions", () => {

@@ -89,6 +89,7 @@ const messages = {
     closeComments: "关闭评论",
     filter: "筛选",
     yours: "我的评论",
+    unread: "未读",
     copyLink: "复制链接",
     markUnread: "标记为未读",
     addReaction: "添加反应",

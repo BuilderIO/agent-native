@@ -38,7 +38,7 @@ export interface ReviewCommentsPanelProps {
   className?: string;
 }
 
-type ReviewFilter = "all" | "resolved" | "yours" | "current";
+type ReviewFilter = "all" | "resolved" | "yours" | "current" | "unread";
 
 export function ReviewCommentsPanel({
   designId,
@@ -84,7 +84,9 @@ export function ReviewCommentsPanel({
         ? t("review.yours")
         : filter === "current"
           ? t("review.thisScreen")
-          : t("review.allScreens");
+          : filter === "unread"
+            ? t("review.unread")
+            : t("review.allScreens");
   const copyThreadLink = async (thread: ReviewThread) => {
     const url = new URL(window.location.href);
     url.searchParams.set("comment", thread.root.id);
@@ -174,6 +176,12 @@ export function ReviewCommentsPanel({
               <DropdownMenuRadioItem value="yours" disabled={!currentUserEmail}>
                 {t("review.yours")}
               </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem
+                value="unread"
+                disabled={!canComment || !currentUserEmail}
+              >
+                {t("review.unread")}
+              </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="resolved">
                 {t("review.resolved")}
               </DropdownMenuRadioItem>
@@ -186,6 +194,7 @@ export function ReviewCommentsPanel({
           resourceType="design"
           resourceId={designId}
           newestFirst
+          unreadOnly={filter === "unread"}
           title={t("review.panelTitle")}
           emptyState={t("review.emptyState")}
           loadingLabel={t("review.loading")}
@@ -197,6 +206,7 @@ export function ReviewCommentsPanel({
           moreActionsLabel={t("review.moreActions")}
           copyLinkLabel={t("review.copyLink")}
           markUnreadLabel={t("review.markUnread")}
+          unreadLabel={t("review.unread")}
           addReactionLabel={t("review.addReaction")}
           reopenLabel={t("review.reopen")}
           reopeningLabel={t("review.reopening")}
@@ -209,7 +219,7 @@ export function ReviewCommentsPanel({
           threadFilter={threadFilter}
           onReactionError={() => toast.error(t("review.reactionFailed"))}
           onCopyThreadLink={(thread) => void copyThreadLink(thread)}
-          onMarkThreadUnread={markThreadUnread}
+          onMarkThreadUnread={canComment ? markThreadUnread : undefined}
           showReactions
           onThreadResolved={onThreadResolved}
           includeResolved

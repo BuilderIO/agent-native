@@ -81,6 +81,7 @@ export interface ReviewThreadPanelProps {
   resourceId: string;
   targetId?: string | null;
   newestFirst?: boolean;
+  unreadOnly?: boolean;
   /** Persist new comments against this target while targetId continues to filter the list. */
   composerTargetId?: string | null;
   /** Optional element/point anchor attached to new comments from the composer. */
@@ -116,6 +117,7 @@ export interface ReviewThreadPanelProps {
   onMarkThreadUnread?: (thread: ReviewThread) => void;
   copyLinkLabel?: string;
   markUnreadLabel?: string;
+  unreadLabel?: string;
   /** Show reaction chips and an emoji picker under each comment. */
   showReactions?: boolean;
   reactionChoices?: readonly string[];
@@ -149,6 +151,7 @@ export function ReviewThreadPanel({
   resourceId,
   targetId,
   newestFirst,
+  unreadOnly = false,
   composerTargetId,
   composerAnchor,
   composerMetadata,
@@ -178,6 +181,7 @@ export function ReviewThreadPanel({
   onMarkThreadUnread,
   copyLinkLabel = "Copy link",
   markUnreadLabel = "Mark as unread",
+  unreadLabel = "Unread",
   showReactions = false,
   reactionChoices = DEFAULT_REACTION_CHOICES,
   addReactionLabel = "Add reaction",
@@ -222,8 +226,18 @@ export function ReviewThreadPanel({
   const reactToComment = useReactToReviewComment();
   const threads = useMemo(() => {
     const next = buildReviewThreads(comments.data?.comments ?? []);
-    return threadFilter ? next.filter(threadFilter) : next;
-  }, [comments.data?.comments, threadFilter]);
+    const filtered = threadFilter ? next.filter(threadFilter) : next;
+    if (!unreadOnly) return filtered;
+    const preferences = comments.data?.discussion?.threadPreferences ?? {};
+    return filtered.filter(
+      (thread) => preferences[thread.root.threadId]?.unread === true,
+    );
+  }, [
+    comments.data?.comments,
+    comments.data?.discussion,
+    threadFilter,
+    unreadOnly,
+  ]);
 
   const handleReaction = (
     comment: ReviewComment,
@@ -328,6 +342,10 @@ export function ReviewThreadPanel({
               const replyDraft = replyDrafts[thread.root.id] ?? "";
               const replying = replyingThreadId === thread.root.threadId;
               const threadIsOpen = thread.root.status === "open";
+              const unread =
+                comments.data?.discussion?.threadPreferences[
+                  thread.root.threadId
+                ]?.unread === true;
               const replyAllowed =
                 threadIsOpen && capabilityAllowsThread(canReply, thread);
               const resolveAllowed =
@@ -356,8 +374,10 @@ export function ReviewThreadPanel({
                   key={thread.root.threadId}
                   className={cn(
                     "group/thread px-3 py-3 transition-colors",
+                    unread && "bg-primary/[0.03]",
                     onSelectThread && "cursor-pointer hover:bg-muted/30",
                   )}
+                  data-review-thread-unread={unread ? "true" : undefined}
                   onClick={() => onSelectThread?.(thread)}
                 >
                   <CommentBubble
@@ -366,6 +386,8 @@ export function ReviewThreadPanel({
                     reviewerLabel={reviewerLabel}
                     agentLabel={agentLabel}
                     formatDate={formatDate}
+                    unread={unread}
+                    unreadLabel={unreadLabel}
                     reactions={
                       comments.data?.discussion?.reactions[thread.root.id]
                     }
@@ -687,6 +709,8 @@ function CommentBubble({
   resolvedLabel,
   reviewerLabel,
   agentLabel,
+  unread = false,
+  unreadLabel = "Unread",
   formatDate,
   reactions = [],
   canReact = false,
@@ -700,6 +724,8 @@ function CommentBubble({
   resolvedLabel: string;
   reviewerLabel: string;
   agentLabel?: string;
+  unread?: boolean;
+  unreadLabel?: string;
   formatDate: ReturnType<typeof useFormatters>["formatDate"];
   reactions?: ReviewCommentReaction[];
   canReact?: boolean;
@@ -737,6 +763,15 @@ function CommentBubble({
           >
             {formatCommentDate(comment.createdAt, formatDate)}
           </time>
+          {unread ? (
+            <>
+              <span
+                aria-hidden="true"
+                className="size-1.5 shrink-0 rounded-full bg-primary"
+              />
+              <span className="sr-only">{unreadLabel}</span>
+            </>
+          ) : null}
           {comment.status === "resolved" ? (
             <span className="hidden shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground @xs/review:inline-flex">
               {resolvedLabel}

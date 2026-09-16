@@ -89,6 +89,7 @@ const messages = {
     closeComments: "コメントを閉じる",
     filter: "フィルター",
     yours: "自分のコメント",
+    unread: "未読",
     copyLink: "リンクをコピー",
     markUnread: "未読にする",
     addReaction: "リアクションを追加",

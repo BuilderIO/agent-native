@@ -89,6 +89,7 @@ const messages = {
     closeComments: "टिप्पणियाँ बंद करें",
     filter: "फ़िल्टर",
     yours: "आपके",
+    unread: "अपठित",
     copyLink: "लिंक कॉपी करें",
     markUnread: "अपठित के रूप में चिह्नित करें",
     addReaction: "प्रतिक्रिया जोड़ें",

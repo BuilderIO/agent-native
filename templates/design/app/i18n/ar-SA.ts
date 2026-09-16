@@ -89,6 +89,7 @@ const messages = {
     closeComments: "إغلاق التعليقات",
     filter: "تصفية",
     yours: "تعليقاتك",
+    unread: "غير مقروءة",
     copyLink: "نسخ الرابط",
     markUnread: "وضع علامة كغير مقروء",
     addReaction: "إضافة تفاعل",

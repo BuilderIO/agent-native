@@ -95,6 +95,7 @@ const messages = {
     closeComments: "關閉評論",
     filter: "篩選",
     yours: "我的評論",
+    unread: "未讀",
     copyLink: "複製連結",
     markUnread: "標記為未讀",
     addReaction: "新增反應",

@@ -89,6 +89,7 @@ const messages = {
     closeComments: "댓글 닫기",
     filter: "필터",
     yours: "내 댓글",
+    unread: "읽지 않음",
     copyLink: "링크 복사",
     markUnread: "읽지 않음으로 표시",
     addReaction: "리액션 추가",

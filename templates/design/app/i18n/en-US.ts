@@ -52,6 +52,7 @@ const messages = {
     closeComments: "Close comments",
     filter: "Filter",
     yours: "Yours",
+    unread: "Unread",
     copyLink: "Copy link",
     markUnread: "Mark as unread",
     addReaction: "Add reaction",
