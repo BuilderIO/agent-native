@@ -193,9 +193,27 @@ function resolveRuntimeStructureNodeForPresence(args: {
   signature?: RuntimeStructureNodeSignature;
   role: RuntimeStructureNodeRole;
 }): RuntimeStructureNodeResolution {
+  // A source id remains a stable identity; a selector-only match is a
+  // positional hint and may point at a different node after replacement.
+  if (args.sourceId) return resolveRuntimeStructureNode(args);
   const identity = resolveRuntimeStructureNodeByIdentity(args);
-  if (identity.node || identity.failure?.startsWith("ambiguous")) {
+  if (identity.failure?.startsWith("ambiguous")) return identity;
+  if (
+    identity.node &&
+    (!args.signature ||
+      runtimeStructureNodeMatchesSignature(identity.node, args.signature))
+  ) {
     return identity;
+  }
+  if (identity.node) {
+    return {
+      failure:
+        args.role === "subject"
+          ? "subject-still-present"
+          : args.role === "replacement"
+            ? "missing-replacement"
+            : "missing-anchor",
+    };
   }
   return resolveRuntimeStructureNodeBySignature(args);
 }
@@ -243,49 +261,26 @@ export function verifyPendingStructureRuntime(
       };
     }
 
-    const subjectIdentityResolution = resolveRuntimeStructureNodeByIdentity({
+    const subjectResolution = resolveRuntimeStructureNodeForPresence({
       projection,
       selector: edit.selector,
       sourceId: edit.sourceId,
+      signature: edit.subjectSignature,
       role: "subject",
     });
-    if (subjectIdentityResolution.failure === "ambiguous-subject") {
+    if (subjectResolution.failure === "ambiguous-subject") {
       return { ok: false, failure: "ambiguous-subject" };
     }
-    if (subjectIdentityResolution.node) {
-      const sameNode =
-        subjectIdentityResolution.node.id === replacementResolution.node.id;
-      const replacementIsProvenByPosition =
-        sameNode &&
-        subjectIdentityResolution.matchedBy === "selector" &&
-        replacementResolution.matchedBy === "selector";
-      if (!replacementIsProvenByPosition) {
-        return { ok: false, failure: "subject-still-present" };
-      }
+    if (subjectResolution.failure === "subject-still-present") {
+      return { ok: false, failure: "subject-still-present" };
     }
-
-    const subjectMatches = projection.nodes.filter((node) =>
-      edit.subjectSignature
-        ? runtimeStructureNodeMatchesSignature(node, edit.subjectSignature)
-        : false,
-    );
-    const replacementIsUniquelyLocated =
-      replacementResolution.matchedBy === "identity" ||
-      replacementResolution.matchedBy === "selector";
-    const remainingSubjectMatches = replacementIsUniquelyLocated
-      ? subjectMatches.filter(
-          (node) => node.id !== replacementResolution.node!.id,
-        )
-      : subjectMatches;
-    const replacementIsProvenByPosition =
-      subjectIdentityResolution.node?.id === replacementResolution.node.id &&
-      subjectIdentityResolution.matchedBy === "selector" &&
-      replacementResolution.matchedBy === "selector";
-    if (!replacementIsProvenByPosition) {
-      if (remainingSubjectMatches.length > 1) {
-        return { ok: false, failure: "ambiguous-subject" };
-      }
-      if (remainingSubjectMatches.length === 1) {
+    if (subjectResolution.node) {
+      const sameNode =
+        subjectResolution.node.id === replacementResolution.node.id;
+      if (
+        !sameNode ||
+        (edit.sourceId && subjectResolution.matchedBy === "identity")
+      ) {
         return { ok: false, failure: "subject-still-present" };
       }
     }

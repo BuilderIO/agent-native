@@ -362,6 +362,87 @@ describe("verifyPendingStructureRuntime", () => {
     ).toEqual({ ok: true });
   });
 
+  it("re-anchors an identity-less replacement when both selectors shift", () => {
+    const sameShapeSignature = {
+      tag: "section",
+      text: "Same",
+      classes: [],
+    };
+    const replaceEdit = edit({
+      selector: "main > section:nth-of-type(2)",
+      sourceId: null,
+      insertedHtml: "<section>Same</section>",
+      replaced: true,
+      replacementSelector: "main > section:nth-of-type(3)",
+      replacementSourceId: null,
+      subjectSignature: sameShapeSignature,
+      replacementSignature: sameShapeSignature,
+    });
+    expect(
+      verifyPendingStructureRuntime(
+        `<!doctype html><body><main>
+          <section>Same</section>
+        </main></body>`,
+        replaceEdit,
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("rejects a wrong-shape direct selector over a matching sibling", () => {
+    const replaceEdit = edit({
+      selector: "main > p:nth-of-type(1)",
+      sourceId: null,
+      insertedHtml: "<section>Replacement</section>",
+      replaced: true,
+      replacementSelector: "main > div:nth-of-type(1)",
+      replacementSourceId: null,
+      subjectSignature: {
+        tag: "p",
+        text: "Original",
+        classes: [],
+      },
+      replacementSignature: {
+        tag: "section",
+        text: "Replacement",
+        classes: [],
+      },
+    });
+    expect(
+      verifyPendingStructureRuntime(
+        `<!doctype html><body><main>
+          <div>Wrong shape</div>
+          <section>Replacement</section>
+        </main></body>`,
+        replaceEdit,
+      ),
+    ).toEqual({ ok: false, failure: "missing-replacement" });
+  });
+
+  it("rejects an ambiguous direct replacement over a unique signature match", () => {
+    const replaceEdit = edit({
+      selector: "main > p:nth-of-type(1)",
+      sourceId: null,
+      insertedHtml: "<section>Replacement</section>",
+      replaced: true,
+      replacementSelector: '[data-testid="replacement"]',
+      replacementSourceId: null,
+      replacementSignature: {
+        tag: "section",
+        text: "Replacement",
+        classes: [],
+      },
+    });
+    expect(
+      verifyPendingStructureRuntime(
+        `<!doctype html><body><main>
+          <div data-testid="replacement">Wrong shape</div>
+          <section data-testid="replacement">Replacement</section>
+        </main></body>`,
+        replaceEdit,
+      ),
+    ).toEqual({ ok: false, failure: "ambiguous-replacement" });
+  });
+
   it("fails closed when an identity-less replacement selector is ambiguous", () => {
     const sameShapeSignature = {
       tag: "section",
