@@ -178,6 +178,22 @@ describe("analyzeRegexSource", () => {
     if (!verdict.safe) expect(verdict.reason).toContain("lookaround");
   });
 
+  it("rejects nullable separators for uncapped callers", () => {
+    const source = "^a+b*a+$";
+    expect(analyzeRegexSource(source).safe).toBe(true);
+    const verdict = analyzeRegexSource(source, "", { inputBounded: false });
+    expect(verdict.safe).toBe(false);
+    if (!verdict.safe) expect(verdict.reason).toContain("nullable separator");
+  });
+
+  it("rejects unicode-set string alternatives for uncapped callers", () => {
+    const source = String.raw`^[\q{a|aa}]+$`;
+    expect(analyzeRegexSource(source, "v").safe).toBe(true);
+    const verdict = analyzeRegexSource(source, "v", { inputBounded: false });
+    expect(verdict.safe).toBe(false);
+    if (!verdict.safe) expect(verdict.reason).toContain("string alternatives");
+  });
+
   it("refuses to clear a pattern it cannot parse", () => {
     expect(analyzeRegexSource("^(unclosed").safe).toBe(false);
   });

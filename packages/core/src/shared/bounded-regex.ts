@@ -583,6 +583,33 @@ function analyzeAdjacentRun(
   return null;
 }
 
+function analyzeNullableSeparatedRun(
+  branch: RegexAtom[],
+  ctx: AnalysisContext,
+  rejectQuadratic: boolean,
+): string | null {
+  if (!rejectQuadratic) return null;
+  const atoms = consuming(branch);
+  for (let i = 0; i < atoms.length; i += 1) {
+    const left = atoms[i];
+    if (!isVariableLength(left)) continue;
+    let betweenNullable = true;
+    for (let j = i + 1; j < atoms.length; j += 1) {
+      const right = atoms[j];
+      if (
+        betweenNullable &&
+        isVariableLength(right) &&
+        overlaps(charSetOf(left, ctx), charSetOf(right, ctx))
+      ) {
+        return `variable-length repetitions \`${describe(left)}\` and \`${describe(right)}\` can compete across a nullable separator on uncapped input`;
+      }
+      betweenNullable = betweenNullable && isNullable(right);
+      if (!betweenNullable) break;
+    }
+  }
+  return null;
+}
+
 function walk(
   branches: RegexAtom[][],
   ctx: AnalysisContext,
@@ -597,6 +624,12 @@ function walk(
   for (const branch of branches) {
     const chained = analyzeAdjacentRun(branch, ctx, rejectQuadratic);
     if (chained) return chained;
+    const nullableSeparated = analyzeNullableSeparatedRun(
+      branch,
+      ctx,
+      rejectQuadratic,
+    );
+    if (nullableSeparated) return nullableSeparated;
     for (const atom of branch) {
       if (atom.kind !== "group") continue;
       // Any group that can iterate more than once re-splits the same input
@@ -658,6 +691,17 @@ export function analyzeRegexSource(
     return {
       safe: false,
       reason: `pattern is ${source.length} characters; the limit is ${MAX_USER_REGEX_LENGTH}`,
+    };
+  }
+  if (
+    options.inputBounded === false &&
+    flags.includes("v") &&
+    source.includes("\\q{")
+  ) {
+    return {
+      safe: false,
+      reason:
+        "unicode-set string alternatives cannot be bounded safely on uncapped input",
     };
   }
   const state: ParseState = { source, index: 0, depth: 0, bailed: false };
