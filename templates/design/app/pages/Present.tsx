@@ -161,7 +161,9 @@ export default function Present() {
     if (
       !commentId ||
       reviewLinkCommentIdRef.current === commentId ||
-      !comments.length
+      !comments.length ||
+      !design ||
+      !files.length
     ) {
       return;
     }
@@ -174,7 +176,13 @@ export default function Present() {
     if (!thread) return;
     reviewLinkCommentIdRef.current = commentId;
     handleReviewThreadSelect(thread);
-  }, [handleReviewThreadSelect, reviewQuery.data?.comments, searchParams]);
+  }, [
+    design,
+    files.length,
+    handleReviewThreadSelect,
+    reviewQuery.data?.comments,
+    searchParams,
+  ]);
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
