@@ -290,6 +290,14 @@ export const builderFileUploadProvider: FileUploadProvider = {
   id: "builder",
   name: "Builder.io",
   isConfigured: () => !!process.env.BUILDER_PRIVATE_KEY,
+  isOwnedUrl: (value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "cdn.builder.io";
+    } catch {
+      return false;
+    }
+  },
   upload: async (input: FileUploadInput) => {
     const { data, filename, mimeType } = input;
     const { authorization, apiKey } = await assetAuthorization();

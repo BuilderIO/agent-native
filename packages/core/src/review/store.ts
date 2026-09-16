@@ -535,18 +535,36 @@ export async function queryReviewComments(
   if (input.newestFirst && !input.rootOnly) {
     const rootFilters = [...filters, "parent_comment_id IS NULL"];
     const result = await client.execute({
-      sql: `SELECT ${commentColumns()}
-        FROM agent_review_comments
-       WHERE ${filters.join(" AND ")}
-         AND thread_id IN (
-           SELECT thread_id
-             FROM agent_review_comments
-            WHERE ${rootFilters.join(" AND ")}
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-         )
-       ORDER BY created_at ASC, id ASC`,
-      args: [...filterParams, ...filterParams, clampLimit(input.limit)],
+      sql: `WITH selected_review_threads AS (
+          SELECT roots.thread_id,
+                 activity.latest_activity,
+                 MIN(roots.created_at) AS root_created_at,
+                 MIN(roots.id) AS root_id
+            FROM agent_review_comments AS roots
+            JOIN (
+              SELECT thread_id, MAX(created_at) AS latest_activity
+                FROM agent_review_comments
+               WHERE ${filters.join(" AND ")}
+               GROUP BY thread_id
+            ) AS activity ON activity.thread_id = roots.thread_id
+           WHERE ${rootFilters.join(" AND ")}
+           GROUP BY roots.thread_id, activity.latest_activity
+           ORDER BY activity.latest_activity DESC,
+                    root_created_at DESC,
+                    root_id DESC
+           LIMIT ?
+        )
+        SELECT ${commentColumns()}
+          FROM agent_review_comments
+         WHERE ${filters.join(" AND ")}
+           AND thread_id IN (SELECT thread_id FROM selected_review_threads)
+         ORDER BY created_at ASC, id ASC`,
+      args: [
+        ...filterParams,
+        ...filterParams,
+        clampLimit(input.limit),
+        ...filterParams,
+      ],
     });
     return (result.rows ?? []).map(mapCommentRow);
   }
