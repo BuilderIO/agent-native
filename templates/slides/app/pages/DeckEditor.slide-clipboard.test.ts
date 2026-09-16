@@ -17,7 +17,6 @@ import {
 } from "../lib/slide-clipboard";
 import {
   isSlideClipboardStillArmed,
-  isSourceImportedDeck,
   constrainSlideDragToVerticalAxis,
   getAltDragPlacement,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
