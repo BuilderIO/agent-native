@@ -19,6 +19,13 @@ async function main() {
   let deckId = process.argv.includes("--fixture") ? "" : arg("--deck");
   const outDir = path.resolve(arg("--out"));
   const target = arg("--target", "google-slides");
+  // The Google behaviour is keyed on this exact string, so a typo would export
+  // a PowerPoint-targeted deck and report it under the name that was asked for.
+  if (target !== "google-slides" && target !== "powerpoint") {
+    throw new Error(
+      `--target must be google-slides or powerpoint, got ${target}`,
+    );
+  }
   await mkdir(outDir, { recursive: true });
 
   const playwright: any = await import(resolvePnpmEntry("playwright", "1.63"));
