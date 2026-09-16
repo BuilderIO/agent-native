@@ -344,6 +344,7 @@ export class DevAuthSecretFileError extends Error {
     readonly reason:
       | "unreadable"
       | "empty"
+      | "unsafe"
       | "create-failed"
       | "race-unreadable",
     options?: { cause?: unknown },
@@ -358,10 +359,40 @@ type DevAuthSecretFileRead =
   | { status: "ok"; value: string };
 
 function readDevAuthSecretFile(filePath: string): DevAuthSecretFileRead {
+  let descriptor: number | undefined;
   let content: string;
   try {
-    content = fs.readFileSync(filePath, "utf8");
+    const pathStat = fs.lstatSync(filePath);
+    if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+      throw new DevAuthSecretFileError(
+        `The persisted local dev auth secret at ${filePath} must be a regular file, not a symlink or special file. Delete it to generate a safe replacement.`,
+        "unsafe",
+      );
+    }
+    if (process.platform !== "win32" && (pathStat.mode & 0o077) !== 0) {
+      throw new DevAuthSecretFileError(
+        `The persisted local dev auth secret at ${filePath} is accessible to other users. Set its permissions to 0600 or delete it.`,
+        "unsafe",
+      );
+    }
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+    const openedStat = fs.fstatSync(descriptor);
+    if (
+      !openedStat.isFile() ||
+      openedStat.dev !== pathStat.dev ||
+      openedStat.ino !== pathStat.ino
+    ) {
+      throw new DevAuthSecretFileError(
+        `The persisted local dev auth secret at ${filePath} changed while it was being opened. Delete it to generate a safe replacement.`,
+        "unsafe",
+      );
+    }
+    content = fs.readFileSync(descriptor, "utf8");
   } catch (error) {
+    if (error instanceof DevAuthSecretFileError) throw error;
     const code = (error as NodeJS.ErrnoException)?.code;
     // ENOTDIR means no file can exist at this path — route it to the create
     // step, which fails loudly with the real cause.
@@ -373,6 +404,8 @@ function readDevAuthSecretFile(filePath: string): DevAuthSecretFileRead {
       "unreadable",
       { cause: error },
     );
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
   }
   const value = content.trim();
   if (!value) {

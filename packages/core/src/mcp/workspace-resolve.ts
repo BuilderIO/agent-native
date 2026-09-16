@@ -133,12 +133,29 @@ function probePort(port: number, timeoutMs = 600): Promise<boolean> {
 /** Fetch the gateway's authoritative apps list (ports may be reassigned). */
 async function fetchGatewayApps(
   gatewayUrl: string,
+  expectedRoot?: string,
 ): Promise<Array<{ id: string; port: number }> | null> {
   try {
     const res = await fetch(`${gatewayUrl}/_workspace/apps`, {
       signal: AbortSignal.timeout(1500),
     });
     if (!res.ok) return null;
+    if (expectedRoot) {
+      const reportedRoot = res.headers.get("x-agent-native-workspace-root");
+      const normalizedReportedRoot = reportedRoot
+        ? path.resolve(reportedRoot)
+        : null;
+      const normalizedExpectedRoot = path.resolve(expectedRoot);
+      if (
+        !normalizedReportedRoot ||
+        (process.platform === "win32"
+          ? normalizedReportedRoot.toLowerCase() !==
+            normalizedExpectedRoot.toLowerCase()
+          : normalizedReportedRoot !== normalizedExpectedRoot)
+      ) {
+        return null;
+      }
+    }
     const json = (await res.json()) as Array<{ id: string; port: number }>;
     if (!Array.isArray(json)) return null;
     return json
@@ -190,7 +207,9 @@ export async function resolveWorkspace(
     // Prefer the gateway's authoritative list (handles port reassignment);
     // fall back to a filesystem scan with the same ordering the gateway uses.
     const gatewayResults = await Promise.all(
-      gatewayCandidates.map((candidate) => fetchGatewayApps(candidate)),
+      gatewayCandidates.map((candidate) =>
+        fetchGatewayApps(candidate, configuredGatewayUrl ? undefined : root),
+      ),
     );
     const gatewayIndex = gatewayResults.findIndex((result) => result !== null);
     const gatewayUrl = gatewayCandidates[Math.max(gatewayIndex, 0)]!;

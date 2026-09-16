@@ -231,7 +231,10 @@ describe("resolveWorkspace — workspace via gateway list (authoritative)", () =
           { id: "mail", port: 8155 },
           { id: "calendar", port: 8156 },
         ]),
-        { status: 200 },
+        {
+          status: 200,
+          headers: { "x-agent-native-workspace-root": root },
+        },
       );
     });
     vi.stubGlobal("fetch", fetchSpy);
@@ -253,7 +256,9 @@ describe("resolveWorkspace — workspace via gateway list (authoritative)", () =
       "fetch",
       vi.fn(async (url: string) =>
         url === "http://127.0.0.1:8082/_workspace/apps"
-          ? new Response(JSON.stringify([{ id: "mail", port: 8155 }]))
+          ? new Response(JSON.stringify([{ id: "mail", port: 8155 }]), {
+              headers: { "x-agent-native-workspace-root": root },
+            })
           : new Response("no", { status: 404 }),
       ),
     );
@@ -261,6 +266,32 @@ describe("resolveWorkspace — workspace via gateway list (authoritative)", () =
     const ws = await resolveWorkspace(root, {});
     expect(ws.gatewayUrl).toBe("http://127.0.0.1:8082");
     expect(ws.apps.map((app) => [app.id, app.port])).toEqual([["mail", 8155]]);
+  });
+
+  it("ignores a fallback gateway owned by another workspace", async () => {
+    const root = buildWorkspace(["mail"]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url === "http://127.0.0.1:8081/_workspace/apps") {
+          return new Response(JSON.stringify([{ id: "other", port: 8999 }]), {
+            headers: {
+              "x-agent-native-workspace-root": path.join(root, "other"),
+            },
+          });
+        }
+        if (url === "http://127.0.0.1:8082/_workspace/apps") {
+          return new Response(JSON.stringify([{ id: "mail", port: 8155 }]), {
+            headers: { "x-agent-native-workspace-root": root },
+          });
+        }
+        return new Response("no", { status: 404 });
+      }),
+    );
+
+    const ws = await resolveWorkspace(root, {});
+    expect(ws.gatewayUrl).toBe("http://127.0.0.1:8082");
+    expect(ws.apps.map((app) => app.id)).toEqual(["mail"]);
   });
 
   it("falls back to the filesystem scan when the gateway returns non-2xx", async () => {

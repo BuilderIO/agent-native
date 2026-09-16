@@ -1437,7 +1437,10 @@ export async function runWorkspaceDev(
 
     if (pathname === "/_workspace/apps") {
       await syncApps().catch(() => {});
-      res.writeHead(200, { "content-type": "application/json" });
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "x-agent-native-workspace-root": root,
+      });
       res.end(
         JSON.stringify(
           apps.map((app) => ({

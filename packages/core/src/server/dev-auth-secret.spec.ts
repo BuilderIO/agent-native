@@ -61,7 +61,9 @@ describe("resolvePersistedDevAuthSecret", () => {
     const appRoot = tempAppRoot();
     try {
       fs.mkdirSync(path.dirname(secretFile(appRoot)), { recursive: true });
-      fs.writeFileSync(secretFile(appRoot), "hand-configured-secret\n");
+      fs.writeFileSync(secretFile(appRoot), "hand-configured-secret\n", {
+        mode: 0o600,
+      });
 
       const secret = resolvePersistedDevAuthSecret(
         appRoot,
@@ -85,7 +87,9 @@ describe("resolvePersistedDevAuthSecret", () => {
       // on behalf of the concurrent writer.
       const concurrentWriter = () => {
         fs.mkdirSync(path.dirname(secretFile(appRoot)), { recursive: true });
-        fs.writeFileSync(secretFile(appRoot), "winner-secret\n");
+        fs.writeFileSync(secretFile(appRoot), "winner-secret\n", {
+          mode: 0o600,
+        });
         return "loser-secret";
       };
 
@@ -148,6 +152,25 @@ describe("resolvePersistedDevAuthSecret", () => {
       }
 
       expect(fs.readFileSync(secretFile(appRoot), "utf8")).toBe("");
+    } finally {
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a persisted secret that is accessible to other users", () => {
+    if (process.platform === "win32") return;
+    const appRoot = tempAppRoot();
+    try {
+      fs.mkdirSync(path.dirname(secretFile(appRoot)), { recursive: true });
+      fs.writeFileSync(secretFile(appRoot), "exposed-secret\n", {
+        mode: 0o644,
+      });
+      try {
+        resolvePersistedDevAuthSecret(appRoot, () => "replacement");
+        expect.unreachable();
+      } catch (error) {
+        expect((error as DevAuthSecretFileError).reason).toBe("unsafe");
+      }
     } finally {
       fs.rmSync(appRoot, { recursive: true, force: true });
     }
