@@ -3,9 +3,9 @@ name: review-latest-feedback
 description: >-
   Sweep recent Slack, GitHub issue, Sentry, and explicitly linked tracker
   feedback: first answer reporters, then fix verified bugs and actionable
-  design/UX feedback at the owning boundary, build other feature requests the
-  invoking user endorsed with an :upvote:, and recap every disposition. Use for
-  scheduled or manual sweeps.
+  objective UI defects at the owning boundary, require human signoff for
+  subjective UI changes, build features the invoking user endorsed with an
+  :upvote:, and recap every disposition. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -208,13 +208,20 @@ valid evidence — inspect the owning path before doubting the reporter.
 
 Do not change code for an unrelated product idea, praise, status update, merge
 or review request, bot forward, duplicate, or work outside the invocation's
-ownership. Design/UX feedback about an existing surface is in scope even when
-it describes visual quality or a subjective critique rather than functional
-breakage. Treat a concrete critique or requested improvement as authorization:
-choose a coherent treatment, verify it visually, and do not block on an upvote
-or ask the reporter to pick from variants. Requests for a new capability still
-follow the invoking identity's `:upvote:` gate. Content remains Alice's area
-unless the invocation claims it.
+ownership.
+
+**Keep subjective UI changes human-in-the-loop.** Automatically fix only
+objective UI defects: broken interactions, misalignment, overlap or clipping,
+unusable controls, or removing clear excess clutter. A reporter request is not
+product signoff. Discoverability complaints and preferences do not authorize
+adding, promoting, moving, or duplicating buttons or other persistent chrome.
+Check overflow, keyboard, Cmd+K, and contextual surfaces first. Adding or
+promoting chrome requires the invoking user's explicit current-task request or
+`:upvote:` below. Otherwise mark **Skipped**, release the eye with `✅`, and do
+not ask the reporter to decide. Measure failures with `text-heavy-ui`.
+
+Requests for a new capability still follow the invoking identity's `:upvote:`
+gate. Content remains Alice's area unless the invocation claims it.
 
 ### `:upvote:` authorizes feature requests
 
@@ -222,10 +229,6 @@ An `:upvote:` from **the invoking identity** - not from anyone else - promotes
 an otherwise out-of-scope item into scope and authorizes the work. It is the
 endorsement that settles the product question: the person who would otherwise
 route this away has read it and decided it should happen. Build it.
-
-Do not wait for a second sign-off. The invoking identity is the authorization,
-and treating their own endorsement as a request for someone else's permission
-is how this rule becomes a no-op.
 
 Find them alongside the newest-message scan:
 
@@ -248,10 +251,6 @@ The upvote overrides the bug gate, not the ownership map. An upvoted Design or
 Content item still gets built — name Sid or Alice in the recap row so the
 mapped owner is not surprised by a change in their area. Naming them is a
 courtesy, not a gate: do not stall the work waiting for their reply.
-
-Because the upvote already is the product decision, do not ask which variant
-people would prefer. Ship the smallest version that delivers the endorsed
-improvement, and let the reporter react to something real.
 
 For every authorized upvoted improvement, add `👀` before investigation or
 delegation and read it back. Audit it with the clear-bug ledger, using

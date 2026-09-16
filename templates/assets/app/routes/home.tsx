@@ -66,7 +66,7 @@ export default function CreatePage() {
         navigate,
       }
     : undefined;
-  const imageModelMenu = useImageModelMenu();
+  const imageModelMenu = useImageModelMenu(threadId);
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
