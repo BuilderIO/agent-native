@@ -160,6 +160,7 @@ describe("history identity integration", () => {
       publishAuthoritativeClipboardMutation: vi.fn(() => null),
       queryClient: { invalidateQueries: vi.fn(), setQueryData: vi.fn() },
       queueFileContentSave: vi.fn(),
+      resetGeometryCommitCoalescing: vi.fn(),
       redoOrderRef,
       replacePreviewContent: vi.fn(() => "applied"),
       requestPendingLiveNonStyleRevert: vi.fn(),
@@ -187,6 +188,7 @@ describe("history identity integration", () => {
     };
 
     runUndo(commonArgs as any);
+    expect(commonArgs.resetGeometryCommitCoalescing).toHaveBeenCalledTimes(1);
 
     const undoTarget = targetNode(before, fileId);
     expect(selectedElementRef.current).toMatchObject({
@@ -210,6 +212,7 @@ describe("history identity integration", () => {
     });
 
     runRedo(commonArgs as any);
+    expect(commonArgs.resetGeometryCommitCoalescing).toHaveBeenCalledTimes(2);
 
     const redoTarget = targetNode(after, fileId);
     expect(selectedElementRef.current).toMatchObject({

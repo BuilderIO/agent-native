@@ -134,6 +134,7 @@ import {
   InspectorActionRail,
   InspectorGrid,
   InspectorGridCell,
+  INSPECTOR_GRID_PAIR_SPAN,
   PanelSection,
   PropInput,
   PropSelect,
@@ -1087,7 +1088,7 @@ function CodeInspectPanel({
         >
           <InspectorGrid layout="pair-flow">
             {measurements.map(([label, value]) => (
-              <InspectorGridCell key={label} span={14}>
+              <InspectorGridCell key={label} span={INSPECTOR_GRID_PAIR_SPAN}>
                 <div className="flex h-6 items-center justify-between rounded border border-border/70 bg-[var(--design-editor-control-bg)] px-2 text-[11px]">
                   <span className="text-muted-foreground">{label}</span>
                   <span className="font-mono text-foreground">

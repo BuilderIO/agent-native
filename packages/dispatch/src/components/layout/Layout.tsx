@@ -1210,6 +1210,7 @@ export function NavContent({
     <>
       <AppSidebarHeader
         brandName={DISPATCH_SIDEBAR_LABEL}
+        appId="dispatch"
         brandHref={dispatchNavLinkTarget("/overview")}
         collapsed={collapsed}
       />

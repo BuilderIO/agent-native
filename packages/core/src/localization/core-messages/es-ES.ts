@@ -192,6 +192,27 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "Accesible",
   "agents.statusAuthRejected": "Autenticación rechazada",
   "agents.statusNoJsonRpc": "Sin JSON-RPC",
+  "agents.directoryTab": "Directorio de agentes",
+  "agents.directoryPageHint":
+    "Encuentra un backend de agentes y conéctalo a tu espacio de trabajo.",
+  "agents.directorySearch": "Buscar proveedores",
+  "agents.directoryProviders": "Proveedores",
+  "agents.directoryManual": "Añadir por URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "API administrada",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Conecta un agente de Foundry mediante A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "Conecta un agente de Gemini Enterprise mediante A2A.",
+  "agents.directoryAnthropic": "Agentes administrados de Anthropic",
+  "agents.directoryAnthropicHint":
+    "Conecta sesiones y aprobaciones de Anthropic.",
+  "agents.directoryNoMatches": "Ningún proveedor coincide con tu búsqueda.",
+  "agents.directoryRegistry": "Registro global de A2A",
+  "agents.directoryRegistryHint":
+    "Explora Agent Cards públicas y verifícalas antes de conectar.",
+  "agents.directoryBrowse": "Explorar registro",
   "common.saveFailed": "Error al guardar",
   "common.saveFailedStatus": "Error al guardar ({{status}})",
   "common.saving": "Guardando...",

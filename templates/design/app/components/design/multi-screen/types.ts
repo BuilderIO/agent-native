@@ -1,3 +1,5 @@
+import type { ReviewThread } from "@agent-native/core/client/review";
+import type { ReviewComment } from "@agent-native/core/review";
 import type {
   DistanceGuideBand,
   EqualGapGuide,
@@ -157,6 +159,11 @@ export interface DuplicateRequest {
   dropCanvasPosition?: { x: number; y: number };
 }
 
+export interface ScreenContentRenderOptions {
+  onBootStart?: () => void;
+  onBootReady?: () => void;
+}
+
 export interface MultiScreenCanvasProps {
   screens: ScreenFile[];
   zoom: number;
@@ -193,6 +200,26 @@ export interface MultiScreenCanvasProps {
   directlyHoveredScreenId?: string | null;
   previewDeviceFrame?: DeviceFrameType;
   activeTool?: MultiScreenCanvasTool;
+  /** Review overlays shared by screen frames and the overview board. */
+  reviewResourceId?: string;
+  reviewPinMode?: boolean;
+  reviewCommentsHidden?: boolean;
+  reviewCanPost?: boolean;
+  reviewCanResolve?: boolean;
+  /** Optional review target override; null scopes comments to the board. */
+  reviewTargetId?: string | null;
+  reviewFocusRequest?: {
+    nonce: number;
+    anchor: unknown;
+    targetId?: string | null;
+    threadId?: string;
+  } | null;
+  reviewCurrentUserEmail?: string | null;
+  onExitReviewPinMode?: () => void;
+  onDispatchCommentToAgent?: (comment: ReviewComment) => void;
+  onSendThreadToAgent?: (thread: ReviewThread) => void;
+  reviewSendingThreadId?: string | null;
+  reviewDesignTitle?: string;
   toolProps?: CanvasToolProps;
   onActiveToolChange?: (tool: MultiScreenCanvasTool) => void;
   /** Routes empty-board clicks to the active overview comment composer. */
@@ -278,7 +305,10 @@ export interface MultiScreenCanvasProps {
     screen: ScreenFile,
     metadata: ResolvedScreenMetadata,
     geometry: FrameGeometry,
+    options?: ScreenContentRenderOptions,
   ) => ReactNode;
+  /** Cached inert HTML used while a live screen is waiting for a boot slot. */
+  screenSnapshotsById?: Record<string, { html: string } | undefined>;
   /**
    * Renders the fully editable runtime for one responsive sub-frame. Keeping
    * this separate from `renderScreenContent` prevents a breakpoint preview
@@ -293,6 +323,8 @@ export interface MultiScreenCanvasProps {
       displayWidth: number;
       displayHeight: number;
       active: boolean;
+      onBootStart?: () => void;
+      onBootReady?: () => void;
     },
   ) => ReactNode;
   onScreenSelectionChange?: (ids: string[]) => void;

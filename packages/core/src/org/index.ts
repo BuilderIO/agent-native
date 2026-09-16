@@ -62,6 +62,7 @@ export {
   listRegisteredAppRoles,
   listAppMemberRoles,
   resolveAppRole,
+  setAppMemberRole,
   setAppMemberRoles,
   applyInvitationAppRoles,
   getAppPermissionOverrides,

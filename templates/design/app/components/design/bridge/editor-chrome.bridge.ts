@@ -1557,11 +1557,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function serializeRuntimeLayerSnapshot(): {
-    html: string;
-    nodeCount: number;
-  } | null {
-    if (!document.body) return null;
+  function serializeRuntimeLayerSnapshot(
+    excludedRoot?: Element,
+  ):
+    | { ok: true; html: string; nodeCount: number; documentId: string }
+    | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
+    if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
     // Keep this list export-focused and bounded. The runtime snapshot is also
     // the hosted/cross-origin Design→Figma fallback: inlining the resolved
     // paint/layout values lets the parent reconstruct the already-rendered
@@ -1666,7 +1667,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       var sourceNode = sourceNodes[index];
       var cloneNode = cloneNodes[index];
-      if (!isRuntimeLayerVisualNode(sourceNode)) {
+      if (
+        excludedRoot?.contains(sourceNode) ||
+        !isRuntimeLayerVisualNode(sourceNode)
+      ) {
         cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
         continue;
       }
@@ -1787,8 +1791,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     inlineSnapshotComputedStyle(document.body, cloneBody);
     cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
     var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>"; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
-    if (html.length > 2_000_000) return null;
+    if (html.length > 2_000_000)
+      return { ok: false, reason: "snapshot-too-large" };
     return {
+      ok: true,
       html: html,
       nodeCount: nodeCount,
       documentId: runtimeDocumentId,
@@ -1805,7 +1811,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     runtimeLayerSnapshotTimer = null;
     runtimeLayerSnapshotMaxTimer = null;
     var snapshot = serializeRuntimeLayerSnapshot();
-    if (!snapshot || snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+    if (!snapshot.ok) {
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot-error",
+          payload: snapshot,
+        },
+        "*",
+      );
+      return;
+    }
+    if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
     lastRuntimeLayerSnapshotHtml = snapshot.html;
     (window.parent as Window).postMessage(
       {
@@ -2309,11 +2325,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!descendIntoGroup) {
       var group = target;
       while (group && !isDocumentRootElement(group)) {
-        var groupName =
-          (group.getAttribute &&
-            group.getAttribute("data-agent-native-layer-name")) ||
-          (group.getAttribute && group.getAttribute("data-layer-name")) ||
-          "";
+        var groupName = layerNameForElement(group);
         var generatedGroupMarker =
           group.getAttribute &&
           group.getAttribute("data-agent-native-group-wrapper") === "true" &&
@@ -2492,13 +2504,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function layerNameForElement(el: Element | null): string {
     if (!el || !el.getAttribute) return "";
-    var canonical = el.getAttribute("data-agent-native-layer-name");
-    if (canonical && canonical.trim) {
-      var trimmedCanonical = canonical.trim();
-      if (trimmedCanonical) return trimmedCanonical;
+    var attributes = [
+      "data-agent-native-layer-name",
+      "data-layer-name",
+      "layer-name",
+    ];
+    for (var i = 0; i < attributes.length; i += 1) {
+      var value = el.getAttribute(attributes[i]);
+      var trimmed = value && value.trim ? value.trim() : "";
+      if (trimmed) return trimmed;
     }
-    var legacy = el.getAttribute("data-layer-name");
-    return legacy && legacy.trim ? legacy.trim() : "";
+    return "";
   }
 
   // Only the annotation. The class/layer-name guess this replaced painted
@@ -3012,6 +3028,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "display",
     "overflow",
     "lineHeight",
+    "letterSpacing",
+    "gridTemplateColumns",
+    "gridTemplateRows",
+    "gridAutoFlow",
+    "flexDirection",
+    "flexWrap",
+    "columnGap",
+    "rowGap",
+    "justifyContent",
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+    "alignItems",
+    "alignContent",
+    "justifyItems",
+    "gap",
+    "padding",
     "webkitBoxOrient",
     "webkitLineClamp",
     "--agent-native-truncate-original-display",
@@ -4586,6 +4620,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     nodeId: string;
     repeat: BeginTextEditRepeat | null;
     force: boolean;
+    // Escape keeps what was typed (Figma): the host hands its buffer over with
+    // the command and asks for the session to end the moment it has landed.
+    commitImmediately: boolean;
     deadline: number;
     raf: number;
     // Keystrokes typed INTO THIS IFRAME while the command waits for its node
@@ -4607,9 +4644,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // iframe). pending:false stands the host down when the wait is abandoned;
   // successful activation instead flows through text-editing-state(active),
   // which both flushes the host buffer and clears its pending flag.
-  function postTextEditPending(nodeId: string, pending: boolean): void {
+  // `reason` exists because pending:false carries two different facts. Escape,
+  // a pointerdown in this frame, and a superseding dblclick are the user
+  // abandoning the request — the host may drop it and clean the node up. The
+  // pump's own deadline is not: the node simply has not arrived here yet, and
+  // a host that reads that as abandonment deletes a layer its own retry ladder
+  // is still working on. Unlabelled is never treated as abandonment.
+  function postTextEditPending(
+    nodeId: string,
+    pending: boolean,
+    reason?:
+      | "escape"
+      | "pointerdown"
+      | "superseded"
+      | "deadline"
+      | "committed"
+      | "not-taken",
+  ): void {
     (window.parent as Window).postMessage(
-      { type: "text-edit-pending", nodeId: nodeId, pending: pending },
+      {
+        type: "text-edit-pending",
+        nodeId: nodeId,
+        pending: pending,
+        reason: reason,
+      },
+      "*",
+    );
+  }
+  // Whether text handed to this frame actually landed in a session. The host
+  // owns the only copy until this says it did: an insert for an editable that
+  // was replaced or detached is dropped here, and silence let the host release
+  // keystrokes that never reached the document.
+  function postTextEditInsertResult(nodeId: string, inserted: boolean): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "text-edit-insert-result",
+        nodeId: nodeId,
+        inserted: inserted,
+      },
       "*",
     );
   }
@@ -10826,19 +10898,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     postTextEditingState(suspended.target, false, suspended.selector, false);
   }
 
-  function insertPlainTextAtSelection(text: string): void {
-    if (!text) return;
+  /** Whether the text actually landed in the document. The host holds the only
+   *  copy until it hears that it did, so reporting a success execCommand
+   *  refused released those keystrokes into nothing. */
+  function insertPlainTextAtSelection(text: string): boolean {
+    if (!text) return false;
     if (
       document.queryCommandSupported &&
       document.queryCommandSupported("insertText")
     ) {
-      document.execCommand("insertText", false, text);
-      return;
+      var executed = false;
+      try {
+        executed = document.execCommand("insertText", false, text) === true;
+      } catch (_err) {
+        executed = false;
+      }
+      // A refusal is not yet a failure to report: fall through to the manual
+      // range path, and answer for what actually happened.
+      if (executed) return true;
     }
     var selection: Selection | null = window.getSelection
       ? window.getSelection()
       : null;
-    if (!selection || selection.rangeCount === 0) return;
+    if (!selection || selection.rangeCount === 0) return false;
     var range = selection.getRangeAt(0);
     range.deleteContents();
     var textNode = document.createTextNode(text);
@@ -10847,6 +10929,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     range.setEndAfter(textNode);
     selection.removeAllRanges();
     selection.addRange(range);
+    return textNode.isConnected === true;
   }
 
   // T2: Figma-style text editing treats Enter as a line break while editing
@@ -13536,6 +13619,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     origin,
     insertedHtml?,
     replaced?,
+    replacementSnapshotHtml?: string,
   ) {
     if (!el || !target || !target.anchor) return;
     dndLog("post:structure-change", {
@@ -13569,6 +13653,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         insertedHtml:
           typeof insertedHtml === "string" ? insertedHtml : undefined,
         replaced: replaced === true ? true : undefined,
+        replacementSnapshotHtml: replacementSnapshotHtml,
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
@@ -17801,9 +17886,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
           var pendingKey = e.key || "";
           if (pendingKey === "Escape") {
+            // Escape KEEPS what was typed (Figma). Characters typed into this
+            // frame while the node was still arriving exist nowhere else, so
+            // the request stays alive and commits them the moment the node
+            // appears; only an empty one is abandoned.
+            if (pendingBeginTextEdit.buffer) {
+              pendingBeginTextEdit.commitImmediately = true;
+              stopNativeInteraction(e);
+              return;
+            }
             var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
             cancelPendingBeginTextEdit();
-            postTextEditPending(abandonedPendingNodeId, false);
+            postTextEditPending(abandonedPendingNodeId, false, "escape");
             stopNativeInteraction(e);
             return;
           }
@@ -17970,7 +18064,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (pendingBeginTextEdit) {
         var canceledPendingNodeId = pendingBeginTextEdit.nodeId;
         cancelPendingBeginTextEdit();
-        postTextEditPending(canceledPendingNodeId, false);
+        postTextEditPending(canceledPendingNodeId, false, "pointerdown");
       }
       if (!activeTextEditEl) return;
       if (exitStaleTextEditSession()) return;
@@ -18189,7 +18283,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (pendingBeginTextEdit) {
       var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
       cancelPendingBeginTextEdit();
-      postTextEditPending(supersededPendingNodeId, false);
+      postTextEditPending(supersededPendingNodeId, false, "superseded");
     }
     // T23: a live session on a DIFFERENT element must end through the
     // canonical cleanup BEFORE the new one starts. Previously the new
@@ -18818,27 +18912,56 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       resumeBookmark,
     );
   }
+  // Outlives the host's own request window (its retry ladder settles at
+  // ~4.75s). At the old 2s this frame gave up FIRST on a slow board mount, and
+  // a commit-on-Escape carries no retries to extend it — everything typed was
+  // discarded before the node arrived.
+  var PENDING_BEGIN_TEXT_EDIT_MS = 5000;
   function pumpPendingBeginTextEdit(): void {
     if (!pendingBeginTextEdit) return;
     var entry = pendingBeginTextEdit;
     var node = queryBeginTextEditNode(entry.nodeId, entry.repeat);
     if (node) {
       pendingBeginTextEdit = null;
-      // The user may have started their own edit meanwhile — never steal it.
+      // The user may have started their own edit meanwhile — never steal it,
+      // and tell the host its text did not land so it keeps owing it.
+      if (activeTextEditEl) {
+        if (entry.buffer) postTextEditInsertResult(entry.nodeId, false);
+      }
       if (!activeTextEditEl) {
         activateProgrammaticTextEdit(node, entry.force);
         // Replay keystrokes typed into this iframe during the wait — the
         // session is focused with the caret at the content end, so this
         // lands exactly where the user expects their first characters.
-        if (entry.buffer && activeTextEditEl === node) {
-          insertPlainTextAtSelection(entry.buffer);
+        var replayLanded = false;
+        if (entry.buffer) {
+          replayLanded =
+            activeTextEditEl === node &&
+            insertPlainTextAtSelection(entry.buffer);
+          postTextEditInsertResult(entry.nodeId, replayLanded);
+        }
+        if (entry.commitImmediately) {
+          // Same rule as the takeover above: a session finished and reported
+          // committed after a failed replay tells the host to release text
+          // that never reached the document.
+          if (
+            activeTextEditEl === node &&
+            finishActiveTextEdit &&
+            (replayLanded || !entry.buffer)
+          ) {
+            finishActiveTextEdit(true);
+            (node as HTMLElement).blur();
+            postTextEditPending(entry.nodeId, false, "committed");
+          } else {
+            postTextEditPending(entry.nodeId, false, "not-taken");
+          }
         }
       }
       return;
     }
     if (Date.now() > entry.deadline) {
       pendingBeginTextEdit = null;
-      postTextEditPending(entry.nodeId, false);
+      postTextEditPending(entry.nodeId, false, "deadline");
       return;
     }
     entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
@@ -18847,6 +18970,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     nodeId: string,
     repeat: BeginTextEditRepeat | null,
     force: boolean,
+    insertText?: string,
+    commitImmediately?: boolean,
   ): void {
     // DesignEditor's own T6 loop re-posts begin-text-edit for the SAME node
     // every few hundred ms until it activates — those re-posts must extend
@@ -18858,7 +18983,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       sameBeginTextEditRepeat(pendingBeginTextEdit.repeat, repeat)
     ) {
       pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
-      pendingBeginTextEdit.deadline = Date.now() + 2000;
+      pendingBeginTextEdit.deadline = Date.now() + PENDING_BEGIN_TEXT_EDIT_MS;
+      if (insertText) pendingBeginTextEdit.buffer += insertText;
+      if (commitImmediately) pendingBeginTextEdit.commitImmediately = true;
       return;
     }
     cancelPendingBeginTextEdit();
@@ -18866,9 +18993,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       nodeId: nodeId,
       repeat: repeat,
       force: force,
-      deadline: Date.now() + 2000,
+      commitImmediately: commitImmediately === true,
+      deadline: Date.now() + PENDING_BEGIN_TEXT_EDIT_MS,
       raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
-      buffer: "",
+      buffer: insertText || "",
     };
   }
 
@@ -19207,6 +19335,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // nodeId immediately (no double-click needed). Used after programmatic
     // text-element creation so the user can type right away and the autosize
     // CSS (width:max-content or similar) takes effect from the first keystroke.
+    // The host stood this exact creation down (pointer-away, Escape, undo, a
+    // newer creation). A begin-text-edit already delivered here outlives that:
+    // pendingBeginTextEdit keeps pumping for its own ~2s deadline and focuses
+    // the node the moment it appears, so the abandoned layer comes back to life
+    // with a caret in it. Identity-scoped on BOTH ids — a cancel for one node
+    // must never touch another node's pending or live session — and it only
+    // ends a live session that is still EMPTY, because a session with typed
+    // text belongs to the user, not to the cancelled request.
+    if (e.data.type === "agent-native:cancel-text-edit") {
+      var cancelScreenId =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      var cancelNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      if (!cancelNodeId) return;
+      if (cancelScreenId && cancelScreenId !== designCanvasScreenId) return;
+      if (
+        pendingBeginTextEdit &&
+        pendingBeginTextEdit.nodeId === cancelNodeId
+      ) {
+        cancelPendingBeginTextEdit();
+        postTextEditPending(cancelNodeId, false, "superseded");
+      }
+      if (
+        activeTextEditEl &&
+        getSourceId(activeTextEditEl) === cancelNodeId &&
+        (activeTextEditEl.textContent || "").trim() === "" &&
+        finishActiveTextEdit
+      ) {
+        finishActiveTextEdit(false);
+      }
+      return;
+    }
     if (e.data.type === "begin-text-edit") {
       var forceBeginTextEdit = e.data.force === true;
       if ((readOnly || !textEditingEnabled) && !forceBeginTextEdit) return;
@@ -19215,6 +19374,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!nodeId) return;
       var beginTextEditRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
       if (e.data.repeat !== undefined && !beginTextEditRepeat) return;
+      // Escape while the host still holds the creation's keystrokes: they ride
+      // in with the command so the node keeps them, and the session closes as
+      // soon as they have landed. Never a way to drop what was typed.
+      var beginInsertText =
+        typeof e.data.insertText === "string" ? e.data.insertText : "";
+      var beginCommitImmediately = e.data.commitImmediately === true;
       // Edit the EXACT node identified by nodeId. Do NOT run it through
       // findTextEditTarget here — that helper climbs UP to the highest
       // inline-editable ancestor, which for a text node inside a text-heavy
@@ -19231,12 +19396,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           nodeId,
           beginTextEditRepeat,
           forceBeginTextEdit,
+          beginInsertText,
+          beginCommitImmediately,
         );
         postTextEditPending(nodeId, true);
         return;
       }
       cancelPendingBeginTextEdit();
       activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
+      var tookTarget = activeTextEditEl === textTarget;
+      // The host keeps owing these keystrokes until this frame says they
+      // landed: a target it could not take over, or an insert the document
+      // refused, never received them.
+      var beginInsertLanded = false;
+      if (beginInsertText) {
+        beginInsertLanded =
+          tookTarget && insertPlainTextAtSelection(beginInsertText);
+        postTextEditInsertResult(nodeId, beginInsertLanded);
+      }
+      if (beginCommitImmediately) {
+        // Only ever finish THIS target, and only once the text is actually in
+        // it. Reporting "committed" after a failed insert made the host release
+        // the buffer it had just been told to keep — the two reports together
+        // were the one way to lose the text outright.
+        if (
+          tookTarget &&
+          finishActiveTextEdit &&
+          (beginInsertLanded || !beginInsertText)
+        ) {
+          finishActiveTextEdit(true);
+          textTarget.blur();
+          postTextEditPending(nodeId, false, "committed");
+        } else {
+          postTextEditPending(nodeId, false, "not-taken");
+        }
+      }
       return;
     }
     // T25: replay keystrokes the HOST buffered during the creation→activation
@@ -19247,8 +19441,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // chrome/state naturally.
     if (e.data.type === "text-edit-insert-text") {
       var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
-      if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
+      var bufferedNodeId =
+        typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      if (!bufferedText) return;
+      if (!activeTextEditEl || !isTextEditElConnected()) {
+        // The editable these keystrokes belong to is gone — a document swap or
+        // a detached node. Returning silently lost them outright, because the
+        // host released its only copy when the session reported active.
+        postTextEditInsertResult(bufferedNodeId, false);
         return;
+      }
+      if (bufferedNodeId && getSourceId(activeTextEditEl) !== bufferedNodeId) {
+        // A queued insert for a node that is no longer the live session.
+        // Writing it here spliced one creation's keystrokes into another's
+        // node AND told the host the first one had landed.
+        postTextEditInsertResult(bufferedNodeId, false);
+        return;
+      }
       var bufferedActive = document.activeElement;
       if (
         !bufferedActive ||
@@ -19266,8 +19475,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         activeTextEditEl,
         true,
       );
-      insertPlainTextAtSelection(bufferedText);
+      var bufferedInserted = insertPlainTextAtSelection(bufferedText);
       if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
+      postTextEditInsertResult(bufferedNodeId, bufferedInserted);
       return;
     }
     if (e.data.type === "set-editor-chrome-scale") {
@@ -19954,6 +20164,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         var replaceNextSibling = insertAnchor.nextSibling;
         replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+        // Capture while the original still supplies its selector/provenance,
+        // and reject before publishing a pending operation if proof is unavailable.
+        var replacementSnapshot = serializeRuntimeLayerSnapshot(insertAnchor);
+        if (!replacementSnapshot.ok) {
+          parsedInsertEl.remove();
+          rejectInsert("replacement-" + replacementSnapshot.reason);
+          return;
+        }
         selectedEl = parsedInsertEl;
         positionOverlay(selectionOverlay, selectedEl);
         refreshOverlays();
@@ -19968,6 +20186,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           parsedInsertEl.outerHTML,
           true,
+          replacementSnapshot.html,
         );
         replaceParent.removeChild(insertAnchor);
         refreshOverlays();
@@ -20422,6 +20641,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "data-agent-native-component",
         "data-agent-native-layer-name",
         "data-layer-name",
+        "layer-name",
         "data-an-primitive",
         "data-component-name",
         "data-source-column",
@@ -20459,6 +20679,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       attributeFilter: [
         "data-agent-native-layer-name",
         "data-layer-name",
+        "layer-name",
         "data-an-primitive",
         "class",
         "style",
