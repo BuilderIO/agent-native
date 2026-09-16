@@ -13,7 +13,7 @@ test("comments toolbar opens an anchored composer", async ({ page }) => {
     .locator('[data-design-bottom-toolbar] button[aria-label="Pin comment"]')
     .click();
 
-  const clickPlane = page.locator("[data-review-click-plane]").first();
+  const clickPlane = page.locator("[data-review-click-plane]").last();
   await expect(clickPlane).toBeVisible();
   const box = await clickPlane.boundingBox();
   if (!box) throw new Error("comment click plane has no layout box");
