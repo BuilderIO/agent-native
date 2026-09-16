@@ -379,6 +379,50 @@ export function forgetInboxMutation(qc: QueryClient, id: string) {
   if (inboxMutationJournal(qc).delete(id)) notifyInboxQueries(qc);
 }
 
+/** Keep only the targets that a partially completed bulk mutation changed. */
+export function retainInboxMutationTargets(
+  qc: QueryClient,
+  id: string,
+  threadIds: ReadonlySet<string>,
+): string | undefined {
+  const journal = inboxMutationJournal(qc);
+  const mutation = journal.get(id);
+  if (!mutation) return undefined;
+
+  if (mutation.kind === "remove") {
+    const keptThreadIds = mutation.threadIds.filter((threadId) =>
+      threadIds.has(threadId),
+    );
+    const keptObservedThreadIds = mutation.observedThreadIds.filter(
+      (threadId) => threadIds.has(threadId),
+    );
+    if (keptThreadIds.length === 0) journal.delete(id);
+    else
+      journal.set(id, {
+        ...mutation,
+        observedThreadIds: keptObservedThreadIds,
+        threadIds: keptThreadIds,
+      });
+  } else if (mutation.kind === "read") {
+    const states = mutation.states.filter((state) =>
+      threadIds.has(state.threadId),
+    );
+    if (states.length === 0) journal.delete(id);
+    else journal.set(id, { ...mutation, states });
+  } else if (mutation.kind === "unread-count") {
+    if (!threadIds.has(mutation.state.threadId)) journal.delete(id);
+  } else {
+    const keptThreadIds = mutation.threadIds.filter((threadId) =>
+      threadIds.has(threadId),
+    );
+    if (keptThreadIds.length === 0) journal.delete(id);
+    else journal.set(id, { ...mutation, threadIds: keptThreadIds });
+  }
+
+  notifyInboxQueries(qc);
+  return journal.has(id) ? id : undefined;
+}
+
 /** Retire a journal entry only after a refetch contains the requested state. */
 export function settleInboxMutationIfObserved(
   qc: QueryClient,

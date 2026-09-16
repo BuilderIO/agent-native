@@ -12,6 +12,7 @@ import {
   markInboxThreadReadOptimistic,
   mergeInboxThreadPages,
   removeInboxThreadsOptimistic,
+  retainInboxMutationTargets,
   resolveInboxTabId,
   restoreInboxThreadRemovals,
   restoreInboxThreadsOptimistic,
@@ -502,6 +503,27 @@ describe("synced inbox mutation consistency", () => {
       { threadId: "t1", isRead: false, unreadCount: 1 },
       { threadId: "t2", isRead: true, unreadCount: 0 },
     ]);
+  });
+
+  it("retains the original sequence when a bulk mutation partially succeeds", () => {
+    const qc = makeClient(seedResult());
+    const mutationId = markInboxThreadReadOptimistic(
+      qc,
+      new Set(["t1", "t2"]),
+      true,
+    );
+    const newerId = markInboxThreadReadOptimistic(qc, new Set(["t1"]), false);
+
+    expect(retainInboxMutationTargets(qc, mutationId, new Set(["t2"]))).toBe(
+      mutationId,
+    );
+
+    const stale = seedResult();
+    expect(applyInboxMutationOverlay(qc, stale as any).items).toMatchObject([
+      { threadId: "t1", isRead: false, unreadCount: 1 },
+      { threadId: "t2", isRead: true, unreadCount: 0 },
+    ]);
+    expect(newerId).toMatch(/^inbox-mutation-/);
   });
 
   it("restores a removal journal when an undo action fails", () => {

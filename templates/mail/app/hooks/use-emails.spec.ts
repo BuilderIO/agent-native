@@ -545,8 +545,8 @@ describe("inbox-thread cache rollback on mutation error", () => {
       const hook = source.slice(source.indexOf(start), source.indexOf(end));
       for (const marker of markers) expect(hook).toContain(marker);
     }
-    expect(source).toContain("settleWithConcurrency(");
-    expect(source).toContain("TRASH_ACTION_CONCURRENCY = 5");
+    expect(source).toContain('enqueueBulkGmailMutation("trash"');
+    expect(source).toContain('cancelOrWait("trash", id)');
   });
 
   it("treats a partial move as an error and keeps only successful threads removed", () => {

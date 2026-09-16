@@ -1,6 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 
-export type GmailMutationKind = "archive" | "mark-read" | "star";
+export type GmailMutationKind = "archive" | "mark-read" | "star" | "trash";
 
 export interface GmailMutationTarget {
   id: string;
@@ -28,6 +28,12 @@ type FlushListener = (info: {
 }) => void;
 
 type FlushOutcome = "success" | "failure";
+
+type TrashActionResult = {
+  requested: string[];
+  succeeded: string[];
+  failed: Array<{ id: string; error: string }>;
+};
 
 function targetKey(
   kind: GmailMutationKind,
@@ -73,6 +79,16 @@ function assertActionSuccess<T>(result: T): T {
     }
   }
   return result;
+}
+
+function isTrashActionResult(value: unknown): value is TrashActionResult {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Array.isArray((value as TrashActionResult).requested) &&
+    Array.isArray((value as TrashActionResult).succeeded) &&
+    Array.isArray((value as TrashActionResult).failed)
+  );
 }
 
 class GmailMutationQueue {
@@ -287,6 +303,10 @@ class GmailMutationQueue {
           await this.flushStar(group, isStarred);
         }
       }
+
+      if (kind === "trash") {
+        await this.flushTrash(ops);
+      }
     }
   }
 
@@ -379,6 +399,45 @@ class GmailMutationQueue {
           ? { kind: "star", count: ops.length, error }
           : { kind: "star", count: ops.length },
       );
+    }
+  }
+
+  private async flushTrash(ops: QueuedMutation[]): Promise<void> {
+    try {
+      const result = await callAction("trash-email", bulkArgs(ops)).then(
+        assertActionSuccess,
+      );
+      if (!isTrashActionResult(result) && typeof result !== "string") {
+        throw new Error("Trash action returned an invalid result");
+      }
+
+      const failures = isTrashActionResult(result)
+        ? new Map(result.failed.map((failure) => [failure.id, failure.error]))
+        : new Map<string, string>();
+      let firstError: Error | undefined;
+      for (const op of ops) {
+        const message = failures.get(op.id);
+        if (message) {
+          const error = new Error(message);
+          firstError ??= error;
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        } else {
+          this.recordOutcome(op, "success");
+          for (const resolve of op.resolves) resolve();
+        }
+      }
+      this.emit(
+        firstError
+          ? { kind: "trash", count: ops.length, error: firstError }
+          : { kind: "trash", count: ops.length },
+      );
+    } catch (error) {
+      for (const op of ops) {
+        this.recordOutcome(op, "failure");
+        for (const reject of op.rejects) reject(error);
+      }
+      this.emit({ kind: "trash", count: ops.length, error });
     }
   }
 

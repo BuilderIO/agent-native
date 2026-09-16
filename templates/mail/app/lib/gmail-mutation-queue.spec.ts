@@ -96,6 +96,36 @@ describe("gmailMutationQueue", () => {
     expect(actions).toEqual(["archive-email", "mark-read"]);
   });
 
+  it("batches trash and settles partial per-item results from one action call", async () => {
+    callAction.mockResolvedValueOnce({
+      requested: ["m1", "m2"],
+      succeeded: ["m1"],
+      failed: [{ id: "m2", error: "provider unavailable" }],
+    });
+    const first = gmailMutationQueue.enqueue("trash", {
+      id: "m1",
+      threadId: "t1",
+      accountEmail: "a@x.com",
+    });
+    const second = gmailMutationQueue.enqueue("trash", {
+      id: "m2",
+      threadId: "t2",
+      accountEmail: "b@x.com",
+    });
+    const secondError = expect(second).rejects.toThrow("provider unavailable");
+
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(first).resolves.toBeUndefined();
+    await secondError;
+    expect(callAction).toHaveBeenCalledTimes(1);
+    expect(callAction).toHaveBeenCalledWith("trash-email", {
+      id: "m1,m2",
+      threadIds: "t1,t2",
+      accountEmails: "a@x.com,b@x.com",
+    });
+  });
+
   it("cancel drops a pending archive before flush", async () => {
     const pending = gmailMutationQueue.enqueue("archive", {
       id: "m1",
@@ -130,6 +160,30 @@ describe("gmailMutationQueue", () => {
     expect(settled).toBe(false);
 
     resolveAction("ok");
+    await expect(waiting).resolves.toBe("succeeded");
+    await expect(pending).resolves.toBeUndefined();
+    expect(callAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for an in-flight trash before allowing its inverse", async () => {
+    let resolveAction!: (value: string) => void;
+    callAction.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveAction = resolve;
+      }),
+    );
+    const pending = gmailMutationQueue.enqueue("trash", { id: "m1" });
+
+    await vi.advanceTimersByTimeAsync(200);
+    const waiting = gmailMutationQueue.cancelOrWait("trash", "m1");
+    let settled = false;
+    void waiting.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveAction("Trashed 1 email(s) successfully");
     await expect(waiting).resolves.toBe("succeeded");
     await expect(pending).resolves.toBeUndefined();
     expect(callAction).toHaveBeenCalledTimes(1);

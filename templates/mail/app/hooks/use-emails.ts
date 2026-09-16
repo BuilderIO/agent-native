@@ -18,7 +18,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -32,6 +32,7 @@ import {
   invalidateInboxThreads,
   markInboxThreadReadOptimistic,
   removeInboxThreadsOptimistic,
+  retainInboxMutationTargets,
   restoreInboxThreadRemovals,
   settleInboxMutationIfObserved,
   snapshotInboxThreads,
@@ -408,7 +409,19 @@ const suppressedThreads = new Map<
   string,
   { action: string; timestamp: number }
 >();
+const suppressionListeners = new Set<() => void>();
+let suppressionVersion = 0;
 const SUPPRESS_DURATION = 60_000; // 60s — covers Gmail's consistency window
+
+function notifySuppressionListeners() {
+  suppressionVersion += 1;
+  for (const listener of suppressionListeners) listener();
+}
+
+function subscribeToSuppression(listener: () => void) {
+  suppressionListeners.add(listener);
+  return () => suppressionListeners.delete(listener);
+}
 
 /** Suppress a thread from appearing in views it was removed from. */
 export function suppressThread(
@@ -416,11 +429,12 @@ export function suppressThread(
   action: "archive" | "trash" | "spam" | "block" | "mute" | "snooze",
 ) {
   suppressedThreads.set(threadId, { action, timestamp: Date.now() });
+  notifySuppressionListeners();
 }
 
 /** Remove suppression — used on mutation error rollback. */
 export function unsuppressThread(threadId: string) {
-  suppressedThreads.delete(threadId);
+  if (suppressedThreads.delete(threadId)) notifySuppressionListeners();
 }
 
 function isSuppressedInView(threadId: string, view: string): boolean {
@@ -945,13 +959,18 @@ export function useEmails(
     refetchOnWindowFocus: false,
     enabled: options?.enabled ?? true,
   });
+  const currentSuppressionVersion = useSyncExternalStore(
+    subscribeToSuppression,
+    () => suppressionVersion,
+    () => suppressionVersion,
+  );
 
   const data = useMemo(() => {
     if (!q.data) return undefined;
     const all = q.data.pages.flatMap((p: EmailsPage) => p.emails);
     const visible = applyOverrides(filterSuppressedThreads(all, view));
     return applyRecentSentEmails(visible, view, search, label);
-  }, [q.data, view, search, label]);
+  }, [q.data, view, search, label, currentSuppressionVersion]);
 
   // Union account errors across every loaded page, de-duped by account — a
   // partial failure on page 2 must not get silently dropped just because
@@ -1535,9 +1554,14 @@ export function useUntrashEmail() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, accountEmail }: EmailAccountRef) =>
-      callAction("untrash-email", { id, accountEmail }).then(
-        assertActionSuccess,
-      ),
+      gmailMutationQueue.cancelOrWait("trash", id).then((trashOutcome) => {
+        if (trashOutcome === "cancelled" || trashOutcome === "failed") {
+          return "trash-not-applied";
+        }
+        return callAction("untrash-email", { id, accountEmail }).then(
+          assertActionSuccess,
+        );
+      }),
     onMutate: ({ id, threadId: hintedThreadId }: EmailAccountRef) => {
       const threadId = hintedThreadId || findInboxThreadIdByMessageId(qc, id);
       const inboxRemovalSnapshot = threadId
@@ -1561,8 +1585,8 @@ export function useUntrashEmail() {
 export function useTrashEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, accountEmail }: EmailAccountRef) =>
-      callAction("trash-email", { id, accountEmail }).then(assertActionSuccess),
+    mutationFn: ({ id, accountEmail, threadId }: EmailAccountRef) =>
+      gmailMutationQueue.enqueue("trash", { id, accountEmail, threadId }),
     onMutate: async ({ id, threadId: hintedThreadId }: EmailAccountRef) => {
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
@@ -1675,68 +1699,12 @@ function reconcilePartialInboxMutation(
     inboxMutationId?: string;
   },
   succeededThreadIds: ReadonlySet<string>,
-  reapply: (threadIds: ReadonlySet<string>) => string,
 ) {
-  if (context.inboxMutationId) {
-    forgetInboxMutation(qc, context.inboxMutationId);
-  }
-  context.inboxMutationId =
-    succeededThreadIds.size > 0 ? reapply(succeededThreadIds) : undefined;
-}
-
-async function settleWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  run: (item: T, index: number) => Promise<R>,
-): Promise<PromiseSettledResult<R>[]> {
-  const results = new Array<PromiseSettledResult<R>>(items.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (true) {
-        const index = next++;
-        if (index >= items.length) return;
-        results[index] = await Promise.resolve()
-          .then(() => run(items[index], index))
-          .then(
-            (value) => ({ status: "fulfilled" as const, value }),
-            (reason) => ({ status: "rejected" as const, reason }),
-          );
-      }
-    }),
-  );
-  return results;
-}
-
-const TRASH_ACTION_CONCURRENCY = 5;
-
-async function enqueueBulkTrashMutation(
-  targets: BulkEmailTarget[],
-): Promise<void> {
-  const results = await settleWithConcurrency(
-    targets,
-    TRASH_ACTION_CONCURRENCY,
-    async (target) => {
-      await callAction("trash-email", {
-        id: target.id,
-        accountEmail: target.accountEmail,
-      }).then(assertActionSuccess);
-    },
-  );
-  const failedIds = targets.flatMap((target, index) =>
-    results[index]?.status === "rejected" ? [target.id] : [],
-  );
-  if (failedIds.length === 0) return;
-  const succeededIds = targets.flatMap((target, index) =>
-    results[index]?.status === "fulfilled" ? [target.id] : [],
-  );
-  const firstFailure = results.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  );
-  throw new BulkGmailMutationFailure(
-    failedIds,
-    succeededIds,
-    firstFailure?.reason,
+  if (!context.inboxMutationId) return;
+  context.inboxMutationId = retainInboxMutationTargets(
+    qc,
+    context.inboxMutationId,
+    succeededThreadIds,
   );
 }
 
@@ -1799,12 +1767,7 @@ export function useBulkArchiveEmails() {
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
         for (const threadId of failedThreadIds) unsuppressThread(threadId);
-        reconcilePartialInboxMutation(
-          qc,
-          context,
-          succeededThreadIds,
-          (threadIds) => removeInboxThreadsOptimistic(qc, threadIds),
-        );
+        reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(
           archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
         );
@@ -1830,16 +1793,12 @@ export function useBulkArchiveEmails() {
   });
 }
 
-/**
- * Bulk trash: one bounded-concurrency action call per selected id — the
- * server also bounds its Gmail calls because no batch endpoint exists — plus
- * one optimistic cache update.
- */
+/** Bulk trash: one action call with server-side bounded Gmail work. */
 export function useBulkTrashEmails() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (targets: BulkEmailTarget[]) =>
-      enqueueBulkTrashMutation(targets),
+      enqueueBulkGmailMutation("trash", targets, (target) => target),
     onMutate: async (targets: BulkEmailTarget[]) => {
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
@@ -1877,12 +1836,7 @@ export function useBulkTrashEmails() {
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
         for (const threadId of failedThreadIds) unsuppressThread(threadId);
-        reconcilePartialInboxMutation(
-          qc,
-          context,
-          succeededThreadIds,
-          (threadIds) => removeInboxThreadsOptimistic(qc, threadIds),
-        );
+        reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
       }
@@ -1984,13 +1938,7 @@ export function useBulkToggleStar() {
           );
         }
         applyStarMutationStates(qc, states, context.threadIdsByEmailId);
-        reconcilePartialInboxMutation(
-          qc,
-          context,
-          succeededThreadIds,
-          (threadIds) =>
-            toggleInboxThreadsStarOptimistic(qc, threadIds, vars.isStarred),
-        );
+        reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
       }
@@ -2092,13 +2040,7 @@ export function useBulkMarkRead() {
           );
         }
         applyReadMutationStates(qc, states);
-        reconcilePartialInboxMutation(
-          qc,
-          context,
-          succeededThreadIds,
-          (threadIds) =>
-            markInboxThreadReadOptimistic(qc, threadIds, vars.isRead),
-        );
+        reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
       }
