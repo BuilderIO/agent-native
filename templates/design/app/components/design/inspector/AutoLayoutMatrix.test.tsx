@@ -22,44 +22,6 @@ const value: AutoLayoutMatrixValue = {
 const noop = () => {};
 
 describe("AutoLayoutMatrix", () => {
-  it("uses the fixed inspector pair gutter for alignment and gap", () => {
-    const markup = renderToStaticMarkup(
-      createElement(AutoLayoutMatrix, {
-        value,
-        onDirectionChange: noop,
-        onWrapChange: noop,
-        onAlignmentChange: noop,
-        onGapChange: noop,
-        onPaddingChange: noop,
-        onPaddingLinkedChange: noop,
-        onChildSizingChange: noop,
-      }),
-    );
-
-    expect(markup).toMatch(
-      /data-inspector-layout="pair"[^>]*>[\s\S]*?data-inspector-span="13"[\s\S]*?data-inspector-span="2"[\s\S]*?data-inspector-span="13"/,
-    );
-    expect(markup).toMatch(
-      /<input(?=[^>]*aria-label="Gap")(?=[^>]*class="[^"]*h-6[^"]*")[^>]*>/,
-    );
-
-    const unlinkedMarkup = renderToStaticMarkup(
-      createElement(AutoLayoutMatrix, {
-        value: { ...value, paddingLinked: false },
-        onDirectionChange: noop,
-        onWrapChange: noop,
-        onAlignmentChange: noop,
-        onGapChange: noop,
-        onPaddingChange: noop,
-        onPaddingLinkedChange: noop,
-        onChildSizingChange: noop,
-      }),
-    );
-    expect(unlinkedMarkup).toMatch(
-      /data-inspector-layout="pair"[^>]*>[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="2"[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="2"[\s\S]*?data-inspector-span="11"/,
-    );
-  });
-
   it("hides child layout controls when the selection has no children", () => {
     const markup = renderToStaticMarkup(
       createElement(AutoLayoutMatrix, {
@@ -224,5 +186,25 @@ describe("AutoLayoutMatrix", () => {
     ]) {
       expect(markup).toContain(`aria-label="${label}" aria-pressed="false"`);
     }
+  });
+
+  it("keeps the flex alignment and gap row on the canonical pair geometry", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value,
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).toContain('data-inspector-layout="pair-flow"');
+    expect(markup.match(/data-inspector-span="13"/g)).toHaveLength(2);
+    expect(markup).not.toContain('data-inspector-span="14"');
+    expect(markup).toContain("w-full max-w-[92px]");
   });
 });
