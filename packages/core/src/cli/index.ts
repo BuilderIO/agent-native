@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execSync, spawn } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
 import path from "path";
@@ -14,6 +14,10 @@ import {
 } from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
 import { cliSpawnOptions } from "./process.js";
+import {
+  findBinUpwards,
+  findReactRouterInvocation,
+} from "./react-router-command.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
 
@@ -292,18 +296,6 @@ function handleScaffoldImportError(err: any): void {
   flushTelemetryAndExit(1);
 }
 
-function findBinUpwards(binName: string): string | undefined {
-  let dir = process.cwd();
-  for (let i = 0; i < 20; i++) {
-    const candidate = path.join(dir, "node_modules", ".bin", binName);
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return undefined;
-}
-
 function findViteBin(): string {
   return findBinUpwards("vite") ?? "vite";
 }
@@ -339,10 +331,6 @@ function findTypeScriptCompilerBin(): string {
   if (fs.existsSync(localTsgo)) return localTsgo;
 
   return "tsc";
-}
-
-function findReactRouterBin(): string {
-  return findBinUpwards("react-router") ?? "react-router";
 }
 
 /** Check if the project uses React Router framework mode (has react-router.config.ts) */
@@ -514,7 +502,7 @@ function inferBuildContext(cwd: string): {
 function runBuildStep(
   cmd: string,
   cmdArgs: string[],
-  opts: { label: string; env?: NodeJS.ProcessEnv },
+  opts: { label: string; env?: NodeJS.ProcessEnv; shell?: boolean },
 ): Promise<void> {
   return new Promise<void>((resolve) => {
     const STDERR_TAIL_BYTES = 8000;
@@ -524,7 +512,7 @@ function runBuildStep(
 
     const child = spawn(cmd, cmdArgs, {
       stdio: ["inherit", "pipe", "pipe"],
-      shell: process.platform === "win32",
+      shell: opts.shell ?? process.platform === "win32",
       env: opts.env ?? process.env,
     });
 
@@ -711,9 +699,12 @@ switch (command) {
       if (isReactRouterFramework()) {
         clearAgentNativeNitroPresetMarker();
         validateReactRouterBuildDependencies();
-        const rr = findReactRouterBin();
+        const rr = findReactRouterInvocation(["build"]);
         console.log("Building (React Router framework mode)...");
-        await runBuildStep(rr, ["build"], { label: "react-router-build" });
+        await runBuildStep(rr.command, rr.args, {
+          label: "react-router-build",
+          shell: rr.shell,
+        });
       } else {
         const vite = findViteBin();
         console.log("Building...");
@@ -792,6 +783,20 @@ switch (command) {
     break;
   }
 
+  case "identity": {
+    const [operation, ...identityArgs] = args;
+    if (operation !== "rekey") {
+      console.error(
+        "Usage: agent-native identity rekey --from <old-email> --to <new-email> [--yes] | --resume",
+      );
+      process.exit(1);
+    }
+    const cliDir = path.dirname(fileURLToPath(import.meta.url));
+    const script = path.resolve(cliDir, "../scripts/identity-rekey.js");
+    run(process.execPath, [script, ...identityArgs]);
+    break;
+  }
+
   case "agent": {
     import("./agent.js")
       .then(async (m) => {
@@ -828,9 +833,15 @@ switch (command) {
     // React Router framework mode generates route types first
     if (isReactRouterFramework()) {
       validateReactRouterBuildDependencies();
-      const rr = findReactRouterBin();
+      const rr = findReactRouterInvocation(["typegen"]);
       try {
-        execSync(`${rr} typegen`, { stdio: "inherit" });
+        if (rr.shell) {
+          execSync(`${rr.command} ${rr.args.join(" ")}`, {
+            stdio: "inherit",
+          });
+        } else {
+          execFileSync(rr.command, rr.args, { stdio: "inherit" });
+        }
       } catch {
         // typegen may fail if routes aren't set up yet; continue to TypeScript.
       }

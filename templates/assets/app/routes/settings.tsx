@@ -19,9 +19,11 @@ import {
   useBuilderStatus,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import {
   CreativeContextSettingsLink,
   createCreativeContextAgentTab,
+  useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import {
   IconAlertCircle,
@@ -91,9 +93,24 @@ type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
 export default function SettingsPage() {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
+  const agentAdditionalTabFactories = useMemo(
+    () => (creativeContextEnabled ? [createCreativeContextAgentTab] : []),
+    [creativeContextEnabled],
+  );
   const agentSettingsTabs = useAgentSettingsTabs({
-    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+    agentAdditionalTabFactories,
   });
+  const labs = useMemo(
+    () => [
+      {
+        ...CREATIVE_CONTEXT_LIBRARY_LAB,
+        displayName: t("creativeContext.share.title"),
+        description: t("creativeContext.description"),
+      },
+    ],
+    [t],
+  );
   const { data } = useActionQuery("list-libraries", { compact: true }) as {
     data?: { count?: number };
   };
@@ -134,10 +151,11 @@ export default function SettingsPage() {
         account={<AccountSettingsCard />}
         teamLabel={t("team.title")}
         extraTabs={agentSettingsTabs}
+        labs={labs}
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
-            <CreativeContextSettingsLink />
+            {creativeContextEnabled ? <CreativeContextSettingsLink /> : null}
 
             <div>
               <h2 className="text-lg font-semibold tracking-tight">

@@ -14,7 +14,9 @@
  */
 
 import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { drizzle as drizzleProxy } from "drizzle-orm/pg-proxy";
 
+import { withDbExec, type DbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
@@ -63,6 +65,7 @@ export class ForbiddenError extends Error {
 }
 
 export interface AccessContext {
+  transaction?: DbExec;
   userEmail?: string;
   orgId?: string;
   authCapability?: string;
@@ -86,7 +89,7 @@ export function resolveRegisteredAccessContext(
 ): AccessContext {
   if (!reg?.resolveAccessContext) return ctx;
   const resolved = reg.resolveAccessContext(ctx);
-  return ctx.authCapability
+  const preserved = ctx.authCapability
     ? {
         ...resolved,
         authCapability: ctx.authCapability,
@@ -102,6 +105,9 @@ export function resolveRegisteredAccessContext(
           ...resolved,
           federationMembershipValidated: ctx.federationMembershipValidated,
         };
+  return ctx.transaction
+    ? { ...preserved, transaction: ctx.transaction }
+    : preserved;
 }
 
 function normalizeEmailForAccess(email: string | undefined): string | null {
@@ -127,6 +133,7 @@ async function isOrgMember(
   reg: ShareableResourceRegistration,
   memberOrgId: string,
   email: string,
+  ctx: AccessContext,
 ): Promise<boolean> {
   const db = reg.getDb() as any;
   const rows = await db
@@ -171,6 +178,7 @@ async function isOrgMember(
       userEmail: email,
       userKey: email,
       orgId: memberOrgId,
+      transaction: ctx.transaction,
     }))
   ) {
     return true;
@@ -591,7 +599,11 @@ export async function resolveAccess(
   rawCtx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected | null> {
-  return resolveAccessImpl(resourceType, resourceId, rawCtx, options);
+  return rawCtx.transaction
+    ? withDbExec(rawCtx.transaction, () =>
+        resolveAccessImpl(resourceType, resourceId, rawCtx, options),
+      )
+    : resolveAccessImpl(resourceType, resourceId, rawCtx, options);
 }
 
 /**
@@ -609,7 +621,17 @@ async function resolveAccessImpl(
   rawCtx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected | null> {
-  const reg = requireShareableResource(resourceType);
+  const registered = requireShareableResource(resourceType);
+  const transaction = rawCtx.transaction;
+  const transactionDb = transaction
+    ? drizzleProxy(async (query, params) => {
+        const result = await transaction.execute({ sql: query, args: params });
+        return { rows: result.rows.map((row) => Object.values(row)) };
+      })
+    : null;
+  const reg = transactionDb
+    ? { ...registered, getDb: () => transactionDb }
+    : registered;
   const ctx = resolveRegisteredAccessContext(reg, rawCtx);
 
   const resource = await loadResourceForAccess(reg, resourceId, options);
@@ -650,7 +672,7 @@ async function resolveAccessImpl(
     resource.visibility === "org" &&
     resource.orgId &&
     normalizedUserEmail &&
-    (await isOrgMember(reg, resource.orgId, normalizedUserEmail))
+    (await isOrgMember(reg, resource.orgId, normalizedUserEmail, ctx))
   ) {
     const role = await highestShareRole(reg, resourceId, ctx, resource);
     return { role: role ?? "viewer", resource };
@@ -693,7 +715,7 @@ async function highestShareRole(
   let best: ShareRole | null = null;
 
   if (reg.supportsGroupShares && normalizedUserEmail && resource.orgId) {
-    if (await isOrgMember(reg, resource.orgId, normalizedUserEmail)) {
+    if (await isOrgMember(reg, resource.orgId, normalizedUserEmail, ctx)) {
       const groupRows = await db
         .select({
           principalId: reg.sharesTable.principalId,

@@ -67,6 +67,8 @@ const messages = {
     recordings: "Aufnahmen",
     newFolder: "Neuer Ordner",
     noSpaces: "Noch keine Bereiche",
+    noSpacesAdminCta:
+      "Bitte einen Organisationsadmin, den ersten Bereich anzulegen.",
     desktopCta: "Desktop-App laden",
     desktopTitle: "Hol dir die Clips-Desktop-App.",
     desktopBody:
@@ -667,6 +669,7 @@ const messages = {
     organizationFallback: "Organisation",
     saving: "Sparen…",
     save: "Speichern",
+    saved: "Gespeichert",
   },
   downloadRoute: {
     pageTitle: "Laden Sie Clips Desktop herunter",
@@ -745,7 +748,8 @@ const messages = {
     labMeetingsDescription:
       "Teste die automatische Erfassung und Transkription von Meetings.",
     labWisprFlow: "Sprachdiktat",
-    labWisprFlowDescription: "Teste die neue Sprachdiktierfunktion.",
+    labWisprFlowDescription:
+      "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
     preferencesTitle: "Voreinstellungen",
@@ -983,6 +987,8 @@ const messages = {
     renameFailed: "Clip konnte nicht umbenannt werden",
     renameClip: "Clip umbenennen",
     clipTitle: "Clip-Titel",
+    archiveAction: "Archivieren",
+    moveToTrashAction: "In den Papierkorb verschieben",
     movedToTrash: "In den Papierkorb verschoben",
     restoredFromArchive: "Aus dem Archiv wiederhergestellt",
     archived: "Archiviert",
@@ -1881,6 +1887,13 @@ const messages = {
     capturedFrom: "Erfasst von {{source}}",
     browserCapture: "Browseraufnahme",
     views: "Diagnoseansichten",
+    timeline: "Zeitachse",
+    navigation: "Navigation",
+    click: "Klick",
+    input: "Eingabe",
+    scroll: "Scrollen",
+    requestStarted: "Anfrage gestartet",
+    responseReceived: "Antwort empfangen",
     issues: "Probleme",
     consoleSource: "Konsole",
     networkSource: "Netzwerk",

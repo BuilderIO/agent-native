@@ -19,6 +19,7 @@ import {
   type FormField,
   type FormSettings,
 } from "../shared/types.js";
+import { assertNotUnconfirmedFieldLoss } from "./lib/assert-not-unconfirmed-field-loss.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 import { withFormLock } from "./patch-form-fields.js";
 
@@ -32,26 +33,33 @@ function slugify(text: string): string {
 
 export default defineAction({
   description:
-    "Update an existing form, including settings.completionMode (message, redirect, message_then_refresh, or refresh) and settings.completionRefreshSeconds, or settings.emailOnNewResponses to email the form owner when new responses arrive.",
+    "Change a form the user asked you to change, including settings.completionMode (message, redirect, message_then_refresh, or refresh) and settings.completionRefreshSeconds, or settings.emailOnNewResponses to email the form owner when new responses arrive. " +
+    "Only for edits to THAT form. A request describing a different form — another purpose, audience, or set of questions — is a new form: call create-form. A form open in <current-screen> is context, not a target: never reuse its id for a new form request, however recently you created it.",
   schema: z.object({
     id: z.string().describe("Form ID (required)"),
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
     slug: z.string().optional().describe("New URL slug"),
-    // Accept fields as a JSON string (agent CLI / older callers) or as an
-    // actual array (UI POSTs JSON bodies via useActionMutation, which
-    // serializes the FormField[] directly — Zod must accept both).
+    // Declared as the real array/object, never `string | array`. See the same
+    // parameters on create-form for why a `z.string()` branch here disables
+    // both the gateway JSON coercion and every per-field check.
     fields: z
-      .union([z.string(), z.array(formFieldSchema)])
+      .array(formFieldSchema)
       .optional()
       .describe(
-        "Array of complete field objects (or JSON string of the same). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'. This REPLACES the whole fields array, so never rebuild it from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the form with get-form first, or the options past the cap are deleted.",
+        "Array of complete field objects (a JSON string of the same array is also accepted). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'. This REPLACES the whole fields array, so never rebuild it from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the form with get-form first, or the options past the cap are deleted. To add or remove individual questions, use patch-form-fields instead.",
+      ),
+    confirmReplaceFields: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set only after the user explicitly asked to rewrite THIS form in place. Required when `fields` discards most of the form's existing questions; without it that call is rejected so a new-form request cannot overwrite an existing form.",
       ),
     settings: z
-      .union([z.string(), z.record(z.string(), z.any())])
+      .record(z.string(), z.any())
       .optional()
       .describe(
-        `Form settings object (or JSON string of the same). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.`,
+        `Form settings object (a JSON string of the same object is also accepted). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.`,
       ),
     status: z
       .enum(["draft", "published", "closed"])
@@ -93,36 +101,28 @@ export default defineAction({
         updates.description = args.description;
       if (args.slug !== undefined) updates.slug = args.slug;
       if (args.fields !== undefined) {
-        let parsedFields: unknown;
-        if (typeof args.fields === "string") {
-          try {
-            parsedFields = JSON.parse(args.fields);
-          } catch {
-            fail("--fields must be valid JSON", {
-              errorCode: "invalid_fields",
-            });
-          }
-        } else {
-          parsedFields = args.fields;
-        }
-        parsedFields = normalizeFieldIds(parsedFields);
+        const parsedFields = normalizeFieldIds(args.fields);
         assertValidFields(parsedFields);
+        let existingFields: FormField[] = [];
+        try {
+          existingFields = JSON.parse(existing.fields) as FormField[];
+        } catch {
+          fail("Cannot replace fields because the saved fields are invalid", {
+            errorCode: "invalid_existing_fields",
+          });
+        }
+        assertNotUnconfirmedFieldLoss({
+          existing: existingFields,
+          incoming: parsedFields as FormField[],
+          confirmed: args.confirmReplaceFields === true,
+          existingTitle: existing.title,
+          incomingTitle: args.title,
+        });
         updates.fields = JSON.stringify(parsedFields);
         fieldsForTracking = parsedFields as FormField[];
       }
       if (args.settings !== undefined) {
-        let incomingSettings: FormSettings;
-        if (typeof args.settings === "string") {
-          try {
-            incomingSettings = JSON.parse(args.settings) as FormSettings;
-          } catch {
-            fail("--settings must be valid JSON", {
-              errorCode: "invalid_settings",
-            });
-          }
-        } else {
-          incomingSettings = args.settings as unknown as FormSettings;
-        }
+        const incomingSettings = args.settings as unknown as FormSettings;
         let existingSettings: FormSettings = {};
         try {
           existingSettings = JSON.parse(existing.settings) as FormSettings;

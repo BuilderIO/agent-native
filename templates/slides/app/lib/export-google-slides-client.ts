@@ -5,6 +5,7 @@ import {
 
 import type { AspectRatio } from "./aspect-ratios";
 import { buildDeckPptxBlob } from "./export-pptx-client";
+import { retargetPptxForGoogleSlides } from "./pptx-google-slides";
 
 interface GoogleSlidesExportSlide {
   id: string;
@@ -113,9 +114,14 @@ export async function exportDeckToGoogleSlides(
     };
   }
 
-  const { blob, filename } = await (buildPptx
-    ? buildPptx()
-    : buildDeckPptxBlob(deckTitle, slides, aspectRatio));
+  const { blob, filename } = buildPptx
+    ? await buildPptx().then(async (file) => ({
+        ...file,
+        blob: await retargetPptxForGoogleSlides(file.blob),
+      }))
+    : await buildDeckPptxBlob(deckTitle, slides, aspectRatio, {
+        target: "google-slides",
+      });
 
   const form = new FormData();
   form.append("file", blob, filename);

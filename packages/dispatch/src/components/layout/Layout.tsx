@@ -1069,6 +1069,7 @@ export function NavContent({
     <ChatFirstAppsRail
       apps={chatFirstApps}
       activeAppId={chatFirstActiveAppId}
+      activeTab={chatFirstActivePrimaryTab}
       collapsed={collapsed}
       loading={chatFirstAppsLoading}
       error={chatFirstAppsError}

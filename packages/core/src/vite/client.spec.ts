@@ -5,12 +5,14 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createServer } from "vite";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   _debounceNitroFullReloadHotUpdate,
+  _devActionBridgeOrigin,
+  _devActionBridgePlugin,
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
@@ -28,6 +30,18 @@ import {
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
+
+const mockWriteDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
+const mockHashDatabaseKey = vi.hoisted(() =>
+  vi.fn((url: string) => `hash:${url}`),
+);
+
+vi.mock("../server/dev-action-bridge.js", () => ({
+  hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
+  removeDevActionDiscoveryFile: vi.fn(),
+  writeDevActionDiscoveryFile: (...args: unknown[]) =>
+    mockWriteDevActionDiscoveryFile(...args),
+}));
 
 describe("Nitro dev startup recovery", () => {
   it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {
@@ -269,6 +283,90 @@ function findPlugin(name: string) {
 function flatPlugins(plugins: any[] | undefined): any[] {
   return (plugins ?? []).flat().filter(Boolean) as any[];
 }
+
+describe("dev action bridge origin", () => {
+  beforeEach(() => {
+    mockWriteDevActionDiscoveryFile.mockClear();
+  });
+
+  // The recorded origin must BE the URL Vite prints: the browser cookie jar
+  // keys on the exact host label, so a second derivation of the bind address
+  // is how localhost vs 127.0.0.1 split-brain bugs happen.
+  it("derives the origin from the printed Local URL, not from the bind address", () => {
+    expect(
+      _devActionBridgeOrigin({
+        local: ["http://localhost:8082/"],
+        network: [],
+      }),
+    ).toBe("http://localhost:8082");
+  });
+
+  it("preserves https and bracketed IPv6 from the printed URL", () => {
+    expect(
+      _devActionBridgeOrigin({
+        local: ["https://localhost:8083/"],
+        network: [],
+      }),
+    ).toBe("https://localhost:8083");
+    expect(
+      _devActionBridgeOrigin({ local: ["http://[::1]:8084/"], network: [] }),
+    ).toBe("http://[::1]:8084");
+  });
+
+  it("has no origin when Vite printed none", () => {
+    expect(_devActionBridgeOrigin(null)).toBeUndefined();
+    expect(_devActionBridgeOrigin({ local: [], network: [] })).toBeUndefined();
+  });
+
+  function listeningHandlerFor(server: unknown): {
+    configuredServer: any;
+    listening: () => void;
+  } {
+    const listening: Array<() => void> = [];
+    const configuredServer = {
+      httpServer: {
+        once: (event: string, handler: () => void) => {
+          if (event === "listening") listening.push(handler);
+        },
+        address: () => ({ address: "::", port: 8082 }),
+      },
+      ...server,
+    } as any;
+    _devActionBridgePlugin().configureServer?.(configuredServer);
+    expect(listening).toHaveLength(1);
+    return { configuredServer, listening: listening[0]! };
+  }
+
+  it("records the printed origin in the discovery file when the server listens", () => {
+    const server = {
+      resolvedUrls: null as null | { local: string[]; network: string[] },
+      config: { logger: { warn: vi.fn() } },
+    };
+    const { configuredServer, listening } = listeningHandlerFor(server);
+    // Vite prepends its own listening handler, which resolves the URLs before
+    // plugin listeners run. Read the value at callback time, not registration.
+    configuredServer.resolvedUrls = {
+      local: ["http://localhost:8082/"],
+      network: [],
+    };
+    listening();
+    expect(mockWriteDevActionDiscoveryFile).toHaveBeenCalledWith(
+      expect.any(String),
+      "http://localhost:8082",
+      "hash:pglite:./data/pglite",
+    );
+  });
+
+  it("skips the discovery file loudly instead of guessing a label when nothing was printed", () => {
+    const warn = vi.fn();
+    listeningHandlerFor({
+      resolvedUrls: null,
+      config: { logger: { warn } },
+    }).listening();
+    expect(mockWriteDevActionDiscoveryFile).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("design system theme plugin", () => {
   it("emits normalized build-time CSS from a virtual module", async () => {
@@ -2819,6 +2917,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const UndoManager = stub;");
     expect(code).toContain("export const EditorContent = stub;");
     expect(code).toContain("export const createNodeFromContent = stub;");
+    expect(code).toContain("export const DOMSerializer = stub;");
     expect(code).toContain("export const Slice = stub;");
     expect(code).toContain("export const Transform = stub;");
     expect(code).toContain("export const getSchema = stub;");
@@ -2830,6 +2929,24 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const useAuiState = stub;");
     expect(code).toContain("export const useMessagePartReasoning = stub;");
     expect(code).toContain("export const useMessagePartRuntime = stub;");
+  });
+
+  it("stubs optional enterprise auth adapters when build flags are off", () => {
+    vi.stubEnv("AUTH_SSO", "");
+    vi.stubEnv("AUTH_SCIM", "");
+    const plugin = agentNative().find(
+      (entry) => entry.name === "agent-native-enterprise-auth-adapter-stub",
+    ) as any;
+
+    expect(plugin).toBeDefined();
+    expect(plugin.resolveId("@better-auth/sso")).toBe(
+      "\0agent-native-enterprise-auth-adapter-stub:@better-auth/sso",
+    );
+    expect(plugin.resolveId("@better-auth/scim")).toBe(
+      "\0agent-native-enterprise-auth-adapter-stub:@better-auth/scim",
+    );
+    expect(plugin.resolveId("@better-auth/core")).toBeNull();
+    vi.unstubAllEnvs();
   });
 });
 
@@ -3140,7 +3257,7 @@ describe("local-core dev aliases and router dedupe", () => {
       const aliases =
         (
           config.resolve as {
-            alias?: Array<{ find: RegExp; replacement: string }>;
+            alias?: Array<{ find: string | RegExp; replacement: string }>;
           }
         )?.alias ?? [];
 
@@ -3148,8 +3265,12 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(
         aliases.some(
           (alias) =>
-            alias.find.test("@agent-native/core/client/i18n") &&
-            alias.replacement.endsWith("src/client/i18n.tsx"),
+            (typeof alias.find === "string"
+              ? alias.find === "@agent-native/core/client/i18n"
+              : alias.find.test("@agent-native/core/client/i18n")) &&
+            alias.replacement
+              .replaceAll("\\", "/")
+              .endsWith("src/client/i18n.tsx"),
         ),
       ).toBe(true);
     } finally {

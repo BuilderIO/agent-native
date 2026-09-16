@@ -382,28 +382,39 @@ test.fixme("2:11 — a shape drawn on the board is not painted behind the screen
     y: empty.y + 120,
   });
 
-  const stacking = await page.evaluate(() => {
-    const zOf = (el: Element | null) => {
-      let node = el as HTMLElement | null;
-      while (node) {
-        const z = getComputedStyle(node).zIndex;
-        if (z && z !== "auto") return Number(z);
-        node = node.parentElement;
-      }
-      return 0;
-    };
-    const screenCard = document.querySelector("[data-screen-iframe-id]");
-    const boardObject = document.querySelector(
-      "[data-draft-id],[data-board-primitive-id],[data-an-board-object]",
-    );
-    return boardObject
-      ? { screen: zOf(screenCard), object: zOf(boardObject) }
-      : null;
-  });
-  test.skip(
-    !stacking,
-    "no board object node was found to compare stacking against",
-  );
+  const readStacking = () =>
+    page.evaluate(() => {
+      const zOf = (el: Element | null) => {
+        let node = el as HTMLElement | null;
+        while (node) {
+          const z = getComputedStyle(node).zIndex;
+          if (z && z !== "auto") return Number(z);
+          node = node.parentElement;
+        }
+        return 0;
+      };
+      const screenCard = document.querySelector("[data-screen-iframe-id]");
+      const boardObject = document.querySelector(
+        "[data-draft-id],[data-board-primitive-id],[data-an-board-object]",
+      );
+      return boardObject
+        ? { screen: zOf(screenCard), object: zOf(boardObject) }
+        : null;
+    });
+  let stacking: { screen: number; object: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        stacking = await readStacking();
+        return stacking !== null;
+      },
+      {
+        timeout: 10_000,
+        message:
+          "board-object-camera-and-click: no board object node was found to compare stacking against",
+      },
+    )
+    .toBe(true);
 
   expect(
     stacking!.object,

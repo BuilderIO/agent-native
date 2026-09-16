@@ -3,12 +3,14 @@ import {
   buildCodeLayerProjection,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
+import { linkedComponentRootForNode } from "@shared/component-links";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { defaultTextLayerName } from "@/pages/design-editor/canvas-primitive-insert";
 import {
   bridgeSourceIdForCodeLayerNode,
   codeLayerNodeMatchesBridgeTarget,
@@ -18,6 +20,7 @@ import {
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
   DesignFile,
@@ -25,11 +28,21 @@ import type {
   EditorMode,
 } from "@/pages/design-editor/types";
 
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import { runRepeatItemEdit } from "./repeat-item-edit";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
 
 export interface TextContentChangeArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: (
+    fileId: string,
+    nodeId: string,
+    edit: { kind: "textContent"; value: string },
+  ) => void;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -43,7 +56,7 @@ export interface TextContentChangeArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   finalizePendingTextCreation: (
     fileId: string,
@@ -75,6 +88,7 @@ export function runTextContentChange(
   {
     activeCanvasSourceType,
     activeFile,
+    applyLinkedComponentEdit,
     applyLocalContentUpdate,
     canEditDesign,
     finalizePendingTextCreation,
@@ -112,8 +126,11 @@ export function runTextContentChange(
     return;
   }
   const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
+  const source = activeLiveSnapshot
+    ? { kind: "inline-html" as const, fileId: activeFile.id }
+    : { kind: "design-file" as const, fileId: activeFile.id };
   const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
-  const projection = buildCodeLayerProjection(baseContent);
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
@@ -161,18 +178,43 @@ export function runTextContentChange(
       return;
     }
   }
+  if (
+    activeCanvasSourceType === "inline" &&
+    targetNode &&
+    linkedComponentRootForNode(targetNode, projection)
+  ) {
+    const durableNodeId =
+      targetNode.dataAttributes["data-agent-native-node-id"];
+    if (!durableNodeId || !applyLinkedComponentEdit) {
+      toast.error(t("designEditor.patchProof.selectorMissing"), {
+        duration: 4000,
+      });
+      return;
+    }
+    applyLinkedComponentEdit(activeFile.id, durableNodeId, {
+      kind: "textContent",
+      value,
+    });
+    setActiveTool("move");
+    setMode("edit");
+    return;
+  }
   const isEmpty = value.trim().length === 0;
   const removedContent =
     isEmpty && targetNode
       ? removeCodeLayerNodeFromHtml(baseContent, targetNode)
       : null;
   const patch = !removedContent
-    ? applyVisualEdit(baseContent, {
-        kind: "textContent",
-        target: targetNode ? { nodeId: targetNode.id } : { selector },
-        value,
-        html: details?.html,
-      })
+    ? applyVisualEdit(
+        baseContent,
+        {
+          kind: "textContent",
+          target: targetNode ? { nodeId: targetNode.id } : { selector },
+          value,
+          html: details?.html,
+        },
+        { source },
+      )
     : null;
   const nextContent =
     removedContent ??
@@ -188,6 +230,31 @@ export function runTextContentChange(
     );
     return;
   }
+  const nextProjection = buildCodeLayerProjection(nextContent, { source });
+  const nextNode = targetNode
+    ? nextProjection.nodes.find((node) =>
+        codeLayerNodeMatchesBridgeTarget(
+          node,
+          selector,
+          bridgeSourceIdForCodeLayerNode(targetNode),
+        ),
+      )
+    : null;
+  // Figma names a freshly typed text layer after its own content. The
+  // primitive is drawn with an empty draft (primitiveLayerName's text case
+  // stamps the "Text" placeholder), so the real name is only knowable once
+  // this — the creation's first content commit — lands. Computed eagerly but
+  // only ever applied below when finalizePendingTextCreation confirms this
+  // commit really is that first commit, so editing an already-named text
+  // layer later never re-syncs its name to its content.
+  const namedContent = nextNode
+    ? (setCodeLayerAttributeInHtml(
+        nextContent,
+        nextNode,
+        "data-agent-native-layer-name",
+        defaultTextLayerName(value),
+      ) ?? nextContent)
+    : nextContent;
   const finalizedCreation = finalizePendingTextCreation(
     activeFile.id,
     [
@@ -195,17 +262,20 @@ export function runTextContentChange(
       targetNode?.id,
       targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
     ],
-    nextContent,
+    namedContent,
   );
+  const contentToApply = finalizedCreation ? namedContent : nextContent;
+  let publication: ApplyLocalContentUpdateResult | null = null;
   if (activeLiveSnapshot) {
-    updateLiveScreenSnapshotContent(activeFile.id, nextContent, {
+    updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
       recordHistory: !finalizedCreation,
     });
   } else {
-    applyLocalContentUpdate(nextContent, {
+    publication = applyLocalContentUpdate(contentToApply, {
       skipPreview: true,
       recordHistory: !finalizedCreation,
     });
+    if (publication.status !== "accepted") return;
   }
   // T8: committing text editing should return to the move tool (matches
   // the creation path, which already does this), not re-arm the text
@@ -218,27 +288,39 @@ export function runTextContentChange(
     setSelectedLayerIdsState([]);
     return;
   }
-  const nextProjection = buildCodeLayerProjection(nextContent);
-  const nextNode = targetNode
-    ? nextProjection.nodes.find((node) =>
-        codeLayerNodeMatchesBridgeTarget(
-          node,
-          selector,
-          bridgeSourceIdForCodeLayerNode(targetNode),
-        ),
-      )
-    : null;
-  if (nextNode) setSelectedLayerIdsState([nextNode.id]);
+  let selectedNode = nextNode;
+  if (publication) {
+    const submittedProjection = buildCodeLayerProjection(contentToApply, {
+      source,
+    });
+    const submittedNode = targetNode
+      ? submittedProjection.nodes.find((node) =>
+          codeLayerNodeMatchesBridgeTarget(
+            node,
+            selector,
+            bridgeSourceIdForCodeLayerNode(targetNode),
+          ),
+        )
+      : null;
+    selectedNode = mapAcceptedSelectionNode(
+      publication,
+      projectAcceptedSource(publication, source),
+      submittedNode,
+    );
+  }
+  if (selectedNode) setSelectedLayerIdsState([selectedNode.id]);
   setSelectedElement((previous) => {
     const base =
       elementInfo ?? (previous?.selector === selector ? previous : undefined);
     return base
       ? {
           ...base,
-          sourceId: nextNode
-            ? bridgeSourceIdForCodeLayerNode(nextNode)
+          sourceId: selectedNode
+            ? bridgeSourceIdForCodeLayerNode(selectedNode)
             : base.sourceId,
-          selector: nextNode ? preferredCodeLayerSelector(nextNode) : selector,
+          selector: selectedNode
+            ? preferredCodeLayerSelector(selectedNode)
+            : selector,
           textContent: value.slice(0, 200),
           htmlContent: details?.html,
         }

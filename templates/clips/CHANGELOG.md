@@ -3,10 +3,48 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-15
+
+### Improved
+
+- Trash now supports paging through more than 100 deleted recordings
+
+### Fixed
+
+- Fixed the volume slider knob alignment in shared recordings
+- Shared Clips now focus the agent when asked, show clear viewer-safe transcript states, and keep workspace branding visible.
+
+## 2026-09-14
+
+### Fixed
+
+- Comment edits and reactions stay consistent during rapid updates.
+- Comment threads keep overlapping replies, reactions, and deletions consistent.
+- Selected recording checkboxes remain visible while selecting multiple clips
+
+## 2026-09-13
+
+### Improved
+
+- Members now know to ask an organization admin to create the first Space.
+
+### Fixed
+
+- Dictate stays available by default in Clips Desktop.
+
+## 2026-09-12
+
+### Fixed
+
+- Archive and Move to trash actions now use clear, action-specific labels in Clips.
+- Clips sign-in prompts now focus on the requested action with larger buttons.
+- Meetings stays in navigation and links to its Labs setting when unavailable.
+
 ## 2026-09-10
 
 ### Fixed
 
+- Deleting your only organization no longer leaves a "Couldn't load organization branding" error above the create-an-organization card in Settings.
 - Builder and other MCP connections now open setup in a new tab.
 
 ## 2026-09-09

@@ -12,6 +12,13 @@ const mockGetDatabaseUrl = vi.hoisted(() =>
 const mockHashDatabaseKey = vi.hoisted(() =>
   vi.fn((url: string) => `hash:${url}`),
 );
+const mockIsValidDevActionHandoffUrl = vi.hoisted(() =>
+  vi.fn(
+    (value: unknown) =>
+      typeof value === "string" &&
+      value.startsWith("/_agent-native/embed/start?"),
+  ),
+);
 
 vi.mock("../db/client.js", () => ({
   closeDbExec: vi.fn(async () => {}),
@@ -23,6 +30,14 @@ vi.mock("../server/dev-action-bridge.js", () => ({
   DEV_ACTION_ROUTE: "/_agent-native/dev/action",
   DEV_ACTION_TOKEN_HEADER: "x-agent-native-dev-token",
   DEV_ACTION_USER_HEADER: "x-agent-native-dev-user",
+  devActionHandoffUrl: (result: Record<string, unknown>) =>
+    typeof result?.embedStartUrl === "string"
+      ? result.embedStartUrl
+      : typeof result?.startUrl === "string"
+        ? result.startUrl
+        : undefined,
+  isValidDevActionHandoffUrl: (...args: unknown[]) =>
+    mockIsValidDevActionHandoffUrl(...args),
   hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
   readDevActionDiscoveryFile: (...args: unknown[]) =>
     mockReadDevActionDiscoveryFile(...args),
@@ -61,8 +76,13 @@ describe("tryForwardToDevServer", () => {
     mockHashDatabaseKey
       .mockReset()
       .mockImplementation((url: string) => `hash:${url}`);
+    mockIsValidDevActionHandoffUrl.mockClear();
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
+    delete process.env.APP_URL;
+    delete process.env.WORKSPACE_GATEWAY_URL;
+    delete process.env.VITE_WORKSPACE_GATEWAY_URL;
+    delete process.env.BETTER_AUTH_URL;
   });
 
   afterEach(() => {
@@ -95,8 +115,7 @@ describe("tryForwardToDevServer", () => {
   it("runs in-process, sending nothing, when the discovery origin is not the loopback dev server", async () => {
     for (const origin of [
       "http://evil.example",
-      "https://127.0.0.1:1",
-      "http://localhost:1",
+      "https://evil.example",
       "http://127.0.0.1:1/path",
       "not a url",
     ]) {
@@ -160,6 +179,64 @@ describe("tryForwardToDevServer", () => {
     expect(exit).toHaveBeenCalledWith(1);
   });
 
+  it("forwards when the discovery origin is the printed localhost dev server", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(
+      liveDiscovery({ origin: "http://localhost:8082", token: "secret-token" }),
+    );
+    mockIsProcessAlive.mockReturnValue(true);
+    process.env.AGENT_USER_EMAIL = "owner@example.test";
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({ ok: true, result: "forwarded-ok" }),
+    });
+    const exit = mockExit();
+
+    await expect(tryForwardToDevServer("do-thing", [])).rejects.toThrow(
+      "process.exit(0)",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8082/_agent-native/dev/action",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "x-agent-native-dev-token": "secret-token",
+          "x-agent-native-dev-user": "owner@example.test",
+        }),
+      }),
+    );
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it.each(["https://localhost:8083", "http://[::1]:8084"])(
+    "forwards to the printed loopback origin %s",
+    async (origin) => {
+      mockReadDevActionDiscoveryFile.mockReturnValue(
+        liveDiscovery({ origin, token: "secret-token" }),
+      );
+      mockIsProcessAlive.mockReturnValue(true);
+      fetchMock.mockResolvedValue({
+        status: 200,
+        json: async () => ({ ok: true, result: "forwarded-ok" }),
+      });
+      const exit = mockExit();
+
+      await expect(tryForwardToDevServer("do-thing", [])).rejects.toThrow(
+        "process.exit(0)",
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${origin}/_agent-native/dev/action`,
+        expect.objectContaining({
+          method: "POST",
+          ...(origin.startsWith("https:")
+            ? { dispatcher: expect.anything() }
+            : {}),
+        }),
+      );
+      expect(exit).toHaveBeenCalledWith(0);
+    },
+  );
+
   it("forwards the CLI's identity env as headers and prints the result on success", async () => {
     mockReadDevActionDiscoveryFile.mockReturnValue(
       liveDiscovery({ token: "secret-token" }),
@@ -188,6 +265,53 @@ describe("tryForwardToDevServer", () => {
           "x-agent-native-dev-org": "org_1",
         }),
       }),
+    );
+    expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it("opens a private handoff returned beside the forwarded result", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    process.env.AGENT_NATIVE_NO_OPEN = "1";
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        ok: true,
+        result: "forwarded-ok",
+        devHandoffUrl: "/_agent-native/embed/start?ticket=private",
+      }),
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(tryForwardToDevServer("open-visual-edit", [])).rejects.toThrow(
+      "Secure browser handoff is disabled",
+    );
+    expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
+  });
+
+  it("ignores an untrusted handoff returned beside the forwarded result", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        ok: true,
+        result: "forwarded-ok",
+        devHandoffUrl:
+          "https://evil.example/_agent-native/embed/start?ticket=secret",
+      }),
+    });
+    const exit = mockExit();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(tryForwardToDevServer("open-visual-edit", [])).rejects.toThrow(
+      "process.exit(0)",
+    );
+
+    expect(mockIsValidDevActionHandoffUrl).toHaveBeenCalledWith(
+      "https://evil.example/_agent-native/embed/start?ticket=secret",
+      undefined,
     );
     expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
     expect(exit).toHaveBeenCalledWith(0);

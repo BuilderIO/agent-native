@@ -12,7 +12,41 @@ import {
 import { EngineError } from "./engine/types.js";
 import type { AgentChatEvent } from "./types.js";
 
+// The whole run-store module is mocked, so the subscription's missing-row and
+// unknown-status fallbacks would otherwise spread `undefined` into the frame.
+const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
+const UNKNOWN_RUN_STATUS_ERROR_CODE = "unknown_run_status";
+const RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE = "run_terminal_lookup_failed";
+
+// Mutable so one test can exercise the grace window while the rest read the
+// terminal frames without waiting it out.
+const runStoreTestState = vi.hoisted(() => ({ runRecordMissingGraceMs: 0 }));
+
 vi.mock("./run-store.js", () => ({
+  RUN_RECORD_MISSING_ERROR_EVENT: {
+    type: "error",
+    error:
+      "The agent run record is no longer available, so this turn could not be confirmed as finished. Retry if the result is missing.",
+    errorCode: "run_record_missing",
+    recoverable: true,
+  },
+  UNKNOWN_RUN_STATUS_ERROR_EVENT: {
+    type: "error",
+    error:
+      "The agent run ended in a state this app does not recognize, so the result could not be confirmed. Retry if the result is missing.",
+    errorCode: "unknown_run_status",
+    recoverable: true,
+  },
+  RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT: {
+    type: "error",
+    error:
+      "The agent run's final state could not be read, so this turn could not be confirmed as finished. Retry if the result is missing.",
+    errorCode: "run_terminal_lookup_failed",
+    recoverable: true,
+  },
+  get RUN_RECORD_MISSING_GRACE_MS() {
+    return runStoreTestState.runRecordMissingGraceMs;
+  },
   insertRun: vi.fn(() => Promise.resolve()),
   insertRunEvent: vi.fn(() => Promise.resolve()),
   updateRunStatus: vi.fn(() => Promise.resolve()),
@@ -22,9 +56,11 @@ vi.mock("./run-store.js", () => ({
     Promise.resolve({ claimed: true, activeRunId: null }),
   ),
   markRunAborted: vi.fn(() => Promise.resolve()),
+  markTurnAborted: vi.fn(() => Promise.resolve()),
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
+  getCurrentTurnEventsForThread: vi.fn(() => Promise.resolve([])),
   getRunById: vi.fn(() => Promise.resolve(null)),
   isContinuationTerminalReason: (reason: unknown) =>
     reason === "auto_continue" ||
@@ -140,6 +176,7 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   abortRunDurably,
+  abortTurnByRefDurably,
   engineRequestShapeTags,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
@@ -150,9 +187,11 @@ import {
   resolveRunToolTimeoutCeilingMs,
   getActiveRunForThreadAsync,
   getRun,
+  IN_MEMORY_TERMINAL_SETTLE_MS,
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  replayCompletedTurn,
   nextSqlSubscriptionEmptyPolls,
   resolveSqlSubscriptionPollMs,
   resolveSqlSubscriptionRetryMs,
@@ -175,7 +214,9 @@ import {
   getRunById,
   getRunByThread,
   getRunEventsSince,
+  getCurrentTurnEventsForThread,
   markRunAborted,
+  markTurnAborted,
   updateRunStatus,
   updateRunStatusIfRunning,
   ensureTerminalRunEvent,
@@ -258,6 +299,7 @@ function restoreHostedEnvAfterTest() {
 describe("run manager soft timeout", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    runStoreTestState.runRecordMissingGraceMs = 0;
     clearHostedEnvForTest();
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: false });
     vi.mocked(getRunStatus).mockResolvedValue("running");
@@ -1151,6 +1193,75 @@ describe("run manager soft timeout", () => {
     persistAbort?.();
     await expect(abortPromise).resolves.toBe(false);
     expect(resolved).toBe(true);
+  });
+
+  it("aborts the in-process run before a turn-reference abort resolves", async () => {
+    let observedAbortReason: unknown;
+    const run = startRun(
+      "run-turn-ref-abort",
+      "thread-turn-ref-abort",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              observedAbortReason = signal.reason;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, turnId: "turn-ref-abort" },
+    );
+
+    await abortTurnByRefDurably(
+      "thread-turn-ref-abort",
+      "turn-ref-abort",
+      "dismissed",
+    );
+
+    expect(observedAbortReason).toBe("dismissed");
+    expect(run.status).toBe("aborted");
+    expect(markTurnAborted).toHaveBeenCalledWith(
+      "thread-turn-ref-abort",
+      "turn-ref-abort",
+      "dismissed",
+    );
+  });
+
+  it("replays every chunk of a completed logical turn as one stream", async () => {
+    vi.mocked(getCurrentTurnEventsForThread).mockResolvedValueOnce([
+      { type: "text", text: "first chunk" },
+      { type: "auto_continue", reason: "run_timeout" },
+      { type: "text", text: "second chunk" },
+      { type: "done" },
+    ]);
+
+    const stream = await replayCompletedTurn("thread-turn", "turn-1");
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain(
+      'data: {"type":"text","text":"first chunk","seq":0}',
+    );
+    expect(output).toContain(
+      'data: {"type":"text","text":"second chunk","seq":1}',
+    );
+    expect(output).toContain('data: {"type":"done","seq":2}');
+    expect(output).not.toContain("auto_continue");
+    expect(getCurrentTurnEventsForThread).toHaveBeenCalledWith(
+      "thread-turn",
+      "turn-1",
+    );
   });
 
   it("keeps an in-memory abort successful when durable cleanup fails", async () => {
@@ -2532,6 +2643,157 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("auto-continues a foreground run whose last tool call failed", async () => {
+    // Design "Build this design as production code": the turn ends on failing
+    // tool calls with no assistant text, and a plain `done` left the client
+    // able to say only "stopped after these actions ... without sending a final
+    // message". The model never read the error, so the turn is unfinished.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-foreground-tool-error",
+      "thread-foreground-tool-error",
+      async (send) => {
+        await Promise.resolve();
+        send({ type: "text", text: "I'll build this as production code." });
+        send({
+          type: "tool_done",
+          tool: "resources",
+          id: "call-1",
+          input: {},
+          result: "Resource not found: design/handoff",
+          isError: true,
+        });
+        send({
+          type: "tool_done",
+          tool: "web_request",
+          id: "call-2",
+          input: {},
+          result: "Request timed out after 15000ms",
+          isError: true,
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-foreground-tool-error",
+      "stream_ended",
+    );
+  });
+
+  it("auto-continues when a precondition failure is the last tool result", async () => {
+    // Analytics /ask: the first turn stopped silently after a
+    // `provider-api-request` precondition failure, and the missing credential
+    // only surfaced when the user typed "continue" by hand. The successful
+    // lookups before it must not make the failing tail look like a finished
+    // answer.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-precondition-tool-error",
+      "thread-precondition-tool-error",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "search-analytics-query-catalog",
+          id: "call-1",
+          input: {},
+          result: '{"matches":3}',
+        });
+        send({
+          type: "tool_done",
+          tool: "data-source-status",
+          id: "call-2",
+          input: {},
+          result: '{"sources":["bigquery"]}',
+        });
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-3",
+          input: {},
+          result:
+            "Error running provider-api-request: stripe credential not configured.",
+          isError: true,
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-precondition-tool-error",
+      "stream_ended",
+    );
+  });
+
+  it("does not continue a failed tool the agent already stopped on", async () => {
+    // The bound on failed-tool continuations. A precondition the turn cannot
+    // satisfy (missing credential, missing role) is classified on the first
+    // attempt and emits a terminal error, so the chain must end on that real
+    // message rather than retrying a failure whose outcome cannot change.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-permanent-precondition",
+      "thread-permanent-precondition",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-1",
+          input: {},
+          result: "Stopped: provider-api-request can't run yet.",
+          isError: true,
+        });
+        send({
+          type: "error",
+          error:
+            "I stopped because provider-api-request needs a setup step outside this turn.",
+          errorCode: "permanent_precondition",
+          recoverable: false,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      errorCode: "permanent_precondition",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-permanent-precondition",
+      "error:permanent_precondition",
+    );
+  });
+
   it("auto-continues a run that ends during action preparation", async () => {
     const events: AgentChatEvent[] = [];
     const run = startRun(
@@ -2993,6 +3255,250 @@ describe("run manager soft timeout", () => {
     expect(chunks.join("")).toContain(
       'data: {"type":"auto_continue","reason":"run_timeout","seq":12}',
     );
+  });
+
+  it("waits for the real terminal event when an in-memory run has none buffered", async () => {
+    // `run.status` flips to "completed" when runFn resolves, while the
+    // completion callback emits the terminal event afterwards (it can still
+    // become auto_continue or error). A reconnect inside that window must not
+    // be told the turn is over with no terminal frame.
+    const run = startRun(
+      "run-memory-terminal-race",
+      "thread-memory-terminal-race",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => expect(run.status).not.toBe("running"));
+    run.events.length = 0;
+
+    const stream = subscribeToRun("run-memory-terminal-race", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    let closed = false;
+    const pump = (async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) {
+          closed = true;
+          return;
+        }
+        chunks.push(decoder.decode(next.value));
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(closed).toBe(false);
+    expect(chunks.join("")).not.toContain('"type":"done"');
+
+    // The producer's real terminal event arrives and closes the stream.
+    for (const notify of run.subscribers) {
+      notify({ seq: 0, event: { type: "done" } });
+    }
+    await pump;
+    expect(closed).toBe(true);
+    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+  });
+
+  it("re-emits an in-memory terminal event when the cursor is past it", async () => {
+    const run = startRun(
+      "run-memory-past-cursor",
+      "thread-memory-past-cursor",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => expect(run.status).not.toBe("running"));
+    expect(run.events).toEqual([{ seq: 0, event: { type: "done" } }]);
+
+    // Cursor already past the buffered terminal event, so the replay loop
+    // delivers nothing. Closing here would recreate the ambiguous close.
+    const stream = subscribeToRun("run-memory-past-cursor", 1);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+  });
+
+  it("retries instead of reporting a missing row when the terminal lookup fails", async () => {
+    // An unreadable terminal event is not an absent one. Reporting
+    // run_record_missing off a failed read would claim a confirmed outcome the
+    // subscription never established.
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockRejectedValue(
+      new Error("connection terminated unexpectedly"),
+    );
+
+    const stream = subscribeToRun("run-sql-terminal-lookup-failed", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    const pump = (async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) return;
+        chunks.push(decoder.decode(next.value));
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pump;
+
+    const output = chunks.join("");
+    expect(output).not.toContain(RUN_RECORD_MISSING_ERROR_CODE);
+    expect(output).toContain(RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE);
+  });
+
+  it("fails loud when an in-memory run never emits its terminal event", async () => {
+    const run = startRun(
+      "run-memory-terminal-lost",
+      "thread-memory-terminal-lost",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => expect(run.status).not.toBe("running"));
+    run.events.length = 0;
+
+    const stream = subscribeToRun("run-memory-terminal-lost", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    const pump = (async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) return;
+        chunks.push(decoder.decode(next.value));
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(IN_MEMORY_TERMINAL_SETTLE_MS + 10);
+    await pump;
+
+    expect(chunks.join("")).toContain(UNKNOWN_RUN_STATUS_ERROR_CODE);
+  });
+
+  it("emits a terminal event when the run row is gone instead of closing silently", async () => {
+    // Retention prunes `agent_runs` (and its events) on a cutoff, so a
+    // reconnecting subscriber can legitimately find no row. Closing the stream
+    // with zero terminal frames leaves the client unable to tell "finished"
+    // from "still running", which renders as the interrupted/unknown-outcome
+    // card plus "stopped without sending a final message".
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+
+    const stream = subscribeToRun("run-sql-missing-row", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('"type":"error"');
+    expect(output).toContain(RUN_RECORD_MISSING_ERROR_CODE);
+  });
+
+  it("keeps polling a not-yet-visible run row instead of ending the stream", async () => {
+    // The run id is minted in the request handler and the events endpoint often
+    // runs in another isolate, so the first status probe can precede the
+    // producer's INSERT. That ordinary race must not end the turn.
+    runStoreTestState.runRecordMissingGraceMs = 60_000;
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+
+    const stream = subscribeToRun("run-sql-not-yet-inserted", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    let closed = false;
+    const pump = (async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) {
+          closed = true;
+          return;
+        }
+        chunks.push(decoder.decode(next.value));
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const output = chunks.join("");
+    expect(closed).toBe(false);
+    expect(output).not.toContain('"type":"error"');
+    expect(output).not.toContain('"type":"done"');
+    await reader.cancel();
+    await pump;
+  });
+
+  it("replays a pruned run's real terminal event rather than a missing-row error", async () => {
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue({
+      seq: 5,
+      event: { type: "done" },
+    });
+
+    const stream = subscribeToRun("run-sql-missing-row-with-event", 9);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(chunks.join("")).toContain('data: {"type":"done","seq":5}');
+  });
+
+  it("emits a terminal event for an unrecognized non-running status", async () => {
+    // `agent_runs.status` is a plain TEXT column, so the branch list here is a
+    // guess about the column's domain, not a guarantee from the type system.
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-unknown-status",
+      threadId: "thread-sql-unknown-status",
+      status: "some_future_status",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: null,
+    } as any);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+
+    const stream = subscribeToRun("run-sql-unknown-status", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('"type":"error"');
+    expect(output).toContain(UNKNOWN_RUN_STATUS_ERROR_CODE);
   });
 
   it("re-emits the run's real terminal event when the subscriber cursor is past it", async () => {

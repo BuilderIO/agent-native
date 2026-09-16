@@ -42,7 +42,7 @@ vi.mock("../server/lib/inventory-cursor.js", async (importOriginal) => {
 vi.mock("../server/lib/google-auth.js", () => ({
   isConnected: vi.fn(),
   getClients: vi.fn(),
-  getConnectedAccounts: vi.fn(),
+  getConnectedAccountsWithErrors: vi.fn(),
   fetchGmailLabelMap: vi.fn(),
   // Consumed internally by the real (unmocked) shared list-inbox-emails.js core.
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT: 100,
@@ -57,7 +57,7 @@ vi.mock("../server/lib/jobs.js", () => ({
 
 import {
   fetchGmailLabelMap,
-  getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   getClients,
   gmailToEmailMessage,
   isConnected,
@@ -102,7 +102,10 @@ beforeEach(() => {
   vi.mocked(getClients).mockResolvedValue([
     { email: OWNER, accessToken: "access-token", refreshToken: "" },
   ] as any);
-  vi.mocked(getConnectedAccounts).mockResolvedValue([OWNER]);
+  vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+    accounts: [OWNER],
+    errors: [],
+  });
   vi.mocked(fetchGmailLabelMap).mockResolvedValue(new Map());
   vi.mocked(getSnoozedThreadIds).mockResolvedValue(new Set());
   vi.mocked(getSyntheticEmailsForView).mockResolvedValue([]);
@@ -213,12 +216,10 @@ describe("list-emails action — coverage-aware inventory", () => {
   const FAILED = "failed@example.com";
 
   beforeEach(() => {
-    vi.mocked(getConnectedAccounts).mockResolvedValue([
-      BUSY,
-      QUIET,
-      EMPTY,
-      FAILED,
-    ]);
+    vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+      accounts: [BUSY, QUIET, EMPTY, FAILED],
+      errors: [],
+    });
   });
 
   it("rejects an explicitly empty account selection", () => {
@@ -256,7 +257,7 @@ describe("list-emails action — coverage-aware inventory", () => {
       expect(result.requestedAccounts).toEqual([SYNTHETIC]);
       expect(result.resolvedAccounts).toEqual([SYNTHETIC]);
       expect(result.items.map((item: any) => item.id)).toEqual([`${view}-1`]);
-      expect(getConnectedAccounts).not.toHaveBeenCalled();
+      expect(getConnectedAccountsWithErrors).not.toHaveBeenCalled();
       expect(listGmailMessages).not.toHaveBeenCalled();
     },
   );
@@ -281,7 +282,7 @@ describe("list-emails action — coverage-aware inventory", () => {
     ).rejects.toThrow(
       "Account missing@example.com is not available in scheduled mail for this user.",
     );
-    expect(getConnectedAccounts).not.toHaveBeenCalled();
+    expect(getConnectedAccountsWithErrors).not.toHaveBeenCalled();
     expect(listGmailMessages).not.toHaveBeenCalled();
   });
 
@@ -350,6 +351,36 @@ describe("list-emails action — coverage-aware inventory", () => {
     expect(result.coverageComplete).toBe(false);
     expect(result.complete).toBe(false);
     expect(result.page).toEqual({ returned: 2, hasMore: false });
+  });
+
+  it("keeps OAuth inventory readable when the managed account lookup fails", async () => {
+    const message = rawMessage("oauth-1", "oauth-thread");
+    message._accountEmail = BUSY;
+    vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+      accounts: [BUSY],
+      errors: [{ email: "workspace", error: "workspace lookup unavailable" }],
+    });
+    vi.mocked(listGmailMessages).mockResolvedValue({
+      messages: [message],
+      errors: [],
+    } as any);
+    vi.mocked(gmailToEmailMessage).mockImplementation((raw: any) =>
+      emailFor(raw),
+    );
+
+    const result = (await action.run({ format: "inventory", limit: 10 }, {
+      caller: "mcp",
+    } as any)) as any;
+
+    expect(result.items.map((item: any) => item.id)).toEqual(["oauth-1"]);
+    expect(result.accounts).toContainEqual(
+      expect.objectContaining({
+        accountEmail: "workspace",
+        status: "error",
+      }),
+    );
+    expect(result.coverageComplete).toBe(false);
+    expect(result.complete).toBe(false);
   });
 
   it("validates and forwards an account filter before unrelated provider work", async () => {
@@ -437,7 +468,7 @@ describe("list-emails action — coverage-aware inventory", () => {
         { caller: "mcp" } as any,
       ),
     ).rejects.toThrow("Pass account or accountEmails, not both.");
-    expect(getConnectedAccounts).not.toHaveBeenCalled();
+    expect(getConnectedAccountsWithErrors).not.toHaveBeenCalled();
   });
 
   it("preserves account provenance when Gmail thread ids collide", async () => {
@@ -472,7 +503,10 @@ describe("list-emails action — coverage-aware inventory", () => {
   it("validates and filters plural account selection against local mail accounts", async () => {
     const LOCAL_ONE = "local-one@example.com";
     const LOCAL_TWO = "local-two@example.com";
-    vi.mocked(getConnectedAccounts).mockResolvedValue([]);
+    vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+      accounts: [],
+      errors: [],
+    });
     vi.mocked(isConnected).mockResolvedValue(false);
     mocks.getUserSetting.mockResolvedValue({
       emails: [
@@ -507,7 +541,10 @@ describe("list-emails action — coverage-aware inventory", () => {
   it("accepts singular account selection for a local mail account", async () => {
     const LOCAL_ONE = "local-one@example.com";
     const LOCAL_TWO = "local-two@example.com";
-    vi.mocked(getConnectedAccounts).mockResolvedValue([]);
+    vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+      accounts: [],
+      errors: [],
+    });
     vi.mocked(isConnected).mockResolvedValue(false);
     mocks.getUserSetting.mockResolvedValue({
       emails: [
@@ -533,7 +570,10 @@ describe("list-emails action — coverage-aware inventory", () => {
   });
 
   it("rejects an account selection absent from local mail", async () => {
-    vi.mocked(getConnectedAccounts).mockResolvedValue([]);
+    vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+      accounts: [],
+      errors: [],
+    });
     vi.mocked(isConnected).mockResolvedValue(false);
     mocks.getUserSetting.mockResolvedValue({
       emails: [rawMessage("local-one", "thread-one")].map((raw) =>
@@ -553,7 +593,10 @@ describe("list-emails action — coverage-aware inventory", () => {
   });
 
   it("pages local inventory without prefix loss when OAuth is absent", async () => {
-    vi.mocked(getConnectedAccounts).mockResolvedValue([]);
+    vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+      accounts: [],
+      errors: [],
+    });
     vi.mocked(isConnected).mockResolvedValue(false);
     mocks.getUserSetting.mockResolvedValue({
       emails: [
@@ -596,7 +639,10 @@ describe("list-emails action — coverage-aware inventory", () => {
   });
 
   it("releases a continuation lease when settlement fails", async () => {
-    vi.mocked(getConnectedAccounts).mockResolvedValue([]);
+    vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+      accounts: [],
+      errors: [],
+    });
     vi.mocked(isConnected).mockResolvedValue(false);
     mocks.getUserSetting.mockResolvedValue({
       emails: [

@@ -34,4 +34,21 @@ describe("SlideEditor marquee pointer tracking", () => {
       "e.currentTarget.setPointerCapture(e.pointerId)",
     );
   });
+
+  it("marquee-selects grouped objects through their nearest wrapper", () => {
+    const start = editorSource.indexOf(
+      "// Keep these listeners stable while React re-renders the marquee overlay.",
+    );
+    const handlerSource = editorSource.slice(
+      start,
+      editorSource.indexOf("/** Send the current selection", start),
+    );
+
+    expect(handlerSource).toContain(
+      "resolveSlideObjectGroupRoot(selectable, slideContent)",
+    );
+    expect(handlerSource).toContain("group.getBoundingClientRect()");
+    expect(handlerSource).toContain('group.getAttribute("data-builder-id")');
+    expect(handlerSource).toContain("hits.add(groupId)");
+  });
 });

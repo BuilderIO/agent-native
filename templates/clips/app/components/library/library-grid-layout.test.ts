@@ -179,16 +179,29 @@ describe("selected library actions layout", () => {
   });
 
   it("keeps Meetings, Dictate, and Trash on the shared app-shell header", () => {
+    const layoutSource = readSource("./library-layout.tsx");
     const meetingsSource = readSource("../../routes/_app.meetings._index.tsx");
     const dictateSource = readSource("../../routes/_app.dictate.tsx");
     const trashSource = readSource("../../routes/_app.trash.tsx");
 
+    expect(layoutSource).toContain(
+      "to: getMeetingsSidebarHref(meetingsLabEnabled, CLIPS_MEETINGS.key)",
+    );
     expect(meetingsSource).toContain("<PageBreadcrumb");
     expect(dictateSource).toContain("<PageBreadcrumb");
     expect(trashSource).toContain("<PageBreadcrumb");
     expect(trashSource).not.toContain('<h1 className="text-base font-semibold');
     expect(dictateSource).not.toContain(
       't("dictateRoute.voiceToTextDescription")',
+    );
+  });
+
+  it("never lets the toolbar action group shrink behind the search bar", () => {
+    const gridSource = readSource("./library-grid.tsx");
+
+    expect(gridSource).toContain("lg:grid-cols-[minmax(0,1fr)_20rem_auto]");
+    expect(gridSource).toContain(
+      "ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end",
     );
   });
 

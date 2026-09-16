@@ -893,7 +893,16 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     // stopped (and double-fires alongside the stuck banner's own retry). They
     // stay `recoverable: true` so the banner still reads "stopped before
     // finishing".
-    code.startsWith("aborted_")
+    code.startsWith("aborted_") ||
+    // The run's outcome is genuinely UNKNOWN: its row is gone, or it left
+    // 'running' in a state the server has no terminal event for. Both stay
+    // `recoverable: true` so the banner offers a manual Retry, but an
+    // automatic re-POST would assert the turn did not finish — and it may
+    // well have, side effects included. Replaying it would duplicate them.
+    // The user decides, which is exactly what these errors say to do.
+    code === "run_record_missing" ||
+    code === "unknown_run_status" ||
+    code === "run_terminal_lookup_failed"
   ) {
     return false;
   }
@@ -1282,6 +1291,59 @@ function completedToolOnlyMessage(toolNames: string[]): string | null {
   return `The agent completed ${label}, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.`;
 }
 
+const MAX_REPORTED_TOOL_ERROR_LENGTH = 300;
+
+/**
+ * The failing tool results the turn ended on, newest first.
+ *
+ * A turn that stops on a failed tool used to render the same "review the tool
+ * card above" note as one that stops on a successful tool, so the reason it
+ * stopped — an expired handoff URL, a missing Stripe credential — was one the
+ * user had to go hunting for. The error text the tool already returned is the
+ * answer, so say it.
+ */
+function failedToolResultsAfterLastAssistantText(
+  content: ContentPart[],
+): { toolName: string; error: string }[] {
+  const lastTextIndex = lastAssistantTextIndex(content);
+  const failures: { toolName: string; error: string }[] = [];
+  for (let index = content.length - 1; index > lastTextIndex; index--) {
+    const part = content[index];
+    if (
+      part?.type !== "tool-call" ||
+      part.activity === true ||
+      part.isError !== true ||
+      part.result === undefined
+    ) {
+      continue;
+    }
+    failures.push({
+      toolName: part.toolName,
+      error: typeof part.result === "string" ? part.result.trim() : "",
+    });
+  }
+  return failures;
+}
+
+function failedToolMessage(
+  failures: { toolName: string; error: string }[],
+): string | null {
+  const latest = failures[0];
+  if (!latest) return null;
+  const label = formatToolNames(failures.map((failure) => failure.toolName));
+  const detail = latest.error
+    ? ` ${truncateToolError(latest.error)}`
+    : " No error detail was returned.";
+  return `The agent stopped after ${label} failed, without sending a final message.${detail} Ask the agent to continue, or fix the underlying failure and retry.`;
+}
+
+function truncateToolError(error: string): string {
+  const singleLine = error.replace(/\s+/g, " ").trim();
+  return singleLine.length > MAX_REPORTED_TOOL_ERROR_LENGTH
+    ? `${singleLine.slice(0, MAX_REPORTED_TOOL_ERROR_LENGTH)}…`
+    : singleLine;
+}
+
 function hasCompletedCustomUi(content: ContentPart[]): boolean {
   const lastTextIndex = lastAssistantTextIndex(content);
   let lastCompletedToolIsCustomUi = false;
@@ -1307,7 +1369,12 @@ function hasCompletedCustomUi(content: ContentPart[]): boolean {
 export function appendMissingFinalResponseWarning(
   content: ContentPart[],
   completedToolNames?: Iterable<string>,
-): { message: string; errorCode: string; recoverable: true } | null {
+): {
+  message: string;
+  errorCode: string;
+  recoverable: true;
+  failedTools?: string[];
+} | null {
   if (content.some((part) => isToolCallActive(part))) return null;
   const lastTextIndex = lastAssistantTextIndex(content);
   const successfulToolNames = [
@@ -1316,6 +1383,7 @@ export function appendMissingFinalResponseWarning(
     ),
   ];
   let lastToolIndex = -1;
+  let lastToolResultFailed = false;
   const materializedToolNames = new Set<string>();
   for (let index = lastTextIndex + 1; index < content.length; index++) {
     const part = content[index];
@@ -1325,19 +1393,28 @@ export function appendMissingFinalResponseWarning(
       part.result !== undefined
     ) {
       lastToolIndex = index;
+      lastToolResultFailed = part.isError === true;
       materializedToolNames.add(part.toolName);
     }
   }
-  if (hasCompletedCustomUi(content)) return null;
+  // A rendered custom UI is a legitimate final answer only when nothing failed
+  // after it. `hasCompletedCustomUi` skips errored results, so without this a
+  // widget followed by a failing tool would silently claim the turn finished —
+  // the same verdict the run manager makes from the last tool_done.
+  if (!lastToolResultFailed && hasCompletedCustomUi(content)) return null;
   if (successfulToolNames.length === 0 && lastTextIndex > lastToolIndex) {
     return null;
   }
+  // A failure outranks the completed-tool note: it is both the reason the turn
+  // stopped and the only part of it the user cannot reconstruct on their own.
+  const failures = failedToolResultsAfterLastAssistantText(content);
   const completedToolMessage = completedToolOnlyMessage(successfulToolNames);
-  const message = completedToolMessage
-    ? completedToolMessage
-    : materializedToolNames.size > 0
+  const message =
+    failedToolMessage(failures) ??
+    completedToolMessage ??
+    (materializedToolNames.size > 0
       ? `The agent stopped after ${formatToolNames([...materializedToolNames])} without sending a final message. Review the tool card above or ask the agent to continue.`
-      : "The agent stopped without sending a final message. Ask the agent to continue or retry.";
+      : "The agent stopped without sending a final message. Ask the agent to continue or retry.");
   if (!content.some((part) => part.type === "text" && part.text === message)) {
     content.push({ type: "text", text: message });
   }
@@ -1348,6 +1425,9 @@ export function appendMissingFinalResponseWarning(
         ? "final_response_missing_after_tool"
         : "final_response_missing",
     recoverable: true,
+    ...(failures.length > 0
+      ? { failedTools: failures.map((failure) => failure.toolName) }
+      : {}),
   };
 }
 

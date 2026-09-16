@@ -73,6 +73,43 @@ export function shouldStampBuilderId(element: HTMLElement): boolean {
   );
 }
 
+/** Top-level selectable canvas targets in DOM order, excluding renderer shells. */
+export function getSlideCanvasTraversalElements(
+  canvasContent: HTMLElement,
+): HTMLElement[] {
+  return Array.from(
+    canvasContent.querySelectorAll<HTMLElement>("[data-builder-id]"),
+  ).filter((element) => {
+    if (
+      !shouldStampBuilderId(element) ||
+      element.classList.contains("fmd-layout-spacer") ||
+      isSlideCanvasShell(element)
+    ) {
+      return false;
+    }
+
+    let ancestor = element.parentElement;
+    while (ancestor && ancestor !== canvasContent) {
+      if (
+        ancestor.hasAttribute("data-builder-id") &&
+        !isSlideCanvasShell(ancestor)
+      ) {
+        return false;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return true;
+  });
+}
+
+/** Canvas-only shortcuts must not consume keys while focus is in editor chrome. */
+export function isSlideCanvasShortcutTarget(
+  activeElement: Element | null,
+  canvas: HTMLElement | null,
+): boolean {
+  return Boolean(activeElement && canvas?.contains(activeElement));
+}
+
 /**
  * A single-cell table satisfies `isRichTextBlock` all the way up to `<table>`,
  * but a table is a grid of independently selectable cells, not one text layer.

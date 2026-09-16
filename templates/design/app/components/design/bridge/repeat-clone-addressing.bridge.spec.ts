@@ -35,6 +35,32 @@ const PAGE = `<!doctype html><html><head><style>
   </ul>
 </body></html>`;
 
+async function seedAlpineLookup(
+  page: import("@playwright/test").Page,
+  selector: string,
+  repeatedSourceId?: string,
+) {
+  await page.evaluate(
+    ({ selector, repeatedSourceId }) => {
+      const template = document.querySelector<HTMLTemplateElement>(selector)!;
+      const rows = Array.from(template.parentElement!.children).filter(
+        (child) =>
+          child !== template &&
+          child.tagName === "LI" &&
+          (!repeatedSourceId ||
+            child.getAttribute("data-agent-native-node-id") ===
+              repeatedSourceId),
+      );
+      (
+        template as HTMLTemplateElement & {
+          _x_lookup: Map<number, Element>;
+        }
+      )._x_lookup = new Map(rows.map((row, index) => [index, row]));
+    },
+    { selector, repeatedSourceId },
+  );
+}
+
 async function withPage<T>(
   run: (page: import("@playwright/test").Page) => Promise<T>,
   options: { textEditing?: boolean } = {},
@@ -45,6 +71,7 @@ async function withPage<T>(
       viewport: { width: 480, height: 480 },
     });
     await page.setContent(PAGE);
+    await seedAlpineLookup(page, "ul > template[x-for]", "an-row");
     await page.addScriptTag({ content: hydrated(options.textEditing) });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
     await page.evaluate(() => {
@@ -55,9 +82,14 @@ async function withPage<T>(
         if (data?.type !== "element-select") return;
         const payload = data.payload as {
           selector?: string;
+          sourceId?: string;
           repeat?: unknown;
         };
-        seen.push({ selector: payload?.selector, repeat: payload?.repeat });
+        seen.push({
+          selector: payload?.selector,
+          sourceId: payload?.sourceId,
+          repeat: payload?.repeat,
+        });
       });
     });
     return await run(page);
@@ -70,15 +102,27 @@ async function withPage<T>(
  * Waits on the posted selection, not on the overlay: the overlay is already
  * displayed from the previous row, so a display check returns before this
  * click's selection exists.
+ *
+ * Selects the row directly via the bridge's `select-element` postMessage
+ * instead of a plain click. The row sits two levels below the screen root
+ * (an-list > an-row), and every clone shares an-row's stamped node id, so a
+ * plain click now resolves container-first (Figma parity) onto the shared
+ * <ul> for every row alike, and a `[data-agent-native-node-id="an-row"]`
+ * selector would always match the first clone. An nth-of-type selector picks
+ * the exact row this call means to address; what's under test here is the
+ * per-row selector/repeat metadata a selection reports, not click resolution.
  */
 async function clickRow(
   page: import("@playwright/test").Page,
   position: number,
 ) {
-  const row = page.locator(`ul > li:nth-of-type(${position})`);
+  const selector = `ul > li:nth-of-type(${position})`;
+  const row = page.locator(selector);
   const box = (await row.boundingBox())!;
   const before = await picks(page);
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.evaluate((sel) => {
+    window.postMessage({ type: "select-element", selector: sel }, "*");
+  }, selector);
   await page.waitForFunction(
     (count) =>
       (window as never as { __picks: unknown[] }).__picks.length > count,
@@ -89,6 +133,7 @@ async function clickRow(
 
 interface Pick {
   selector?: string;
+  sourceId?: string;
   repeat?: {
     sourceSelector: string;
     instanceCount: number;
@@ -191,7 +236,7 @@ it(
         itemIndex: 2,
         textBinding: "",
         keyExpression: "",
-        itemKey: "",
+        itemKey: "2",
       });
       expect(staticRow.repeat).toBeUndefined();
     });
@@ -343,7 +388,17 @@ it(
       const label = page.locator("ul > li:nth-of-type(2) span");
       const box = (await label.boundingBox())!;
       const before = await picks(page);
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      // The span sits three levels below the screen root, so a plain click
+      // now resolves container-first (Figma parity) onto the shared <ul>
+      // instead of descending into it. Select the span directly — what this
+      // test proves is the repeat metadata a selected descendant reports,
+      // not click resolution.
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "ul > li:nth-of-type(2) span" },
+          "*",
+        );
+      });
       await page.waitForFunction(
         (count) =>
           (window as never as { __picks: unknown[] }).__picks.length > count,
@@ -365,10 +420,20 @@ it(
       async (page) => {
         const label = page.locator("ul > li:nth-of-type(2) span");
         const box = (await label.boundingBox())!;
+        // The span is nested two levels below the list (an-list > an-row >
+        // an-label): a plain double-click's own first click resolves
+        // container-first onto <ul>, so findTextEditTarget's climb lands on
+        // the <li> row (no x-text of its own) instead of the bound span, and
+        // the row gets refused. Cmd/Ctrl held through the gesture keeps both
+        // constituent clicks on the deep-select path (mirrors plain-click's
+        // metaKey/ctrlKey bypass), landing selectedEl on the span itself so
+        // the dblclick handler's fast path resolves it directly.
+        await page.keyboard.down("Meta");
         await page.mouse.dblclick(
           box.x + box.width / 2,
           box.y + box.height / 2,
         );
+        await page.keyboard.up("Meta");
         await page.waitForTimeout(200);
 
         const state = await page.evaluate(() => {
@@ -388,6 +453,64 @@ it(
 
         expect(state.refused).toBeNull();
         expect(state.editing).toBe(true);
+      },
+      { textEditing: true },
+    );
+  },
+);
+
+it(
+  "programmatic text edit follows the selected repeat item",
+  { timeout: 60_000 },
+  async () => {
+    await withPage(
+      async (page) => {
+        const label = page.locator("ul > li:nth-of-type(2) span");
+        const box = (await label.boundingBox())!;
+        await page.keyboard.down("Meta");
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await page.keyboard.up("Meta");
+        await page.waitForFunction(
+          () => (window as never as { __picks: unknown[] }).__picks.length > 0,
+        );
+        const [pick] = (await picks(page)).slice(-1);
+        expect(pick).toMatchObject({
+          sourceId: "an-label",
+          repeat: {
+            sourceSelector: '[data-agent-native-node-id="an-label"]',
+            itemIndex: 1,
+          },
+        });
+
+        await page.evaluate(
+          (repeat) => {
+            window.postMessage(
+              {
+                type: "begin-text-edit",
+                nodeId: "an-label",
+                force: true,
+                repeat,
+              },
+              "*",
+            );
+          },
+          {
+            sourceSelector: pick!.repeat!.sourceSelector,
+            itemIndex: pick!.repeat!.itemIndex,
+          },
+        );
+        await page.waitForSelector(
+          "ul > li:nth-of-type(2) span[data-agent-native-text-editing]",
+        );
+        await page.keyboard.type("!");
+
+        expect(
+          await page
+            .locator("ul > li > span")
+            .evaluateAll((labels) =>
+              labels.slice(0, 2).map((label) => label.textContent),
+            ),
+        ).toEqual(["row one", "row two!"]);
       },
       { textEditing: true },
     );
@@ -418,6 +541,7 @@ it(
         viewport: { width: 480, height: 320 },
       });
       await page.setContent(UNSTAMPED);
+      await seedAlpineLookup(page, "ul > template[x-for]");
       await page.addScriptTag({ content: hydrated() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await page.evaluate(() => {
@@ -430,9 +554,16 @@ it(
         });
       });
 
-      const row = page.locator("ul > li:nth-of-type(2)");
-      const box = (await row.boundingBox())!;
-      await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
+      // The row is nested two levels below the screen root (ul > li), so a
+      // plain click now resolves container-first (Figma parity) onto the
+      // shared <ul>. Select the row directly — what this test proves is the
+      // repeat metadata an id-less row reports, not click resolution.
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "ul > li:nth-of-type(2)" },
+          "*",
+        );
+      });
       await page.waitForFunction(
         () => (window as never as { __picked: unknown }).__picked !== null,
       );
@@ -490,9 +621,14 @@ it(
         });
       });
 
-      const row = page.locator("ul > li:nth-of-type(2)");
-      const box = (await row.boundingBox())!;
-      await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
+      // Same container-first rationale as the sibling "no stamped ids" test
+      // above: select the row directly instead of relying on a plain click.
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "ul > li:nth-of-type(2)" },
+          "*",
+        );
+      });
       await page.waitForFunction(
         () => (window as never as { __picked: unknown }).__picked !== null,
       );

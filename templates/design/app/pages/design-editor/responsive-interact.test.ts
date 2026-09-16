@@ -126,6 +126,37 @@ describe("responsive Interact wiring", () => {
     );
   });
 
+  it("keeps guided questions and Interact content clear of the absolute left rail", () => {
+    expect(source).toContain("const leftChromeOverlayInset =");
+    expect(source.match(/paddingLeft: leftChromeOverlayInset/g)).toHaveLength(
+      2,
+    );
+    expect(source).toContain(
+      "responsiveInteractActive && leftChromeOverlayInset",
+    );
+  });
+
+  it("pins a squeeze-immune close beside the docked bar", () => {
+    // Reported gap: a wide left rail (the Code panel is 640px) plus a
+    // modest window squeezes the docked bar's canvas column enough that
+    // its own Close gets clipped by overflow-hidden before anything else
+    // in the row. The docked bar hides its own Close (showClose={floating}
+    // is false when docked) and a pinned duplicate, anchored to the canvas
+    // area's own right edge rather than the bar's shrunken one, takes over.
+    expect(source).toContain("showClose={floating}");
+    expect(source).toContain("ResponsiveInteractExitButton");
+    const pinnedExitIndex = source.indexOf(
+      "responsiveInteractActive && !minimalUi ? (",
+    );
+    expect(pinnedExitIndex).toBeGreaterThan(-1);
+    const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 400);
+    expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
+    expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
+    // Height/edge-matched to the bar's own row (h-12, pr-3) so it reads as
+    // one row, not a second floating control competing with the first.
+    expect(pinnedExit).toContain("flex h-12 items-center pr-3");
+  });
+
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
     expect(source).toContain(
       "embedded && !hostOwnsChrome && !embedChromeRequested",
@@ -192,8 +223,12 @@ describe("responsive Interact wiring", () => {
   });
 
   it("routes every Interact request into the responsive view", () => {
-    expect(source).toContain("enterSingleScreen(screenId");
-    expect(source).toContain("enterSingleScreen(activeFileId)");
+    expect(source).toContain(
+      'handleModeChange("interact", { targetFileId: screenId })',
+    );
+    expect(source).toContain('handleModeChange("interact");');
+    expect(source).toContain("enterSingleScreen(screenId, { mode });");
+    expect(source).not.toContain("enterSingleScreenInteract");
     expect(editorSurface).toContain("resolveModeChangeView({");
     // Only an explicit mode from an embedding host differs; every other entry
     // into a focused screen is still Interact.
@@ -273,9 +308,32 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain("const resolvedHeight =");
   });
 
-  it("leaves Escape entirely to the running app", () => {
+  it("keeps the canvas-shell Escape handling inert, but exits Interact on Escape", () => {
+    // The canvas shell's selection/drawing/breakpoint Escape handling must
+    // not fire underneath the running prototype.
     expect(source).toContain(
       "onEscape: responsiveInteractActive ? undefined : handleEscapeHotkey",
+    );
+    // Reported gap: Interact had no keyboard way out at all, only the bar's
+    // Close button. A dedicated window listener (not useDesignHotkeys, which
+    // stays disabled above) now exits Interact on Escape whenever the event
+    // reaches the parent window un-intercepted — i.e. never while a Radix
+    // layer (the device Select, zoom Popover) or the iframe itself has
+    // already handled it, matching DesignColorPicker.escape.test.tsx's
+    // documented ordering.
+    const escapeExitEffect = source.slice(
+      source.indexOf("const handleExitResponsiveInteract ="),
+      source.indexOf("// Fit against the actual center canvas"),
+    );
+    expect(escapeExitEffect).toContain(
+      "if (!responsiveInteractActive) return;",
+    );
+    expect(escapeExitEffect).toContain(
+      'if (event.key !== "Escape" || event.defaultPrevented) return;',
+    );
+    expect(escapeExitEffect).toContain("handleExitResponsiveInteract();");
+    expect(escapeExitEffect).toContain(
+      'window.addEventListener("keydown", handleKeyDown);',
     );
   });
 

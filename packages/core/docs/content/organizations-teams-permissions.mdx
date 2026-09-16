@@ -65,7 +65,7 @@ routes are:
 | `DELETE /_agent-native/org/members/:email`       | Remove a member                                                 |
 | `PUT /_agent-native/org/members/:email/role`     | Change a member's role                                          |
 | `GET /_agent-native/org/app-roles?appId=X`       | An app's role vocabulary plus its assignments in the active org |
-| `PUT /_agent-native/org/app-roles/:email`        | Assign or clear one member's app role (owner/admin only)        |
+| `PUT /_agent-native/org/app-roles/:email`        | Replace a member's app-role set (owner/admin only)              |
 | `GET /_agent-native/org/invitations`             | List pending invites                                            |
 | `POST /_agent-native/org/invitations`            | Invite one or more people                                       |
 | `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation                                            |
@@ -176,8 +176,8 @@ app-defined vocabulary layered on the org roster, stored in `app_member_roles`
 and edited from the same team surface. They are not a second roster — do not
 create another organization to get app-specific permissions.
 
-Declare the vocabulary once in app source, then guard actions with an explicit
-list of accepted roles:
+Declare the vocabulary and permission defaults once in app source, then guard
+actions with an explicit list of accepted roles or a named permission:
 
 ```ts
 // server/lib/access.ts
@@ -189,8 +189,34 @@ export const coachAccess = defineAppRoles({
   defaultRole: "member", // display only — never satisfies a guard
   label: "Coach role", // column header in TeamPage
   roleLabels: { "coach-admin": "Coach admin" },
+  permissions: { approve: ["coach-admin"] },
 });
 ```
+
+Members can hold multiple app roles. Team settings replaces the full set in one
+operation. App permission keys remain declared in code, while an owner or admin
+can change which roles receive each permission from the team surface. With no
+override, the app's defaults apply. Resetting an override restores those
+defaults. An invitation can include app roles, which are applied when it is
+accepted.
+
+Guard a high-level capability rather than repeating its role mapping in every
+action:
+
+```ts
+export default defineAction({
+  description: "Approve a plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requirePermission("approve"),
+  run: async ({ id }) => approvePlan(id),
+});
+```
+
+Permission definitions are application code. Administrators can remap a
+declared permission to existing app roles without a deployment, but they cannot
+invent a new permission key from the UI. The organization owner or admin still
+controls these settings, and changing an app role never grants organization
+administration.
 
 ```ts
 // actions/archive-plan.ts
@@ -258,10 +284,10 @@ the database into the browser bundle. To read the current user's own role:
 ```tsx
 import { useAppRole } from "@agent-native/core/client/org-team";
 
-const { role } = useAppRole("coach");
+const { roles } = useAppRole("coach");
 ```
 
-`useAppRoles`, `useAppRole`, and `useSetAppMemberRole` are progressive
+`useAppRoles`, `useAppRole`, and `useSetAppMemberRoles` are progressive
 disclosure only. Every guarded operation re-resolves the role on the server, so
 a client that shows the wrong affordance still cannot perform the operation.
 See [Actions → Authorization](/docs/actions-access-control#authorize) for how `authorize`

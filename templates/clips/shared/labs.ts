@@ -1,4 +1,16 @@
-import { defineLab, defineLabs } from "@agent-native/core/labs/registry";
+import {
+  defineLab,
+  defineLabs,
+  type LabDefinition,
+} from "@agent-native/core/labs/registry";
+
+export function isLabEnabled(
+  values: Record<string, unknown>,
+  lab: Pick<LabDefinition, "key" | "defaultEnabled">,
+): boolean {
+  const value = values[lab.key];
+  return value === undefined ? lab.defaultEnabled === true : value === true;
+}
 
 export const CLIPS_VIDEO_EDITING = defineLab({
   key: "clips.video-editing",
@@ -17,7 +29,8 @@ export const CLIPS_MEETINGS = defineLab({
 export const CLIPS_WISPRFLOW = defineLab({
   key: "clips.wisprflow",
   displayName: "Voice dictation",
-  description: "Try the new voice dictation feature.",
+  description: "Show or hide voice dictation in Clips Desktop.",
+  defaultEnabled: true,
   keywords: "dictate dictation voice speech microphone",
 });
 

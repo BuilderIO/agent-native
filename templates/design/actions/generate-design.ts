@@ -24,7 +24,7 @@ import type {
   CreativeContextElementProvenance,
   CreativeContextReuseLabel,
 } from "@agent-native/creative-context/types";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -55,6 +55,7 @@ import {
   isDesignHtmlIntegrityError,
 } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import { derivePromptTitle } from "../shared/prompt-title.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import {
   getResponsiveBreakpointHeightPx,
@@ -1398,6 +1399,21 @@ const generateDesignAction = defineAction({
     // designs.data/updatedAt are helper-owned. Keep the optional static column
     // behavior without writing another whole data snapshot or regressing the
     // helper's monotonic updatedAt revision.
+    const promptTitle = derivePromptTitle(prompt);
+    if (promptTitle !== "Untitled" && promptTitle !== "Untitled Design") {
+      // Keep an agent-created shell's placeholder from surviving generation,
+      // without racing over a real title the user or title helper already set.
+      await db
+        .update(schema.designs)
+        .set({ title: promptTitle })
+        .where(
+          and(
+            eq(schema.designs.id, designId),
+            inArray(schema.designs.title, ["Untitled", "Untitled Design"]),
+          ),
+        );
+    }
+
     const designUpdates: Record<string, unknown> = {};
     if (designSystemId !== undefined) {
       designUpdates.designSystemId = designSystemId;

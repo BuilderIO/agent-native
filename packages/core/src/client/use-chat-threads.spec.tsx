@@ -651,6 +651,148 @@ describe("useChatThreads", () => {
     expect(hook!.restoredThreadIdOnListFailure).toBe("thread-1");
   });
 
+  it("restores marked local drafts without probing them and clears the marker once listed", async () => {
+    let serverThread: ChatThreadSummary | null = null;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: serverThread ? [serverThread] : [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    let initialDraftState: boolean | undefined;
+    function Harness() {
+      hook = useChatThreads("/chat", "draft-restore", undefined, {
+        browserTabId: "draft-tab",
+      });
+      initialDraftState ??= hook.isNewThread("forked-thread");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const threadId = hook!.activeThreadId!;
+    const draftMarker = `agent-chat-client-draft-thread:${encodeURIComponent(threadId)}`;
+    expect(threadId).toBe("forked-thread");
+    expect(initialDraftState).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
+    ).toBe(false);
+
+    const seenAt = Date.now() - 60_000;
+    window.localStorage.setItem(
+      "agent-chat-active-thread:draft-restore:tab:draft-tab:seen",
+      String(seenAt),
+    );
+    window.localStorage.setItem(
+      `agent-chat-composer-text:${threadId}`,
+      "unfinished message",
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    fetchMock.mockClear();
+    let restoredDraftState: boolean | undefined;
+    function RestoredHarness() {
+      hook = useChatThreads("/chat", "draft-restore", undefined, {
+        browserTabId: "draft-tab",
+      });
+      restoredDraftState ??= hook.isNewThread(threadId);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<RestoredHarness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(restoredDraftState).toBe(true);
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.isNewThread(threadId)).toBe(true);
+    expect(window.localStorage.getItem(draftMarker)).toBe("1");
+    expect(
+      hook!.threads.find((thread) => thread.id === threadId)?.updatedAt,
+    ).toBe(seenAt);
+    expect(
+      window.localStorage.getItem(`agent-chat-composer-text:${threadId}`),
+    ).toBe("unfinished message");
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
+    ).toBe(false);
+
+    serverThread = {
+      id: threadId,
+      title: "Persisted draft",
+      preview: "unfinished message",
+      messageCount: 1,
+      createdAt: seenAt,
+      updatedAt: Date.now(),
+      scope: null,
+    };
+    const removeItem = window.localStorage.removeItem.bind(window.localStorage);
+    const removeMarker = vi
+      .spyOn(window.localStorage, "removeItem")
+      .mockImplementation((key) => {
+        if (key === draftMarker) throw new Error("storage cleanup unavailable");
+        removeItem(key);
+      });
+    try {
+      await act(async () => {
+        await hook!.refreshThreads();
+        await Promise.resolve();
+      });
+      expect(window.localStorage.getItem(draftMarker)).toBe("1");
+      expect(hook!.isNewThread(threadId)).toBe(false);
+    } finally {
+      removeMarker.mockRestore();
+    }
+    await act(async () => {
+      await hook!.refreshThreads();
+      await Promise.resolve();
+    });
+    expect(window.localStorage.getItem(draftMarker)).toBeNull();
+    expect(hook!.isNewThread(threadId)).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
+    ).toBe(false);
+
+    await act(async () => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    fetchMock.mockClear();
+    let persistedInitialState: boolean | undefined;
+    function PersistedHarness() {
+      hook = useChatThreads("/chat", "draft-restore", undefined, {
+        browserTabId: "draft-tab",
+      });
+      persistedInitialState ??= hook.isNewThread(threadId);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<PersistedHarness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(persistedInitialState).toBe(false);
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.isNewThread(threadId)).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
+    ).toBe(false);
+  });
+
   it("starts a fresh chat when a saved home thread no longer exists", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:forms",
@@ -706,6 +848,16 @@ describe("useChatThreads", () => {
     expect(hook!.threads.map((thread) => thread.id)).not.toContain(
       "empty-sidebar-tab",
     );
+    expect(
+      window.localStorage.getItem(
+        "agent-chat-client-draft-thread:empty-sidebar-tab",
+      ),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(
+        `agent-chat-client-draft-thread:${encodeURIComponent(hook!.activeThreadId!)}`,
+      ),
+    ).toBe("1");
   });
 
   it("keeps a saved missing thread active when auto-create is disabled", async () => {

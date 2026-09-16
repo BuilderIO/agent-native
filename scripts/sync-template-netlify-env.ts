@@ -54,7 +54,7 @@ const NETLIFY_BETA_SITES = JSON.parse(
 const NETLIFY_SITE_SOURCE_TEMPLATES = new Map([["starter", "chat"]]);
 const NETLIFY_TEMPLATE_ALIASES = new Map([["chat", "starter"]]);
 const NETLIFY_SITE_PRODUCTION_URLS = new Map([
-  ["starter", "https://starter.agent-native.com"],
+  ["starter", "https://chat.agent-native.com"],
 ]);
 const NETLIFY_BETA_SITE_BY_NAME = new Map(
   NETLIFY_BETA_SITES.flatMap((site) => {

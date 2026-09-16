@@ -201,7 +201,7 @@ export default function BrandKitSettingsRoute() {
   );
 
   function handleBack() {
-    void navigate(`/library/${libraryId}`);
+    void navigate(`/library/${libraryId}?tab=references`);
   }
 
   function keepEditing() {
@@ -334,16 +334,23 @@ export default function BrandKitSettingsRoute() {
           </button>
           {detailsOpen ? (
             <ul className="mt-4 space-y-3">
-              <li className="flex gap-3">
-                <IconPhoto className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">
-                    {t("brandKitDetail.setupGuideReferences")}
+              <li>
+                <button
+                  type="button"
+                  className="group flex w-full gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={handleBack}
+                >
+                  <IconPhoto className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium underline-offset-4 group-hover:underline">
+                      {t("brandKitDetail.setupGuideReferences")}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {t("brandKitDetail.setupGuideReferencesHint")}
+                    </p>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {t("brandKitDetail.setupGuideReferencesHint")}
-                  </p>
-                </div>
+                  <IconChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
               </li>
               <li className="flex gap-3">
                 <IconTextCaption className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />

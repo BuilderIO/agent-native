@@ -15,6 +15,8 @@ import { spawnSync } from "node:child_process";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import { Agent } from "undici";
+
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
@@ -31,7 +33,9 @@ import {
   DEV_ACTION_ROUTE,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
+  devActionHandoffUrl,
   hashDatabaseKey,
+  isValidDevActionHandoffUrl,
   readDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
 import {
@@ -39,6 +43,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { loadCliBootstrap } from "./cli-bootstrap.js";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { resolveDevUserEmail } from "./dev-session.js";
 import { loadEnv } from "./utils.js";
@@ -55,20 +60,6 @@ function withoutCliHandoffText(value: unknown): string {
     CLI_HANDOFF_URL_PATTERN,
     "[redacted embed handoff]",
   );
-}
-
-function cliHandoffUrl(result: unknown): string | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  for (const key of CLI_HANDOFF_KEYS) {
-    const value = (result as Record<string, unknown>)[key];
-    if (
-      typeof value === "string" &&
-      value.includes("/_agent-native/embed/start?")
-    ) {
-      return value;
-    }
-  }
-  return undefined;
 }
 
 function withoutCliHandoffSecrets(
@@ -118,6 +109,15 @@ interface CliHandoffLaunchDeps {
   ) => { status: number | null; error?: Error };
 }
 
+function resolveCliHandoffBaseUrl(env: NodeJS.ProcessEnv): string | undefined {
+  return (
+    env.APP_URL ||
+    env.WORKSPACE_GATEWAY_URL ||
+    env.VITE_WORKSPACE_GATEWAY_URL ||
+    env.BETTER_AUTH_URL
+  );
+}
+
 export function openCliHandoff(
   urlOrPath: string,
   deps: CliHandoffLaunchDeps = {},
@@ -131,13 +131,17 @@ export function openCliHandoff(
         "Secure browser handoff is disabled by AGENT_NATIVE_NO_OPEN. Remove it and rerun this action.",
     };
   }
+  const baseUrl = resolveCliHandoffBaseUrl(env);
+  if (!isValidDevActionHandoffUrl(urlOrPath, baseUrl)) {
+    return {
+      ok: false,
+      reason: "invalid-url",
+      message:
+        "Secure browser handoff found an invalid app URL. Fix APP_URL or WORKSPACE_GATEWAY_URL, then rerun this action.",
+    };
+  }
   let url = urlOrPath;
   if (urlOrPath.startsWith("/")) {
-    const baseUrl =
-      env.APP_URL ||
-      env.WORKSPACE_GATEWAY_URL ||
-      env.VITE_WORKSPACE_GATEWAY_URL ||
-      env.BETTER_AUTH_URL;
     if (!baseUrl) {
       return {
         ok: false,
@@ -202,7 +206,7 @@ export function openCliHandoff(
 }
 
 function printActionResult(result: unknown): CliHandoffLaunchOutcome | null {
-  const handoffUrl = cliHandoffUrl(result);
+  const handoffUrl = devActionHandoffUrl(result);
   const handoff = handoffUrl ? openCliHandoff(handoffUrl) : null;
   console.log(withoutCliHandoffSecrets(result));
   return handoff;
@@ -243,12 +247,12 @@ async function runAppDbPluginIfPresent(): Promise<void> {
  */
 export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const actionName = process.argv[2];
+  const args = process.argv.slice(3);
 
-  if (!actionName || actionName === "--help") {
+  if (!actionName || actionName === "--help" || args.includes("--help")) {
     console.log(
       `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...]`,
     );
-    console.log(`\nRun any action with --help for usage details.`);
 
     // List local actions (try actions/ first, then scripts/)
     const actionsDir = path.resolve(process.cwd(), "actions");
@@ -293,8 +297,6 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
     process.exit(1);
   }
 
-  const args = process.argv.slice(3);
-
   // Forward to an already-running local dev server before touching the
   // database ourselves — PGlite's process lock (db/client.ts) means opening
   // it here while `pnpm dev` holds it open fails outright. Exits the process
@@ -316,6 +318,14 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   // `process.env.AGENT_USER_EMAIL` because env mutation leaks across
   // boundaries — see the cautionary comment in
   // `server/request-context.ts` about exactly that pattern.
+
+  // A CLI run mounts no Nitro plugins, so nothing has claimed the file upload
+  // slot that `createCoreRoutesPlugin` and the onboarding plugin claim on a
+  // server. Without this an action calling `uploadFile()` from `pnpm action`
+  // finds no provider and fails with storage fully configured — the same action
+  // works from the dev server and in production.
+  await loadCliBootstrap();
+
   const userEmail = await resolveDevUserEmail();
   const orgId = process.env.AGENT_ORG_ID || undefined;
 
@@ -366,8 +376,14 @@ export async function tryForwardToDevServer(
   }
 
   let response: Response;
+  // Vite's local HTTPS mode commonly uses a self-signed certificate. This
+  // dispatcher is created only after the strict loopback-origin check above,
+  // so certificate bypass cannot send the dev token to a remote host.
+  const tlsDispatcher = discovery.origin.startsWith("https:")
+    ? new Agent({ connect: { rejectUnauthorized: false } })
+    : undefined;
   try {
-    response = await fetch(`${discovery.origin}${DEV_ACTION_ROUTE}`, {
+    const request: RequestInit & { dispatcher?: Agent } = {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -380,8 +396,11 @@ export async function tryForwardToDevServer(
           : {}),
       },
       body: JSON.stringify({ name: actionName, input }),
-    });
+      ...(tlsDispatcher ? { dispatcher: tlsDispatcher } : {}),
+    };
+    response = await fetch(`${discovery.origin}${DEV_ACTION_ROUTE}`, request);
   } catch {
+    await tlsDispatcher?.destroy();
     // The dev server isn't actually listening (stale discovery file,
     // ECONNREFUSED) or is otherwise unreachable — run in-process.
     return;
@@ -390,7 +409,10 @@ export async function tryForwardToDevServer(
   // The dev server doesn't serve this action at all (e.g. a core script
   // like db-query, which is never mounted as an HTTP route) — run in-process
   // rather than treating an unrelated 404 as a hard failure.
-  if (response.status === 404) return;
+  if (response.status === 404) {
+    await tlsDispatcher?.close();
+    return;
+  }
 
   if (response.status === 401 || response.status === 403) {
     const body = await response
@@ -400,13 +422,20 @@ export async function tryForwardToDevServer(
       `Action "${actionName}" failed:`,
       (body as { error?: string })?.error ?? `HTTP ${response.status}`,
     );
+    await tlsDispatcher?.close();
     process.exit(1);
   }
 
   const body = (await response.json().catch(() => ({
     ok: false,
     error: "Invalid response from dev server.",
-  }))) as { ok: boolean; result?: unknown; error?: string };
+  }))) as {
+    ok: boolean;
+    result?: unknown;
+    error?: string;
+    devHandoffUrl?: unknown;
+  };
+  await tlsDispatcher?.close();
   if (!body.ok) {
     console.error(
       `Action "${actionName}" failed:`,
@@ -414,18 +443,36 @@ export async function tryForwardToDevServer(
     );
     process.exit(1);
   }
+  const handoffUrl =
+    typeof body.devHandoffUrl === "string"
+      ? body.devHandoffUrl
+      : devActionHandoffUrl(body.result);
   if (body.result !== undefined) {
-    assertCliHandoffLaunched(printActionResult(body.result));
+    console.log(withoutCliHandoffSecrets(body.result));
   }
+  const validHandoffUrl = isValidDevActionHandoffUrl(
+    handoffUrl,
+    resolveCliHandoffBaseUrl(process.env),
+  )
+    ? handoffUrl
+    : undefined;
+  assertCliHandoffLaunched(
+    validHandoffUrl ? openCliHandoff(validHandoffUrl) : null,
+  );
   process.exit(0);
 }
 
 function isLoopbackDevActionOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
+    // Discovery files record the URL Vite prints — `localhost` on the default
+    // wildcard bind; older dev servers recorded the 127.0.0.1 literal. Both
+    // are loopback labels for the same local server.
     return (
-      url.protocol === "http:" &&
-      url.hostname === "127.0.0.1" &&
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      (url.hostname === "127.0.0.1" ||
+        url.hostname === "localhost" ||
+        url.hostname === "[::1]") &&
       url.pathname === "/" &&
       !url.search &&
       !url.hash

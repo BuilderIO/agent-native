@@ -105,6 +105,14 @@ const messages = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "UI",
+  "agentPanel.keyScope": "Key scope",
+  "agentPanel.personalKeyScope": "Personal",
+  "agentPanel.organizationKeyScope": "Organization",
+  "agentPanel.personalKeyInEffect": "Your personal key is in effect.",
+  "agentPanel.organizationKeyInEffect": "Organization key is in effect.",
+  "agentPanel.sharedKeyInEffect": "A shared key is in effect.",
+  "agentPanel.useOrganizationKey": "Use organization key",
+  "agentPanel.keyStatusUnavailable": "Key status is unavailable.",
   "agentHostNudge.sidebarTitle": "Use {{agent}}'s chat",
   "agentHostNudge.sidebarDescription":
     "You're already chatting with {{agent}}. Ask it to work with this app directly.",
@@ -127,6 +135,39 @@ const messages = {
   "common.no": "No",
   "common.retry": "Retry",
   "common.save": "Save",
+  "agents.hostedAgent": "Hosted agent",
+  "agents.provider": "Provider",
+  "agents.providerA2A": "A2A (Foundry, Gemini, or custom)",
+  "agents.providerAnthropic": "Anthropic Managed Agents",
+  "agents.agentId": "Agent ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "Environment ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API base URL (optional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Complete the Anthropic Managed Agents fields.",
+  "agents.managedAgentCheck":
+    "Connection is checked when you delegate from chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent saved. Delegate to it from chat.",
+  "agents.cardUrl": "Agent card URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Authentication",
+  "agents.authNone": "No authentication",
+  "agents.authBearer": "Bearer token",
+  "agents.authClientCredentials": "OAuth client credentials",
+  "agents.chooseCredential": "Choose credential",
+  "agents.vault": "Vault",
+  "agents.tokenUrl": "Token URL",
+  "agents.clientId": "Client ID",
+  "agents.scope": "Scope",
+  "agents.authIncomplete": "Complete the hosted agent authentication fields.",
+  "agents.invalidUrl":
+    "Use HTTPS for agent URLs, except for localhost or loopback development URLs.",
+  "agents.statusReachable": "Reachable",
+  "agents.statusAuthRejected": "Auth rejected",
+  "agents.statusNoJsonRpc": "No JSON-RPC",
   "common.saveFailed": "Save failed",
   "common.saveFailedStatus": "Save failed ({{status}})",
   "common.saving": "Saving...",
@@ -169,6 +210,7 @@ const messages = {
     "Configure Anthropic, OpenAI, or another provider",
   "composer.connectAbove": "Connect AI above to continue...",
   "composer.connectBuilder": "Connect Builder.io",
+  "composer.connectKeys": "Connect keys",
   "composer.connectingBuilder": "Connecting Builder.io…",
   "composer.costHigher": "Higher cost",
   "composer.costLower": "Lower cost",
@@ -295,7 +337,7 @@ const messages = {
   "voiceMode.errors.unsupported":
     "This browser does not support realtime voice conversations.",
   "voiceMode.hideChat": "Hide chat",
-  "voiceMode.keepDictating": "Dictate",
+  "voiceMode.keepDictating": "Dictate a message",
   "voiceMode.promptDescription":
     "Voice mode keeps listening while the agent navigates and takes actions.",
   "voiceMode.promptTitle": "Use your voice",
@@ -337,7 +379,7 @@ const messages = {
     "Connect Builder.io to use managed voice with free credits, or add your own keys.",
   "voiceMode.setupTitle": "Set up voice mode",
   "voiceMode.showChat": "Show chat",
-  "voiceMode.start": "Real-time voice",
+  "voiceMode.start": "Start voice chat",
   "voiceMode.startWithOpenAiKey": "Start with OpenAI key",
   "voiceMode.status.connecting": "Connecting",
   "voiceMode.status.ending": "Ending voice mode",
@@ -366,10 +408,15 @@ const messages = {
     "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
+  "errorMessages.creditsLimitReached": "You've reached your AI credits limit.",
   "errorMessages.inactivityTimeout":
     "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
   "errorMessages.invalidToolSchema":
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
+  "errorMessages.malformedRequest":
+    "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.malformedRequestAttachment":
+    "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
   "errorMessages.noProviderConnected":
     "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
@@ -391,6 +438,7 @@ const messages = {
   "feedback.notHelpful": "Not helpful",
   "feedback.placeholder": "Tell us what went wrong...",
   "feedback.submit": "Submit",
+  "feedback.submitted": "Feedback submitted",
   "feedback.thumbsDown": "Thumbs down",
   "feedback.thumbsUp": "Thumbs up",
   "feedback.tooSlow": "Too slow",
@@ -702,6 +750,7 @@ const messages = {
   "widget.dataInsights": "Data insights",
   "widget.dataTable": "Data table",
   "widget.downloadCsv": "Download CSV",
+  "widget.connectProvider": "Connect {{provider}}",
   "widget.loadingToolResult": "Loading tool result",
   "widget.noRows": "No rows",
   "widget.points": "{{formattedCount}} points",
@@ -711,6 +760,14 @@ const messages = {
   "widget.rows_one": "{{formattedCount}} row",
   "widget.rows_other": "{{formattedCount}} rows",
   "widget.sampled": "sampled",
+  "settings.emailTitle": "Email",
+  "settings.emailChange": "Change email",
+  "settings.emailChanging": "Sending...",
+  "settings.emailChangeSent":
+    "Check your email for instructions to confirm this change.",
+  "settings.emailChangeError": "Could not send confirmation.",
+  "settings.emailNewLabel": "New email",
+  "settings.emailNewPlaceholder": "Enter new email",
 } as const;
 
 export default messages;

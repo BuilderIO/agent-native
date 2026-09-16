@@ -420,8 +420,32 @@ describe("workspace provider OAuth", () => {
       }),
     );
 
+    expect(url.searchParams.get("include_granted_scopes")).toBe("true");
     expect(url.searchParams.get("prompt")).toBe("consent select_account");
     expect(url.searchParams.get("login_hint")).toBe("work@example.com");
+  });
+
+  it("can isolate a Calendar consent request from previously granted Google scopes", () => {
+    const provider = getWorkspaceConnectionProvider("google_calendar")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "google-client",
+        redirectUri: "http://localhost:3000/_agent-native/google/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+        includeGrantedScopes: false,
+      }),
+    );
+
+    expect(url.searchParams.get("include_granted_scopes")).toBe("false");
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual([
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+    ]);
   });
 
   it("omits login_hint when no signed-in identity is available", () => {

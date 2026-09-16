@@ -14,6 +14,7 @@ import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   applyDocSurgically,
   createSharedEditorExtensions,
+  TaskListPasteNormalization,
   useCollabReconcile,
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
@@ -45,9 +46,12 @@ import { TableRow } from "@tiptap/extension-table-row";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import {
+  DOMParser as ProseMirrorDOMParser,
+  DOMSerializer,
   Fragment,
   Slice,
   type Node as ProseMirrorNode,
+  type ResolvedPos,
 } from "@tiptap/pm/model";
 import {
   Plugin,
@@ -214,12 +218,72 @@ const MARKDOWN_PATTERNS = [
   /^\s*[-*_]{3,}\s*$/m, // horizontal rules
   /^\s*>\s+\S/m, // blockquotes
   /^\s*```/m, // code fences
-  /\*\*\S.*?\S\*\*/m, // bold
-  /\*\S.*?\S\*/m, // italic
-  /\[.+?\]\(.+?\)/m, // links
   /^\s*- \[[ x]\]\s/m, // task lists
   /\|.+\|.+\|/m, // tables
 ];
+
+function hasDelimitedText(text: string, delimiter: string): boolean {
+  let start = -1;
+  for (let index = 0; index <= text.length - delimiter.length; index++) {
+    if (text.slice(index, index + delimiter.length) !== delimiter) continue;
+
+    const before = text[index - 1];
+    const after = text[index + delimiter.length];
+    if (start === -1) {
+      if ((!before || /[\s([{"']/.test(before)) && after && !/\s/.test(after)) {
+        start = index;
+      }
+      continue;
+    }
+
+    if (index > start + delimiter.length && before && !/\s/.test(before)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasMarkdownLink(text: string): boolean {
+  let labelStart = -1;
+  let destinationStart = -1;
+
+  for (let index = 0; index < text.length; index++) {
+    if (destinationStart !== -1) {
+      if (text[index] === ")" && index > destinationStart + 2) return true;
+      continue;
+    }
+    if (text[index] === "[") {
+      labelStart = index;
+      continue;
+    }
+    if (
+      labelStart !== -1 &&
+      text[index] === "]" &&
+      text[index + 1] === "(" &&
+      index > labelStart + 1
+    ) {
+      destinationStart = index;
+      index++;
+    }
+  }
+  return false;
+}
+
+function hasUnambiguousBlockMarkdown(text: string): boolean {
+  if (/^\s*[-*_]{3,}\s*$/m.test(text)) return true;
+  if (/^\s*```[^\n]*\n[\s\S]*^\s*```\s*$/m.test(text)) return true;
+  if (/^\s*- \[[ x]\]\s+\S/m.test(text)) return true;
+  if (/^\s*\|?.+\|.+\|?\s*\n\s*\|?\s*:?-{3,}/m.test(text)) return true;
+
+  let listLines = 0;
+  let quoteLines = 0;
+  for (const line of text.split("\n")) {
+    if (/^\s*(?:[-*+]\s+|\d+\.\s+)\S/.test(line)) listLines++;
+    if (/^\s*>\s+\S/.test(line)) quoteLines++;
+    if (listLines >= 2 || quoteLines >= 2) return true;
+  }
+  return false;
+}
 
 function looksLikeMarkdown(text: string): boolean {
   // Need at least 2 matching patterns to avoid false positives
@@ -230,9 +294,77 @@ function looksLikeMarkdown(text: string): boolean {
       if (matches >= 2) return true;
     }
   }
-  // Single heading at the start is a strong enough signal on its own
-  if (matches === 1 && /^#{1,6}\s+\S/m.test(text)) return true;
-  return false;
+  // A heading or an unambiguous/repeated block construct is sufficient alone.
+  if (
+    matches === 1 &&
+    (/^#{1,6}\s+\S/m.test(text) || hasUnambiguousBlockMarkdown(text))
+  )
+    return true;
+  return (
+    hasDelimitedText(text, "**") ||
+    hasDelimitedText(text, "*") ||
+    hasMarkdownLink(text)
+  );
+}
+
+export function parseMarkdownClipboardSlice(
+  editor: CoreEditor,
+  text: string,
+  context: ResolvedPos = editor.state.selection.$from,
+): Slice | null {
+  if (!looksLikeMarkdown(text)) return null;
+
+  const doc = editor.schema.nodeFromJSON(nfmToDoc(text));
+  const container = document.createElement("div");
+  container.appendChild(
+    DOMSerializer.fromSchema(editor.schema).serializeFragment(doc.content),
+  );
+  return ProseMirrorDOMParser.fromSchema(editor.schema).parseSlice(container, {
+    context,
+  });
+}
+
+function parsePlainTextClipboardSlice(
+  editor: CoreEditor,
+  text: string,
+  context: ResolvedPos,
+): Slice {
+  const container = document.createElement("div");
+  const serializer = DOMSerializer.fromSchema(editor.schema);
+  const marks = context.marks();
+  text.split(/(?:\r\n?|\n)+/).forEach((block) => {
+    const paragraph = container.appendChild(document.createElement("p"));
+    if (block) {
+      paragraph.appendChild(
+        serializer.serializeNode(editor.schema.text(block, marks)),
+      );
+    }
+  });
+  return ProseMirrorDOMParser.fromSchema(editor.schema).parseSlice(container, {
+    preserveWhitespace: true,
+    context,
+  });
+}
+
+function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
+  const from = view.state.selection.from;
+  const insertion = view.state.tr
+    .replaceSelection(slice)
+    .scrollIntoView()
+    .setMeta("paste", true)
+    .setMeta("uiEvent", "paste");
+  const expected = insertion.doc;
+  view.dispatch(insertion);
+
+  // Tiptap keys generic paste rules off uiEvent and may append a transaction
+  // that reinterprets syntax inside content this path promises to keep literal.
+  if (!view.state.doc.eq(expected)) {
+    view.dispatch(
+      view.state.tr
+        .replaceRange(from, view.state.selection.from, slice)
+        .setMeta("addToHistory", false),
+    );
+  }
 }
 
 /**
@@ -250,16 +382,51 @@ const MarkdownPasteDetection = Extension.create({
       new Plugin({
         key: new PluginKey("markdownPasteDetection"),
         props: {
+          clipboardTextParser(text, _context, plainText) {
+            if (!plainText) {
+              const markdown = parseMarkdownClipboardSlice(
+                editor,
+                text,
+                _context,
+              );
+              if (markdown) return markdown;
+            }
+            return parsePlainTextClipboardSlice(editor, text, _context);
+          },
           handlePaste(view, event) {
+            const context = view.state.selection.$from;
+            // ProseMirror records the Shift-paste intent on its view input state,
+            // but does not expose that state in the public EditorView type.
+            const input = (
+              view as unknown as {
+                input?: { shiftKey: boolean; lastKeyCode: number | null };
+              }
+            ).input;
+            const isPlainTextPaste =
+              input?.shiftKey === true && input.lastKeyCode !== 45;
+            if (isPlainTextPaste || context.parent.type.spec.code) return false;
+
             const clipboardData = event.clipboardData;
             if (!clipboardData) return false;
 
             const html = clipboardData.getData("text/html");
             const plainText = clipboardData.getData("text/plain");
 
-            // Only intercept when there's both HTML and plain text,
-            // and the plain text looks like markdown. If there's no HTML,
-            // tiptap-markdown's transformPastedText handles it already.
+            // Tiptap's generic paste rules would otherwise reinterpret literal
+            // asterisks even after the Markdown detector rejects the text.
+            if (!html && plainText && !looksLikeMarkdown(plainText)) {
+              const slice = parsePlainTextClipboardSlice(
+                editor,
+                plainText,
+                context,
+              );
+              event.preventDefault();
+              dispatchLiteralPaste(view, slice);
+              return true;
+            }
+
+            // Text-only clipboard data is handled by clipboardTextParser above.
+            // This path handles code editors that also provide an HTML wrapper.
             if (!html || !plainText || !looksLikeMarkdown(plainText)) {
               return false;
             }
@@ -269,22 +436,79 @@ const MarkdownPasteDetection = Extension.create({
             const div = document.createElement("div");
             div.innerHTML = html;
             const hasRichStructure = div.querySelector(
-              "h1, h2, h3, h4, h5, h6, ul, ol, blockquote, table",
+              "h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, a, strong, b, em, i, u, s, code, img, picture, video, audio, iframe, object, embed, svg",
             );
-            // But allow interception if the HTML is just a code/pre wrapper
-            // (from code editors or terminals)
+            // Code editors commonly wrap plain Markdown in exactly pre > code.
+            // Inline code is rich content and must stay on the native HTML path.
+            const wrapper = div.firstElementChild;
             const isCodeWrapper =
-              div.querySelector("pre, code") !== null && !hasRichStructure;
+              div.childElementCount === 1 &&
+              wrapper?.tagName === "PRE" &&
+              wrapper.childElementCount === 1 &&
+              wrapper.firstElementChild?.tagName === "CODE";
 
             if (hasRichStructure && !isCodeWrapper) {
+              if (div.querySelector("code")) {
+                const protectedCode: string[] = [];
+                div.querySelectorAll("code").forEach((code) => {
+                  const protectTextNodes = (node: Node) => {
+                    for (const child of Array.from(node.childNodes)) {
+                      if (child.nodeType === Node.TEXT_NODE) {
+                        const text = child.textContent ?? "";
+                        if (!text) continue;
+                        const index = protectedCode.push(text) - 1;
+                        child.textContent = `\uE000${index}\uE001`;
+                      } else {
+                        protectTextNodes(child);
+                      }
+                    }
+                  };
+                  protectTextNodes(code);
+                });
+                const parsed = ProseMirrorDOMParser.fromSchema(
+                  editor.schema,
+                ).parseSlice(div, { context });
+                const restoreCode = (fragment: Fragment): Fragment =>
+                  Fragment.fromArray(
+                    fragment.content.map((node) => {
+                      if (!node.isText)
+                        return node.copy(restoreCode(node.content));
+                      const text = node.text?.replace(
+                        /\uE000(\d+)\uE001/g,
+                        (_, index: string) =>
+                          protectedCode[Number(index)] ?? "",
+                      );
+                      return text === node.text
+                        ? node
+                        : editor.schema.text(text ?? "", node.marks);
+                    }),
+                  );
+                const slice = new Slice(
+                  restoreCode(parsed.content),
+                  parsed.openStart,
+                  parsed.openEnd,
+                );
+                event.preventDefault();
+                dispatchLiteralPaste(view, slice);
+                return true;
+              }
               return false;
             }
 
-            // Prevent default paste and insert markdown as content —
-            // tiptap-markdown will parse it into rich nodes
+            const slice = parseMarkdownClipboardSlice(
+              editor,
+              plainText,
+              context,
+            );
+            if (!slice) return false;
+
             event.preventDefault();
-            editor.commands.insertContent(
-              (editor.storage as any).markdown.parser.parse(plainText),
+            view.dispatch(
+              view.state.tr
+                .replaceSelection(slice)
+                .scrollIntoView()
+                .setMeta("paste", true)
+                .setMeta("uiEvent", "paste"),
             );
             return true;
           },
@@ -882,6 +1106,57 @@ function suggestionAnchorRange(
       ? { from: pmFrom, to: pmTo }
       : null;
   };
+  const collapsedDeletionTextblock = () => {
+    const draftSource = suggestion.afterPresentation?.source;
+    const emptyBlock = "<empty-block/>";
+    const retainsEmptyBlock =
+      draftSource?.slice(sourceFrom, sourceFrom + emptyBlock.length) ===
+      emptyBlock;
+    if (
+      suggestion.presentation !== "draft" ||
+      suggestion.kind !== "delete_text" ||
+      (suggestion.afterText && suggestion.afterText !== emptyBlock) ||
+      !suggestion.beforeText ||
+      /^\n+$/.test(suggestionAnchorText(suggestion.beforeText)) ||
+      draftSource === undefined ||
+      suggestion.afterPresentation?.from !== sourceFrom ||
+      suggestion.afterPresentation.to !==
+        sourceFrom + (retainsEmptyBlock ? emptyBlock.length : 0) ||
+      suggestion.beforePresentation?.source !==
+        draftSource.slice(0, sourceFrom) +
+          suggestion.beforeText +
+          draftSource.slice(
+            sourceFrom + (retainsEmptyBlock ? emptyBlock.length : 0),
+          ) ||
+      suggestion.beforePresentation.from !== sourceFrom ||
+      suggestion.beforePresentation.to !==
+        sourceFrom + suggestion.beforeText.length
+    ) {
+      return null;
+    }
+    if (!retainsEmptyBlock && doc.childCount !== 1) return null;
+
+    const matches: number[] = [];
+    let childPos = 0;
+    let sourceOffset = 0;
+    doc.forEach((node) => {
+      const singleBlock = doc.type.create(doc.attrs, node, doc.marks);
+      const blockSource = docToNfm(singleBlock.toJSON());
+      if (
+        sourceOffset === sourceFrom &&
+        (!retainsEmptyBlock || blockSource === emptyBlock) &&
+        node.isTextblock &&
+        node.content.size === 0
+      ) {
+        matches.push(childPos + 1);
+      }
+      childPos += node.nodeSize;
+      sourceOffset += blockSource.length + 1;
+    });
+    return matches.length === 1 ? { from: matches[0]!, to: matches[0]! } : null;
+  };
+  const collapsedRange = collapsedDeletionTextblock();
+  if (collapsedRange) return collapsedRange;
   if (sourceMatches) {
     const exactRange = sourceRangeToPm(sourceFrom, sourceTo);
     if (exactRange) return exactRange;
@@ -910,16 +1185,6 @@ function suggestionAnchorRange(
       ? suggestion.afterText
       : suggestion.beforeText,
   );
-  if (
-    suggestion.presentation === "draft" &&
-    suggestion.beforeText &&
-    doc.childCount === 1 &&
-    doc.firstChild?.isTextblock &&
-    doc.firstChild.content.size === 0
-  ) {
-    return { from: 1, to: 1 };
-  }
-
   const prefix =
     startOffset === undefined
       ? suggestionAnchorText(suggestion.anchor.prefix)
@@ -949,18 +1214,23 @@ export function suggestionHighlightSpec(
   doc: ProseMirrorNode,
   suggestion: VisualEditorSuggestion,
 ): SuggestionHighlightSpec | null {
+  const retainedEmptyBlockDeletion =
+    suggestion.kind === "delete_text" &&
+    suggestion.afterText === "<empty-block/>";
   const beforePresentation = suggestion.beforePresentation
     ? suggestionTextPresentationForSource(
         suggestion.beforeText,
         suggestion.beforePresentation,
       )
     : undefined;
-  const afterPresentation = suggestion.afterPresentation
-    ? suggestionTextPresentationForSource(
-        suggestion.afterText,
-        suggestion.afterPresentation,
-      )
-    : undefined;
+  const afterPresentation = retainedEmptyBlockDeletion
+    ? []
+    : suggestion.afterPresentation
+      ? suggestionTextPresentationForSource(
+          suggestion.afterText,
+          suggestion.afterPresentation,
+        )
+      : undefined;
   if (beforePresentation === null || afterPresentation === null) return null;
   const range = suggestionAnchorRange(doc, suggestion);
   if (!range) return null;
@@ -980,7 +1250,7 @@ export function suggestionHighlightSpec(
         insertedPresentation: suggestion.afterPresentation,
       };
     }
-    if (!suggestion.afterText) {
+    if (!suggestion.afterText || retainedEmptyBlockDeletion) {
       return {
         suggestionId: suggestion.id,
         kind: "delete",
@@ -2159,6 +2429,10 @@ export function createVisualEditorExtensions({
       TaskItem.configure({
         nested: true,
       }),
+      // Content disables the shared factory's `tasks` feature and ships its own
+      // TaskList/TaskItem, so it has to register the shared paste normalization
+      // that pairs with them.
+      TaskListPasteNormalization,
       ImageNode.configure({
         HTMLAttributes: { class: "notion-image" },
         documentId,
@@ -2212,12 +2486,11 @@ export function createVisualEditorExtensions({
       MarkdownPasteDetection,
       SelectAllDocument,
       JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
-      // Content's NFM Markdown config — kept exactly as before (html:true) so
-      // tiptap-markdown's paste/copy transforms keep working. The authoritative
-      // serialize/parse for save/load still goes through docToNfm / nfmToDoc.
+      // Content owns paste parsing above so multi-block documents never pass
+      // through tiptap-markdown's inline-only clipboard parser.
       Markdown.configure({
         html: true,
-        transformPastedText: true,
+        transformPastedText: false,
         transformCopiedText: true,
       }),
     ],

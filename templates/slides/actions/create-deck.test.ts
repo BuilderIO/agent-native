@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mock dependencies BEFORE importing the action ---
 
-const mockAssertAccess = vi.fn();
+// Locally authored (no `source: "builder"`) reads as indexingStatus "ready",
+// matching every existing test's expectation that a resolved design system
+// id is always usable. Tests exercising the readiness guard override this.
+const mockAssertAccess = vi.fn(async () => ({
+  role: "owner" as const,
+  resource: { data: JSON.stringify({ colors: {} }) },
+}));
 const mockWriteAppState = vi.fn();
 const mockGetRequestRunContext = vi.fn(() => ({
   browserTabId: "slides-tab-1",
@@ -39,6 +45,7 @@ let existingDeckRow:
   | { id: string; data: string; updatedAt: string }
   | undefined = undefined;
 let defaultDesignSystemId: string | undefined = undefined;
+let defaultDesignSystemData = JSON.stringify({ colors: {} });
 let titleQueryRows: Array<{ id: string }> = [];
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
@@ -46,7 +53,9 @@ let updatedFields: Record<string, unknown> | undefined = undefined;
 // db.select().from(...).where(...).limit(...)
 const limitFn = vi.fn(async () => (existingDeckRow ? [existingDeckRow] : []));
 const defaultDesignSystemLimitFn = vi.fn(async () =>
-  defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
+  defaultDesignSystemId
+    ? [{ id: defaultDesignSystemId, data: defaultDesignSystemData }]
+    : [],
 );
 // resolveDesignSystemIdByTitle has no `.limit()` — it awaits `.where(...)`
 // directly, so its clause is distinguished by the accessFilter sentinel that
@@ -158,6 +167,7 @@ beforeEach(() => {
   vi.unstubAllEnvs();
   existingDeckRow = undefined;
   defaultDesignSystemId = undefined;
+  defaultDesignSystemData = JSON.stringify({ colors: {} });
   titleQueryRows = [];
   insertedRow = undefined;
   updatedFields = undefined;
@@ -214,6 +224,21 @@ describe("create-deck — aspectRatio", () => {
     expect(result.designSystemId).toBe("ds-default");
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.designSystemId).toBe("ds-default");
+  });
+
+  it("falls back to no design system when the caller's default is still indexing", async () => {
+    defaultDesignSystemId = "ds-default";
+    defaultDesignSystemData = JSON.stringify({
+      source: "builder",
+      builderStatus: "in-progress",
+    });
+
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(insertedRow!.designSystemId).toBeNull();
+    expect(result.designSystemId).toBeNull();
+    const data = JSON.parse(insertedRow!.data as string);
+    expect("designSystemId" in data).toBe(false);
   });
 
   it("uses an explicit design system instead of the default", async () => {
@@ -299,6 +324,51 @@ describe("create-deck — aspectRatio", () => {
     expect(titleWhereFn).not.toHaveBeenCalled();
     expect(insertedRow!.designSystemId).toBe("ds-explicit");
     expect(result.designSystemId).toBe("ds-explicit");
+  });
+
+  it("rejects an explicit design system that is still indexing", async () => {
+    mockAssertAccess.mockResolvedValueOnce({
+      role: "owner" as const,
+      resource: {
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "in-progress",
+        }),
+      },
+    });
+
+    await expect(
+      action.run({
+        title: "T",
+        slides: [],
+        designSystemId: "ds-indexing",
+      }),
+    ).rejects.toThrow(/still indexing/);
+    expect(insertedRow).toBeUndefined();
+  });
+
+  it("rejects replacing an existing deck's design system with an unavailable one", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [] }),
+    };
+    mockAssertAccess.mockResolvedValueOnce({
+      role: "owner" as const,
+      resource: {
+        data: JSON.stringify({ source: "builder", builderStatus: "error" }),
+      },
+    });
+
+    await expect(
+      action.run({
+        title: "T",
+        slides: [],
+        deckId: "deck-1",
+        designSystemId: "ds-broken",
+      }),
+    ).rejects.toThrow(/unavailable/);
+    expect(updatedFields).toBeUndefined();
   });
 
   it("returns a workspace-scoped deck URL when the app is mounted under a base path", async () => {

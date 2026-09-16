@@ -8,9 +8,115 @@ import {
   handleSharedThreadRequest,
   isNetlifyRecurringJobsRuntime,
   resolveRecurringJobsBuildMarker,
+  resolveAgentCheckpointPaths,
   scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
 } from "./agent-chat-plugin.js";
+
+describe("agent checkpoint path provenance", () => {
+  const contentSha256 = "a".repeat(64);
+
+  it("keeps reported file-tool paths and fails closed on unreported changes", () => {
+    const events = [
+      {
+        event: {
+          type: "tool_done" as const,
+          tool: "edit",
+          input: { path: "src/agent.ts" },
+          result: "ok",
+          fileMutation: { path: "src/agent.ts", contentSha256 },
+        },
+      },
+    ];
+
+    expect(
+      resolveAgentCheckpointPaths("/workspace", ["src/agent.ts"], events),
+    ).toEqual(new Map([["src/agent.ts", contentSha256]]));
+    expect(
+      resolveAgentCheckpointPaths(
+        "/workspace",
+        ["src/agent.ts", "developer.txt"],
+        events,
+      ),
+    ).toEqual(new Map());
+    expect(
+      resolveAgentCheckpointPaths(
+        "/workspace",
+        ["outside.txt"],
+        [
+          {
+            event: {
+              type: "tool_done",
+              tool: "write",
+              input: { path: "../outside.txt" },
+              result: "ok",
+              fileMutation: { path: "../outside.txt", contentSha256 },
+            },
+          },
+        ],
+      ),
+    ).toEqual(new Map());
+  });
+
+  it("normalizes Windows-style tool paths", () => {
+    expect(
+      resolveAgentCheckpointPaths(
+        "/workspace",
+        ["src/agent.ts"],
+        [
+          {
+            event: {
+              type: "tool_done",
+              tool: "write",
+              input: { path: "src\\agent.ts" },
+              result: "ok",
+              fileMutation: { path: "src/agent.ts", contentSha256 },
+            },
+          },
+        ],
+      ),
+    ).toEqual(new Map([["src/agent.ts", contentSha256]]));
+  });
+
+  it("ignores paths reported by read-only tools", () => {
+    expect(
+      resolveAgentCheckpointPaths(
+        "/workspace",
+        ["src/agent.ts"],
+        [
+          {
+            event: {
+              type: "tool_done",
+              tool: "read-file",
+              input: { path: "src/agent.ts" },
+              result: "contents",
+              fileMutation: { path: "src/agent.ts", contentSha256 },
+            },
+          },
+        ],
+      ),
+    ).toEqual(new Map());
+  });
+
+  it("ignores writes without exact content identity", () => {
+    expect(
+      resolveAgentCheckpointPaths(
+        "/workspace",
+        ["src/agent.ts"],
+        [
+          {
+            event: {
+              type: "tool_done",
+              tool: "write",
+              input: { path: "src/agent.ts" },
+              result: "ok",
+            },
+          },
+        ],
+      ),
+    ).toEqual(new Map());
+  });
+});
 
 function createSharedThreadEvent(
   path: string,

@@ -37,6 +37,7 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedded-wheel.generated";
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
+import { isTextElement } from "../edit-panel/element-classification";
 
 declare global {
   interface Window {
@@ -716,6 +717,7 @@ it(
         "move",
         "end",
       ]);
+      expect(panMessages[1]).toMatchObject({ movementX: 32, movementY: 18 });
       expect(
         messages.filter((message) => message.type === "design-hotkey"),
       ).toHaveLength(1);
@@ -849,7 +851,9 @@ it(
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
-      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]', {
+        timeout: 5_000,
+      });
 
       const before = await page
         .locator("#app-shell")
@@ -1251,13 +1255,7 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       // Select child A.
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
       // Install the message collector AFTER setContent (setContent replaces the
       // document and would wipe a listener added earlier), then reset it so we
       // only observe messages from the drag below.
@@ -1419,13 +1417,7 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       // Select A (top-left at 20,20; grab at its center 70,50 → grab offset 50,30).
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
 
       // Ctrl-drag into open space below the row and release at (400, 300).
       await page.keyboard.down("Control");
@@ -1497,13 +1489,7 @@ it(
       });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
 
       // Drag WITHOUT a modifier, then press Ctrl only just before releasing
       // (no pointer move after) — the drop must still free-place as absolute.
@@ -1561,13 +1547,7 @@ it(
       });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
         window.addEventListener("message", (event: MessageEvent) => {
@@ -1647,13 +1627,7 @@ it(
       });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
 
       // Plain drag (no modifier) of A rightward → reorder; siblings between the
       // origin and the drop slot must translate aside to open the gap.
@@ -2165,7 +2139,16 @@ it(
     </div>
   </body>
 </html>`);
-      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      // Text editing must be ON: beginTextEditingFromEvent (the dblclick
+      // handler that owns the non-text descend fallback below) bails out
+      // before reaching it whenever textEditingEnabled is false — the
+      // dblclick listener invokes it with no `forceTextEditing` override.
+      // This used to be masked by the plain click's OLD deep-hit selection
+      // (the click half of the double-click already landed on #icon), which
+      // container-first selection no longer does.
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithTextEditing(),
+      });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       // First click selects the outer group (an ordinary single click).
@@ -2204,6 +2187,287 @@ it(
       );
       expect(stillNotTextEditing).toBe(true);
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "click-through descends from a generated wrapper into its text child on the second click, then edits it on double-click",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #headline { position: absolute; left: 100px; top: 100px; width: 300px; height: 120px; background: #f5f5f5; }
+      #headline > span { position: absolute; left: 20px; display: block; font-size: 24px; }
+      #headline > span:first-child { top: 20px; }
+      #production-ui { top: 60px; }
+    </style>
+  </head>
+  <body>
+    <div id="headline" data-agent-native-node-id="headline" data-agent-native-layer-name="Headline" data-agent-native-group-wrapper="true">
+      <span data-an-primitive="text">Your prompt</span>
+      <span id="production-ui" data-agent-native-node-id="production-ui" data-an-primitive="text">Production UI</span>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-text-editing-enabled", enabled: true },
+          "*",
+        );
+        (window as any).__elementSelectPayloads = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__elementSelectPayloads.push(event.data.payload);
+          }
+        });
+      });
+
+      const prompt = page.locator("#headline > span").first();
+      const box = await prompt.boundingBox();
+      if (!box) throw new Error("Prompt text was not rendered");
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+      await page.mouse.click(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 0,
+      );
+      const firstSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+      expect(firstSelection.sourceId).toBe("headline");
+
+      await page.waitForTimeout(500);
+      await page.mouse.click(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 1,
+      );
+      const repeatedSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+
+      // Figma parity: with the wrapper already selected, a second plain
+      // click descends into the child under the pointer instead of
+      // re-resolving back to the wrapper (clickThroughSelectionTarget no
+      // longer promotes to a group-wrapper-marked ancestor).
+      expect(repeatedSelection.sourceId).not.toBe("headline");
+
+      await page.mouse.dblclick(point.x, point.y);
+      await page.waitForFunction(() =>
+        Boolean(
+          document.querySelector<HTMLElement>(
+            '[data-agent-native-text-editing="true"]',
+          ),
+        ),
+      );
+      const textSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+
+      expect(textSelection.tagName).toBe("span");
+      expect(textSelection.primitiveKind).toBe("text");
+      expect(textSelection.hasOwnText).toBe(true);
+      expect(textSelection.pendingNodeId).toBeTruthy();
+      expect(isTextElement(textSelection)).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "reports a paragraph with an inline span as a whole text style root",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html>
+<html><body style="margin:0">
+  <main><article>
+    <p id="note" data-agent-native-node-id="note" style="margin:0"><span>Shared note</span></p>
+    <div id="generic" data-agent-native-node-id="generic"><span>Generic note</span></div>
+  </article></main>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-text-editing-enabled", enabled: true },
+          "*",
+        );
+        (window as any).__elementSelectPayloads = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__elementSelectPayloads.push(event.data.payload);
+          }
+        });
+      });
+
+      await selectElementDirect(page, "#note");
+      await page.waitForFunction(
+        () =>
+          (window as any).__elementSelectPayloads.at(-1)?.sourceId === "note",
+      );
+      const selection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+
+      expect(selection.sourceId).toBe("note");
+      expect(selection.tagName).toBe("p");
+      expect(selection.hasOwnText).toBe(false);
+      expect(selection.wholeTextStyleRoot).toBe(true);
+      expect(isTextElement(selection)).toBe(true);
+
+      await selectElementDirect(page, "#generic");
+      await page.waitForFunction(
+        () =>
+          (window as any).__elementSelectPayloads.at(-1)?.sourceId ===
+          "generic",
+      );
+      const genericSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+      expect(genericSelection.tagName).toBe("div");
+      expect(genericSelection.wholeTextStyleRoot).toBe(false);
+      expect(isTextElement(genericSelection)).toBe(false);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge promotes generated groups, but not authored or copied Group layers",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      .group { position: absolute; width: 180px; height: 120px; background: #f5f5f5; }
+      .child { position: absolute; left: 20px; top: 20px; width: 60px; height: 60px; background: #6366f1; }
+      #authored-group { left: 100px; top: 100px; }
+      #generated-group { left: 400px; top: 100px; }
+      #legacy-group { left: 700px; top: 100px; }
+      #cloned-group { left: 100px; top: 300px; }
+    </style>
+  </head>
+  <body>
+    <div id="authored-group" class="group" data-agent-native-node-id="authored-group" data-agent-native-layer-name="Group">
+      <div id="authored-child" class="child" data-agent-native-node-id="authored-child"></div>
+    </div>
+    <div id="generated-group" class="group" data-agent-native-node-id="generated-group" data-agent-native-layer-name="Renamed section" data-agent-native-group-wrapper="true">
+      <div id="generated-child" class="child" data-agent-native-node-id="generated-child"></div>
+    </div>
+    <div id="legacy-group" class="group" data-agent-native-node-id="an-legacygroup" data-agent-native-layer-name="Group 2" data-agent-native-preserve-styles="true">
+      <div id="legacy-child" class="child" data-agent-native-node-id="legacy-child"></div>
+    </div>
+    <div id="cloned-group" class="group" data-agent-native-node-id="copy-cloned-group" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true" data-agent-native-clone-root="true" data-agent-native-preserve-styles="true">
+      <div id="cloned-child" class="child" data-agent-native-node-id="cloned-child"></div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page
+        .waitForSelector('[data-agent-native-edit-overlay="shield"]', {
+          timeout: 2_000,
+        })
+        .catch((error) => {
+          throw new Error(
+            `Editor overlay did not initialize: ${pageErrors.join("; ") || error.message}`,
+          );
+        });
+      await page.evaluate(() => {
+        (window as any).__selectedIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectedIds.push(event.data.payload?.sourceId);
+          }
+        });
+      });
+
+      // Cmd/Ctrl+click deep-selects the raw hit and skips the container-first
+      // outermost-child-of-scope step (spec Part 3), so it's the path that
+      // exercises selectionTargetForHit's generated-vs-authored group-wrapper
+      // marker check below. A plain click would always resolve to the
+      // outermost child of the current scope regardless of that marker.
+      await page.keyboard.down("Meta");
+
+      await page.mouse.click(140, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 1,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const authoredSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(authoredSelection).toBe("authored-child");
+
+      await page.mouse.click(440, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 2,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const generatedSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(generatedSelection).toBe("generated-group");
+
+      await page.mouse.click(740, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 3,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const legacySelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(legacySelection).toBe("an-legacygroup");
+
+      await page.mouse.click(140, 340);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 4,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const clonedSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(clonedSelection).toBe("cloned-child");
+
+      await page.keyboard.up("Meta");
     } finally {
       await browser.close();
     }
@@ -2315,7 +2579,7 @@ it(
 );
 
 it(
-  "editor chrome bridge K-scale tool scales the type inside the resized element and commits each scaled node",
+  "editor chrome bridge K-scale tool scales the type inside the resized element and returns each scaled node in one batch",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -2355,11 +2619,14 @@ it(
         (window as unknown as { __styleChanges: unknown[] }).__styleChanges =
           [];
         window.addEventListener("message", (event) => {
-          const data = event.data as { type?: string };
-          if (data?.type === "visual-style-change") {
+          const data = event.data as {
+            type?: string;
+            changes?: Array<Record<string, unknown>>;
+          };
+          if (data?.type === "visual-style-batch-change") {
             (
               window as unknown as { __styleChanges: unknown[] }
-            ).__styleChanges.push(event.data);
+            ).__styleChanges.push(...(data.changes ?? []));
           }
         });
         window.postMessage({ type: "scale-tool-mode", enabled: true }, "*");
@@ -2402,23 +2669,391 @@ it(
           cardWidth: document.querySelector<HTMLElement>("#card")!.style.width,
           headingFontSize:
             document.querySelector<HTMLElement>("#heading")!.style.fontSize,
-          // Inherits the card's own scaled font-size — writing a px value here
-          // too would scale it twice.
           inheritedFontSize:
             document.querySelector<HTMLElement>("#inherited")!.style.fontSize,
-          committedHeadingFontSize: heading?.styles.fontSize,
-          headingRevertBaseline: heading?.originalStyles?.fontSize,
+          committedHeadingFontSize: heading?.styles["font-size"],
+          headingRevertBaseline: heading?.originalStyles?.["font-size"],
           headingPreservesSelection: heading?.preserveSelection,
         };
       });
 
       expect(result.cardWidth).toBe("100px");
       expect(result.headingFontSize).toBe("12px");
-      expect(result.inheritedFontSize).toBe("");
+      expect(result.inheritedFontSize).toBe("8px");
       expect(result.committedHeadingFontSize).toBe("12px");
       // The revert baseline is the authored value, not the scaled preview.
       expect(result.headingRevertBaseline).toBe("");
       expect(result.headingPreservesSelection).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "external K-scale only collects visual nodes, including hidden authored layers and SVG",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html>
+<html><head>
+  <style data-agent-native-node-id="authored-style">
+    #hidden-layer { width: 64px; height: 32px; font-size: 12px; display: none; }
+  </style>
+</head><body>
+  <script data-agent-native-node-id="authored-script">window.runtimeOnly = true;</script>
+  <div id="hidden-layer" data-agent-native-node-id="hidden-layer"></div>
+  <div data-agent-native-edit-overlay="shield">
+    <div id="overlay-child" data-agent-native-node-id="overlay-child" style="width:48px;height:24px;font-size:14px"></div>
+  </div>
+  <svg id="authored-svg" data-agent-native-node-id="authored-svg" style="width:40px;height:20px">
+    <rect id="authored-rect" data-agent-native-node-id="authored-rect" width="12" height="8" style="stroke-width:2px" />
+  </svg>
+  <iframe data-agent-native-node-id="authored-iframe" aria-hidden="true" style="width:40px;height:20px;font-size:12px"></iframe>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        const iframe = document.createElement("iframe");
+        iframe.setAttribute("aria-hidden", "true");
+        iframe.tabIndex = -1;
+        iframe.style.cssText =
+          "position:fixed!important;width:0!important;height:0!important;border:0!important;visibility:hidden!important;pointer-events:none!important;font-size:16px;outline-width:3px";
+        document.body.appendChild(iframe);
+      });
+
+      const changes = await page.evaluate(() => {
+        const scale = (
+          window as Window & {
+            __designCanvasScaleContents?: (
+              factor: number,
+              phase: "begin" | "preview" | "commit" | "cancel" | "accept",
+            ) => Array<{
+              selector: string;
+              sourceId?: string;
+              styles: Record<string, string>;
+            }>;
+          }
+        ).__designCanvasScaleContents;
+        if (!scale) return null;
+        scale(1, "begin");
+        const result = scale(1.5, "commit");
+        scale(1, "cancel");
+        return result.map((change) => ({
+          ...change,
+          tagName: document.querySelector(change.selector)?.tagName,
+        }));
+      });
+
+      expect(changes).not.toBeNull();
+      const targets = changes ?? [];
+      expect(targets.map((change) => change.sourceId)).toContain(
+        "hidden-layer",
+      );
+      expect(targets.map((change) => change.sourceId)).toContain(
+        "authored-svg",
+      );
+      expect(targets.map((change) => change.sourceId)).toContain(
+        "authored-rect",
+      );
+      expect(targets.map((change) => change.sourceId)).toContain(
+        "authored-iframe",
+      );
+      expect(targets.map((change) => change.sourceId)).not.toContain(
+        "authored-script",
+      );
+      expect(targets.map((change) => change.sourceId)).not.toContain(
+        "authored-style",
+      );
+      expect(targets.map((change) => change.sourceId)).not.toContain(
+        "overlay-child",
+      );
+      expect(targets.map((change) => change.tagName)).not.toContain("SCRIPT");
+      expect(targets.map((change) => change.tagName)).not.toContain("STYLE");
+      expect(
+        targets
+          .filter((change) => change.tagName === "IFRAME")
+          .map((change) => change.sourceId),
+      ).toEqual(["authored-iframe"]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "cancels external K-scale preview before restoring its unchanged source",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+
+    try {
+      const page = await browser.newPage();
+      const html = `<!doctype html>
+<html><head><style>html,body{margin:0;width:400px;height:400px}</style></head>
+<body><div id="child" data-agent-native-node-id="child" style="position:absolute;left:24px;top:20px;width:60px;height:40px;background:#ef4444"></div></body></html>`;
+      await page.setContent('<iframe id="preview"></iframe>');
+      const frame = page
+        .frames()
+        .find((candidate) => candidate.parentFrame() === page.mainFrame());
+      if (!frame) throw new Error("Preview iframe unavailable");
+      await frame.setContent(html);
+      await frame.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await frame.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const child = frame.locator("#child");
+      await expect
+        .poll(() =>
+          child.evaluate((element) => getComputedStyle(element).width),
+        )
+        .toBe("60px");
+      await child.evaluate((element) => {
+        const scale = (
+          element.ownerDocument.defaultView as Window & {
+            __designCanvasScaleContents?: (
+              factor: number,
+              phase: "begin" | "preview" | "cancel",
+            ) => unknown;
+          }
+        ).__designCanvasScaleContents;
+        if (!scale) throw new Error("K-scale bridge unavailable");
+        scale(1, "begin");
+        scale(1.5, "preview");
+      });
+      await expect
+        .poll(() =>
+          child.evaluate((element) => getComputedStyle(element).width),
+        )
+        .toBe("90px");
+
+      await page.locator("#preview").evaluate((element) => {
+        const frameWindow = (element as HTMLIFrameElement)
+          .contentWindow as Window & {
+          __designCanvasScaleContents?: (
+            factor: number,
+            phase: "cancel",
+          ) => unknown;
+        };
+        frameWindow.__designCanvasScaleContents?.(1, "cancel");
+      });
+      await page.evaluate(
+        ({ html }) => {
+          const frameWindow = (
+            document.querySelector("#preview") as HTMLIFrameElement | null
+          )?.contentWindow;
+          if (!frameWindow) throw new Error("Preview iframe unavailable");
+          frameWindow.postMessage(
+            {
+              type: "replace-document-content",
+              content: html,
+              selectedSelector: '[data-agent-native-node-id="child"]',
+              selectorCandidates: ['[data-agent-native-node-id="child"]'],
+              forceFullDocument: true,
+            },
+            "*",
+          );
+        },
+        { html },
+      );
+      await expect
+        .poll(() =>
+          child.evaluate((element) => getComputedStyle(element).width),
+        )
+        .toBe("60px");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge K scaling preserves computed fixed and em geometry, responsive percentages, and non-length values",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html><head><style>
+  html, body { margin: 0; width: 100%; height: 100%; }
+  #card { position: absolute; left: 150px; top: 150px; width: 200px; height: 200px; font-size: 20px; }
+  .fixed { position: absolute; left: 20px; top: 20px; width: 4em; height: 2em; padding: 1em; font-size: 20px; }
+  .responsive { position: absolute; left: 50%; top: 10%; width: 50%; height: 50%; }
+  #vector { position: absolute; left: 110px; top: 110px; width: 40px; height: 40px; }
+</style></head><body>
+  <div id="card" data-agent-native-node-id="card">
+    <div class="fixed" data-agent-native-node-id="fixed" style="background-image:url('/assets/icon20px.png');content:'label 20px';--copy:'value 20px'"></div>
+    <div class="responsive" data-agent-native-node-id="responsive"></div>
+    <svg id="vector" data-agent-native-node-id="vector" viewBox="0 0 40 40">
+      <rect id="vector-shape" data-agent-native-node-id="vector-shape" x="5" y="5" width="10" height="10" style="stroke-width:2px" />
+      <text id="vector-text" x="0" y="30">abc</text>
+    </svg>
+  </div>
+  <svg id="vector-native-oracle" aria-hidden="true" viewBox="0 0 40 40" style="position:absolute;left:700px;top:0;width:48px;height:48px;font-size:20px">
+    <text id="vector-native-oracle-text" x="0" y="30">abc</text>
+  </svg>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as unknown as { __scaleChanges: unknown[] }).__scaleChanges =
+          [];
+        window.addEventListener("message", (event) => {
+          if (
+            (event.data as { type?: string })?.type ===
+            "visual-style-batch-change"
+          ) {
+            (
+              window as unknown as { __scaleChanges: unknown[] }
+            ).__scaleChanges.push(event.data);
+          }
+        });
+        window.postMessage({ type: "scale-tool-mode", enabled: true }, "*");
+      });
+      await page.mouse.click(340, 340);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      const handle = page.locator('[data-agent-native-edit-handle="se"]');
+      const bounds = await handle.boundingBox();
+      if (!bounds) throw new Error("resize handle not found");
+      const startX = bounds.x + bounds.width / 2;
+      const startY = bounds.y + bounds.height / 2;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX + 40, startY + 40, { steps: 5 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const fixed = document.querySelector<HTMLElement>(".fixed")!;
+        const responsive = document.querySelector<HTMLElement>(".responsive")!;
+        return {
+          fixed: {
+            width: fixed.style.width,
+            height: fixed.style.height,
+            left: fixed.style.left,
+            top: fixed.style.top,
+            paddingTop: fixed.style.paddingTop,
+            paddingRight: fixed.style.paddingRight,
+            paddingBottom: fixed.style.paddingBottom,
+            paddingLeft: fixed.style.paddingLeft,
+            fontSize: fixed.style.fontSize,
+            backgroundImage: fixed.style.backgroundImage,
+            content: fixed.style.content,
+            copy: fixed.style.getPropertyValue("--copy"),
+          },
+          responsive: {
+            width: responsive.style.width,
+            height: responsive.style.height,
+            computedWidth: getComputedStyle(responsive).width,
+          },
+          vector: {
+            width:
+              document.querySelector<SVGSVGElement>("#vector")!.style.width,
+            height:
+              document.querySelector<SVGSVGElement>("#vector")!.style.height,
+            left: document.querySelector<SVGSVGElement>("#vector")!.style.left,
+            shapeWidth: document
+              .querySelector<SVGRectElement>("#vector-shape")!
+              .getAttribute("width"),
+            shapeHeight: document
+              .querySelector<SVGRectElement>("#vector-shape")!
+              .getAttribute("height"),
+            strokeWidth:
+              document.querySelector<SVGRectElement>("#vector-shape")!.style
+                .strokeWidth,
+            renderedShapeWidth: document
+              .querySelector<SVGRectElement>("#vector-shape")!
+              .getBoundingClientRect().width,
+            fontSize: getComputedStyle(
+              document.querySelector<SVGSVGElement>("#vector")!,
+            ).fontSize,
+            textWidth: document
+              .querySelector<SVGTextElement>("#vector-text")!
+              .getBoundingClientRect().width,
+            cardFontSize: getComputedStyle(
+              document.querySelector<HTMLElement>("#card")!,
+            ).fontSize,
+          },
+          nativeVector: {
+            width: document
+              .querySelector<SVGSVGElement>("#vector-native-oracle")!
+              .getBoundingClientRect().width,
+            height: document
+              .querySelector<SVGSVGElement>("#vector-native-oracle")!
+              .getBoundingClientRect().height,
+            fontSize: getComputedStyle(
+              document.querySelector<SVGSVGElement>("#vector-native-oracle")!,
+            ).fontSize,
+            textWidth: document
+              .querySelector<SVGTextElement>("#vector-native-oracle-text")!
+              .getBoundingClientRect().width,
+          },
+          vectorCommitted: (
+            window as unknown as {
+              __scaleChanges: Array<{ changes?: Array<{ selector: string }> }>;
+            }
+          ).__scaleChanges
+            .flatMap((batch) => batch.changes ?? [])
+            .some((change) => change.selector.includes("vector-shape")),
+          batchCount: (window as unknown as { __scaleChanges: unknown[] })
+            .__scaleChanges.length,
+        };
+      });
+      expect(result.fixed).toEqual({
+        width: "96px",
+        height: "48px",
+        left: "24px",
+        top: "24px",
+        paddingTop: "24px",
+        paddingRight: "24px",
+        paddingBottom: "24px",
+        paddingLeft: "24px",
+        fontSize: "24px",
+        backgroundImage: 'url("/assets/icon20px.png")',
+        content: '"label 20px"',
+        copy: "'value 20px'",
+      });
+      expect(result.responsive).toEqual({
+        width: "",
+        height: "",
+        computedWidth: "120px",
+      });
+      expect(result.vector).toMatchObject({
+        width: "48px",
+        height: "48px",
+        left: "132px",
+        shapeWidth: "10",
+        shapeHeight: "10",
+        strokeWidth: "2px",
+        renderedShapeWidth: 12,
+        fontSize: "20px",
+        cardFontSize: "24px",
+      });
+      expect(result.nativeVector).toMatchObject({
+        width: 48,
+        height: 48,
+        fontSize: "20px",
+      });
+      expect(result.vector.textWidth).toBe(result.nativeVector.textWidth);
+      expect(result.vectorCommitted).toBe(false);
+      expect(result.batchCount).toBe(1);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -2465,12 +3100,30 @@ it(
       await page.evaluate(() => {
         (window as unknown as { __styleChanges: unknown[] }).__styleChanges =
           [];
+        (window as unknown as { __styleBatchCount: number }).__styleBatchCount =
+          0;
         window.addEventListener("message", (event) => {
-          const data = event.data as { type?: string };
+          const data = event.data as {
+            type?: string;
+            changes?: Array<{
+              selector: string;
+              sourceId?: string;
+              styles: Record<string, string>;
+            }>;
+          };
           if (data?.type === "visual-style-change") {
             (
               window as unknown as { __styleChanges: unknown[] }
             ).__styleChanges.push(event.data);
+          } else if (data?.type === "visual-style-batch-change") {
+            const host = window as unknown as {
+              __styleBatchCount: number;
+              __styleChanges: unknown[];
+            };
+            host.__styleBatchCount += 1;
+            (
+              window as unknown as { __styleChanges: unknown[] }
+            ).__styleChanges.push(...(data.changes ?? []));
           }
         });
         window.postMessage({ type: "scale-tool-mode", enabled: true }, "*");
@@ -2509,10 +3162,13 @@ it(
           window as unknown as {
             __styleChanges: Array<{
               selector: string;
+              sourceId?: string;
               styles: Record<string, string>;
             }>;
           }
         ).__styleChanges;
+        const batchCount = (window as unknown as { __styleBatchCount: number })
+          .__styleBatchCount;
         return {
           a: {
             left: a.style.left,
@@ -2523,7 +3179,8 @@ it(
             fontSize: a.style.fontSize,
           },
           b: { left: b.style.left, width: b.style.width },
-          committedSelectors: changes.map((change) => change.selector),
+          committedChanges: changes,
+          batchCount,
         };
       });
 
@@ -2536,7 +3193,26 @@ it(
       expect(result.a.fontSize).toBe("8px");
       expect(result.b.left).toBe("200px");
       expect(result.b.width).toBe("50px");
-      expect(result.committedSelectors.length).toBe(2);
+      expect(result.batchCount).toBe(1);
+      expect(result.committedChanges).toHaveLength(2);
+      expect(result.committedChanges).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sourceId: "boxA",
+            styles: expect.objectContaining({
+              "border-width": "1px 1px 1px 1px",
+              "font-size": "8px",
+            }),
+          }),
+          expect.objectContaining({
+            sourceId: "boxB",
+            styles: expect.objectContaining({
+              "border-width": "1px 1px 1px 1px",
+              "font-size": "8px",
+            }),
+          }),
+        ]),
+      );
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -2673,7 +3349,7 @@ it(
       const expectedCenterX =
         groupBounds.x + (before.centerX - groupBounds.x) * factor;
       expect(Math.abs(after.centerX - expectedCenterX)).toBeLessThan(3);
-      expect(after.width).toBe(`${Math.round(100 * factor)}px`);
+      expect(Number.parseFloat(after.width)).toBeCloseTo(100 * factor, 2);
       // The rotation itself is untouched by the scale.
       expect(after.transform).not.toBe("none");
       expect(pageErrors).toEqual([]);
@@ -2743,15 +3419,7 @@ it(
         );
         // Re-click to (re)select and force the overlay to reposition against
         // the just-changed rendered box before reading the handle position.
-        await page.mouse.click(30, 30);
-        await page.waitForFunction(() => {
-          const overlay = document.querySelector<HTMLElement>(
-            '[data-agent-native-edit-overlay="selection"]',
-          );
-          return (
-            overlay && window.getComputedStyle(overlay).display === "block"
-          );
-        });
+        await selectElementDirect(page, "#target");
 
         const before = await page.evaluate(
           () =>
@@ -2789,15 +3457,7 @@ it(
           },
           { unit },
         );
-        await page.mouse.click(30, 30);
-        await page.waitForFunction(() => {
-          const overlay = document.querySelector<HTMLElement>(
-            '[data-agent-native-edit-overlay="selection"]',
-          );
-          return (
-            overlay && window.getComputedStyle(overlay).display === "block"
-          );
-        });
+        await selectElementDirect(page, "#target");
 
         const before = await page.evaluate(
           () =>
@@ -2872,13 +3532,7 @@ it(
       expect(renderedBefore.width).toBeCloseTo(500, 0);
       expect(renderedBefore.height).toBeCloseTo(160, 0);
 
-      await page.mouse.click(30, 30);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, "#target");
 
       const seHandle = page.locator('[data-agent-native-edit-handle="se"]');
       const seBox = await seHandle.boundingBox();
@@ -2942,13 +3596,7 @@ it(
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(30, 30);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, "#target");
 
       // Pure vertical drag: the "s" EDGE handle (not a corner), so width
       // should never enter into the gesture at all.
@@ -3827,13 +4475,7 @@ it(
       });
       const startX = item1Rect.left + item1Rect.width / 2;
       const startY = item1Rect.top + item1Rect.height / 2;
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const sel = document.querySelector(
-          '[data-agent-native-edit-overlay="selection"]',
-        ) as HTMLElement | null;
-        return !!sel && sel.style.display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="item1"]');
 
       const item3Rect = await page.evaluate(() => {
         const r = document.getElementById("item3")!.getBoundingClientRect();
@@ -3944,17 +4586,7 @@ it(
       });
       const chipCenterX = chipRect.left + chipRect.width / 2;
       const chipCenterY = chipRect.top + chipRect.height / 2;
-      await page.mouse.click(chipCenterX, chipCenterY);
-      await page.waitForFunction(() => {
-        const sel = document.querySelector(
-          '[data-agent-native-edit-overlay="selection"]',
-        ) as HTMLElement | null;
-        return (
-          !!sel &&
-          sel.style.display === "block" &&
-          parseFloat(sel.style.width || "0") < 100
-        );
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="chip"]');
       // Handle spans carry 150ms width/height/offset transitions — let them
       // settle before measuring rendered hit-zone rects.
       await page.waitForTimeout(250);
@@ -4210,6 +4842,360 @@ describe("editor chrome bridge — text editing session", () => {
           () => !!document.querySelector("[data-agent-native-text-editing]"),
         );
         expect(editingAfterEscape).toBe(false);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "clears the native selection when a text edit blurs",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          )!;
+          target.focus();
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+        await page.evaluate(() => {
+          (
+            document.querySelector(
+              "[data-agent-native-text-editing]",
+            ) as HTMLElement
+          ).blur();
+        });
+        await page.waitForTimeout(30);
+
+        const state = await page.evaluate(() => ({
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+          rangeCount: window.getSelection()?.rangeCount ?? 0,
+        }));
+        expect(state.editing).toBe(false);
+        expect(state.rangeCount).toBe(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "clears the native selection when the host deselects the text element",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          )!;
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+        await page.evaluate(() => {
+          window.postMessage({ type: "clear-selection" }, "*");
+        });
+        await page.waitForFunction(
+          () => window.getSelection()?.rangeCount === 0,
+        );
+
+        const state = await page.evaluate(() => ({
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+          rangeCount: window.getSelection()?.rangeCount ?? 0,
+        }));
+        expect(state.editing).toBe(true);
+        expect(state.rangeCount).toBe(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "T26: truncated text expands only for the edit session and restores its layout",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        const before = await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>("#target")!;
+          target.textContent =
+            "A title with enough words to continue onto several lines while editing";
+          target.style.width = "182px";
+          target.style.height = "21px";
+          target.style.minWidth = "0px";
+          target.style.minHeight = "0px";
+          target.style.fontSize = "16px";
+          target.style.whiteSpace = "normal";
+          target.style.display = "-webkit-box";
+          target.style.overflow = "hidden";
+          target.style.setProperty("-webkit-box-orient", "vertical");
+          target.style.setProperty("-webkit-line-clamp", "1");
+          target.style.transform = "scale(1.25)";
+          target.style.transformOrigin = "top left";
+          const bounds = target.getBoundingClientRect();
+          return { width: bounds.width, height: bounds.height };
+        });
+        await beginTextEditOnTarget(page);
+
+        const editing = await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>("#target")!;
+          const bounds = target.getBoundingClientRect();
+          const computed = window.getComputedStyle(target);
+          return {
+            width: bounds.width,
+            height: bounds.height,
+            lineClamp: computed.getPropertyValue("-webkit-line-clamp"),
+            overflow: computed.overflow,
+            scrollHeight: target.scrollHeight,
+            clientHeight: target.clientHeight,
+            contenteditable: target.getAttribute("contenteditable"),
+          };
+        });
+        expect(editing.contenteditable).toBe("true");
+        expect(editing.lineClamp).toBe("none");
+        expect(editing.overflow).toBe("visible");
+        expect(editing.width).toBe(before.width);
+        expect(editing.height).toBe(before.height);
+        expect(editing.scrollHeight).toBeGreaterThan(editing.clientHeight);
+
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(30);
+        const after = await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>("#target")!;
+          const bounds = target.getBoundingClientRect();
+          const computed = window.getComputedStyle(target);
+          return {
+            width: bounds.width,
+            height: bounds.height,
+            lineClamp: computed.getPropertyValue("-webkit-line-clamp"),
+            overflow: computed.overflow,
+            contenteditable: target.getAttribute("contenteditable"),
+          };
+        });
+        expect(after.contenteditable).toBeNull();
+        expect(after.lineClamp).toBe("1");
+        expect(after.overflow).toBe("hidden");
+        expect(after.width).toBe(before.width);
+        expect(after.height).toBe(before.height);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "T27: inspector Enter resumes the same selected text range",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await collectBridgeMessages(page);
+        await beginTextEditOnTarget(page);
+        await page.evaluate(async () => {
+          const target = document.querySelector<HTMLElement>("#target")!;
+          const text = target.firstChild!;
+          const range = document.createRange();
+          range.setStart(text, 0);
+          range.setEnd(text, 5);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new Event("selectionchange"));
+          window.postMessage(
+            { type: "text-edit-inspector-focus", focused: true },
+            "*",
+          );
+          await new Promise((resolve) => window.setTimeout(resolve, 0));
+          target.blur();
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]", {
+          state: "detached",
+          timeout: 5_000,
+        });
+        await page.waitForFunction(() =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) =>
+              message.type === "text-editing-state" &&
+              message.active === false &&
+              message.hasRange === true,
+          ),
+        );
+        const suspendedStates = (await readBridgeMessages(page)).filter(
+          (message) =>
+            message.type === "text-editing-state" &&
+            (message as any).active === false &&
+            (message as any).hasRange === true,
+        );
+        const suspendedState = suspendedStates[suspendedStates.length - 1] as
+          | { selector?: string; sourceId?: string }
+          | undefined;
+        expect(suspendedState?.selector).toBeTruthy();
+        expect(suspendedState?.sourceId).toBe("target");
+
+        await page.evaluate((selector) => {
+          (window as any).__bridgeMessages = [];
+          window.postMessage(
+            {
+              type: "style-change",
+              selector,
+              selectorCandidates: [selector],
+              property: "lineHeight",
+              value: "20%",
+            },
+            "*",
+          );
+        }, suspendedState!.selector!);
+        await page.waitForFunction(() =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) => message.type === "text-content-change",
+          ),
+        );
+        const styledRange = await page.locator("#target").evaluate((target) => {
+          const span = target.querySelector("span");
+          return {
+            text: span?.textContent,
+            lineHeight: span?.style.lineHeight,
+            editing: target.getAttribute("contenteditable"),
+          };
+        });
+        expect(styledRange).toEqual({
+          text: "Hello",
+          lineHeight: "20%",
+          editing: null,
+        });
+
+        await page.evaluate(
+          ({ selector, sourceId }) => {
+            window.postMessage(
+              {
+                type: "resume-text-edit",
+                screenId: "another-screen",
+                selector,
+                sourceId,
+              },
+              "*",
+            );
+          },
+          {
+            selector: suspendedState!.selector!,
+            sourceId: suspendedState!.sourceId,
+          },
+        );
+        await page.waitForTimeout(10);
+        expect(
+          await page.locator("#target").getAttribute("contenteditable"),
+        ).toBeNull();
+
+        await page.evaluate(
+          async ({ selector, sourceId }) => {
+            window.postMessage(
+              { type: "set-text-editing-enabled", enabled: false },
+              "*",
+            );
+            await new Promise((resolve) => window.setTimeout(resolve, 0));
+            window.postMessage(
+              {
+                type: "resume-text-edit",
+                screenId: "bridge-guard",
+                selector,
+                sourceId,
+              },
+              "*",
+            );
+          },
+          {
+            selector: suspendedState!.selector!,
+            sourceId: suspendedState!.sourceId,
+          },
+        );
+        await page.waitForTimeout(10);
+        expect(
+          await page.locator("#target").getAttribute("contenteditable"),
+        ).toBeNull();
+
+        await page.evaluate(async () => {
+          window.postMessage(
+            { type: "set-text-editing-enabled", enabled: true },
+            "*",
+          );
+          await new Promise((resolve) => window.setTimeout(resolve, 0));
+        });
+        await page.evaluate(
+          ({ selector, sourceId }) => {
+            window.postMessage(
+              {
+                type: "resume-text-edit",
+                screenId: "bridge-guard",
+                selector,
+                sourceId,
+              },
+              "*",
+            );
+          },
+          {
+            selector: suspendedState!.selector!,
+            sourceId: suspendedState!.sourceId,
+          },
+        );
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector("#target")
+              ?.getAttribute("contenteditable") === "true",
+          undefined,
+          { timeout: 5_000 },
+        );
+        const resumedRange = await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>("#target")!;
+          const selection = window.getSelection()!;
+          return {
+            active: document.activeElement === target,
+            selectedText: selection.toString(),
+            hasRange: selection.rangeCount > 0,
+          };
+        });
+        expect(resumedRange).toEqual({
+          active: true,
+          selectedText: "Hello",
+          hasRange: true,
+        });
+
+        await page.keyboard.press("ArrowRight");
+        const afterArrow = await page.evaluate(() => {
+          const selection = window.getSelection()!;
+          return {
+            collapsed: selection.isCollapsed,
+            selectedText: selection.toString(),
+          };
+        });
+        expect(afterArrow).toEqual({ collapsed: true, selectedText: "" });
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();
@@ -4739,6 +5725,64 @@ describe("editor chrome bridge — text editing session", () => {
         expect(wrapperColor).not.toBe("rgb(255, 0, 0)");
         // ...the range style must have landed inside the active edit leaf.
         expect(leafHasRangeStyle).toBe("rgb(255, 0, 0)");
+
+        await page.evaluate(() => {
+          (window as any).__rangeStyleStates = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (
+              event.data?.type === "text-editing-state" &&
+              event.data.hasRange
+            ) {
+              (window as any).__rangeStyleStates.push(event.data);
+            }
+          });
+        });
+        const expectRangeSnapshot = async (property: string, value: string) => {
+          const count = await page.evaluate(
+            () => (window as any).__rangeStyleStates.length,
+          );
+          await page.evaluate(
+            ({ styleProperty, styleValue }) => {
+              window.postMessage(
+                {
+                  type: "style-change",
+                  selector: '[data-agent-native-node-id="wrapper"]',
+                  selectorCandidates: ['[data-agent-native-node-id="wrapper"]'],
+                  property: styleProperty,
+                  value: styleValue,
+                },
+                "*",
+              );
+            },
+            { styleProperty: property, styleValue: value },
+          );
+          await page.waitForFunction(
+            ({ previousCount, styleProperty, styleValue }) => {
+              const states = (window as any).__rangeStyleStates ?? [];
+              const latest = states[states.length - 1];
+              return (
+                states.length > previousCount &&
+                latest?.computedStyles?.[styleProperty] === styleValue
+              );
+            },
+            {
+              previousCount: count,
+              styleProperty: property,
+              styleValue: value,
+            },
+          );
+          const state = await page.evaluate(() => {
+            const states = (window as any).__rangeStyleStates ?? [];
+            return states[states.length - 1];
+          });
+          expect(state.active).toBe(true);
+          expect(state.hasRange).toBe(true);
+          expect(state.computedStyles?.[property]).toBe(value);
+        };
+
+        await expectRangeSnapshot("fontSize", "24px");
+        await expectRangeSnapshot("fontWeight", "600");
+        await expectRangeSnapshot("fontFamily", "monospace");
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();
@@ -5315,6 +6359,43 @@ async function readBridgeMessages(page: import("@playwright/test").Page) {
   );
 }
 
+// Selects `selector` directly via the bridge's `select-element` postMessage
+// instead of a plain click. Plain clicks now resolve container-first (Figma
+// parity — containerFirstSelectionTarget): clicking a descendant nested more
+// than one level below the current container scope (the screen root, i.e.
+// document.body, by default) selects that scope's direct child on the path
+// to the pointer, not the descendant itself. A setup that needs a specific
+// nested element selected — to drag/resize/etc. THAT element rather than its
+// wrapping container — must select it explicitly.
+//
+// Waits for the overlay to actually match the target's CURRENT rect, not
+// just for display:block — a re-select of the element that is ALREADY the
+// selection (e.g. re-selecting after changing its size) never flips display,
+// so that alone resolves immediately against the stale, pre-change geometry
+// and races the postMessage's async delivery.
+async function selectElementDirect(
+  page: import("@playwright/test").Page,
+  selector: string,
+) {
+  await page.evaluate((sel) => {
+    window.postMessage({ type: "select-element", selector: sel }, "*");
+  }, selector);
+  await page.waitForFunction((sel) => {
+    const overlay = document.querySelector<HTMLElement>(
+      '[data-agent-native-edit-overlay="selection"]',
+    );
+    const target = document.querySelector(sel);
+    if (!overlay || !target) return false;
+    if (window.getComputedStyle(overlay).display !== "block") return false;
+    const targetRect = target.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    return (
+      Math.abs(overlayRect.width - targetRect.width) < 2 &&
+      Math.abs(overlayRect.height - targetRect.height) < 2
+    );
+  }, selector);
+}
+
 it(
   "editor chrome bridge nests a dragged rectangle into a plain rectangle target as a free child (no auto-layout conversion)",
   { timeout: 30_000 },
@@ -5748,13 +6829,7 @@ it(
 
       // #note renders at roughly (342, 282)-(422, 322) on screen
       // (outer's origin ~(300,100) + 2px border + note's own left/top).
-      await page.mouse.click(382, 302);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="note"]');
       await page.mouse.move(382, 302);
       await page.mouse.down();
       await page.mouse.move(392, 312); // crosses the 3px threshold → reference
@@ -6142,13 +7217,7 @@ it(
 
       // Child center is at (90, 80). Drop on empty screen to the right of
       // the frame (frame right edge is 240).
-      await page.mouse.click(90, 80);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="child"]');
 
       await page.mouse.move(90, 80);
       await page.mouse.down();
@@ -6471,8 +7540,11 @@ it(
       const box = (await page.locator("#item").boundingBox())!;
       const startX = box.x + box.width / 2;
       const startY = box.y + box.height / 2;
-      await page.mouse.click(startX, startY);
-      await page.waitForTimeout(30);
+      // #item sits nested inside #scroller, itself nested inside #screen: a
+      // plain click now selects the outermost container first (Figma parity
+      // — containerFirstSelectionTarget), which would drag #screen instead
+      // of the item this test means to pull out of the scrollable ancestor.
+      await selectElementDirect(page, '[data-agent-native-node-id="item"]');
       await page.mouse.move(startX, startY);
       await page.mouse.down();
       await page.mouse.move(startX + 5, startY + 5, { steps: 2 });
@@ -6545,8 +7617,11 @@ it(
         const box = (await page.locator("#item").boundingBox())!;
         const startX = box.x + box.width / 2;
         const startY = box.y + box.height / 2;
-        await page.mouse.click(startX, startY);
-        await page.waitForTimeout(30);
+        // #item starts nested inside #flowA (and later inside #flowB /
+        // #absoluteFrame): a plain click now selects the wrapping container
+        // first (Figma parity), so select #item explicitly by its stable
+        // node id regardless of which container currently holds it.
+        await selectElementDirect(page, '[data-agent-native-node-id="item"]');
         await page.mouse.move(startX, startY);
         await page.mouse.down();
         await page.mouse.move(startX + 5, startY + 5, { steps: 2 });
@@ -6691,7 +7766,13 @@ it(
       const spaceBox = (await page.locator("#spaceItem").boundingBox())!;
       const spaceStartX = spaceBox.x + spaceBox.width / 2;
       const spaceStartY = spaceBox.y + spaceBox.height / 2;
-      await page.mouse.click(spaceStartX, spaceStartY);
+      // #spaceItem/#controlItem sit nested inside #flowA: a plain click now
+      // selects the wrapping flow container first (Figma parity), so select
+      // each item explicitly instead of clicking it.
+      await selectElementDirect(
+        page,
+        '[data-agent-native-node-id="spaceItem"]',
+      );
       await page.mouse.move(spaceStartX, spaceStartY);
       await page.mouse.down();
       await page.keyboard.down("Space");
@@ -6713,7 +7794,10 @@ it(
       const controlBox = (await page.locator("#controlItem").boundingBox())!;
       const controlStartX = controlBox.x + controlBox.width / 2;
       const controlStartY = controlBox.y + controlBox.height / 2;
-      await page.mouse.click(controlStartX, controlStartY);
+      await selectElementDirect(
+        page,
+        '[data-agent-native-node-id="controlItem"]',
+      );
       await page.mouse.move(controlStartX, controlStartY);
       await page.mouse.down();
       await page.keyboard.down("Control");
@@ -7085,13 +8169,10 @@ it(
       // Select row C, then drag it into the GAP between rows A and B — the
       // pointer sits over the container's own background there, which used
       // to resolve to placement "inside" (append after last, no line).
-      await page.mouse.click(300, 270); // row C center (rows at 88/164/240, each 60 tall)
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // #rowC sits nested inside #list: a plain click now selects #list
+      // first (Figma parity), so select #rowC explicitly instead of
+      // clicking its center (rows at 88/164/240, each 60 tall).
+      await selectElementDirect(page, "#rowC");
       await page.mouse.move(300, 270);
       await page.mouse.down();
       await page.mouse.move(306, 264, { steps: 2 });
@@ -7692,9 +8773,9 @@ it(
       // Alpine's runtime shape for `<template x-for>`: the <template> stays
       // in the live DOM as a hidden marker, and every rendered instance is
       // inserted as a DIRECT SIBLING of it, all still children of the same
-      // parent — `ul > template, li, li` — exactly mirroring what Alpine
-      // itself produces (no Alpine runtime needed to test the bridge's own
-      // detection, which only inspects DOM shape).
+      // parent — `ul > template, li, li`. Populate the exact `_x_lookup`
+      // ownership references Alpine records so the fixture represents real
+      // instances without loading the Alpine runtime.
       await page.setContent(`<!doctype html>
 <html>
   <head>
@@ -7713,6 +8794,15 @@ it(
     </ul>
   </body>
 </html>`);
+      await page.evaluate(() => {
+        const template = document.querySelector("ul > template[x-for]")!;
+        const rows = Array.from(template.parentElement!.children).filter(
+          (child) => child !== template,
+        );
+        (template as any)._x_lookup = new Map(
+          rows.map((row, index) => [`item-${index}`, row]),
+        );
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
@@ -7723,13 +8813,10 @@ it(
       const startX = itemABox.x + itemABox.width / 2;
       const startY = itemABox.y + itemABox.height / 2;
 
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // The "Alpha" <li> sits nested inside <ul>: a plain click now selects
+      // <ul> first (Figma parity), so select it explicitly instead. The
+      // <template> counts as ul's first child, making Alpha nth-child(2).
+      await selectElementDirect(page, "ul > li:nth-child(2)");
 
       await page.mouse.move(startX, startY);
       await page.mouse.down();
@@ -7842,6 +8929,15 @@ it(
     </ul>
   </body>
 </html>`);
+      await page.evaluate(() => {
+        const template = document.querySelector("ul > template[x-for]")!;
+        const rows = Array.from(template.parentElement!.children).filter(
+          (child) => child !== template,
+        );
+        (template as any)._x_lookup = new Map(
+          rows.map((row, index) => [`item-${index}`, row]),
+        );
+      });
       await page.addScriptTag({
         content: hydratedEditorChromeBridgeScriptWithTextEditing(),
       });
@@ -7955,13 +9051,9 @@ it(
       const startX = itemABox.x + itemABox.width / 2;
       const startY = itemABox.y + itemABox.height / 2;
 
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // itemA/itemB sit nested inside <ul>: a plain click now selects <ul>
+      // first (Figma parity), so select itemA explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="itemA"]');
 
       await page.mouse.move(startX, startY);
       await page.mouse.down();
@@ -8022,6 +9114,7 @@ it(
       body { background: white; }
       nav { position: absolute; left: 40px; top: 40px; width: 240px; display: flex; flex-direction: column; gap: 8px; }
       button.chip { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid #ccc; background: #f5f5f5; height: 48px; box-sizing: border-box; width: 100%; text-align: left; }
+      button.chip span { flex: 1; }
       #realContainer { position: absolute; left: 320px; top: 40px; width: 200px; height: 150px; display: flex; flex-direction: column; background: #eee; border: 1px solid #ccc; }
       #realContainer .inner { height: 40px; background: #ccd; }
       #dragme { position: absolute; left: 40px; top: 260px; width: 80px; height: 40px; background: #6366f1; color: white; }
@@ -8030,7 +9123,7 @@ it(
   <body>
     <nav data-agent-native-node-id="list">
       <button class="chip" data-agent-native-node-id="itemA"><span>Alpha</span></button>
-      <button class="chip" data-agent-native-node-id="itemB"><span>Beta</span></button>
+      <button class="chip" data-agent-native-node-id="itemB"><span data-agent-native-node-id="itemB-label">Beta</span></button>
     </nav>
     <div id="realContainer" data-agent-native-node-id="realContainer">
       <div class="inner" data-agent-native-node-id="inner">inner</div>
@@ -8042,8 +9135,8 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
 
-      // Part 1: dragging itemA onto itemB's middle must reorder as a
-      // sibling, never nest inside itemB.
+      // Part 1: dragging itemA onto itemB's nested label span must resolve the
+      // anchor at the auto-layout row's direct-child level.
       const itemABox = (await page
         .locator('[data-agent-native-node-id="itemA"]')
         .boundingBox())!;
@@ -8052,11 +9145,10 @@ it(
         .boundingBox())!;
       const aX = itemABox.x + itemABox.width / 2;
       const aY = itemABox.y + itemABox.height / 2;
-      const bX = itemBBox.x + itemBBox.width / 2;
+      const bX = itemBBox.x + itemBBox.width * 0.82;
       const bY = itemBBox.y + itemBBox.height / 2;
 
-      await page.mouse.click(aX, aY);
-      await page.waitForTimeout(60);
+      await selectElementDirect(page, '[data-agent-native-node-id="itemA"]');
       await page.mouse.move(aX, aY);
       await page.mouse.down();
       await page.mouse.move(aX - 5, aY - 5, { steps: 3 });
@@ -8078,10 +9170,16 @@ it(
             .textContent?.trim(),
         };
       });
-      // itemA reordered as list's sibling — never nested inside itemB.
-      expect(chipResult.childIds).toContain("itemA");
-      expect(chipResult.childIds).toContain("itemB");
+      // itemA reorders after itemB as a list sibling — never inside its label.
+      expect(chipResult.childIds).toEqual(["itemB", "itemA"]);
       expect(chipResult.itemBText).toBe("Beta");
+      const chipMove = (await readBridgeMessages(page)).find(
+        (message) =>
+          message.type === "visual-structure-change" &&
+          (message as { sourceId?: string }).sourceId === "itemA",
+      ) as { anchorSourceId?: string; placement?: string } | undefined;
+      expect(chipMove?.anchorSourceId).toBe("itemB");
+      expect(chipMove?.placement).toBe("after");
 
       // Part 2: dragging #dragme onto the real flex container's middle must
       // still nest it as a child (container-with-real-children case is
@@ -8288,8 +9386,9 @@ it(
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(200, 170);
-      await page.waitForTimeout(60);
+      // #child sits nested inside #frame: a plain click now selects #frame
+      // first (Figma parity), so select #child explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="child"]');
       await page.mouse.move(200, 170);
       await page.mouse.down();
       await page.mouse.move(210, 180, { steps: 3 });
@@ -8355,8 +9454,9 @@ it(
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(200, 170);
-      await page.waitForTimeout(60);
+      // #child sits nested inside #frame: a plain click now selects #frame
+      // first (Figma parity), so select #child explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="child"]');
       await page.mouse.move(200, 170);
       await page.mouse.down();
       await page.mouse.move(210, 180, { steps: 3 });
@@ -9012,13 +10112,9 @@ it(
       expect(before.position).toBe("absolute");
 
       // Drag #dragme (center ~80, 420) into the pristine #row (center 410, 200).
-      await page.mouse.click(80, 420);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // #dragme sits nested inside #origin: a plain click now selects
+      // #origin first (Figma parity), so select #dragme explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="dragme"]');
 
       await page.mouse.move(80, 420);
       await page.mouse.down();
@@ -9314,6 +10410,17 @@ it(
     <div id="dragme" data-agent-native-node-id="dragme">Drag me</div>
   </body>
 </html>`);
+      await page.evaluate(() => {
+        const template = document.querySelector(
+          "#filterCard > template[x-for]",
+        )!;
+        const rows = Array.from(template.parentElement!.children).filter(
+          (child) => child !== template,
+        );
+        (template as any)._x_lookup = new Map(
+          rows.map((row, index) => [`filter-${index}`, row]),
+        );
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
@@ -9432,6 +10539,14 @@ it(
     <div id="dragme" data-agent-native-node-id="dragme">Drag me</div>
   </body>
 </html>`);
+      await page.evaluate(() => {
+        const template = document.querySelector("#list > template[x-for]")!;
+        const rows = document.querySelectorAll("#list > .row");
+        (template as any)._x_lookup = new Map([
+          ["one", rows[0]],
+          ["two", rows[1]],
+        ]);
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
@@ -9503,6 +10618,17 @@ it(
     </div>
   </body>
 </html>`);
+      await page.evaluate(() => {
+        const template = document.querySelector(
+          "#filterCard > template[x-for]",
+        )!;
+        const rows = Array.from(template.parentElement!.children).filter(
+          (child) => child !== template,
+        );
+        (template as any)._x_lookup = new Map(
+          rows.map((row, index) => [`filter-${index}`, row]),
+        );
+      });
       await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
 
       const cardBox = (await page.locator("#filterCard").boundingBox())!;
@@ -9635,6 +10761,14 @@ it(
     </div>
   </body>
 </html>`);
+      await page.evaluate(() => {
+        const template = document.querySelector("#list > template[x-for]")!;
+        const rows = document.querySelectorAll("#list > .row");
+        (template as any)._x_lookup = new Map([
+          ["one", rows[0]],
+          ["two", rows[1]],
+        ]);
+      });
       await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
 
       const cloneRowBox = (await page
@@ -9727,7 +10861,9 @@ it(
 
       // Move D into the first-row column gap. The bridge must use a flow
       // insertion slot, then native CSS Grid performs the child reflow.
-      await page.mouse.click(570, 236);
+      // Cell D sits nested inside #grid: a plain click now selects #grid
+      // first (Figma parity), so select D explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="d"]');
       await page.mouse.move(570, 236);
       await page.mouse.down();
       await page.mouse.move(562, 228, { steps: 2 });
@@ -10331,6 +11467,13 @@ const NON_PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Alt+D align right", key: "d", code: "KeyD", alt: true },
   { name: "Alt+W align top", key: "w", code: "KeyW", alt: true },
   { name: "Alt+S align bottom", key: "s", code: "KeyS", alt: true },
+  {
+    name: "Option+Shift+S Boolean Subtract",
+    key: "Í",
+    code: "KeyS",
+    alt: true,
+    shift: true,
+  },
   { name: "Alt+H align center-h", key: "h", code: "KeyH", alt: true },
   { name: "Alt+V align center-v", key: "v", code: "KeyV", alt: true },
   { name: "Alt+1 layers panel", key: "1", code: "Digit1", alt: true },
@@ -10617,6 +11760,1054 @@ it(
 // bridge never puts in the payload reads as permanently blank/zero in the
 // panel no matter what the element's actual style is.
 it(
+  "editor chrome bridge reports and refreshes computed root Screen styles",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 300, height: 200 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style data-agent-native-style-id="root-screen-style">
+      html { --color-bg: #f97316; }
+      body {
+        margin: 0;
+        background: var(--color-bg, #ffffff);
+        opacity: .5;
+        border-radius: 18px;
+        min-width: 180px;
+        max-width: 420px;
+        min-height: 190px;
+        max-height: 440px;
+      }
+    </style>
+  </head>
+  <body><div>Screen</div></body>
+</html>`);
+      await collectBridgeMessages(page);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "agent-native:screen-root-computed-styles",
+        ),
+      );
+      const initialMessages = await readBridgeMessages(page);
+      const initial = initialMessages.find(
+        (message) =>
+          message.type === "agent-native:screen-root-computed-styles",
+      ) as { computedStyles?: Record<string, string> } | undefined;
+      expect(initial?.computedStyles?.backgroundColor).toBe(
+        "rgb(249, 115, 22)",
+      );
+      expect(initial?.computedStyles?.opacity).toBe("0.5");
+      expect(initial?.computedStyles?.borderRadius).toBe("18px");
+      expect(initial?.computedStyles?.minWidth).toBe("180px");
+      expect(initial?.computedStyles?.maxWidth).toBe("420px");
+      expect(initial?.computedStyles?.minHeight).toBe("190px");
+      expect(initial?.computedStyles?.maxHeight).toBe("440px");
+
+      const replaceSourceHead = async (
+        sourceColor: string,
+        maxWidth: string,
+        expectedColor: string,
+      ) => {
+        const content = `<!doctype html><html><head>
+<style data-agent-native-style-id="root-screen-style">
+html { --color-bg: ${sourceColor}; }
+body {
+  margin: 0;
+  background: var(--color-bg, #ffffff);
+  opacity: .5;
+  border-radius: 18px;
+  min-width: 180px;
+  max-width: ${maxWidth};
+  min-height: 190px;
+  max-height: 440px;
+}
+</style>
+</head><body><div>Screen</div></body></html>`;
+        await page.evaluate((nextContent) => {
+          window.postMessage(
+            {
+              type: "replace-document-content",
+              content: nextContent,
+              forceFullDocument: true,
+            },
+            "*",
+          );
+        }, content);
+        await page.waitForFunction(
+          ({ backgroundColor, nextMaxWidth }) =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) =>
+                message.type === "agent-native:screen-root-computed-styles" &&
+                message.computedStyles?.backgroundColor === backgroundColor &&
+                message.computedStyles?.maxWidth === nextMaxWidth,
+            ),
+          { backgroundColor: expectedColor, nextMaxWidth: maxWidth },
+        );
+        expect(
+          await page.locator("body").evaluate((body) => body.textContent),
+        ).toBe("Screen");
+      };
+
+      // The first head-only source replacement seeds lastSourceHeadHtml from
+      // its null baseline; the next one exercises the ordinary head diff.
+      await replaceSourceHead("#22c55e", "420px", "rgb(34, 197, 94)");
+      await replaceSourceHead("#a855f7", "440px", "rgb(168, 85, 247)");
+
+      await page.evaluate(() => {
+        document.body.style.backgroundColor = "#3b82f6";
+        document.body.style.maxWidth = "460px";
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "agent-native:screen-root-computed-styles" &&
+            message.computedStyles?.backgroundColor === "rgb(59, 130, 246)" &&
+            message.computedStyles?.maxWidth === "460px",
+        ),
+      );
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge reports a measured normal line-height only for selected text",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html><head><style>
+  html, body { margin: 0; width: 100%; height: 100%; }
+  #text { position: absolute; left: 30px; top: 30px; font: 700 16px Arial; line-height: normal; }
+  #shape { position: absolute; left: 30px; top: 80px; width: 60px; height: 30px; }
+</style></head><body>
+  <div id="text" data-agent-native-node-id="text">Measured title</div>
+  <div id="shape" data-agent-native-node-id="shape"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const selectNode = async (selector: string) => {
+        await page.evaluate((targetSelector) => {
+          (window as any).__bridgeMessages = [];
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: targetSelector,
+              selectorCandidates: [targetSelector],
+            },
+            "*",
+          );
+        }, selector);
+        await page.waitForFunction(() =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) => message.type === "element-select",
+          ),
+        );
+        return (await readBridgeMessages(page)).find(
+          (message) => message.type === "element-select",
+        ) as
+          | { payload?: { computedStyles?: Record<string, string> } }
+          | undefined;
+      };
+
+      const textSelect = await selectNode("#text");
+      expect(textSelect?.payload?.computedStyles?.lineHeight).toBe("normal");
+      expect(
+        Number.parseFloat(
+          textSelect?.payload?.computedStyles?.resolvedLineHeightPx ?? "",
+        ),
+      ).toBeGreaterThan(0);
+      expect(textSelect?.payload?.computedStyles?.resolvedLineHeightPx).toMatch(
+        /^\d+(?:\.\d+)?px$/,
+      );
+
+      const shapeSelect = await selectNode("#shape");
+      expect(
+        shapeSelect?.payload?.computedStyles?.resolvedLineHeightPx,
+      ).toBeUndefined();
+      expect(await page.locator('span[aria-hidden="true"]').count()).toBe(0);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge refreshes selected text metadata when a local font finishes loading",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    let releaseFontResponse: (() => void) | undefined;
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      const fontBytes = readFileSync(
+        resolve(
+          designRoot,
+          "../../packages/core/src/assets/fonts/NotoNaskhArabic-Variable.ttf",
+        ),
+      );
+      let markFontRequestStarted!: () => void;
+      const fontRequestStarted = new Promise<void>((resolveRequest) => {
+        markFontRequestStarted = resolveRequest;
+      });
+      await page.route(
+        "https://bridge-font.invalid/noto-naskh-arabic.ttf",
+        async (route) => {
+          markFontRequestStarted();
+          await new Promise<void>((resolveResponse) => {
+            releaseFontResponse = resolveResponse;
+          });
+          await route.fulfill({
+            status: 200,
+            contentType: "font/ttf",
+            body: fontBytes,
+          });
+        },
+      );
+      await page.setContent(
+        `<!doctype html>
+<html><head><style>
+  @font-face {
+    font-family: "Bridge Fixture";
+    src: url("https://bridge-font.invalid/noto-naskh-arabic.ttf") format("truetype");
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; }
+  #text { position: absolute; left: 30px; top: 30px; font-family: "Bridge Fixture", serif; font-size: 48px; font-style: normal; font-weight: 700; line-height: normal; }
+  #other { position: absolute; left: 30px; top: 120px; }
+</style></head><body>
+  <div id="text" data-agent-native-node-id="text">قياس ارتفاع النص</div>
+  <div id="other" data-agent-native-node-id="other">Other selected text</div>
+</body></html>`,
+        { waitUntil: "domcontentloaded" },
+      );
+      await fontRequestStarted;
+      await collectBridgeMessages(page);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithTextEditing(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="text"]',
+            selectorCandidates: ['[data-agent-native-node-id="text"]'],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) => message.type === "element-select",
+        ),
+      );
+      const initialSelection = (await readBridgeMessages(page)).find(
+        (message) => message.type === "element-select",
+      ) as
+        | { payload?: { computedStyles?: Record<string, string> } }
+        | undefined;
+      const initialLineHeight = Number.parseFloat(
+        initialSelection?.payload?.computedStyles?.resolvedLineHeightPx ?? "",
+      );
+      expect(initialLineHeight).toBeGreaterThan(0);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "begin-text-edit", nodeId: "text", force: true },
+          "*",
+        );
+      });
+      await page.waitForSelector("[data-agent-native-text-editing]");
+      await page.evaluate(() => {
+        const text = document.querySelector("#text")!.firstChild!;
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "text-editing-state" &&
+            message.active === true &&
+            message.hasRange === true,
+        ),
+      );
+      const initialRenderedHeight = await page
+        .locator("#text")
+        .evaluate((element) => element.getBoundingClientRect().height);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+      });
+
+      releaseFontResponse?.();
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        await new Promise<void>((resolveFrame) =>
+          requestAnimationFrame(() => resolveFrame()),
+        );
+      });
+      await page.waitForFunction(() => {
+        return document.fonts.check(
+          '700 48px "Bridge Fixture"',
+          "قياس ارتفاع النص",
+        );
+      });
+      let loadedMessages = await readBridgeMessages(page);
+      await page.waitForFunction(() => {
+        const messages = (window as any).__bridgeMessages ?? [];
+        return (
+          messages.some((message: any) => message.type === "element-select") &&
+          messages.some(
+            (message: any) =>
+              message.type === "text-editing-state" &&
+              message.active === true &&
+              message.hasRange === true,
+          )
+        );
+      });
+      loadedMessages = await readBridgeMessages(page);
+      const activeRangeUpdate = loadedMessages.find(
+        (message) =>
+          message.type === "text-editing-state" &&
+          (message as { active?: boolean }).active === true &&
+          (message as { hasRange?: boolean }).hasRange === true,
+      ) as
+        | {
+            computedStyles?: Record<string, string>;
+          }
+        | undefined;
+      expect(activeRangeUpdate?.computedStyles?.fontFamily).toContain(
+        "Bridge Fixture",
+      );
+      expect(activeRangeUpdate?.computedStyles?.resolvedLineHeightPx).toMatch(
+        /^\d+(?:\.\d+)?px$/,
+      );
+      const loadedLineHeight = Number.parseFloat(
+        activeRangeUpdate?.computedStyles?.resolvedLineHeightPx ?? "",
+      );
+      const loadedRenderedHeight = await page
+        .locator("#text")
+        .evaluate((element) => element.getBoundingClientRect().height);
+      expect(loadedLineHeight).not.toBe(initialLineHeight);
+      expect(loadedRenderedHeight).not.toBe(initialRenderedHeight);
+      expect(loadedRenderedHeight).toBeCloseTo(loadedLineHeight, 1);
+      expect(
+        loadedMessages.some(
+          (message) =>
+            message.type === "text-content-change" ||
+            message.type === "style-change",
+        ),
+      ).toBe(false);
+      const wholeLayerUpdate = loadedMessages.find(
+        (message) => message.type === "element-select",
+      ) as
+        | {
+            intent?: unknown;
+            payload?: { computedStyles?: Record<string, string> };
+          }
+        | undefined;
+      expect(wholeLayerUpdate?.intent).toBeUndefined();
+      expect(wholeLayerUpdate?.payload?.computedStyles?.fontFamily).toContain(
+        "Bridge Fixture",
+      );
+      expect(
+        wholeLayerUpdate?.payload?.computedStyles?.resolvedLineHeightPx,
+      ).toMatch(/^\d+(?:\.\d+)?px$/);
+      const wholeLayerLineHeight = Number.parseFloat(
+        wholeLayerUpdate?.payload?.computedStyles?.resolvedLineHeightPx ?? "",
+      );
+      expect(wholeLayerLineHeight).not.toBe(initialLineHeight);
+      expect(wholeLayerLineHeight).toBeCloseTo(loadedRenderedHeight, 1);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-elements", selectorGroups: [["#other"]] },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        Array.from(
+          document.querySelectorAll(
+            '[data-agent-native-edit-overlay="multi-selection"]:not([data-agent-native-multi-selection-bounds])',
+          ),
+        ).some((overlay) => getComputedStyle(overlay).display !== "none"),
+      );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        document.fonts.dispatchEvent(new Event("loadingdone"));
+      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolveFrame) =>
+            requestAnimationFrame(() => resolveFrame()),
+          ),
+      );
+      loadedMessages = await readBridgeMessages(page);
+      expect(
+        loadedMessages.some(
+          (message) =>
+            message.type === "element-select" ||
+            message.type === "text-editing-state",
+        ),
+      ).toBe(false);
+      expect(
+        await page
+          .locator(
+            '[data-agent-native-edit-overlay="multi-selection"]:not([data-agent-native-multi-selection-bounds])',
+          )
+          .count(),
+      ).toBeGreaterThan(0);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-elements", selectorGroups: [] },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll(
+            '[data-agent-native-edit-overlay="multi-selection"]:not([data-agent-native-multi-selection-bounds])',
+          ).length === 0,
+      );
+      await page.evaluate(() => {
+        document
+          .querySelector("#text")!
+          .removeAttribute("data-agent-native-text-editing");
+        (window as any).__bridgeMessages = [];
+        document.fonts.dispatchEvent(new Event("loadingdone"));
+      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolveFrame) =>
+            requestAnimationFrame(() => resolveFrame()),
+          ),
+      );
+      expect(
+        (await readBridgeMessages(page)).some(
+          (message) => message.type === "text-editing-state",
+        ),
+      ).toBe(false);
+
+      await page
+        .locator("#text")
+        .evaluate((target: HTMLElement) => target.blur());
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "text-editing-state" &&
+            message.active === false &&
+            message.hasRange === true,
+        ),
+      );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        document.fonts.dispatchEvent(new Event("loadingdone"));
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "text-editing-state" &&
+            message.active === false &&
+            message.hasRange === true,
+        ),
+      );
+      const suspendedRangeUpdate = (await readBridgeMessages(page)).find(
+        (message) =>
+          message.type === "text-editing-state" &&
+          (message as { active?: boolean }).active === false &&
+          (message as { hasRange?: boolean }).hasRange === true,
+      ) as { computedStyles?: Record<string, string> } | undefined;
+      expect(suspendedRangeUpdate?.computedStyles?.fontFamily).toContain(
+        "Bridge Fixture",
+      );
+
+      await page.evaluate(() => {
+        window.postMessage({ type: "clear-selection" }, "*");
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "text-editing-state" &&
+            message.active === false &&
+            message.hasRange === false,
+        ),
+      );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        document.fonts.dispatchEvent(new Event("loadingdone"));
+      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolveFrame) =>
+            requestAnimationFrame(() => resolveFrame()),
+          ),
+      );
+      expect(
+        (await readBridgeMessages(page)).some(
+          (message) =>
+            message.type === "element-select" ||
+            message.type === "text-editing-state",
+        ),
+      ).toBe(false);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="text"]',
+            selectorCandidates: ['[data-agent-native-node-id="text"]'],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) => message.type === "element-select",
+        ),
+      );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        document.querySelector("#text")!.remove();
+        document.fonts.dispatchEvent(new Event("loadingdone"));
+      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolveFrame) =>
+            requestAnimationFrame(() => resolveFrame()),
+          ),
+      );
+      expect(
+        (await readBridgeMessages(page)).some(
+          (message) =>
+            message.type === "element-select" ||
+            message.type === "text-editing-state",
+        ),
+      ).toBe(false);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      releaseFontResponse?.();
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge measures normal line-height from a selected nested text range",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html><head><style>
+  html, body { margin: 0; width: 100%; height: 100%; }
+  #target { position: absolute; left: 30px; top: 30px; width: 500px; font: 400 24px Arial; line-height: normal; }
+  #nested { font: 700 16px Arial; line-height: normal; }
+  #other { font: 700 18px Arial; line-height: normal; }
+</style></head><body>
+  <div id="target" data-agent-native-node-id="target">Parent text <span id="nested">Nested title</span> <span id="other">Other title</span></div>
+</body></html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithTextEditing(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="target"]',
+            selectorCandidates: ['[data-agent-native-node-id="target"]'],
+          },
+          "*",
+        );
+        window.postMessage(
+          { type: "begin-text-edit", nodeId: "target", force: true },
+          "*",
+        );
+      });
+      await page.waitForSelector("[data-agent-native-text-editing]", {
+        timeout: 5_000,
+      });
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        const nested = document.querySelector("#nested")!;
+        const range = document.createRange();
+        range.selectNodeContents(nested);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "text-editing-state" && message.hasRange === true,
+        ),
+      );
+      const nestedRangeState = (await readBridgeMessages(page)).find(
+        (message) =>
+          message.type === "text-editing-state" && message.hasRange === true,
+      ) as
+        | {
+            sourceId?: string;
+            computedStyles?: Record<string, string>;
+            inlineStyles?: Record<string, string>;
+          }
+        | undefined;
+      expect(nestedRangeState?.sourceId).toBe("target");
+      expect(nestedRangeState?.computedStyles?.fontSize).toBe("16px");
+      expect(nestedRangeState?.computedStyles?.fontWeight).toBe("700");
+      expect(nestedRangeState?.computedStyles?.lineHeight).toBe("normal");
+      expect(nestedRangeState?.computedStyles?.resolvedLineHeightPx).toMatch(
+        /^\d+(?:\.\d+)?px$/,
+      );
+      expect(nestedRangeState?.inlineStyles?.lineHeight).toBe("");
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "text-edit-inspector-focus", focused: true },
+          "*",
+        );
+      });
+      await page.keyboard.press("Escape");
+      await page.waitForSelector("[data-agent-native-text-editing]", {
+        state: "detached",
+        timeout: 5_000,
+      });
+
+      await page.evaluate(() => {
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        )!;
+        const rect = document.querySelector("#target")!.getBoundingClientRect();
+        (window as any).__bridgeMessages = [];
+        shield.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + 450,
+            clientY: rect.top + rect.height / 2,
+          }),
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) => message.type === "element-select",
+          ),
+        undefined,
+        { timeout: 5_000 },
+      );
+      const selected = (await readBridgeMessages(page)).find(
+        (message) => message.type === "element-select",
+      ) as
+        | { payload?: { computedStyles?: Record<string, string> } }
+        | undefined;
+
+      expect(selected?.payload?.computedStyles?.fontSize).toBe("Mixed");
+      expect(selected?.payload?.computedStyles?.fontWeight).toBe("Mixed");
+      expect(selected?.payload?.computedStyles?.lineHeight).toBe("normal");
+      expect(
+        selected?.payload?.computedStyles?.resolvedLineHeightPx,
+      ).toBeUndefined();
+      expect(
+        await page
+          .locator("#target")
+          .evaluate((el) => getComputedStyle(el).lineHeight),
+      ).toBe("normal");
+      expect(
+        await page
+          .locator("#target")
+          .evaluate((el) => getComputedStyle(el).fontSize),
+      ).toBe("24px");
+      expect(
+        await page
+          .locator("#nested")
+          .evaluate((el) => getComputedStyle(el).lineHeight),
+      ).toBe("normal");
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "begin-text-edit", nodeId: "target", force: true },
+          "*",
+        );
+      });
+      await page.waitForSelector("[data-agent-native-text-editing]", {
+        timeout: 5_000,
+      });
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        const start = document.querySelector("#nested")!.firstChild!;
+        const end = document.querySelector("#other")!.firstChild!;
+        const range = document.createRange();
+        range.setStart(start, 0);
+        range.setEnd(end, end.textContent!.length);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "text-editing-state" && message.hasRange === true,
+        ),
+      );
+      const mixedRangeState = (await readBridgeMessages(page)).find(
+        (message) =>
+          message.type === "text-editing-state" && message.hasRange === true,
+      ) as { computedStyles?: Record<string, string> } | undefined;
+      expect(mixedRangeState?.computedStyles?.fontSize).toBe("Mixed");
+      expect(
+        mixedRangeState?.computedStyles?.resolvedLineHeightPx,
+      ).toBeUndefined();
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "text-edit-inspector-focus", focused: true },
+          "*",
+        );
+      });
+      await page.keyboard.press("Escape");
+      await page.waitForSelector("[data-agent-native-text-editing]", {
+        state: "detached",
+        timeout: 5_000,
+      });
+      await page.evaluate(() => {
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        )!;
+        const rect = document.querySelector("#target")!.getBoundingClientRect();
+        (window as any).__bridgeMessages = [];
+        shield.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + 450,
+            clientY: rect.top + rect.height / 2,
+          }),
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) => message.type === "element-select",
+          ),
+        undefined,
+        { timeout: 5_000 },
+      );
+      const mixedRange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "element-select",
+      ) as
+        | { payload?: { computedStyles?: Record<string, string> } }
+        | undefined;
+      expect(mixedRange?.payload?.computedStyles?.fontSize).toBe("Mixed");
+      expect(
+        mixedRange?.payload?.computedStyles?.resolvedLineHeightPx,
+      ).toBeUndefined();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge follows the caret text leaf and aggregates whole-text styles",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html><head><style>
+  html, body { margin: 0; width: 100%; height: 100%; }
+  #target { position: absolute; left: 30px; top: 30px; width: 500px; font: 400 24px Arial; }
+  #nested { font: 700 16px Arial; }
+  #wrapped { font: 400 24px Arial; line-height: 30px; }
+  #wrapped-a { font: 700 16px Arial; }
+  #wrapped-b { font: 400 20px Arial; }
+  #group { font: 400 24px Arial; line-height: 30px; }
+  #group-child { font: 700 16px Arial; }
+  #frame, #container { font: 400 24px Arial; line-height: 30px; }
+  #frame-child, #container-child { display: block; font: 700 16px Arial; }
+</style></head><body>
+  <div id="target" data-agent-native-node-id="target" style="line-height:30px">Parent <span id="nested" style="line-height:150%">Nested title</span> suffix</div>
+  <p id="wrapped" data-agent-native-node-id="wrapped"><span id="wrapped-a">First run</span><span id="wrapped-b">Second run</span></p>
+  <div id="group" data-agent-native-node-id="group" data-agent-native-group="true">Group text <span id="group-child">Child text</span></div>
+  <div id="frame" data-agent-native-node-id="frame" data-an-primitive="frame">Frame text <span id="frame-child">Frame child</span></div>
+  <div id="container" data-agent-native-node-id="container">Container text <div id="container-child">Block child</div></div>
+</body></html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithTextEditing(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="target"]',
+            selectorCandidates: ['[data-agent-native-node-id="target"]'],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) => message.type === "element-select",
+          ),
+        undefined,
+        { timeout: 5_000 },
+      );
+      const wholeText = (await readBridgeMessages(page)).find(
+        (message) => message.type === "element-select",
+      ) as
+        | { payload?: { computedStyles?: Record<string, string> } }
+        | undefined;
+      expect(wholeText?.payload?.computedStyles?.fontSize).toBe("Mixed");
+      expect(wholeText?.payload?.computedStyles?.fontWeight).toBe("Mixed");
+      expect(wholeText?.payload?.computedStyles?.lineHeight).toBe("Mixed");
+      expect(
+        wholeText?.payload?.computedStyles?.resolvedLineHeightPx,
+      ).toBeUndefined();
+
+      const selectPayload = async (nodeId: string) => {
+        await page.evaluate((id) => {
+          (window as any).__bridgeMessages = [];
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: `[data-agent-native-node-id="${id}"]`,
+              selectorCandidates: [`[data-agent-native-node-id="${id}"]`],
+            },
+            "*",
+          );
+        }, nodeId);
+        await page.waitForFunction(
+          () =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) => message.type === "element-select",
+            ),
+          undefined,
+          { timeout: 5_000 },
+        );
+        return (await readBridgeMessages(page)).find(
+          (message) => message.type === "element-select",
+        ) as
+          | { payload?: { computedStyles?: Record<string, string> } }
+          | undefined;
+      };
+      const wrappedRuns = await selectPayload("wrapped");
+      expect(wrappedRuns?.payload?.computedStyles?.fontSize).toBe("Mixed");
+      expect(wrappedRuns?.payload?.computedStyles?.fontWeight).toBe("Mixed");
+      const group = await selectPayload("group");
+      expect(group?.payload?.computedStyles?.fontSize).toBe("24px");
+      const frame = await selectPayload("frame");
+      expect(frame?.payload?.computedStyles?.fontSize).toBe("24px");
+      const container = await selectPayload("container");
+      expect(container?.payload?.computedStyles?.fontSize).toBe("24px");
+      await selectPayload("target");
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "begin-text-edit", nodeId: "target", force: true },
+          "*",
+        );
+      });
+      const target = page.locator("#target");
+      await page.waitForFunction(
+        () =>
+          document.querySelector("#target")?.getAttribute("contenteditable") ===
+          "true",
+        undefined,
+        { timeout: 5_000 },
+      );
+
+      const placeCaret = async (selector: string, offset: number) => {
+        await page.evaluate(
+          ({ targetSelector, caretOffset }) => {
+            (window as any).__bridgeMessages = [];
+            const leaf = document.querySelector(targetSelector)?.firstChild;
+            if (!leaf || leaf.nodeType !== Node.TEXT_NODE) {
+              throw new Error(`Missing text leaf for ${targetSelector}`);
+            }
+            const range = document.createRange();
+            range.setStart(leaf, caretOffset);
+            range.collapse(true);
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+            document.dispatchEvent(new Event("selectionchange"));
+          },
+          { targetSelector: selector, caretOffset: offset },
+        );
+      };
+      const activeTextState = async (fontSize: string) => {
+        await page.waitForFunction(
+          (expectedSize) =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) =>
+                message.type === "text-editing-state" &&
+                message.active === true &&
+                message.hasRange === false &&
+                message.computedStyles?.fontSize === expectedSize,
+            ),
+          fontSize,
+          { timeout: 5_000 },
+        );
+        const states = (await readBridgeMessages(page)).filter(
+          (message) => message.type === "text-editing-state",
+        );
+        return states[states.length - 1] as
+          | {
+              hasRange?: boolean;
+              computedStyles?: Record<string, string>;
+              inlineStyles?: Record<string, string>;
+            }
+          | undefined;
+      };
+
+      await placeCaret("#nested", 0);
+      const nestedCaret = await activeTextState("16px");
+      expect(nestedCaret?.computedStyles?.fontWeight).toBe("700");
+      expect(nestedCaret?.computedStyles?.lineHeight).toBe("24px");
+      expect(nestedCaret?.inlineStyles?.lineHeight).toBe("150%");
+
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        const targetElement = document.querySelector("#target")!;
+        const range = document.createRange();
+        range.setStart(targetElement, 0);
+        range.collapse(true);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        document.dispatchEvent(new Event("selectionchange"));
+      });
+      const parentCaret = await activeTextState("24px");
+      expect(parentCaret?.computedStyles?.fontWeight).toBe("400");
+      expect(parentCaret?.computedStyles?.lineHeight).toBe("30px");
+      expect(parentCaret?.inlineStyles?.lineHeight).toBe("30px");
+
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        const targetElement = document.querySelector("#target")!;
+        const range = document.createRange();
+        range.selectNodeContents(targetElement);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        document.dispatchEvent(new Event("selectionchange"));
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) =>
+              message.type === "text-editing-state" &&
+              message.hasRange === true &&
+              message.computedStyles?.fontSize === "Mixed",
+          ),
+        undefined,
+        { timeout: 5_000 },
+      );
+      const textStates = (await readBridgeMessages(page)).filter(
+        (message) => message.type === "text-editing-state",
+      );
+      const mixedTextState = textStates[textStates.length - 1] as
+        | { computedStyles?: Record<string, string> }
+        | undefined;
+      expect(
+        mixedTextState?.computedStyles?.resolvedLineHeightPx,
+      ).toBeUndefined();
+
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(
+        () =>
+          document.querySelector("#target")?.getAttribute("contenteditable") !==
+          "true",
+        undefined,
+        { timeout: 5_000 },
+      );
+      await page.evaluate(() => {
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        )!;
+        const rect = document.querySelector("#target")!.getBoundingClientRect();
+        (window as any).__bridgeMessages = [];
+        shield.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + 450,
+            clientY: rect.top + rect.height / 2,
+          }),
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) => message.type === "element-select",
+          ),
+        undefined,
+        { timeout: 5_000 },
+      );
+      const afterExit = (await readBridgeMessages(page)).find(
+        (message) => message.type === "element-select",
+      ) as
+        | { payload?: { computedStyles?: Record<string, string> } }
+        | undefined;
+      expect(afterExit?.payload?.computedStyles?.fontSize).toBe("Mixed");
+      expect(afterExit?.payload?.computedStyles?.lineHeight).toBe("Mixed");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge's element-select payload includes textDecorationLine and rowGap/columnGap alongside gap",
   { timeout: 30_000 },
   async () => {
@@ -10845,6 +13036,69 @@ it(
 );
 
 it(
+  "snapshots authored paint from SVG geometry and Boolean result sources",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html><html><body>
+        <svg id="path-layer" data-agent-native-node-id="path-layer" data-an-primitive="path" viewBox="0 0 20 20">
+          <path d="M0 0h20v20H0z" fill="#123456"></path>
+        </svg>
+        <svg id="boolean-layer" data-agent-native-node-id="boolean-layer" data-an-primitive="boolean" viewBox="0 0 20 20" style="--boolean-mask-fill:color-mix(in srgb, #654321 0%, transparent)">
+          <defs><path id="boolean-base" d="M0 0h20v20H0z"></path></defs>
+          <use data-an-boolean-result="true" href="#boolean-base" style="fill:var(--boolean-mask-fill)"></use>
+        </svg>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const select = async (selector: string) => {
+        await page.evaluate((targetSelector) => {
+          (window as any).__bridgeMessages = [];
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: targetSelector,
+              selectorCandidates: [targetSelector],
+            },
+            "*",
+          );
+        }, selector);
+        await page.waitForFunction(
+          (targetSelector) =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) =>
+                message.type === "element-select" &&
+                message.payload?.selector?.includes(targetSelector.slice(1)),
+            ),
+          selector,
+        );
+        const message = (await readBridgeMessages(page)).find(
+          (entry) => entry.type === "element-select",
+        ) as
+          | {
+              payload?: {
+                inlineStyles?: Record<string, string>;
+              };
+            }
+          | undefined;
+        return message?.payload?.inlineStyles?.fill;
+      };
+
+      expect(await select("#path-layer")).toBe("#123456");
+      expect(await select("#boolean-layer")).toContain(
+        "color-mix(in srgb, #654321 0%, transparent)",
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge posts an ordered selectable layer stack for contextmenu points",
   { timeout: 30_000 },
   async () => {
@@ -10962,13 +13216,9 @@ it(
 
       // Select #card-b (center ~170,126), then drag it straight down past
       // #card-c's midline (~202) — the clip's "move Card B below Card C" gesture.
-      await page.mouse.click(170, 126);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // #card-b sits nested inside #col: a plain click now selects #col
+      // first (Figma parity), so select #card-b explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="card-b"]');
       await page.mouse.move(170, 126);
       await page.mouse.down();
       await page.mouse.move(170, 135, { steps: 4 }); // cross the 3px threshold
@@ -11149,13 +13399,11 @@ async function dragFlowChildOnto(
 ) {
   const from = (await page.locator("#dragme").boundingBox())!;
   const to = (await page.locator(targetSelector).boundingBox())!;
-  await page.mouse.click(from.x + from.width / 2, from.y + from.height / 2);
-  await page.waitForFunction(() => {
-    const overlay = document.querySelector<HTMLElement>(
-      '[data-agent-native-edit-overlay="selection"]',
-    );
-    return overlay && window.getComputedStyle(overlay).display === "block";
-  });
+  // Select #dragme directly rather than clicking it: #dragme sits nested
+  // inside #source, and a plain click now selects the outermost container
+  // first (Figma parity — selectionTargetForHit), which would drag #source
+  // instead of the specific child this helper means to test.
+  await selectElementDirect(page, "#dragme");
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   await page.mouse.move(from.x + 20, from.y + 20, { steps: 4 });
@@ -11403,12 +13651,14 @@ it("keeps the authored inline-style key list in sync with the bridge", () => {
   const bridgeKeys = [
     ...bridge
       .slice(start, bridge.indexOf("];", start))
-      .matchAll(/"([a-zA-Z]+)"/g),
+      .matchAll(/"([-a-zA-Z][-a-zA-Z0-9]*)"/g),
   ].map((m) => m[1]);
 
   // A commit patches ElementInfo.inlineStyles using the host-side copy of this
   // list; a key the bridge reports but the host omits reads back stale.
-  expect([...AUTHORED_INLINE_STYLE_PROPERTIES]).toEqual(bridgeKeys);
+  expect([...AUTHORED_INLINE_STYLE_PROPERTIES].sort()).toEqual(
+    bridgeKeys.sort(),
+  );
 });
 
 // PR #3585 review: keying free-form on the CONTAINER's own position swept in
