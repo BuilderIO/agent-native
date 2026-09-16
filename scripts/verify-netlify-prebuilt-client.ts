@@ -119,12 +119,28 @@ export function verifyNetlifyPrebuiltServerManifest(
     );
   }
 
-  const missing = [...assetPaths].sort().filter((assetPath) => {
+  const publishRoot = path.resolve(publishDirectory);
+  const missing: string[] = [];
+  const outsidePublish: string[] = [];
+  for (const assetPath of [...assetPaths].sort()) {
     const relative = assetPath.replace(/^\/+/, "");
-    return !statSync(path.join(publishDirectory, relative), {
-      throwIfNoEntry: false,
-    })?.isFile();
-  });
+    const resolved = path.resolve(publishRoot, relative);
+    if (
+      resolved !== publishRoot &&
+      !resolved.startsWith(`${publishRoot}${path.sep}`)
+    ) {
+      outsidePublish.push(assetPath);
+      continue;
+    }
+    if (!statSync(resolved, { throwIfNoEntry: false })?.isFile()) {
+      missing.push(assetPath);
+    }
+  }
+  if (outsidePublish.length > 0) {
+    throw new Error(
+      `Server asset manifest contains paths outside publish output (unsafe: ${outsidePublish.join(", ")}).`,
+    );
+  }
   if (missing.length > 0) {
     throw new Error(
       `Server asset manifest is not paired with publish output (missing: ${missing.join(", ")}).`,

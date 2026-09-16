@@ -106,3 +106,22 @@ test("rejects trusted server manifest assets missing from publish output", () =>
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("rejects trusted server manifest paths outside publish output", () => {
+  const { root, publish } = fixture();
+  const server = path.join(root, "server");
+  try {
+    mkdirSync(server, { recursive: true });
+    writeFileSync(
+      path.join(server, "main.mjs"),
+      'const route = "/assets/../../secret.js";',
+    );
+
+    assert.throws(
+      () => verifyNetlifyPrebuiltServerManifest(server, publish),
+      /outside publish output/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
