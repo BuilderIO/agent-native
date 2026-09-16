@@ -1,7 +1,7 @@
 pr=5178
 owner_thread=01a0a73c-44f5-7cd1-be05-a5c4c8f1025c
-version=2
-issued_at=1789570968
-expires_at=1789571868
+version=3
+issued_at=1789571486
+expires_at=1789572386
 legacy_observed=absent
 legacy_retired=true
