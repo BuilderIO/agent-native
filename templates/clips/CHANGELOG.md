@@ -5,12 +5,24 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-15
 
+### Added
+
+- Recordings include a structured timeline of browser interactions and diagnostics
+
 ### Improved
 
+- Clips places editing controls between the video preview and timeline.
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
 - Trash now supports paging through more than 100 deleted recordings
 
 ### Fixed
 
+- Clips Desktop keeps Dictate visible when voice dictation is enabled
+- Clips no longer reports 0% completion on a clip that only agents have read - completion and CTA conversion now show as unknown until a human view is counted
+- Clips popovers now close when you switch to another application.
+- Clips serves private thumbnails through the same-origin thumbnail route.
+- Playback speed changes no longer restart paused clips, Picture-in-Picture stops cleanly when leaving the player, and the Windows tray stays within the usable desktop without hiding recorder controls.
+- The comments empty state now uses the shared shadcn empty-state style with an icon
 - Fixed the volume slider knob alignment in shared recordings
 - Shared Clips now focus the agent when asked, show clear viewer-safe transcript states, and keep workspace branding visible.
 

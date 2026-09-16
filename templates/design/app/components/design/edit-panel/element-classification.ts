@@ -32,8 +32,9 @@ export const TEXT_TAGS = new Set([
 export function inspectorObjectTitle(element: ElementInfo): string {
   const componentName = componentNameForElementInfo(element);
   if (componentName) return componentName;
+  if (element.isGroup) return "Group";
   const tag = normalizedElementTagName(element.tagName);
-  if (TEXT_TAGS.has(tag)) return "Text";
+  if (isTextElement(element)) return "Text";
   return tag;
 }
 
@@ -197,6 +198,7 @@ function hasExplicitTextIdentity(element: ElementInfo): boolean {
  * children show the full Auto layout section the same way does.
  */
 export function isContainerElement(element: ElementInfo): boolean {
+  if (element.isGroup === true) return false;
   // T-tool text primitives are divs and use `display:flex` for vertical text
   // alignment, but they are still leaf text layers rather than auto-layout
   // containers, so check text identity before the flex/container shortcuts
@@ -468,10 +470,13 @@ export function inferElementSizing(
   const styles = element.computedStyles;
   const property = axis === "horizontal" ? "width" : "height";
   // Computed width/height are always pixels, including for `auto`,
-  // `fit-content`, and percentage values. Prefer the authored inline value
-  // when available so the Inspector preserves the user's sizing intent
-  // instead of relabeling a Hug/Fill layer as Fixed after layout resolves.
-  const authoredSize = element.inlineStyles?.[property]?.trim().toLowerCase();
+  // `fit-content`, and percentage values. Prefer the bridge's winning CSS
+  // Typed OM value so a stylesheet `!important` declaration cannot be hidden
+  // by stale inline intent; inline styles remain the fallback for older
+  // payloads and the only writeable source.
+  const authoredSize =
+    element.authoredSizeStyles?.[property]?.trim().toLowerCase() ||
+    element.inlineStyles?.[property]?.trim().toLowerCase();
   const size = authoredSize || styles[property];
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);

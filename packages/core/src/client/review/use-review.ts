@@ -87,12 +87,21 @@ export interface SetReviewThreadUnreadInput {
   unread: boolean;
 }
 
+export interface SetReviewThreadsUnreadInput {
+  resourceType: string;
+  resourceId: string;
+  threadIds: string[];
+  unread: boolean;
+}
+
 export interface SetReviewThreadMutedInput {
   resourceType: string;
   resourceId: string;
   threadId: string;
   muted: boolean;
 }
+
+export type ReviewThreadStatus = "open" | "resolved";
 
 export function useReactToReviewComment() {
   const queryClient = useQueryClient();
@@ -127,6 +136,20 @@ export function useSetReviewThreadUnread() {
   });
 }
 
+export function useSetReviewThreadsUnread() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    Array<ReviewThreadPreference & { threadId: string }>,
+    SetReviewThreadsUnreadInput
+  >("set-review-threads-unread", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
 export function useSetReviewThreadMuted() {
   const queryClient = useQueryClient();
   return useActionMutation<
@@ -146,13 +169,32 @@ export interface ResolveReviewThreadInput {
   resourceId: string;
   threadId?: string;
   commentId?: string;
+  status?: ReviewThreadStatus;
   resolutionNote?: string;
+}
+
+export interface ResolveReviewThreadResult {
+  threadId: string;
+  status: ReviewThreadStatus;
+  resolved: boolean;
+  updatedCount: number;
+  resolutionNote: string | null;
+  comment: ReviewComment;
 }
 
 export interface DeleteReviewCommentInput {
   resourceType: string;
   resourceId: string;
   commentId: string;
+}
+
+export interface UpdateReviewCommentInput {
+  resourceType: string;
+  resourceId: string;
+  commentId: string;
+  body?: string;
+  anchor?: unknown;
+  mentions?: ReviewMention[];
 }
 
 export interface ConsumeReviewFeedbackInput {
@@ -249,16 +291,9 @@ export function useReplyReviewComment() {
 }
 
 export function useResolveReviewThread() {
-  return useActionMutation<
-    {
-      threadId: string;
-      resolved: true;
-      updatedCount: number;
-      resolutionNote: string | null;
-      comment: ReviewComment;
-    },
-    ResolveReviewThreadInput
-  >("resolve-review-thread");
+  return useActionMutation<ResolveReviewThreadResult, ResolveReviewThreadInput>(
+    "resolve-review-thread",
+  );
 }
 
 export function useDeleteReviewComment() {
@@ -266,6 +301,19 @@ export function useDeleteReviewComment() {
     { commentId: string; deleted: true; updatedCount: number },
     DeleteReviewCommentInput
   >("delete-review-comment");
+}
+
+export function useUpdateReviewComment() {
+  const queryClient = useQueryClient();
+  return useActionMutation<ReviewComment, UpdateReviewCommentInput>(
+    "update-review-comment",
+    {
+      onSuccess: () =>
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-review-comments"],
+        }),
+    },
+  );
 }
 
 export function useConsumeReviewFeedback() {

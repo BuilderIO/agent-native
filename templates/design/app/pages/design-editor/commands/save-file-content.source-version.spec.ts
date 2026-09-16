@@ -25,7 +25,7 @@ function deferred<T>() {
 }
 
 describe("runSaveFileContent source version", () => {
-  it("keeps each queued hash when an earlier save acknowledges a newer version", async () => {
+  it("keeps each dependent queued hash while an earlier save is in flight", async () => {
     const originalSourceHash = "hash-of-original-source";
     const firstPending: FileContentSaveRequest = {
       id: "screen-a",
@@ -39,6 +39,7 @@ describe("runSaveFileContent source version", () => {
       ...firstPending,
       content: "<main>second edit</main>",
       operationRevision: 2,
+      expectedVersionHash: sourceContentHash(firstPending.content),
     };
     let releaseFirstSave!: (value: unknown) => void;
     let markFirstSaveStarted!: () => void;
@@ -109,20 +110,175 @@ describe("runSaveFileContent source version", () => {
         expect.objectContaining({
           id: secondPending.id,
           content: secondPending.content,
-          expectedVersionHash: originalSourceHash,
+          expectedVersionHash: sourceContentHash(firstPending.content),
         }),
       ],
     ]);
     expect(
-      createFileSaveOutboxEntry.mock.calls.map(
-        ([request]) => request.expectedVersionHash,
-      ),
+      createFileSaveOutboxEntry.mock.calls.map(([request]) => ({
+        operationRevision: request.operationRevision,
+        expectedVersionHash: request.expectedVersionHash,
+      })),
     ).toEqual([
-      originalSourceHash,
-      originalSourceHash,
-      originalSourceHash,
-      originalSourceHash,
+      { operationRevision: 1, expectedVersionHash: originalSourceHash },
+      {
+        operationRevision: 2,
+        expectedVersionHash: sourceContentHash(firstPending.content),
+      },
+      { operationRevision: 1, expectedVersionHash: originalSourceHash },
+      {
+        operationRevision: 2,
+        expectedVersionHash: sourceContentHash(firstPending.content),
+      },
     ]);
+  });
+
+  it("persists an in-flight identity migration before its dependent user edit", async () => {
+    const id = "screen-identity-chain";
+    const raw = "<main><button>Before</button></main>";
+    const canonical =
+      '<main><button data-agent-native-node-id="button-a">Before</button></main>';
+    const userContent = canonical.replace("Before", "After");
+    const migration: FileContentSaveRequest = {
+      id,
+      content: canonical,
+      identityMigrationSourceContent: raw,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: sourceContentHash(raw),
+    };
+    const userSave: FileContentSaveRequest = {
+      id,
+      content: userContent,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 2,
+      expectedVersionHash: sourceContentHash(canonical),
+    };
+    const migrationResponse = deferred<unknown>();
+    const migrationStarted = deferred<void>();
+    const mutateAsync = vi.fn((input: { operationRevision: number }) => {
+      if (input.operationRevision === migration.operationRevision) {
+        migrationStarted.resolve();
+        return migrationResponse.promise;
+      }
+      return Promise.resolve({
+        updated: true,
+        versionHash: sourceContentHash(userContent),
+      });
+    });
+    const latestFileSaveForUnloadRef: SaveFileContentArgs["latestFileSaveForUnloadRef"] =
+      { current: {} };
+    const fileSaveChainsRef: SaveFileContentArgs["fileSaveChainsRef"] = {
+      current: {},
+    };
+    const args: SaveFileContentArgs = {
+      acknowledgeOutboxEntry: vi.fn(async () => {}),
+      canEditDesignRef: { current: true },
+      createFileSaveOutboxEntry: vi.fn(() => null),
+      fileSaveChainsRef,
+      journalOutboxEntry: vi.fn(async () => true),
+      latestFileSaveForUnloadRef,
+      rollbackPendingLocalFileContent: vi.fn(),
+      markPendingLocalFileContent: vi.fn(),
+      queryClient: { invalidateQueries: vi.fn() } as unknown as QueryClient,
+      setPatchProof: vi.fn(),
+      t: (key) => key,
+      updateFileMutation: {
+        mutateAsync,
+      } as unknown as SaveFileContentArgs["updateFileMutation"],
+      warnChangesWillRetry: vi.fn(),
+    };
+
+    runSaveFileContent(args, migration);
+    await migrationStarted.promise;
+    runSaveFileContent(args, userSave);
+    migrationResponse.resolve({
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+    await fileSaveChainsRef.current[id];
+
+    expect(mutateAsync.mock.calls).toEqual([
+      [
+        expect.objectContaining({
+          content: canonical,
+          expectedVersionHash: sourceContentHash(raw),
+          identityOnly: true,
+        }),
+      ],
+      [
+        expect.objectContaining({
+          content: userContent,
+          expectedVersionHash: sourceContentHash(canonical),
+        }),
+      ],
+    ]);
+  });
+
+  it("treats a stale-mirror 200 response as a save conflict", async () => {
+    const pending: FileContentSaveRequest = {
+      id: "screen-stale-mirror",
+      content: "<main>stale local snapshot</main>",
+      syncCollab: false,
+      operationSource: "tab-a",
+      operationRevision: 2,
+      expectedVersionHash: "stale-base-hash",
+    };
+    const rollbackPendingLocalFileContent = vi.fn();
+    const invalidateQueries = vi.fn();
+    const acknowledgeOutboxEntry = vi.fn(async () => {});
+    const conflictToast = vi
+      .spyOn(toast, "error")
+      .mockImplementation(() => "test-toast");
+    const fileSaveChainsRef: SaveFileContentArgs["fileSaveChainsRef"] = {
+      current: {},
+    };
+    const args: SaveFileContentArgs = {
+      acknowledgeOutboxEntry,
+      canEditDesignRef: { current: true },
+      createFileSaveOutboxEntry: vi.fn(
+        () => ({ key: "stale-mirror" }) as DesignSaveOutboxEntry,
+      ),
+      fileSaveChainsRef,
+      journalOutboxEntry: vi.fn(async () => true),
+      latestFileSaveForUnloadRef: { current: {} },
+      rollbackPendingLocalFileContent,
+      markPendingLocalFileContent: vi.fn(),
+      queryClient: { invalidateQueries } as unknown as QueryClient,
+      setPatchProof: vi.fn(),
+      t: (key) => key,
+      updateFileMutation: {
+        mutateAsync: vi.fn(async () => ({
+          updated: true,
+          skippedStaleMirror: true,
+        })),
+      } as unknown as SaveFileContentArgs["updateFileMutation"],
+      warnChangesWillRetry: vi.fn(),
+    };
+
+    try {
+      runSaveFileContent(args, pending);
+      await fileSaveChainsRef.current[pending.id];
+
+      expect(rollbackPendingLocalFileContent).toHaveBeenCalledWith(
+        pending.id,
+        pending.content,
+      );
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["action", "get-design"],
+      });
+      expect(acknowledgeOutboxEntry).not.toHaveBeenCalled();
+      expect(conflictToast).toHaveBeenCalledWith(
+        "designEditor.toasts.saveConflict",
+        expect.objectContaining({
+          id: `design-save-conflict:${pending.id}`,
+        }),
+      );
+    } finally {
+      conflictToast.mockRestore();
+    }
   });
 
   it("drops a queued identity migration when a newer user save takes priority", async () => {

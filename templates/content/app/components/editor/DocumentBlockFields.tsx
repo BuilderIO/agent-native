@@ -985,7 +985,9 @@ function AdditionalBlockEditor({
       documentId={documentId}
       content={content}
       onChange={onChange}
-      onSaveContent={onSaveContent}
+      onSaveContent={async (markdown) =>
+        (await onSaveContent(markdown)) ? "persisted" : "failed"
+      }
       editable={canEdit}
       localFileMode
     />

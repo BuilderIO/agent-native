@@ -91,7 +91,6 @@ import {
   inspectorObjectTitle,
   isContainerElement,
   isTextElement,
-  TEXT_TAGS,
   commitElementMinMax,
 } from "./edit-panel/element-classification";
 import {
@@ -187,6 +186,7 @@ import {
 } from "./inspector";
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
+import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import type { ScreenHeightMode } from "./multi-screen/screen-height";
 import {
   clampScreenDimension,
@@ -383,6 +383,10 @@ interface EditPanelProps {
   exporting?: boolean;
   /** Active file id — used for component prop editing context. */
   fileId?: string;
+  /** Reserved board file id, used to resolve the board preview iframe. */
+  boardFileId?: string;
+  /** Host iframe id for live component previews when overview has frame siblings. */
+  previewFrameId?: string;
   /** Latest active file HTML, used to compose rapid sequential source edits. */
   activeContent?: string;
   /** Optimistic localhost state styles that are not persisted into activeContent. */
@@ -452,6 +456,8 @@ interface EditPanelProps {
   componentInstanceHasLocalOverrides?: boolean;
   /** Reset local component overrides through the editor's mutation queue. */
   onResetComponentInstanceOverrides?: (nodeId: string) => void;
+  /** Restore a deleted linked component through the editor's mutation queue. */
+  onRestoreComponent?: (nodeId: string) => void;
   /** Increment to open the selected component's Swap instance picker. */
   componentSwapPickerRequest?: number;
   /**
@@ -1142,7 +1148,7 @@ function CodeInspectPanel({
 function elementTypeIcon(element: ElementInfo) {
   if (elementIsComponentSelection(element)) return IconComponents;
   const tag = normalizedElementTagName(element.tagName);
-  if (TEXT_TAGS.has(tag)) return IconText;
+  if (isTextElement(element)) return IconText;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
   if (tag === "svg" || tag === "path") return IconVector;
   if (tag === "button" || tag === "a") return IconComponents;
@@ -1674,7 +1680,7 @@ function InspectorTabsHeader({
   const t = useT();
 
   return (
-    <div className="h-10 min-w-0 shrink-0 border-b border-border/90 px-2 py-1">
+    <div className="h-12 min-w-0 shrink-0 border-b border-border/90 px-2 py-2">
       <InspectorGrid className="h-full items-center" layout="header-actions">
         <InspectorGridCell span={24}>
           <Tabs
@@ -2396,6 +2402,8 @@ export const EditPanel = memo(function EditPanel({
   onRenderExportPreview,
   exporting = false,
   fileId,
+  boardFileId,
+  previewFrameId,
   activeContent,
   pendingInteractionStateStyles,
   activeFileUpdatedAt,
@@ -2410,6 +2418,7 @@ export const EditPanel = memo(function EditPanel({
   componentDetailsReady = true,
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
+  onRestoreComponent,
   componentSwapPickerRequest,
   sourceCapabilities = [],
   onCreateComponent,
@@ -3023,6 +3032,20 @@ export const EditPanel = memo(function EditPanel({
                 <ComponentSection
                   designId={designId}
                   fileId={fileId}
+                  boardFileId={boardFileId}
+                  previewFrameId={
+                    previewFrameId ??
+                    (viewMode === "overview" && fileId && breakpointContext
+                      ? getActiveScreenIframeId({
+                          id: fileId,
+                          activeBreakpointWidth:
+                            breakpointContext.activeWidthPx ?? undefined,
+                          breakpointWidths: [
+                            ...breakpointContext.breakpointWidths,
+                          ],
+                        })
+                      : fileId)
+                  }
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFileUpdatedAt}
                   componentDetailsReady={componentDetailsReady}
@@ -3032,6 +3055,11 @@ export const EditPanel = memo(function EditPanel({
                   onResetOverrides={
                     onResetComponentInstanceOverrides
                       ? () => onResetComponentInstanceOverrides(componentNodeId)
+                      : undefined
+                  }
+                  onRestoreComponent={
+                    onRestoreComponent
+                      ? () => onRestoreComponent(componentNodeId)
                       : undefined
                   }
                   onComponentPropApplied={onComponentPropApplied}

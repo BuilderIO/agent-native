@@ -999,6 +999,56 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["portal"]);
   });
 
+  it("preserves disabled app state for owners and hides it from other members", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "disabled-app", name: "Disabled app", path: "/disabled-app" },
+    ]);
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.startsWith("SELECT id, owner_email, org_id, visibility")) {
+        return {
+          rows: [
+            {
+              id: "disabled-app",
+              owner_email: "owner@example.test",
+              org_id: "org-123",
+              visibility: "org",
+              org_enabled: false,
+              name: "Disabled app",
+              description: null,
+              path: "/disabled-app",
+            },
+          ],
+          rowsAffected: 0,
+        };
+      }
+      if (sql.startsWith("SELECT id FROM workspace_apps WHERE org_id = ?")) {
+        return { rows: [{ id: "disabled-app" }], rowsAffected: 0 };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+
+    const ownerApps = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+    expect(ownerApps.find((app) => app.id === "disabled-app")).toMatchObject({
+      orgEnabled: false,
+      owner: "owner@example.test",
+    });
+
+    const memberApps = await runWithRequestContext(
+      { userEmail: "member@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+    expect(memberApps.map((app) => app.id)).toEqual([]);
+  });
+
   it("does not reconcile audience-hidden manifest apps as stale", async () => {
     stubNoPendingContext();
     vi.stubEnv(

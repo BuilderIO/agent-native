@@ -585,6 +585,24 @@ export interface PendingTextCreationHistory {
   created: string;
 }
 
+/**
+ * The two answers a text-creation commit needs, which are NOT the same answer.
+ * `isCreationCommit` says this really is the creation's own first commit — the
+ * one moment a text layer takes its Figma-style name from what was typed.
+ * `historyHandled` says that creation's undo entry absorbed the commit; an
+ * unrelated write landing in between (an abandoned sibling's cleanup) makes the
+ * stack stale without making this any less the creation's first commit. Folding
+ * them into one boolean left the layer named "Text" whenever that happened.
+ */
+export interface PendingTextCreationFinalization {
+  isCreationCommit: boolean;
+  historyHandled: boolean;
+  /** Consumes the pending creation record and coalesces its undo entry. Run it
+   *  only after the content actually published: a refused write that consumed
+   *  the record left the typed text in no history and no source. */
+  confirm: () => void;
+}
+
 /** Finalizes the newest text-creation entry as one atomic undo step. A typed
  * commit replaces the creation entry's `after`; abandoning an empty edit
  * removes the now-no-op entry. It refuses to cross any intervening history. */
@@ -724,7 +742,10 @@ export function mergeLocalContentHistoryFallback(
 }
 
 export interface ContentHistoryReservation {
-  commit: (changes: ContentHistoryChange[]) => void;
+  commit: (
+    changes: ContentHistoryChange[],
+    selectionAfter?: GeometryHistorySelection,
+  ) => void;
   cancel: () => void;
 }
 
@@ -773,7 +794,7 @@ export function reserveLinkedComponentContentHistory<T extends string>(args: {
   };
   return {
     cancel,
-    commit: (changes) => {
+    commit: (changes, selectionAfter) => {
       const persistedChanges = changes.filter(hasContentHistoryChange);
       if (persistedChanges.length === 0) {
         cancel();
@@ -794,8 +815,8 @@ export function reserveLinkedComponentContentHistory<T extends string>(args: {
       );
       args.after?.current.set(
         entry,
-        captureHistorySelectionSources(args.selection, {
-          ...args.selection.sourceContentByFileId,
+        captureHistorySelectionSources(selectionAfter ?? args.selection, {
+          ...(selectionAfter ?? args.selection).sourceContentByFileId,
           ...Object.fromEntries(
             changes.map(({ fileId, after }) => [fileId, after]),
           ),

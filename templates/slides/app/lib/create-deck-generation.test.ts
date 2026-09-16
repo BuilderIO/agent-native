@@ -696,7 +696,7 @@ describe("startDeckGeneration", () => {
     expect(context).not.toContain("use a light warm-neutral canvas");
     expect(context).not.toContain("Before generating a bare or on-brand deck");
     expect(context).not.toContain(
-      "When no reference deck or hydrated design system is available",
+      "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction",
     );
   });
 
@@ -754,7 +754,7 @@ describe("startDeckGeneration", () => {
     expect(context).toContain("Overview: Why this matters");
     expect(context).toContain("Before generating a bare or on-brand deck");
     expect(context).toContain(
-      "When no reference deck or hydrated design system is available",
+      "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction",
     );
   });
 
@@ -788,9 +788,11 @@ describe("startDeckGeneration", () => {
     ).resolves.toBe("started");
 
     const context = agentSubmit.mock.calls[0]?.[1] as string;
-    expect(context).toContain("use a light warm-neutral canvas");
     expect(context).toContain(
-      "When no reference deck or hydrated design system is available",
+      "If no workspace default exists, establish one deliberate deck-level visual contract",
+    );
+    expect(context).toContain(
+      "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction",
     );
   });
 

@@ -145,7 +145,7 @@ vi.mock("../settings/ProviderSetupForm.js", () => ({
                 provider: "anthropic",
                 key: "ANTHROPIC_API_KEY",
                 apiKey,
-                scope: "user",
+                scope: "org",
               });
               void agentEngineKeyMock.setAgentEngineProvider({
                 provider: "anthropic",
@@ -812,7 +812,7 @@ describe("run recovery surfaces", () => {
       provider: "anthropic",
       key: "ANTHROPIC_API_KEY",
       apiKey: "sk-test",
-      scope: "user",
+      scope: "org",
     });
     expect(agentEngineKeyMock.setAgentEngineProvider).toHaveBeenCalledWith({
       provider: "anthropic",

@@ -123,6 +123,12 @@ export interface RequestRunContext {
   allowedActionNames?: readonly string[];
   /** Server-resolved app data used by the request-authorized actions. */
   actionScope?: Readonly<AgentActionScope>;
+  /** One-turn app authorization snapshot used by agent context and actions. */
+  appAuthorization?: {
+    appId: string;
+    roles: string[];
+    permissions: Record<string, string[]>;
+  } | null;
   /** Hosted tools-only harness selected for this agent run. */
   hostedHarnessRuntime?: "claude-code" | "codex" | "pi" | "opencode";
   /**

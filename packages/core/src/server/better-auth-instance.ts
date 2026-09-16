@@ -217,9 +217,9 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
 export async function getBetterAuthUserIdForEmail(
   email: string,
 ): Promise<string | undefined> {
-  const adapter = await getBetterAuthInternalAdapter();
-  if (!adapter) return undefined;
   try {
+    const adapter = await getBetterAuthInternalAdapter();
+    if (!adapter) return undefined;
     const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
       includeAccounts: false,
     });
@@ -1178,6 +1178,22 @@ const pgAuthSchema = {
     federationRemovalPendingAt: pgBigint("federation_removal_pending_at", {
       mode: "number",
     }),
+  }),
+  agentAuditLog: pgTable("agent_audit_log", {
+    id: pgText("id").primaryKey(),
+    createdAt: pgBigint("created_at", { mode: "number" }).notNull(),
+    action: pgText("action").notNull(),
+    caller: pgText("caller").notNull(),
+    actorKind: pgText("actor_kind").notNull(),
+    actorEmail: pgText("actor_email"),
+    orgId: pgText("org_id"),
+    targetType: pgText("target_type"),
+    targetId: pgText("target_id"),
+    status: pgText("status").notNull(),
+    summary: pgText("summary"),
+    input: pgText("input"),
+    ownerEmail: pgText("owner_email"),
+    visibility: pgText("visibility").notNull().default("private"),
   }),
   orgScimMembership: pgTable("org_scim_memberships", {
     id: pgText("id").primaryKey(),

@@ -3,6 +3,16 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-15
+
+### Improved
+
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+
+### Fixed
+
+- Implementing an Analytics plan now starts a fresh Act-mode run.
+
 ## 2026-09-14
 
 ### Improved

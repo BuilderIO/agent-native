@@ -68,7 +68,8 @@ export function resolveLiveEditPreviewUrl(args: {
  */
 export type BridgeRegistrationFailureKind =
   | "maybePermissionBlocked"
-  | "unreachable";
+  | "unreachable"
+  | "stalePreviewToken";
 
 export async function classifyBridgeRegistrationFailure(): Promise<BridgeRegistrationFailureKind> {
   try {
@@ -179,4 +180,8 @@ export function getSnapshotRetryDelayMs(attempt: number): number {
   const safeAttempt = Number.isFinite(attempt) ? Math.max(0, attempt) : 0;
   const delay = SNAPSHOT_RETRY_BASE_DELAY_MS * 2 ** safeAttempt;
   return Math.min(SNAPSHOT_RETRY_MAX_DELAY_MS, delay);
+}
+
+export function isPreviewTokenStaleStatus(status: number): boolean {
+  return status === 401;
 }

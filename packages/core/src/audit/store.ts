@@ -21,42 +21,44 @@ import type {
 
 let _initPromise: Promise<void> | undefined;
 
+/** Idempotent base schema shared by boot-time audit setup and org migrations. */
+export const AGENT_AUDIT_LOG_CREATE_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_audit_log (
+    id TEXT PRIMARY KEY,
+    created_at BIGINT NOT NULL,
+    action TEXT NOT NULL,
+    caller TEXT NOT NULL,
+    actor_kind TEXT NOT NULL,
+    -- guard:allow-identity-column - immutable audit attribution
+    actor_email TEXT,
+    org_id TEXT,
+    thread_id TEXT,
+    turn_id TEXT,
+    target_type TEXT,
+    target_id TEXT,
+    status TEXT NOT NULL DEFAULT 'success',
+    summary TEXT,
+    input TEXT,
+    error_code TEXT,
+    -- guard:allow-identity-column - immutable audit ownership snapshot
+    owner_email TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private',
+    run_id TEXT,
+    task_id TEXT,
+    parent_task_id TEXT,
+    source_kind TEXT,
+    source_platform TEXT,
+    source_id TEXT,
+    source_url TEXT,
+    network_protocol TEXT,
+    network_id TEXT,
+    network_peer TEXT
+  )
+`;
+
 export async function ensureAuditTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS agent_audit_log (
-          id TEXT PRIMARY KEY,
-          created_at BIGINT NOT NULL,
-          action TEXT NOT NULL,
-          caller TEXT NOT NULL,
-          actor_kind TEXT NOT NULL,
-          -- guard:allow-identity-column - immutable audit attribution
-          actor_email TEXT,
-          org_id TEXT,
-          thread_id TEXT,
-          turn_id TEXT,
-          target_type TEXT,
-          target_id TEXT,
-          status TEXT NOT NULL DEFAULT 'success',
-          summary TEXT,
-          input TEXT,
-          error_code TEXT,
-          -- guard:allow-identity-column - immutable audit ownership snapshot
-          owner_email TEXT,
-          visibility TEXT NOT NULL DEFAULT 'private'
-          ,run_id TEXT
-          ,task_id TEXT
-          ,parent_task_id TEXT
-          ,source_kind TEXT
-          ,source_platform TEXT
-          ,source_id TEXT
-          ,source_url TEXT
-          ,network_protocol TEXT
-          ,network_id TEXT
-          ,network_peer TEXT
-        )
-      `;
       const lineageColumns = [
         "run_id",
         "task_id",
@@ -73,7 +75,7 @@ export async function ensureAuditTables(): Promise<void> {
       {
         // PG-guard: probe information_schema / pg_indexes before issuing DDL to
         // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
-        await ensureTableExists("agent_audit_log", createSql);
+        await ensureTableExists("agent_audit_log", AGENT_AUDIT_LOG_CREATE_SQL);
         for (const column of lineageColumns) {
           await ensureColumnExists(
             "agent_audit_log",

@@ -2309,6 +2309,70 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     ).toEqual({ "thread-child": "Research" });
   });
 
+  it("commits new and cleared tabs without disturbing the other open tabs", async () => {
+    const storageKey = "new-tab-lifecycle-test";
+    threadMocks.activeThreadId = "thread-2";
+    threadMocks.threads = [
+      makeThread("thread-1"),
+      makeThread("thread-2"),
+      makeThread("thread-3"),
+    ];
+    window.localStorage.setItem(
+      openTabsStorageKey(storageKey),
+      JSON.stringify(["thread-1", "thread-2", "thread-3"]),
+    );
+
+    const createdIds = ["thread-new", "thread-replacement"];
+    threadMocks.createThread.mockImplementation(async () => {
+      const id = createdIds.shift();
+      if (!id) throw new Error("test exhausted its thread ids");
+      threadMocks.activeThreadId = id;
+      threadMocks.threads = [...threadMocks.threads, makeThread(id)];
+      return id;
+    });
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await headerProps?.addTab();
+    });
+
+    expect(headerProps?.activeTabId).toBe("thread-new");
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+      "thread-3",
+      "thread-new",
+    ]);
+
+    await act(async () => {
+      headerProps?.clearActiveTab();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.activeTabId).toBe("thread-replacement");
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+      "thread-3",
+      "thread-replacement",
+    ]);
+  });
+
   it("replaces an active missing thread with a fresh chat", async () => {
     const replacementId = "thread-replacement";
     threadMocks.createThread.mockImplementationOnce(async () => {
