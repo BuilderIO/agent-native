@@ -77,7 +77,10 @@ For each slide N:
 
 1. Fully load `.../edit#slide=id.p<N>` (a real navigation, not a hash change
    — hash-only navigation freezes a hidden tab and the SVG never updates).
-2. Run `extractGoogleSlideLayout(N)` in the page.
+2. Run `extractGoogleSlideLayout(N)` in the page. For a deck that is not 16:9,
+   pass its ratio and coordinate width — e.g.
+   `extractGoogleSlideLayout(N, { aspect: 4 / 5, width: 720 })` — or the frame
+   search finds nothing and it throws.
 3. Browser tools may cap output around 1KB per call — page the returned rows
    and append each page to `google.txt`.
 4. Once every slide is appended, run `compare-layout.ts <chrome-layout-dir> google.txt`.

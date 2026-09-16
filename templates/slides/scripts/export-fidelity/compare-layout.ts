@@ -35,9 +35,12 @@ let lines = 0,
   unmatched = 0;
 const dys: number[] = [],
   dxs: number[] = [];
+const slideNumberOf = (name: string) => Number(name.match(/\d+/)![0]);
 const layoutFiles = readdirSync(anDir)
   .filter((name) => /^slide-\d+\.json$/.test(name))
-  .sort();
+  // Numeric, not lexicographic: the names are zero-padded to two digits, so a
+  // deck of 100 or more would otherwise sort slide-100 between 10 and 11.
+  .sort((a, b) => slideNumberOf(a) - slideNumberOf(b));
 // Comparing nothing is not a pass: without this the run prints zero mismatches
 // and NaN statistics, and exits 0.
 if (!layoutFiles.length) {
@@ -56,7 +59,13 @@ if (slideNumbers.some((value, index) => value !== index + 1)) {
 const expectedSlides = Number(
   process.argv[process.argv.indexOf("--slides") + 1],
 );
-if (expectedSlides > 0 && slideNumbers.length !== expectedSlides) {
+if (!(expectedSlides > 0)) {
+  // Say so rather than pass quietly: a dump and a readback that both stopped
+  // early agree with each other, and nothing here can tell from the inside.
+  console.warn(
+    `No --slides <n> given, so ${slideNumbers.length} slide(s) are taken as the whole deck.`,
+  );
+} else if (slideNumbers.length !== expectedSlides) {
   console.error(
     `Layout dump has ${slideNumbers.length} slide(s), expected ${expectedSlides}`,
   );

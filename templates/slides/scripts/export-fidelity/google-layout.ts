@@ -52,9 +52,14 @@ export function extractGoogleSlideLayout(
     const spans = [...t.querySelectorAll("tspan")].filter(
       (span) => !span.querySelector("tspan"),
     );
+    // A <text> that holds its own text as well as tspans would lose that text
+    // if only the tspans were measured, so measure the element as one run.
+    const ownText = [...t.childNodes].some(
+      (node) => node.nodeType === 3 && (node.textContent ?? "").trim() !== "",
+    );
     let carriedX = Number(t.getAttribute("x")) || 0;
     let carriedY = Number(t.getAttribute("y")) || 0;
-    for (const node of spans.length ? spans : [t]) {
+    for (const node of spans.length && !ownText ? spans : [t]) {
       const m = node.getScreenCTM();
       if (!m) continue;
       // Transform the whole point rather than x alone: Google keeps each
