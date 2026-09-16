@@ -660,9 +660,16 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
+  const useInlineMissingKeySetup = layoutVariant === "compact";
+  const gateComposer = shouldGateComposerForMissingEngine({
+    state: agentEngineConfigured.state,
+    hasSetupComponent: Boolean(
+      useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
+    ),
+  });
 
   useEffect(() => {
-    if (!autoFocus) return;
+    if (!autoFocus || gateComposer) return;
     const id = window.setTimeout(() => {
       const target =
         typeof handleRef === "object" && handleRef && "current" in handleRef
@@ -671,7 +678,7 @@ function PromptComposerInner({
       target?.focus();
     }, 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, handleRef]);
+  }, [autoFocus, gateComposer, handleRef]);
 
   const handleSubmit = useCallback(
     async (
@@ -700,14 +707,6 @@ function PromptComposerInner({
     },
     [composerEffort, composerEngine, composerModel, onSubmit],
   );
-  const useInlineMissingKeySetup = layoutVariant === "compact";
-  const gateComposer = shouldGateComposerForMissingEngine({
-    state: agentEngineConfigured.state,
-    hasSetupComponent: Boolean(
-      useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
-    ),
-  });
-
   return (
     <>
       {missingApiKey && !useInlineMissingKeySetup && BuilderSetupCard ? (
