@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
+  agentHandleNumberVariant,
   BUILTIN_AGENTS_FOR_SEEDING,
   discoverAgents,
   discoverOrgDirectoryAgents,
+  findAgent,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
   normalizeAgentId,
@@ -1036,6 +1038,70 @@ describe("agent discovery", () => {
     resolveMetadata(null);
 
     await expect(pending).resolves.toMatchObject({ status: "available" });
+  });
+
+  describe("singular/plural handle resolution", () => {
+    it("resolves the Plan app when a caller asks for 'plans'", async () => {
+      // The Plan app labels itself "Plans" in its own sidebar, nav state, and
+      // skills, so the model naturally delegates to agent="plans".
+      await expect(findAgent("plans", "brain")).resolves.toMatchObject({
+        id: "plan",
+      });
+    });
+
+    it("resolves every built-in agent from its other grammatical number", async () => {
+      const unresolved: string[] = [];
+      for (const agent of getBuiltinAgents()) {
+        const variant = agentHandleNumberVariant(agent.id);
+        if (!variant) continue;
+        if ((await findAgent(variant))?.id !== agent.id) {
+          unresolved.push(`${variant} -> ${agent.id}`);
+        }
+      }
+      expect(unresolved).toEqual([]);
+    });
+
+    it("leaves a genuinely unknown handle unresolved", async () => {
+      await expect(findAgent("nosuchapp", "brain")).resolves.toBeUndefined();
+    });
+
+    it("refuses to guess when two agents differ only by a trailing s", async () => {
+      resourceListMock.mockResolvedValue([
+        { id: "r-report", path: "remote-agents/report.json" },
+        { id: "r-reports", path: "remote-agents/reports.json" },
+      ]);
+      resourceGetMock.mockImplementation(async (id: string) =>
+        id === "r-report"
+          ? {
+              content: JSON.stringify({
+                id: "report",
+                name: "Report",
+                url: "https://report.example.com",
+              }),
+            }
+          : {
+              content: JSON.stringify({
+                id: "reports",
+                name: "Reports",
+                url: "https://reports.example.com",
+              }),
+            },
+      );
+
+      // "report" matches exactly; only the ambiguous variant lookup is refused.
+      await expect(findAgent("report")).resolves.toMatchObject({
+        id: "report",
+      });
+      await expect(findAgent("reportss")).resolves.toBeUndefined();
+    });
+
+    it("produces no variant for handles where the swap is meaningless", () => {
+      expect(agentHandleNumberVariant("")).toBeNull();
+      expect(agentHandleNumberVariant("  ")).toBeNull();
+      expect(agentHandleNumberVariant("access")).toBeNull();
+      expect(agentHandleNumberVariant("plan")).toBe("plans");
+      expect(agentHandleNumberVariant("Forms")).toBe("form");
+    });
   });
 });
 
