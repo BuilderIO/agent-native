@@ -2032,11 +2032,50 @@ describe("plan implementation handoff", () => {
 
     expect(implementationSource).toContain('onExecModeChange?.("build")');
     expect(implementationSource).toContain('"act"');
-    expect(implementationSource).not.toContain(
-      "latestProtocolContinuationContext",
+    expect(implementationSource).toContain(
+      "latestProtocolContinuationContext(\n      messagesRef.current,\n    )",
     );
     expect(implementationSource).not.toContain("continuation.turnId");
-    expect(implementationSource).not.toContain("continuation.actionScope");
+    expect(implementationSource).toContain("continuation.actionScope");
+  });
+
+  it("keeps a scoped action surface on the fresh Act handoff", () => {
+    const scopedPlan = {
+      role: "assistant",
+      metadata: {
+        custom: {
+          turnId: "plan-turn",
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "request-1",
+          },
+        },
+      },
+      content: [{ type: "text", text: "Plan complete" }],
+    };
+    const continuation = latestProtocolContinuationContext([scopedPlan]);
+    const options = createUserMessageRunConfig(
+      undefined,
+      "act",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      continuation.actionScope,
+    );
+
+    expect(options.runConfig?.custom).toEqual({
+      requestMode: "act",
+      actionScope: continuation.actionScope,
+    });
+    expect(options.metadata?.custom).toEqual({
+      actionScope: continuation.actionScope,
+    });
+    expect(options.metadata?.custom).not.toHaveProperty("turnId");
   });
 });
 
