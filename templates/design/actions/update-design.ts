@@ -9,6 +9,11 @@ import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
 const MAX_DATA_OPERATION_SOURCES = 128;
+const NUMERIC_DESIGN_DATA_MAPS = new Set([
+  "canvasFrames",
+  "screenMetadata",
+  "localhostScreens",
+]);
 const FORBIDDEN_DATA_PATH_SEGMENTS = new Set([
   "__proto__",
   "constructor",
@@ -244,7 +249,7 @@ function validatePersistedDataSnapshot(
   const parsed = JSON.parse(raw);
   if (!isRecord(parsed)) return;
   for (const [key, value] of Object.entries(parsed)) {
-    if (touchedMaps && key === "canvasFrames" && !touchedMaps.has(key)) {
+    if (touchedMaps && NUMERIC_DESIGN_DATA_MAPS.has(key) && !touchedMaps.has(key)) {
       continue;
     }
     const message = numericDesignDataWriteError([key], value);
@@ -477,11 +482,10 @@ export default defineAction({
       // per-value numeric checks have passed.
       const touchedMaps = dataOperations
         ? new Set(dataOperations.map((operation) => operation.path[0]))
-        : new Set(
-            isRecord(JSON.parse(data!))
-              ? Object.keys(JSON.parse(data!))
-              : [],
-          );
+        : (() => {
+            const parsed = JSON.parse(data!);
+            return new Set(isRecord(parsed) ? Object.keys(parsed) : []);
+          })();
       validatePersistedDataSnapshot(nextData, touchedMaps);
 
       // Compare-and-swap on the exact data snapshot. Transactions at the
