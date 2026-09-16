@@ -34,6 +34,21 @@ while investigating, fixing, or waiting on one targeted detail.
 Failure to reproduce means ask, not close; state what you tried and request one
 unblocker - request id, time, screenshot, account, or URL.
 
+### Checkmark gate
+
+For a defect, `✅` is a verified-closure signal. Add it only when the item has
+the **Fixed**, **Shipped**, or **Live verified** disposition and all four bars
+in Phase 2 hold. Never add it because an item was read, claimed, reviewed,
+handled, assigned, changed in source, covered by a test, or put on a beta/PR
+queue. A suspected fix is not a fix.
+
+If confidence is missing, keep `👀`, use the narrowest evidence-limited
+disposition, and ask one targeted question or fork whenever the answer would
+unblock the reproduction. Do not call an item fixed, or release its eye with
+`✅`, just because the reporter has not supplied enough detail. `✅` may release
+an explicitly non-defect or aged terminal workflow item, but that closure must
+remain labeled non-fixed in the reply and ledger.
+
 Use **Skipped** only for non-defects: feature requests, enhancements, or
 subjective preferences. Breakage is never skipped. **Open - no reply** is a last
 resort after working the defect and finding neither a fix nor a useful question;
@@ -86,8 +101,9 @@ questions still outrank newer reports.
 Phase 1 searches reach past this window. Claim search-discovered work when it
 enters the worklist - eye first, read back, then investigate.
 
-Claim generously, correct cheaply: release out-of-scope work with `✅`; record
-foreign ownership and leave its eye; stop on an unverified reaction.
+Claim generously, correct cheaply: release out-of-scope work with `✅` as a
+workflow closure, not a fix claim; record foreign ownership and leave its eye;
+stop on an unverified reaction.
 
 **Never end with an unworked claim.** Give carried-over eyes a disposition or
 release them with `✅`; peers treat an unexplained eye as owned.
@@ -442,9 +458,10 @@ have. Three kinds qualify:
 - **A question** — subject to the budget below.
 
 Everything else gets an internal recap row and **no message**. Follow the Phase
-0 contract for the eye. A defect you could not fix earns a question, not
-silence; record **Open - no reply** only when no question would unblock it, and
-do not message merely to hand off.
+0 contract for the eye. An unverified defect earns a targeted question, not a
+checkmark or silence, whenever one answer would unblock it; record **Open - no
+reply** only when no question would unblock it, and do not message merely to
+hand off.
 Never post the same sentence into multiple threads: if three reports share one
 cause, reply in one and record the rest as clustered.
 
