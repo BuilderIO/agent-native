@@ -38,6 +38,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { getGithubStarCount } from "../server/lib/github-star-count.server";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -133,11 +134,15 @@ async function initialMessagesForLocale(locale: DocsLocale) {
 export async function loader({ request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
   const locale = resolveLayoutLocale(requestUrl.pathname);
+  const [messages, starCount] = await Promise.all([
+    initialMessagesForLocale(locale),
+    getGithubStarCount(),
+  ]);
   return {
     locale,
     preference: { locale },
-    messages: await initialMessagesForLocale(locale),
-    starCount: null,
+    messages,
+    starCount,
   };
 }
 

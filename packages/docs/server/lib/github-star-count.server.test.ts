@@ -1,14 +1,47 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const settings = vi.hoisted(() => {
+  let value: Record<string, unknown> | null = null;
+  return {
+    reset: () => {
+      value = null;
+    },
+    set: (next: Record<string, unknown>) => {
+      value = next;
+    },
+    getSetting: vi.fn(async () => value),
+    mutateSetting: vi.fn(
+      async (
+        _key: string,
+        updater: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+      ) => {
+        value = await updater(value);
+        return value;
+      },
+    ),
+    putSetting: vi.fn(async (_key: string, next: Record<string, unknown>) => {
+      value = next;
+    }),
+  };
+});
+
+vi.mock("@agent-native/core/settings", () => settings);
+
 import {
   getGithubStarCount,
   resetGithubStarCountCacheForTests,
-} from "./github-star-count";
+} from "./github-star-count.server";
 
 describe("getGithubStarCount", () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
+    settings.reset();
+    settings.getSetting.mockClear();
+    settings.mutateSetting.mockClear();
+    settings.putSetting.mockClear();
     resetGithubStarCountCacheForTests();
   });
 
@@ -100,6 +133,45 @@ describe("getGithubStarCount", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("serves the persisted value without refetching within the fresh window", async () => {
+    settings.set({
+      count: 19,
+      fetchedAt: Date.now(),
+      retryAt: null,
+      refreshUntil: null,
+    });
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
+
+    expect(await getGithubStarCount()).toBe(19);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the persisted value during a GitHub rate-limit retry window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T17:00:00.000Z"));
+    settings.set({
+      count: 19,
+      fetchedAt: 0,
+      retryAt: null,
+      refreshUntil: null,
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 429,
+        headers: { "retry-after": "120" },
+      }),
+    );
+    global.fetch = fetchMock;
+
+    expect(await getGithubStarCount()).toBe(19);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    resetGithubStarCountCacheForTests();
+
+    expect(await getGithubStarCount()).toBe(19);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("serves the stale value when a background refresh fails", async () => {
     const fetchMock = vi
       .fn()
@@ -117,9 +189,7 @@ describe("getGithubStarCount", () => {
     vi.setSystemTime(Date.now() + 5 * 60_000);
 
     expect(await getGithubStarCount()).toBe(7);
-    await Promise.resolve();
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(await getGithubStarCount()).toBe(7);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
