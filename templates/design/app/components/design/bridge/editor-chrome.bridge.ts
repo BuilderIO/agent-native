@@ -4520,6 +4520,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
      *  this the drag pays that cost once per element PER TICK. Valid only
      *  while the gesture runs, which is exactly while layout is frozen. */
     infoCache?: Map<Element, unknown>;
+    /** Light identity/geometry descriptors are also stable for one gesture;
+     * cache them so distinct hit-set reports do not re-read computed style. */
+    lightInfoCache?: Map<Element, unknown>;
+    lastReportedElements?: Element[];
     moveFrame?: number | null;
     pendingMoveEvent?: MouseEvent | null;
     move: string;
@@ -9132,12 +9136,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e,
     final?: boolean,
     infoCache?: Map<Element, unknown> | null,
+    lightInfoCache?: Map<Element, unknown> | null,
   ): void {
+    var primaryIndex = elements.length - 1;
+    function lightInfo(el: Element): unknown {
+      if (!lightInfoCache) return getLightElementInfo(el, true);
+      var cached = lightInfoCache.get(el);
+      if (cached === undefined) {
+        cached = getLightElementInfo(el, true);
+        lightInfoCache.set(el, cached);
+      }
+      return cached;
+    }
     (window.parent as Window).postMessage(
       {
         type: "agent-native:layer-marquee-selection",
         phase: "change",
-        payload: elements.map(function (el) {
+        payload: elements.map(function (el, index) {
+          // Live ticks only need identity and geometry. Defer the expensive
+          // computed-style/subtree snapshot to the final primary item, which
+          // is the element the host keeps as the inspector selection.
+          if (!final) return lightInfo(el);
+          if (index !== primaryIndex) return lightInfo(el);
           if (!infoCache) return getElementInfo(el);
           var cached = infoCache.get(el);
           if (cached === undefined) {
@@ -9217,12 +9237,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     setPassiveSelectionElements(hitElements);
+    // The host also dedupes unchanged hit sets, but doing it after postMessage
+    // still pays to serialize every selection payload. Skip identical live
+    // ticks here; mouseup must always send the final packet for undo history.
+    var lastReported = activeMarqueeSelection.lastReportedElements;
+    var sameHitSet =
+      !!lastReported &&
+      lastReported.length === hitElements.length &&
+      hitElements.every(function (el, index) {
+        return lastReported![index] === el;
+      });
+    if (!final && sameHitSet) return;
+    activeMarqueeSelection.lastReportedElements = hitElements;
     postElementMarqueeSelect(
       hitElements,
       activeMarqueeSelection.additive,
       e,
       final,
       activeMarqueeSelection.infoCache,
+      activeMarqueeSelection.lightInfoCache,
     );
   }
 
@@ -9308,6 +9341,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       deep: Boolean(e && (e.metaKey || e.ctrlKey)),
       moved: false,
       infoCache: new Map<Element, unknown>(),
+      lightInfoCache: new Map<Element, unknown>(),
       moveFrame: null,
       pendingMoveEvent: null,
       pointerId: e.pointerId,

@@ -6824,12 +6824,24 @@ export const editorChromeBridgeScript: string = `"use strict";
     function rectsIntersect(a, b) {
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
-    function postElementMarqueeSelect(elements, additive, e, final, infoCache) {
+    function postElementMarqueeSelect(elements, additive, e, final, infoCache, lightInfoCache) {
+      var primaryIndex = elements.length - 1;
+      function lightInfo(el) {
+        if (!lightInfoCache) return getLightElementInfo(el, true);
+        var cached = lightInfoCache.get(el);
+        if (cached === void 0) {
+          cached = getLightElementInfo(el, true);
+          lightInfoCache.set(el, cached);
+        }
+        return cached;
+      }
       window.parent.postMessage(
         {
           type: "agent-native:layer-marquee-selection",
           phase: "change",
-          payload: elements.map(function(el) {
+          payload: elements.map(function(el, index) {
+            if (!final) return lightInfo(el);
+            if (index !== primaryIndex) return lightInfo(el);
             if (!infoCache) return getElementInfo(el);
             var cached = infoCache.get(el);
             if (cached === void 0) {
@@ -6895,12 +6907,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSelectionOverlay();
       }
       setPassiveSelectionElements(hitElements);
+      var lastReported = activeMarqueeSelection.lastReportedElements;
+      var sameHitSet = !!lastReported && lastReported.length === hitElements.length && hitElements.every(function(el, index2) {
+        return lastReported[index2] === el;
+      });
+      if (!final && sameHitSet) return;
+      activeMarqueeSelection.lastReportedElements = hitElements;
       postElementMarqueeSelect(
         hitElements,
         activeMarqueeSelection.additive,
         e,
         final,
-        activeMarqueeSelection.infoCache
+        activeMarqueeSelection.infoCache,
+        activeMarqueeSelection.lightInfoCache
       );
     }
     function beginMarqueeSelection(e) {
@@ -6967,6 +6986,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         deep: Boolean(e && (e.metaKey || e.ctrlKey)),
         moved: false,
         infoCache: /* @__PURE__ */ new Map(),
+        lightInfoCache: /* @__PURE__ */ new Map(),
         moveFrame: null,
         pendingMoveEvent: null,
         pointerId: e.pointerId,
