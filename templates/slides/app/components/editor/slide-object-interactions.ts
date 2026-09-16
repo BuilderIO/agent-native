@@ -1619,30 +1619,53 @@ function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
   );
 }
 
-function hasHorizontalBorder(element: HTMLElement): boolean {
+function hasVisibleBorder(element: HTMLElement): boolean {
   const computed = window.getComputedStyle(element);
   return [
-    {
-      computedStyle: computed.borderTopStyle,
-      computedWidth: computed.borderTopWidth,
-      inlineStyle: element.style.borderTopStyle,
-      inlineWidth: element.style.borderTopWidth,
-    },
-    {
-      computedStyle: computed.borderBottomStyle,
-      computedWidth: computed.borderBottomWidth,
-      inlineStyle: element.style.borderBottomStyle,
-      inlineWidth: element.style.borderBottomWidth,
-    },
-  ].some(({ computedStyle, computedWidth, inlineStyle, inlineWidth }) => {
-    const hasWidth = [computedWidth, inlineWidth].some(
-      (width) => Number.parseFloat(width || "0") > 0,
+    [
+      computed.borderTopStyle,
+      computed.borderTopWidth,
+      element.style.borderTopStyle,
+      element.style.borderTopWidth,
+    ],
+    [
+      computed.borderRightStyle,
+      computed.borderRightWidth,
+      element.style.borderRightStyle,
+      element.style.borderRightWidth,
+    ],
+    [
+      computed.borderBottomStyle,
+      computed.borderBottomWidth,
+      element.style.borderBottomStyle,
+      element.style.borderBottomWidth,
+    ],
+    [
+      computed.borderLeftStyle,
+      computed.borderLeftWidth,
+      element.style.borderLeftStyle,
+      element.style.borderLeftWidth,
+    ],
+  ].some(([computedStyle, computedWidth, inlineStyle, inlineWidth]) => {
+    const useComputed = computedStyle !== "" || computedWidth !== "";
+    const style = useComputed ? computedStyle : inlineStyle;
+    const width = useComputed ? computedWidth : inlineWidth;
+    return (
+      Number.parseFloat(width || "0") > 0 &&
+      style !== "" &&
+      style !== "none" &&
+      style !== "hidden"
     );
-    const hasStyle = [computedStyle, inlineStyle].some(
-      (style) => style !== "" && style !== "none" && style !== "hidden",
-    );
-    return hasWidth && hasStyle;
   });
+}
+
+function hasIndependentlyPositionedDescendant(element: HTMLElement): boolean {
+  return Array.from(element.querySelectorAll<HTMLElement>("*")).some(
+    (descendant) => {
+      const computedPosition = window.getComputedStyle(descendant).position;
+      return (computedPosition || descendant.style.position) === "absolute";
+    },
+  );
 }
 
 /** Promote selected leaves to a bordered container when its full content is selected. */
@@ -1657,8 +1680,12 @@ export function resolveSlideObjectMoveRoots(
       const leaves = Array.from(
         current.querySelectorAll<HTMLElement>("[data-builder-id]"),
       ).filter((descendant) => !descendant.querySelector("[data-builder-id]"));
+      const computedPosition = window.getComputedStyle(current).position;
+      const position = computedPosition || current.style.position;
       if (
-        hasHorizontalBorder(current) &&
+        hasVisibleBorder(current) &&
+        (position === "absolute" ||
+          !hasIndependentlyPositionedDescendant(current)) &&
         leaves.length > 0 &&
         leaves.every((leaf) => {
           const id = leaf.getAttribute("data-builder-id");

@@ -1651,6 +1651,27 @@ describe("slide object interactions", () => {
     ).toEqual([label]);
   });
 
+  it("does not promote a bordered flow card with positioned descendants", () => {
+    const slideContent = document.createElement("div");
+    const card = document.createElement("div");
+    card.style.borderLeft = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const positioned = document.createElement("div");
+    positioned.dataset.builderId = "positioned";
+    positioned.style.position = "absolute";
+    card.append(label, positioned);
+    slideContent.append(card);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, positioned],
+        new Set(["label", "positioned"]),
+        slideContent,
+      ),
+    ).toEqual([label, positioned]);
+  });
+
   it("moves every member by the same delta relative to its own captured start", () => {
     const objectA = createFreeformObject("a", { left: 10, top: 20 });
     const objectB = createFreeformObject("b", { left: 30, top: 40 });
