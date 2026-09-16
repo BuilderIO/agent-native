@@ -1619,6 +1619,61 @@ function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
   );
 }
 
+function hasHorizontalBorder(element: HTMLElement): boolean {
+  const computed = window.getComputedStyle(element);
+  return [
+    {
+      computedStyle: computed.borderTopStyle,
+      computedWidth: computed.borderTopWidth,
+      inlineStyle: element.style.borderTopStyle,
+      inlineWidth: element.style.borderTopWidth,
+    },
+    {
+      computedStyle: computed.borderBottomStyle,
+      computedWidth: computed.borderBottomWidth,
+      inlineStyle: element.style.borderBottomStyle,
+      inlineWidth: element.style.borderBottomWidth,
+    },
+  ].some(({ computedStyle, computedWidth, inlineStyle, inlineWidth }) => {
+    const hasWidth = [computedWidth, inlineWidth].some(
+      (width) => Number.parseFloat(width || "0") > 0,
+    );
+    const hasStyle = [computedStyle, inlineStyle].some(
+      (style) => style !== "" && style !== "none" && style !== "hidden",
+    );
+    return hasWidth && hasStyle;
+  });
+}
+
+/** Promote selected leaves to a bordered container when its full content is selected. */
+export function resolveSlideObjectMoveRoots(
+  elements: HTMLElement[],
+  selectedIds: ReadonlySet<string>,
+  boundary?: HTMLElement,
+): HTMLElement[] {
+  const roots = normalizeSlideObjectRoots(elements).map((element) => {
+    let current: HTMLElement | null = element;
+    while (current && current !== boundary) {
+      const leaves = Array.from(
+        current.querySelectorAll<HTMLElement>("[data-builder-id]"),
+      ).filter((descendant) => !descendant.querySelector("[data-builder-id]"));
+      if (
+        hasHorizontalBorder(current) &&
+        leaves.length > 0 &&
+        leaves.every((leaf) => {
+          const id = leaf.getAttribute("data-builder-id");
+          return id !== null && selectedIds.has(id);
+        })
+      ) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return element;
+  });
+  return normalizeSlideObjectRoots(roots);
+}
+
 export const SLIDE_OBJECT_GROUP_CLASS = "fmd-slide-group";
 
 export function isSlideObjectGroup(element: HTMLElement): boolean {

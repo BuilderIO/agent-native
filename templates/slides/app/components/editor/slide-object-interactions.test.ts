@@ -46,6 +46,7 @@ import {
   resolveSlideObjectContainingBlock,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
+  resolveSlideObjectMoveRoots,
   restoreSlideObjectStyle,
   resizeSlideObject,
   resizeSlideObjectMembers,
@@ -1625,6 +1626,29 @@ describe("slide object interactions", () => {
     const pasted = buildPastedSlideObjects(copied, document);
     expect(pasted).toHaveLength(1);
     expect(pasted[0].querySelector("[data-slide-object-id]")).not.toBeNull();
+  });
+
+  it("moves a bordered container when all of its selectable leaves are selected", () => {
+    const slideContent = document.createElement("div");
+    const card = document.createElement("div");
+    card.style.borderTop = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const copy = document.createElement("div");
+    copy.dataset.builderId = "copy";
+    card.append(label, copy);
+    slideContent.append(card);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, copy],
+        new Set(["label", "copy"]),
+        slideContent,
+      ),
+    ).toEqual([card]);
+    expect(
+      resolveSlideObjectMoveRoots([label], new Set(["label"]), slideContent),
+    ).toEqual([label]);
   });
 
   it("moves every member by the same delta relative to its own captured start", () => {
