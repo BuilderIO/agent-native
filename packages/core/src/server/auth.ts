@@ -3946,6 +3946,9 @@ function createAuthGuardFn(
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
+    if (getMethod(event) === "GET" && p === "/_agent-native/oauth/popup") {
+      return;
+    }
     // Liveness probes: always public so uptime monitors and the keep-warm cron
     // can reach them without a session. Ping exposes only a static message;
     // health exposes only aggregate readiness and a trivial `SELECT 1`.

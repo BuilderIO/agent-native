@@ -31,5 +31,8 @@ describe("Design editor header", () => {
     expect(surface).toContain("isolateHistoryByScope={true}");
     expect(surface).toContain("showHeader={true}");
     expect(surface).toContain("showTabBar={true}");
+    expect(surface).toContain("chatOnly={true}");
+    expect(surface).toContain("onCollapse={() => setActiveLeftPanel(null)}");
+    expect(surface).toContain("min-w-0");
   });
 });
