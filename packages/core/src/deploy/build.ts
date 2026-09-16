@@ -21,6 +21,7 @@ import fs from "fs";
 import { createRequire } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
+import { runInNewContext } from "vm";
 
 import { loadEnv } from "vite";
 
@@ -1061,6 +1062,8 @@ interface ReactRouterAssetManifest {
   entry: ReactRouterAssetManifestEntry;
   routes: Record<string, ReactRouterAssetManifestRoute>;
   url: string;
+  version?: string;
+  sri?: string;
 }
 
 interface ReactRouterAssetManifestEntry {
@@ -2221,6 +2224,138 @@ function findReactRouterManifest(distDir: string): ReactRouterAssetManifest {
   }
 
   return JSON.parse(match[1].replace(/;$/, "")) as ReactRouterAssetManifest;
+}
+
+const REACT_ROUTER_ASSET_MANIFEST_FIELDS = [
+  "module",
+  "imports",
+  "css",
+  "clientActionModule",
+  "clientLoaderModule",
+  "clientMiddlewareModule",
+  "hydrateFallbackModule",
+] as const;
+
+type ManifestRecord = Record<string, unknown>;
+
+function asManifestRecord(value: unknown, label: string): ManifestRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`React Router ${label} is not an object`);
+  }
+  return value as ManifestRecord;
+}
+
+function copyReactRouterAssetManifestFields(
+  target: ManifestRecord,
+  source: ManifestRecord,
+): void {
+  for (const field of REACT_ROUTER_ASSET_MANIFEST_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      target[field] = source[field];
+    }
+  }
+}
+
+/**
+ * The trusted Functions build starts from the base checkout, while a PR
+ * preview supplies the PR's client build. Keep the server route metadata from
+ * the trusted build, but make every client asset reference agree with the
+ * paired artifact before Nitro bundles the server.
+ */
+function patchReactRouterServerManifest(
+  serverBuildFile: string,
+  clientDirectory: string,
+): void {
+  const clientManifest = findReactRouterManifest(clientDirectory);
+  const source = fs.readFileSync(serverBuildFile, "utf8");
+  const regionStart = source.indexOf(
+    "//#region \\0virtual:react-router/server-manifest",
+  );
+  if (regionStart < 0) {
+    throw new Error(
+      `React Router server manifest region not found in ${serverBuildFile}`,
+    );
+  }
+
+  const assignmentStart = source.indexOf(
+    "var server_manifest_default = ",
+    regionStart,
+  );
+  const regionEnd = source.indexOf("//#endregion", assignmentStart);
+  const assignmentEnd = source.lastIndexOf(";", regionEnd);
+  if (assignmentStart < 0 || regionEnd < 0 || assignmentEnd < assignmentStart) {
+    throw new Error(
+      `React Router server manifest assignment not found in ${serverBuildFile}`,
+    );
+  }
+
+  const valueStart = assignmentStart + "var server_manifest_default = ".length;
+  let serverManifest: unknown;
+  try {
+    serverManifest = runInNewContext(
+      `(${source.slice(valueStart, assignmentEnd)})`,
+      Object.create(null),
+      { timeout: 1000 },
+    );
+  } catch (error) {
+    throw new Error(
+      `Could not parse React Router server manifest ${serverBuildFile}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const serverManifestRecord = asManifestRecord(
+    serverManifest,
+    "server manifest",
+  );
+  const serverEntry = asManifestRecord(
+    serverManifestRecord.entry,
+    "server manifest entry",
+  );
+  const clientManifestRecord = clientManifest as unknown as ManifestRecord;
+  const clientEntry = asManifestRecord(
+    clientManifestRecord.entry,
+    "client manifest entry",
+  );
+  copyReactRouterAssetManifestFields(serverEntry, clientEntry);
+
+  const serverRoutes = asManifestRecord(
+    serverManifestRecord.routes,
+    "server manifest routes",
+  );
+  const clientRoutes = asManifestRecord(
+    clientManifestRecord.routes,
+    "client manifest routes",
+  );
+  const serverRouteIds = Object.keys(serverRoutes).sort();
+  const clientRouteIds = Object.keys(clientRoutes).sort();
+  if (serverRouteIds.join("\n") !== clientRouteIds.join("\n")) {
+    throw new Error(
+      `React Router server/client route manifests differ: server=${serverRouteIds.join(",")} client=${clientRouteIds.join(",")}`,
+    );
+  }
+  for (const routeId of clientRouteIds) {
+    copyReactRouterAssetManifestFields(
+      asManifestRecord(serverRoutes[routeId], `server route ${routeId}`),
+      asManifestRecord(clientRoutes[routeId], `client route ${routeId}`),
+    );
+  }
+
+  for (const field of ["url", "version", "sri"] as const) {
+    if (Object.prototype.hasOwnProperty.call(clientManifestRecord, field)) {
+      serverManifestRecord[field] = clientManifestRecord[field];
+    }
+  }
+
+  const replacement = `var server_manifest_default = ${JSON.stringify(serverManifestRecord)};`;
+  fs.writeFileSync(
+    serverBuildFile,
+    source.slice(0, assignmentStart) +
+      replacement +
+      source.slice(assignmentEnd + 1),
+  );
+  console.log(
+    `[deploy] Paired React Router server manifest with ${path.basename(clientDirectory)}`,
+  );
 }
 
 function collectModulePreloads(
@@ -5105,6 +5240,16 @@ export async function runNitroBuildPipeline(
   const resolvedClientDir = resolveNitroClientDirectory(cwd, clientDir);
   const hasClientBuild =
     fs.existsSync(resolvedClientDir) && Boolean(publicOutputDir);
+  const usingPairedClientArtifact = Boolean(
+    process.env[PREBUILT_CLIENT_DIRECTORY_ENV]?.trim(),
+  );
+
+  if (hasClientBuild && usingPairedClientArtifact) {
+    const serverBuildFile = path.join(cwd, "build", "server", "index.js");
+    if (fs.existsSync(serverBuildFile)) {
+      patchReactRouterServerManifest(serverBuildFile, resolvedClientDir);
+    }
+  }
 
   if (hasClientBuild && includeImmutableAssetRouteRules) {
     // Install hashed-asset route rules before Nitro prepares platform output.

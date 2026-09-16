@@ -2814,6 +2814,58 @@ describe("runNitroBuildPipeline", () => {
       path.join(pairedClientDir, "assets", "entry.client-paired.js"),
       "paired-client",
     );
+    fs.writeFileSync(
+      path.join(pairedClientDir, "assets", "root-paired.js"),
+      "paired-root",
+    );
+    fs.writeFileSync(
+      path.join(pairedClientDir, "assets", "manifest-paired.js"),
+      `window.__reactRouterManifest=${JSON.stringify({
+        entry: {
+          module: "/assets/entry.client-paired.js",
+          imports: [],
+          css: [],
+        },
+        routes: {
+          root: {
+            id: "root",
+            path: "",
+            module: "/assets/root-paired.js",
+            imports: [],
+            css: [],
+          },
+        },
+        url: "/assets/manifest-paired.js",
+        version: "paired",
+      })};`,
+    );
+    const serverBuildFile = path.join(cwd, "build", "server", "index.js");
+    fs.mkdirSync(path.dirname(serverBuildFile), { recursive: true });
+    fs.writeFileSync(
+      serverBuildFile,
+      `//#region \\0virtual:react-router/server-manifest
+var server_manifest_default = ${JSON.stringify({
+        entry: {
+          module: "/assets/entry.client-base.js",
+          imports: [],
+          css: [],
+        },
+        routes: {
+          root: {
+            id: "root",
+            parentId: undefined,
+            path: "",
+            module: "/assets/root-base.js",
+            imports: [],
+            css: [],
+          },
+        },
+        url: "/assets/manifest-base.js",
+        version: "base",
+      })};
+//#endregion
+`,
+    );
     const previous = process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;
     process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR = pairedClientDir;
     try {
@@ -2842,6 +2894,11 @@ describe("runNitroBuildPipeline", () => {
           path.join(publicOutputDir, "assets", "entry.client-abc.js"),
         ),
       ).toBe(false);
+      const patchedServerBuild = fs.readFileSync(serverBuildFile, "utf8");
+      expect(patchedServerBuild).toContain("/assets/entry.client-paired.js");
+      expect(patchedServerBuild).toContain("/assets/root-paired.js");
+      expect(patchedServerBuild).toContain("/assets/manifest-paired.js");
+      expect(patchedServerBuild).not.toContain("/assets/entry.client-base.js");
     } finally {
       if (previous === undefined)
         delete process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;
