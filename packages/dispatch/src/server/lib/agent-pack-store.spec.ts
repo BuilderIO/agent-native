@@ -25,11 +25,10 @@ describe("applyAgentPackCreate", () => {
     // (`${root}.md`); a collision on an attached file path (`${root}/...`)
     // only surfaces here, so this boundary must not fall back to a bare
     // Error that the HTTP transport turns into an opaque 500.
-    mocks.getWorkspaceResourceByPath.mockImplementation(
-      async (path: string) =>
-        path === "agents/researcher/context/glossary.md"
-          ? { path, content: "existing" }
-          : null,
+    mocks.getWorkspaceResourceByPath.mockImplementation(async (path: string) =>
+      path === "agents/researcher/context/glossary.md"
+        ? { path, content: "existing" }
+        : null,
     );
 
     const { applyAgentPackCreate } = await import("./agent-pack-store.js");
@@ -37,7 +36,13 @@ describe("applyAgentPackCreate", () => {
     let caught: unknown;
     try {
       await applyAgentPackCreate([
-        { kind: "agent", name: "Researcher", path: "agents/researcher.md", content: "# Agent", scope: "all" },
+        {
+          kind: "agent",
+          name: "Researcher",
+          path: "agents/researcher.md",
+          content: "# Agent",
+          scope: "all",
+        },
         {
           kind: "agent-file",
           name: "glossary.md",
@@ -69,7 +74,13 @@ describe("applyAgentPackCreate", () => {
     let caught: unknown;
     try {
       await applyAgentPackCreate([
-        { kind: "agent", name: "Researcher", path: "agents/researcher.md", content: "# Agent", scope: "all" },
+        {
+          kind: "agent",
+          name: "Researcher",
+          path: "agents/researcher.md",
+          content: "# Agent",
+          scope: "all",
+        },
         {
           kind: "agent-file",
           name: "glossary.md",

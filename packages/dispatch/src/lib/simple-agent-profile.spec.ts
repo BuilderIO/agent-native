@@ -86,8 +86,6 @@ describe("simple agent profiles", () => {
     expect(caught).toBeDefined();
     expect(isActionContractError(caught)).toBe(true);
     expect((caught as { statusCode?: number }).statusCode).toBe(400);
-    expect((caught as Error).message).toContain(
-      "it is not valid JSON",
-    );
+    expect((caught as Error).message).toContain("it is not valid JSON");
   });
 });
