@@ -73,7 +73,10 @@ describe("DesignCanvas spacing overlay bridge", () => {
   });
 
   it("updates mirrored padding drag affordances when Alt changes", () => {
-    expect(source).toContain("function updateSpacingDragMirrorState");
+    expect(source).toContain("function updateSpacingDragState");
+    expect(source).toContain(
+      "updateSpacingDragState(!!ev.altKey, !!ev.shiftKey)",
+    );
     expect(source).toContain(
       'document.addEventListener("keydown", onKey, true)',
     );

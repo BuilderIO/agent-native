@@ -414,17 +414,12 @@ export default function ShareRoute() {
   const startAt = searchParams.get("at");
   const startMs = useMemo(() => parseTimeParam(startAt), [startAt]);
   const panelParam = searchParams.get("panel");
+  const search = searchParams.toString();
 
   // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
   // share link) so we can fire funnel events and forward attribution into the
   // signup URL even when cookies are blocked or `document.referrer` is empty.
-  const attribution = useMemo(
-    () =>
-      readShareAttribution(
-        typeof window === "undefined" ? "" : window.location.search,
-      ),
-    [],
-  );
+  const attribution = useMemo(() => readShareAttribution(search), [search]);
   const recordingId = shareId ?? "";
 
   // share_cta_click — fired alongside (never instead of) the real navigation.
@@ -558,17 +553,11 @@ export default function ShareRoute() {
     string | null
   >(null);
   const agentAccessToken = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return (
-      new URLSearchParams(window.location.search).get(
-        CLIPS_AGENT_ACCESS_PARAM,
-      ) ?? ""
-    );
-  }, []);
+    return searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
+  }, [searchParams]);
 
   const shareReturnTo = useMemo(() => {
     const path = `/share/${encodeURIComponent(recordingId)}`;
-    if (typeof window === "undefined") return path;
     const query = buildShareContinuationQuery(attribution, startAt, panelParam);
     return query ? `${path}?${query}` : path;
   }, [attribution, recordingId, startAt, panelParam]);

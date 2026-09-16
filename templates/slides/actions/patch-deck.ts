@@ -797,7 +797,7 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
 export default defineAction({
   title: "Patch Slides deck",
   description:
-    "Granular deck patch used by the browser editor for concurrent-safe writes. Before adding or restyling slides from an external agent, read get-deck with compact=true once for designSystem, deckStyle, and representativeSlideId, and get-design-system once for the full linked context. " +
+    "Granular deck patch used by the browser editor for concurrent-safe writes. Before adding or restyling slides from an external agent, read get-deck with compact=true once for designSystem, deckStyle, and representativeSlideId, and get-design-system once for the full linked context. For new deck generation, use add-slide once per newly generated slide so its per-slide Creative Context provenance is preserved; reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
     "Each operation touches only the target slide or field — concurrent writers " +
     "on different slides never overwrite each other's work. For a deck-wide " +
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +

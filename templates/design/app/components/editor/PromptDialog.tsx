@@ -1004,7 +1004,7 @@ export default function PromptPopover({
             key={placeholder ?? t("home.describeBuild")}
             autoFocus
             attachmentsEnabled
-            disabled={loading || uploading || submitting}
+            disabled={loading || submitting}
             placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
             onAttachmentsChange={handleAttachmentsChange}

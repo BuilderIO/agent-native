@@ -37,7 +37,13 @@ const BUDGETS = {
   ".agents/skills/turn-into-app/SKILL.md": 3780,
   ".agents/skills/extensions/SKILL.md": 3680,
   ".agents/skills/address-feedback-with-replies/SKILL.md": 3670,
-  ".agents/skills/visual-edit/SKILL.md": 3550,
+  // Raised 3550 -> 3610 on 2026-09-15: agent verification behavior. After
+  // running open-visual-edit the agent was launching Claude-in-Chrome to
+  // screenshot/poll the canvas into a loaded state before answering — slow
+  // and adding nothing the action's own screenCount/health response didn't
+  // already confirm. Added one instruction to stop after the action response
+  // and defer browser automation to an actual reported problem.
+  ".agents/skills/visual-edit/SKILL.md": 3610,
 };
 
 const listOnly = process.argv.includes("--list");

@@ -836,7 +836,7 @@ it.each(["rejected", "no-op", "committed", "intervening edit"])(
       state.args,
     );
     const reserveContentHistory = editorCallback(
-      /reserveContentHistory: (\(\) => \{[\s\S]*?\n        \}),\n        waitForHostWrites:/,
+      /reserveContentHistory: (\([^)]*\) => \{[\s\S]*?\n        \}),\n        waitForHostWrites:/,
       {
         ...state.args,
         reserveLinkedComponentContentHistory,
@@ -862,6 +862,7 @@ it.each(["rejected", "no-op", "committed", "intervening edit"])(
       canonicalizeSourceContent: (_id, content) => content,
       flushPendingSaves: vi.fn(),
       hasPendingSave: () => false,
+      getPendingSave: () => undefined,
       fileSaveChainsRef: { current: {} },
       pendingFileSavesRef: { current: {} },
       invokeAction: () => response,
@@ -875,6 +876,11 @@ it.each(["rejected", "no-op", "committed", "intervening edit"])(
           LinkedComponentMutationQueueArgs["applyFileContentUpdate"]
         >;
       },
+      getCurrentSelection: () => ({
+        activeFileId: "file-a",
+        selectedLayerIds: ["layer-a"],
+        overviewSelectedScreenIds: [],
+      }),
       reserveContentHistory,
       waitForHostWrites: async () => {},
       syncUndoRedoState: vi.fn(),

@@ -1840,8 +1840,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return !(isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]"));
     }
-    function serializeRuntimeLayerSnapshot() {
-      if (!document.body) return null;
+    function serializeRuntimeLayerSnapshot(excludedRoot) {
+      if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
       var snapshotComputedProperties = [
         "box-sizing",
         "display",
@@ -1931,7 +1931,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var index = 0; index < sourceNodes.length && index < cloneNodes.length; index += 1) {
         var sourceNode = sourceNodes[index];
         var cloneNode = cloneNodes[index];
-        if (!isRuntimeLayerVisualNode(sourceNode)) {
+        if (excludedRoot?.contains(sourceNode) || !isRuntimeLayerVisualNode(sourceNode)) {
           cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
           continue;
         }
@@ -2026,8 +2026,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       inlineSnapshotComputedStyle(document.body, cloneBody);
       cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
       var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>";
-      if (html.length > 2e6) return null;
+      if (html.length > 2e6)
+        return { ok: false, reason: "snapshot-too-large" };
       return {
+        ok: true,
         html,
         nodeCount,
         documentId: runtimeDocumentId
@@ -2043,7 +2045,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       runtimeLayerSnapshotTimer = null;
       runtimeLayerSnapshotMaxTimer = null;
       var snapshot = serializeRuntimeLayerSnapshot();
-      if (!snapshot || snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+      if (!snapshot.ok) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-error",
+            payload: snapshot
+          },
+          "*"
+        );
+        return;
+      }
+      if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       window.parent.postMessage(
         {
@@ -2177,6 +2189,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function hasStableOwnSource(el) {
       return !!(el && !isDocumentRootElement(el) && getSourceId(el));
+    }
+    function isRuntimeOnlyClone(el) {
+      var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
+      return !!cloneRoot && !isSourceOwned(cloneRoot);
     }
     function repeatTemplateOwning(node) {
       var parent = node.parentElement;
@@ -2359,7 +2375,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!descendIntoGroup) {
         var group = target;
         while (group && !isDocumentRootElement(group)) {
-          var groupName = group.getAttribute && group.getAttribute("data-agent-native-layer-name") || group.getAttribute && group.getAttribute("data-layer-name") || "";
+          var groupName = layerNameForElement(group);
           var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
           var legacyNodeId = group.getAttribute && group.getAttribute("data-agent-native-node-id");
           var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(groupName.trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
@@ -2465,13 +2481,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function layerNameForElement(el) {
       if (!el || !el.getAttribute) return "";
-      var canonical = el.getAttribute("data-agent-native-layer-name");
-      if (canonical && canonical.trim) {
-        var trimmedCanonical = canonical.trim();
-        if (trimmedCanonical) return trimmedCanonical;
+      var attributes = [
+        "data-agent-native-layer-name",
+        "data-layer-name",
+        "layer-name"
+      ];
+      for (var i = 0; i < attributes.length; i += 1) {
+        var value = el.getAttribute(attributes[i]);
+        var trimmed = value && value.trim ? value.trim() : "";
+        if (trimmed) return trimmed;
       }
-      var legacy = el.getAttribute("data-layer-name");
-      return legacy && legacy.trim ? legacy.trim() : "";
+      return "";
     }
     function elementLooksLikeComponent(el) {
       if (!el || !el.getAttribute || !el.tagName) return false;
@@ -2858,6 +2878,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       "display",
       "overflow",
       "lineHeight",
+      "letterSpacing",
+      "gridTemplateColumns",
+      "gridTemplateRows",
+      "gridAutoFlow",
+      "flexDirection",
+      "flexWrap",
+      "columnGap",
+      "rowGap",
+      "justifyContent",
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "alignItems",
+      "alignContent",
+      "justifyItems",
+      "gap",
+      "padding",
       "webkitBoxOrient",
       "webkitLineClamp",
       "--agent-native-truncate-original-display",
@@ -2878,6 +2916,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (typeof value === "string" && value !== "") {
           styles[property] = value;
         }
+      });
+      return styles;
+    }
+    function collectAuthoredSizeStyles(el) {
+      var computedStyleMap = el.computedStyleMap;
+      if (typeof computedStyleMap !== "function") return void 0;
+      var map = computedStyleMap.call(el);
+      var styles = {};
+      ["width", "height"].forEach(function(property) {
+        var value = map.get(property);
+        if (value == null) return;
+        var cssText = String(value).trim();
+        if (cssText) styles[property] = cssText;
       });
       return styles;
     }
@@ -3218,9 +3269,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parentAutoLayout = autoLayoutParentInfo(el);
       var designParent = designParentForElement(el);
       var parentStyles = designParent ? window.getComputedStyle(designParent) : null;
+      var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
-      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
+      var runtimeOnlyClone = isRuntimeOnlyClone(el);
+      var sourceBacked = !runtimeOnlyClone && (hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el));
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+      var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+      var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
       var pendingNodeId = "";
       if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
       // a template clone has no counterpart in source HTML, so no host
@@ -3286,6 +3341,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        runtimeSelector: runtimeSelector || void 0,
+        runtimeSourceId: runtimeSourceId || void 0,
         repeat: repeatInstanceInfo(el) || void 0,
         hasOwnText: hasOwnTextContent(el),
         wholeTextStyleRoot: isWholeTextStyleRoot(el),
@@ -3294,6 +3351,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         classes: Array.from(el.classList),
         computedStyles: collectElementComputedStyles(el, cs, paintCs),
         inlineStyles: collectElementInlineStyles(el),
+        authoredSizeStyles,
         primitiveKind: el.getAttribute("data-an-primitive") || void 0,
         isGroup: el.getAttribute("data-agent-native-group") === "true",
         vectorStrokeCanAlign: vectorStrokeCanAlign(el),
@@ -3343,19 +3401,33 @@ export const editorChromeBridgeScript: string = `"use strict";
         postScreenRootStyleSnapshot();
       });
     }
-    function getLightElementInfo(el) {
+    function getLightElementInfo(el, includePendingNodeId = false) {
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
-      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
+      var runtimeOnlyClone = isRuntimeOnlyClone(el);
+      var sourceBacked = !runtimeOnlyClone && (hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el));
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+      var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+      var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
       var parentStyles = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var cs = window.getComputedStyle(el);
+      var pendingNodeId = "";
+      if (includePendingNodeId && !getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && !isTemplateCloneElement(el)) {
+        pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
+        if (!pendingNodeId) {
+          pendingNodeId = freshRuntimeNodeId("pending");
+          el.setAttribute("data-an-pending-node-id", pendingNodeId);
+        }
+      }
       return {
         tagName: el.tagName.toLowerCase(),
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        runtimeSelector: runtimeSelector || void 0,
+        runtimeSourceId: runtimeSourceId || void 0,
+        pendingNodeId: pendingNodeId || void 0,
         selector: getSelector(el),
         classes: Array.from(el.classList),
         computedStyles: {},
@@ -3534,7 +3606,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var handle = document.createElement("span");
       handle.setAttribute("data-agent-native-edit-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : pos === "e" || pos === "w" ? "ew-resize" : pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize";
-      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + cursor + ";";
+      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" + cursor + ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -3781,6 +3853,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       parentAutoLayoutOverlay.style.display = "none";
     }
     function updateParentAutoLayoutOverlay(el) {
+      if (el?.getAttribute("data-an-primitive") === "frame") {
+        hideParentAutoLayoutOverlay();
+        return;
+      }
       var parent = el && el.parentElement;
       if (!parent || parent === document.body || parent === document.documentElement) {
         hideParentAutoLayoutOverlay();
@@ -3848,9 +3924,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       pendingBeginTextEdit = null;
     }
-    function postTextEditPending(nodeId, pending) {
+    function postTextEditPending(nodeId, pending, reason) {
       window.parent.postMessage(
-        { type: "text-edit-pending", nodeId, pending },
+        {
+          type: "text-edit-pending",
+          nodeId,
+          pending,
+          reason
+        },
+        "*"
+      );
+    }
+    function postTextEditInsertResult(nodeId, inserted) {
+      window.parent.postMessage(
+        {
+          type: "text-edit-insert-result",
+          nodeId,
+          inserted
+        },
         "*"
       );
     }
@@ -3981,7 +4072,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "multi-selection-handle"
         );
         handle.setAttribute("data-corner", pos);
-        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
+        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
         if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
         if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -6783,12 +6874,24 @@ export const editorChromeBridgeScript: string = `"use strict";
     function rectsIntersect(a, b) {
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
-    function postElementMarqueeSelect(elements, additive, e, final, infoCache) {
+    function postElementMarqueeSelect(elements, additive, e, final, infoCache, lightInfoCache) {
+      var primaryIndex = elements.length - 1;
+      function lightInfo(el) {
+        if (!lightInfoCache) return getLightElementInfo(el, true);
+        var cached = lightInfoCache.get(el);
+        if (cached === void 0) {
+          cached = getLightElementInfo(el, true);
+          lightInfoCache.set(el, cached);
+        }
+        return cached;
+      }
       window.parent.postMessage(
         {
           type: "agent-native:layer-marquee-selection",
           phase: "change",
-          payload: elements.map(function(el) {
+          payload: elements.map(function(el, index) {
+            if (!final) return lightInfo(el);
+            if (index !== primaryIndex) return lightInfo(el);
             if (!infoCache) return getElementInfo(el);
             var cached = infoCache.get(el);
             if (cached === void 0) {
@@ -6854,12 +6957,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSelectionOverlay();
       }
       setPassiveSelectionElements(hitElements);
+      var lastReported = activeMarqueeSelection.lastReportedElements;
+      var sameHitSet = !!lastReported && lastReported.length === hitElements.length && hitElements.every(function(el, index2) {
+        return lastReported[index2] === el;
+      });
+      if (!final && sameHitSet) return;
+      activeMarqueeSelection.lastReportedElements = hitElements;
       postElementMarqueeSelect(
         hitElements,
         activeMarqueeSelection.additive,
         e,
         final,
-        activeMarqueeSelection.infoCache
+        activeMarqueeSelection.infoCache,
+        activeMarqueeSelection.lightInfoCache
       );
     }
     function beginMarqueeSelection(e) {
@@ -6926,6 +7036,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         deep: Boolean(e && (e.metaKey || e.ctrlKey)),
         moved: false,
         infoCache: /* @__PURE__ */ new Map(),
+        lightInfoCache: /* @__PURE__ */ new Map(),
         moveFrame: null,
         pendingMoveEvent: null,
         pointerId: e.pointerId,
@@ -7762,8 +7873,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return clampSpacingValue(originValue + delta);
     }
-    function applySpacingDragValue(target, handle, value, mirrorOpposite) {
+    var paddingProperties = [
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft"
+    ];
+    function applySpacingDragValue(target, handle, value, mirrorOpposite, syncAllPadding) {
       if (!target || !handle) return;
+      if (handle.kind === "padding" && syncAllPadding) {
+        for (var i = 0; i < 4; i += 1) {
+          target.style[paddingProperties[i]] = value + "px";
+        }
+        return;
+      }
       target.style[handle.property] = value + "px";
       if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
         target.style[handle.oppositeProperty] = value + "px";
@@ -7784,8 +7907,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var dragEl = selectedEl;
       var originValue = handle.value;
-      var originInlineValue = dragEl.style[handle.property];
-      var originInlineOppositeValue = handle.oppositeProperty ? dragEl.style[handle.oppositeProperty] : "";
+      var originInlinePaddingValues = {};
+      for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+        var paddingProperty = paddingProperties[paddingIndex];
+        originInlinePaddingValues[paddingProperty] = dragEl.style[paddingProperty];
+      }
+      var syncAllPadding = !!e.shiftKey;
       var startX = e.clientX;
       var startY = e.clientY;
       lastSpacingPointerPoint = { x: startX, y: startY };
@@ -7793,17 +7920,40 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingDrag = {
         handle,
         currentValue: originValue,
-        mirrorOpposite: !!e.altKey
+        mirrorOpposite: !!e.altKey,
+        syncAllPadding,
+        touchedAllPadding: syncAllPadding
       };
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        originValue,
+        !!e.altKey,
+        syncAllPadding
+      );
       updateSpacingOverlay(selectedEl);
       showSpacingBadgeForHandle(handle, originValue);
-      function updateSpacingDragMirrorState(mirrorOpposite) {
+      function updateSpacingDragState(mirrorOpposite, syncAllPadding2) {
         if (!spacingDrag) return;
-        if (spacingDrag.mirrorOpposite === mirrorOpposite) return;
+        if (spacingDrag.mirrorOpposite === mirrorOpposite && spacingDrag.syncAllPadding === syncAllPadding2) {
+          return;
+        }
+        var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding2;
+        if (syncAllPadding2) {
+          applySpacingDragValue(
+            dragEl,
+            handle,
+            spacingDrag.currentValue,
+            mirrorOpposite,
+            true
+          );
+        }
         spacingDrag = {
           handle,
           currentValue: spacingDrag.currentValue,
-          mirrorOpposite
+          mirrorOpposite,
+          syncAllPadding: syncAllPadding2,
+          touchedAllPadding
         };
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -7817,9 +7967,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function restoreSpacingDragValue() {
         if (dragEl && document.documentElement.contains(dragEl)) {
-          dragEl.style[handle.property] = originInlineValue;
-          if (handle.oppositeProperty) {
-            dragEl.style[handle.oppositeProperty] = originInlineOppositeValue;
+          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
+            var paddingProperty2 = paddingProperties[paddingIndex2];
+            dragEl.style[paddingProperty2] = originInlinePaddingValues[paddingProperty2];
           }
           selectedEl = dragEl;
           positionOverlay(selectionOverlay, dragEl);
@@ -7838,8 +7988,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           cancelSpacingDrag();
           return;
         }
-        if (ev.key !== "Alt") return;
-        updateSpacingDragMirrorState(!!ev.altKey);
+        if (ev.key !== "Alt" && ev.key !== "Shift") return;
+        updateSpacingDragState(!!ev.altKey, !!ev.shiftKey);
       }
       function onMove(ev) {
         if (!dragEl || !document.documentElement.contains(dragEl)) return;
@@ -7851,13 +8001,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           ev.clientX,
           ev.clientY
         );
+        var syncAllPadding2 = !!ev.shiftKey;
+        var touchedAllPadding = spacingDrag && spacingDrag.touchedAllPadding || syncAllPadding2;
         spacingDrag = {
           handle,
           currentValue: nextValue,
-          mirrorOpposite: !!ev.altKey
+          mirrorOpposite: !!ev.altKey,
+          syncAllPadding: syncAllPadding2,
+          touchedAllPadding
         };
         lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
-        applySpacingDragValue(dragEl, handle, nextValue, !!ev.altKey);
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          nextValue,
+          !!ev.altKey,
+          syncAllPadding2
+        );
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, nextValue);
       }
@@ -7870,13 +8030,28 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var finalValue = spacingDrag ? spacingDrag.currentValue : originValue;
         var mirrorOpposite = spacingDrag ? spacingDrag.mirrorOpposite : !!ev.altKey;
-        applySpacingDragValue(dragEl, handle, finalValue, mirrorOpposite);
+        var syncAllPadding2 = spacingDrag ? spacingDrag.syncAllPadding : !!ev.shiftKey;
+        var touchedAllPadding = spacingDrag ? spacingDrag.touchedAllPadding : syncAllPadding2;
+        var commitAllPadding = handle.kind === "padding" && (syncAllPadding2 || touchedAllPadding);
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          finalValue,
+          mirrorOpposite,
+          commitAllPadding
+        );
         selectedEl = dragEl;
         spacingDrag = null;
         var styles = {};
-        styles[handle.property] = finalValue + "px";
-        if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
-          styles[handle.oppositeProperty] = finalValue + "px";
+        if (commitAllPadding) {
+          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
+            styles[paddingProperties[paddingIndex2]] = finalValue + "px";
+          }
+        } else {
+          styles[handle.property] = finalValue + "px";
+          if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
+            styles[handle.oppositeProperty] = finalValue + "px";
+          }
         }
         postVisualStyleChange(styles);
         positionOverlay(selectionOverlay, dragEl);
@@ -7944,13 +8119,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       postTextEditingState(suspended.target, false, suspended.selector, false);
     }
     function insertPlainTextAtSelection(text) {
-      if (!text) return;
+      if (!text) return false;
       if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
-        document.execCommand("insertText", false, text);
-        return;
+        var executed = false;
+        try {
+          executed = document.execCommand("insertText", false, text) === true;
+        } catch (_err) {
+          executed = false;
+        }
+        if (executed) return true;
       }
       var selection = window.getSelection ? window.getSelection() : null;
-      if (!selection || selection.rangeCount === 0) return;
+      if (!selection || selection.rangeCount === 0) return false;
       var range = selection.getRangeAt(0);
       range.deleteContents();
       var textNode = document.createTextNode(text);
@@ -7959,6 +8139,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       range.setEndAfter(textNode);
       selection.removeAllRanges();
       selection.addRange(range);
+      return textNode.isConnected === true;
     }
     function insertLineBreak() {
       if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
@@ -9574,7 +9755,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
       publishSourceDocumentProvenance(void 0, true);
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml, replaced) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml) {
       if (!el || !target || !target.anchor) return;
       dndLog("post:structure-change", {
         el: getSelector(el),
@@ -9605,6 +9786,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           // element the source file has never contained.
           insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
           replaced: replaced === true ? true : void 0,
+          replacementSnapshotHtml,
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el),
@@ -11107,11 +11289,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           showConstraintGuides(dragEl);
         }
-        showTransformBadge(
-          Math.round(nextLeft) + ", " + Math.round(nextTop),
-          ev.clientX,
-          ev.clientY
-        );
         refreshOverlays();
       }
       function restoreSourceDragPosition() {
@@ -12555,9 +12732,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
             var pendingKey = e.key || "";
             if (pendingKey === "Escape") {
+              if (pendingBeginTextEdit.buffer) {
+                pendingBeginTextEdit.commitImmediately = true;
+                stopNativeInteraction(e);
+                return;
+              }
               var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
               cancelPendingBeginTextEdit();
-              postTextEditPending(abandonedPendingNodeId, false);
+              postTextEditPending(abandonedPendingNodeId, false, "escape");
               stopNativeInteraction(e);
               return;
             }
@@ -12665,7 +12847,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (pendingBeginTextEdit) {
           var canceledPendingNodeId = pendingBeginTextEdit.nodeId;
           cancelPendingBeginTextEdit();
-          postTextEditPending(canceledPendingNodeId, false);
+          postTextEditPending(canceledPendingNodeId, false, "pointerdown");
         }
         if (!activeTextEditEl) return;
         if (exitStaleTextEditSession()) return;
@@ -12814,7 +12996,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (pendingBeginTextEdit) {
         var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
         cancelPendingBeginTextEdit();
-        postTextEditPending(supersededPendingNodeId, false);
+        postTextEditPending(supersededPendingNodeId, false, "superseded");
       }
       if (activeTextEditEl && finishActiveTextEdit) finishActiveTextEdit(true);
       clearSuspendedTextEditRange();
@@ -13214,31 +13396,48 @@ export const editorChromeBridgeScript: string = `"use strict";
         resumeBookmark
       );
     }
+    var PENDING_BEGIN_TEXT_EDIT_MS = 5e3;
     function pumpPendingBeginTextEdit() {
       if (!pendingBeginTextEdit) return;
       var entry = pendingBeginTextEdit;
       var node = queryBeginTextEditNode(entry.nodeId, entry.repeat);
       if (node) {
         pendingBeginTextEdit = null;
+        if (activeTextEditEl) {
+          if (entry.buffer) postTextEditInsertResult(entry.nodeId, false);
+        }
         if (!activeTextEditEl) {
           activateProgrammaticTextEdit(node, entry.force);
-          if (entry.buffer && activeTextEditEl === node) {
-            insertPlainTextAtSelection(entry.buffer);
+          var replayLanded = false;
+          if (entry.buffer) {
+            replayLanded = activeTextEditEl === node && insertPlainTextAtSelection(entry.buffer);
+            postTextEditInsertResult(entry.nodeId, replayLanded);
+          }
+          if (entry.commitImmediately) {
+            if (activeTextEditEl === node && finishActiveTextEdit && (replayLanded || !entry.buffer)) {
+              finishActiveTextEdit(true);
+              node.blur();
+              postTextEditPending(entry.nodeId, false, "committed");
+            } else {
+              postTextEditPending(entry.nodeId, false, "not-taken");
+            }
           }
         }
         return;
       }
       if (Date.now() > entry.deadline) {
         pendingBeginTextEdit = null;
-        postTextEditPending(entry.nodeId, false);
+        postTextEditPending(entry.nodeId, false, "deadline");
         return;
       }
       entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
     }
-    function scheduleBeginTextEditRetry(nodeId, repeat, force) {
+    function scheduleBeginTextEditRetry(nodeId, repeat, force, insertText, commitImmediately) {
       if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === nodeId && sameBeginTextEditRepeat(pendingBeginTextEdit.repeat, repeat)) {
         pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
-        pendingBeginTextEdit.deadline = Date.now() + 2e3;
+        pendingBeginTextEdit.deadline = Date.now() + PENDING_BEGIN_TEXT_EDIT_MS;
+        if (insertText) pendingBeginTextEdit.buffer += insertText;
+        if (commitImmediately) pendingBeginTextEdit.commitImmediately = true;
         return;
       }
       cancelPendingBeginTextEdit();
@@ -13246,9 +13445,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         nodeId,
         repeat,
         force,
-        deadline: Date.now() + 2e3,
+        commitImmediately: commitImmediately === true,
+        deadline: Date.now() + PENDING_BEGIN_TEXT_EDIT_MS,
         raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
-        buffer: ""
+        buffer: insertText || ""
       };
     }
     shieldOverlay.addEventListener("dblclick", beginTextEditingFromEvent, true);
@@ -13495,6 +13695,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         designCanvasContentOffsetY = Number.isFinite(nextContentOffsetY) ? nextContentOffsetY : 0;
         return;
       }
+      if (e.data.type === "agent-native:cancel-text-edit") {
+        var cancelScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
+        var cancelNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        if (!cancelNodeId) return;
+        if (cancelScreenId && cancelScreenId !== designCanvasScreenId) return;
+        if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === cancelNodeId) {
+          cancelPendingBeginTextEdit();
+          postTextEditPending(cancelNodeId, false, "superseded");
+        }
+        if (activeTextEditEl && getSourceId(activeTextEditEl) === cancelNodeId && (activeTextEditEl.textContent || "").trim() === "" && finishActiveTextEdit) {
+          finishActiveTextEdit(false);
+        }
+        return;
+      }
       if (e.data.type === "begin-text-edit") {
         var forceBeginTextEdit = e.data.force === true;
         if ((readOnly || !textEditingEnabled) && !forceBeginTextEdit) return;
@@ -13502,24 +13716,51 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!nodeId) return;
         var beginTextEditRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
         if (e.data.repeat !== void 0 && !beginTextEditRepeat) return;
+        var beginInsertText = typeof e.data.insertText === "string" ? e.data.insertText : "";
+        var beginCommitImmediately = e.data.commitImmediately === true;
         var textTarget = queryBeginTextEditNode(nodeId, beginTextEditRepeat);
         if (!textTarget) {
           scheduleBeginTextEditRetry(
             nodeId,
             beginTextEditRepeat,
-            forceBeginTextEdit
+            forceBeginTextEdit,
+            beginInsertText,
+            beginCommitImmediately
           );
           postTextEditPending(nodeId, true);
           return;
         }
         cancelPendingBeginTextEdit();
         activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
+        var tookTarget = activeTextEditEl === textTarget;
+        var beginInsertLanded = false;
+        if (beginInsertText) {
+          beginInsertLanded = tookTarget && insertPlainTextAtSelection(beginInsertText);
+          postTextEditInsertResult(nodeId, beginInsertLanded);
+        }
+        if (beginCommitImmediately) {
+          if (tookTarget && finishActiveTextEdit && (beginInsertLanded || !beginInsertText)) {
+            finishActiveTextEdit(true);
+            textTarget.blur();
+            postTextEditPending(nodeId, false, "committed");
+          } else {
+            postTextEditPending(nodeId, false, "not-taken");
+          }
+        }
         return;
       }
       if (e.data.type === "text-edit-insert-text") {
         var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
-        if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
+        var bufferedNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        if (!bufferedText) return;
+        if (!activeTextEditEl || !isTextEditElConnected()) {
+          postTextEditInsertResult(bufferedNodeId, false);
           return;
+        }
+        if (bufferedNodeId && getSourceId(activeTextEditEl) !== bufferedNodeId) {
+          postTextEditInsertResult(bufferedNodeId, false);
+          return;
+        }
         var bufferedActive = document.activeElement;
         if (!bufferedActive || bufferedActive !== activeTextEditEl && !activeTextEditEl.contains(bufferedActive)) {
           try {
@@ -13531,8 +13772,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           activeTextEditEl,
           true
         );
-        insertPlainTextAtSelection(bufferedText);
+        var bufferedInserted = insertPlainTextAtSelection(bufferedText);
         if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
+        postTextEditInsertResult(bufferedNodeId, bufferedInserted);
         return;
       }
       if (e.data.type === "set-editor-chrome-scale") {
@@ -14016,6 +14258,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           var replaceNextSibling = insertAnchor.nextSibling;
           replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+          var replacementSnapshot = serializeRuntimeLayerSnapshot(insertAnchor);
+          if (!replacementSnapshot.ok) {
+            parsedInsertEl.remove();
+            rejectInsert("replacement-" + replacementSnapshot.reason);
+            return;
+          }
           selectedEl = parsedInsertEl;
           positionOverlay(selectionOverlay, selectedEl);
           refreshOverlays();
@@ -14029,7 +14277,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               prevNextSibling: replaceNextSibling
             },
             parsedInsertEl.outerHTML,
-            true
+            true,
+            replacementSnapshot.html
           );
           replaceParent.removeChild(insertAnchor);
           refreshOverlays();
@@ -14333,6 +14582,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "data-agent-native-component",
           "data-agent-native-layer-name",
           "data-layer-name",
+          "layer-name",
           "data-an-primitive",
           "data-component-name",
           "data-source-column",
@@ -14366,6 +14616,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         attributeFilter: [
           "data-agent-native-layer-name",
           "data-layer-name",
+          "layer-name",
           "data-an-primitive",
           "class",
           "style"

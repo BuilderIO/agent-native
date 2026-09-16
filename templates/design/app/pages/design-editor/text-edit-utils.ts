@@ -1,4 +1,8 @@
-import { POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS } from "@/components/design/design-canvas/pending-text-edit";
+import {
+  BEGIN_TEXT_EDIT_ACTIVATION_CONFIRM_DELAY_MS,
+  BEGIN_TEXT_EDIT_RETRY_DELAYS_MS,
+  TEXT_EDIT_STATUS_PROBE_TIMEOUT_MS,
+} from "@/components/design/design-canvas/pending-text-edit";
 import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
 
@@ -31,8 +35,48 @@ export function isTextEditSessionOutcome(
   return outcome === "active" || outcome === "done";
 }
 
-/** Grace period before re-probing a just-requested activation. */
-const ACTIVATION_CONFIRM_DELAY_MS = 300;
+/**
+ * Does a "text editing session ended" report close the session the host
+ * currently believes is live? Overview renders every screen's canvas at once
+ * and they all post into one shared state, so a stale report must not clobber
+ * the session the user is really in. Screen alone is not an identity: two text
+ * nodes on one surface (a board creation, then the next) let the first's late
+ * active:false close the second's live session. An IDENTIFIED report names the
+ * session it ended, so it can only close that one: letting it close an
+ * unidentified live session closed whichever session happened to be open. An
+ * unidentified report carries no such claim and still closes its screen's
+ * session, rather than stranding it active forever.
+ */
+export function endedTextEditClosesActiveSession(
+  activeSession: { screenId: string; sourceId?: string } | null,
+  ended: { screenId: string; sourceId?: string },
+): boolean {
+  if (!activeSession || activeSession.screenId !== ended.screenId) return false;
+  if (!activeSession.sourceId) return !ended.sourceId;
+  if (!ended.sourceId) return true;
+  return activeSession.sourceId === ended.sourceId;
+}
+
+/**
+ * Does a "text editing session ended" report belong to the creation whose
+ * begin-text-edit ladder is still running? The report is a per-screen
+ * broadcast, not an answer about that creation: session A can report ended
+ * AFTER creation B armed on the same surface, and cancelling on the bare
+ * signal settled B's ladder and deleted B's just-created node. `sourceId` is
+ * the ended element's own `data-agent-native-node-id`. Without both ids there
+ * is no identity to match, and leaving the ladder to its own deadline is
+ * recoverable where cancelling the wrong creation is not.
+ */
+export function endedTextEditMatchesPendingCreation(
+  pending: { screenId: string | null; nodeId: string } | null,
+  ended: { active: boolean; screenId?: string; sourceId?: string },
+): boolean {
+  if (!pending || ended.active) return false;
+  if (!ended.screenId || !ended.sourceId) return false;
+  return (
+    pending.screenId === ended.screenId && pending.nodeId === ended.sourceId
+  );
+}
 
 export type TextEditRepeatIdentity = Pick<
   NonNullable<ElementInfo["repeat"]>,
@@ -61,7 +105,7 @@ function queryTextEditStatus(
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", listener);
       resolve("no-reply");
-    }, 250);
+    }, TEXT_EDIT_STATUS_PROBE_TIMEOUT_MS);
     const listener = (event: MessageEvent) => {
       if (
         !event.data ||
@@ -124,6 +168,7 @@ async function requestTextEdit(
   nodeId: string,
   boardFileId: string | null,
   acceptCommittedText: boolean,
+  isAbandoned: (() => boolean) | undefined,
   repeat?: TextEditRepeatIdentity,
 ): Promise<BeginTextEditOutcome> {
   const status = await probeTextEdit(screenId, nodeId, boardFileId, repeat);
@@ -133,6 +178,11 @@ async function requestTextEdit(
     status === "no-iframe"
   )
     return status;
+  // The user pointed away from this creation. Report what the iframe actually
+  // says instead of re-opening a session they have left; the remaining probes
+  // still run, so exhaustion (and the empty-node cleanup it drives) keeps its
+  // own timing rather than racing the commit that click just triggered.
+  if (isAbandoned?.()) return status;
   const iframe = findCanvasIframeForScreen(
     document.body,
     screenId ?? "",
@@ -170,6 +220,10 @@ export function scheduleBeginTextEditForScreen(
     boardFileId?: string | null;
     /** An explicit edit command must activate already-committed text once. */
     reopenExisting?: boolean;
+    /** Asked before every activation attempt: true once the creation's request
+     *  has been stood down (pointer-away), so no later retry can yank focus
+     *  back into a node the user has walked away from. */
+    isAbandoned?: () => boolean;
     repeat?: TextEditRepeatIdentity;
     onExhausted?: (finalStatus: BeginTextEditOutcome) => void;
   },
@@ -188,16 +242,7 @@ export function scheduleBeginTextEditForScreen(
     timers.forEach((timer) => window.clearTimeout(timer));
     onExhausted?.(status);
   };
-  const delays = [
-    POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS,
-    600,
-    900,
-    1200,
-    1800,
-    2400,
-    3200,
-    4200,
-  ];
+  const delays = BEGIN_TEXT_EDIT_RETRY_DELAYS_MS;
   delays.forEach((delay, index) => {
     const timer = window.setTimeout(() => {
       if (finished) return;
@@ -206,12 +251,16 @@ export function scheduleBeginTextEditForScreen(
         nodeId,
         boardFileId,
         !options?.reopenExisting || activationRequested,
+        options?.isAbandoned,
         options?.repeat,
       ).then((status) => {
         if (finished) return;
         if (status === "activation-requested") activationRequested = true;
         lastStatus = status;
-        if (isTextEditSessionOutcome(status)) {
+        // An abandoned creation never settles early on a live session: the
+        // caller has to decide the node's fate by its committed content, and
+        // settling here would race the commit the stand-down click started.
+        if (isTextEditSessionOutcome(status) && !options?.isAbandoned?.()) {
           settle(status);
           return;
         }
@@ -233,7 +282,7 @@ export function scheduleBeginTextEditForScreen(
             if (finished) return;
             settle(confirmed);
           });
-        }, ACTIVATION_CONFIRM_DELAY_MS);
+        }, BEGIN_TEXT_EDIT_ACTIVATION_CONFIRM_DELAY_MS);
         timers.push(confirmTimer);
       });
     }, delay);

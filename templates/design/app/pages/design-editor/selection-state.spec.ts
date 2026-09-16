@@ -163,6 +163,23 @@ describe("shouldClearSelectionForReviewThreadTarget", () => {
       }),
     ).toBe(false);
   });
+
+  it("clears screen selection when a board thread becomes the focus", () => {
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: null,
+        boardFileId: "board",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "board",
+        targetId: null,
+        boardFileId: "board",
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("isDocumentShellCodeLayerNode", () => {

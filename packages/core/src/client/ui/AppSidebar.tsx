@@ -26,6 +26,7 @@ const RouterSidebarLink = forwardRef<HTMLAnchorElement, AppSidebarLinkProps>(
 RouterSidebarLink.displayName = "RouterSidebarLink";
 
 export interface AppSidebarHeaderProps extends ToolkitAppSidebarHeaderProps {
+  appId?: string;
   badgeText?: string;
   showBadge?: boolean;
 }
@@ -38,6 +39,7 @@ export const AppSidebarHeader = forwardRef<
     {
       brandIcon,
       badge,
+      appId,
       badgeText,
       showBadge = true,
       brandLink,
@@ -61,6 +63,7 @@ export const AppSidebarHeader = forwardRef<
       (showBadge ? (
         <EnvironmentBadge
           placement="inline"
+          appId={appId}
           badgeText={badgeText}
           collapsed={collapsed}
         />
@@ -107,13 +110,22 @@ export const AppSidebarFooter = forwardRef<
 AppSidebarFooter.displayName = "AppSidebarFooter";
 
 export interface AppSidebarProps extends ToolkitAppSidebarProps {
+  appId?: string;
   badgeText?: string;
   showBadge?: boolean;
 }
 
 export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
   (
-    { brandIcon, badge, badgeText, showBadge = true, linkComponent, ...props },
+    {
+      brandIcon,
+      badge,
+      appId,
+      badgeText,
+      showBadge = true,
+      linkComponent,
+      ...props
+    },
     ref,
   ) => {
     const resolvedBrandIcon = brandIcon ?? (
@@ -126,7 +138,11 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
     const resolvedBadge =
       badge ??
       (showBadge ? (
-        <EnvironmentBadge placement="inline" badgeText={badgeText} />
+        <EnvironmentBadge
+          placement="inline"
+          appId={appId}
+          badgeText={badgeText}
+        />
       ) : undefined);
 
     const resolvedLinkComponent: AppSidebarLinkComponent =

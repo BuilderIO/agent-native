@@ -1,3 +1,9 @@
+## 0.163.2
+
+### Patch Changes
+
+- 8236ce6: Fence session replay uploads that time out before transport cancellation.
+
 ## 0.163.1
 
 ### Patch Changes

@@ -22,11 +22,16 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import {
+  dispatchLinkedComponentStructure,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "./selection-publication";
 
 export interface ChangeSelectedZIndexArgs {
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
     nextContent: string,
@@ -129,6 +134,7 @@ function inFlowZIndexContext(
 
 export function runChangeSelectedZIndex(
   {
+    applyLinkedComponentEdit,
     activeFile,
     applyLocalContentUpdate,
     canEditDesign,
@@ -301,6 +307,15 @@ export function runChangeSelectedZIndex(
     return;
   }
 
+  if (
+    dispatchLinkedComponentStructure({
+      content: baseContent,
+      source,
+      intents: [editIntent],
+      applyLinkedComponentEdit,
+    })
+  )
+    return;
   const patch = applyVisualEdit(baseContent, editIntent, { source });
   if (patch.result.status !== "applied") {
     zIndexFallback();

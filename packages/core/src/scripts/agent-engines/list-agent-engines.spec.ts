@@ -123,6 +123,18 @@ describe("list-agent-engines", () => {
     expect(openRouter?.preserveCustomModels).toBe(true);
   });
 
+  it("reports that provider selections accept custom model IDs", async () => {
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(await run());
+    const anthropic = result.engines.find(
+      (engine: any) => engine.name === "anthropic",
+    );
+
+    expect(anthropic?.acceptsCustomModels).toBe(true);
+    expect(anthropic?.preserveCustomModels).toBe(false);
+  });
+
   it("does not report AGENT_ENGINE as current when only blocked hosted deploy credentials exist", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("AGENT_ENGINE", "test:blocked-provider");

@@ -1,3 +1,6 @@
+/** @jsxRuntime classic */
+
+import * as React from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import { StarfieldBackground } from "../StarfieldBackground.js";

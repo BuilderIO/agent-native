@@ -360,6 +360,68 @@ describe("LayersPanel search affordance", () => {
   });
 });
 
+describe("LayersPanel collapse layers", () => {
+  it.each([
+    { selectedIds: ["group"], expected: ["frame"] },
+    { selectedIds: [], expected: [] },
+  ])(
+    "keeps only ancestors of $selectedIds expanded",
+    async ({ selectedIds, expected }) => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      const onExpandedIdsChange = vi.fn();
+      try {
+        await act(async () => {
+          root.render(
+            <LayersPanel
+              layers={[
+                {
+                  id: "other",
+                  name: "Other",
+                  type: "frame",
+                  children: [
+                    { id: "other-child", name: "Other child", type: "element" },
+                  ],
+                },
+                {
+                  id: "frame",
+                  name: "Frame",
+                  type: "frame",
+                  children: [
+                    {
+                      id: "group",
+                      name: "Group",
+                      type: "group",
+                      children: [{ id: "text", name: "Text", type: "element" }],
+                    },
+                  ],
+                },
+              ]}
+              selectedIds={selectedIds}
+              expandedIds={["other", "frame", "group"]}
+              searchQuery=""
+              onSearchQueryChange={() => {}}
+              onExpandedIdsChange={onExpandedIdsChange}
+              onSelectionChange={() => {}}
+            />,
+          );
+        });
+        onExpandedIdsChange.mockClear();
+        const button = host.querySelector<HTMLButtonElement>(
+          'button[aria-label="layersPanel.collapse"]',
+        );
+        expect(button?.disabled).toBe(false);
+        await act(async () => button!.click());
+        expect(onExpandedIdsChange.mock.calls).toEqual([[expected]]);
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+      }
+    },
+  );
+});
+
 describe("LayersPanel row hierarchy", () => {
   it("renders compact Figma-like density with one flex indent per level", async () => {
     expect([0, 1, 2, 7].map(layerRowIndentCount)).toEqual([1, 2, 3, 8]);
@@ -398,8 +460,8 @@ describe("LayersPanel row hierarchy", () => {
 
     const panel = host.querySelector<HTMLElement>("[data-layers-panel]");
     expect(panel).not.toBeNull();
-    expect(panel?.className).toContain("[--design-row-height:24px]");
     expect(panel?.className).toContain("[--design-icon-size:12px]");
+    expect(panel?.className).toContain("[--design-row-height:24px]");
     expect(panel?.className).toContain("text-[11px]");
 
     const rows = Array.from(

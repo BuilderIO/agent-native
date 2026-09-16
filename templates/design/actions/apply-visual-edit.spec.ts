@@ -77,6 +77,35 @@ describe("apply-visual-edit schema", () => {
     ).toBe(false);
   });
 
+  it("accepts bounded measured wrap hints with relative offsets", () => {
+    const source = { kind: "inline-html" as const, html };
+    expect(
+      action.schema.safeParse({
+        source,
+        intent: {
+          kind: "wrapNodes",
+          targetIds: ["first", "second"],
+          sizeHints: {
+            first: { width: 120, height: 80, left: -16, top: 24 },
+            second: { width: 100, height: 60 },
+          },
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        source,
+        intent: {
+          kind: "wrapNodes",
+          targetIds: ["first"],
+          sizeHints: {
+            first: { width: Number.POSITIVE_INFINITY, height: 60 },
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts optional activeFrameWidthPx param", () => {
     const base = {
       source: { kind: "design-file", designId: "d1" },

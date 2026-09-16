@@ -25,7 +25,11 @@ import {
   buildPendingVisualStyleRevertPatches,
   pendingStructureEditSourcePaths,
 } from "@/pages/design-editor/pending-edits";
-import { partitionPendingStructuresRuntime } from "@/pages/design-editor/pending-structure-verification";
+import {
+  partitionPendingStructuresRuntime,
+  type RuntimeStructureVerificationFailure,
+  verifyPendingStructureRuntime,
+} from "@/pages/design-editor/pending-structure-verification";
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface ApplyPendingVisualStylesWithAgentArgs {
@@ -223,6 +227,13 @@ export async function runApplyPendingVisualStylesWithAgent({
     }
 
     const hardDeadline = Date.now() + PENDING_STRUCTURE_HARD_TIMEOUT_MS;
+    let lastRuntimeFailure: RuntimeStructureVerificationFailure | undefined;
+    const reportStructureConflict = () => {
+      console.error("[DesignEditor] pending structure verification conflict", {
+        failure: lastRuntimeFailure,
+      });
+      toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+    };
     const sourceReadDeadline = Symbol("source-read-deadline");
     const readWithHardDeadline = async <T>(read: Promise<T>) => {
       let timeoutId: number | undefined;
@@ -267,7 +278,7 @@ export async function runApplyPendingVisualStylesWithAgent({
       );
       if (initialSources === sourceReadDeadline) {
         cancelPendingStructureVerification("conflict");
-        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+        reportStructureConflict();
         return;
       }
       session.sources = initialSources;
@@ -285,7 +296,7 @@ export async function runApplyPendingVisualStylesWithAgent({
       if (session.cancelled) return;
       if (Date.now() >= hardDeadline) {
         cancelPendingStructureVerification("conflict");
-        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+        reportStructureConflict();
         return;
       }
       if (!delivery.delivered) {
@@ -319,6 +330,17 @@ export async function runApplyPendingVisualStylesWithAgent({
             runtimeSnapshots,
             session.edits,
           );
+          if (!runtimeResult.verified.length) {
+            const verification = session.edits
+              .map((edit) => {
+                const snapshot = runtimeSnapshots[edit.screenId];
+                return snapshot
+                  ? verifyPendingStructureRuntime(snapshot.html, edit)
+                  : undefined;
+              })
+              .find((result) => result && !result.ok);
+            lastRuntimeFailure = verification?.failure;
+          }
           if (runtimeResult.verified.length > 0) {
             session.edits = runtimeResult.remaining;
             const verifiedSet = new Set(runtimeResult.verified);
@@ -418,7 +440,7 @@ export async function runApplyPendingVisualStylesWithAgent({
       }
       if (session.cancelled) return;
       cancelPendingStructureVerification("conflict");
-      toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+      reportStructureConflict();
     } catch (error) {
       if (session.cancelled) return;
       console.error(

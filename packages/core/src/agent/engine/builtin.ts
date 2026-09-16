@@ -116,6 +116,7 @@ function builtinEngineEntries(): AgentEngineEntry[] {
       capabilities: ANTHROPIC_CAPABILITIES,
       defaultModel: ANTHROPIC_DEFAULT_MODEL,
       supportedModels: ANTHROPIC_SUPPORTED_MODELS,
+      acceptsCustomModels: true,
       requiredEnvVars: ["ANTHROPIC_API_KEY"],
       create: (config) => createAnthropicEngine(config),
     },
@@ -129,6 +130,7 @@ function builtinEngineEntries(): AgentEngineEntry[] {
       capabilities: PROVIDER_CAPABILITIES[provider],
       defaultModel: PROVIDER_DEFAULT_MODELS[provider],
       supportedModels: PROVIDER_SUPPORTED_MODELS[provider],
+      acceptsCustomModels: true,
       requiredEnvVars: PROVIDER_ENV_VARS[provider],
       create: (config: Record<string, unknown>) =>
         createAISDKEngine(provider, config),

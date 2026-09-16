@@ -2191,10 +2191,14 @@ export function MultiTabAssistantChat({
     const id = await createThread();
     if (id) {
       newThreadIds.current.add(id);
+      // `createThread` advances the active thread before its promise resolves.
+      // Add the same id in this transaction so a new chat is mounted even if
+      // the active-thread reconciliation effect has not run yet.
+      setOpenTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
       writeThreadUrl(null);
     }
     return id;
-  }, [createThread, writeThreadUrl]);
+  }, [createThread, setOpenTabIds, writeThreadUrl]);
 
   const cleanupClosedTab = useCallback((tabId: string) => {
     if (parentMapRef.current[tabId]) {

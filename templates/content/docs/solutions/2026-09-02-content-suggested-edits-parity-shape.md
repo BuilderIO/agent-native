@@ -3,13 +3,95 @@ title: "Content Suggested Edits parity shape"
 date: 2026-09-02
 status: shape-complete
 authoritySchemaVersion: 3
-ledgerRevision: content-suggested-edits-shape-r5
-governingArtifactRevision: content-suggested-edits-shape-r5
+ledgerRevision: content-suggested-edits-shape-r7
+governingArtifactRevision: content-suggested-edits-shape-r7
 ---
 
 # Content Suggested Edits parity
 
 ## September 12 beta repair plan
+
+### September 14 reconciliation: follow-up recovery repair
+
+PR #4911 merged on September 14. Its durable persisted-draft resolution,
+body-revision and title guards, history retention, source restrictions and
+suggested-edit behavior remain the base for one focused follow-up PR from current
+`main`. The follow-up ports only the live-editor acknowledgement and recovery
+lifecycle protections that remain absent, then gives live and page-load recovery
+one shared two-choice presentation. It does not merge, deploy, diagnose the
+reported production incidents, add automatic merging or selective acceptance,
+or promote the related product records beyond their current status.
+
+The two recovery entry points retain separate lifecycles. Live-editor recovery
+allows continued typing and returns focus to the editor when review closes.
+Persisted-draft recovery settles only the exact private draft version reviewed at
+page load. Both initially show equally weighted **Keep my edits** and **Use saved
+version** actions. **Save a separate copy** and **Copy my edits** live in an
+accessible **More options** menu. Neither version is preselected or recommended.
+
+The comparison shows changed passages with nearby context and collapses long
+unchanged runs behind **View full versions**. Full versions use the ordinary
+read-only renderer, with faithful source as the fallback. Wide editor panes align
+the two versions; narrow panes stack based on available pane width. The actual
+editor route must fit at desktop, 390px and 320px, including 200% text zoom,
+without horizontal overflow or obscured actions.
+
+Implementation sequence:
+
+1. Wire explicit successful-save acknowledgements into live reconciliation so an
+   older confirmed save advances the base without replaying its bytes over newer
+   typing. An old acknowledgement cannot supersede a newer observed revision, and
+   an identical-byte external revision still reconciles normally.
+2. Guard live recovery by generation and exact reviewed base, block duplicate
+   submission, distinguish overlap/reconcile/save failures, and repeat persistence
+   when title or body changes during an in-flight recovery. Optimistic cache state
+   is never a save acknowledgement.
+3. Reuse the existing durable draft, history and resolution actions through small
+   lifecycle adapters. A stale completion cannot clear newer recovery; the
+   unchosen version remains recoverable; separate copy creates one discoverable
+   page without changing the original.
+4. Prove the combined final revision with focused tests, independent concurrency
+   and retention review, and real-interface QA through both entry points using
+   private task-owned pages and real actions. Capture representative desktop,
+   narrow, expanded, menu, pending/error and refreshed-conflict states, then clean
+   up every fixture.
+
+Additional acceptance (cumulative with C01–C08):
+
+- **D01:** Initially exactly two visible, equally weighted resolution buttons;
+  More options exposes separate-copy and exact-copy actions with correct keyboard
+  and focus behavior.
+- **D02:** The actual editor route fits desktop, narrow desktop panes, 390px and
+  320px at normal and 200% text zoom, with readable text, modest gutters, safe-area
+  actions and no page-level horizontal overflow.
+- **D03:** Title-only, body-only, deletion, disjoint and long formatted changes
+  show faithful contextual differences; expansion reveals every passage through
+  the renderer or an explicit source fallback.
+- **D04:** Both main choices survive reload and leave the unchosen version
+  access-scoped and recoverable. An unseen update refreshes comparison and
+  requires another choice.
+- **D05:** Slow, offline, failed and repeated actions acknowledge promptly, retain
+  both versions, prevent duplicate writes and retry honestly. Copy reports success
+  or failure, and separate copy opens the one created page.
+- **D06:** Human QA uses the production component and real actions in the actual
+  editor route. Replicas and historical screenshots are not acceptance evidence.
+- **E01:** Delayed confirmed own saves advance the base without false conflict or
+  lost newer typing; old acknowledgements and identical-byte external revisions
+  preserve revision ordering.
+- **E02:** Title-only and body edits during recovery saving survive completion,
+  any required follow-up save and reload. Navigation, unmount or a newer conflict
+  cannot be cleared by an older completion.
+- **E03:** Both entry points share the two-choice comparison and secondary menu
+  while retaining their own exact lifecycle. Closing live review restores editing
+  focus without releasing recovery.
+- **E04:** Overlap, reconcile failure and save failure remain distinct and
+  retryable; interface and action read-back confirm title, body and recoverability
+  for both entry paths.
+
+Destination: one ready-for-review follow-up PR against current `main`. Do not
+merge or deploy it. The product lane remains `contract_repair` for
+`content.version.field-history` and `content.history.queryable`; neither record
+becomes fully verified through this bounded repair.
 
 ### September 13 amendment: ordinary-save reliability and recovery choices
 

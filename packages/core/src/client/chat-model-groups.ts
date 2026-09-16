@@ -9,6 +9,8 @@ export interface ChatModelEngineEntry {
   name: string;
   label: string;
   supportedModels?: readonly string[];
+  /** Whether explicit provider selections may use IDs outside the catalog. */
+  acceptsCustomModels?: boolean;
   /** Whether the engine accepts model IDs outside its curated catalog. */
   preserveCustomModels?: boolean;
   requiredEnvVars?: readonly string[];
@@ -69,12 +71,13 @@ function addCurrentModel(
   currentEngineName?: string,
   currentModel?: string,
   preserveCustomModels = false,
+  acceptsCustomModels = false,
 ): string[] {
   const next = [...models];
   if (
     engineName === currentEngineName &&
     currentModel &&
-    (next.length === 0 || preserveCustomModels) &&
+    (next.length === 0 || preserveCustomModels || acceptsCustomModels) &&
     !next.includes(currentModel)
   ) {
     next.unshift(currentModel);
@@ -252,6 +255,7 @@ export function buildChatModelGroups({
             currentEngineName,
             currentModel,
             engine.preserveCustomModels,
+            engine.acceptsCustomModels,
           ),
         ),
         configured:

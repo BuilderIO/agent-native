@@ -62,17 +62,17 @@ describe("MCP connection pending window", () => {
   });
 
   it("marks a pending connection when the OAuth popup is opened", () => {
-    const replace = vi.fn();
-    vi.spyOn(window, "open").mockReturnValue({
+    const open = vi.spyOn(window, "open").mockReturnValue({
       opener: window,
-      location: { replace },
     } as unknown as Window);
 
     expect(
       navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start?x=1"),
     ).toBe(true);
-    expect(replace).toHaveBeenCalledWith(
-      "/_agent-native/mcp/servers/oauth/start?x=1",
+    expect(open).toHaveBeenCalledWith(
+      expect.stringContaining("/_agent-native/mcp/servers/oauth/start?x=1"),
+      "_blank",
+      "width=640,height=760",
     );
     expect(hasPendingMcpConnection()).toBe(true);
   });

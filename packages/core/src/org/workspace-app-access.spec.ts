@@ -53,6 +53,27 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(true);
   });
 
+  it("denies the recorded owner when the organization disabled the app", async () => {
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          owner_email: "Owner@Example.com",
+          org_id: "org-1",
+          visibility: "private",
+          org_enabled: false,
+        },
+      ],
+    });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+  });
+
   it("allows active organization members to access Dispatch", async () => {
     mocks.execute.mockResolvedValueOnce({ rows: [{ role: "member" }] });
 
@@ -439,5 +460,46 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       "https://dispatch.example.test/_agent-native/actions/claim-workspace-app-organization",
     );
+  });
+
+  it("denies a disabled app reported by the authoritative hosted registry", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics", orgEnabled: false }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors a local organization disable before hosted registry access", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    resetAppConfigForTests();
+    mocks.execute.mockResolvedValueOnce({ rows: [{ org_enabled: false }] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

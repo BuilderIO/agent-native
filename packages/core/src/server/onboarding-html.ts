@@ -2541,9 +2541,6 @@ ${marketingStyles}
   return `<!DOCTYPE html>${authDocumentMarkup}`;
 }
 
-/** @deprecated Use getOnboardingHtml() instead */
-export const ONBOARDING_HTML = getOnboardingHtml();
-
 const RESET_PASSWORD_STYLES = `
   /* guard:allow-raw-color - standalone reset page has no app theme token layer */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

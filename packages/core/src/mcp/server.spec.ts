@@ -1220,6 +1220,42 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(echo._meta?.ui?.permissions).toBeUndefined();
   });
 
+  it("advertises and calls an annotated action in the default external catalog", async () => {
+    const hello = defineAction({
+      description: "Return a friendly greeting.",
+      schema: z.object({
+        name: z.string().default("world"),
+      }),
+      http: { method: "GET" },
+      mcpTool: true,
+      run: async ({ name }) => ({ message: `Hello, ${name}!` }),
+    });
+    const helloConfig = {
+      ...config,
+      actions: { hello },
+      productionActions: { hello },
+    };
+
+    const { client } = await createModernClient(helloConfig, {
+      requestHeaders: { "x-agent-native-mcp-full-catalog": "0" },
+    });
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map((tool) => tool.name)).toContain("hello");
+
+      const called = await client.callTool({
+        name: "hello",
+        arguments: { name: "MCP" },
+      });
+      expect(called.isError).not.toBe(true);
+      expect(JSON.parse(String(called.content[0].text))).toEqual({
+        message: "Hello, MCP!",
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
   it("uses a compact tool catalog when the OAuth token has mcp:apps", async () => {
     const out = await callWeb(
       {

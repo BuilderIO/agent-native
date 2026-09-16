@@ -255,7 +255,7 @@ Dispatch 可以在管理員審核後控制敏感的執行時更改。如今，�
 
 三個簡短步驟：
 
-1. **搭建一個包含 Dispatch 的工作區。**執行 `npx @agent-native/core@latest create my-company-platform` 並選取 `dispatch` 以及您想要的任何域範本。 Dispatch 位於 `apps/dispatch`，其餘應用程式位於它旁邊。參見[Multi-App Workspace](/docs/multi-app-workspace)。
+1. **搭建一個包含 Dispatch 的工作區。**執行 `npx --yes @agent-native/core@latest create my-company-platform` 並選取 `dispatch` 以及您想要的任何域範本。 Dispatch 位於 `apps/dispatch`，其餘應用程式位於它旁邊。參見[Multi-App Workspace](/docs/multi-app-workspace)。
 2. **連線訊息傳遞。** 在 Dispatch 中開啟 **管理 → 訊息傳遞**，然後點選連線 Slack、電子郵件、電報或 WhatsApp。表單欄位與 [Messaging](/docs/messaging) 檔案中的環境變數相匹配 - 請參閱那裡了解每個平台的需求。
 3. **新增其他應用程式。**從每個域應用程式的工作區根執行 `npx @agent-native/core@latest add-app`。它們在 Dispatch 的 `list-workspace-apps` 中自動顯示為 A2A 對等體 — 無需手動註冊，無需編輯代理卡。一旦可以聯絡到他們的代理卡，Dispatch 就會開始委派給他們。
 
