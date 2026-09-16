@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  admitBootBudget,
   clampFrameGeometryToViewport,
   computeBoundedScreenCullState,
   computeScreenCullTier,
@@ -12,6 +13,7 @@ import {
   OVERVIEW_CULLING_ENABLED,
   OVERVIEW_CULLING_OVERSCAN_FACTOR,
   OVERVIEW_LIVE_IFRAME_CEILING,
+  OVERVIEW_LIVE_BOOT_BUDGET,
   OVERVIEW_LIVE_SCREEN_BUDGET,
   type ScreenCullCandidate,
   type OverscannedViewportBounds,
@@ -36,6 +38,70 @@ describe("MultiScreenCanvas viewport culling", () => {
 
   it("uses a generous (>=1.5x) overscan factor by default", () => {
     expect(OVERVIEW_CULLING_OVERSCAN_FACTOR).toBeGreaterThanOrEqual(1.5);
+  });
+
+  describe("live boot admission", () => {
+    it("admits only the nearest four candidates by default", () => {
+      const candidates = Array.from(
+        { length: 30 },
+        (_, index) => `screen-${index}`,
+      );
+      expect(
+        admitBootBudget({
+          candidates,
+          bootStatusById: new Map(),
+          protectedIds: new Set(),
+        }),
+      ).toEqual(new Set(candidates.slice(0, OVERVIEW_LIVE_BOOT_BUDGET)));
+    });
+
+    it("does not admit more while the boot budget is occupied", () => {
+      const candidates = Array.from(
+        { length: 10 },
+        (_, index) => `screen-${index}`,
+      );
+      const bootStatusById = new Map([
+        ...candidates.slice(0, 4).map((id) => [id, "ready"] as const),
+        ...candidates.slice(4, 8).map((id) => [id, "booting"] as const),
+      ]);
+      expect(
+        admitBootBudget({
+          candidates,
+          bootStatusById,
+          protectedIds: new Set(),
+        }),
+      ).toEqual(new Set(candidates.slice(0, 8)));
+    });
+
+    it("charges breakpoint preview frames against the boot budget", () => {
+      expect(
+        admitBootBudget({
+          candidates: ["responsive", "plain"],
+          bootStatusById: new Map(),
+          bootBudget: 3,
+          costById: new Map([
+            ["responsive", 3],
+            ["plain", 1],
+          ]),
+          protectedIds: new Set(),
+        }),
+      ).toEqual(new Set(["responsive"]));
+    });
+
+    it("admits an unbooted protected screen over budget", () => {
+      const candidates = ["nearest", "protected", "later"];
+      expect(
+        admitBootBudget({
+          candidates,
+          bootStatusById: new Map([
+            ["nearest", "booting"],
+            ["later", "booting"],
+          ]),
+          bootBudget: 2,
+          protectedIds: new Set(["protected"]),
+        }),
+      ).toEqual(new Set(candidates));
+    });
   });
 
   it("measures the initial viewport in a layout effect before first paint", () => {

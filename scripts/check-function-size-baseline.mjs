@@ -386,6 +386,7 @@ if (!recorded) {
 }
 
 const grown = [];
+const shrunk = [];
 const unrecorded = [];
 const oversizedGated = [];
 const newSmall = [];
@@ -427,6 +428,7 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
   const label = overRatio && overBytes ? "GREW" : "ok  ";
   console.log(`  ${label} ${name} ${mb(before)}MB -> ${mb(bytes)}MB`);
   if (overRatio && overBytes) grown.push({ name, before, bytes });
+  if (before - bytes > 3 * 1024 * 1024) shrunk.push({ name, before, bytes });
 }
 
 // A function in the baseline that the build no longer emits is not a pass. It
@@ -481,6 +483,20 @@ if (grown.length > 0) {
       "function separately. Find what entered the graph before accepting this. If\n" +
       "the growth is intended, re-record with --update so the new size is the\n" +
       "thing future builds are measured against.",
+  );
+}
+
+if (shrunk.length > 0) {
+  console.error(
+    `\n[size-baseline] ${site}: function sizes fell more than 3MB below baseline:`,
+  );
+  for (const item of shrunk) {
+    console.error(
+      `  - ${item.name}: ${mb(item.before)}MB -> ${mb(item.bytes)}MB (-${mb(item.before - item.bytes)}MB)`,
+    );
+  }
+  console.error(
+    "This is a warning only. Re-record the baseline after confirming the smaller artifact is intentional.",
   );
 }
 

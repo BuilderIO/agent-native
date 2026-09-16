@@ -6,7 +6,6 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
-import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { availableSizingForElement } from "@/components/design/edit-panel/element-classification";
@@ -79,8 +78,12 @@ function attemptCreatePrimitive(
   let queuedSaves = 0;
   const result = runCreatePrimitive(
     {
-      activeContent: content,
       activeFile,
+      applyFileContentUpdate: () => {
+        contentHistoryEntries += 1;
+        queuedSaves += 1;
+        return { status: "refused" as const };
+      },
       applyLocalContentUpdate: (updated) => {
         localUpdates += 1;
         const prepared = prepareCanonicalSourceContent(updated, {
@@ -97,27 +100,14 @@ function attemptCreatePrimitive(
       boardFileId: undefined,
       canvasBackground: "#ffffff",
       canEditDesign: true,
-      collabContentFileIdRef: { current: null },
-      collabContentRef: { current: null },
-      queueFileContentSave: () => {
-        queuedSaves += 1;
-      },
       files: [activeFile],
-      id: "design-flow-test",
-      isSynced: false,
-      markPendingLocalFileContent: () => {},
-      pendingLocalFileContentsRef: { current: new Map() },
+      getScreenContent: () => content,
       pendingTextCreationHistoryRef: { current: null },
       pendingTextEditNodeIdRef: { current: null },
-      queryClient: new QueryClient(),
-      recordContentHistoryEntry: () => {
-        contentHistoryEntries += 1;
-      },
       runtimeStructureInsertRevisionRef: { current: 0 },
       setRuntimeStructureInsertRequest: () => {},
       t: (key) => key,
       viewModeRef: { current: "single" },
-      ydoc: null,
       // The creation command uses these to resolve the exact active screen
       // iframe before deciding whether the selected host is computed flow.
       activeBreakpointWidthState: undefined,

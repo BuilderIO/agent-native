@@ -593,10 +593,48 @@ describe("buildPublicAgentContext", () => {
             durationMs: 40,
           },
         ],
+        timeline: [
+          {
+            timestampMs: 12,
+            elapsedMs: 12,
+            kind: "click",
+            target: "button#submit",
+          },
+          {
+            timestampMs: 140,
+            elapsedMs: 140,
+            kind: "network",
+            phase: "response",
+            type: "fetch",
+            method: "GET",
+            url: "https://api.example.com/fail?token=<redacted>",
+            status: 500,
+            durationMs: 120,
+          },
+        ],
       },
     });
 
     expect(context.browserDiagnostics?.summary.networkFailureCount).toBe(1);
+    expect(context.browserDiagnostics?.timeline).toEqual([
+      {
+        timestampMs: 12,
+        kind: "click",
+        target: "button#submit",
+        url: null,
+      },
+      {
+        timestampMs: 140,
+        kind: "network",
+        phase: "response",
+        type: "fetch",
+        method: "GET",
+        url: "https://api.example.com/fail?token=<redacted>",
+        status: 500,
+        error: null,
+        durationMs: 120,
+      },
+    ]);
     // consoleLogs exposes the full stream (all levels), not just warn/error.
     expect(context.browserDiagnostics?.consoleLogs).toEqual([
       {

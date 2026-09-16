@@ -440,6 +440,38 @@ generic bearer guidance का उपयोग करें। Gemini Enterprise
 Agent Gateway policies से होकर नहीं जाता, इसलिए target की अपनी auth और
 authorization policy लागू करें।
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents कोई inbound A2A endpoint उपलब्ध नहीं कराता। जब Agent-Native को A2A surface, workflow state और approvals का स्वामित्व रखना हो, जबकि hosted agent अपने session, context और tools का स्वामित्व रखता हो, तब framework adapter का उपयोग करें। Adapter Managed Agents session बनाता है, `user.message` events भेजता है और session event stream पढ़ता है। Blocking `agent.tool_use` या `agent.mcp_tool_use` event A2A `input-required` task और `approval-request` runtime event बन जाता है। लौटाए गए metadata में स्पष्ट structured confirmations के साथ इसे जारी रखें; किसी message से approval का अनुमान न लगाएँ:
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` vault में रखी Anthropic API key का reference है। Adapter इसे caller user और organization scope में resolve करता है और आवश्यक `anthropic-beta: managed-agents-2026-04-01` तथा `anthropic-version: 2023-06-01` headers भेजता है। प्रत्येक app के लिए मौजूदा connection grants का पुनः उपयोग करने हेतु workspace connection catalog में `anthropic-managed-agents` register करें। Adapter सामान्य `A2AConfig.handler` seam पर mount होता है:
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## प्रोग्रामेटिक वर्कस्पेस इनवोक {#programmatic-invoke}
 
 एजेंट-मूल कार्यस्थानों के लिए, कोड या ए के समय `agentNative` सहायक को प्राथमिकता दें

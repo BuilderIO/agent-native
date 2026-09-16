@@ -58,6 +58,23 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function nextImportedFrameZ(currentCanvasFrames: unknown): number {
+  const currentFrames = parseCanvasFrameGeometryById(currentCanvasFrames);
+  const currentFrameEntries = Object.values(currentFrames);
+  const highestPersistedZ = Math.max(
+    -1,
+    ...currentFrameEntries
+      .map((frame) => frame.z)
+      .filter((z): z is number => typeof z === "number" && Number.isFinite(z)),
+  );
+  // canvasFrames is the durable screen-frame map. Board placement is stored
+  // separately, so every entry contributes to the screen stack.
+  // Screens without persisted z use their source order as the fallback. The
+  // count keeps a new import above those entries too, while persisted z wins
+  // for designs that already have an explicit stack.
+  return Math.max(currentFrameEntries.length, highestPersistedZ + 1);
+}
+
 function stringFromState(value: unknown, key: string): string | undefined {
   return isRecord(value) && typeof value[key] === "string"
     ? (value[key] as string)
@@ -192,6 +209,7 @@ export async function saveImportedDesignFiles(
   const savedFiles: SavedImportedDesignFile[] = [];
   const seedRecords: Array<{ id: string; content: string }> = [];
   const placements: CanvasFramePlacement[] = [];
+  let placementsForPersistence: CanvasFramePlacement[] = placements;
   const metadataByFileId = new Map<string, Record<string, unknown>>();
   let placedFrames:
     | Array<{
@@ -287,6 +305,10 @@ export async function saveImportedDesignFiles(
   await mutateDesignData({
     designId,
     mutate: (current, { updatedAt }) => {
+      placementsForPersistence = placements.map((placement, index) => ({
+        ...placement,
+        z: nextImportedFrameZ(current.canvasFrames) + index,
+      }));
       const previousMetadata = isRecord(current.screenMetadata)
         ? { ...current.screenMetadata }
         : {};
@@ -295,7 +317,7 @@ export async function saveImportedDesignFiles(
       }
       const mergedFrames = mergeCanvasFramePlacements({
         existing: current.canvasFrames,
-        placements,
+        placements: placementsForPersistence,
         resolveFileId: (placement) => placement.fileId,
       });
       placedFrames = mergedFrames.placedFrames;
@@ -316,7 +338,7 @@ export async function saveImportedDesignFiles(
       return savedFiles.every((file) => {
         const frame = currentFrames[file.id];
         const metadata = currentMetadata[file.id];
-        const placement = placements.find(
+        const placement = placementsForPersistence.find(
           (candidate) => candidate.fileId === file.id,
         );
         const expectedFrame = placement

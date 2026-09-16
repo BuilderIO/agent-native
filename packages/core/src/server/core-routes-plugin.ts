@@ -89,8 +89,10 @@ import { getOrgContext } from "../org/context.js";
 import { createProgressHandler } from "../progress/routes.js";
 import {
   parseRemoteAgentAuth,
+  parseRemoteAgentKind,
   parseRemoteAgentUrl,
   type RemoteAgentAuth,
+  type RemoteAgentKind,
 } from "../resources/metadata.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
@@ -254,7 +256,10 @@ import {
 } from "./h3-helpers.js";
 import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
-import { createPollEventsHandler } from "./poll-events.js";
+import {
+  createPollEventsHandler,
+  validateSseMaxDurationMs,
+} from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
 import {
   isHostedRealtimeTransport,
@@ -1593,6 +1598,15 @@ export interface CoreRoutesPluginOptions {
   sseRoute?: string;
   /** Disable the SSE endpoint entirely. */
   disableSSE?: boolean;
+  /**
+   * Close an SSE stream after this many milliseconds instead of holding it
+   * open indefinitely. On a serverless host, set it below the platform's
+   * function ceiling (e.g. 280_000 under Vercel's 300s limit): the stream then
+   * ends at 200 and the client reconnects, instead of the platform killing the
+   * invocation and recording a runtime timeout. Default: unset (no cap).
+   * `createCoreRoutesPlugin` throws on a zero, negative, or non-finite value.
+   */
+  sseMaxDurationMs?: number;
   /** Disable the /_agent-native/ping health check. */
   disablePing?: boolean;
   /** Disable the /_agent-native/health DB liveness + warmup probe. */
@@ -1710,42 +1724,68 @@ export function shouldRunCoreRouteBootDatabaseWork(
 }
 
 /** Public discovery is a picker, not a credential registry. */
-export function stripRemoteAgentAuth<T extends { auth?: unknown }>(
-  agent: T,
-): Omit<T, "auth"> {
-  const { auth: _auth, ...publicAgent } = agent;
+export function stripRemoteAgentAuth<
+  T extends { auth?: unknown; kind?: unknown },
+>(agent: T): Omit<T, "auth" | "kind"> {
+  const { auth: _auth, kind: _kind, ...publicAgent } = agent;
   return publicAgent;
 }
 
 /** Credentialed probes may only replay a saved, access-scoped connection. */
 export function matchesSavedHostedAgentProbe(
-  agent: { url: string; cardUrl?: string; auth?: RemoteAgentAuth },
-  requested: { url: string; cardUrl?: string; auth: RemoteAgentAuth },
+  agent: {
+    url: string;
+    cardUrl?: string;
+    auth?: RemoteAgentAuth;
+    kind?: RemoteAgentKind;
+  },
+  requested: {
+    url: string;
+    cardUrl?: string;
+    auth?: RemoteAgentAuth;
+    kind?: RemoteAgentKind;
+  },
 ): boolean {
-  if (!agent.auth) return false;
   const normalize = (value: string) =>
     parseRemoteAgentUrl(value, { allowLoopbackHttp: true }) ?? value.trim();
   if (
     normalize(agent.url) !== normalize(requested.url) ||
     (agent.cardUrl ? normalize(agent.cardUrl) : undefined) !==
-      (requested.cardUrl ? normalize(requested.cardUrl) : undefined) ||
-    agent.auth.type !== requested.auth.type
+      (requested.cardUrl ? normalize(requested.cardUrl) : undefined)
   ) {
     return false;
   }
-  if (agent.auth.type === "bearer") {
+  if (requested.kind) {
+    const kind = agent.kind;
+    return Boolean(
+      kind?.provider === requested.kind.provider &&
+      kind.agentId === requested.kind.agentId &&
+      kind.environmentId === requested.kind.environmentId &&
+      kind.credentialRef === requested.kind.credentialRef,
+    );
+  }
+  const agentAuth = agent.auth;
+  const requestedAuth = requested.auth;
+  if (!agentAuth || !requestedAuth) return false;
+  if (agentAuth.type === "bearer") {
     return (
-      requested.auth.type === "bearer" &&
-      agent.auth.credentialRef === requested.auth.credentialRef
+      requestedAuth.type === "bearer" &&
+      agentAuth.credentialRef === requestedAuth.credentialRef
     );
   }
   return (
-    requested.auth.type === "oauth-client-credentials" &&
-    agent.auth.tokenUrl === requested.auth.tokenUrl &&
-    agent.auth.clientId === requested.auth.clientId &&
-    agent.auth.clientSecretRef === requested.auth.clientSecretRef &&
-    agent.auth.scope === requested.auth.scope
+    requestedAuth.type === "oauth-client-credentials" &&
+    agentAuth.tokenUrl === requestedAuth.tokenUrl &&
+    agentAuth.clientId === requestedAuth.clientId &&
+    agentAuth.clientSecretRef === requestedAuth.clientSecretRef &&
+    agentAuth.scope === requestedAuth.scope
   );
+}
+
+function isAnthropicManagedAgentsApiUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return url.protocol === "https:" && url.hostname === "api.anthropic.com";
 }
 
 type PublicAgentDiscovery = (
@@ -1937,6 +1977,27 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
   }
 }
 
+const OAUTH_POPUP_WAITING_HTML =
+  '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title></title></head><body></body></html>';
+
+export function createOAuthPopupWaitingHandler() {
+  return defineEventHandler((event: H3Event) => {
+    if (getMethod(event) !== "GET") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    setResponseHeader(event, "Cache-Control", "public, max-age=300");
+    setResponseHeader(
+      event,
+      "Content-Security-Policy",
+      "default-src 'none'; frame-ancestors 'none'",
+    );
+    setResponseHeader(event, "X-Frame-Options", "DENY");
+    return OAUTH_POPUP_WAITING_HTML;
+  });
+}
+
 export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
@@ -1994,6 +2055,10 @@ export function createCoreRoutesPlugin(
   const googleOAuthCallbackPaths = normalizeGoogleOAuthCallbackPaths(
     options.googleOAuthCallbackPaths,
   );
+  const sseMaxDurationMs = validateSseMaxDurationMs(
+    options.sseMaxDurationMs,
+    "sseMaxDurationMs",
+  );
   const googleOAuthCredentialMode =
     options.googleOAuthCredentialMode ?? "managed";
   const googleOAuthManagedConnection =
@@ -2017,6 +2082,7 @@ export function createCoreRoutesPlugin(
         `${FRAMEWORK_ROUTE_PREFIX}/ping`,
         `${FRAMEWORK_ROUTE_PREFIX}/health`,
         `${FRAMEWORK_ROUTE_PREFIX}/identity`,
+        `${FRAMEWORK_ROUTE_PREFIX}/oauth/popup`,
         `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
         `${FRAMEWORK_ROUTE_PREFIX}/application-state`,
         ...FRAMEWORK_AUTH_EARLY_PATHS,
@@ -2028,6 +2094,7 @@ export function createCoreRoutesPlugin(
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
         `${P}/identity`,
+        `${P}/oauth/popup`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
         ...(!options.disableAppState ? [`${P}/application-state`] : []),
       ]);
@@ -2038,6 +2105,11 @@ export function createCoreRoutesPlugin(
       // provider under the conventional `s3` id, so preserve that explicit
       // registration instead of replacing it during core bootstrap.
       ensureS3FileUploadProvider();
+
+      getH3App(nitroApp).use(
+        `${P}/oauth/popup`,
+        createOAuthPopupWaitingHandler(),
+      );
 
       if (!options.disableAppState) {
         // Application state is part of the client bootstrap contract. Register
@@ -2629,7 +2701,7 @@ export function createCoreRoutesPlugin(
               }
 
               const authParam = query.get("auth");
-              let auth;
+              let auth: RemoteAgentAuth | undefined;
               if (authParam !== null) {
                 try {
                   auth = parseRemoteAgentAuth(JSON.parse(authParam));
@@ -2644,7 +2716,34 @@ export function createCoreRoutesPlugin(
                 }
               }
 
-              if (auth) {
+              const kindParam = query.get("kind");
+              let kind: RemoteAgentKind | undefined;
+              if (kindParam !== null) {
+                try {
+                  kind = parseRemoteAgentKind(JSON.parse(kindParam));
+                } catch {
+                  kind = undefined;
+                }
+                if (!kind) {
+                  setResponseStatus(event, 400);
+                  return {
+                    error:
+                      "kind must be a valid hosted-agent provider reference",
+                  };
+                }
+              }
+              if (auth && kind) {
+                setResponseStatus(event, 400);
+                return { error: "auth and kind cannot be combined" };
+              }
+
+              const requiresSavedConnection =
+                Boolean(auth) ||
+                // The default Anthropic API host is the provider endpoint, so
+                // its ID/key check is safe before the manifest is saved. Any
+                // custom host still needs an existing scoped connection.
+                Boolean(kind && !isAnthropicManagedAgentsApiUrl(urlParam));
+              if (requiresSavedConnection) {
                 const { discoverAgents } = await import("./agent-discovery.js");
                 const savedAgents = await discoverAgents(
                   query.get("selfAppId") ?? undefined,
@@ -2654,7 +2753,8 @@ export function createCoreRoutesPlugin(
                     matchesSavedHostedAgentProbe(agent, {
                       url: urlParam,
                       ...(cardUrl ? { cardUrl } : {}),
-                      auth,
+                      ...(auth ? { auth } : {}),
+                      ...(kind ? { kind } : {}),
                     }),
                   )
                 ) {
@@ -2675,9 +2775,10 @@ export function createCoreRoutesPlugin(
                   color: "",
                   ...(cardUrl ? { cardUrl } : {}),
                   ...(auth ? { auth } : {}),
+                  ...(kind ? { kind } : {}),
                 },
                 undefined,
-                { verifyAuth: auth !== undefined },
+                { verifyAuth: auth !== undefined || kind !== undefined },
               );
 
               // Reachability and auth are independent, but a malformed/SSRF-blocked
@@ -2714,7 +2815,12 @@ export function createCoreRoutesPlugin(
       // SSE
       if (!options.disableSSE) {
         for (const route of resolveFrameworkSseRoutes(options.sseRoute)) {
-          getH3App(nitroApp).use(route, createPollEventsHandler());
+          getH3App(nitroApp).use(
+            route,
+            createPollEventsHandler(undefined, {
+              maxDurationMs: sseMaxDurationMs,
+            }),
+          );
         }
       }
 

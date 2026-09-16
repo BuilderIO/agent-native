@@ -49,6 +49,9 @@ env:
 jobs:
   gate:
     name: Gate (fork label check)
+    # The gate script already rejects same-repo PRs (pr-visual-recap.yml covers
+    # them), so skip the job rather than claim a runner to reach that verdict.
+    if: github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

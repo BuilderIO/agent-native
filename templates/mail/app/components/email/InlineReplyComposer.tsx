@@ -363,18 +363,21 @@ export const InlineReplyComposer = forwardRef<
     <>
       <div className="flex items-center border-b border-border/30 px-4 pb-2">
         <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-          To
+          {t("mail.compose.to")}
         </span>
         <RecipientInput
           value={draft.to}
           onChange={(val) => onUpdate(draft.id, { to: val })}
+          ariaLabel={t("mail.compose.toRecipients")}
           autoFocus={draft.mode === "forward"}
           field="to"
           onMoveRecipient={moveRecipient}
         />
         <button
           type="button"
-          aria-label={showCcBcc ? "Hide Cc and Bcc" : "Show Cc and Bcc"}
+          aria-label={t(
+            showCcBcc ? "mail.compose.hideCcBcc" : "mail.compose.showCcBcc",
+          )}
           aria-expanded={showCcBcc}
           onClick={toggleCcBcc}
           className="p-1 text-muted-foreground transition-colors hover:text-foreground"
@@ -392,22 +395,24 @@ export const InlineReplyComposer = forwardRef<
         <>
           <div className="flex items-center border-b border-border/30 px-4">
             <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-              Cc
+              {t("mail.compose.cc")}
             </span>
             <RecipientInput
               value={draft.cc ?? ""}
               onChange={(val) => onUpdate(draft.id, { cc: val })}
+              ariaLabel={t("mail.compose.ccRecipients")}
               field="cc"
               onMoveRecipient={moveRecipient}
             />
           </div>
           <div className="flex items-center border-b border-border/30 px-4">
             <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-              Bcc
+              {t("mail.compose.bcc")}
             </span>
             <RecipientInput
               value={draft.bcc ?? ""}
               onChange={(val) => onUpdate(draft.id, { bcc: val })}
+              ariaLabel={t("mail.compose.bccRecipients")}
               field="bcc"
               onMoveRecipient={moveRecipient}
             />
@@ -499,6 +504,8 @@ export const InlineReplyComposer = forwardRef<
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  aria-label={t("mail.compose.popOut")}
                   onClick={() => onPopOut(draft.id)}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
@@ -524,6 +531,8 @@ export const InlineReplyComposer = forwardRef<
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  aria-label={t("mail.compose.popOut")}
                   onClick={() => onPopOut(draft.id)}
                   className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
                 >
@@ -619,6 +628,8 @@ export const InlineReplyComposer = forwardRef<
               <Button
                 variant="ghost"
                 size="icon"
+                type="button"
+                aria-label={t("mail.compose.bold")}
                 className="h-7 w-7"
                 onClick={() => editorRef.current?.toggleBold()}
               >
@@ -632,6 +643,8 @@ export const InlineReplyComposer = forwardRef<
               <Button
                 variant="ghost"
                 size="icon"
+                type="button"
+                aria-label={t("mail.compose.italic")}
                 className="h-7 w-7"
                 onClick={() => editorRef.current?.toggleItalic()}
               >
@@ -645,6 +658,8 @@ export const InlineReplyComposer = forwardRef<
               <Button
                 variant="ghost"
                 size="icon"
+                type="button"
+                aria-label={t("mail.compose.insertLink")}
                 className="h-7 w-7"
                 onClick={() => editorRef.current?.setLink()}
               >
@@ -658,6 +673,8 @@ export const InlineReplyComposer = forwardRef<
               <Button
                 variant="ghost"
                 size="icon"
+                type="button"
+                aria-label={t("mail.compose.attachFile")}
                 className="h-7 w-7"
                 onClick={() => void handleAttach()}
               >
@@ -733,6 +750,8 @@ export const InlineReplyComposer = forwardRef<
               <Button
                 variant="ghost"
                 size="icon"
+                type="button"
+                aria-label={t("mail.compose.discardDraft")}
                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                 onClick={() => onDiscard(draft.id)}
               >

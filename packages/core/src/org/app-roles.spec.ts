@@ -23,6 +23,7 @@ import {
   defineAppRoles,
   resolveAppRole,
   listAppMemberRoles,
+  setAppMemberRole,
   setAppMemberRoles,
   getRegisteredAppRoles,
 } from "./app-roles.js";
@@ -416,6 +417,15 @@ describe("app roles", () => {
         "INSERT INTO app_member_roles",
       );
       expect(args).toEqual(
+        expect.arrayContaining(["org1", "coach", "ae@acme.com", "member"]),
+      );
+    });
+
+    it("keeps the singular setter as a compatibility alias", async () => {
+      await setAppMemberRole({ ...base, role: "member" });
+
+      expect(mockExecute).toHaveBeenCalledTimes(2);
+      expect(mockExecute.mock.calls[1][0].args).toEqual(
         expect.arrayContaining(["org1", "coach", "ae@acme.com", "member"]),
       );
     });

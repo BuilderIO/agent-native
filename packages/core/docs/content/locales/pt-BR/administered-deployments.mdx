@@ -5,6 +5,8 @@ description: Configure um workspace Agent-Native restrito a convites para uma or
 
 # Implantações administradas
 
+A desativação via SCIM marca a associação provisionada como pendente e remove imediatamente as funções do aplicativo. Um administrador deve escolher um sucessor para concluir a transferência de propriedade; ao concluir, o evento de auditoria imutável é registrado.
+
 Use um workspace para aplicativos internos de uma organização. A organização define os limites de membros e dados. O workspace reúne a configuração de implantação de um ou mais aplicativos.
 
 ## Fechar cadastro e criação de organizações
@@ -23,9 +25,15 @@ O primeiro administrador de bootstrap a entrar cria a organização canônica e 
 
 Com `ORG_CREATION=closed`, a criação de organizações é recusada até que `AUTH_BOOTSTRAP_ADMINS` liste pelo menos um administrador verificado, que cria a organização canônica no primeiro login.
 
+Mantenha um endereço de administrador de bootstrap verificado disponível para a configuração inicial e a recuperação.
+
 ## Chaves e funções da empresa
 
-Um proprietário ou administrador pode salvar uma chave LLM da organização. A chave pessoal tem prioridade até o membro escolher a chave da organização. As funções de aplicativo valem dentro de um aplicativo e cada membro pode ter várias. Administradores podem mapear permissões declaradas no código para funções sem novo deploy.
+Um proprietário ou administrador pode salvar uma chave LLM da organização. A configuração do provedor salva essas chaves somente para a organização, então todos usam a mesma chave da empresa. Linhas pessoais de versões antigas são removidas ao salvar uma chave da organização, ou podem ser removidas antes na configuração do provedor.
+
+O campo de modelo mostra os modelos atuais como sugestões e aceita qualquer ID de modelo compatível com o provedor ou gateway.
+
+As funções de aplicativo valem dentro de um aplicativo e cada membro pode ter várias. Administradores podem mapear permissões declaradas no código para funções sem novo deploy.
 
 ## Alterar e-mail e identidade
 

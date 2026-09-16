@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.179.0",
+  "version": "0.181.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -96,6 +96,10 @@
       "types": "./dist/action-ui.d.ts",
       "default": "./dist/action-ui.js"
     },
+    "./authorization": {
+      "types": "./dist/authorization/index.d.ts",
+      "default": "./dist/authorization/index.js"
+    },
     "./agent-native": {
       "types": "./dist/agent-native/index.d.ts",
       "default": "./dist/agent-native/index.js"
@@ -172,6 +176,7 @@
     "./client/AgentPanel": "./dist/client/AgentPanel.js",
     "./client/application-state": "./dist/client/application-state.js",
     "./client/api-path": "./dist/client/api-path.js",
+    "./client/oauth-popup": "./dist/client/oauth-popup.js",
     "./client/clipboard": "./dist/client/clipboard.js",
     "./client/route-state": "./dist/client/route-state.js",
     "./client/observability": "./dist/client/observability/index.js",
@@ -269,12 +274,14 @@
     "./review/actions/reply-review-comment": "./dist/review/actions/reply-review-comment.js",
     "./review/actions/resolve-review-thread": "./dist/review/actions/resolve-review-thread.js",
     "./review/actions/delete-review-comment": "./dist/review/actions/delete-review-comment.js",
+    "./review/actions/update-review-comment": "./dist/review/actions/update-review-comment.js",
     "./review/actions/consume-review-feedback": "./dist/review/actions/consume-review-feedback.js",
     "./review/actions/get-review-feedback": "./dist/review/actions/get-review-feedback.js",
     "./review/actions/set-review-status": "./dist/review/actions/set-review-status.js",
     "./review/actions/send-review-thread-to-agent": "./dist/review/actions/send-review-thread-to-agent.js",
     "./review/actions/react-to-review-comment": "./dist/review/actions/react-to-review-comment.js",
     "./review/actions/set-review-thread-unread": "./dist/review/actions/set-review-thread-unread.js",
+    "./review/actions/set-review-threads-unread": "./dist/review/actions/set-review-threads-unread.js",
     "./review/actions/set-review-thread-muted": "./dist/review/actions/set-review-thread-muted.js",
     "./review/suggestions/actions/create-resource-suggestion": "./dist/review/suggestions/actions/create-resource-suggestion.js",
     "./review/suggestions/actions/update-resource-suggestion": "./dist/review/suggestions/actions/update-resource-suggestion.js",
@@ -286,6 +293,7 @@
     "./comments-review/actions/reply-review-comment": "./dist/review/actions/reply-review-comment.js",
     "./comments-review/actions/resolve-review-thread": "./dist/review/actions/resolve-review-thread.js",
     "./comments-review/actions/delete-review-comment": "./dist/review/actions/delete-review-comment.js",
+    "./comments-review/actions/update-review-comment": "./dist/review/actions/update-review-comment.js",
     "./comments-review/actions/consume-review-feedback": "./dist/review/actions/consume-review-feedback.js",
     "./comments-review/actions/get-review-feedback": "./dist/review/actions/get-review-feedback.js",
     "./comments-review/actions/set-review-status": "./dist/review/actions/set-review-status.js",

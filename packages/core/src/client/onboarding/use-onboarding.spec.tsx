@@ -11,7 +11,11 @@ vi.mock("../analytics.js", () => ({
   trackEvent: trackEventMock,
 }));
 
-import { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
+import {
+  trackOnboardingEvent,
+  useOnboarding,
+  type UseOnboardingResult,
+} from "./use-onboarding.js";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: async () => body } as Response;
@@ -181,6 +185,52 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
 
     expect(latest?.completeFirstRunError).toBeNull();
     expect(latest?.firstRun).toBe(false);
+  });
+});
+
+describe("trackOnboardingEvent", () => {
+  beforeEach(() => trackEventMock.mockReset());
+
+  it("keeps distinct integration and role intents distinct", () => {
+    trackOnboardingEvent("integration_cta_clicked", {
+      flow: "first_run",
+      step_id: "tools",
+      integration_id: "context7",
+    });
+    trackOnboardingEvent("integration_cta_clicked", {
+      flow: "first_run",
+      step_id: "tools",
+      integration_id: "linear",
+    });
+    trackOnboardingEvent("onboarding_role_option_selected", {
+      flow: "first_run",
+      step_id: "role",
+      role: "developer",
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not deduplicate integration retries", () => {
+    const properties = {
+      flow: "first_run",
+      step_id: "tools",
+      integration_id: "context7",
+    };
+    trackOnboardingEvent("integration_cta_clicked", properties);
+    trackOnboardingEvent("integration_cta_clicked", properties);
+    trackOnboardingEvent("integration_connect_started", properties);
+    trackOnboardingEvent("integration_connect_started", properties);
+    trackOnboardingEvent("integration_connect_failed", {
+      ...properties,
+      error_type: "Error",
+    });
+    trackOnboardingEvent("integration_connect_failed", {
+      ...properties,
+      error_type: "popup_or_navigation_blocked",
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(6);
   });
 });
 

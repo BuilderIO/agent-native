@@ -436,6 +436,17 @@ const editor = {
   registryBlockUnreadable: "No se puede leer el origen guardado del bloque.",
   blocksFieldRevisionConflict:
     "Este campo de bloques cambió en otro lugar. Tu edición no se guardó; ahora se muestra la versión más reciente.",
+  reconcileConflict:
+    "Esta página cambió en otro lugar. Tus cambios aún no se han guardado.",
+  reconcileFailed:
+    "No se pudieron combinar los últimos cambios. Tus cambios aún no se han guardado.",
+  reconcileSaveFailed:
+    "No se pudieron guardar tus cambios. Revísalos e inténtalo de nuevo.",
+  reconcileSaving: "Guardando tus cambios…",
+  reconcileReview: "Revisar cambios",
+  reconcileReviewStale:
+    "La versión guardada volvió a cambiar. Revisa el texto más reciente antes de guardar.",
+  reconcileRefresh: "Revisar la última versión",
   collabConnectingReadOnly:
     "Conectando el editor en vivo. Mostrando una instantánea de solo lectura.",
   liveDocumentSaveBeforeSyncFailed:
@@ -958,6 +969,9 @@ const rawLiterals = {
     previewDraftSavedToHistory: "Tus cambios se guardaron en el historial",
     previewDraftSavedSeparately: "Tus cambios se guardaron como página aparte",
     previewDraftOpenSavedPage: "Abrir página",
+    previewDraftMoreOptions: "Más opciones",
+    previewDraftViewFullVersions: "Ver versiones completas",
+    previewDraftShowChanges: "Mostrar cambios",
     previewDraftConflict:
       "Este borrador entra en conflicto con una versión más reciente de la página. No se restauró.",
     restorePreviewDraft: "Restaurar borrador",

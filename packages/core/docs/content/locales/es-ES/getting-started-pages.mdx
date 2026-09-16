@@ -14,9 +14,9 @@ dominio.
 ## Crea la ruta {#add-a-page}
 
 El servidor de desarrollo lee los archivos de ruta al iniciarse. Crea
-`app/routes/text-analyses.tsx` y reinicia `pnpm dev` si ya está en ejecución. La
-ruta estará disponible en
-`http://localhost:8080/text-analyses`.
+`app/routes/text-analyses.tsx` y reinicia `pnpm dev` si ya está en ejecución.
+Abre la URL local que muestra `pnpm dev` y añade `/text-analyses`; el puerto
+puede cambiar si 8080 ya está en uso.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -63,7 +63,7 @@ export default function TextAnalysesRoute() {
 página no necesita una ruta de API personalizada, una segunda capa de datos ni SQL
 todavía.
 
-Abre `http://localhost:8080/text-analyses` o pídele al agente:
+Abre la URL local mostrada con `/text-analyses` añadido o pídele al agente:
 
 > Navigate to `/text-analyses`.
 

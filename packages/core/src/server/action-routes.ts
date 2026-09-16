@@ -10,6 +10,7 @@ import {
   readBody as readH3Body,
 } from "h3";
 
+import "../authorization/check-action.js";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import {
   ActionContractError,

@@ -538,10 +538,12 @@ describe("action discovery", () => {
       "reply-review-comment",
       "resolve-review-thread",
       "delete-review-comment",
+      "update-review-comment",
       "consume-review-feedback",
       "get-review-feedback",
       "set-review-status",
       "send-review-thread-to-agent",
+      "set-review-threads-unread",
     ]) {
       expect(registry[name], `${name} should be merged`).toBeDefined();
     }

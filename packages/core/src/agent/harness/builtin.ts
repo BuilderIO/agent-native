@@ -5,6 +5,7 @@ import {
 import { registerBuiltinAcpHarnesses } from "./acp-builtin.js";
 import {
   createAiSdkHarnessAdapter,
+  type AiSdkHarnessAdapterOptions,
   type AiSdkHarnessRuntime,
 } from "./ai-sdk-adapter.js";
 import { registerAgentHarness } from "./registry.js";
@@ -15,9 +16,11 @@ const AI_SDK_HARNESS_RUNTIMES: AiSdkHarnessRuntime[] = [
   "pi",
 ];
 
-export function registerBuiltinAgentHarnesses(): void {
+export function registerBuiltinAgentHarnesses(
+  options: Omit<AiSdkHarnessAdapterOptions, "runtime"> = {},
+): void {
   for (const runtime of AI_SDK_HARNESS_RUNTIMES) {
-    const adapter = createAiSdkHarnessAdapter({ runtime });
+    const adapter = createAiSdkHarnessAdapter({ ...options, runtime });
     registerAgentHarness({
       name: adapter.name,
       label: adapter.label,
@@ -26,8 +29,9 @@ export function registerBuiltinAgentHarnesses(): void {
       capabilities: adapter.capabilities,
       create: (config) =>
         createAiSdkHarnessAdapter({
-          runtime,
+          ...options,
           ...(config ?? {}),
+          runtime,
         } as Parameters<typeof createAiSdkHarnessAdapter>[0]),
     });
   }

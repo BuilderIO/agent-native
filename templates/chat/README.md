@@ -23,8 +23,9 @@ and actions on top.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
+corepack enable
 pnpm install
 pnpm dev
 ```

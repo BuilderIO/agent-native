@@ -9,7 +9,7 @@ import { pathToFileURL } from "node:url";
  * database health or 500'd on Better Auth's jwks route — a status-only
  * `curl --fail` never saw either.
  *
- * Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes] [--preview] [--allow-missing-health]
+ * Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes] [--preview] [--allow-missing-health] [--check-assets] [--asset-path <path>]
  * Exit: 0 all checks passed, 1 a check failed (reason printed), 2 bad args.
  */
 
@@ -17,6 +17,8 @@ const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 const TIMEOUT_MS = 30_000;
 const MAX_ATTEMPTS = 4;
+const MAX_ASSET_COUNT = 256;
+const ASSET_CONCURRENCY = 8;
 
 type CheckResult = { ok: true } | { ok: false; reason: string };
 
@@ -25,12 +27,19 @@ function argumentValue(name: string): string | undefined {
   return index === -1 ? undefined : process.argv[index + 1];
 }
 
-async function fetchWithTimeout(url: string): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
+    const headers = new Headers(init.headers);
+    headers.set("user-agent", USER_AGENT);
+    headers.set("accept", headers.get("accept") ?? "application/json,*/*");
     return await fetch(url, {
-      headers: { "user-agent": USER_AGENT, accept: "application/json,*/*" },
+      ...init,
+      headers,
       signal: controller.signal,
     });
   } finally {
@@ -49,15 +58,17 @@ async function fetchWithRetry(
   url: string,
   shouldRetryResponse: (response: Response) => boolean = (response) =>
     !response.ok,
+  init: RequestInit = {},
 ): Promise<{ response?: Response; error?: unknown }> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const response = await fetchWithTimeout(url);
+      const response = await fetchWithTimeout(url, init);
       if (!shouldRetryResponse(response) || attempt === MAX_ATTEMPTS) {
         return { response };
       }
       lastError = new Error(`HTTP ${response.status}`);
+      await response.body?.cancel();
     } catch (err) {
       lastError = err;
     }
@@ -219,6 +230,151 @@ async function checkRoot(baseUrl: string): Promise<CheckResult> {
   return { ok: true };
 }
 
+export function referencedSameOriginAssetUrls(
+  html: string,
+  baseUrl: string,
+): string[] {
+  const documentUrl = new URL(baseUrl);
+  let resolutionBaseUrl = documentUrl;
+  const baseHref = html.match(
+    /<base\b[^>]*(?:^|\s)href=["']([^"']+)["'][^>]*>/i,
+  )?.[1];
+  if (baseHref) {
+    try {
+      resolutionBaseUrl = new URL(baseHref, documentUrl);
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+    }
+  }
+  const assets = new Set<string>();
+
+  for (const match of html.matchAll(/<(link|script)\b[^>]*>/gi)) {
+    const tag = match[0];
+    const tagName = match[1].toLowerCase();
+    const rel = tag.match(/(?:^|\s)rel=["']([^"']+)["']/i)?.[1] ?? "";
+    const attribute =
+      tagName === "script"
+        ? "src"
+        : /(?:^|\s)modulepreload(?:\s|$)/i.test(rel) ||
+            /(?:^|\s)stylesheet(?:\s|$)/i.test(rel)
+          ? "href"
+          : undefined;
+    if (!attribute) continue;
+
+    const value = tag.match(
+      new RegExp(`(?:^|\\s)${attribute}=["']([^"']+)["']`, "i"),
+    )?.[1];
+    if (!value || value.startsWith("#") || value.startsWith("data:")) {
+      continue;
+    }
+
+    try {
+      const url = new URL(value, resolutionBaseUrl);
+      if (
+        url.origin === documentUrl.origin &&
+        (url.protocol === "http:" || url.protocol === "https:")
+      ) {
+        assets.add(url.href);
+      }
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+      // Ignore malformed or non-URL markup; the document probe reports the
+      // host itself and the remaining asset references.
+    }
+  }
+
+  return [...assets];
+}
+
+async function checkReferencedAsset(url: string): Promise<string | undefined> {
+  const path = new URL(url).pathname;
+  const shouldRetryAssetResponse = (response: Response) =>
+    response.status === 408 ||
+    response.status === 425 ||
+    response.status === 429 ||
+    response.status === 404 ||
+    response.status >= 500;
+  let result = await fetchWithRetry(url, shouldRetryAssetResponse, {
+    method: "HEAD",
+  });
+  if (result.response?.status === 405 || result.response?.status === 501) {
+    await result.response.body?.cancel();
+    result = await fetchWithRetry(url, shouldRetryAssetResponse, {
+      method: "GET",
+    });
+  }
+
+  if (!result.response) {
+    return `${path} network error: ${errorMessage(result.error)}`;
+  }
+  await result.response.body?.cancel();
+  return result.response.ok
+    ? undefined
+    : `${path} HTTP ${result.response.status} after retries`;
+}
+
+async function checkHtmlAssets(
+  baseUrl: string,
+  path: string,
+): Promise<CheckResult> {
+  let pageUrl: URL;
+  try {
+    pageUrl = new URL(path, `${baseUrl}/`);
+    if (pageUrl.origin !== new URL(baseUrl).origin) {
+      return { ok: false, reason: `${path} is not same-origin` };
+    }
+  } catch {
+    return { ok: false, reason: `${path} is not a valid URL path` };
+  }
+
+  const { response, error } = await fetchWithRetry(pageUrl.href);
+  if (!response) {
+    return {
+      ok: false,
+      reason: `${path} network error: ${errorMessage(error)}`,
+    };
+  }
+  if (response.status < 200 || response.status >= 400) {
+    await response.body?.cancel();
+    return {
+      ok: false,
+      reason: `${path} returned HTTP ${response.status} after retries`,
+    };
+  }
+
+  const html = await response.text();
+  const assets = referencedSameOriginAssetUrls(html, pageUrl.href);
+  if (assets.length === 0) {
+    return { ok: false, reason: `${path} referenced no same-origin assets` };
+  }
+  if (assets.length > MAX_ASSET_COUNT) {
+    return {
+      ok: false,
+      reason: `${path} referenced more than ${MAX_ASSET_COUNT} assets`,
+    };
+  }
+
+  const failures: string[] = [];
+  for (let index = 0; index < assets.length; index += ASSET_CONCURRENCY) {
+    const batch = await Promise.all(
+      assets
+        .slice(index, index + ASSET_CONCURRENCY)
+        .map((asset) => checkReferencedAsset(asset)),
+    );
+    failures.push(...batch.filter((failure): failure is string => !!failure));
+    if (failures.length >= 5) break;
+  }
+  if (failures.length > 0) {
+    return {
+      ok: false,
+      reason: `${path} has unavailable assets: ${failures
+        .slice(0, 5)
+        .join(", ")}`,
+    };
+  }
+  return { ok: true };
+}
+
 async function checkAuthRoutes(baseUrl: string): Promise<CheckResult> {
   const { response, error } = await fetchWithRetry(
     `${baseUrl}/_agent-native/auth/ba/jwks`,
@@ -248,7 +404,7 @@ async function main(): Promise<number> {
   const rawUrl = argumentValue("--url");
   if (!rawUrl) {
     console.error(
-      "Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes] [--preview] [--allow-missing-health]",
+      "Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes] [--preview] [--allow-missing-health] [--check-assets] [--asset-path <path>]",
     );
     return 2;
   }
@@ -266,9 +422,14 @@ async function main(): Promise<number> {
   const authRoutes = process.argv.includes("--auth-routes");
   const preview = process.argv.includes("--preview");
   const allowMissingHealth = process.argv.includes("--allow-missing-health");
+  const checkAssets = process.argv.includes("--check-assets");
+  const assetPath = argumentValue("--asset-path");
 
   const checks: Array<[string, () => Promise<CheckResult>]> = [
-    ["/", () => checkRoot(baseUrl)],
+    [
+      checkAssets ? "/ and referenced assets" : "/",
+      () => (checkAssets ? checkHtmlAssets(baseUrl, "/") : checkRoot(baseUrl)),
+    ],
     [
       "health",
       () =>
@@ -281,6 +442,12 @@ async function main(): Promise<number> {
         ),
     ],
   ];
+  if (assetPath && assetPath !== "/") {
+    checks.push([
+      `assets (${assetPath})`,
+      () => checkHtmlAssets(baseUrl, assetPath),
+    ]);
+  }
   if (authRoutes) checks.push(["jwks", () => checkAuthRoutes(baseUrl)]);
 
   let failed = false;
