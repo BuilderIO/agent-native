@@ -2233,6 +2233,8 @@ jobs:
           DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
           HOST: ${{ steps.target.outputs.host }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PREVIEW_ALIAS: ${{ inputs.preview_alias }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
@@ -2251,6 +2253,32 @@ jobs:
             process.stdout.write(url);
           NODE
           )"
+          alias_url="$(node --experimental-strip-types <<'NODE'
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const { resolveNetlifyPreviewAliasUrl } = await import("./scripts/netlify-prebuilt-target.ts");
+
+            const response = await requestNetlifyApi(
+              `https://api.netlify.com/api/v1/sites/${process.env.NETLIFY_SITE_ID}`,
+              { headers: { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` } },
+            );
+            const site = await response.json();
+            if (
+              !response.ok ||
+              site?.id !== process.env.NETLIFY_SITE_ID ||
+              typeof site?.name !== "string"
+            ) {
+              throw new Error(`Netlify did not return the preview site slug for ${process.env.NETLIFY_SITE_ID}.`);
+            }
+            const aliasUrl = resolveNetlifyPreviewAliasUrl(
+              process.env.PREVIEW_ALIAS,
+              site.name,
+            );
+            if (aliasUrl === process.env.DEPLOY_URL) {
+              throw new Error("Netlify preview alias resolved to the immutable deploy URL.");
+            }
+            process.stdout.write(aliasUrl);
+          NODE
+          )"
           smoke_args=(
             --canonical-host "$HOST"
             --auth-routes
@@ -2260,7 +2288,7 @@ jobs:
           if [[ "$SOURCE_TEMPLATE" == "dispatch" ]]; then
             smoke_args+=(--asset-path /overview)
           fi
-          for probe in "immutable deploy|$immutable_url" "preview alias|$DEPLOY_URL"; do
+          for probe in "immutable deploy|$immutable_url" "preview alias|$alias_url"; do
             label="${probe%%|*}"
             url="${probe#*|}"
             echo "Smoke-testing $label: $url"

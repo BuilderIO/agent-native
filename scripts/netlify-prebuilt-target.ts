@@ -16,6 +16,19 @@ export type ResolvedNetlifyPrebuiltTarget = {
   sourceTemplate: string;
 };
 
+export function resolveNetlifyPreviewAliasUrl(
+  previewAlias: string,
+  siteName: string,
+): string {
+  const alias = previewAlias.trim().toLowerCase();
+  const site = siteName.trim().toLowerCase();
+  const validNetlifySlug = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+  if (!validNetlifySlug.test(alias) || !validNetlifySlug.test(site)) {
+    throw new Error("Netlify preview aliases require valid site slugs.");
+  }
+  return `https://${alias}--${site}.netlify.app`;
+}
+
 type SourceProject = {
   clientDirectory: string;
   functionsDirectory: string;

@@ -1125,11 +1125,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 14);
+    assert.equal(nodeHeredocs.length, 15);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      14,
+      15,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
@@ -1544,7 +1544,13 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(previewSmoke.run), /immutable_url/);
     assert.match(String(previewSmoke.run), /preview alias/);
     assert.match(String(previewSmoke.run), /deploy_ssl_url/);
-    assert.match(String(previewSmoke.run), /\$DEPLOY_URL/);
+    assert.match(String(previewSmoke.run), /NETLIFY_SITE_ID/);
+    assert.match(String(previewSmoke.run), /PREVIEW_ALIAS/);
+    assert.match(String(previewSmoke.run), /resolveNetlifyPreviewAliasUrl/);
+    assert.match(
+      String(previewSmoke.run),
+      /aliasUrl === process\.env\.DEPLOY_URL/,
+    );
     assert.doesNotMatch(String(previewSmoke.run), /--allow-missing-health/);
 
     assert(previewDatabaseMirror);

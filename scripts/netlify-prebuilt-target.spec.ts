@@ -2,7 +2,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { resolveNetlifyPrebuiltTarget } from "./netlify-prebuilt-target.ts";
+import {
+  resolveNetlifyPrebuiltTarget,
+  resolveNetlifyPreviewAliasUrl,
+} from "./netlify-prebuilt-target.ts";
+
+test("resolves a mutable PR alias from the API site slug", () => {
+  assert.equal(
+    resolveNetlifyPreviewAliasUrl("pr-5152", "agent-native-dispatch"),
+    "https://pr-5152--agent-native-dispatch.netlify.app",
+  );
+  assert.throws(
+    () => resolveNetlifyPreviewAliasUrl("pr/5152", "agent-native-dispatch"),
+    /valid site slugs/,
+  );
+});
 
 test("maps the beta chat site to the chat template and beta ref", () => {
   const target = resolveNetlifyPrebuiltTarget("beta", "chat");
