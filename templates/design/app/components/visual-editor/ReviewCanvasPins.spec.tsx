@@ -86,6 +86,8 @@ vi.mock("@agent-native/core/client/review", () => ({
     onSubmit: (target: "human" | "agent") => void;
     showCommentAction?: boolean;
     showAgentAction?: boolean;
+    showCommentTools?: boolean;
+    commentToolsEnd?: React.ReactNode;
     commentLabel?: string;
     contextLabel?: string;
     agentAction?: React.ReactNode;
@@ -125,6 +127,19 @@ vi.mock("@agent-native/core/client/review", () => ({
             }
           }}
         />
+        {props.showCommentTools || props.commentToolsEnd ? (
+          <div data-review-comment-tools>
+            {props.showCommentTools ? (
+              <>
+                <button type="button" aria-label="review.addEmoji" />
+                <button type="button" aria-label="review.mention" />
+              </>
+            ) : null}
+            {props.commentToolsEnd ? (
+              <div data-review-comment-tools-end>{props.commentToolsEnd}</div>
+            ) : null}
+          </div>
+        ) : null}
         <button
           type="button"
           data-review-test-type
@@ -413,6 +428,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           resourceType="design"
           resourceId="design-1"
           targetId="screen-1"
+          screenId="screen-1"
           canPost
           canResolve
         />,
@@ -478,9 +494,64 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(mocks.createMutate).toHaveBeenCalledTimes(1);
     expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
       body: "Make the background darker",
-      anchor: { point: { xPct: 37.5, yPct: 40 } },
+      anchor: {
+        point: { xPct: 37.5, yPct: 40 },
+        screenId: "screen-1",
+        screenPoint: { xPct: 37.5, yPct: 40 },
+      },
       resolutionTarget: "human",
     });
+  });
+
+  it("repositions a screen pin when its owning frame shell moves", async () => {
+    const frameShell = document.createElement("div");
+    frameShell.setAttribute("data-frame-shell", "");
+    let canvasLeft = 0;
+    canvas.getBoundingClientRect = () =>
+      ({
+        x: canvasLeft,
+        y: 0,
+        left: canvasLeft,
+        top: 0,
+        right: canvasLeft + 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    canvas.remove();
+    frameShell.appendChild(canvas);
+    document.body.appendChild(frameShell);
+
+    try {
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={false}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            screenId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+      const pinOwner =
+        document.querySelector<HTMLElement>("[data-review-pin]")?.parentElement;
+      expect(pinOwner?.style.left).toBe("200px");
+
+      await act(async () => {
+        canvasLeft = 500;
+        frameShell.style.left = "500px";
+        await new Promise((resolve) => window.setTimeout(resolve, 40));
+      });
+      expect(pinOwner?.style.left).toBe("700px");
+    } finally {
+      frameShell.remove();
+    }
   });
 
   it("supports a board-scoped region comment from a drag gesture", async () => {
@@ -551,6 +622,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         },
       },
     });
+    expect(mocks.createMutate.mock.calls[0]?.[0]?.anchor).not.toHaveProperty(
+      "screenId",
+    );
   });
 
   it("opens the composer for an overview canvas pin request", async () => {
@@ -1019,6 +1093,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           resourceType="design"
           resourceId="design-1"
           targetId="screen-1"
+          screenId="screen-1"
           canPost
           canResolve
         />,
@@ -1053,7 +1128,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(mocks.updateMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         commentId: "comment-1",
-        anchor: { point: { xPct: 37.5, yPct: 40 } },
+        anchor: {
+          point: { xPct: 37.5, yPct: 40 },
+          screenId: "screen-1",
+          screenPoint: { xPct: 37.5, yPct: 40 },
+        },
       }),
       expect.any(Object),
     );
@@ -1065,7 +1144,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
     expect(mocks.updateMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        anchor: { point: { xPct: 38.5, yPct: 40 } },
+        anchor: {
+          point: { xPct: 38.5, yPct: 40 },
+          screenId: "screen-1",
+          screenPoint: { xPct: 38.5, yPct: 40 },
+        },
       }),
       expect.any(Object),
     );
@@ -1193,6 +1276,19 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       "[data-review-reply-input]",
     );
     expect(replyInput).not.toBeNull();
+    const tools = document.querySelector<HTMLElement>(
+      "[data-review-comment-tools]",
+    );
+    const attachments = document.querySelector<HTMLElement>(
+      "[data-review-attachments]",
+    );
+    expect(attachments?.closest("[data-review-comment-tools]")).toBe(tools);
+    expect(
+      attachments?.closest("[data-review-comment-tools-end]"),
+    ).not.toBeNull();
+    expect(
+      tools?.querySelector('[aria-label="review.mention"]'),
+    ).not.toBeNull();
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype,
@@ -1317,18 +1413,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
       await act(async () => {
         world.style.transform = "translate(100px, 50px) scale(1)";
-        root.render(
-          <ReviewCanvasPins
-            active={false}
-            onClose={vi.fn()}
-            canvasSelector=".review-test-canvas"
-            resourceType="design"
-            resourceId="design-1"
-            targetId={null}
-            canPost
-            canResolve
-          />,
-        );
+        await new Promise((resolve) => window.setTimeout(resolve, 40));
       });
 
       expect(popover?.style.left).toBe("240px");

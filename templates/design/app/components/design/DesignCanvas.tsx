@@ -6343,6 +6343,7 @@ export function DesignCanvas({
             ? reviewTargetId
             : (screenId ?? commentContextId ?? null)
         }
+        screenId={screenId}
         boardGeometry={reviewBoardGeometry}
         onFocusBoardPoint={onReviewFocusBoardPoint}
         canPost={reviewCanPost}

@@ -52,6 +52,36 @@ describe("ReviewCommentComposer actions", () => {
     expect(onSubmit).toHaveBeenCalledWith("agent");
   });
 
+  it("keeps trailing comment tools beside mention controls", () => {
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value="A useful reply"
+          onChange={() => {}}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[{ label: "Alice", email: "alice@example.com" }]}
+          commentToolsEnd={<span data-review-tools-end />}
+        />,
+      );
+    });
+
+    const tools = container.querySelector<HTMLElement>(
+      "[data-review-comment-tools]",
+    );
+    const trailingTools = container.querySelector<HTMLElement>(
+      "[data-review-comment-tools-end]",
+    );
+    expect(trailingTools?.parentElement).toBe(tools);
+    expect(tools?.querySelector('[aria-label="Add emoji"]')).not.toBeNull();
+    expect(
+      tools?.querySelector('[aria-label="Mention someone"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('button[type="submit"]')?.parentElement,
+    ).not.toBe(tools);
+  });
+
   it("routes implicit submission to the visible agent action", () => {
     const onSubmit = vi.fn();
     act(() => {
