@@ -2,10 +2,10 @@
 name: review-latest-feedback
 description: >-
   Sweep recent Slack, GitHub issue, Sentry, and explicitly linked tracker
-  feedback: first answer reporters, then fix verified bugs and actionable
-  design/UX feedback at the owning boundary, build other feature requests the
-  invoking user endorsed with an :upvote:, and require pre/post reporter-surface
-  proof before completion.
+  feedback: first answer reporters, then fix verified bugs and objective UI
+  defects at the owning boundary, require human signoff for subjective UI
+  changes, build features the invoking user endorsed with an :upvote:, and
+  recap every disposition. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -208,13 +208,20 @@ valid evidence — inspect the owning path before doubting the reporter.
 
 Do not change code for an unrelated product idea, praise, status update, merge
 or review request, bot forward, duplicate, or work outside the invocation's
-ownership. Design/UX feedback about an existing surface is in scope even when
-it describes visual quality or a subjective critique rather than functional
-breakage. Treat a concrete critique or requested improvement as authorization:
-choose a coherent treatment, verify it visually, and do not block on an upvote
-or ask the reporter to pick from variants. Requests for a new capability still
-follow the invoking identity's `:upvote:` gate. Content remains Alice's area
-unless the invocation claims it.
+ownership.
+
+**Keep subjective UI changes human-in-the-loop.** Automatically fix only
+objective UI defects: broken interactions, misalignment, overlap or clipping,
+unusable controls, or removing clear excess clutter. A reporter request is not
+product signoff. Discoverability complaints and preferences do not authorize
+adding, promoting, moving, or duplicating buttons or other persistent chrome.
+Check overflow, keyboard, Cmd+K, and contextual surfaces first. Adding or
+promoting chrome requires the invoking user's explicit current-task request or
+`:upvote:` below. Otherwise mark **Skipped**, release the eye with `✅`, and do
+not ask the reporter to decide. Measure failures with `text-heavy-ui`.
+
+Requests for a new capability still follow the invoking identity's `:upvote:`
+gate. Content remains Alice's area unless the invocation claims it.
 
 ### `:upvote:` authorizes feature requests
 
@@ -222,10 +229,6 @@ An `:upvote:` from **the invoking identity** - not from anyone else - promotes
 an otherwise out-of-scope item into scope and authorizes the work. It is the
 endorsement that settles the product question: the person who would otherwise
 route this away has read it and decided it should happen. Build it.
-
-Do not wait for a second sign-off. The invoking identity is the authorization,
-and treating their own endorsement as a request for someone else's permission
-is how this rule becomes a no-op.
 
 Find them alongside the newest-message scan:
 
@@ -248,10 +251,6 @@ The upvote overrides the bug gate, not the ownership map. An upvoted Design or
 Content item still gets built — name Sid or Alice in the recap row so the
 mapped owner is not surprised by a change in their area. Naming them is a
 courtesy, not a gate: do not stall the work waiting for their reply.
-
-Because the upvote already is the product decision, do not ask which variant
-people would prefer. Ship the smallest version that delivers the endorsed
-improvement, and let the reporter react to something real.
 
 For every authorized upvoted improvement, add `👀` before investigation or
 delegation and read it back. Audit it with the clear-bug ledger, using
@@ -341,36 +340,40 @@ requires a mechanical proof or release gate, not more prose.
 
 ### Bug-bash reproduction contract
 
-For bashes across Design, Slides, Core/framework, and templates, treat the
-reported surface as the contract when reachable:
+For Design, Slides, Core/framework, and template bashes, the reachable reported
+surface is the contract:
 
-1. **Reproduce before editing.** Use exact URL/route, app/template,
-   account/workspace/role, build/package, browser/device, fixture, and
-   click/input sequence. Record expected/actual and errors; read every artifact.
-2. **Sweep siblings and boundaries.** Test a negative control, empty/wrong/
-   whitespace/case/permission variants, and each host sharing fingerprint.
-   Shared fixes cover Design, Slides, Core, and templates.
-3. **Repeat on the changed running artifact.** Re-run the same flow, then
-   refresh/navigate and read back UI and persisted state. Exercise failure,
-   retry, cancel, and async paths. Destructive flows include wrong/partial/
-   exact confirmation and error recovery without deleting unless required.
-4. **Test release and race layers.** Use a deterministic concurrent harness or
-   at least 10 runs for timing/race behavior and record results. Use a clean
-   scaffold/cache plus exact published/candidate version for package/docs
-   reports, and the exact beta/production URL for live reports. Source, tests,
-   merge, or unchanged live state never substitute for runtime proof.
-5. **Classify gaps.** Name every untested layer or variant and use the narrowest
-   evidence-limited disposition. Never release the checkmark or say **Fixed**,
-   **Shipped**, or **Live verified** on partial evidence. A post-checkmark
-   repeat reopens the item and requires a fresh failing pre-change reproduction.
+1. **Reproduce before editing.** Use the exact URL/route, app/template,
+   account/workspace/role, build/package, browser/device, fixture, and inputs;
+   record expected/actual, errors, and every attached artifact.
+2. **Sweep siblings and boundaries.** Test a negative control plus empty, wrong,
+   whitespace, case, and permission variants; enumerate every shared fingerprint.
+3. **Repeat on the changed running artifact.** Rerun the flow, refresh/navigate,
+   read UI and persisted state, and cover failure/retry/cancel/async paths.
+   Destructive flows require wrong/partial/exact confirmation and recovery;
+   do not delete unless needed.
+4. **Test release and race layers.** Use deterministic concurrency or 10 runs,
+   a clean scaffold/cache and exact published/candidate package, and the exact
+   beta/production URL. Source, tests, merge, or unchanged live state are not
+   runtime proof.
+5. Record untested layers/variants and use the narrowest evidence-limited
+   disposition. Never release `✅` or call **Fixed**, **Shipped**, or **Live
+   verified** on partial evidence. A post-checkmark repeat reopens the item and
+   needs a fresh failing pre-change reproduction.
 
 ### Reproduction ledger - required for every row
 
-Ledger the exact symptom/surface; pre/post command, URL, account, expected and
-actual; commit/build; sibling and repeat results; untested layers; and runtime
-layer (`local`, `source-only`, `built`, `deployed`, `observed-live`). If the bar
-is incomplete, use the narrowest evidence-limited disposition. Reactions, tests,
-or unchanged live state never mean **Fixed**.
+Before **Fixed** or **Shipped**, record each row's exact symptom/surface,
+reproduction command/click/URL/account state, expected and pre/post actuals,
+tested commit/build, sibling fingerprint results, untested layers, and runtime
+layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
+
+If the full bar was not exercised, use **Verified locally**, **Built - live
+unverified**, **Deployed - live unverified**, **Live verified**, **Not
+reproducible - attempted**, **Blocked on reporter**, **Merged - release
+pending**, or **Clustered**. Never promote `handled`/`completed`, reactions,
+source tests, or unchanged live state to **Fixed**. Repeats require a new
+failing pre-change reproduction and the earlier false claim.
 
 Regression claims require Red/Green proof: reverse-apply hunk with
 `git apply -R`, record failure, reapply, record pass. Repeat timing checks 10x.
@@ -417,18 +420,15 @@ instruction or prompt exception.
 
 ### The bar for saying "Fixed"
 
-Say it is fixed only when all four hold:
-
-1. The reporter's **observed symptom** is named.
-2. The exact reproduction fails before and passes after.
-3. The sibling sweep is clean or remaining hits are triaged.
-4. The changed snapshot and runtime layer are named.
-
-If any bar is missing, use a narrower disposition. **Shipped** requires
-build/deploy provenance; **Live verified** requires the target runtime.
-
-For an upvoted improvement, bar 1 states requested versus actual behavior;
-bars 2–4 still hold. Call it **Shipped**, not Fixed.
+Say **Fixed** only when all four hold: the reporter's observed symptom is named;
+the exact reproduction fails before and passes after (a prop-threading test is
+not proof of "double-click schedules two emails," and a docs diff is not the
+clean-scaffold copy-paste proof); the sibling sweep is clean or triaged; and
+the change is in the shipping snapshot with its runtime layer named.
+**Shipped** requires build/deploy provenance; **Live verified** requires the
+target runtime. Otherwise use a narrower disposition and never imply beta or
+production health. An upvoted improvement states requested versus actual
+behavior, then holds the same bars and is **Shipped**, not **Fixed**.
 
 ## Phase 3: reply
 
