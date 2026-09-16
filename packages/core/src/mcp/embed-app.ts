@@ -283,9 +283,9 @@ export function embedApp(
         record.embedTargetPath,
         record.deepLinkUrl,
         record.deepLink,
-        record.openUrl,
         structuredOpenLinkUrl,
         metaUrl,
+        record.openUrl,
         record.url
       ]);
     }

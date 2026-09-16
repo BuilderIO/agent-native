@@ -51,6 +51,9 @@ describe("embedApp", () => {
     expect(html).toContain("return { error: text.trim() };");
     expect(html).toContain("record.embedTargetPath");
     expect(html).toContain("record.deepLinkUrl");
+    expect(html).toContain(
+      "record.deepLink,\n        structuredOpenLinkUrl,\n        metaUrl,\n        record.openUrl,",
+    );
     expect(html.indexOf("structuredOpenLinkUrl")).toBeLessThan(
       html.indexOf("record.url"),
     );
