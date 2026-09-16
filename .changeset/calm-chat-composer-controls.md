@@ -1,5 +1,6 @@
 ---
 "@agent-native/agentkit": patch
+"@agent-native/toolkit": patch
 ---
 
-Keep composer mode and model controls balanced and their popovers within the viewport.
+Keep composer controls balanced, keep popovers within the viewport, and prevent first-run prompts from racing model authentication.
