@@ -417,7 +417,7 @@
     "@agent-native/agentkit": "workspace:^",
     "@agent-native/recap-cli": "workspace:*",
     "@agent-native/toolkit": "workspace:^",
-    "@amplitude/analytics-browser": "^2.41.1",
+    "@amplitude/analytics-browser": "2.44.1",
     "@anthropic-ai/sdk": "^0.90.0",
     "@anthropic-ai/tokenizer": "0.0.4",
     "@assistant-ui/react": "catalog:",

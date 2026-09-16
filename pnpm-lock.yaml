@@ -416,7 +416,7 @@ importers:
         specifier: '>=3'
         version: 3.0.40(zod@4.4.3)
       '@amplitude/analytics-browser':
-        specifier: ^2.41.1
+        specifier: 2.44.1
         version: 2.44.1
       '@anthropic-ai/sdk':
         specifier: '>=0.90.0'
