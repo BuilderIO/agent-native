@@ -78,5 +78,20 @@ describe("deployed HTML asset probe", () => {
       ),
       false,
     );
+
+    for (const contentType of [
+      "application/x-ecmascript",
+      "text/javascript1.0",
+      "text/jscript",
+      "text/livescript",
+      "text/x-ecmascript",
+      "text/x-javascript",
+    ]) {
+      assert.equal(
+        hasExpectedReferencedAssetContentType(contentType, "javascript"),
+        true,
+        contentType,
+      );
+    }
   });
 });
