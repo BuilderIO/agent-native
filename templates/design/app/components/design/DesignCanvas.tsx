@@ -47,6 +47,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -519,6 +520,7 @@ interface DesignCanvasProps {
   /** Called once when this document has a usable runtime bridge. */
   onBridgeReady?: () => void;
   /** Called once when the live document finishes its browser load. */
+  onBootStart?: () => void;
   onBootReady?: () => void;
   onScreenRootComputedStyles?: (computedStyles: Record<string, string>) => void;
   onRuntimeVerificationSnapshot?: (snapshot: {
@@ -673,6 +675,7 @@ interface DesignCanvasProps {
       replaced?: true;
       replacementSelector?: string;
       replacementSourceId?: string;
+      replacementElementInfo?: ElementInfo;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -1249,6 +1252,7 @@ export function DesignCanvas({
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
   onBridgeReady,
+  onBootStart,
   onBootReady,
   onScreenRootComputedStyles,
   onRuntimeVerificationSnapshot,
@@ -3234,6 +3238,8 @@ export function DesignCanvas({
         // exposing the iframe's blank navigation frame; the replacement
         // document's ready handshake clears this fallback again.
         if (usesLiveEditEditorBridge) {
+          bootReadyRef.current = false;
+          onBootStart?.();
           setReadyIframeDocumentIdentity(null);
         }
         return;
@@ -3526,6 +3532,9 @@ export function DesignCanvas({
                     replaced: true as const,
                     replacementSelector: selector,
                     replacementSourceId: sourceId,
+                    replacementElementInfo: isElementInfoPayload(e.data.payload)
+                      ? e.data.payload
+                      : undefined,
                   }
                 : {}),
             },
@@ -3910,6 +3919,7 @@ export function DesignCanvas({
     onElementSelect,
     onRuntimeLayerSnapshot,
     onBridgeReady,
+    onBootStart,
     onScreenRootComputedStyles,
     onRuntimeVerificationSnapshot,
     onElementMarqueeSelect,
@@ -4173,6 +4183,11 @@ export function DesignCanvas({
     iframe.addEventListener("load", handleLoad);
     return () => iframe.removeEventListener("load", handleLoad);
   }, [externalPreviewUrl, iframeDocumentIdentity, onBootReady]);
+
+  useLayoutEffect(() => {
+    if (!onBootStart || !externalPreviewUrl) return;
+    onBootStart();
+  }, [externalPreviewUrl, iframeDocumentIdentity, onBootStart]);
 
   useEffect(() => {
     if (clearSelectionRequest === undefined) return;

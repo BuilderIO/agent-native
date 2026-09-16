@@ -1183,6 +1183,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     new Map(),
   );
   const bootTimeoutByScreenIdRef = useRef<Map<string, number>>(new Map());
+  const bootStartCallbackByFrameIdRef = useRef<Map<string, () => void>>(
+    new Map(),
+  );
   const bridgeReadyCallbackByFrameIdRef = useRef<Map<string, () => void>>(
     new Map(),
   );
@@ -1210,6 +1213,41 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       setBootStatusRevision((revision) => revision + 1);
     },
     [],
+  );
+  const markScreenBootStart = useCallback(
+    (screenId: string, frameId?: string) => {
+      const status = bootStatusByScreenIdRef.current.get(screenId);
+      if (!status) return;
+      const readyFrameIds =
+        bootReadyFrameIdsByScreenIdRef.current.get(screenId) ?? new Set();
+      const frameWasReady = frameId
+        ? readyFrameIds.delete(frameId)
+        : readyFrameIds.size > 0;
+      if (!frameId) readyFrameIds.clear();
+      bootReadyFrameIdsByScreenIdRef.current.set(screenId, readyFrameIds);
+      if (status === "booting" && !frameWasReady) return;
+      const timeoutId = bootTimeoutByScreenIdRef.current.get(screenId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      const nextTimeoutId = window.setTimeout(
+        () => markScreenBootReady(screenId),
+        8_000,
+      );
+      bootTimeoutByScreenIdRef.current.set(screenId, nextTimeoutId);
+      bootStatusByScreenIdRef.current.set(screenId, "booting");
+      setBootStatusRevision((revision) => revision + 1);
+    },
+    [markScreenBootReady],
+  );
+  const getScreenBootStartCallback = useCallback(
+    (screenId: string, frameId = "primary") => {
+      const callbackKey = `${screenId}\0${frameId}`;
+      const existing = bootStartCallbackByFrameIdRef.current.get(callbackKey);
+      if (existing) return existing;
+      const callback = () => markScreenBootStart(screenId, frameId);
+      bootStartCallbackByFrameIdRef.current.set(callbackKey, callback);
+      return callback;
+    },
+    [markScreenBootStart],
   );
   const getScreenBootReadyCallback = useCallback(
     (screenId: string, frameId = "primary") => {
@@ -1251,6 +1289,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       bootStatusByScreenIdRef.current.delete(id);
       bootFrameCountByScreenIdRef.current.delete(id);
       bootReadyFrameIdsByScreenIdRef.current.delete(id);
+      for (const key of bootStartCallbackByFrameIdRef.current.keys()) {
+        if (key.startsWith(`${id}\0`)) {
+          bootStartCallbackByFrameIdRef.current.delete(key);
+        }
+      }
       for (const key of bridgeReadyCallbackByFrameIdRef.current.keys()) {
         if (key.startsWith(`${id}\0`)) {
           bridgeReadyCallbackByFrameIdRef.current.delete(key);
@@ -1267,6 +1310,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       bootStatusByScreenIdRef.current.clear();
       bootFrameCountByScreenIdRef.current.clear();
       bootReadyFrameIdsByScreenIdRef.current.clear();
+      bootStartCallbackByFrameIdRef.current.clear();
       bridgeReadyCallbackByFrameIdRef.current.clear();
     },
     [],
@@ -9370,6 +9414,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           isRunningAppSourceType(metadata.source)
             ? {
                 onBootReady: getScreenBootReadyCallback(screen.id),
+                onBootStart: getScreenBootStartCallback(screen.id),
               }
             : undefined,
         ),
@@ -9385,6 +9430,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     exportPreviewScreenId,
     bootDeferredScreenIds,
     getScreenBootReadyCallback,
+    getScreenBootStartCallback,
     renderScreenContent,
     screenCullTierById,
   ]);
@@ -9720,6 +9766,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               snapshotHtml={screenSnapshotsById?.[screen.id]?.html}
               renderBreakpointContent={renderBreakpointContent}
               getBootReadyCallback={getScreenBootReadyCallback}
+              getBootStartCallback={getScreenBootStartCallback}
               cullTier={cullTier}
               isExportPreview={isExportPreview}
               isActive={screen.id === activeId}
@@ -11184,6 +11231,7 @@ interface ScreenProps {
   snapshotHtml?: string;
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
   getBootReadyCallback?: (screenId: string, frameId: string) => () => void;
+  getBootStartCallback?: (screenId: string, frameId: string) => () => void;
   /** Overview viewport culling tier (PF22) — see computeScreenCullTier.
    *  "visible": render screenContent normally. "culled": screenContent (if
    *  any) stays mounted but is hidden from paint (visibility/
@@ -11273,6 +11321,7 @@ const Screen = memo(function Screen({
   snapshotHtml,
   renderBreakpointContent,
   getBootReadyCallback,
+  getBootStartCallback,
   cullTier,
   isExportPreview,
   onAddBreakpoint,
@@ -11827,6 +11876,7 @@ const Screen = memo(function Screen({
           screenRootComputedStylesById={screenRootComputedStylesById}
           renderBreakpointContent={renderBreakpointContent}
           getBootReadyCallback={getBootReadyCallback}
+          getBootStartCallback={getBootStartCallback}
           activeBreakpointWidth={screen.activeBreakpointWidth}
           isScreenSelected={isSelected}
           penActive={penActive}
@@ -11903,6 +11953,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.snapshotHtml === next.snapshotHtml &&
     prev.renderBreakpointContent === next.renderBreakpointContent &&
     prev.getBootReadyCallback === next.getBootReadyCallback &&
+    prev.getBootStartCallback === next.getBootStartCallback &&
     prev.cullTier === next.cullTier &&
     prev.isExportPreview === next.isExportPreview &&
     sameResolvedMetadata(prev.metadata, next.metadata) &&
@@ -11999,6 +12050,7 @@ function BreakpointPreviewRow({
   screenRootComputedStylesById,
   renderBreakpointContent,
   getBootReadyCallback,
+  getBootStartCallback,
   activeBreakpointWidth,
   isScreenSelected,
   penActive,
@@ -12043,6 +12095,7 @@ function BreakpointPreviewRow({
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
   getBootReadyCallback?: ScreenProps["getBootReadyCallback"];
+  getBootStartCallback?: ScreenProps["getBootStartCallback"];
   activeBreakpointWidth: number | undefined;
   /** Whether the OWNING screen (base frame) is the current selection —
    *  mirrors `Screen`'s own `isSelected`, used so a breakpoint frame's chrome
@@ -12134,6 +12187,10 @@ function BreakpointPreviewRow({
               displayHeight: frameHeight,
               active: isActive,
               onBootReady: getBootReadyCallback?.(
+                screen.id,
+                `breakpoint:${widthPx}`,
+              ),
+              onBootStart: getBootStartCallback?.(
                 screen.id,
                 `breakpoint:${widthPx}`,
               ),
@@ -12492,6 +12549,10 @@ function BreakpointPreviewRow({
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
                     sandbox="allow-scripts"
                     onLoad={() => {
+                      getBootStartCallback?.(
+                        screen.id,
+                        `breakpoint:${widthPx}`,
+                      )?.();
                       getBootReadyCallback?.(
                         screen.id,
                         `breakpoint:${widthPx}`,

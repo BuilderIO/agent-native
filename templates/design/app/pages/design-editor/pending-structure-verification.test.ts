@@ -57,6 +57,20 @@ describe("verifyPendingStructureRuntime", () => {
     ).toEqual({ ok: true });
   });
 
+  it("does not discard same-parent absolute-container moves as no-ops", () => {
+    const html = `<!doctype html><body>
+      <section id="anchor" data-agent-native-node-id="anchor" style="position:relative">
+        <div id="subject" data-agent-native-node-id="subject" style="position:absolute;left:40px;top:20px">Subject</div>
+      </section>
+    </body>`;
+    expect(
+      isPendingStructureDropNoOp(
+        html,
+        edit({ dropMode: "absolute-container" }),
+      ),
+    ).toBe(false);
+  });
+
   it("requires exact before/between/after order", () => {
     const html = `<!doctype html><body><main data-agent-native-node-id="parent">
       <div data-agent-native-node-id="first">First</div>

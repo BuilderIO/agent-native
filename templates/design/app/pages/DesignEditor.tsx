@@ -1322,10 +1322,16 @@ function DesignEditor() {
   >([]);
   const [pendingEditSessionMarker, setPendingEditSessionMarker] =
     useState<PendingEditSessionMarkerResult>({ status: "absent" });
+  const [
+    pendingEditSessionRecoveryMarker,
+    setPendingEditSessionRecoveryMarker,
+  ] = useState<PendingEditSessionMarkerResult>({ status: "absent" });
   const pendingEditSessionDesignIdRef = useRef<string | null>(null);
   useEffect(() => {
     pendingEditSessionDesignIdRef.current = null;
-    setPendingEditSessionMarker(readPendingEditSessionMarker(id));
+    const marker = readPendingEditSessionMarker(id);
+    setPendingEditSessionMarker(marker);
+    setPendingEditSessionRecoveryMarker(marker);
   }, [id]);
   const [pendingVisualStyleRevertRequest, setPendingVisualStyleRevertRequest] =
     useState<{
@@ -7688,6 +7694,7 @@ function DesignEditor() {
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
+        replacementElementInfo?: ElementInfo;
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
@@ -11818,6 +11825,7 @@ function DesignEditor() {
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
+        replacementElementInfo?: ElementInfo;
       },
     ) =>
       runVisualStructureChange(
@@ -12027,6 +12035,7 @@ function DesignEditor() {
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
+        replacementElementInfo?: ElementInfo;
       },
     ) =>
       runScreenVisualStructureChange(
@@ -16598,8 +16607,9 @@ function DesignEditor() {
         prompt: pendingVisualStylePrompt,
       };
     }
-    if (pendingEditSessionMarker.status === "present") {
-      const count = pendingEditSessionMarker.marker.count;
+    const recoveryMarker = pendingEditSessionRecoveryMarker;
+    if (recoveryMarker.status === "present") {
+      const count = recoveryMarker.marker.count;
       return {
         designId: id ?? null,
         pendingEditCount: count,
@@ -16607,12 +16617,20 @@ function DesignEditor() {
         prompt: `The previous visual-edit session ended with ${count} pending edit${count === 1 ? "" : "s"}. Those live edits are no longer recoverable; recreate them in the canvas before asking the agent to apply source changes.`,
       };
     }
+    if (recoveryMarker.status === "unavailable") {
+      return {
+        designId: id ?? null,
+        pendingEditCount: 0,
+        status: "unknown",
+        prompt: `The previous visual-edit session marker could not be read (${recoveryMarker.reason}). Do not treat an empty prompt as proof that no edits were lost; inspect the source and recreate the intended canvas changes before applying.`,
+      };
+    }
     if (pendingEditSessionMarker.status === "unavailable") {
       return {
         designId: id ?? null,
         pendingEditCount: 0,
         status: "unknown",
-        prompt: `The previous visual-edit session marker could not be read (${pendingEditSessionMarker.reason}). Do not treat an empty prompt as proof that no edits were lost; inspect the source and recreate the intended canvas changes before applying.`,
+        prompt: `The current visual-edit session marker could not be read (${pendingEditSessionMarker.reason}). Do not treat an empty prompt as proof that no edits were lost; inspect the source and recreate the intended canvas changes before applying.`,
       };
     }
     return {
@@ -16624,6 +16642,7 @@ function DesignEditor() {
   }, [
     id,
     pendingEditSessionMarker,
+    pendingEditSessionRecoveryMarker,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
   ]);
@@ -21258,6 +21277,7 @@ function DesignEditor() {
           nativePreviewActive={screenIsActive}
           previewToken={screenPreviewToken}
           externalSnapshotHtml={screenSnapshot}
+          onBootStart={renderOptions?.onBootStart}
           onBootReady={renderOptions?.onBootReady}
           onExternalContentSnapshot={(snapshot) =>
             handleScreenExternalContentSnapshot(screen.id, snapshot)
@@ -21536,7 +21556,10 @@ function DesignEditor() {
           height: frame.displayHeight,
         },
         frame,
-        { onBootReady: frame.onBootReady },
+        {
+          onBootStart: frame.onBootStart,
+          onBootReady: frame.onBootReady,
+        },
       ),
     [renderEditableScreenContent],
   );

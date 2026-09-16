@@ -158,6 +158,7 @@ export interface DuplicateRequest {
 }
 
 export interface ScreenContentRenderOptions {
+  onBootStart?: () => void;
   onBootReady?: () => void;
 }
 
@@ -298,6 +299,7 @@ export interface MultiScreenCanvasProps {
       displayWidth: number;
       displayHeight: number;
       active: boolean;
+      onBootStart?: () => void;
       onBootReady?: () => void;
     },
   ) => ReactNode;

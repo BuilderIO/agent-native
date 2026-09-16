@@ -256,7 +256,11 @@ export function isPendingStructureDropNoOp(
     "anchor",
   );
   if (!subject || !anchor) return false;
-  if (edit.placement === "inside") return subject.parentId === anchor.id;
+  if (edit.placement === "inside") {
+    return (
+      edit.dropMode !== "absolute-container" && subject.parentId === anchor.id
+    );
+  }
   if (subject.parentId !== anchor.parentId) return false;
   const siblings = subject.parentId
     ? (projection.nodes.find((node) => node.id === subject.parentId)

@@ -85,6 +85,7 @@ export function runRecordPendingLiveStructureEdit(
     replaced?: true;
     replacementSelector?: string;
     replacementSourceId?: string;
+    replacementElementInfo?: ElementInfo;
     /** This change DELETED the subject; it has no anchor. */
     removed?: true;
   },
@@ -130,7 +131,7 @@ export function runRecordPendingLiveStructureEdit(
       })(),
       runtimeMultiplicity: runtimeMultiplicityForElementProvenance(
         runtimeLayerSnapshotsById,
-        elementInfo,
+        subjectInfo,
       ),
     }),
     anchorSelector,
@@ -175,7 +176,7 @@ export function runRecordPendingLiveStructureEdit(
   });
   if (details?.replaced) {
     nextEdit.replacementSignature = runtimeStructureNodeSignature({
-      info: elementInfo,
+      info: details.replacementElementInfo,
     });
   }
   nextEdit.anchorSignature = runtimeStructureNodeSignature({
