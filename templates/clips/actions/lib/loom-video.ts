@@ -117,7 +117,11 @@ async function validateDownloadedVideo({
   mimeType: string;
   expectedDurationMs?: number | null;
 }): Promise<void> {
-  if (!isFfmpegAvailable()) return;
+  if (!isFfmpegAvailable()) {
+    throw new LoomVideoUnavailableError(
+      "Loom media could not be verified in this environment.",
+    );
+  }
 
   const actualDurationMs = await probeMediaDurationMs(bytes, mimeType, {
     requireComplete: true,

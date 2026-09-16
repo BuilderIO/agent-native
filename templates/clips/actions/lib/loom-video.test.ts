@@ -22,7 +22,8 @@ describe("downloadLoomVideo", () => {
   beforeEach(() => {
     mockSsrfSafeFetch.mockReset();
     mockProbeMediaDurationMs.mockReset();
-    mockIsFfmpegAvailable.mockReturnValue(false);
+    mockProbeMediaDurationMs.mockResolvedValue(1_000);
+    mockIsFfmpegAvailable.mockReturnValue(true);
   });
 
   it("fetches Loom's signed MP4 URL and downloads bounded bytes", async () => {
@@ -155,6 +156,33 @@ describe("downloadLoomVideo", () => {
       mimeType: "video/mp4",
       sizeBytes: 3,
     });
+  });
+
+  it("falls back when ffmpeg is unavailable for verification", async () => {
+    mockIsFfmpegAvailable.mockReturnValue(false);
+    mockSsrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            url: "https://cdn.loom.com/sessions/transcoded/video-id.mp4",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "video/mp4" },
+        }),
+      );
+
+    await expect(
+      downloadLoomVideo({
+        loomId: "abcDEF_123456",
+        shareUrl: "https://www.loom.com/share/abcDEF_123456",
+      }),
+    ).rejects.toThrow(/could not be verified/i);
+    expect(mockProbeMediaDurationMs).not.toHaveBeenCalled();
   });
 
   it("falls back when Loom returns a partial response", async () => {
