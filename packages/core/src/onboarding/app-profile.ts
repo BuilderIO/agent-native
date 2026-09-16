@@ -311,11 +311,6 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
       },
     ],
   },
-  macros: {
-    appId: "macros",
-    appName: "Macros",
-    capabilities: [LLM_CAPABILITY, VOICE_INPUT_CAPABILITY],
-  },
   mail: {
     appId: "mail",
     appName: "Mail",

@@ -21,7 +21,10 @@ import { whatsappAdapter } from "./whatsapp.js";
 
 /** Event whose raw body is the given JSON string (already stringified). */
 function eventWithRaw(raw: string | undefined, method = "POST"): any {
-  return { context: { __rawBody: raw }, node: { req: { method } } };
+  return {
+    context: { __rawBody: raw },
+    req: new Request("https://app.test/webhook", { method }),
+  };
 }
 
 /** A well-formed WhatsApp Cloud API text-message webhook payload. */
@@ -190,7 +193,10 @@ describe("whatsappAdapter getStatus", () => {
 
 describe("whatsappAdapter handleVerification (GET challenge handshake)", () => {
   function getEvent(): any {
-    return { context: {}, node: { req: { method: "GET" } } };
+    return {
+      context: {},
+      req: new Request("https://app.test/webhook", { method: "GET" }),
+    };
   }
 
   it("echoes the challenge when the verify token matches", async () => {
@@ -258,7 +264,10 @@ describe("whatsappAdapter handleVerification (GET challenge handshake)", () => {
     const readRawBody = h3.readRawBody as unknown as ReturnType<typeof vi.fn>;
     // Event has no cached body yet; the source wrapper reads via h3 once and
     // caches the bytes on event.context.__rawBody (M3 consume-once guard).
-    const event: any = { context: {}, node: { req: { method: "POST" } } };
+    const event: any = {
+      context: {},
+      req: new Request("https://app.test/webhook", { method: "POST" }),
+    };
     readRawBody.mockResolvedValueOnce('{"entry":[]}');
 
     const result = await whatsappAdapter().handleVerification(event);

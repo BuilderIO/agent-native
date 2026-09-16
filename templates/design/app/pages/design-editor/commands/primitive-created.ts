@@ -1,6 +1,15 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { flushSync } from "react-dom";
 
+import {
+  armPendingTextCapture,
+  beginTextEditForOwner,
+  failPendingTextCapture,
+  isPendingTextRequestLive,
+  isPendingTextWriteInFlight,
+  onPendingTextCaptureCancel,
+} from "@/components/design/design-canvas/pending-text-capture";
+import { PENDING_TEXT_EDIT_TIMEOUT_MS } from "@/components/design/design-canvas/pending-text-edit";
 import type { ElementInfo } from "@/components/design/types";
 import {
   isTextEditSessionOutcome,
@@ -131,56 +140,112 @@ export function runPrimitiveCreated(
     // before starting a new one, so stale timers can't fight over which
     // node to clean up.
     pendingEmptyTextEditRef.current?.cancel();
-    // Creation-race fast path: the retry loop below fires its FIRST
-    // begin-text-edit attempt at 180ms and its status-query round trips
-    // can leave a multi-second window where keystrokes still hit HOST
-    // shortcuts (Delete deleted the just-created text layer). The
-    // DesignCanvas runtime bridge's beginTextEdit (registered as
-    // window.__designCanvasBeginTextEdit by the active surface's canvas
-    // — the flushSync above just pointed activeFileId at this screenId
-    // for non-board targets) queues begin-text-edit through the
-    // bridge-ready one-shot queue AND arms the host keystroke buffer
-    // SYNCHRONOUSLY, so typing is captured from the very first keydown.
-    // Activation itself waits until the pointer gesture's trailing click:
-    // focusing during mouseup lets that click blur the empty editable one
-    // frame later, producing the visible caret blink and losing typing.
-    // Best-effort only: if the registered bridge still belongs to a
-    // different surface, its iframe no-ops on the unknown nodeId while
-    // the buffer still swallows destructive shortcuts, and the
-    // screen-id-scoped scheduleBeginTextEditForScreen loop below remains
-    // the authoritative per-iframe fallback (resolved through
-    // findCanvasIframeForScreen, so board-space text works too).
-    if (typeof window !== "undefined") {
-      const beginTextEditNow = (window as any).__designCanvasBeginTextEdit;
-      if (typeof beginTextEditNow === "function") {
-        beginTextEditNow(textNodeId, { afterPointerGesture: true });
-      }
-    }
+    // Creation-race capture. This runs inside the creating pointer gesture,
+    // so arm the HOST-level buffer here — before anything asks a canvas to
+    // open the session. The canvas that owns the node may not exist yet: the
+    // board surface only renders once its file has content, and this very
+    // insert is what gives it content. Arming inside a canvas therefore armed
+    // whichever OTHER screen happened to be mounted, and that canvas then
+    // swallowed the whole gesture's typing.
+    const capture = armPendingTextCapture({ owner: screenId });
+    capture.bind(textNodeId);
+    // Mounted owner (the ordinary single-screen case) begins synchronously and
+    // drains the buffer immediately; an unmounted one (board) leaves the
+    // request on the capture, which replays it the moment that canvas
+    // registers. Activation itself still waits until the pointer gesture's
+    // trailing click: focusing during mouseup lets that click blur the empty
+    // editable one frame later, producing the visible caret blink and losing
+    // typing.
+    beginTextEditForOwner(screenId, textNodeId, { afterPointerGesture: true });
+    let abandoned = false;
+    let cleanedUp = false;
+    const cleanUpIfUntouched = () => {
+      if (cleanedUp) return;
+      // A DETACHED host write can still owe this node its text: a rolled-back
+      // save queues the payload and clears `active`, so judging the node from
+      // the live capture alone deleted it mid-write. Ask the queue. This
+      // deliberately does not mark the creation cleaned up — once that write
+      // settles without landing, a later terminal pass can still remove an
+      // untouched node.
+      if (isPendingTextWriteInFlight(screenId, textNodeId)) return;
+      cleanedUp = true;
+      capture.cancel();
+      removeEmptyTextNodeWithRetry(screenId, textNodeId);
+    };
+    // Pointer-away (and Escape/undo/supersede) stands this creation's request
+    // down. Stop asking for activation, but leave the ladder probing: its
+    // exhaustion is what judges the node, and settling it here would race the
+    // commit the same click just started. The ladder may also have settled
+    // already — it stops at the first live session — so an abandoned session
+    // that was never typed into needs its own pass, or the empty node stays on
+    // the canvas with nothing left to remove it.
+    // Registered as CLEANUP, not revoke: this deletes the node. A host-side
+    // commit still owes that node its text, so the fallback must never run
+    // this — deleting the only target before the write lands loses the text
+    // exactly where the capture exists to save it.
+    onPendingTextCaptureCancel(
+      screenId,
+      textNodeId,
+      () => {
+        abandoned = true;
+        window.setTimeout(cleanUpIfUntouched, PENDING_TEXT_EDIT_TIMEOUT_MS);
+      },
+      { kind: "cleanup" },
+    );
     const cancel = scheduleBeginTextEditForScreen(screenId, textNodeId, {
       boardFileId,
+      // A request that COMPLETED stops asking too. The frame's commit releases
+      // the capture without the stand-down above, and a retry still inside the
+      // ladder window force-opens the node it just committed.
+      isAbandoned: () =>
+        abandoned || !isPendingTextRequestLive(screenId, textNodeId),
       onExhausted: (finalStatus) => {
         const pending = pendingEmptyTextEditRef.current;
         if (!pending || pending.nodeId !== textNodeId || pending.settled) {
           return;
         }
         pending.settled = true;
-        if (isTextEditSessionOutcome(finalStatus)) return;
+        if (!abandoned && isTextEditSessionOutcome(finalStatus)) return;
+        // A READY owner answering without the node is a failure, not a slow
+        // mount: end interception and put what was typed into the source.
+        if (finalStatus === "node-missing") {
+          // A queued host write owes this node its text and is still inside
+          // its backoff. Deleting the node now lands that write in something
+          // that no longer exists — or deletes it right after it landed — so
+          // the node outlives the writer, which preserves it either way.
+          if (failPendingTextCapture(screenId, textNodeId) === "write-queued") {
+            return;
+          }
+        }
+        // While the creation's request is open, the capture decides the node's
+        // fate: it delivers the typed text, commits it host-side, or stands
+        // down — and a stand-down runs the cleanup registered above. Judging
+        // from the host buffer alone deleted nodes whose keystrokes a canvas
+        // was still holding for a slow frame.
+        if (isPendingTextRequestLive(screenId, textNodeId)) return;
         if (finalStatus === "no-iframe" || finalStatus === "no-reply") {
-          // Never reached an editing surface at all. That is a targeting
-          // defect, not the user declining to type, so make it audible —
-          // but the persisted document, not this outcome, still decides
-          // whether the node is empty and should go.
           console.warn(
             `[design] text edit never reached a surface for ${screenId}/${textNodeId} (${finalStatus})`,
           );
         }
-        removeEmptyTextNodeWithRetry(screenId, textNodeId);
+        cleanUpIfUntouched();
       },
     });
     pendingEmptyTextEditRef.current = {
       screenId,
       nodeId: textNodeId,
-      cancel,
+      // Once a session opened, the ladder settled on that first active result
+      // and stopped judging this node — so the session ENDING (Escape, blur,
+      // commit) is the only thing left that can, and an empty node otherwise
+      // stayed on the canvas forever. A request still delivering owes this node
+      // text, so it decides instead; the source content decides the rest.
+      cancel: () => {
+        cancel();
+        window.setTimeout(() => {
+          if (isPendingTextRequestLive(screenId, textNodeId)) return;
+          cleanUpIfUntouched();
+        }, PENDING_TEXT_EDIT_TIMEOUT_MS);
+      },
       settled: false,
     };
   }

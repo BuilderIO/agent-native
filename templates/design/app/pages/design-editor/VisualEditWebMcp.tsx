@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 export interface VisualEditPromptResult {
   designId: string | null;
   pendingEditCount: number;
-  status: "ready" | "empty";
+  status: "ready" | "empty" | "session-ended" | "unknown";
   prompt: string;
 }
 

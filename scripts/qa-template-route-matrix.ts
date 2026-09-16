@@ -80,7 +80,6 @@ const publicMarketingTemplates = [
   "dispatch",
   "factory",
   "forms",
-  "macros",
   "mail",
   "plan",
   "slides",

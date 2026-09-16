@@ -2191,10 +2191,14 @@ export function MultiTabAssistantChat({
     const id = await createThread();
     if (id) {
       newThreadIds.current.add(id);
+      // `createThread` advances the active thread before its promise resolves.
+      // Add the same id in this transaction so a new chat is mounted even if
+      // the active-thread reconciliation effect has not run yet.
+      setOpenTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
       writeThreadUrl(null);
     }
     return id;
-  }, [createThread, writeThreadUrl]);
+  }, [createThread, setOpenTabIds, writeThreadUrl]);
 
   const cleanupClosedTab = useCallback((tabId: string) => {
     if (parentMapRef.current[tabId]) {
@@ -2740,7 +2744,8 @@ export function MultiTabAssistantChat({
       <style
         dangerouslySetInnerHTML={{
           __html:
-            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
+            ".agent-tab-close{opacity:0;pointer-events:none}" +
+            ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}" +
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}",
         }}
@@ -2771,7 +2776,7 @@ export function MultiTabAssistantChat({
                             key={tab.id}
                             ref={isActive ? activeTabRefCb : undefined}
                             className={cn(
-                              "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
+                              "agent-tab agent-tab-group relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
                               isActive
                                 ? "bg-accent text-foreground ring-1 ring-inset ring-border/60 shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -2873,7 +2878,7 @@ export function MultiTabAssistantChat({
                                 : undefined
                             }
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
+                              "agent-tab agent-tab-group relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
                               tab.id === activeThreadId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",

@@ -307,6 +307,30 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
   });
 
+  it("starts each new design with a fresh prompt draft scope", async () => {
+    const card = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "home.newDesign",
+    );
+    expect(card).toBeDefined();
+
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+    expect(mocks.promptProps?.draftScope).toBe("design:new:1");
+
+    await act(async () => {
+      mocks.promptProps?.onOpenChange(false);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.promptProps?.draftScope).toBe("design:new:2");
+  });
+
   it("still asks up front when the design-or-app choice exists", async () => {
     await act(async () => root.unmount());
     mocks.fullAppBuilding = true;

@@ -44,9 +44,15 @@ address available for initial setup and recovery.
 ## Company credentials and roles
 
 An organization owner or admin can save an organization-scoped LLM key from
-the provider setup screen. Members can use the organization key instead of a
-personal key. A saved personal key takes precedence until that member chooses
-the organization key, which removes the personal key for that provider.
+the provider setup screen. Agent-Native's provider setup saves these keys only
+for the organization, so members use the same company key. Personal rows from
+older deployments are removed when an organization key is saved, or can be
+removed from the provider setup screen before switching over.
+
+The provider model field lists the current curated models for each provider as
+suggestions. Enter a provider-supported model ID directly when the catalog has
+not caught up with a new release or when using a custom gateway such as
+OpenRouter.
 
 Organization roles control team administration. App roles control access
 inside one app. An administrator can assign multiple app roles to a member,
@@ -124,6 +130,10 @@ deactivation with a limited group before broad assignment. Provider admin
 screens vary. Follow the current provider documentation for the exact field
 names and validate the round trip before requiring SSO or assigning the full
 directory.
+
+SCIM deactivation marks a provisioned membership as pending and removes its
+app roles immediately. An administrator must choose a successor to complete
+ownership transfer; completion writes the immutable audit event.
 
 ## Isolation and deployment choice
 

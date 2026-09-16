@@ -163,6 +163,7 @@ export interface RedoArgs {
   id: string | undefined;
   isSynced: boolean;
   lastLocalContentRef: RefObject<string | null>;
+  resetGeometryCommitCoalescing?: () => void;
   liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   localContentRedoStackRef: RefObject<ContentHistoryChange[]>;
@@ -301,7 +302,11 @@ export interface RedoArgs {
   viewModeRef: RefObject<"single" | "overview">;
   writeFrameGeometrySnapshot: (
     geometryById: CanvasFrameGeometryById,
-    options?: { syncViewportFrameIds?: string[]; pinHeightFrameIds?: string[] },
+    options?: {
+      replacePendingGeometrySave?: boolean;
+      syncViewportFrameIds?: string[];
+      pinHeightFrameIds?: string[];
+    },
   ) => void;
   ydoc: Y.Doc | null;
 }
@@ -340,6 +345,7 @@ export function runRedo({
   id,
   isSynced,
   lastLocalContentRef,
+  resetGeometryCommitCoalescing,
   liveFrameGeometryRef,
   liveScreenSnapshotsById,
   localContentRedoStackRef,
@@ -413,6 +419,7 @@ export function runRedo({
   // state an in-progress, uncommitted drag is about to overwrite anyway.
   if (activeEditorDragRef.current) return;
   if (fileHistoryMutationPendingRef.current) return;
+  resetGeometryCommitCoalescing?.();
   const pendingNonStyleRedoStack = pendingLiveNonStyleRedoStackRef.current;
   const pendingNonStyleRedo =
     pendingNonStyleRedoStack[pendingNonStyleRedoStack.length - 1];
@@ -1093,6 +1100,7 @@ export function runRedo({
         "redo",
       ),
       {
+        replacePendingGeometrySave: true,
         syncViewportFrameIds: viewportChangedFrameIds(
           entry.before,
           entry.after,

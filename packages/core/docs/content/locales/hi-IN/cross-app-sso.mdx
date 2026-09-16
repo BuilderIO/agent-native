@@ -117,4 +117,8 @@ deployment से <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> हटाकर red
 - [Security and data scoping](/docs/security)
 - [Multi-app workspaces](/docs/multi-app-workspace)
 
-OIDC या SAML से enterprise sign-in, apps के बीच identity federation से अलग है। [प्रशासित डिप्लॉयमेंट गाइड](/docs/administered-deployments) enterprise मॉडल बताती है। ब्राउज़र में Agent-Native sign-in विकल्प अभी भी हटाया गया है।
+OIDC या SAML से enterprise sign-in, apps के बीच identity federation से अलग है। [प्रशासित डिप्लॉयमेंट गाइड](/docs/administered-deployments) enterprise मॉडल बताती है। `browser.identity-sso` enabled होने पर app silent `prompt=none` probe करती है और local sign-in form fallback रहता है। [Cross-App Connect design](/docs/cross-app-connect-design) देखें।
+
+## Browser identity SSO rollout runbook
+
+पहले `browser.identity-sso` को केवल एक test email के लिए enable करें। Dispatch में sign in करें, target app से sign out करें और अगली load पर silent probe जांचें। Hub session के बिना फिर जांचें और `login_required` पर local form लौटने की पुष्टि करें, फिर cohort बढ़ाएं। पहली enablement पर मौजूदा sessions को एक बार revoke करना पड़ सकता है।

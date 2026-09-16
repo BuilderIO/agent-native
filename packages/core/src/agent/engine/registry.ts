@@ -71,6 +71,8 @@ export interface AgentEngineEntry {
   defaultModel: string;
   /** All supported models (shown in model picker) */
   supportedModels: readonly string[];
+  /** Whether explicit user-selected model IDs may be outside the curated catalog. */
+  acceptsCustomModels?: boolean;
   /** Environment variables required for this engine to work */
   requiredEnvVars: string[];
   /** Alternative credential shapes; detection treats these and `requiredEnvVars` as OR. */
@@ -323,25 +325,28 @@ function findLatestSupportedVersionMatch(
 
 export interface NormalizeModelOptions {
   /**
-   * Force unrecognized (custom) model IDs to be kept verbatim, as if
-   * `engine.preserveCustomModels` were set on a live engine instance.
+   * Force unrecognized (custom) model IDs to be kept verbatim, as if the
+   * corresponding capability were set on a live engine instance.
    *
    * The settings actions call `normalizeModelForEngine` with a static registry
-   * ENTRY, which never carries the runtime `preserveCustomModels` flag — that
-   * is only set on the engine INSTANCE created with an OpenAI-compatible
-   * `baseUrl` or the OpenRouter provider. They resolve the capability with
-   * {@link resolveEnginePreservesCustomModels} and pass it here so a gateway
-   * model (e.g. an Ollama `gemma4`) is not rewritten to the OpenAI default on
-   * save/read. First-party OpenAI (no gateway) leaves this unset, so an unknown
-   * or invalid model still normalizes to a supported one.
+   * ENTRY, which cannot carry runtime endpoint state. Gateway callers pass
+   * `preserveCustomModels`; BYOK provider entries pass `acceptsCustomModels`,
+   * so a newly released model is not rewritten to the provider default on
+   * save/read.
    */
   preserveCustomModels?: boolean;
+  /** Preserve an explicitly selected model ID even when it is not catalogued. */
+  acceptsCustomModels?: boolean;
 }
 
 export function normalizeModelForEngine(
   engine: Pick<
     AgentEngine,
-    "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+    | "name"
+    | "defaultModel"
+    | "supportedModels"
+    | "acceptsCustomModels"
+    | "preserveCustomModels"
   >,
   model: string | null | undefined,
   options: NormalizeModelOptions = {},
@@ -353,7 +358,12 @@ export function normalizeModelForEngine(
   // version-shaped gateway model that happens to share a family with a
   // built-in model (e.g. `gpt-5.4` on an OpenAI-compatible endpoint) is not
   // rewritten to a catalog entry.
-  if (engine.preserveCustomModels || options.preserveCustomModels) {
+  if (
+    engine.preserveCustomModels ||
+    engine.acceptsCustomModels ||
+    options.preserveCustomModels ||
+    options.acceptsCustomModels
+  ) {
     return candidate;
   }
 
@@ -371,7 +381,11 @@ export function normalizeModelForEngine(
 
 type ModelResolvableEngine = Pick<
   AgentEngine,
-  "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+  | "name"
+  | "defaultModel"
+  | "supportedModels"
+  | "acceptsCustomModels"
+  | "preserveCustomModels"
 >;
 
 /**
@@ -388,8 +402,10 @@ function resolveModelHintForEngine(
   const candidate = typeof hint === "string" ? hint.trim() : "";
   if (!candidate || candidate === "auto") return undefined;
   // An engine with no catalog, or one that passes custom ids through verbatim
-  // (an OpenAI-compatible gateway), cannot prove membership — so it takes no
-  // hint at all rather than forwarding an unverifiable id to a provider.
+  // (an OpenAI-compatible gateway), cannot prove membership - so it takes no
+  // hint at all rather than forwarding an unverifiable id to a provider. A
+  // BYOK engine may preserve its own explicit selection, but caller hints are
+  // still accepted only when the ID is in the curated catalog below.
   if (engine.preserveCustomModels || engine.supportedModels.length === 0) {
     return undefined;
   }
@@ -433,22 +449,7 @@ export function resolveDelegatedRunModel(
   return normalizeModelForEngine(engine, hinted ?? engine.defaultModel);
 }
 
-/**
- * Whether models saved or read for this engine ENTRY should be preserved
- * verbatim instead of normalized against the built-in catalog.
- *
- * `normalizeModelForEngine` honors a live engine's `preserveCustomModels`, but
- * that flag is only set on an AI SDK engine INSTANCE when the provider is
- * Ollama, or when OpenAI is pointed at an OpenAI-compatible gateway (a custom
- * base URL — e.g. Ollama Cloud or LiteLLM), whose model IDs are not in the
- * built-in catalogs.
- * The static registry entry the settings actions pass to
- * `normalizeModelForEngine` cannot carry that runtime flag, so this async
- * helper reproduces the same decision from the request's stored/deploy config.
- * Ollama always returns true because its local model inventory is user-defined;
- * first-party OpenAI (no gateway) returns false so an unknown/invalid model
- * still normalizes to a supported one.
- */
+/** Whether this engine's configured endpoint accepts arbitrary model IDs. */
 export async function resolveEnginePreservesCustomModels(
   entry: Pick<AgentEngineEntry, "name">,
 ): Promise<boolean> {
@@ -463,6 +464,13 @@ export async function resolveEnginePreservesCustomModels(
   } catch {
     return false;
   }
+}
+
+/** Whether explicit settings may select a model outside the curated catalog. */
+export async function resolveEngineAcceptsCustomModels(
+  entry: Pick<AgentEngineEntry, "acceptsCustomModels">,
+): Promise<boolean> {
+  return entry.acceptsCustomModels === true;
 }
 
 function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {

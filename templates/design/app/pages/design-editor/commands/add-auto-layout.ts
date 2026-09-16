@@ -1,5 +1,9 @@
 import { getFrameGroupBounds } from "@shared/canvas-math";
-import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
+import type {
+  CodeLayerNode,
+  CodeLayerTreeNode,
+  WrapNodeSizeHint,
+} from "@shared/code-layer";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
@@ -16,7 +20,10 @@ import {
 import type { RuntimeLayerSnapshot } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { AlignableRect } from "@/pages/design-editor/layout-operations";
-import { inferAutoLayoutFromChildren } from "@/pages/design-editor/layout-operations";
+import {
+  authoredPxLength,
+  inferAutoLayoutFromChildren,
+} from "@/pages/design-editor/layout-operations";
 import {
   enableInlineScreenAutoLayout,
   getRuntimeScreenAutoLayoutSubjectIds,
@@ -244,6 +251,23 @@ export function runAddAutoLayout({
       .filter((node): node is CodeLayerNode => Boolean(node));
     if (selectedNodes.length < 2) return;
     const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
+    const sizeHints: Record<string, WrapNodeSizeHint> = {};
+    for (const [index, node] of selectedNodes.entries()) {
+      const rect = selectedRects[index];
+      if (
+        !rect ||
+        ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)
+      ) {
+        continue;
+      }
+      const hint: WrapNodeSizeHint = {
+        width: rect.width,
+        height: rect.height,
+      };
+      if (authoredPxLength(node.style.left) === null) hint.left = rect.x;
+      if (authoredPxLength(node.style.top) === null) hint.top = rect.y;
+      if (Object.keys(hint).length > 0) sizeHints[node.id] = hint;
+    }
     const bounds = getFrameGroupBounds(selectedRects);
     const inferred = inferAutoLayoutFromChildren(
       bounds
@@ -262,6 +286,7 @@ export function runAddAutoLayout({
         kind: "wrapNodes",
         targetIds: nodeIds,
         autoLayout: true,
+        sizeHints: Object.keys(sizeHints).length > 0 ? sizeHints : undefined,
       },
       { source },
     );
@@ -277,7 +302,10 @@ export function runAddAutoLayout({
     }
     let nextContent = patch.content;
     const wrapperId = patch.result.wrapperNodeId;
-    if (wrapperId) {
+    const promotedSelectedNode = Boolean(
+      wrapperId && nodeIds.includes(wrapperId),
+    );
+    if (wrapperId && !promotedSelectedNode) {
       const gapPatch = applyVisualEdit(
         nextContent,
         {

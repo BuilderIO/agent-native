@@ -2,12 +2,26 @@ import { describe, expect, it } from "vitest";
 
 // @ts-expect-error — plain .mjs script, no type declarations
 import {
+  assertFreeDisk,
+  freeDiskBytes,
   isExcludedPath,
   parsePorcelain,
   selectStageablePaths,
 } from "./ship-push.mjs";
 
 const z = (...entries: string[]) => entries.join("\0") + "\0";
+
+describe("free disk preflight", () => {
+  it("returns the filesystem's available bytes", () => {
+    expect(freeDiskBytes(process.cwd())).toBeGreaterThan(0);
+  });
+
+  it("fails loudly below the required floor", () => {
+    expect(() =>
+      assertFreeDisk(process.cwd(), Number.MAX_SAFE_INTEGER),
+    ).toThrow(/free on .* need at least/i);
+  });
+});
 
 describe("parsePorcelain", () => {
   it("keeps a leading dot that trimming the status column would eat", () => {
