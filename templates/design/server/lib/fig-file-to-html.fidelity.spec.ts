@@ -657,10 +657,10 @@ describe("resizeToFit (group) frames", () => {
 
   it("emits the baked size for a resizeToFit frame (does not collapse to 0)", () => {
     const html = frameWithChild({ resizeToFit: true });
-    expect(html).toContain('layer-name="Group"');
+    expect(html).toContain('data-agent-native-layer-name="Group"');
     const groupStyle =
       html
-        .slice(html.indexOf('layer-name="Group"'))
+        .slice(html.indexOf('data-agent-native-layer-name="Group"'))
         .match(/style="([^"]*)"/)?.[1] ?? "";
     expect(groupStyle).toContain("width: 200px");
     expect(groupStyle).toContain("height: 100px");
@@ -670,7 +670,7 @@ describe("resizeToFit (group) frames", () => {
     const html = frameWithChild({ resizeToFit: true });
     const groupStyle =
       html
-        .slice(html.indexOf('layer-name="Group"'))
+        .slice(html.indexOf('data-agent-native-layer-name="Group"'))
         .match(/style="([^"]*)"/)?.[1] ?? "";
     expect(groupStyle).not.toContain("overflow: hidden");
   });
@@ -679,7 +679,7 @@ describe("resizeToFit (group) frames", () => {
     const html = frameWithChild({ frameMaskDisabled: false });
     const groupStyle =
       html
-        .slice(html.indexOf('layer-name="Group"'))
+        .slice(html.indexOf('data-agent-native-layer-name="Group"'))
         .match(/style="([^"]*)"/)?.[1] ?? "";
     expect(groupStyle).toContain("overflow: hidden");
   });
@@ -729,7 +729,7 @@ describe("line vectors (degenerate bounding box)", () => {
     const html = renderFrame(lineDoc());
     const svgStyle =
       html
-        .slice(html.indexOf('layer-name="Connector"'))
+        .slice(html.indexOf('data-agent-native-layer-name="Connector"'))
         .match(/style="([^"]*)"/)?.[1] ?? "";
     expect(svgStyle).not.toContain("height: 0px");
     expect(svgStyle).toContain("overflow: visible");
@@ -1890,7 +1890,7 @@ describe("masks", () => {
     expect(html).toContain("Masked content");
     // The mask contributes alpha only; drawing it is what put a solid black
     // rectangle over the Positivus contact form.
-    expect(html).not.toContain('layer-name="Mask shape"');
+    expect(html).not.toContain('data-agent-native-layer-name="Mask shape"');
   });
 
   it("scales a vector-network mask out of normalizedSize into the node's box", () => {

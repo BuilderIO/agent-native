@@ -1020,6 +1020,11 @@ const STABLE_NODE_ID_ATTRIBUTES = [
 const LAYER_NAME_ATTRIBUTE_PRIORITY = [
   "data-agent-native-layer-name",
   "data-layer-name",
+  // Older .fig imports used a non-data custom attribute. Keep reading it so
+  // reopening those saved documents does not silently replace Figma names
+  // with semantic/tag fallbacks; a subsequent rename writes the canonical
+  // data attribute.
+  "layer-name",
 ] as const;
 
 const SEMANTIC_LABEL_ATTRIBUTE_PRIORITY = [
