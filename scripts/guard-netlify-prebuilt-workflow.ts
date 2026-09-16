@@ -828,6 +828,9 @@ const parsedClientPairingIndex = parsedStepIndex(
 const parsedTrustedPreviewBuildIndex = parsedStepIndex(
   "Build trusted preview Functions for the PR artifact",
 );
+const parsedTrustedPreviewManifestIndex = parsedStepIndex(
+  "Verify trusted preview server manifest",
+);
 const parsedPreviewSmokeIndex = parsedStepIndex(
   "Smoke-test the uploaded PR preview",
 );
@@ -877,16 +880,44 @@ if (
     `${reusablePath} must pair the PR client artifact with publish output before the trusted Functions build`,
   );
 }
+const parsedTrustedPreviewManifestStep =
+  reusableSteps[parsedTrustedPreviewManifestIndex];
+const trustedPreviewManifestRun = String(
+  parsedTrustedPreviewManifestStep?.run ?? "",
+);
+const trustedPreviewManifestIf = String(
+  parsedTrustedPreviewManifestStep?.if ?? "",
+);
+if (
+  parsedTrustedPreviewManifestIndex < 0 ||
+  parsedTrustedPreviewManifestIndex <= parsedTrustedPreviewBuildIndex ||
+  parsedTrustedPreviewManifestIndex >= parsedUploadIndex ||
+  !trustedPreviewManifestIf.includes("inputs.target == 'preview'") ||
+  !trustedPreviewManifestIf.includes("inputs.deploy") ||
+  !trustedPreviewManifestIf.includes("inputs.artifact_download") ||
+  !trustedPreviewManifestIf.includes(
+    "steps.target.outputs.source_template == 'dispatch'",
+  ) ||
+  !trustedPreviewManifestRun.includes('"$FUNCTIONS_DIRECTORY"') ||
+  !trustedPreviewManifestRun.includes('"$PUBLISH_DIRECTORY"') ||
+  !trustedPreviewManifestRun.includes('"$client_directory"') ||
+  !trustedPreviewManifestRun.includes('--server "$FUNCTIONS_DIRECTORY"')
+) {
+  issues.push(
+    `${reusablePath} must verify the trusted server manifest against the uploaded preview publish tree before upload`,
+  );
+}
 const previewSmokeRun = String(parsedPreviewSmokeStep?.run ?? "");
 if (
   parsedPreviewSmokeIndex < 0 ||
   !previewSmokeRun.includes("immutable_url") ||
   !previewSmokeRun.includes("preview alias") ||
-  !previewSmokeRun.includes("deploy_ssl_url") ||
+  !previewSmokeRun.includes("resolveNetlifyImmutableDeployUrl") ||
+  !previewSmokeRun.includes("deploy?.id") ||
   !previewSmokeRun.includes("NETLIFY_SITE_ID") ||
   !previewSmokeRun.includes("PREVIEW_ALIAS") ||
   !previewSmokeRun.includes("resolveNetlifyPreviewAliasUrl") ||
-  !previewSmokeRun.includes("aliasUrl === process.env.DEPLOY_URL")
+  !previewSmokeRun.includes("aliasUrl === immutable_url")
 ) {
   issues.push(
     `${reusablePath} PR preview smoke must probe both the immutable deploy URL and the mutable alias`,

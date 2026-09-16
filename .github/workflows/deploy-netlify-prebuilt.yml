@@ -598,6 +598,22 @@ jobs:
           # PR upload path entirely inside GitHub Actions.
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE" --offline
 
+      - name: Verify trusted preview server manifest
+        if: >-
+          inputs.target == 'preview' && inputs.deploy &&
+          inputs.artifact_download && inputs.migration_only != true &&
+          steps.target.outputs.source_template == 'dispatch'
+        env:
+          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
+          PUBLISH_DIRECTORY: ${{ steps.directories.outputs.publish_directory }}
+        run: |
+          set -euo pipefail
+          client_directory="${{ steps.directories.outputs.client_directory }}"
+          node --experimental-strip-types scripts/verify-netlify-prebuilt-client.ts \
+            --client "$client_directory" \
+            --publish "$PUBLISH_DIRECTORY" \
+            --server "$FUNCTIONS_DIRECTORY"
+
       - name: Run Plan release migrations
         if: >-
           inputs.target == 'production' && inputs.deploy &&
@@ -2240,17 +2256,31 @@ jobs:
           set -euo pipefail
           immutable_url="$(node --experimental-strip-types <<'NODE'
             const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const { resolveNetlifyImmutableDeployUrl } = await import("./scripts/netlify-prebuilt-target.ts");
 
             const response = await requestNetlifyApi(
               `https://api.netlify.com/api/v1/deploys/${process.env.DEPLOY_ID}`,
               { headers: { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` } },
             );
             const deploy = await response.json();
-            const url = deploy.deploy_ssl_url || deploy.ssl_url || deploy.deploy_url || deploy.url || "";
-            if (!response.ok || !/^https:\/\//.test(url)) {
-              throw new Error(`Netlify did not return an immutable deploy URL for ${process.env.DEPLOY_ID}.`);
+            if (!response.ok || deploy?.id !== process.env.DEPLOY_ID) {
+              throw new Error(`Netlify did not validate deploy ${process.env.DEPLOY_ID}.`);
             }
-            process.stdout.write(url);
+            const siteResponse = await requestNetlifyApi(
+              `https://api.netlify.com/api/v1/sites/${process.env.NETLIFY_SITE_ID}`,
+              { headers: { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` } },
+            );
+            const site = await siteResponse.json();
+            if (
+              !siteResponse.ok ||
+              site?.id !== process.env.NETLIFY_SITE_ID ||
+              typeof site?.name !== "string"
+            ) {
+              throw new Error(`Netlify did not return the preview site slug for ${process.env.NETLIFY_SITE_ID}.`);
+            }
+            process.stdout.write(
+              resolveNetlifyImmutableDeployUrl(process.env.DEPLOY_ID, site.name),
+            );
           NODE
           )"
           alias_url="$(node --experimental-strip-types <<'NODE'
@@ -2273,7 +2303,7 @@ jobs:
               process.env.PREVIEW_ALIAS,
               site.name,
             );
-            if (aliasUrl === process.env.DEPLOY_URL) {
+            if (aliasUrl === immutable_url) {
               throw new Error("Netlify preview alias resolved to the immutable deploy URL.");
             }
             process.stdout.write(aliasUrl);
