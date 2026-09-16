@@ -454,6 +454,30 @@ describe("update-design data concurrency", () => {
     expect(persisted.lastPrompt).toBe("new");
   });
 
+  it("preserves a legacy empty sibling during a valid frame edit", async () => {
+    mocks.state.row.data = JSON.stringify({
+      canvasFrames: {
+        "valid-frame": { x: 0, y: 0, width: 400, height: 300 },
+        "legacy-frame": {},
+      },
+    });
+
+    await action.run({
+      id: "design-1",
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "valid-frame", "x"],
+          value: 40,
+        },
+      ],
+    } as never);
+
+    const persisted = JSON.parse(mocks.state.row.data!);
+    expect(persisted.canvasFrames["valid-frame"].x).toBe(40);
+    expect(persisted.canvasFrames["legacy-frame"]).toEqual({});
+  });
+
   it("rejects array frames through the action schema and legacy snapshots without writing", async () => {
     const before = { ...mocks.state.row };
     const input = {

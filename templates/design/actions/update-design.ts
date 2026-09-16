@@ -245,6 +245,7 @@ function applyDataOperations(
 function validatePersistedDataSnapshot(
   raw: string,
   touchedMaps?: ReadonlySet<string>,
+  touchedCanvasFrameIds?: ReadonlySet<string>,
 ): void {
   const parsed = JSON.parse(raw);
   if (!isRecord(parsed)) return;
@@ -254,6 +255,19 @@ function validatePersistedDataSnapshot(
       NUMERIC_DESIGN_DATA_MAPS.has(key) &&
       !touchedMaps.has(key)
     ) {
+      continue;
+    }
+    if (key === "canvasFrames" && touchedCanvasFrameIds) {
+      if (!isRecord(value)) {
+        const message = numericDesignDataWriteError([key], value);
+        if (message) throw new Error(message);
+        continue;
+      }
+      for (const [frameId, frame] of Object.entries(value)) {
+        if (!touchedCanvasFrameIds.has(frameId)) continue;
+        const message = numericDesignDataWriteError([key, frameId], frame);
+        if (message) throw new Error(message);
+      }
       continue;
     }
     const message = numericDesignDataWriteError([key], value);
@@ -490,7 +504,23 @@ export default defineAction({
             const parsed = JSON.parse(data!);
             return new Set(isRecord(parsed) ? Object.keys(parsed) : []);
           })();
-      validatePersistedDataSnapshot(nextData, touchedMaps);
+      const touchedCanvasFrameIds = dataOperations
+        ? (() => {
+            const ids = dataOperations
+              .filter(
+                (operation) =>
+                  operation.path[0] === "canvasFrames" &&
+                  operation.path.length > 1,
+              )
+              .map((operation) => operation.path[1]!);
+            return ids.length > 0 ? new Set(ids) : undefined;
+          })()
+        : undefined;
+      validatePersistedDataSnapshot(
+        nextData,
+        touchedMaps,
+        touchedCanvasFrameIds,
+      );
 
       // Compare-and-swap on the exact data snapshot. Transactions at the
       // default isolation level do not make a read-merge-write safe: two
