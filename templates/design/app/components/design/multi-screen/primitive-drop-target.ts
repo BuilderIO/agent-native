@@ -69,6 +69,16 @@ export interface ParsedScreenPrimitive {
   autoLayoutAxis?: CrossScreenDropAxis;
 }
 
+function primitiveMatchesNodeId(
+  primitive: ParsedScreenPrimitive,
+  nodeId: string,
+): boolean {
+  return (
+    primitive.nodeId === nodeId ||
+    primitive.projectionIdentity?.nodeId === nodeId
+  );
+}
+
 /**
  * Mirrors hit-test.bridge.ts's parentFlowAxis: resolves the flow axis new
  * children are inserted along for a flex/grid container, or undefined when
@@ -133,7 +143,9 @@ export function findAutoLayoutInsertionAnchor(
     } else if (sibling.parentNodeId !== container.nodeId) {
       continue;
     }
-    if (excludeNodeId && sibling.nodeId === excludeNodeId) continue;
+    if (excludeNodeId && primitiveMatchesNodeId(sibling, excludeNodeId)) {
+      continue;
+    }
     const center =
       axis === "x"
         ? sibling.localLeft + sibling.localWidth / 2
@@ -609,7 +621,7 @@ export function getPrimitiveDropTargetForPoint(
       const metadata = getMetadata(screen);
       const primitives = parsePrimitivesFromScreen(screen);
       for (const primitive of primitives) {
-        if (primitive.nodeId === draggedNodeId) {
+        if (primitiveMatchesNodeId(primitive, draggedNodeId)) {
           draggedBoardRect = toBoardRect(primitive, frameGeometry, metadata);
           draggedScreenId = screen.id;
           break outer;
@@ -652,7 +664,9 @@ export function getPrimitiveDropTargetForPoint(
   let best: PrimitiveDropTarget | null = null;
   for (const primitive of primitives) {
     if (!primitive.isContainer) continue;
-    if (draggedNodeId && primitive.nodeId === draggedNodeId) continue;
+    if (draggedNodeId && primitiveMatchesNodeId(primitive, draggedNodeId)) {
+      continue;
+    }
     const boardRect = toBoardRect(primitive, topScreen.geometry, metadata);
     if (
       draggedBoardRect &&
@@ -726,6 +740,35 @@ export function getPrimitiveDropTargetForPoint(
     }
   }
 
+  if (best) return best;
+
+  // The bridge's hit-test resolver falls back to document.body for ordinary
+  // block-layout pages. Mirror that fallback here so a board primitive can be
+  // dropped into blank Screen canvas space, not only onto an authored frame.
+  // The body is intentionally resolved from the projection rather than the
+  // primitive parser: body often has no authored width/height and is therefore
+  // not a ParsedScreenPrimitive.
+  const source =
+    topScreen.screen.codeLayerSource ??
+    ({ kind: "design-file" as const, fileId: topScreen.screen.id } as const);
+  const projection = buildCodeLayerProjection(topScreen.screen.content, {
+    source,
+  });
+  const body = projection.nodes.find((node) => node.tag === "body");
+  const bodyNodeId = body?.dataAttributes["data-agent-native-node-id"];
+  if (body && bodyNodeId) {
+    return {
+      nodeId: bodyNodeId,
+      screenId: topScreen.screen.id,
+      boardRect: topScreen.geometry,
+      targetIdentity: {
+        projection,
+        nodeId: body.id,
+        authoredNodeId: bodyNodeId,
+      },
+    };
+  }
+
   return best;
 }
 
@@ -735,7 +778,9 @@ export function resolveNodeScreenId(
 ): string | null {
   for (const screen of screens) {
     const primitives = parsePrimitivesFromScreen(screen);
-    if (primitives.some((primitive) => primitive.nodeId === nodeId)) {
+    if (
+      primitives.some((primitive) => primitiveMatchesNodeId(primitive, nodeId))
+    ) {
       return screen.id;
     }
   }

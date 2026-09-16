@@ -12,6 +12,23 @@ import {
 } from "./responsive-frame-layout";
 
 describe("numericDesignDataWriteError", () => {
+  it("rejects empty and unknown-only canvas frame entries", () => {
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], {}),
+    ).toContain("at least one geometry field");
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], {
+        label: "Home",
+      }),
+    ).toContain("at least one geometry field");
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], { x: 0 }),
+    ).toBeNull();
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], null),
+    ).toContain("must be an object");
+  });
+
   it.each(["canvasFrames", "screenMetadata", "localhostScreens"])(
     "rejects non-object %s maps and entries instead of ignoring dimensions",
     (map) => {

@@ -14,8 +14,8 @@ example के लिए नई database table की आवश्यकता �
 
 Dev server शुरू होने पर route files पढ़ता है। `app/routes/text-analyses.tsx`
 बनाएं और अगर `pnpm dev` पहले से चल रहा है, तो file बनाने के बाद उसे restart करें।
-यह
-`http://localhost:8080/text-analyses` पर उपलब्ध होगा।
+`pnpm dev` द्वारा दिखाई गई local URL खोलें और उसके अंत में `/text-analyses` जोड़ें;
+अगर 8080 पहले से उपयोग में है तो port बदल सकता है।
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -61,7 +61,7 @@ export default function TextAnalysesRoute() {
 `useActionQuery` agent द्वारा उपयोग किए जाने वाले उसी read-only action को call करता
 है। Page को custom API route, दूसरी data layer या अभी SQL की आवश्यकता नहीं है।
 
-`http://localhost:8080/text-analyses` खोलें, या agent से कहें:
+दिखाई गई local URL के अंत में `/text-analyses` जोड़कर खोलें, या agent से कहें:
 
 > Navigate to `/text-analyses`.
 

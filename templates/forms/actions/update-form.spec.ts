@@ -43,6 +43,11 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
 }));
 
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
+  defineAction: (options: unknown) => options,
+}));
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));

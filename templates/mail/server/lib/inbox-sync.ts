@@ -134,6 +134,7 @@ function deriveRowFromThread(
   ownerEmail: string,
   accountEmail: string,
   connectedEmailsLower: Set<string>,
+  syncedAt: number,
 ): ThreadUpsertInput | null {
   const messages: any[] = thread.messages || [];
   if (messages.length === 0) return null;
@@ -211,7 +212,7 @@ function deriveRowFromThread(
     unreadCount: relevant.filter((m) => messageLabels(m).includes("UNREAD"))
       .length,
     hasAttachments,
-    syncedAt: Date.now(),
+    syncedAt,
   };
 }
 
@@ -226,6 +227,7 @@ async function hydrateThreads(
   const rows: ThreadUpsertInput[] = [];
   for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
     const chunk = ids.slice(i, i + HYDRATE_CHUNK);
+    const readStartedAt = Date.now();
     const results = await gmailBatchGetThreads(
       accessToken,
       chunk,
@@ -242,6 +244,7 @@ async function hydrateThreads(
         ownerEmail,
         accountEmail,
         connected,
+        readStartedAt,
       );
       if (derived) rows.push(derived);
     }
@@ -259,9 +262,10 @@ async function hydrateAndApply(
   claimId: string,
 ): Promise<void> {
   const upserts: ThreadUpsertInput[] = [];
-  const deletes: string[] = [];
+  const deletes: Array<{ id: string; readStartedAt: number }> = [];
   for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
     const chunk = ids.slice(i, i + HYDRATE_CHUNK);
+    const readStartedAt = Date.now();
     const results = await gmailBatchGetThreads(
       accessToken,
       chunk,
@@ -271,7 +275,7 @@ async function hydrateAndApply(
     for (const part of results) {
       if (part.error) {
         if (/HTTP 404/.test(part.error)) {
-          deletes.push(part.id);
+          deletes.push({ id: part.id, readStartedAt });
           continue;
         }
         throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
@@ -281,17 +285,18 @@ async function hydrateAndApply(
         ownerEmail,
         accountEmail,
         connected,
+        readStartedAt,
       );
       if (derived) upserts.push(derived);
-      else deletes.push(part.id);
+      else deletes.push({ id: part.id, readStartedAt });
     }
   }
   // Fenced immediately before this step's row writes: a claim lost to a
   // newer worker during the Gmail round trips above must not land here.
   await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
   if (upserts.length > 0) await upsertInboxThreadRows(upserts);
-  for (const id of deletes)
-    await deleteInboxThreadRow(ownerEmail, accountEmail, id);
+  for (const { id, readStartedAt } of deletes)
+    await deleteInboxThreadRow(ownerEmail, accountEmail, id, readStartedAt);
 }
 
 async function runFullSyncStep(

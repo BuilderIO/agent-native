@@ -7,10 +7,6 @@ import {
   CommandList,
 } from "@agent-native/toolkit/ui/command";
 import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@agent-native/toolkit/ui/toggle-group";
-import {
   IconBolt,
   IconCheck,
   IconChevronDown,
@@ -43,7 +39,6 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
-import { useOrgRole } from "../org/hooks.js";
 import { cn } from "../utils.js";
 
 export interface AgentProviderPickerProps {
@@ -210,6 +205,7 @@ export interface AgentProviderSetupFormProps {
   initialProvider?: AgentProviderId;
   configuredProviders?: ReadonlySet<AgentProviderId>;
   onConnected?: (provider: AgentProviderId) => void;
+  /** @deprecated Provider keys are saved at organization scope. */
   scope?: "user" | "org";
   layout?: "compact" | "page";
   showTitle?: boolean;
@@ -220,16 +216,13 @@ export function AgentProviderSetupForm({
   initialProvider = "anthropic",
   configuredProviders,
   onConnected,
-  scope,
   layout = "compact",
   showTitle = true,
   className,
 }: AgentProviderSetupFormProps) {
   const t = useT();
-  const { canManageOrg } = useOrgRole();
   const isPage = layout === "page";
   const [provider, setProvider] = useState<AgentProviderId>(initialProvider);
-  const [selectedScope, setSelectedScope] = useState<"user" | "org">("user");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [endpoint, setEndpoint] = useState("");
@@ -243,12 +236,7 @@ export function AgentProviderSetupForm({
   const [providerKeyStatus, setProviderKeyStatus] =
     useState<AgentEngineProviderKeyStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
-  const providerScope = scope ?? selectedScope;
   const active = getAgentProviderOption(provider);
-
-  useEffect(() => {
-    if (scope === undefined) setSelectedScope(canManageOrg ? "org" : "user");
-  }, [canManageOrg, scope]);
 
   const refreshProviderKeyStatus = async () => {
     if (!active.key) {
@@ -322,7 +310,7 @@ export function AgentProviderSetupForm({
           ...(active.key ? { key: active.key } : {}),
           ...(apiKey.trim() ? { apiKey } : {}),
           ...(endpoint.trim() ? { baseUrl: endpoint } : {}),
-          scope: providerScope,
+          scope: "org",
         });
       }
       await setAgentEngineProvider({
@@ -371,7 +359,9 @@ export function AgentProviderSetupForm({
     configuredProviders?.has(provider) ||
     providerKeyStatus?.status === "set" ||
     saved;
-  const modelInputVisible = active.supportsCustomModel;
+  // The catalog provides current suggestions, while the free-form field keeps
+  // newly released provider models usable before the catalog is refreshed.
+  const modelInputVisible = Boolean(active.key) || active.supportsCustomModel;
   const endpointVisible = active.supportsEndpoint;
 
   return (
@@ -410,31 +400,6 @@ export function AgentProviderSetupForm({
               defaultValue: "Choose a provider.",
             })}
           </p>
-        </div>
-      ) : null}
-
-      {canManageOrg && scope === undefined ? (
-        <div className="space-y-1.5">
-          <p className="text-[11px] font-medium text-foreground">
-            {t("agentPanel.keyScope")}
-          </p>
-          <ToggleGroup
-            type="single"
-            value={providerScope}
-            onValueChange={(value) => {
-              if (value === "user" || value === "org") setSelectedScope(value);
-            }}
-            disabled={saving}
-            aria-label={t("agentPanel.keyScope")}
-            className="inline-flex rounded-md border border-border p-0.5"
-          >
-            <ToggleGroupItem value="user" size="sm">
-              {t("agentPanel.personalKeyScope")}
-            </ToggleGroupItem>
-            <ToggleGroupItem value="org" size="sm">
-              {t("agentPanel.organizationKeyScope")}
-            </ToggleGroupItem>
-          </ToggleGroup>
         </div>
       ) : null}
 

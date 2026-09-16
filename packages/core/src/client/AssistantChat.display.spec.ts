@@ -2021,6 +2021,64 @@ describe("protocol continuation scope wiring", () => {
   });
 });
 
+describe("plan implementation handoff", () => {
+  it("starts a fresh Act turn instead of replaying the completed Plan turn", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const handleImplementPlan = useCallback");
+    const end = source.indexOf("const handleSwitchToAct", start);
+    const implementationSource = source.slice(start, end);
+
+    expect(implementationSource).toContain('onExecModeChange?.("build")');
+    expect(implementationSource).toContain('"act"');
+    expect(implementationSource).toMatch(
+      /latestProtocolContinuationContext\(\s*messagesRef\.current\s*\)/,
+    );
+    expect(implementationSource).not.toContain("continuation.turnId");
+    expect(implementationSource).toContain("continuation.actionScope");
+  });
+
+  it("keeps a scoped action surface on the fresh Act handoff", () => {
+    const scopedPlan = {
+      role: "assistant",
+      metadata: {
+        custom: {
+          turnId: "plan-turn",
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "request-1",
+          },
+        },
+      },
+      content: [{ type: "text", text: "Plan complete" }],
+    };
+    const continuation = latestProtocolContinuationContext([scopedPlan]);
+    const options = createUserMessageRunConfig(
+      undefined,
+      "act",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      continuation.actionScope,
+    );
+
+    expect(options.runConfig?.custom).toEqual({
+      requestMode: "act",
+      actionScope: continuation.actionScope,
+    });
+    expect(options.metadata?.custom).toEqual({
+      actionScope: continuation.actionScope,
+    });
+    expect(options.metadata?.custom).not.toHaveProperty("turnId");
+  });
+});
+
 describe("chat connection suggestion alignment", () => {
   it("does not promote integrations from composer text", () => {
     const chatSource = readFileSync("src/client/AssistantChat.tsx", {

@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.20.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- c9cb7de: Remove retired Macros app references from dispatch and toolkit surfaces.
+
 ## 0.20.1
 
 ### Patch Changes

@@ -145,7 +145,7 @@ vi.mock("../settings/ProviderSetupForm.js", () => ({
                 provider: "anthropic",
                 key: "ANTHROPIC_API_KEY",
                 apiKey,
-                scope: "user",
+                scope: "org",
               });
               void agentEngineKeyMock.setAgentEngineProvider({
                 provider: "anthropic",
@@ -812,7 +812,7 @@ describe("run recovery surfaces", () => {
       provider: "anthropic",
       key: "ANTHROPIC_API_KEY",
       apiKey: "sk-test",
-      scope: "user",
+      scope: "org",
     });
     expect(agentEngineKeyMock.setAgentEngineProvider).toHaveBeenCalledWith({
       provider: "anthropic",
@@ -820,5 +820,48 @@ describe("run recovery surfaces", () => {
     });
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("wraps a long unbroken error message instead of overflowing the card", async () => {
+    const longUnbrokenMessage =
+      "400 " +
+      JSON.stringify({
+        type: "error",
+        error: {
+          type: "invalid_request_error",
+          message:
+            "messages.0.content.0.pdf.source.base64.data: The PDF specified is password protected.",
+        },
+        request_id:
+          "req_011Cf4z4ndjZtcUm5pPTkjPAreallyreallyreallyreallyreallylongtoken",
+      });
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: longUnbrokenMessage,
+              errorCode: "invalid_request_error",
+              recoverable: false,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const messageParagraph = Array.from(container.querySelectorAll("p")).find(
+      (paragraph) => paragraph.textContent === longUnbrokenMessage,
+    );
+
+    expect(messageParagraph).toBeTruthy();
+    expect(messageParagraph?.className).toContain("break-words");
   });
 });

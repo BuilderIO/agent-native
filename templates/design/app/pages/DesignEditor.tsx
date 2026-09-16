@@ -52,6 +52,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
+  buildReviewThreads,
   useReviewComments,
   useSendReviewThreadToAgent,
   type ReviewThread,
@@ -111,6 +112,7 @@ import { linkedComponentRootForNode } from "@shared/component-links";
 import {
   componentNodeIdMatches,
   isComponentInstance,
+  isComponentInstanceForInstanceActions,
 } from "@shared/component-model";
 import { getOverviewScreenFileIds } from "@shared/design-files";
 import { DESIGN_REVIEW_PANEL } from "@shared/design-flags";
@@ -235,6 +237,10 @@ import type {
   IframeImagePastePayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
+import {
+  failPendingTextCapture,
+  registerPendingTextHostCommit,
+} from "@/components/design/design-canvas/pending-text-capture";
 import { trace } from "@/components/design/design-trace";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
@@ -306,7 +312,10 @@ import {
   MotionDock,
   type MotionDockTrack,
 } from "@/components/design/MotionDock";
-import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/board-surface-html";
+import {
+  getBoardSurfaceContentBounds,
+  shouldRenderOverviewReviewCanvas,
+} from "@/components/design/multi-screen/board-surface-html";
 import {
   deviceViewportFloorForWidth,
   getCanonicalScreenStack,
@@ -335,6 +344,7 @@ import type {
   GradientEditOverlayTarget,
   MultiScreenCanvasTool,
   Point,
+  ScreenContentRenderOptions,
   ScreenProjectionNodeIdentity,
   VectorEditOverlayState,
 } from "@/components/design/multi-screen/types";
@@ -350,7 +360,11 @@ import {
   ResponsiveInteractBar,
   ResponsiveInteractExitButton,
 } from "@/components/design/ResponsiveInteractBar";
-import { type ReviewCommentsPanelProps } from "@/components/design/ReviewCommentsPanel";
+import { reviewThreadIdFromHash } from "@/components/design/review-link";
+import {
+  getUnreadReviewThreadIds,
+  type ReviewCommentsPanelProps,
+} from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
@@ -416,7 +430,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { RepromptDraftRequest } from "@/components/visual-editor";
+import {
+  ReviewCanvasPins,
+  type RepromptDraftRequest,
+} from "@/components/visual-editor";
 import {
   DrawOverlay as SharedDrawOverlay,
   type DrawAnnotation,
@@ -596,6 +613,11 @@ import { runCommitVisualStyles } from "./design-editor/commands/commit-visual-st
 import { runConfirmMakeReal } from "./design-editor/commands/confirm-make-real";
 import { runCopyAsFigmaSvg } from "./design-editor/commands/copy-as-figma-svg";
 import { runCopySelection } from "./design-editor/commands/copy-selection";
+import {
+  createComponentActionChange,
+  runCreateComponent,
+  type CreateComponentActionResult,
+} from "./design-editor/commands/create-component";
 import { runCreatePrimitive } from "./design-editor/commands/create-primitive";
 import { runCreateScreenFrame } from "./design-editor/commands/create-screen-frame";
 import { runCrossScreenElementDrop } from "./design-editor/commands/cross-screen-element-drop";
@@ -631,10 +653,12 @@ import { runLayerRename } from "./design-editor/commands/layer-rename";
 import { runLayerSelectionChange } from "./design-editor/commands/layer-selection-change";
 import {
   createLinkedComponentMutationQueue,
+  projectLinkedComponentPropertyEdit,
   type LinkedComponentActionResult,
   type LinkedComponentEdit,
   type LinkedComponentMutationQueueArgs,
 } from "./design-editor/commands/linked-component-mutation";
+import { resolveLinkedComponentSelection } from "./design-editor/commands/linked-component-structure";
 import { runModeChange } from "./design-editor/commands/mode-change";
 import { runNudgeSelection } from "./design-editor/commands/nudge-selection";
 import {
@@ -648,6 +672,7 @@ import { runPasteOverSelection } from "./design-editor/commands/paste-over-selec
 import { runPasteSelection } from "./design-editor/commands/paste-selection";
 import { runPasteToReplace } from "./design-editor/commands/paste-to-replace";
 import { runPastedImageFiles } from "./design-editor/commands/pasted-image-files";
+import { runPendingTextHostCommit } from "./design-editor/commands/pending-text-host-commit";
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
@@ -728,6 +753,7 @@ import {
   AUTO_RETRY_DELAY_MS,
   BOARD_SURFACE_SIZE,
   DESIGN_EDITOR_DEBUG_LOGS,
+  EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
   HOST_CHAT_SLOT_MESSAGE,
   LOCALHOST_COMPILED_SOURCE_EXTENSIONS,
@@ -886,6 +912,12 @@ import {
   getBoardSelectionFitBounds,
 } from "./design-editor/overview-camera";
 import {
+  clearPendingEditSessionMarker,
+  readPendingEditSessionMarker,
+  type PendingEditSessionMarkerResult,
+  writePendingEditSessionMarker,
+} from "./design-editor/pending-edit-session-marker";
+import {
   applyInteractionStateStyleCommit,
   buildPendingVisualStyleRevertPatches,
   deriveStatePreviewTarget,
@@ -956,7 +988,11 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
 import { prepareCanonicalSourceContent } from "./design-editor/source-publication";
-import { postShaderFillPreviewClearToPreviewIframes } from "./design-editor/text-edit-utils";
+import {
+  endedTextEditClosesActiveSession,
+  endedTextEditMatchesPendingCreation,
+  postShaderFillPreviewClearToPreviewIframes,
+} from "./design-editor/text-edit-utils";
 import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
@@ -1313,6 +1349,37 @@ function DesignEditor() {
   const [pendingLiveNonStyleEdits, setPendingLiveNonStyleEdits] = useState<
     PendingLiveNonStyleEdit[]
   >([]);
+  const [pendingEditSessionMarker, setPendingEditSessionMarker] =
+    useState<PendingEditSessionMarkerResult>({ status: "absent" });
+  const [
+    pendingEditSessionRecoveryMarker,
+    setPendingEditSessionRecoveryMarker,
+  ] = useState<PendingEditSessionMarkerResult>({ status: "absent" });
+  const pendingEditSessionDesignIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    pendingEditSessionDesignIdRef.current = null;
+    const marker = readPendingEditSessionMarker(id);
+    setPendingEditSessionMarker(marker);
+    setPendingEditSessionRecoveryMarker(marker);
+  }, [id]);
+  const clearPendingEditSessionRecovery = useCallback(() => {
+    if (!id) return;
+    pendingEditSessionDesignIdRef.current = null;
+    const result = clearPendingEditSessionMarker(id);
+    const nextState: PendingEditSessionMarkerResult =
+      result.status === "cleared"
+        ? { status: "absent" }
+        : { status: "unavailable", reason: result.reason };
+    setPendingEditSessionMarker(nextState);
+    setPendingEditSessionRecoveryMarker(nextState);
+  }, [id]);
+  const clearPendingEditSessionRecoveryRef = useRef(
+    clearPendingEditSessionRecovery,
+  );
+  useEffect(() => {
+    clearPendingEditSessionRecoveryRef.current =
+      clearPendingEditSessionRecovery;
+  }, [clearPendingEditSessionRecovery]);
   const [pendingVisualStyleRevertRequest, setPendingVisualStyleRevertRequest] =
     useState<{
       requestId: number;
@@ -1524,6 +1591,9 @@ function DesignEditor() {
   const clearPendingLiveEditState = useCallback(() => {
     stagedSourceHandoffRef.current = "idle";
     setApplyingViaHost(false);
+    if (pendingEditSessionDesignIdRef.current === id) {
+      clearPendingEditSessionRecovery();
+    }
     if (stagedHandoffStartTimerRef.current !== undefined) {
       window.clearTimeout(stagedHandoffStartTimerRef.current);
       stagedHandoffStartTimerRef.current = undefined;
@@ -1542,7 +1612,7 @@ function DesignEditor() {
     pendingLiveNonStyleEditsRef.current = [];
     setPendingVisualStyleEdits([]);
     setPendingLiveNonStyleEdits([]);
-  }, [cancelPendingStructureVerification]);
+  }, [cancelPendingStructureVerification, clearPendingEditSessionRecovery, id]);
   const clearPendingLiveEditStateRef = useRef(clearPendingLiveEditState);
   useEffect(() => {
     clearPendingLiveEditStateRef.current = clearPendingLiveEditState;
@@ -1587,23 +1657,35 @@ function DesignEditor() {
   // clobber the currently-active screen's active:true state, breaking style
   // panel range-routing (handleStyleChange/handleStylesChange key off
   // textEditingState.active) for the screen the user is actually editing.
-  // Track which screen id last reported active:true and ignore an
-  // active:false that doesn't come from that same screen.
-  const activeTextEditingScreenIdRef = useRef<string | null>(null);
+  // Track which screen AND element last reported active:true and ignore an
+  // active:false that doesn't come from that same session. Screen alone is not
+  // an identity: two text nodes on one surface (board creation A, then B) let
+  // A's late active:false clear B's live session.
+  const activeTextEditingSessionRef = useRef<{
+    screenId: string;
+    sourceId?: string;
+  } | null>(null);
   const handleTextEditingStateChangeForScreen = useCallback(
     (screenId: string, state: Omit<TextEditingState, "screenId">) => {
       const screenState = { ...state, screenId };
       if (state.active || state.hasRange) {
-        activeTextEditingScreenIdRef.current = screenId;
+        activeTextEditingSessionRef.current = {
+          screenId,
+          sourceId: state.sourceId,
+        };
         setTextEditingState(screenState);
         return;
       }
-      if (activeTextEditingScreenIdRef.current === screenId) {
-        activeTextEditingScreenIdRef.current = null;
-        setTextEditingState(screenState);
+      if (
+        !endedTextEditClosesActiveSession(activeTextEditingSessionRef.current, {
+          screenId,
+          sourceId: state.sourceId,
+        })
+      ) {
+        return;
       }
-      // Else: an active:false from a screen that isn't the one we last saw
-      // active:true from — stale/out-of-order, ignore it.
+      activeTextEditingSessionRef.current = null;
+      setTextEditingState(screenState);
     },
     [],
   );
@@ -1625,9 +1707,11 @@ function DesignEditor() {
   const [reviewFocusRequest, setReviewFocusRequest] = useState<{
     nonce: number;
     anchor: unknown;
-    targetId?: string;
+    targetId?: string | null;
+    threadId?: string;
   } | null>(null);
   const reviewFocusNonceRef = useRef(0);
+  const openedReviewHashRef = useRef<string | null>(null);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
   const layersRevealedForFirstCreateRef = useRef(false);
@@ -1637,7 +1721,7 @@ function DesignEditor() {
   const initialUrlSelectionHydratedForIdRef = useRef<string | null>(null);
   // Figma's 56px workspace rail (plus its 1px divider) and 280px Layers/Pages
   // pane place the content divider at x=337. Keep that total while honoring
-  // resizable 220–420px content range.
+  // the resizable 220–420px content range, with 320px reserved for Agent chat.
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
   // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
@@ -2725,7 +2809,11 @@ function DesignEditor() {
     },
     [],
   );
-  const finalizePendingTextCreation = useCallback(
+  // Two phases on purpose. The caller needs `isCreationCommit` to choose the
+  // content it publishes, but consuming the pending record before that
+  // publication was accepted threw the creation's history away on a refused
+  // write — and the typed text with it. `confirm` is what consumes it.
+  const prepareTextCreationFinalization = useCallback(
     (
       fileId: string,
       nodeIds: readonly (string | null | undefined)[],
@@ -2737,27 +2825,47 @@ function DesignEditor() {
         pending.fileId !== fileId ||
         !nodeIds.some((nodeId) => nodeId === pending.nodeId)
       ) {
-        return false;
+        return {
+          isCreationCommit: false,
+          historyHandled: false,
+          confirm: () => {},
+        };
       }
+      const consumePending = () => {
+        if (pendingTextCreationHistoryRef.current !== pending) return false;
+        pendingTextCreationHistoryRef.current = null;
+        return true;
+      };
       const result = finalizeTextCreationHistory(
         contentUndoStackRef.current,
         pending,
         finalContent,
       );
-      pendingTextCreationHistoryRef.current = null;
-      if (result.status === "stale") return false;
-      contentUndoStackRef.current = result.stack;
-      if (result.status === "rolled-back") {
-        contentUndoSelectionStackRef.current =
-          contentUndoSelectionStackRef.current.slice(0, -1);
-        historyOrderRef.current = removeRecentUndoRedoOrderKinds(
-          historyOrderRef.current,
-          "file-content",
-          1,
-        );
+      if (result.status === "stale") {
+        return {
+          isCreationCommit: true,
+          historyHandled: false,
+          confirm: consumePending,
+        };
       }
-      syncUndoRedoState();
-      return true;
+      return {
+        isCreationCommit: true,
+        historyHandled: true,
+        confirm: () => {
+          if (!consumePending()) return;
+          contentUndoStackRef.current = result.stack;
+          if (result.status === "rolled-back") {
+            contentUndoSelectionStackRef.current =
+              contentUndoSelectionStackRef.current.slice(0, -1);
+            historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+              historyOrderRef.current,
+              "file-content",
+              1,
+            );
+          }
+          syncUndoRedoState();
+        },
+      };
     },
     [syncUndoRedoState],
   );
@@ -2870,6 +2978,13 @@ function DesignEditor() {
   // commits (keyboard nudge auto-repeat) so they coalesce into one undo entry
   // and one debounced server write instead of one of each per tick.
   const lastGeometryCommitAtRef = useRef(0);
+  const lastGeometryCommitSourceRef = useRef<"pointer" | "keyboard" | null>(
+    null,
+  );
+  const resetGeometryCommitCoalescing = useCallback(() => {
+    lastGeometryCommitAtRef.current = 0;
+    lastGeometryCommitSourceRef.current = null;
+  }, []);
   // Localhost write-consent dialog state. When the agent wants to write a local
   // file and no valid grant exists for the active connection, we show the dialog
   // with a pending payload; the user clicks "Allow writes" to mint a grant.
@@ -2887,6 +3002,11 @@ function DesignEditor() {
   // into the same agent submission.
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
+  const overviewCommentPinNonceRef = useRef(0);
+  const [overviewCommentPinRequest, setOverviewCommentPinRequest] = useState<{
+    nonce: number;
+    canvasPoint: { x: number; y: number };
+  } | null>(null);
   const [repromptDraftRequest, setRepromptDraftRequest] =
     useState<RepromptDraftRequest | null>(null);
   // Overview and focused canvases retain separate annotation batches. Each
@@ -3365,23 +3485,19 @@ function DesignEditor() {
     {
       resourceType: "design",
       resourceId: id ?? "",
-      includeResolved: false,
+      includeResolved: true,
       limit: 500,
     },
     { enabled: Boolean(id) && !shellMode },
   );
   const reviewComments = reviewResult.data?.comments ?? [];
-  const reviewOpenThreadIds = useMemo(
+  const reviewUnreadCount = useMemo(
     () =>
-      new Set(
-        reviewComments
-          .filter(
-            (comment) =>
-              comment.status === "open" && comment.parentCommentId === null,
-          )
-          .map((comment) => comment.threadId),
-      ),
-    [reviewComments],
+      getUnreadReviewThreadIds(
+        reviewComments,
+        reviewResult.data?.discussion?.threadPreferences ?? {},
+      ).size,
+    [reviewComments, reviewResult.data?.discussion?.threadPreferences],
   );
   const reviewAgentQueueThreadIds = useMemo(
     () =>
@@ -3399,8 +3515,6 @@ function DesignEditor() {
     [reviewComments],
   );
   const persistedReviewSummary = readDesignReviewSummary(reviewResult.data);
-  const reviewOpenCount =
-    persistedReviewSummary?.openCount ?? reviewOpenThreadIds.size;
   const reviewAgentQueueCount =
     persistedReviewSummary?.agentQueueCount ?? reviewAgentQueueThreadIds.size;
   const sendReviewThreadToAgent = useSendReviewThreadToAgent();
@@ -3483,6 +3597,9 @@ function DesignEditor() {
         );
       }
       clearPendingLocalFileContent(fileId, expectedContent);
+      // The optimistic bytes a text creation was inserted into are gone, so its
+      // owner will never hold that node: fail the creation now, not on a clock.
+      failPendingTextCapture(fileId);
     },
     [clearPendingLocalFileContent, id, queryClient],
   );
@@ -3554,6 +3671,7 @@ function DesignEditor() {
   // §6.4 breakpoint mutations — wired to MultiScreenCanvas + BreakpointBar
   const addBreakpointMutation = useActionMutation("add-breakpoint");
   const removeBreakpointMutation = useActionMutation("remove-breakpoint");
+  const updateBreakpointMutation = useActionMutation("update-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
   );
@@ -3594,7 +3712,6 @@ function DesignEditor() {
   const [breakpointFramesHidden, setBreakpointFramesHidden] = useState(false);
 
   // §6.1 — promote a selection into a reusable component instance.
-  const createComponentMutation = useActionMutation("create-component");
   // §6.1 — jump to a component instance's source (selects the root + navigates).
   const openComponentSourceMutation = useActionMutation(
     "open-component-source",
@@ -3885,15 +4002,7 @@ function DesignEditor() {
           options.expectedVersionHash,
           options.identityMigrationSourceContent,
         ),
-        pendingFileSavesRef.current[fileId] ??
-          (latestFileSaveForUnloadRef.current[fileId]
-            ?.identityMigrationSourceContent !== undefined &&
-          options.expectedVersionHash ===
-            sourceContentHash(
-              latestFileSaveForUnloadRef.current[fileId].content,
-            )
-            ? latestFileSaveForUnloadRef.current[fileId]
-            : undefined),
+        pendingFileSavesRef.current[fileId],
       );
       markPendingLocalFileContent(
         fileId,
@@ -5045,6 +5154,7 @@ function DesignEditor() {
     (
       geometryById: CanvasFrameGeometryById,
       options?: {
+        replacePendingGeometrySave?: boolean;
         syncViewportFrameIds?: string[];
         pinHeightFrameIds?: string[];
       },
@@ -5057,13 +5167,20 @@ function DesignEditor() {
           enqueueFrameGeometryDataSave,
           frameGeometrySaveTimerRef,
           id,
+          liveFrameGeometryRef,
           pendingFrameGeometrySaveRef,
           queryClient,
         },
         geometryById,
         options,
       ),
-    [boardFileId, enqueueFrameGeometryDataSave, id, queryClient],
+    [
+      boardFileId,
+      enqueueFrameGeometryDataSave,
+      id,
+      liveFrameGeometryRef,
+      queryClient,
+    ],
   );
 
   const handleGeometryCommit = useCallback(
@@ -5216,6 +5333,8 @@ function DesignEditor() {
           applyLinkedContentChanges: (changes, direction) =>
             applyGeometryHistoryContentChangesRef.current(changes, direction),
           lastGeometryCommitAtRef,
+          lastGeometryCommitSourceRef,
+          liveFrameGeometryRef,
           locallyPinnedHeightIdsRef,
           queryClient,
           queueFrameGeometrySave,
@@ -5242,6 +5361,7 @@ function DesignEditor() {
       screenRootComputedStylesById,
       syncUndoRedoState,
       t,
+      liveFrameGeometryRef,
       writeFrameGeometrySnapshot,
     ],
   );
@@ -6057,6 +6177,8 @@ function DesignEditor() {
   const handleAddScreen = useCallback(
     () =>
       runAddScreen({
+        boardContentBounds,
+        boardFileId,
         canEditDesign,
         createFileMutation,
         designDataJsonRef,
@@ -6072,12 +6194,14 @@ function DesignEditor() {
       }),
     [
       canEditDesign,
+      boardContentBounds,
+      boardFileId,
       createFileMutation,
       files,
       focusCreatedScreen,
       id,
       optimisticallyInsertCreatedFile,
-      overviewScreens.length,
+      overviewScreens,
       queryClient,
       recordFileCreationHistoryEntry,
       t,
@@ -6136,6 +6260,7 @@ function DesignEditor() {
         canvasFrameGeometryById: exportCanvasFrameGeometryById,
         boardContentBounds,
         boardFileId,
+        includeResponsivePreviews: true,
       });
       const bounds = getFrameGroupBounds(frames);
       // 56px matches the overview grid's own screen-to-screen gap
@@ -7247,7 +7372,7 @@ function DesignEditor() {
     }
     return map;
   }, [files]);
-  const getScreenContent = useCallback(
+  const getUnprojectedScreenContent = useCallback(
     (screenId: string) =>
       prepareCanonicalSourceContent(
         getFreshScreenContent({
@@ -7256,6 +7381,9 @@ function DesignEditor() {
           freshActiveContentFileId: activeFile?.id,
           freshActiveContent: getFreshActiveFileContent({
             activeContent,
+            pendingContent: activeFile?.id
+              ? pendingLocalFileContentsRef.current.get(activeFile.id)?.content
+              : null,
             latestContent: latestActiveContentRef.current,
             lastLocalContent: lastLocalContentRef.current,
           }),
@@ -7277,12 +7405,46 @@ function DesignEditor() {
       ).content,
     [activeContent, activeFile?.id, fileContentById],
   );
+  const getScreenContent = useCallback(
+    (screenId: string) => {
+      const current = getUnprojectedScreenContent(screenId);
+      const linkedQueue = linkedComponentMutationQueueRef.current;
+      const projected =
+        linkedQueue && linkedQueue.designId === id
+          ? linkedQueue.queue.getProjectedContent(screenId)
+          : undefined;
+      if (projected === undefined) return current;
+      const pendingSave = latestFileSaveForUnloadRef.current[screenId];
+      return pendingSave?.expectedVersionHash === sourceContentHash(projected)
+        ? current
+        : projected;
+    },
+    [getUnprojectedScreenContent, id],
+  );
   const durableLockedLayerCount = useMemo(
     () =>
       countLockedLayersAcrossFiles(
         files.map((file) => ({ content: getScreenContent(file.id) })),
       ),
     [files, getScreenContent],
+  );
+
+  const canApplyContentEdit = useCallback(
+    (fileId: string) => {
+      const linkedQueue = linkedComponentMutationQueueRef.current;
+      if (
+        !linkedQueue ||
+        linkedQueue.designId !== id ||
+        !linkedQueue.queue.blocksLocalContentEdits()
+      ) {
+        return true;
+      }
+      toast.info(t("visualEditor.saving"), {
+        id: `design-source-linked-edit-pending:${fileId}`,
+      });
+      return false;
+    },
+    [id, t],
   );
   const getProjectionContentForScreen = useCallback(
     (screenId: string) =>
@@ -7665,6 +7827,8 @@ function DesignEditor() {
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
+        replacementElementInfo?: ElementInfo;
+        replacementSnapshotHtml?: string;
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
@@ -8058,6 +8222,14 @@ function DesignEditor() {
       ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
       : undefined;
   }, [selectedCodeLayerNode]);
+  // Keep canonical mains available to the Component section's read/source
+  // controls while withholding instance-only actions from those selections.
+  const selectedInstanceActionNodeId = useMemo(() => {
+    if (!selectedCodeLayerNode) return undefined;
+    return isComponentInstanceForInstanceActions(selectedCodeLayerNode)
+      ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
+      : undefined;
+  }, [selectedCodeLayerNode]);
   const acceptedActiveFile = activeFile?.id
     ? rawServerFilesByIdRef.current.get(activeFile.id)
     : undefined;
@@ -8128,6 +8300,14 @@ function DesignEditor() {
     if (selectedElement.componentName?.trim()) return true;
     return codeLayerNodeLooksLikeComponent(selectedCodeLayerNode);
   }, [selectedCodeLayerNode, selectedElement]);
+  const selectedElementInsideComponent = useMemo(() => {
+    if (!selectedCodeLayerNode) return false;
+    const root = linkedComponentRootForNode(
+      selectedCodeLayerNode,
+      activeCodeLayerProjection,
+    );
+    return Boolean(root && root.id !== selectedCodeLayerNode.id);
+  }, [activeCodeLayerProjection, selectedCodeLayerNode]);
 
   useEffect(() => {
     clearShaderFillPreview();
@@ -8358,58 +8538,60 @@ function DesignEditor() {
 
   const handleCreateComponent = useCallback(
     (name: string) => {
-      if (!id || !selectedElement) return;
+      if (
+        !canEditDesign ||
+        !id ||
+        !activeFileId ||
+        !selectedElement ||
+        selectedElementInsideComponent
+      )
+        return;
+      const current = linkedComponentMutationQueueRef.current;
+      if (current?.designId !== id) return;
       const nodeId = selectedElementLayerId ?? undefined;
       const selector = selectedCanvasSelector ?? selectedElement.selector;
-      createComponentMutation.mutate(
+      void runCreateComponent(
         {
+          canEditDesign,
           designId: id,
-          nodeId,
-          selector,
-          name,
-          fileId: activeFileId ?? undefined,
-        } as any,
-        {
-          onSuccess: () => {
-            void queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
-            toast.success(t("designEditor.toasts.componentCreated"));
-          },
-          onError: () => {
-            toast.error(t("designEditor.toasts.componentCreateFailed"));
+          fileId: activeFileId,
+          selectionBefore: captureCurrentSelection(),
+          createComponent: (request) =>
+            callAction<CreateComponentActionResult>(
+              "create-component",
+              request,
+            ),
+          mutationTransaction: {
+            enqueue: (request) =>
+              current.queue.enqueueSourceMutation({
+                ...request,
+                validate: createComponentActionChange,
+              }),
           },
         },
-      );
-
-      // Follow-up: ask the Design agent to extract props and replace repeated
-      // instances with this component. The deterministic annotate above is the
-      // core; this is an enhancement that runs in the agent chat.
-      sendToDesignAgentChat({
-        message: `Extract props for the "${name}" component and replace repeated instances on this design with it.`,
-        context: [
-          `Design id: "${id}".`,
-          selectedElement.selector
-            ? `Component root selector: ${selectedElement.selector}.`
-            : "",
-          nodeId ? `Component root node id: ${nodeId}.` : "",
-          `The element was just annotated with data-agent-native-component="${name}".`,
-          "Call view-screen first, then use get-code-layer-projection to find repeated instances, and apply-visual-edit / apply-component-prop-edit to converge them on this component with data-agent-native-prop-* props.",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        submit: true,
-        openSidebar: true,
-      });
+        { nodeId, selector, name },
+      )
+        .then((outcome) => {
+          if (!outcome) return;
+          if (!outcome.historyRecorded) {
+            toast.error(t("designEditor.toasts.componentCreateFailed"));
+            return;
+          }
+          if (outcome.hostSync === "accepted") {
+            toast.success(t("designEditor.toasts.componentCreated"));
+          }
+        })
+        .catch(() => {});
     },
     [
+      canEditDesign,
+      captureCurrentSelection,
       id,
       selectedElement,
       selectedElementLayerId,
       selectedCanvasSelector,
       activeFileId,
-      createComponentMutation,
-      queryClient,
+      selectedElementInsideComponent,
       t,
     ],
   );
@@ -8426,7 +8608,8 @@ function DesignEditor() {
       !canEditDesign ||
       !id ||
       !selectedElement ||
-      selectedElementAlreadyComponent
+      selectedElementAlreadyComponent ||
+      selectedElementInsideComponent
     ) {
       return;
     }
@@ -8436,6 +8619,7 @@ function DesignEditor() {
     id,
     selectedElement,
     selectedElementAlreadyComponent,
+    selectedElementInsideComponent,
     handleCreateComponent,
     defaultComponentName,
   ]);
@@ -8706,8 +8890,14 @@ function DesignEditor() {
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
-    ) =>
-      runApplyLocalContentUpdate(
+    ) => {
+      if (
+        options.persist !== false &&
+        !canApplyContentEdit(activeFile?.id ?? "active")
+      ) {
+        return { status: "refused" as const };
+      }
+      return runApplyLocalContentUpdate(
         {
           acknowledgeAuthoritativeClipboardMutation,
           activeFile,
@@ -8747,9 +8937,11 @@ function DesignEditor() {
                 getScreenContent(activeFile?.id ?? ""),
             ),
         },
-      ),
+      );
+    },
     [
       sourceBaseForPublication,
+      canApplyContentEdit,
       getScreenContent,
       activeFile,
       acknowledgeAuthoritativeClipboardMutation,
@@ -8787,8 +8979,11 @@ function DesignEditor() {
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
-    ) =>
-      runApplyFileContentUpdate(
+    ) => {
+      if (options.persist !== false && !canApplyContentEdit(fileId)) {
+        return { status: "refused" as const };
+      }
+      return runApplyFileContentUpdate(
         {
           acknowledgeAuthoritativeClipboardMutation,
           activeFile,
@@ -8821,9 +9016,11 @@ function DesignEditor() {
               options.historyBeforeContent ?? getScreenContent(fileId),
             ),
         },
-      ),
+      );
+    },
     [
       sourceBaseForPublication,
+      canApplyContentEdit,
       getScreenContent,
       activeFile?.id,
       acknowledgeAuthoritativeClipboardMutation,
@@ -8859,9 +9056,26 @@ function DesignEditor() {
           files
             .filter((file) => file.fileType === "html")
             .map((file) => file.id),
-        getContent: getScreenContent,
+        getContent: getUnprojectedScreenContent,
         getSourceBaseContent: (fileId) =>
-          sourceBaseForPublication(fileId, getScreenContent(fileId)),
+          sourceBaseForPublication(fileId, getUnprojectedScreenContent(fileId)),
+        projectEdit: (fileId, nodeId, edit, contentByFileId) =>
+          projectLinkedComponentPropertyEdit({
+            documents: files
+              .filter((file) => file.fileType === "html")
+              .map((file) => ({
+                source: {
+                  kind: "design-file" as const,
+                  designId: id,
+                  fileId: file.id,
+                  filename: file.filename,
+                },
+                content: contentByFileId.get(file.id) ?? "",
+              })),
+            fileId,
+            nodeId,
+            edit,
+          }),
         canonicalizeSourceContent: (fileId, content) =>
           prepareCanonicalSourceContent(content, {
             fileId,
@@ -8873,6 +9087,7 @@ function DesignEditor() {
             pendingFileSavesRef.current[fileId] ||
             fileSaveTimersRef.current[fileId],
           ),
+        getPendingSave: (fileId) => latestFileSaveForUnloadRef.current[fileId],
         invokeAction: (payload) =>
           callAction<LinkedComponentActionResult>(
             "apply-component-prop-edit",
@@ -8880,13 +9095,45 @@ function DesignEditor() {
           ),
         applyFileContentUpdate: (fileId, content, options) =>
           applyFileContentUpdate(fileId, content, options),
-        reserveContentHistory: () => {
+        applySelection: (selection) => {
+          const cached = queryClient.getQueryData<{ files: DesignFile[] }>([
+            "action",
+            "get-design",
+            { id },
+          ]);
+          const file = cached?.files.find(
+            (file) => file.id === selection.fileId,
+          );
+          if (typeof file?.content !== "string") {
+            throw new Error(
+              "The saved component file is unavailable for selection.",
+            );
+          }
+          const { snapshot, nodes } = resolveLinkedComponentSelection({
+            ...selection,
+            content: file.content,
+            previous: captureCurrentSelection(),
+          });
+          flushSync(() => {
+            restoreSelectionSnapshot(snapshot);
+            setSelectedElement(
+              nodes.length === 1
+                ? elementInfoFromCodeLayerNode(nodes[0]!)
+                : null,
+            );
+            pendingOverviewLayerSelectionRef.current =
+              nodes.length === 1 ? nodes[0]!.id : null;
+          });
+          return snapshot;
+        },
+        getCurrentSelection: captureCurrentSelection,
+        reserveContentHistory: (selectionBefore) => {
           undoManagerRef.current?.stopCapturing();
           const reservation = reserveLinkedComponentContentHistory({
             stack: contentUndoStackRef,
             selections: contentUndoSelectionStackRef,
             order: historyOrderRef,
-            selection: captureCurrentSelection(),
+            selection: selectionBefore ?? captureCurrentSelection(),
             after: contentHistorySelectionAfterRef,
             clearRedoStacks,
           });
@@ -8930,16 +9177,28 @@ function DesignEditor() {
         getContent: (fileId) => currentRuntime().getContent(fileId),
         getSourceBaseContent: (fileId) =>
           currentRuntime().getSourceBaseContent(fileId),
+        projectEdit: (fileId, nodeId, edit, contentByFileId) =>
+          currentRuntime().projectEdit?.(
+            fileId,
+            nodeId,
+            edit,
+            contentByFileId,
+          ) ?? null,
         canonicalizeSourceContent: (fileId, content) =>
           currentRuntime().canonicalizeSourceContent(fileId, content),
         flushPendingSaves: () => currentRuntime().flushPendingSaves(),
         hasPendingSave: (fileId) => currentRuntime().hasPendingSave(fileId),
+        getPendingSave: (fileId) => currentRuntime().getPendingSave(fileId),
         fileSaveChainsRef,
         pendingFileSavesRef,
         invokeAction: (payload) => currentRuntime().invokeAction(payload),
         applyFileContentUpdate: (fileId, content, options) =>
           currentRuntime().applyFileContentUpdate(fileId, content, options),
-        reserveContentHistory: () => currentRuntime().reserveContentHistory(),
+        applySelection: (selection) =>
+          currentRuntime().applySelection?.(selection),
+        getCurrentSelection: () => currentRuntime().getCurrentSelection(),
+        reserveContentHistory: (selectionBefore) =>
+          currentRuntime().reserveContentHistory(selectionBefore),
         waitForHostWrites: (fileIds) =>
           currentRuntime().waitForHostWrites(fileIds),
         syncUndoRedoState: () => currentRuntimeIfActive()?.syncUndoRedoState(),
@@ -8951,7 +9210,13 @@ function DesignEditor() {
     };
   }
   const applyLinkedComponentEdit = useCallback(
-    (fileId: string, nodeId: string, edit: LinkedComponentEdit) => {
+    (
+      fileId: string,
+      nodeId: string,
+      edit: LinkedComponentEdit,
+      selectionBefore?: GeometryHistorySelection,
+      onApplied?: () => void,
+    ) => {
       const current = linkedComponentMutationQueueRef.current;
       if (!id || current?.designId !== id) {
         toast.error(t("designEditor.patchProof.selectorMissing"), {
@@ -8959,7 +9224,9 @@ function DesignEditor() {
         });
         return;
       }
-      void current.queue.enqueue(fileId, nodeId, edit).catch(() => {});
+      void current.queue
+        .enqueue(fileId, nodeId, edit, selectionBefore, onApplied)
+        .catch(() => {});
     },
     [id, t],
   );
@@ -9046,11 +9313,11 @@ function DesignEditor() {
   // actions here; Swap opens that canonical picker directly so both entry
   // points share one catalog and mutation path.
   const handleGoToMainComponentMenuAction = useCallback(() => {
-    if (!id || !selectedComponentNodeId) return;
+    if (!id || !selectedInstanceActionNodeId) return;
     goToMainComponentMutation.mutate(
       {
         designId: id,
-        nodeId: selectedComponentNodeId,
+        nodeId: selectedInstanceActionNodeId,
         fileId: activeFileId ?? undefined,
       },
       {
@@ -9078,7 +9345,13 @@ function DesignEditor() {
           toast.error(t("designEditor.componentInstances.resolveMainFailed")),
       },
     );
-  }, [activeFileId, goToMainComponentMutation, id, selectedComponentNodeId, t]);
+  }, [
+    activeFileId,
+    goToMainComponentMutation,
+    id,
+    selectedInstanceActionNodeId,
+    t,
+  ]);
 
   const handleDetachInstanceMenuAction = useCallback(
     () =>
@@ -9089,7 +9362,7 @@ function DesignEditor() {
         detachComponentInstanceMutation,
         handleComponentPropApplied,
         id,
-        selectedComponentNodeId,
+        selectedComponentNodeId: selectedInstanceActionNodeId,
         t,
       }),
     [
@@ -9099,7 +9372,7 @@ function DesignEditor() {
       detachComponentInstanceMutation,
       handleComponentPropApplied,
       id,
-      selectedComponentNodeId,
+      selectedInstanceActionNodeId,
       t,
     ],
   );
@@ -9109,12 +9382,12 @@ function DesignEditor() {
   // immediate context-menu behavior (the click opens choices; it doesn't
   // merely tell the user where to look).
   const handleSwapInstanceMenuAction = useCallback(() => {
-    if (!id || !selectedComponentNodeId) return;
+    if (!id || !selectedInstanceActionNodeId) return;
     setUiHidden(false);
     setMode("edit");
     setActiveInspectorTab("design");
     setComponentSwapPickerRequest((request) => request + 1);
-  }, [id, selectedComponentNodeId]);
+  }, [id, selectedInstanceActionNodeId]);
 
   const handleReviewFixApplied = useCallback(
     (
@@ -9265,6 +9538,7 @@ function DesignEditor() {
         shouldClearSelectionForReviewThreadTarget({
           activeFileId: activeFile?.id,
           targetId,
+          boardFileId,
         })
       ) {
         setSelectedElement(null);
@@ -9273,15 +9547,16 @@ function DesignEditor() {
         setHoveredElementScreenId(null);
         setOverviewClearSelectionRequest((request) => request + 1);
       }
-      if (targetId) {
+      const boardTarget = targetId === null;
+      if (targetId || boardTarget) {
         // Review is editing context on the infinite canvas. Selecting a thread
         // reveals its screen there; it must not revive the removed focused
         // non-Interact view.
         viewModeRef.current = "overview";
         setViewMode("overview");
-        setActiveFileId(targetId);
-        setOverviewSelectedScreenIds([targetId]);
-        setSelectedLayerIdsState([targetId]);
+        setActiveFileId(boardTarget ? (boardFileId ?? null) : targetId);
+        setOverviewSelectedScreenIds(boardTarget ? [] : [targetId]);
+        setSelectedLayerIdsState(boardTarget ? [] : [targetId]);
         setMode("edit");
       }
       setActiveInspectorTab("comments");
@@ -9289,11 +9564,32 @@ function DesignEditor() {
       setReviewFocusRequest({
         nonce: reviewFocusNonceRef.current,
         anchor: thread.root.anchor,
-        targetId: targetId ?? undefined,
+        targetId,
+        threadId: thread.root.threadId,
       });
     },
-    [activeFile?.id],
+    [activeFile?.id, boardFileId],
   );
+
+  useEffect(() => {
+    if (!id || reviewResult.isLoading) return;
+    const threadId = reviewThreadIdFromHash(location.hash);
+    if (!threadId) return;
+    const hashKey = `${id}:${threadId}`;
+    if (openedReviewHashRef.current === hashKey) return;
+    const thread = buildReviewThreads(reviewComments).find(
+      (candidate) => candidate.root.threadId === threadId,
+    );
+    if (!thread) return;
+    openedReviewHashRef.current = hashKey;
+    handleReviewThreadSelect(thread);
+  }, [
+    handleReviewThreadSelect,
+    id,
+    location.hash,
+    reviewComments,
+    reviewResult.isLoading,
+  ]);
 
   const reviewCommentsPanelProps = useMemo<
     ReviewCommentsPanelProps | undefined
@@ -9303,6 +9599,9 @@ function DesignEditor() {
         ? {
             designId: id,
             canComment: canCommentDesign,
+            currentUserEmail: session?.email,
+            currentTargetId:
+              activeFile?.id === boardFileId ? null : activeFile?.id,
             canResolve: canEditDesign,
             canDeleteComment: (comment) =>
               canEditDesign ||
@@ -9320,6 +9619,7 @@ function DesignEditor() {
     [
       canCommentDesign,
       canEditDesign,
+      activeFile?.id,
       handleReviewThreadSelect,
       handleSendReviewThreadToAgent,
       id,
@@ -9341,30 +9641,21 @@ function DesignEditor() {
       runCreatePrimitive(
         {
           activeBreakpointWidthState,
-          activeContent,
           activeFile,
+          applyFileContentUpdate,
           applyLocalContentUpdate,
           boardFileId,
           canvasBackground: canvasBackgroundRef.current,
           canEditDesign,
-          collabContentFileIdRef,
-          collabContentRef,
           files,
-          id,
-          isSynced,
-          markPendingLocalFileContent,
-          pendingLocalFileContentsRef,
+          getScreenContent,
           pendingTextCreationHistoryRef,
           pendingTextEditNodeIdRef,
           overviewScreens,
-          queryClient,
-          queueFileContentSave,
-          recordContentHistoryEntry,
           runtimeStructureInsertRevisionRef,
           setRuntimeStructureInsertRequest,
           t,
           viewModeRef,
-          ydoc,
         },
         screenId,
         primitive,
@@ -9372,21 +9663,15 @@ function DesignEditor() {
       ),
     [
       activeBreakpointWidthState,
-      activeContent,
       activeFile?.id,
+      applyFileContentUpdate,
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
       files,
-      id,
-      isSynced,
-      markPendingLocalFileContent,
+      getScreenContent,
       overviewScreens,
-      queryClient,
-      queueFileContentSave,
-      recordContentHistoryEntry,
       t,
-      ydoc,
     ],
   );
 
@@ -9434,15 +9719,19 @@ function DesignEditor() {
       if (hasContent) return "kept-has-content";
       const nextContent = removeCodeLayerNodeFromHtml(content, node);
       if (!nextContent || nextContent === content) return "remove-failed";
-      const finalizedCreation = finalizePendingTextCreation(
+      const finalizedCreation = prepareTextCreationFinalization(
         screenId,
         [nodeId, node.id, node.dataAttributes["data-agent-native-node-id"]],
         nextContent,
       );
-      applyFileContentUpdate(screenId, nextContent, {
+      const publication = applyFileContentUpdate(screenId, nextContent, {
         refreshPreview: false,
-        recordHistory: !finalizedCreation,
+        recordHistory: !finalizedCreation.historyHandled,
       });
+      // A write that never published leaves the node exactly where it was, so
+      // the creation record has to survive for the retry.
+      if (publication.status !== "accepted") return "remove-failed";
+      finalizedCreation.confirm();
       setSelectedLayerIdsState((current) =>
         current.filter((id) => id !== node.id),
       );
@@ -9454,28 +9743,36 @@ function DesignEditor() {
     [
       applyFileContentUpdate,
       codeLayerSourceForScreen,
-      finalizePendingTextCreation,
+      prepareTextCreationFinalization,
       getScreenContent,
     ],
   );
 
-  /** Cleanup for an untouched text node, retried once past the insert→content
-   *  propagation gap. Without the retry an empty box created while its screen
-   *  content was still settling stayed on the canvas as an invisible node. */
+  /** Cleanup for an untouched text node, retried past the insert→content
+   *  propagation gap. "Not resolvable yet" is not an answer: a board's FIRST
+   *  primitive is created before that file's content reaches the client map,
+   *  and one attempt that read nothing used to leave the node on the canvas
+   *  forever with nothing left to remove it. Only a settled answer — removed,
+   *  or kept because it has content — ends the retries. */
   const removeEmptyTextNodeWithRetry = useCallback(
     (screenId: string | null, nodeId: string) => {
-      const outcome = removeEmptyTextNodeIfUntouched(screenId, nodeId);
-      if (outcome !== "node-absent" && outcome !== "content-unavailable") {
-        return;
-      }
-      window.setTimeout(() => {
-        const retried = removeEmptyTextNodeIfUntouched(screenId, nodeId);
-        if (retried === "node-absent" || retried === "content-unavailable") {
-          console.warn(
-            `[design] could not resolve empty text node ${screenId}/${nodeId} to clean up (${retried})`,
-          );
+      const attempt = (remaining: number) => {
+        const outcome = removeEmptyTextNodeIfUntouched(screenId, nodeId);
+        if (outcome !== "node-absent" && outcome !== "content-unavailable") {
+          return;
         }
-      }, EMPTY_TEXT_CLEANUP_RETRY_MS);
+        if (remaining <= 0) {
+          console.warn(
+            `[design] could not resolve empty text node ${screenId}/${nodeId} to clean up (${outcome})`,
+          );
+          return;
+        }
+        window.setTimeout(
+          () => attempt(remaining - 1),
+          EMPTY_TEXT_CLEANUP_RETRY_MS,
+        );
+      };
+      attempt(EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS - 1);
     },
     [removeEmptyTextNodeIfUntouched],
   );
@@ -9522,18 +9819,19 @@ function DesignEditor() {
     ],
   );
 
-  // T6: stop the begin-text-edit retry loop as soon as the bridge reports the
-  // editing session ended (Escape, blur, or a real commit) instead of
-  // continuing to force-reopen it for the rest of the retry window. This is
-  // a coarse "any text-editing session just ended" signal (matched against
-  // whichever node is currently pending, not a specific selector), which is
-  // fine in practice since only one text primitive is normally mid-creation
-  // at a time; scheduleBeginTextEditForScreen's onExhausted callback still
-  // double-checks pending.nodeId before acting.
+  // T6: stop the begin-text-edit retry loop as soon as the bridge reports THIS
+  // creation's editing session ended (Escape, blur, or a real commit) instead
+  // of force-reopening it for the rest of the retry window. The identity match
+  // is load-bearing — see endedTextEditMatchesPendingCreation.
   useEffect(() => {
-    if (textEditingState.active) return;
-    pendingEmptyTextEditRef.current?.cancel();
-  }, [textEditingState.active]);
+    const pending = pendingEmptyTextEditRef.current;
+    if (!endedTextEditMatchesPendingCreation(pending, textEditingState)) return;
+    pending?.cancel();
+  }, [
+    textEditingState.active,
+    textEditingState.screenId,
+    textEditingState.sourceId,
+  ]);
 
   /**
    * Called by MultiScreenCanvas when a draft primitive is committed in empty
@@ -11003,6 +11301,7 @@ function DesignEditor() {
               boundingRect: measured.boundingRect,
               computedStyles: measured.computedStyles,
               inlineStyles: measured.inlineStyles,
+              authoredSizeStyles: measured.authoredSizeStyles,
             }
           : prev,
       );
@@ -11044,12 +11343,13 @@ function DesignEditor() {
           activeBreakpointWidthStateRef,
           activeCanvasSourceType,
           activeCodeLayerProjection,
-          activeContent,
           activeFile,
           activeProjectionContent,
           applyLinkedComponentEdit,
+          canApplyContentEdit,
           canEditDesign,
           commitVisualStyles,
+          getScreenContent,
           isSynced,
           lastDuplicateTransformRef,
           lastLocalContentRef,
@@ -11082,7 +11382,6 @@ function DesignEditor() {
         options,
       ),
     [
-      activeContent,
       activeFile,
       activeBreakpointWidthState,
       activeBreakpointUpperBoundPx,
@@ -11090,7 +11389,9 @@ function DesignEditor() {
       activeCodeLayerProjection,
       activeProjectionContent,
       applyLinkedComponentEdit,
+      canApplyContentEdit,
       canEditDesign,
+      getScreenContent,
       liveScreenSnapshotsById,
       queueFileContentSave,
       recordContentHistoryEntry,
@@ -11242,13 +11543,8 @@ function DesignEditor() {
   );
 
   const getFreshActiveContent = useCallback(
-    () =>
-      getFreshActiveFileContent({
-        activeContent,
-        latestContent: latestActiveContentRef.current,
-        lastLocalContent: lastLocalContentRef.current,
-      }),
-    [activeContent],
+    () => (activeFile?.id ? getScreenContent(activeFile.id) : activeContent),
+    [activeContent, activeFile?.id, getScreenContent],
   );
   const getFreshActivePreviewContent = useCallback(
     () =>
@@ -11682,6 +11978,7 @@ function DesignEditor() {
                   ...current,
                   computedStyles: elementInfo.computedStyles,
                   inlineStyles: elementInfo.inlineStyles,
+                  authoredSizeStyles: elementInfo.authoredSizeStyles,
                   boundingRect: elementInfo.boundingRect,
                   parentBoundingRect: elementInfo.parentBoundingRect,
                 }
@@ -11795,12 +12092,15 @@ function DesignEditor() {
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
+        replacementElementInfo?: ElementInfo;
+        replacementSnapshotHtml?: string;
       },
     ) =>
       runVisualStructureChange(
         {
           activeCanvasSourceType,
           activeFile,
+          applyLinkedComponentEdit,
           applyLocalContentUpdate,
           canEditDesign,
           getFreshActiveContent,
@@ -11818,6 +12118,7 @@ function DesignEditor() {
     [
       activeFile,
       activeCanvasSourceType,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
       getFreshActiveContent,
@@ -11841,6 +12142,31 @@ function DesignEditor() {
     [codeLayerSourceForScreen, files, getScreenContent],
   );
 
+  // U14: paste/duplicate re-stamp data-agent-native-node-id on the clone but
+  // previously never remapped motion tracks, so a duplicated/pasted animated
+  // layer silently lost its animation (the compiled CSS still targeted the
+  // OLD node id). Clones any track whose targetNodeId is in nodeIdMap onto
+  // the new id. Only meaningful when targetFileId's timeline is the one
+  // currently loaded into motionTracks state (tracks aren't kept per-file).
+  const remapMotionTracksForClone = useCallback(
+    (nodeIdMap: Map<string, string>, targetFileId: string) => {
+      if (nodeIdMap.size === 0) return;
+      if (previousMotionFileIdRef.current !== targetFileId) return;
+      setMotionTracks((current) => {
+        const cloned = current
+          .filter((track) => nodeIdMap.has(track.targetNodeId))
+          .map((track) => ({
+            ...track,
+            targetNodeId: nodeIdMap.get(track.targetNodeId)!,
+          }));
+        if (cloned.length === 0) return current;
+        return [...current, ...cloned];
+      });
+      setMotionTracksDirty(true);
+    },
+    [],
+  );
+
   const handleVisualDuplicateChange = useCallback(
     (
       selector: string,
@@ -11857,11 +12183,14 @@ function DesignEditor() {
       runVisualDuplicateChange(
         {
           activeFile,
+          applyLinkedComponentEdit,
+          selectionBefore: captureCurrentSelection(),
           componentLinks: activeFile
             ? componentCloneContextForFile(activeFile.id)
             : undefined,
           applyLocalContentUpdate,
           canEditDesign,
+          remapMotionTracksForClone,
           getFreshActiveContent,
           selectedElement,
           selectedLayerIdsState,
@@ -11876,6 +12205,8 @@ function DesignEditor() {
         details,
       ),
     [
+      remapMotionTracksForClone,
+      applyLinkedComponentEdit,
       activeFile,
       applyLocalContentUpdate,
       canEditDesign,
@@ -11905,7 +12236,7 @@ function DesignEditor() {
           applyLinkedComponentEdit,
           applyLocalContentUpdate,
           canEditDesign,
-          finalizePendingTextCreation,
+          prepareTextCreationFinalization,
           getFreshActiveContent,
           liveScreenSnapshotsById,
           recordPendingLiveTextEdit,
@@ -11927,7 +12258,7 @@ function DesignEditor() {
       applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
-      finalizePendingTextCreation,
+      prepareTextCreationFinalization,
       getFreshActiveContent,
       liveScreenSnapshotsById,
       recordPendingLiveTextEdit,
@@ -12004,11 +12335,14 @@ function DesignEditor() {
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
+        replacementElementInfo?: ElementInfo;
+        replacementSnapshotHtml?: string;
       },
     ) =>
       runScreenVisualStructureChange(
         {
           activeFile,
+          applyLinkedComponentEdit,
           applyFileContentUpdate,
           canEditDesign,
           designSourceType,
@@ -12037,6 +12371,7 @@ function DesignEditor() {
       handleVisualStructureChange,
       overviewScreens,
       recordPendingLiveStructureEdit,
+      applyLinkedComponentEdit,
       t,
     ],
   );
@@ -12058,8 +12393,11 @@ function DesignEditor() {
       runScreenVisualDuplicateChange(
         {
           activeFile,
+          applyLinkedComponentEdit,
+          selectionBefore: captureCurrentSelection(),
           applyFileContentUpdate,
           canEditDesign,
+          remapMotionTracksForClone,
           componentLinksForFile: componentCloneContextForFile,
           getScreenContent,
           handleVisualDuplicateChange,
@@ -12072,6 +12410,8 @@ function DesignEditor() {
         details,
       ),
     [
+      remapMotionTracksForClone,
+      applyLinkedComponentEdit,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
@@ -12101,7 +12441,7 @@ function DesignEditor() {
           applyLinkedComponentEdit,
           canEditDesign,
           designSourceType,
-          finalizePendingTextCreation,
+          prepareTextCreationFinalization,
           getScreenContent,
           handleTextContentChange,
           liveScreenSnapshotsById,
@@ -12127,7 +12467,7 @@ function DesignEditor() {
       applyLinkedComponentEdit,
       canEditDesign,
       designSourceType,
-      finalizePendingTextCreation,
+      prepareTextCreationFinalization,
       getScreenContent,
       handleTextContentChange,
       liveScreenSnapshotsById,
@@ -12136,6 +12476,28 @@ function DesignEditor() {
       t,
       updateLiveScreenSnapshotContent,
     ],
+  );
+
+  // A text creation whose owner canvas never became ready still owes its node
+  // what was typed; this is the host-side writer for that text. Registered once
+  // and read through a ref, so no render leaves a creation without one.
+  const pendingTextHostCommitRef = useRef({
+    commitText: handleScreenTextContentChange,
+  });
+  pendingTextHostCommitRef.current = {
+    commitText: handleScreenTextContentChange,
+  };
+  useEffect(
+    () =>
+      registerPendingTextHostCommit((screenId, nodeId, text) =>
+        runPendingTextHostCommit(
+          pendingTextHostCommitRef.current.commitText,
+          screenId,
+          nodeId,
+          text,
+        ),
+      ),
+    [],
   );
 
   // ── Clipboard copy and paste ───────────────────────────────────────────────
@@ -12188,31 +12550,6 @@ function DesignEditor() {
   const getCanvasScreenClipboardEntries = useCallback(() => {
     return copiedScreenEntriesRef.current ?? [];
   }, []);
-
-  // U14: paste/duplicate re-stamp data-agent-native-node-id on the clone but
-  // previously never remapped motion tracks, so a duplicated/pasted animated
-  // layer silently lost its animation (the compiled CSS still targeted the
-  // OLD node id). Clones any track whose targetNodeId is in nodeIdMap onto
-  // the new id. Only meaningful when targetFileId's timeline is the one
-  // currently loaded into motionTracks state (tracks aren't kept per-file).
-  const remapMotionTracksForClone = useCallback(
-    (nodeIdMap: Map<string, string>, targetFileId: string) => {
-      if (nodeIdMap.size === 0) return;
-      if (previousMotionFileIdRef.current !== targetFileId) return;
-      setMotionTracks((current) => {
-        const cloned = current
-          .filter((track) => nodeIdMap.has(track.targetNodeId))
-          .map((track) => ({
-            ...track,
-            targetNodeId: nodeIdMap.get(track.targetNodeId)!,
-          }));
-        if (cloned.length === 0) return current;
-        return [...current, ...cloned];
-      });
-      setMotionTracksDirty(true);
-    },
-    [],
-  );
 
   // Adopts a marker payload found in the live rich clipboard into this tab's
   // in-memory clipboard refs (see U4).
@@ -12384,6 +12721,8 @@ function DesignEditor() {
       runPasteSelection(
         {
           activeFile,
+          applyLinkedComponentEdit,
+          selectionBefore: captureCurrentSelection(),
           designId: id,
           applyFileContentUpdate,
           applyLocalContentUpdate,
@@ -12420,6 +12759,7 @@ function DesignEditor() {
         position,
       ),
     [
+      applyLinkedComponentEdit,
       activeFile,
       id,
       applyFileContentUpdate,
@@ -12850,6 +13190,8 @@ function DesignEditor() {
     () =>
       runDuplicateSelection({
         activeFile,
+        applyLinkedComponentEdit,
+        selectionBefore: captureCurrentSelection(),
         designId: id,
         applyFileContentUpdate,
         applyLocalContentUpdate,
@@ -12873,6 +13215,7 @@ function DesignEditor() {
         viewModeRef,
       }),
     [
+      applyLinkedComponentEdit,
       activeFile,
       id,
       applyFileContentUpdate,
@@ -12901,6 +13244,8 @@ function DesignEditor() {
         activeBreakpointWidthStateRef,
         activeCanvasSourceType,
         activeFile,
+        boardFileId,
+        boardSelectionWorldBounds: boardSelectionWorldBoundsRef.current,
         applyFileContentUpdate,
         applyLocalContentUpdate,
         canEditDesign,
@@ -12930,6 +13275,7 @@ function DesignEditor() {
       activeBreakpointUpperBoundPx,
       activeCanvasSourceType,
       activeFile,
+      boardFileId,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       canEditDesign,
@@ -13022,8 +13368,11 @@ function DesignEditor() {
   const handleGroupSelection = useCallback(
     () =>
       runGroupSelection({
+        activeBreakpointWidthState,
         activeFile,
+        applyLinkedComponentEdit,
         applyLocalContentUpdate,
+        boardFileId,
         canEditDesign,
         codeLayerOwnerByNodeIdRef,
         contentHistorySelectionAfterRef,
@@ -13039,8 +13388,11 @@ function DesignEditor() {
         undoManagerRef,
       }),
     [
+      activeBreakpointWidthState,
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
+      boardFileId,
       canEditDesign,
       files,
       getFreshActiveContent,
@@ -13091,6 +13443,7 @@ function DesignEditor() {
       runFrameSelection({
         activeBreakpointWidthState,
         activeFile,
+        applyLinkedComponentEdit,
         applyLocalContentUpdate,
         boardFileId,
         canEditDesign,
@@ -13108,6 +13461,7 @@ function DesignEditor() {
     [
       activeBreakpointWidthState,
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
@@ -13941,6 +14295,7 @@ function DesignEditor() {
     () =>
       runUngroupSelection({
         activeFile,
+        applyLinkedComponentEdit,
         applyLocalContentUpdate,
         canEditDesign,
         codeLayerOwnerByNodeIdRef,
@@ -13954,6 +14309,7 @@ function DesignEditor() {
       }),
     [
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
       files,
@@ -14108,6 +14464,11 @@ function DesignEditor() {
 
   const handleRuntimeStructureInsertRejected = useCallback(
     (reason: string) => {
+      if (reason.startsWith("verification-")) {
+        cancelPendingStructureVerification("conflict");
+        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+        return;
+      }
       // Never swallow this: a rejected insert leaves nothing on screen and
       // nothing in the pending list, so a silent return is indistinguishable
       // from the drop never having happened.
@@ -14116,7 +14477,7 @@ function DesignEditor() {
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
-    [t],
+    [cancelPendingStructureVerification, t],
   );
 
   const handleCutSelection = useCallback(async () => {
@@ -14484,6 +14845,7 @@ function DesignEditor() {
       runChangeSelectedZIndex(
         {
           activeFile,
+          applyLinkedComponentEdit,
           applyLocalContentUpdate,
           canEditDesign,
           codeLayerOwnerByNodeIdRef,
@@ -14497,6 +14859,7 @@ function DesignEditor() {
       ),
     [
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
       commitVisualStyles,
@@ -14565,6 +14928,7 @@ function DesignEditor() {
       runNudgeSelection(
         {
           activeFile,
+          applyLinkedComponentEdit,
           applyLocalContentUpdate,
           boardFileId,
           boardFrameGeometry,
@@ -14591,6 +14955,7 @@ function DesignEditor() {
     [
       activeCanvasSourceType,
       activeFile,
+      applyLinkedComponentEdit,
       applyLocalContentUpdate,
       boardFileId,
       boardFrameGeometry,
@@ -14708,6 +15073,7 @@ function DesignEditor() {
         id,
         isSynced,
         lastLocalContentRef,
+        resetGeometryCommitCoalescing,
         liveFrameGeometryRef,
         liveScreenSnapshotsById,
         localContentRedoStackRef,
@@ -14771,6 +15137,7 @@ function DesignEditor() {
       queryClient,
       queueFileContentSave,
       replacePreviewContent,
+      resetGeometryCommitCoalescing,
       restoreSelectionSnapshot,
       requestPendingLiveNonStyleRevert,
       requestPendingVisualStyleRevert,
@@ -14819,6 +15186,7 @@ function DesignEditor() {
         id,
         isSynced,
         lastLocalContentRef,
+        resetGeometryCommitCoalescing,
         liveFrameGeometryRef,
         liveScreenSnapshotsById,
         localContentRedoStackRef,
@@ -14894,6 +15262,7 @@ function DesignEditor() {
       queueFileContentSave,
       recordLocalContentHistoryChangeFallback,
       replacePreviewContent,
+      resetGeometryCommitCoalescing,
       restoreSelectionSnapshot,
       syncLiveScreenSnapshotPreview,
       syncUndoRedoState,
@@ -14910,7 +15279,18 @@ function DesignEditor() {
   });
   historyDispatchRef.current = { undo: runCurrentUndo, redo: runCurrentRedo };
   const dispatchHistory = useCallback((direction: "undo" | "redo") => {
-    const run = () => historyDispatchRef.current[direction]();
+    const pendingCountBefore =
+      pendingVisualStyleEditsRef.current.length +
+      pendingLiveNonStyleEditsRef.current.length;
+    const run = () => {
+      historyDispatchRef.current[direction]();
+      const pendingCountAfter =
+        pendingVisualStyleEditsRef.current.length +
+        pendingLiveNonStyleEditsRef.current.length;
+      if (pendingCountBefore > 0 && pendingCountAfter === 0) {
+        clearPendingEditSessionRecoveryRef.current();
+      }
+    };
     const queue = linkedComponentMutationQueueRef.current?.queue;
     const pending = queue
       ? queue.dispatchHistory(queue.hasPending() ? () => flushSync(run) : run)
@@ -15548,18 +15928,31 @@ function DesignEditor() {
 
   const handleExitReviewCommentMode = useCallback(() => {
     setPinMode(false);
+    setOverviewCommentPinRequest(null);
     setDrawMode(false);
     setActiveTool("move");
     setMode("edit");
   }, []);
 
+  const handleOverviewCommentPin = useCallback(
+    (canvasPoint: { x: number; y: number }) => {
+      overviewCommentPinNonceRef.current += 1;
+      setOverviewCommentPinRequest({
+        nonce: overviewCommentPinNonceRef.current,
+        canvasPoint,
+      });
+    },
+    [],
+  );
+
   const handlePinToolToggle = useCallback(() => {
-    if (!activeFile || !canCommentDesign) return;
+    if (!canCommentDesign) return;
     if (pinMode) {
       handleExitReviewCommentMode();
       return;
     }
     setCommentsHidden(false);
+    setActiveInspectorTab("comments");
     // Comment pins are an editing overlay on the infinite canvas, not a third
     // focused view. If invoked from Interact, leave it before arming the pin.
     if (viewMode !== "overview") {
@@ -15570,7 +15963,6 @@ function DesignEditor() {
     setPinMode(true);
     setDrawMode(false);
   }, [
-    activeFile,
     canCommentDesign,
     enterOverviewFromZoom,
     handleExitReviewCommentMode,
@@ -16244,7 +16636,7 @@ function DesignEditor() {
     // a component instance, matching onOpacityChange's "absent handler is a
     // no-op" convention just below.
     onDetachInstance:
-      canEditDesign && selectedComponentNodeId
+      canEditDesign && selectedInstanceActionNodeId
         ? handleDetachInstanceMenuAction
         : undefined,
     // H2: plain digit sequences — set selection opacity. The identity and
@@ -16478,6 +16870,26 @@ function DesignEditor() {
       ),
     [pendingLiveNonStyleEdits, pendingVisualStyleEdits],
   );
+  useEffect(() => {
+    if (!id) return;
+    if (pendingVisualEditCount > 0) {
+      pendingEditSessionDesignIdRef.current = id;
+      const result = writePendingEditSessionMarker(id, pendingVisualEditCount);
+      setPendingEditSessionMarker(
+        result.status === "stored"
+          ? { status: "absent" }
+          : { status: "unavailable", reason: result.reason },
+      );
+      return;
+    }
+    if (pendingEditSessionDesignIdRef.current === id) {
+      pendingEditSessionDesignIdRef.current = null;
+      const result = clearPendingEditSessionMarker(id);
+      if (result.status === "unavailable") {
+        setPendingEditSessionMarker(result);
+      }
+    }
+  }, [id, pendingVisualEditCount]);
   const pendingVisualStyleScreenSourceTypes = useMemo(
     () =>
       new Map<string, unknown>(
@@ -16544,15 +16956,56 @@ function DesignEditor() {
       screenRoutesById,
     ],
   );
-  const visualEditPromptResult = useCallback<() => VisualEditPromptResult>(
-    () => ({
+  const visualEditPromptResult = useCallback<
+    () => VisualEditPromptResult
+  >(() => {
+    if (pendingVisualEditCount > 0) {
+      return {
+        designId: id ?? null,
+        pendingEditCount: pendingVisualEditCount,
+        status: "ready",
+        prompt: pendingVisualStylePrompt,
+      };
+    }
+    const recoveryMarker = pendingEditSessionRecoveryMarker;
+    if (recoveryMarker.status === "present") {
+      const count = recoveryMarker.marker.count;
+      return {
+        designId: id ?? null,
+        pendingEditCount: count,
+        status: "session-ended",
+        prompt: `The previous visual-edit session ended with ${count} pending edit${count === 1 ? "" : "s"}. Those live edits are no longer recoverable; recreate them in the canvas before asking the agent to apply source changes.`,
+      };
+    }
+    if (recoveryMarker.status === "unavailable") {
+      return {
+        designId: id ?? null,
+        pendingEditCount: 0,
+        status: "unknown",
+        prompt: `The previous visual-edit session marker could not be read (${recoveryMarker.reason}). Do not treat an empty prompt as proof that no edits were lost; inspect the source and recreate the intended canvas changes before applying.`,
+      };
+    }
+    if (pendingEditSessionMarker.status === "unavailable") {
+      return {
+        designId: id ?? null,
+        pendingEditCount: 0,
+        status: "unknown",
+        prompt: `The current visual-edit session marker could not be read (${pendingEditSessionMarker.reason}). Do not treat an empty prompt as proof that no edits were lost; inspect the source and recreate the intended canvas changes before applying.`,
+      };
+    }
+    return {
       designId: id ?? null,
-      pendingEditCount: pendingVisualEditCount,
-      status: pendingVisualEditCount > 0 ? "ready" : "empty",
+      pendingEditCount: 0,
+      status: "empty",
       prompt: pendingVisualStylePrompt,
-    }),
-    [id, pendingVisualEditCount, pendingVisualStylePrompt],
-  );
+    };
+  }, [
+    id,
+    pendingEditSessionMarker,
+    pendingEditSessionRecoveryMarker,
+    pendingVisualEditCount,
+    pendingVisualStylePrompt,
+  ]);
   const handleApplyPendingVisualStylesWithAgent = useCallback(
     async () =>
       runApplyPendingVisualStylesWithAgent({
@@ -18503,8 +18956,18 @@ function DesignEditor() {
       .find((target) => target.fileId === boardFileId);
     return boardTarget
       ? bridgeSourceIdForCodeLayerNode(boardTarget.node)
-      : null;
-  }, [boardFileId, selectedLayerTargets]);
+      : activeFileId === boardFileId
+        ? (selectedElement?.runtimeSourceId ??
+          selectedElement?.sourceId ??
+          null)
+        : null;
+  }, [
+    activeFileId,
+    boardFileId,
+    selectedElement?.runtimeSourceId,
+    selectedElement?.sourceId,
+    selectedLayerTargets,
+  ]);
 
   /** The overview canvas keeps a layer's owning screen in `selectedScreenIds`
    *  (z-order and "topmost screen" read it), so without this the screen's own
@@ -20524,6 +20987,7 @@ function DesignEditor() {
           contentUndoStackRef,
           contentHistorySelectionAfterRef,
           activeFile,
+          applyLinkedComponentEdit,
           applyFileContentUpdate,
           boardFileId,
           canEditDesign,
@@ -20572,6 +21036,7 @@ function DesignEditor() {
       recordLocalContentHistoryEntry,
       remapMotionTracksForClone,
       sendRuntimeLayerMoveSemanticHandoff,
+      applyLinkedComponentEdit,
       t,
       visualScreenFileIds,
     ],
@@ -20659,8 +21124,7 @@ function DesignEditor() {
       // A marquee gesture spans many calls (one per mousemove tick, plus one
       // mouseup "final" report — see coalesceMarqueeSelectionHistory's doc
       // comment); every other caller of this handler is a single, complete
-      // selection change. Route on `intent.final`, a marquee-only field the
-      // shared ElementSelectionIntent type doesn't declare.
+      // selection change. Route on the marquee-only `intent.final` field.
       recordMarqueeSelectionHistoryAroundChange(
         () =>
           runLayerMarqueeSelectionChange(
@@ -20685,7 +21149,7 @@ function DesignEditor() {
             selection,
             intent,
           ),
-        intent as { source?: string; final?: boolean },
+        intent,
       ),
     [
       clearPendingOverviewLayerSelectionTimer,
@@ -20707,6 +21171,7 @@ function DesignEditor() {
           additive: resolveMarqueeAdditive(intent),
           range: Boolean(intent?.range || intent?.shiftKey),
           source: "marquee",
+          final: intent?.final === true,
           shiftKey: Boolean(intent?.shiftKey),
           metaKey: Boolean(intent?.metaKey),
           ctrlKey: Boolean(intent?.ctrlKey),
@@ -21057,6 +21522,7 @@ function DesignEditor() {
       metadata: OverviewScreenRendererArgs[1],
       geometry: OverviewScreenRendererArgs[2],
       breakpointFrame?: OverviewBreakpointRendererArgs[2],
+      renderOptions?: ScreenContentRenderOptions,
     ) => {
       const breakpointWidthPx = breakpointFrame?.widthPx;
       const screenIsActive =
@@ -21183,6 +21649,8 @@ function DesignEditor() {
           nativePreviewActive={screenIsActive}
           previewToken={screenPreviewToken}
           externalSnapshotHtml={screenSnapshot}
+          onBootStart={renderOptions?.onBootStart}
+          onBootReady={renderOptions?.onBootReady}
           onExternalContentSnapshot={(snapshot) =>
             handleScreenExternalContentSnapshot(screen.id, snapshot)
           }
@@ -21352,6 +21820,13 @@ function DesignEditor() {
           commentPinsHidden={commentsHidden || !screenIsActive}
           onExitPinMode={handleExitReviewCommentMode}
           designId={id}
+          reviewCanPost={canCommentDesign}
+          reviewCanResolve={canEditDesign}
+          reviewCurrentUserEmail={session?.email}
+          reviewFocusRequest={reviewFocusRequest}
+          onDispatchCommentToAgent={handleDispatchCommentToAgent}
+          onSendThreadToAgent={handleSendReviewThreadToAgent}
+          reviewSendingThreadId={reviewSendingThreadId}
           designTitle={design?.title}
           commentContextId={`${id}:${screen.id}`}
           commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(screen.filename)}`}
@@ -21398,6 +21873,7 @@ function DesignEditor() {
       overviewCanvasZoom,
       mode,
       canEditDesign,
+      canCommentDesign,
       activeTool,
       pinMode,
       commentsHidden,
@@ -21430,6 +21906,11 @@ function DesignEditor() {
       cssVarValues,
       id,
       design?.title,
+      session?.email,
+      reviewFocusRequest,
+      handleDispatchCommentToAgent,
+      handleSendReviewThreadToAgent,
+      reviewSendingThreadId,
       repromptDraftRequest,
       handleRepromptDraftConsumed,
       handleExitReviewCommentMode,
@@ -21438,8 +21919,14 @@ function DesignEditor() {
     ],
   );
   const renderScreenContent = useCallback<OverviewScreenRenderer>(
-    (screen, metadata, geometry) =>
-      renderEditableScreenContent(screen, metadata, geometry),
+    (screen, metadata, geometry, options) =>
+      renderEditableScreenContent(
+        screen,
+        metadata,
+        geometry,
+        undefined,
+        options,
+      ),
     [renderEditableScreenContent],
   );
   const renderBreakpointContent = useCallback<OverviewBreakpointRenderer>(
@@ -21454,6 +21941,10 @@ function DesignEditor() {
           height: frame.displayHeight,
         },
         frame,
+        {
+          onBootStart: frame.onBootStart,
+          onBootReady: frame.onBootReady,
+        },
       ),
     [renderEditableScreenContent],
   );
@@ -21805,25 +22296,8 @@ function DesignEditor() {
     ],
   );
   // BP-DEEP v2 item 6 — "Change width" in the per-breakpoint "…" menu.
-  // There is no update-breakpoint action, so a width change is expressed
-  // through the existing action surface as add + (re-target) + remove
-  // (breakpoint ids are width-derived definitions, not referenced by scoped
-  // overrides — those are plain max-width media rules in the document, keyed
-  // by px value).
-  //
-  // Order matters: ADD the new width first, re-target the active edit scope
-  // to it if the changed breakpoint was active, and only THEN remove the old
-  // breakpoint. This is deliberately the reverse of remove-then-add. Under
-  // the old remove-first order, if the changed breakpoint was the active
-  // edit target and the add failed (or was merely slow), edits stayed scoped
-  // to an orphaned width — a @media bound that no longer existed as a
-  // breakpoint, with no frame rendering it. Adding first means a failed add
-  // aborts before anything is removed: the old breakpoint stays fully intact
-  // (in the set and, if it was active, still targeted), so there is no
-  // window where the edit scope points at a width with no backing
-  // breakpoint. `add-breakpoint` silently ignores duplicate widths and
-  // assigns the new breakpoint its own id, so there's no transient
-  // duplicate-width conflict with the old breakpoint still present.
+  // The action updates the existing definition in place, so a width change
+  // cannot expose an intermediate add/remove state or lose the active id.
   const handleBreakpointChangeWidth = useCallback(
     (breakpointId: string, widthPx: number) => {
       if (!id) return;
@@ -21837,50 +22311,46 @@ function DesignEditor() {
         return;
       }
       const label = breakpointLabelForWidth(widthPx);
-      void (async () => {
-        let addedBreakpointId: string | undefined;
-        try {
-          const addResult = await addBreakpointMutation.mutateAsync({
-            designId: id,
-            label,
-            widthPx,
+      void updateBreakpointMutation
+        .mutateAsync({
+          designId: id,
+          breakpointId,
+          label,
+          widthPx,
+        })
+        .then((result) => {
+          if (!result?.updated) {
+            toast.error(t("common.genericError"), {
+              description:
+                result?.reason ?? t("designEditor.breakpointBar.changeWidth"),
+            });
+            return;
+          }
+          const reconcilePending = (
+            result as { collabReconcilePending?: unknown } | undefined
+          )?.collabReconcilePending;
+          if (Array.isArray(reconcilePending) && reconcilePending.length > 0) {
+            toast.warning(t("visualEditor.changesSaveWhenReconnected"));
+          }
+          if (activeBreakpointWidthStateRef.current === existing.widthPx) {
+            handleBreakpointBarSelect(widthPx, breakpointId);
+          }
+        })
+        .catch((error) => {
+          toast.error(t("common.genericError"), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t("designEditor.breakpointBar.changeWidth"),
           });
-          addedBreakpointId = addResult.breakpointSet.breakpoints.find(
-            (breakpoint) => breakpoint.widthPx === widthPx,
-          )?.id;
-          if (!addedBreakpointId) return;
-        } catch {
-          // Add failed: abort before touching the old breakpoint. The old
-          // width stays in the set and, if it was the active edit target,
-          // stays targeted — no orphaned scope.
-          return;
-        }
-        if (
-          activeBreakpointWidthStateRef.current === existing.widthPx &&
-          addedBreakpointId
-        ) {
-          handleBreakpointBarSelect(widthPx, addedBreakpointId);
-        }
-        try {
-          await removeBreakpointMutation.mutateAsync({
-            designId: id,
-            breakpointId,
-          });
-        } catch {
-          // The new width is already added (and, if applicable, already the
-          // active target); the old breakpoint lingering in the set on a
-          // failed remove is a harmless extra frame, not an orphaned scope.
-          // Server state stays the source of truth; the design query refetch
-          // reconciles it.
-        }
-      })();
+        });
     },
     [
       id,
       designBreakpoints,
-      removeBreakpointMutation,
-      addBreakpointMutation,
       handleBreakpointBarSelect,
+      t,
+      updateBreakpointMutation,
     ],
   );
 
@@ -22059,7 +22529,9 @@ function DesignEditor() {
       baseWidthPx={activeScreenBaseWidthPx}
       canEdit={canEditDesign}
       mutationPending={
-        addBreakpointMutation.isPending || removeBreakpointMutation.isPending
+        addBreakpointMutation.isPending ||
+        removeBreakpointMutation.isPending ||
+        updateBreakpointMutation.isPending
       }
       showAllFrames={!breakpointFramesHidden}
       onShowAllFramesChange={(value) => setBreakpointFramesHidden(!value)}
@@ -22934,7 +23406,10 @@ function DesignEditor() {
   const leftContentWidth =
     activeLeftPanel === "code"
       ? Math.max(leftSidebarWidth, 640)
-      : Math.max(Math.min(leftSidebarWidth, 420), 220);
+      : Math.max(
+          Math.min(leftSidebarWidth, 420),
+          activeLeftPanel === "agent" ? 320 : 220,
+        );
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
   // These focused surfaces need a clear viewport beside the absolute rail.
   const leftChromeOverlayInset = leftSidebarVisible
@@ -23068,6 +23543,7 @@ function DesignEditor() {
     exporting: pngExporting || svgExporting,
     designId: id,
     fileId: activeFile?.id,
+    boardFileId,
     componentNodeId: selectedComponentNodeId,
     componentInstanceHasLocalOverrides: selectedComponentHasLocalOverrides,
     onResetComponentInstanceOverrides:
@@ -23077,10 +23553,20 @@ function DesignEditor() {
               kind: "resetOverrides",
             })
         : undefined,
+    onRestoreComponent:
+      canEditDesign && id && activeFile?.id
+        ? (nodeId: string) =>
+            applyLinkedComponentEdit(activeFile.id, nodeId, {
+              kind: "restoreMain",
+            })
+        : undefined,
     sourceCapabilities,
     selectedElementAlreadyComponent,
     onCreateComponent:
-      id && selectedElement && !selectedElementAlreadyComponent
+      id &&
+      selectedElement &&
+      !selectedElementAlreadyComponent &&
+      !selectedElementInsideComponent
         ? handleCreateComponent
         : undefined,
     defaultComponentName,
@@ -23088,7 +23574,7 @@ function DesignEditor() {
     statesPanelProps,
     reviewPanelProps: resolvedReviewPanelProps,
     reviewCommentsPanelProps,
-    reviewCommentsCount: reviewOpenCount,
+    reviewCommentsCount: reviewUnreadCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     alignSelectionDisabled: !alignAvailability.canAlign,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
@@ -23237,7 +23723,7 @@ function DesignEditor() {
               <div
                 data-design-agent-panel
                 className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  "min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
                   activeLeftPanel === "agent" ? "flex" : "hidden",
                 )}
               >
@@ -23246,16 +23732,19 @@ function DesignEditor() {
                 ) : canEditDesign ? (
                   <AgentChatSurface
                     mode="panel"
-                    className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
+                    className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
+                    chatOnly={true}
+                    onCollapse={() => setActiveLeftPanel(null)}
                     storageKey={DESIGN_CHAT_STORAGE_KEY}
                     emptyStateText={t("chat.emptyState")}
                     suggestions={designAgentSuggestions}
                     dynamicSuggestions={designAgentSuggestionConfig}
                     scope={designChatScope}
                     chatHistory={designChatHistory}
+                    isolateHistoryByScope={true}
                     showScopeBadge={false}
-                    showHeader={false}
-                    showTabBar={false}
+                    showHeader={true}
+                    showTabBar={true}
                     browserTabId={browserTabId}
                     onComposerTextChange={handleComposerTextChange}
                     onMessageCountChange={setChatMessageCount}
@@ -23639,7 +24128,8 @@ function DesignEditor() {
             canCreateComponent={
               canEditDesign &&
               Boolean(selectedElement) &&
-              !selectedElementAlreadyComponent
+              !selectedElementAlreadyComponent &&
+              !selectedElementInsideComponent
             }
             canReprompt={
               canEditDesign &&
@@ -23663,7 +24153,7 @@ function DesignEditor() {
             // Figma instance-only cluster: only meaningful when the current
             // selection IS a recognised component instance.
             isComponentInstance={
-              canEditDesign && Boolean(selectedComponentNodeId)
+              canEditDesign && Boolean(selectedInstanceActionNodeId)
             }
             canFlipHorizontal={canEditDesign && Boolean(selectedElement)}
             canFlipVertical={canEditDesign && Boolean(selectedElement)}
@@ -23985,7 +24475,25 @@ function DesignEditor() {
                         directlyHoveredScreenId={hoveredScreenRootId}
                         previewDeviceFrame={deviceFrame}
                         activeTool={activeTool}
+                        reviewResourceId={id}
+                        reviewPinMode={pinMode}
+                        reviewCommentsHidden={commentsHidden}
+                        reviewCanPost={canCommentDesign}
+                        reviewCanResolve={canEditDesign}
+                        reviewTargetId={null}
+                        reviewCurrentUserEmail={session?.email}
+                        reviewFocusRequest={reviewFocusRequest}
+                        onExitReviewPinMode={handleExitReviewCommentMode}
+                        onDispatchCommentToAgent={handleDispatchCommentToAgent}
+                        onSendThreadToAgent={handleSendReviewThreadToAgent}
+                        reviewSendingThreadId={reviewSendingThreadId}
+                        reviewDesignTitle={design?.title}
                         onActiveToolChange={handleOverviewActiveToolChange}
+                        onCommentPin={
+                          canCommentDesign
+                            ? handleOverviewCommentPin
+                            : undefined
+                        }
                         selectAllRequest={overviewSelectAllRequest}
                         clearSelectionRequest={overviewClearSelectionRequest}
                         onScreenSelectionChange={
@@ -24142,7 +24650,8 @@ function DesignEditor() {
                         onAddBreakpoint={handleOverviewAddBreakpoint}
                         breakpointMutationPending={
                           addBreakpointMutation.isPending ||
-                          removeBreakpointMutation.isPending
+                          removeBreakpointMutation.isPending ||
+                          updateBreakpointMutation.isPending
                         }
                         onActiveBreakpointChange={
                           handleOverviewActiveBreakpointChange
@@ -24159,8 +24668,40 @@ function DesignEditor() {
                         }
                         onEditBreakpoint={handleOverviewEditBreakpoint}
                         renderScreenContent={renderScreenContent}
+                        screenSnapshotsById={liveScreenSnapshotsById}
                         renderBreakpointContent={renderBreakpointContent}
                       />
+                      {id &&
+                      shouldRenderOverviewReviewCanvas({
+                        boardFileId,
+                        boardFileContent,
+                      }) ? (
+                        <ReviewCanvasPins
+                          active={pinMode}
+                          hidden={commentsHidden}
+                          onClose={handleExitReviewCommentMode}
+                          canvasSelector="[data-multi-screen-canvas-surface]"
+                          showPlacementPlane={false}
+                          resourceType="design"
+                          resourceId={id}
+                          targetId={null}
+                          pinRequest={overviewCommentPinRequest}
+                          canPost={canCommentDesign}
+                          canResolve={canEditDesign}
+                          focusRequest={reviewFocusRequest}
+                          onDispatchCommentToAgent={
+                            canEditDesign
+                              ? handleDispatchCommentToAgent
+                              : undefined
+                          }
+                          onSendThreadToAgent={
+                            canEditDesign
+                              ? handleSendReviewThreadToAgent
+                              : undefined
+                          }
+                          sendingThreadId={reviewSendingThreadId}
+                        />
+                      ) : null}
                       {/* §6.4 — the compact/full breakpoint bar itself now
                           renders as a non-overlapping chrome row ABOVE
                           canvasContainerRef (see the shared block right
@@ -24390,6 +24931,7 @@ function DesignEditor() {
                         designId={id}
                         reviewCanPost={canCommentDesign}
                         reviewCanResolve={canEditDesign}
+                        reviewCurrentUserEmail={session?.email}
                         reviewFocusRequest={reviewFocusRequest}
                         onDispatchCommentToAgent={
                           canEditDesign

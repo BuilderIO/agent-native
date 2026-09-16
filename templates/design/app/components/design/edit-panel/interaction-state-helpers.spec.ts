@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ElementInfo } from "../types";
 import { cssElementSize } from "./element-classification";
 import {
+  clearAuthoredSizeStylesForCommit,
   patchAuthoredInlineStyles,
   authoredStyleValue,
   elementWithInteractionStateStyles,
@@ -224,5 +225,54 @@ describe("patchAuthoredInlineStyles", () => {
       left: "10px",
       height: "fit-content",
     });
+  });
+  it("carries committed alignment and shorthand authoring onto the snapshot", () => {
+    const committed = {
+      alignItems: "center",
+      alignContent: "space-between",
+      justifyItems: "start",
+      gap: "16px",
+      padding: "12px",
+    };
+    expect(
+      patchAuthoredInlineStyles({ alignItems: "flex-start" }, committed),
+    ).toEqual(committed);
+  });
+
+  it("carries committed flex, gap and padding authoring onto the snapshot", () => {
+    const committed = {
+      flexDirection: "column",
+      flexWrap: "wrap",
+      columnGap: "12px",
+      rowGap: "8px",
+      justifyContent: "space-between",
+      paddingTop: "4px",
+      paddingRight: "6px",
+      paddingBottom: "10px",
+      paddingLeft: "2px",
+    };
+    expect(
+      patchAuthoredInlineStyles(
+        { flexDirection: "row", paddingTop: "0px" },
+        committed,
+      ),
+    ).toEqual(committed);
+  });
+});
+
+describe("clearAuthoredSizeStylesForCommit", () => {
+  it("drops changed native hints while retaining unrelated axes", () => {
+    expect(
+      clearAuthoredSizeStylesForCommit(
+        { width: "240px", height: "auto" },
+        { width: "fit-content" },
+      ),
+    ).toEqual({ height: "auto" });
+  });
+
+  it("preserves absence when the snapshot has no native hints", () => {
+    expect(
+      clearAuthoredSizeStylesForCommit(undefined, { width: "120px" }),
+    ).toBe(undefined);
   });
 });

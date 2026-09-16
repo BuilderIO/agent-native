@@ -49,6 +49,13 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("apiAccessDeniedStatus");
     expect(route).toContain("accessDeniedStatus");
     expect(route).toContain('const startAt = searchParams.get("at")');
+    expect(route).toContain("readShareAttribution(search)");
+    expect(route).not.toContain(
+      'typeof window === "undefined" ? "" : window.location.search',
+    );
+    expect(route).not.toContain(
+      'if (typeof window === "undefined") return path;',
+    );
     expect(route).toContain(
       "buildShareContinuationQuery(attribution, startAt, panelParam)",
     );

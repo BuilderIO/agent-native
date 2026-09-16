@@ -922,6 +922,36 @@ describe("generate-design: new-file creation path", () => {
     expect(frame).toMatchObject({ width: 390, height: 844 });
   });
 
+  it("persists an explicit canvas target's viewport metadata", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a mobile onboarding screen",
+      files: [
+        {
+          filename: "onboarding.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Onboarding</body></html>",
+        },
+      ],
+      canvasFrames: [
+        {
+          filename: "onboarding.html",
+          x: 0,
+          y: 0,
+          width: 390,
+          height: 844,
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const metadata = data.screenMetadata as Record<string, unknown>;
+    expect(metadata[result.savedFiles[0]!.id]).toMatchObject({
+      width: 390,
+      height: 844,
+    });
+  });
+
   it("derives the base frame and breakpoint set from an explicit devices list", async () => {
     await action.run({
       designId: "design-1",
@@ -1334,9 +1364,12 @@ describe("generate-design: new screens never stack on existing frames", () => {
     );
     expect(newFile).toBeDefined();
     expect(frames["file-1"]).toMatchObject({ width: 1440, height: 900 });
-    expect(frames[newFile!.id]?.x).toBeCloseTo(
-      1440 + 24 + 390 * (1440 / 1280) + 96,
-    );
+    expect(frames[newFile!.id]?.x).toBeCloseTo(1440 + 24 + 390 + 96);
+    const metadata = mocks.getDesignData().screenMetadata as Record<
+      string,
+      { width: number; height: number }
+    >;
+    expect(metadata["file-1"]).toMatchObject({ width: 1440, height: 900 });
   });
 
   it("reserves rotated breakpoints around the primary after an aspect-changing regeneration", async () => {
@@ -1654,7 +1687,9 @@ describe("generate-design: explicit device requests reconcile breakpoints & rota
       { x: number }
     >;
     const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
-    expect(placed.x).toBeCloseTo(2530);
+    // The target's explicit 200x200 canvas frame now seeds its missing source
+    // metadata, so its 390px responsive preview has a square fallback height.
+    expect(placed.x).toBeCloseTo(2140);
   });
 });
 
@@ -1674,6 +1709,9 @@ describe("generate-design: explicit device request resizes an existing frame", (
     // Existing index.html (file-1) with a persisted desktop-sized frame.
     setExistingFile("<html><body>old</body></html>");
     mocks.setDesignData({
+      screenMetadata: {
+        "file-1": { width: 1440, height: 900 },
+      },
       canvasFrames: {
         "file-1": { x: 300, y: 120, width: 1440, height: 900, z: 0 },
       },
@@ -1697,5 +1735,10 @@ describe("generate-design: explicit device request resizes an existing frame", (
       >
     )["file-1"];
     expect(frame).toMatchObject({ x: 300, y: 120, width: 390, height: 844 });
+    const metadata = mocks.getDesignData().screenMetadata as Record<
+      string,
+      { width: number; height: number }
+    >;
+    expect(metadata["file-1"]).toMatchObject({ width: 390, height: 844 });
   });
 });

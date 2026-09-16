@@ -422,6 +422,17 @@ const editor = {
   registryBlockUnreadable: "저장된 블록 소스를 읽을 수 없습니다.",
   blocksFieldRevisionConflict:
     "이 블록 필드가 다른 곳에서 변경되었습니다. 편집 내용은 저장되지 않았으며 최신 버전이 표시됩니다.",
+  reconcileConflict:
+    "이 페이지가 다른 곳에서 변경되었습니다. 편집 내용은 아직 저장되지 않았습니다.",
+  reconcileFailed:
+    "최신 변경 내용을 합칠 수 없습니다. 편집 내용은 아직 저장되지 않았습니다.",
+  reconcileSaveFailed:
+    "편집 내용을 저장할 수 없습니다. 검토한 후 다시 시도하세요.",
+  reconcileSaving: "편집 내용을 저장하는 중…",
+  reconcileReview: "변경 사항 검토",
+  reconcileReviewStale:
+    "저장된 버전이 다시 변경되었습니다. 저장하기 전에 최신 텍스트를 검토하세요.",
+  reconcileRefresh: "최신 버전 검토",
   collabConnectingReadOnly:
     "라이브 편집기에 연결하는 중입니다. 읽기 전용 스냅샷을 표시합니다.",
   liveDocumentSaveBeforeSyncFailed:
@@ -811,6 +822,9 @@ const rawLiterals = {
     previewDraftSavedToHistory: "편집 내용이 버전 기록에 저장되었습니다",
     previewDraftSavedSeparately: "편집 내용이 별도 페이지로 저장되었습니다",
     previewDraftOpenSavedPage: "페이지 열기",
+    previewDraftMoreOptions: "추가 옵션",
+    previewDraftViewFullVersions: "전체 버전 보기",
+    previewDraftShowChanges: "변경 사항 보기",
     previewDraftConflict:
       "이 초안은 더 최신 페이지 버전과 충돌하여 복원되지 않았습니다.",
     restorePreviewDraft: "초안 복원",

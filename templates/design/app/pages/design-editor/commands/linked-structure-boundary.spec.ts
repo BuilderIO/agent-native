@@ -156,6 +156,33 @@ it.each([
   expect(result.result.message).toBe(LINKED_COMPONENT_STRUCTURE_REFUSAL);
   expect(result.content).toBe(html);
 });
+it("allows a main-only transform for atomic reconciliation while retaining instance and root guards", () => {
+  const html = main + instance;
+  const options = { source, allowMainComponentStructure: true };
+  const deletion = applyVisualEdit(
+    html,
+    { kind: "deleteNode", target: { nodeId: "label" } },
+    options,
+  );
+  expect(deletion.result.status).toBe("applied");
+  expect(deletion.content).not.toContain('data-agent-native-node-id="label"');
+  expect(deletion.content).toContain(instance);
+  for (const intent of [
+    { kind: "deleteNode", target: { nodeId: "copy-label" } },
+    { kind: "deleteNode", target: { nodeId: "main" } },
+    { kind: "unwrap", targetId: "main" },
+    {
+      kind: "moveNode",
+      target: { nodeId: "label" },
+      anchor: { nodeId: "copy" },
+      placement: "inside",
+    },
+  ] satisfies EditIntent[]) {
+    const refused = applyVisualEdit(html, intent, options);
+    expect(refused.result.status).toBe("unsupported");
+    expect(refused.content).toBe(html);
+  }
+});
 it.each(["copy-label", "label"])(
   "refuses cross-document descendant removal: %s",
   (nodeId) => {
@@ -250,6 +277,17 @@ it.each(["copy-label", "label", "mixed", "copy", "main", "lower-bound-only"])(
       content = next;
     });
     const applyLinkedComponentEdit = vi.fn((_fileId, _nodeId, edit) => {
+      if (selection === "main") {
+        expect(edit).toEqual({ kind: "deleteMain" });
+        return;
+      }
+      if (selection === "label") {
+        expect(edit).toEqual({
+          kind: "structure",
+          intents: [{ kind: "deleteNode", target: { nodeId: "label" } }],
+        });
+        return;
+      }
       expect(edit.kind).toBe("styleTargetsBatch");
       expect(edit.targets).toEqual([
         {
@@ -323,6 +361,22 @@ it.each(["copy-label", "label", "mixed", "copy", "main", "lower-bound-only"])(
           edit: { kind: "style", property: "color", value: "blue" },
         }).status,
       ).toBe("updated");
+    } else if (selection === "label") {
+      expect(applyLinkedComponentEdit).toHaveBeenCalledOnce();
+      expect(applyLinkedComponentEdit.mock.calls[0]?.slice(0, 2)).toEqual([
+        "copy-file",
+        "main",
+      ]);
+      expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+      expect(applyFileContentUpdate).not.toHaveBeenCalled();
+    } else if (selection === "main") {
+      expect(applyLinkedComponentEdit).toHaveBeenCalledOnce();
+      expect(applyLinkedComponentEdit.mock.calls[0]?.slice(0, 2)).toEqual([
+        "copy-file",
+        "main",
+      ]);
+      expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+      expect(applyFileContentUpdate).not.toHaveBeenCalled();
     } else if (selection === "copy") {
       expect(applyLinkedComponentEdit).not.toHaveBeenCalled();
       expect(content).not.toContain('data-agent-native-node-id="copy"');

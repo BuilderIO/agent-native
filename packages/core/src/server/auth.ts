@@ -3946,6 +3946,9 @@ function createAuthGuardFn(
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
+    if (getMethod(event) === "GET" && p === "/_agent-native/oauth/popup") {
+      return;
+    }
     // Liveness probes: always public so uptime monitors and the keep-warm cron
     // can reach them without a session. Ping exposes only a static message;
     // health exposes only aggregate readiness and a trivial `SELECT 1`.
@@ -4691,7 +4694,7 @@ function desktopOAuthBrowserBindingCookieAttrs(event: H3Event): {
     : { sameSite: "lax", secure: false };
 }
 
-function setFirstRunOnboardingCookie(event: H3Event): void {
+export function setFirstRunOnboardingCookie(event: H3Event): void {
   setCookie(event, FIRST_RUN_ONBOARDING_COOKIE, "1", {
     ...crossSiteCookieAttrs(event),
     ...cookieDomainAttrs(),
@@ -5288,9 +5291,6 @@ async function mountBetterAuthRoutes(
             name: typeof user.name === "string" ? user.name : undefined,
             image: typeof user.picture === "string" ? user.picture : undefined,
           });
-          if (isNewGoogleUser === true) {
-            setFirstRunOnboardingCookie(event);
-          }
           if (isGoogleProfileImageUrl(user.picture)) {
             await putSetting(`avatar:${email}`, {
               image: user.picture.trim(),
@@ -5312,7 +5312,7 @@ async function mountBetterAuthRoutes(
               // panels, which is always a Better Auth id — the Google profile
               // id that used to go here joined to nothing. Only looked up when
               // the event will actually be emitted.
-              authUserId: isNewGoogleUser
+              canonicalAuthUserId: isNewGoogleUser
                 ? await getBetterAuthUserIdForEmail(email)
                 : undefined,
               name: typeof user.name === "string" ? user.name : undefined,

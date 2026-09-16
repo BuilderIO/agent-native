@@ -9,6 +9,7 @@ import type {
   ScreenContentCacheEntry,
   ScreenFile,
   ScreenMetadata,
+  ScreenContentRenderOptions,
   ScreenPreviewState,
   ScreenSourceType,
 } from "./types";
@@ -131,6 +132,7 @@ export function getCachedScreenContentNode(
   renderScreenContent: NonNullable<
     MultiScreenCanvasProps["renderScreenContent"]
   >,
+  options?: ScreenContentRenderOptions,
 ): ReactNode {
   const width = Math.max(1, Math.round(geometry.width));
   const height = Math.max(1, Math.round(geometry.height));
@@ -145,7 +147,7 @@ export function getCachedScreenContentNode(
   ) {
     return prior.contentNode;
   }
-  const contentNode = renderScreenContent(screen, metadata, geometry);
+  const contentNode = renderScreenContent(screen, metadata, geometry, options);
   cache.set(screen.id, {
     screen,
     metadata,

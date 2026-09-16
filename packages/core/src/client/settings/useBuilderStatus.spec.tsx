@@ -432,7 +432,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      "about:blank",
+      expect.stringContaining("/_agent-native/oauth/popup?"),
       "_blank",
       "width=600,height=700",
     );
@@ -658,7 +658,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      "about:blank",
+      expect.stringContaining("/_agent-native/oauth/popup?"),
       "_blank",
       "width=600,height=700",
     );
@@ -908,7 +908,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      "about:blank",
+      expect.stringContaining("/_agent-native/oauth/popup?"),
       "_blank",
       "width=600,height=700",
     );
@@ -947,7 +947,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      "about:blank",
+      expect.stringContaining("/_agent-native/oauth/popup?"),
       "_blank",
       "width=600,height=700",
     );
@@ -1485,7 +1485,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      "about:blank",
+      expect.stringContaining("/_agent-native/oauth/popup?"),
       "_blank",
       "width=600,height=700",
     );
@@ -1546,7 +1546,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      "about:blank",
+      expect.stringContaining("/_agent-native/oauth/popup?"),
       "_blank",
       "width=600,height=700",
     );

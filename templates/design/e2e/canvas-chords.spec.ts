@@ -291,7 +291,10 @@ test.describe("canvas chords", () => {
     await pressEditorKey(page, `${PRIMARY}+G`);
 
     await expectFileContent(request, baseURL, designId, (html) => {
-      const wrapper = openTagContaining(html, 'layer-name="Group');
+      const wrapper = openTagContaining(
+        html,
+        'data-agent-native-layer-name="Group',
+      );
       expect(wrapper, "no group wrapper was created").toBeTruthy();
       expect(wrapper).toContain("left: 240px");
       expect(wrapper).toContain("top: 340px");
