@@ -176,16 +176,25 @@ export async function resolveWorkspace(
     const formattedHost = advertisedHost.includes(":")
       ? `[${advertisedHost}]`
       : advertisedHost;
-    const gatewayUrl = (
-      env.WORKSPACE_GATEWAY_URL || `http://${formattedHost}:${gatewayPort}`
-    ).replace(/\/+$/, "");
+    const configuredGatewayUrl = env.WORKSPACE_GATEWAY_URL?.replace(/\/+$/, "");
+    const gatewayCandidates = configuredGatewayUrl
+      ? [configuredGatewayUrl]
+      : Array.from(
+          { length: 21 },
+          (_, offset) => `http://${formattedHost}:${gatewayPort + offset}`,
+        );
     const appPortStart = Number(
       env.WORKSPACE_APP_PORT_START || DEFAULT_APP_PORT_START,
     );
 
     // Prefer the gateway's authoritative list (handles port reassignment);
     // fall back to a filesystem scan with the same ordering the gateway uses.
-    const fromGateway = await fetchGatewayApps(gatewayUrl);
+    const gatewayResults = await Promise.all(
+      gatewayCandidates.map((candidate) => fetchGatewayApps(candidate)),
+    );
+    const gatewayIndex = gatewayResults.findIndex((result) => result !== null);
+    const gatewayUrl = gatewayCandidates[Math.max(gatewayIndex, 0)]!;
+    const fromGateway = gatewayIndex >= 0 ? gatewayResults[gatewayIndex] : null;
     const discovered =
       fromGateway ?? discoverAppDirs(path.join(root, "apps"), appPortStart);
 

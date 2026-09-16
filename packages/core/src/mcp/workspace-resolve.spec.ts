@@ -247,6 +247,22 @@ describe("resolveWorkspace — workspace via gateway list (authoritative)", () =
     ]);
   });
 
+  it("discovers a gateway that moved within the fallback range", async () => {
+    const root = buildWorkspace(["mail"]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url === "http://127.0.0.1:8082/_workspace/apps"
+          ? new Response(JSON.stringify([{ id: "mail", port: 8155 }]))
+          : new Response("no", { status: 404 }),
+      ),
+    );
+
+    const ws = await resolveWorkspace(root, {});
+    expect(ws.gatewayUrl).toBe("http://127.0.0.1:8082");
+    expect(ws.apps.map((app) => [app.id, app.port])).toEqual([["mail", 8155]]);
+  });
+
   it("falls back to the filesystem scan when the gateway returns non-2xx", async () => {
     const root = buildWorkspace(["dispatch", "mail"]);
     vi.stubGlobal(
