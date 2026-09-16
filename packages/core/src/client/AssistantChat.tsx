@@ -3368,6 +3368,15 @@ const AssistantChatInner = forwardRef<
     retainedTextStreamingState.threadId === textStreamingThreadId
       ? retainedTextStreamingState.identity
       : null;
+  const resetRetainedTextStreamingState = useCallback(
+    (turnId?: string) => {
+      setRetainedTextStreamingState({
+        threadId: textStreamingThreadId,
+        identity: turnId ? { runId: null, turnId } : null,
+      });
+    },
+    [textStreamingThreadId],
+  );
   const chatRunStartedAtRef = useRef<number | null>(null);
   const chatRunTurnIdRef = useRef<string | null>(null);
   const [lastChatRunDurationMs, setLastChatRunDurationMs] = useState<
@@ -5836,6 +5845,9 @@ const AssistantChatInner = forwardRef<
           },
         ]);
       } else {
+        if (!hideUserMessage) {
+          resetRetainedTextStreamingState(effectiveContinuationTurnId);
+        }
         markOptimisticRunning();
         try {
           appendThreadMessage({
@@ -5891,6 +5903,7 @@ const AssistantChatInner = forwardRef<
       isRunning,
       materializeFrozenReconnectContent,
       markOptimisticRunning,
+      resetRetainedTextStreamingState,
       engineSetupRequired,
       appendThreadMessage,
       selectedEffort,

@@ -2756,6 +2756,25 @@ describe("chat submit and stop hardening", () => {
     expect(source).not.toContain("checkingAiConnection");
   });
 
+  it("clears a retained finished turn before a visible submit becomes optimistic", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const submitStart = source.indexOf("const addToQueue = useCallback");
+    const submitEnd = source.indexOf("const mcpResumeTimerRef", submitStart);
+    const submitSource = source.slice(submitStart, submitEnd);
+    const resetIndex = submitSource.indexOf(
+      "resetRetainedTextStreamingState(effectiveContinuationTurnId);",
+    );
+    const optimisticIndex = submitSource.indexOf("markOptimisticRunning();");
+
+    expect(submitStart).toBeGreaterThan(-1);
+    expect(submitEnd).toBeGreaterThan(submitStart);
+    expect(submitSource).toContain("if (!hideUserMessage)");
+    expect(resetIndex).toBeGreaterThan(-1);
+    expect(resetIndex).toBeLessThan(optimisticIndex);
+  });
+
   it("never disables the chat composer on an unresolved provider status check", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
