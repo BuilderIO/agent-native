@@ -4,6 +4,10 @@ import { linkedComponentRootForNode } from "@shared/component-links";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import {
+  clearAuthoredSizeStylesForCommit,
+  patchAuthoredInlineStyles,
+} from "@/components/design/edit-panel/interaction-state-helpers";
+import {
   mergeRotationValue,
   parseRotationValue,
 } from "@/components/design/edit-panel/transform-helpers";
@@ -410,6 +414,13 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
             ...base.computedStyles,
             [writeProperty]: primaryValue,
           },
+          inlineStyles: patchAuthoredInlineStyles(base.inlineStyles, {
+            [writeProperty]: primaryValue,
+          }),
+          authoredSizeStyles: clearAuthoredSizeStylesForCommit(
+            base.authoredSizeStyles,
+            { [writeProperty]: primaryValue },
+          ),
         };
       });
     }

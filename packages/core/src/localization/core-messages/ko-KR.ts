@@ -69,9 +69,20 @@ const messages: AgentChatTranslation = {
     "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI 크레딧과 클라우드 코드 변경을 사용할 수 있습니다.",
+  "onboarding.builderReadyCreditsOnly":
+    "AI 크레딧을 사용할 수 있습니다. 클라우드 코드 편집에는 Background Agent 설정의 Builder 프로젝트가 필요합니다.",
+  "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
   "onboarding.capability.llm.keySummary": "AI 제공업체 또는 로컬 모델 연결",
   "onboarding.capability.fileStorage.keySummary":
     "Builder 스토리지 또는 S3 호환 버킷",
+  "onboarding.fileStorage.title": "파일 저장소 선택",
+  "onboarding.fileStorage.description":
+    "관리형 Builder 스토리지 또는 자체 S3 호환 버킷용 사용자 지정 스토리지 키를 선택하세요.",
+  "onboarding.fileStorage.custom": "사용자 지정 스토리지 키 사용",
+  "onboarding.fileStorage.customDescription":
+    "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
   "onboarding.capability.voiceInput.label": "음성 입력",
   "onboarding.capability.voiceInput.keySummary":
     "브라우저 음성 인식 또는 음성 텍스트 변환",
@@ -135,6 +146,38 @@ const messages: AgentChatTranslation = {
   "common.no": "아니요",
   "common.retry": "다시 시도",
   "common.save": "저장",
+  "agents.hostedAgent": "호스팅된 에이전트",
+  "agents.provider": "제공업체",
+  "agents.providerA2A": "A2A 에이전트 (Foundry, Gemini 또는 사용자 지정)",
+  "agents.providerAnthropic": "Anthropic 관리형 에이전트",
+  "agents.agentId": "에이전트 ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "환경 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API 기본 URL (선택 사항)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Anthropic Managed Agents 필드를 입력하세요.",
+  "agents.managedAgentCheck": "채팅에서 위임하면 연결을 확인합니다.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent가 저장되었습니다. 채팅에서 위임하세요.",
+  "agents.cardUrl": "에이전트 카드 URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "인증",
+  "agents.authNone": "인증 없음",
+  "agents.authBearer": "Bearer 토큰",
+  "agents.authClientCredentials": "OAuth 클라이언트 자격 증명",
+  "agents.chooseCredential": "자격 증명 선택",
+  "agents.vault": "Vault",
+  "agents.tokenUrl": "토큰 URL",
+  "agents.clientId": "클라이언트 ID",
+  "agents.scope": "범위",
+  "agents.authIncomplete": "호스팅된 에이전트 인증 필드를 완료하세요.",
+  "agents.invalidUrl":
+    "에이전트 URL은 HTTPS를 사용해야 하며 localhost 또는 루프백 개발 URL은 예외입니다.",
+  "agents.statusReachable": "연결 가능",
+  "agents.statusAuthRejected": "인증 거부됨",
+  "agents.statusNoJsonRpc": "JSON-RPC 없음",
   "common.saveFailed": "저장 실패",
   "common.saveFailedStatus": "저장 실패({{status}})",
   "common.saving": "저장 중...",
@@ -363,6 +406,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "에이전트가 완료 전에 중지되었습니다",
   "errorMessages.agentConnection":
     "에이전트 연결이 중단되었습니다. 연결을 확인한 후 다시 시도하세요.",
+  "errorMessages.attachmentPasswordProtected":
+    "이 PDF는 비밀번호로 보호되어 있어 읽을 수 없습니다. 비밀번호 보호를 해제하거나 관련 텍스트를 붙여넣은 후 다시 시도하세요.",
   "errorMessages.builderAuthentication":
     "Builder가 연결된 자격 증명을 거부했습니다. 설정에서 Builder.io를 다시 연결한 후 다시 시도하세요.",
   "errorMessages.builderModelUnauthorized":
@@ -377,6 +422,10 @@ const messages: AgentChatTranslation = {
     "에이전트 연결이 완료 전에 시간 초과되었습니다. 부분적으로 완료된 작업에서 계속하거나 다시 시도할 수 있습니다.",
   "errorMessages.invalidToolSchema":
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
+  "errorMessages.malformedRequest":
+    "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.malformedRequestAttachment":
+    "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
   "errorMessages.noProviderConnected":
     "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 연 다음 Builder.io(무료 요금제 제공)를 연결하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
@@ -708,6 +757,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "데이터 인사이트",
   "widget.dataTable": "데이터 테이블",
   "widget.downloadCsv": "CSV 다운로드",
+  "widget.connectProvider": "{{provider}} 연결",
   "widget.loadingToolResult": "도구 결과를 불러오는 중",
   "widget.noRows": "행 없음",
   "widget.points": "포인트 {{formattedCount}}개",

@@ -8,6 +8,7 @@ import {
   IconCamera,
   IconCheck,
   IconLock,
+  IconLogout,
   IconPencil,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
@@ -26,6 +27,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { signOut } from "../sign-out.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useSession } from "../use-session.js";
@@ -600,6 +602,22 @@ export function AccountSettingsForm({
         control={<SchedulingTimezoneField compact />}
       />
       <PasswordSettings />
+      <SettingsRow
+        id="sign-out"
+        label={t("agentChat.auth.logOut")}
+        icon={<IconLogout className="size-4" />}
+        control={
+          <ActionButton
+            type="button"
+            intent="danger"
+            emphasis="outline"
+            size="compact"
+            onPress={() => void signOut()}
+          >
+            {t("agentChat.auth.logOut")}
+          </ActionButton>
+        }
+      />
     </SettingsGroup>
   );
 }

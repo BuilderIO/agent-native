@@ -2092,6 +2092,7 @@ export default function RecordRoute() {
             endedAt: snapshot.endedAt,
             consoleLogs: snapshot.consoleLogs,
             networkRequests: snapshot.networkRequests,
+            interactionEvents: snapshot.interactionEvents,
           } as any,
         );
       } catch (err) {

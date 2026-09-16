@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewComment } from "../../review/types.js";
 
 const mutate = vi.hoisted(() => vi.fn());
+const reviewComments = vi.hoisted(() => vi.fn());
+const writeClipboardText = vi.hoisted(() => vi.fn());
 const rootComment = vi.hoisted(
   () =>
     ({
@@ -38,20 +40,47 @@ const rootComment = vi.hoisted(
       metadata: null,
     }) satisfies ReviewComment,
 );
+const resolvedComment = vi.hoisted(
+  () =>
+    ({
+      id: "comment-2",
+      resourceType: "design",
+      resourceId: "design-1",
+      threadId: "thread-2",
+      parentCommentId: null,
+      targetId: "screen-1",
+      kind: "comment",
+      status: "resolved",
+      anchor: null,
+      body: "Resolved note",
+      authorEmail: "reviewer@example.com",
+      authorName: null,
+      createdBy: "human",
+      resolutionTarget: "human",
+      mentions: [],
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      resolvedBy: "owner@example.com",
+      resolvedAt: "2026-07-13T13:05:00.000Z",
+      consumedAt: null,
+      deletedBy: null,
+      deletedAt: null,
+      createdAt: "2026-07-13T13:01:00.000Z",
+      updatedAt: "2026-07-13T13:05:00.000Z",
+      metadata: null,
+    }) satisfies ReviewComment,
+);
 
 vi.mock("./use-review.js", () => ({
-  useReviewComments: () => ({
-    data: {
-      comments: [rootComment],
-      reviewStatus: { status: "draft" },
-    },
-    isLoading: false,
-  }),
+  useReviewComments: (...args: unknown[]) => reviewComments(...args),
   useCreateReviewComment: () => ({ mutate, isPending: false }),
   useDeleteReviewComment: () => ({ mutate, isPending: false }),
   useReplyReviewComment: () => ({ mutate, isPending: false }),
   useResolveReviewThread: () => ({ mutate, isPending: false }),
 }));
+
+vi.mock("../clipboard.js", () => ({ writeClipboardText }));
 
 import { ReviewThreadPanel } from "./ReviewThreadPanel.js";
 
@@ -73,6 +102,14 @@ describe("ReviewThreadPanel sidebar layout", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    reviewComments.mockImplementation(() => ({
+      data: {
+        comments: [rootComment],
+        reviewStatus: { status: "draft" },
+      },
+      isLoading: false,
+    }));
+    writeClipboardText.mockResolvedValue(true);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -90,6 +127,8 @@ describe("ReviewThreadPanel sidebar layout", () => {
     comment.metadata = null;
     delete comment.resolutionNote;
     mutate.mockReset();
+    reviewComments.mockReset();
+    writeClipboardText.mockReset();
     vi.unstubAllGlobals();
   });
 
@@ -338,6 +377,112 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(
       container.querySelector('button[aria-label="More actions"]'),
     ).not.toBeNull();
+  });
+
+  it("filters review history by open and resolved status", () => {
+    reviewComments.mockReturnValue({
+      data: {
+        comments: [rootComment, resolvedComment],
+        reviewStatus: { status: "draft" },
+      },
+      isLoading: false,
+    });
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          showFilter
+          filterLabel="Filter comments"
+          allCommentsLabel="All"
+          openCommentsLabel="Open"
+          resolvedCommentsLabel="Resolved"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Make the heading clearer");
+    expect(container.textContent).not.toContain("Resolved note");
+    expect(reviewComments).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeResolved: false }),
+    );
+
+    const filterTrigger = container.querySelector<HTMLButtonElement>(
+      "[data-review-filter-trigger]",
+    );
+    expect(filterTrigger).not.toBeNull();
+    act(() => {
+      filterTrigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+        }),
+      );
+    });
+
+    const resolvedOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).find((item) => item.textContent?.trim() === "Resolved");
+    expect(resolvedOption).not.toBeUndefined();
+    act(() => resolvedOption?.click());
+
+    expect(container.textContent).toContain("Resolved note");
+    expect(container.textContent).not.toContain("Make the heading clearer");
+    expect(reviewComments).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeResolved: true }),
+    );
+  });
+
+  it("copies a stable thread link through the shared clipboard helper", async () => {
+    writeClipboardText.mockResolvedValue(true);
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canCopyLink
+          copyLinkLabel="Copy link"
+          linkCopiedLabel="Link copied"
+        />,
+      );
+    });
+
+    const moreActions = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions"]',
+    );
+    expect(moreActions).not.toBeNull();
+    act(() => {
+      moreActions?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+        }),
+      );
+    });
+
+    const copyItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Copy link");
+    expect(copyItem).not.toBeUndefined();
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).some((item) => item.textContent?.trim() === "Delete comment"),
+    ).toBe(false);
+    act(() => copyItem?.click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const expectedUrl = new URL(window.location.href);
+    expectedUrl.hash = "review-thread=thread-1";
+    expect(writeClipboardText).toHaveBeenCalledWith(expectedUrl.toString());
   });
 
   it("renders resolution notes from metadata and a future typed field", () => {

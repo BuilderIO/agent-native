@@ -11,8 +11,9 @@ federation carries verified identity or organization context between separate
 Agent-Native deployments. The two capabilities have different setup, credentials,
 and trust boundaries. For organization provider setup, see
 [Administered Deployments](/docs/administered-deployments#organization-sso-and-directory-provisioning).
-This page describes cross-app federation through Desktop and server-side
-protocols.
+This page describes cross-app federation through the browser, Desktop, and
+server-side protocols. For the one-click connection and marketplace direction,
+see [Cross-App Connect and the Agent-Native Marketplace](/docs/cross-app-connect-design).
 
 <!-- i18n-copy-ignore: Agent-Native is a proper name. -->
 
@@ -97,9 +98,12 @@ credentials.
 
 ## Configuration
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> is used only by the remaining
-server-side and Desktop path when a self-hosted app needs an explicit Dispatch
-deployment. It does not add a browser login option or automatic browser handoff.
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> identifies the hub for the
+server-side and browser paths when a self-hosted app needs an explicit Dispatch
+deployment. The <code>browser.identity-sso</code> rollout flag keeps browser
+federation opt-in. When enabled, a signed-in Dispatch user gets a silent
+<code>prompt=none</code> probe on app load and is provisioned without seeing a
+second login wall; the ordinary local sign-in form remains the fallback.
 
 For a self-hosted Dispatch deployment, register every custom app with its
 exact app ID, client ID, HTTPS origin, callback path, and
@@ -134,7 +138,9 @@ After deployment:
 
 1. Verify that normal email, password, magic-link, and configured provider
    sign-in continue to work in a browser.
-2. Verify that the browser auth surface has no Agent-Native sign-in option.
+2. With <code>browser.identity-sso</code> off, verify ordinary local sign-in.
+   With it on, verify the silent <code>prompt=none</code> probe and local-form
+   fallback without introducing a wildcard cookie.
 3. If Desktop workspace SSO is enabled, verify one exact registered app from
    the explicit Desktop Settings action.
 4. If organization federation is enabled, verify the exact organization ID
@@ -144,6 +150,25 @@ To roll back the remaining server-side or Desktop path, disable the relevant
 feature flag and remove <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> from a
 self-hosted deployment, then redeploy. The additive identity and organization
 records remain available for ordinary local auth.
+
+## Browser identity SSO rollout runbook
+
+The browser path is intentionally a rollout, not a default switch in core.
+For one canonical `*.agent-native.com` app:
+
+1. Keep `browser.identity-sso` disabled for the general population and enable
+   it for one test email or equivalent rollout cohort.
+2. Sign in to Dispatch, sign out of the target app, and load the target app.
+   Confirm the silent `prompt=none` probe returns the same verified account and
+   that the app lands in its normal local session.
+3. Repeat with no active hub session. Confirm `login_required` returns to the
+   ordinary local sign-in form, with no Agent-Native sign-in button.
+4. Widen the cohort only after checking that logout and revocation behave as
+   expected. The first enablement may require one-time revocation of existing
+   sessions so stale local sessions do not mask the probe result.
+
+The probe never changes the verified-email JIT-link rule. Identity-link rows are
+append-only, and a wildcard cookie is not part of this rollout.
 
 ## Related docs
 

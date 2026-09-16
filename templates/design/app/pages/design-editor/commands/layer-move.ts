@@ -4,6 +4,7 @@ import type {
   CodeLayerProjection,
   CodeLayerSource,
   CodeLayerTreeNode,
+  MoveNodeEditIntent,
 } from "@shared/code-layer";
 import {
   applyVisualEdit,
@@ -63,6 +64,10 @@ import type { DesignFile } from "@/pages/design-editor/types";
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
 import { prepareLayerNodeIdentities } from "./layer-node-identity";
 import {
+  resolveLinkedComponentStructureTarget,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "./selection-publication";
@@ -71,6 +76,7 @@ export interface LayerMoveArgs {
   activeFileId?: string | null;
   activeBreakpointWidthState?: number;
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -386,6 +392,7 @@ export function runLayerMove(
     activeFileId,
     activeBreakpointWidthState,
     activeFile,
+    applyLinkedComponentEdit,
     applyFileContentUpdate,
     canEditDesign,
     canMoveLayer,
@@ -614,6 +621,40 @@ export function runLayerMove(
     if (nodeId) preparedNodeIdByDraggedId.set(drag.draggedId, nodeId);
   }
 
+  const destinationSource = targetOwner.sourceProjection.source;
+  const linkedStructureIntents =
+    classifiedDrags.length > 0 &&
+    classifiedDrags.every((drag) => drag.kind === "same-file")
+      ? getLayerMoveIterationOrder(classifiedDrags, intent.placement).flatMap(
+          (drag): MoveNodeEditIntent[] => {
+            const draggedOwner = codeLayerOwnerByNodeId.get(drag.draggedId);
+            const draggedNodeId =
+              draggedOwner?.node.dataAttributes["data-agent-native-node-id"];
+            const anchorNodeId =
+              targetOwner.node.dataAttributes["data-agent-native-node-id"];
+            return draggedNodeId && anchorNodeId
+              ? [
+                  {
+                    kind: "moveNode",
+                    target: { nodeId: draggedNodeId },
+                    anchor: { nodeId: anchorNodeId },
+                    placement: intent.placement,
+                  },
+                ]
+              : [];
+          },
+        )
+      : [];
+  const linkedComponentTarget =
+    applyLinkedComponentEdit &&
+    linkedStructureIntents.length === classifiedDrags.length
+      ? resolveLinkedComponentStructureTarget({
+          content: destContent,
+          source: destinationSource,
+          intents: linkedStructureIntents,
+        })
+      : null;
+
   let nextDestContent = preparedDestination.content;
   const preparedSourceContentMap = new Map<string, string>();
   const sourceOriginalContentMap = new Map<string, string>();
@@ -759,6 +800,9 @@ export function runLayerMove(
         },
         {
           source,
+          ...(linkedComponentTarget
+            ? { allowMainComponentStructure: true }
+            : {}),
           moveNode: {
             destinationIsFlow: destinationIsAutoLayout,
             sourceWasIgnoredInFlow:
@@ -992,6 +1036,59 @@ export function runLayerMove(
     .filter((node): node is CodeLayerNode => Boolean(node));
 
   const hasCrossFileMoves = sourceContentMap.size > 0;
+
+  // Once a linked MAIN was selected for atomic planning, a failed member
+  // cannot fall back to publishing the successful subset locally. That would
+  // split one Layers gesture across the component action and the local Yjs
+  // writer and leave the linked instances out of sync.
+  if (
+    linkedComponentTarget &&
+    movedNodeIdByDraggedId.size !== linkedStructureIntents.length
+  ) {
+    return;
+  }
+
+  // A same-file move whose affected parents all belong to one canonical MAIN
+  // must go through the linked-component action before any local writer or
+  // history reservation. The target is resolved before the planning loop so
+  // the default code-layer refusal remains in force for every other move.
+  if (
+    applyLinkedComponentEdit &&
+    !hasCrossFileMoves &&
+    linkedComponentTarget &&
+    nextDestContent !== destContent &&
+    movedNodeIdByDraggedId.size === linkedStructureIntents.length
+  ) {
+    let semanticContent = destContent;
+    let semanticPlanMatches = true;
+    for (const moveIntent of linkedStructureIntents) {
+      const semanticPatch = applyVisualEdit(semanticContent, moveIntent, {
+        source: destinationSource,
+        allowMainComponentStructure: true,
+      });
+      if (semanticPatch.result.status !== "applied") {
+        semanticPlanMatches = false;
+        break;
+      }
+      semanticContent = semanticPatch.content;
+    }
+    applyLinkedComponentEdit(
+      linkedComponentTarget.fileId,
+      linkedComponentTarget.nodeId,
+      semanticPlanMatches && semanticContent === nextDestContent
+        ? { kind: "structure", intents: linkedStructureIntents }
+        : {
+            kind: "structure",
+            before: destContent,
+            after: nextDestContent,
+            selectionNodeIds: linkedStructureIntents.map(
+              (moveIntent) => moveIntent.target.nodeId!,
+            ),
+          },
+    );
+    return;
+  }
+
   try {
     for (const [sourceFileId, nextSourceContent] of sourceContentMap) {
       const sourceFile = files.find((file) => file.id === sourceFileId);

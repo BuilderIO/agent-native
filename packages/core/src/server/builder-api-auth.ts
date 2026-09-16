@@ -262,9 +262,21 @@ export async function resolveBuilderRequestAuthorization(
     };
   }
 
-  const legacyCredentialKeys = input.legacyCredentialKeys ?? [
+  return resolveBuilderLegacyRequestAuthorization(input.legacyCredentialKeys);
+}
+
+/**
+ * Resolve a legacy Builder key authorization, skipping OAuth entirely.
+ *
+ * Only for Builder surfaces that cannot accept an OAuth bearer token at all.
+ * Every other caller must go through `resolveBuilderRequestAuthorization` so a
+ * user's grant wins over a deploy-level key.
+ */
+export async function resolveBuilderLegacyRequestAuthorization(
+  legacyCredentialKeys: readonly BuilderLegacyCredentialKey[] = [
     "BUILDER_PRIVATE_KEY",
-  ];
+  ],
+): Promise<BuilderRequestAuthorization | null> {
   for (const key of legacyCredentialKeys) {
     if (key === "BUILDER_PRIVATE_KEY") {
       // Resolve the private key on its own, same as any other legacy key

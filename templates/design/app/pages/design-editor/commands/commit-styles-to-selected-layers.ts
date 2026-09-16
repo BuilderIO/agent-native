@@ -3,6 +3,10 @@ import { linkedComponentRootForNode } from "@shared/component-links";
 import type { InteractionState } from "@shared/interaction-states";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
+import {
+  clearAuthoredSizeStylesForCommit,
+  patchAuthoredInlineStyles,
+} from "@/components/design/edit-panel/interaction-state-helpers";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import type {
@@ -437,6 +441,14 @@ export function runCommitStylesToSelectedLayers(
             ...base.computedStyles,
             ...stylePatch,
           },
+          inlineStyles: patchAuthoredInlineStyles(
+            base.inlineStyles,
+            stylePatch,
+          ),
+          authoredSizeStyles: clearAuthoredSizeStylesForCommit(
+            base.authoredSizeStyles,
+            stylePatch,
+          ),
         };
       });
     }

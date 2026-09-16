@@ -15,11 +15,16 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import {
+  dispatchLinkedComponentStructure,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "./selection-publication";
 
 export interface UngroupSelectionArgs {
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
     nextContent: string,
@@ -65,6 +70,7 @@ export interface UngroupSelectionArgs {
 }
 
 export function runUngroupSelection({
+  applyLinkedComponentEdit,
   activeFile,
   applyLocalContentUpdate,
   canEditDesign,
@@ -99,6 +105,15 @@ export function runUngroupSelection({
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
   if (targetIds.length === 0) return;
+  if (
+    dispatchLinkedComponentStructure({
+      content: initialContent,
+      source,
+      intents: targetIds.map((targetId) => ({ kind: "unwrap", targetId })),
+      applyLinkedComponentEdit,
+    })
+  )
+    return;
 
   let content = initialContent;
   let anySucceeded = false;

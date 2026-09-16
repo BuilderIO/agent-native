@@ -246,6 +246,7 @@ export const factoryPollCursors = table(
     lastSlackTs: text("last_slack_ts"),
     slackHistoryCursor: text("slack_history_cursor"),
     lastSentrySeenAt: text("last_sentry_seen_at"),
+    babysitQueueCursor: text("babysit_queue_cursor"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
     ownerEmail: text("owner_email").notNull(),

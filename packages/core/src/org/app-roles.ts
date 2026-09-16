@@ -55,6 +55,8 @@ export interface AppRolesDescriptor<
   roleLabels?: Partial<Record<R, string>>;
   /** Permission keys are declared by app code; values are default role grants. */
   permissions?: Partial<Record<P, readonly R[]>>;
+  /** Optional human labels for permission controls. Falls back to the raw key. */
+  permissionLabels?: Partial<Record<P, string>>;
   /**
    * Column header for the role in `<TeamPage appRoles={...} />`. Defaults to
    * `appId`. Owned by the app rather than the framework's i18n catalogs — the
@@ -83,6 +85,12 @@ export type AppRoleLookup<R extends string = string> =
 export interface AppRoleCaller {
   userEmail?: string | null;
   orgId?: string | null;
+}
+
+export interface AppAuthorizationContext {
+  appId: string;
+  roles: string[];
+  permissions: Record<string, string[]>;
 }
 
 export interface AppRoles<
@@ -511,6 +519,27 @@ export async function getAppPermissionOverrides(
       JSON.parse(String(row.roles_json)),
     ]),
   );
+}
+
+/** Resolve the app authorization snapshot once for an agent turn. */
+export async function resolveAppAuthorizationContext(
+  appId: string,
+  caller: AppRoleCaller,
+): Promise<AppAuthorizationContext | null> {
+  const descriptor = getRegisteredAppRoles(appId);
+  if (!descriptor || !caller.userEmail || !caller.orgId) return null;
+  const roleResult = await resolveAppRole(descriptor, caller);
+  const roles = roleResult.status === "assigned" ? roleResult.roles : [];
+  const overrides = await getAppPermissionOverrides(appId, caller.orgId);
+  const permissions = Object.fromEntries(
+    Object.entries(descriptor.permissions ?? {}).map(
+      ([permission, defaults]) => [
+        permission,
+        overrides[permission] ?? [...(defaults ?? [])],
+      ],
+    ),
+  );
+  return { appId, roles, permissions };
 }
 
 export async function setAppPermissionRoles(opts: {

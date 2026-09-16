@@ -15,7 +15,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statfsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -31,6 +31,32 @@ const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
 const messageFlag = Math.max(argv.indexOf("-m"), argv.indexOf("--message"));
 const explicitMessage = messageFlag >= 0 ? argv[messageFlag + 1] : undefined;
+export const MIN_FREE_DISK_BYTES = 500 * 1024 * 1024;
+
+export function freeDiskBytes(root) {
+  const stats = statfsSync(root);
+  return Number(stats.bavail) * Number(stats.bsize);
+}
+
+export function assertFreeDisk(
+  root = REPO_ROOT,
+  minimumBytes = MIN_FREE_DISK_BYTES,
+) {
+  let freeBytes;
+  try {
+    freeBytes = freeDiskBytes(root);
+  } catch (error) {
+    throw new Error(
+      `could not read free disk space for ${root}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!Number.isFinite(freeBytes) || freeBytes < minimumBytes) {
+    throw new Error(
+      `only ${Math.round(freeBytes / 1024 / 1024)} MiB free on ${root}; need at least ${Math.round(minimumBytes / 1024 / 1024)} MiB before publishing`,
+    );
+  }
+  return freeBytes;
+}
 
 /**
  * Run git and let a failure be a failure — no `catch { return "" }` here.
@@ -72,6 +98,14 @@ export function isExcludedPath(file) {
 }
 
 function main() {
+  try {
+    assertFreeDisk();
+  } catch (error) {
+    console.error(
+      `ship-push: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  }
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch === "HEAD" || branch === "main" || branch === "master") {
     console.error(`ship-push: refusing to push from "${branch}".`);

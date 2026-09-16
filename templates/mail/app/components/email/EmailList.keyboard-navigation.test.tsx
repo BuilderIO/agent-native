@@ -350,6 +350,7 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(mocks.trash).toHaveBeenCalledWith({
       id: "first",
       accountEmail: "synthetic@example.test",
+      threadId: "thread-first",
     });
   });
 

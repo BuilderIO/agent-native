@@ -1,40 +1,18 @@
-import { stripBoardSurfaceOffsetFromCoord } from "@shared/board-file";
-import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
-import {
-  isRunningAppSourceType,
-  normalizeDesignSourceType,
-} from "@shared/source-mode";
+import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
-import { toast } from "sonner";
 
-import { dndHostLog } from "@/components/design/dnd-debug";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
-import {
-  bridgeSourceIdForCodeLayerNode,
-  codeLayerPatchMessage,
-  elementInfoFromCodeLayerNode,
-  resolveCodeLayerNodeFromBridge,
-  resolveCodeLayerNodeFromElementInfo,
-} from "@/pages/design-editor/code-layer-state";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
-import {
-  isAbsoluteCodeLayerNode,
-  rawAbsoluteContainerOffsetFromDrop,
-  removeAbsolutePositioningFromNodeInHtml,
-  setAbsolutePositioningForNodeInHtml,
-  setFlowPositioningOverrideForNodeInHtml,
-} from "@/pages/design-editor/html-layer-positioning";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
-import {
-  mapAcceptedSelectionNode,
-  projectAcceptedSource,
-} from "./selection-publication";
+import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
+import { runVisualStructureChange } from "./visual-structure-change";
 
 export interface ScreenVisualStructureChangeArgs {
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -104,6 +82,7 @@ export function runScreenVisualStructureChange(
   {
     activeFile,
     applyFileContentUpdate,
+    applyLinkedComponentEdit,
     canEditDesign,
     designSourceType,
     getScreenContent,
@@ -152,151 +131,41 @@ export function runScreenVisualStructureChange(
   );
   const screenSourceType =
     normalizeDesignSourceType(overviewScreen?.sourceType) ?? designSourceType;
-  if (isRunningAppSourceType(screenSourceType)) {
-    recordPendingLiveStructureEdit(
-      screenId,
-      selector,
-      anchorSelector,
-      placement,
-      elementInfo,
-      details,
-    );
-    return "pending";
-  }
-  const baseContent = getScreenContent(screenId);
-  const source = { kind: "design-file" as const, fileId: screenId };
-  const projection = buildCodeLayerProjection(baseContent, { source });
-  const resolveBridgeNode = (targetSelector: string, sourceId?: string) =>
-    resolveCodeLayerNodeFromBridge(projection, targetSelector, sourceId);
-  const targetInfo = elementInfo
-    ? {
-        ...elementInfo,
-        selector,
-        sourceId: details?.sourceId ?? elementInfo.sourceId,
-      }
-    : null;
-  const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
-    : resolveBridgeNode(selector, details?.sourceId);
-  const anchorNode = resolveBridgeNode(anchorSelector, details?.anchorSourceId);
-  const patch = applyVisualEdit(
-    baseContent,
+  const screenFile = {
+    ...activeFile,
+    id: screenId,
+    content: overviewScreen?.content ?? "",
+    filename: overviewScreen?.filename ?? activeFile.filename,
+    updatedAt: overviewScreen?.updatedAt ?? activeFile.updatedAt,
+  };
+  const result = runVisualStructureChange(
     {
-      kind: "moveNode",
-      target: targetNode ? { nodeId: targetNode.id } : { selector },
-      anchor: anchorNode
-        ? { nodeId: anchorNode.id }
-        : { selector: anchorSelector },
-      placement,
+      activeCanvasSourceType: screenSourceType,
+      activeFile: screenFile,
+      applyLinkedComponentEdit,
+      applyLocalContentUpdate: (nextContent, options) => {
+        const publication = applyFileContentUpdate(
+          screenId,
+          nextContent,
+          options,
+        );
+        return publication.status === "accepted"
+          ? publication
+          : { status: "refused" as const };
+      },
+      canEditDesign,
+      getFreshActiveContent: () => getScreenContent(screenId),
+      recordPendingLiveStructureEdit,
+      setSelectedElement,
+      setSelectedLayerIdsState,
+      t,
     },
-    { source },
-  );
-  dndHostLog("persist:rewrite", {
-    status: patch.result.status,
-    message: patch.result.message,
-  });
-  if (patch.result.status !== "applied") {
-    toast.error(
-      codeLayerPatchMessage(
-        patch.result.message,
-        t("designEditor.toasts.layerMoveFailed"),
-      ),
-      { duration: 4000 },
-    );
-    return false;
-  }
-  const movedNodeAttrId =
-    targetNode?.dataAttributes["data-agent-native-node-id"] ??
-    details?.sourceId ??
-    elementInfo?.sourceId ??
-    (patch.result.after?.nodeId
-      ? patch.projection.nodes.find(
-          (node) => node.id === patch.result.after?.nodeId,
-        )?.dataAttributes["data-agent-native-node-id"]
-      : undefined);
-  // Same board-surface offset-poison guard as handleVisualStructureChange:
-  // sibling un-nests persist rebased inline left/top; inside drops still
-  // use sourceRect − anchorRect. Strip the 65536 fingerprint and refresh
-  // the preview when it fired so the equally-off optimistic placement
-  // gets corrected.
-  const rawAbsoluteContainerOffset = rawAbsoluteContainerOffsetFromDrop({
-    dropMode: details?.dropMode,
-    placement,
-    sourceRect: details?.sourceRect,
-    anchorRect: details?.anchorRect,
-    inlineStyles: elementInfo?.inlineStyles,
+    selector,
     anchorSelector,
-  });
-  const absoluteContainerOffset = rawAbsoluteContainerOffset
-    ? {
-        x: stripBoardSurfaceOffsetFromCoord(rawAbsoluteContainerOffset.x),
-        y: stripBoardSurfaceOffsetFromCoord(rawAbsoluteContainerOffset.y),
-      }
-    : null;
-  const absoluteOffsetWasPoisoned = Boolean(
-    rawAbsoluteContainerOffset &&
-    absoluteContainerOffset &&
-    (rawAbsoluteContainerOffset.x !== absoluteContainerOffset.x ||
-      rawAbsoluteContainerOffset.y !== absoluteContainerOffset.y),
+    placement,
+    elementInfo,
+    details,
   );
-  const nextContent =
-    movedNodeAttrId && details?.dropMode === "absolute-container"
-      ? absoluteContainerOffset
-        ? setAbsolutePositioningForNodeInHtml(
-            patch.content,
-            movedNodeAttrId,
-            absoluteContainerOffset,
-          )
-        : patch.content
-      : movedNodeAttrId &&
-          details?.dropMode === "flow-insert" &&
-          details.forceFlowPositionOverride
-        ? setFlowPositioningOverrideForNodeInHtml(
-            patch.content,
-            movedNodeAttrId,
-          )
-        : isAbsoluteCodeLayerNode(targetNode) && movedNodeAttrId
-          ? removeAbsolutePositioningFromNodeInHtml(
-              patch.content,
-              movedNodeAttrId,
-            )
-          : patch.content;
-  const nextProjection = buildCodeLayerProjection(nextContent, { source });
-  const movedNodeCandidate =
-    (movedNodeAttrId
-      ? nextProjection.nodes.find(
-          (node) =>
-            node.dataAttributes["data-agent-native-node-id"] ===
-            movedNodeAttrId,
-        )
-      : null) ??
-    resolveCodeLayerNodeFromBridge(
-      nextProjection,
-      selector,
-      details?.sourceId ??
-        elementInfo?.sourceId ??
-        (targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : undefined),
-    );
-  const publication = applyFileContentUpdate(
-    screenId,
-    nextContent,
-    absoluteOffsetWasPoisoned
-      ? { forcePreviewFullDocument: true }
-      : { skipPreview: true },
-  );
-  if (publication.status !== "accepted") return false;
-  const acceptedProjection = projectAcceptedSource(publication, source);
-  const movedNode = mapAcceptedSelectionNode(
-    publication,
-    acceptedProjection,
-    movedNodeCandidate,
-  );
-  if (movedNode) {
-    setActiveFileId(screenId);
-    setSelectedLayerIdsState([movedNode.id]);
-    setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
-  } else {
-    setSelectedElement(null);
-  }
-  return true;
+  if (result === true) setActiveFileId(screenId);
+  return result;
 }

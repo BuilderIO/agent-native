@@ -73,6 +73,9 @@ interface CalendarContextValue {
   setAddCalendarOpen: (open: boolean) => void;
   addCalendarDefaultTab: "people" | "url" | "google";
   setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
+  /** Opens the add-a-peer dialog prefilled with this email. Prefills the
+   *  search only — the user still confirms, so a link click never writes. */
+  openAddPersonPrefilled: (email: string) => void;
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
@@ -100,6 +103,9 @@ interface CalendarContextValue {
  */
 interface CalendarSettersValue {
   setSelectedDate: (date: Date) => void;
+  /** Opens the add-a-peer dialog prefilled with this email. Prefills the
+   *  search only — the user still confirms, so a link click never writes. */
+  openAddPersonPrefilled: (email: string) => void;
   setViewMode: (mode: ViewMode) => void;
   setPeopleSearchOpen: (open: boolean) => void;
   setAddCalendarOpen: (open: boolean) => void;
@@ -134,6 +140,7 @@ interface CalendarHighFrequencyContextValue {
 
 const noopSetters: CalendarSettersValue = {
   setSelectedDate: () => {},
+  openAddPersonPrefilled: () => {},
   setViewMode: () => {},
   setPeopleSearchOpen: () => {},
   setAddCalendarOpen: () => {},
@@ -254,6 +261,14 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [addCalendarDefaultTab, setAddCalendarDefaultTab] = useState<
     "people" | "url" | "google"
   >("people");
+  const [addPersonPrefillEmail, setAddPersonPrefillEmail] = useState<
+    string | undefined
+  >(undefined);
+  const openAddPersonPrefilled = useCallback((email: string) => {
+    setAddPersonPrefillEmail(email);
+    setAddCalendarDefaultTab("people");
+    setAddCalendarOpen(true);
+  }, []);
   const {
     hidden: hiddenCalendars,
     toggle: toggleHiddenCalendar,
@@ -331,6 +346,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const settersValue = useMemo<CalendarSettersValue>(
     () => ({
       setSelectedDate,
+      openAddPersonPrefilled,
       setViewMode,
       setPeopleSearchOpen,
       setAddCalendarOpen,
@@ -342,7 +358,12 @@ export function AppLayout({ children }: AppLayoutProps) {
       setEventDraft,
       openSidebar,
     }),
-    [toggleHiddenCalendar, setEventDetailSidebar, openSidebar],
+    [
+      toggleHiddenCalendar,
+      setEventDetailSidebar,
+      openSidebar,
+      openAddPersonPrefilled,
+    ],
   );
 
   const rareValuesValue = useMemo<CalendarRareValuesContextValue>(
@@ -385,8 +406,14 @@ export function AppLayout({ children }: AppLayoutProps) {
           <NavigationSync />
           <AddCalendarDialog
             open={addCalendarOpen}
-            onOpenChange={setAddCalendarOpen}
+            onOpenChange={(open) => {
+              setAddCalendarOpen(open);
+              // Clear the prefill on close so reopening the dialog manually
+              // doesn't resurrect a stale deep-linked address.
+              if (!open) setAddPersonPrefillEmail(undefined);
+            }}
             defaultTab={addCalendarDefaultTab}
+            prefillPersonEmail={addPersonPrefillEmail}
             visibleTabs={
               addCalendarDefaultTab === "google"
                 ? ["google"]

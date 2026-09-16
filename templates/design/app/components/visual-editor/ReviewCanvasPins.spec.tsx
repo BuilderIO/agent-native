@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   sendToAgent: vi.fn().mockResolvedValue({ delivered: true }),
 }));
 
-const comment = vi.hoisted(
+const comment: ReviewComment = vi.hoisted(
   () =>
     ({
       id: "comment-1",
@@ -279,6 +279,118 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       anchor: { point: { xPct: 37.5, yPct: 40 } },
       resolutionTarget: "human",
     });
+  });
+
+  it("opens the composer for an overview canvas pin request", async () => {
+    const world = document.createElement("div");
+    world.setAttribute("data-multi-screen-canvas-world", "");
+    world.style.transform = "translate(50px, 25px) scale(2)";
+    canvas.appendChild(world);
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    canvas.appendChild(iframe);
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          showPlacementPlane={false}
+          resourceType="design"
+          resourceId="design-1"
+          targetId={null}
+          pinRequest={{ nonce: 1, canvasPoint: { x: -100, y: -150 } }}
+          canPost
+          canResolve
+        />,
+      );
+    });
+
+    expect(document.querySelector("[data-review-click-plane]")).toBeNull();
+    expect(document.querySelector("[data-review-test-submit]")).not.toBeNull();
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+
+    expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+      targetId: null,
+      anchor: {
+        canvasPoint: { x: -100, y: -150 },
+        point: { xPct: 41.25, yPct: (205 / 600) * 100 },
+      },
+    });
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it("projects stored canvas pins through camera changes without scaling the marker", async () => {
+    const previousAnchor = comment.anchor;
+    comment.anchor = {
+      point: { xPct: 41.25, yPct: (205 / 600) * 100 },
+      canvasPoint: { x: -100, y: -150 },
+    } as ReviewComment["anchor"];
+    const world = document.createElement("div");
+    world.setAttribute("data-multi-screen-canvas-world", "");
+    world.style.transform = "translate(50px, 25px) scale(2)";
+    canvas.appendChild(world);
+
+    try {
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={false}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId={null}
+            canPost
+            canResolve
+          />,
+        );
+      });
+
+      const pin =
+        document.querySelector<HTMLButtonElement>("[data-review-pin]");
+      const popover = pin?.parentElement;
+      expect(popover?.style.left).toBe("330px");
+      expect(popover?.style.top).toBe("205px");
+      expect(pin?.className).toContain("size-6");
+
+      await act(async () => {
+        world.style.transform = "translate(100px, 50px) scale(1)";
+        root.render(
+          <ReviewCanvasPins
+            active={false}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId={null}
+            canPost
+            canResolve
+          />,
+        );
+      });
+
+      expect(popover?.style.left).toBe("240px");
+      expect(popover?.style.top).toBe("140px");
+      expect(pin?.className).toContain("size-6");
+    } finally {
+      comment.anchor = previousAnchor;
+    }
   });
 
   it("shows agent dispatch only when the host provides that capability", async () => {

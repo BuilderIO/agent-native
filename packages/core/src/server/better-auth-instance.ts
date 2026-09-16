@@ -216,9 +216,9 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
 export async function getBetterAuthUserIdForEmail(
   email: string,
 ): Promise<string | undefined> {
-  const adapter = await getBetterAuthInternalAdapter();
-  if (!adapter) return undefined;
   try {
+    const adapter = await getBetterAuthInternalAdapter();
+    if (!adapter) return undefined;
     const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
       includeAccounts: false,
     });
@@ -1017,6 +1017,22 @@ const pgAuthSchema = {
       mode: "number",
     }),
   }),
+  agentAuditLog: pgTable("agent_audit_log", {
+    id: pgText("id").primaryKey(),
+    createdAt: pgBigint("created_at", { mode: "number" }).notNull(),
+    action: pgText("action").notNull(),
+    caller: pgText("caller").notNull(),
+    actorKind: pgText("actor_kind").notNull(),
+    actorEmail: pgText("actor_email"),
+    orgId: pgText("org_id"),
+    targetType: pgText("target_type"),
+    targetId: pgText("target_id"),
+    status: pgText("status").notNull(),
+    summary: pgText("summary"),
+    input: pgText("input"),
+    ownerEmail: pgText("owner_email"),
+    visibility: pgText("visibility").notNull().default("private"),
+  }),
   orgScimMembership: pgTable("org_scim_memberships", {
     id: pgText("id").primaryKey(),
     orgId: pgText("org_id").notNull(),
@@ -1295,6 +1311,45 @@ export interface BetterAuthInternalAdapter {
   ) => Promise<unknown>;
 }
 
+type BetterAuthContextAdapter = Omit<
+  BetterAuthInternalAdapter,
+  "replaceUnverifiedCredentialWithGoogle" | "findAccountByProviderId"
+> & {
+  findAccountByProviderId?: BetterAuthInternalAdapter["findAccountByProviderId"];
+  findAccountByKey?: (accountKey: {
+    accountId: string;
+    providerId: string;
+  }) => Promise<{ id: string; userId: string } | null>;
+};
+
+export function normalizeBetterAuthInternalAdapter(
+  adapter: BetterAuthContextAdapter,
+): BetterAuthInternalAdapter | undefined {
+  const findAccountByProviderId =
+    adapter.findAccountByProviderId ??
+    (typeof adapter.findAccountByKey === "function"
+      ? (accountId: string, providerId: string) =>
+          adapter.findAccountByKey!({ accountId, providerId })
+      : undefined);
+
+  if (
+    typeof adapter.findUserByEmail !== "function" ||
+    typeof adapter.linkAccount !== "function" ||
+    typeof adapter.createUser !== "function" ||
+    typeof adapter.createSession !== "function" ||
+    typeof adapter.deleteSession !== "function" ||
+    typeof findAccountByProviderId !== "function"
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...adapter,
+    findAccountByProviderId,
+    replaceUnverifiedCredentialWithGoogle,
+  } as BetterAuthInternalAdapter;
+}
+
 /**
  * Replace the only unverified credential account and add Google in one
  * database transaction. The read in ensureGoogleAuthIdentityWithAdapter is
@@ -1399,37 +1454,21 @@ export async function replaceUnverifiedCredentialWithGoogle(input: {
  * `$context`. The framework's narrowed `BetterAuthInstance` interface omits
  * `$context`, but the underlying object created by `betterAuth(...)` always
  * exposes it (see Better Auth's `Auth` type) — so this is a safe, typed
- * accessor for the federated-SSO client. Returns `undefined` if the context
- * shape is unexpected (older/newer Better Auth) so callers can fall back.
+ * accessor for the federated-SSO client. Better Auth 1.7.x renamed the
+ * provider lookup to `findAccountByKey`, so normalize both adapter shapes.
  */
 export async function getBetterAuthInternalAdapter(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInternalAdapter | undefined> {
   const auth = (await getBetterAuth(config)) as unknown as {
     $context?: Promise<{
-      internalAdapter?: Omit<
-        BetterAuthInternalAdapter,
-        "replaceUnverifiedCredentialWithGoogle"
-      >;
+      internalAdapter?: BetterAuthContextAdapter;
     }>;
   };
   try {
     const ctx = await auth.$context;
     const ia = ctx?.internalAdapter;
-    if (
-      ia &&
-      typeof ia.findUserByEmail === "function" &&
-      typeof ia.linkAccount === "function" &&
-      typeof ia.createUser === "function" &&
-      typeof ia.createSession === "function" &&
-      typeof ia.deleteSession === "function" &&
-      typeof ia.findAccountByProviderId === "function"
-    ) {
-      return {
-        ...ia,
-        replaceUnverifiedCredentialWithGoogle,
-      } as BetterAuthInternalAdapter;
-    }
+    if (ia) return normalizeBetterAuthInternalAdapter(ia);
   } catch {
     // Context resolution failed — caller falls back to the signup path.
   }

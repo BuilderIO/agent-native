@@ -2119,9 +2119,41 @@ export function MultiTabAssistantChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Flush queued context items and sends once their thread's ref is mounted
-  // (re-runs on ref mount via openTabIds and on cold-start target via
-  // activeThreadId).
+  const flushPendingDeliveries = useCallback(
+    (onlyThreadId?: string) => {
+      if (pendingDeliveries.current.length === 0) return;
+      const active = activeThreadIdRef.current;
+      const remaining: PendingDelivery[] = [];
+      for (const delivery of pendingDeliveries.current) {
+        if (isAgentChatSubmitCancelled(delivery.send.submitMessageId)) continue;
+        const threadId = delivery.threadId ?? active ?? null;
+        if (onlyThreadId && threadId !== onlyThreadId) {
+          remaining.push(delivery);
+          continue;
+        }
+        const ref = threadId ? chatRefs.current.get(threadId) : null;
+        if (threadId && delivery.modelOverride) {
+          threadModelRef.current.set(threadId, delivery.modelOverride);
+          bumpModelSelectionVersion();
+        }
+        if (threadId && ref) {
+          const { send } = delivery;
+          setTimeout(() => deliverPendingSend(ref, send), 50);
+        } else {
+          // Not ready — keep it, pinning the resolved threadId once known.
+          remaining.push(
+            threadId
+              ? { ...delivery, threadId, send: delivery.send }
+              : delivery,
+          );
+        }
+      }
+      pendingDeliveries.current = remaining;
+    },
+    [bumpModelSelectionVersion],
+  );
+
+  // Flush queued context items and sends once their thread's ref is mounted.
   useEffect(() => {
     for (const [tabId, items] of pendingContextItems.current) {
       const ref = chatRefs.current.get(tabId);
@@ -2130,29 +2162,8 @@ export function MultiTabAssistantChat({
       pendingContextItems.current.delete(tabId);
     }
 
-    if (pendingDeliveries.current.length === 0) return;
-    const active = activeThreadIdRef.current;
-    const remaining: PendingDelivery[] = [];
-    for (const delivery of pendingDeliveries.current) {
-      if (isAgentChatSubmitCancelled(delivery.send.submitMessageId)) continue;
-      const threadId = delivery.threadId ?? active ?? null;
-      const ref = threadId ? chatRefs.current.get(threadId) : null;
-      if (threadId && delivery.modelOverride) {
-        threadModelRef.current.set(threadId, delivery.modelOverride);
-        bumpModelSelectionVersion();
-      }
-      if (threadId && ref) {
-        const { send } = delivery;
-        setTimeout(() => deliverPendingSend(ref, send), 50);
-      } else {
-        // Not ready — keep it, pinning the resolved threadId once known.
-        remaining.push(
-          threadId ? { ...delivery, threadId, send: delivery.send } : delivery,
-        );
-      }
-    }
-    pendingDeliveries.current = remaining;
-  }, [openTabIds, activeThreadId, bumpModelSelectionVersion]);
+    flushPendingDeliveries();
+  }, [openTabIds, activeThreadId, flushPendingDeliveries]);
 
   // Listen for chatRunning completion events
   useEffect(() => {
@@ -2180,10 +2191,14 @@ export function MultiTabAssistantChat({
     const id = await createThread();
     if (id) {
       newThreadIds.current.add(id);
+      // `createThread` advances the active thread before its promise resolves.
+      // Add the same id in this transaction so a new chat is mounted even if
+      // the active-thread reconciliation effect has not run yet.
+      setOpenTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
       writeThreadUrl(null);
     }
     return id;
-  }, [createThread, writeThreadUrl]);
+  }, [createThread, setOpenTabIds, writeThreadUrl]);
 
   const cleanupClosedTab = useCallback((tabId: string) => {
     if (parentMapRef.current[tabId]) {
@@ -2355,6 +2370,7 @@ export function MultiTabAssistantChat({
             newThread?: unknown;
             onlyIfActiveThreadId?: unknown;
             openRequestId?: unknown;
+            prefill?: unknown;
           }
         | undefined;
       const threadId =
@@ -2375,6 +2391,18 @@ export function MultiTabAssistantChat({
         return;
       }
 
+      const prefill =
+        typeof detail.prefill === "string" ? detail.prefill.trim() : "";
+      if (prefill) {
+        const send = { message: prefill, submit: false };
+        const ref = chatRefs.current.get(threadId);
+        if (ref) {
+          setTimeout(() => deliverPendingSend(ref, send), 50);
+        } else {
+          pendingDeliveries.current.push({ threadId, send });
+        }
+      }
+
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
         void createThread(threadId).then((createdId) => {
@@ -2386,6 +2414,7 @@ export function MultiTabAssistantChat({
         });
         return;
       }
+      mountedTabsRef.current.add(threadId);
       setOpenTabIds((prev) =>
         prev.includes(threadId) ? prev : [...prev, threadId],
       );
@@ -2715,7 +2744,8 @@ export function MultiTabAssistantChat({
       <style
         dangerouslySetInnerHTML={{
           __html:
-            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
+            ".agent-tab-close{opacity:0;pointer-events:none}" +
+            ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}" +
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}",
         }}
@@ -2746,7 +2776,7 @@ export function MultiTabAssistantChat({
                             key={tab.id}
                             ref={isActive ? activeTabRefCb : undefined}
                             className={cn(
-                              "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
+                              "agent-tab agent-tab-group relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
                               isActive
                                 ? "bg-accent text-foreground ring-1 ring-inset ring-border/60 shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -2848,7 +2878,7 @@ export function MultiTabAssistantChat({
                                 : undefined
                             }
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
+                              "agent-tab agent-tab-group relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
                               tab.id === activeThreadId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2986,6 +3016,7 @@ export function MultiTabAssistantChat({
                   ref={(handle) => {
                     if (handle) {
                       chatRefs.current.set(tabId, handle);
+                      flushPendingDeliveries(tabId);
                     } else {
                       chatRefs.current.delete(tabId);
                     }

@@ -95,7 +95,7 @@ search: "エージェントアプリ リッチチャット ネイティブチャ
 フルアプリの出発点として、[Chat template](/docs/template-chat) を使用してください：
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 最もシンプルなフルページチャット：
@@ -413,7 +413,7 @@ export function AppShell({ children }) {
 最小のブラウザなしローカルパスは、スキャフォールドと1つのアクションです：
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 cd my-agent
 pnpm install
 ```

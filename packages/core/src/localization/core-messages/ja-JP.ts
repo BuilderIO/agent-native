@@ -72,10 +72,21 @@ const messages: AgentChatTranslation = {
     "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI クレジットとクラウドコードの変更を利用できます。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI クレジットを利用できます。クラウドコードの編集には、Background Agent 設定で Builder プロジェクトが必要です。",
+  "onboarding.openBackgroundAgentSettings": "Background Agent 設定を開く",
   "onboarding.capability.llm.keySummary":
     "AIプロバイダーまたはローカルモデルに接続",
   "onboarding.capability.fileStorage.keySummary":
     "BuilderストレージまたはS3互換バケット",
+  "onboarding.fileStorage.title": "ファイルストレージを選択",
+  "onboarding.fileStorage.description":
+    "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
+  "onboarding.fileStorage.custom": "カスタムストレージキーを使用",
+  "onboarding.fileStorage.customDescription":
+    "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
   "onboarding.capability.voiceInput.keySummary":
     "ブラウザーの音声認識または音声文字変換",
@@ -139,6 +150,39 @@ const messages: AgentChatTranslation = {
   "common.no": "いいえ",
   "common.retry": "再試行",
   "common.save": "保存",
+  "agents.hostedAgent": "ホスト型エージェント",
+  "agents.provider": "プロバイダー",
+  "agents.providerA2A": "A2A エージェント（Foundry、Gemini、またはカスタム）",
+  "agents.providerAnthropic": "Anthropic 管理エージェント",
+  "agents.agentId": "エージェント ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "環境 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API ベース URL（任意）",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Anthropic Managed Agents の項目を入力してください。",
+  "agents.managedAgentCheck": "チャットから委任すると接続が確認されます。",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent を保存しました。チャットから委任できます。",
+  "agents.cardUrl": "エージェントカード URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "認証",
+  "agents.authNone": "認証なし",
+  "agents.authBearer": "Bearer トークン",
+  "agents.authClientCredentials": "OAuth クライアント資格情報",
+  "agents.chooseCredential": "資格情報を選択",
+  "agents.vault": "Vault",
+  "agents.tokenUrl": "トークン URL",
+  "agents.clientId": "クライアント ID",
+  "agents.scope": "スコープ",
+  "agents.authIncomplete":
+    "ホスト型エージェントの認証フィールドをすべて入力してください。",
+  "agents.invalidUrl":
+    "エージェント URL には HTTPS を使用してください。localhost またはループバックの開発 URL は例外です。",
+  "agents.statusReachable": "接続可能",
+  "agents.statusAuthRejected": "認証拒否",
+  "agents.statusNoJsonRpc": "JSON-RPC なし",
   "common.saveFailed": "保存に失敗しました",
   "common.saveFailedStatus": "保存に失敗しました（{{status}}）",
   "common.saving": "保存中...",
@@ -374,6 +418,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
     "エージェントとの接続が中断されました。接続を確認して再試行してください。",
+  "errorMessages.attachmentPasswordProtected":
+    "このPDFはパスワードで保護されているため読み取れません。パスワード保護を解除するか、関連するテキストを貼り付けてから再試行してください。",
   "errorMessages.builderAuthentication":
     "Builder が接続済みの認証情報を拒否しました。設定で Builder.io に再接続してから再試行してください。",
   "errorMessages.builderModelUnauthorized":
@@ -388,6 +434,10 @@ const messages: AgentChatTranslation = {
     "エージェントとの接続が完了前にタイムアウトしました。途中までの作業から続行するか、再試行できます。",
   "errorMessages.invalidToolSchema":
     "ツールのスキーマが無効だったため、モデルは開始前にリクエストを拒否しました。無効なツールをスキップして再試行できます。",
+  "errorMessages.malformedRequest":
+    "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.malformedRequestAttachment":
+    "モデルが添付ファイルを拒否したため、このメッセージは送信されませんでした。添付を削除して再試行してください。PDF、プレーンテキスト、JPEG・PNG・GIF・WebP の画像は直接読み取れますが、その他の形式はアップロードしてリンクする必要があります。",
   "errorMessages.noProviderConnected":
     "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）に接続するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
@@ -720,6 +770,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "データインサイト",
   "widget.dataTable": "データテーブル",
   "widget.downloadCsv": "CSV をダウンロード",
+  "widget.connectProvider": "{{provider}} を接続",
   "widget.loadingToolResult": "ツールの結果を読み込み中",
   "widget.noRows": "行がありません",
   "widget.points": "{{formattedCount}} ポイント",

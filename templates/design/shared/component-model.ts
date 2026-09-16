@@ -144,6 +144,23 @@ export function isComponentInstance(node: CodeLayerNode): boolean {
 }
 
 /**
+ * Return `true` for a component root that instance-only operations may edit.
+ * Canonical mains carry a component id and are the source of truth for every
+ * linked reference, so they must not be detached or used as swap markup.
+ * Legacy roots without an identity remain eligible because detaching them has
+ * no linked identity to orphan.
+ */
+export function isComponentInstanceForInstanceActions(
+  node: CodeLayerNode,
+): boolean {
+  if (!isComponentInstance(node)) return false;
+  return !Object.prototype.hasOwnProperty.call(
+    node.dataAttributes,
+    COMPONENT_ID_ATTR,
+  );
+}
+
+/**
  * Return the component name declared on the node, or `null` when the node is
  * not a component root.
  */
