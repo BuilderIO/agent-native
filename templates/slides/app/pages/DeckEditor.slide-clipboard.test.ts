@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import type { Deck } from "../context/DeckContext";
 import {
   getSlideClipboardStorageKey,
   normalizeSlideClipboard,
@@ -18,7 +17,6 @@ import {
 } from "../lib/slide-clipboard";
 import {
   isSlideClipboardStillArmed,
-  isSourceImportedDeck,
   getAltDragPlacement,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
   syncSlideContentSnapshots,
@@ -119,9 +117,7 @@ describe("slide thumbnail shortcuts", () => {
     );
     const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
 
-    expect(shortcutBody).toContain(
-      "if (!activeSlideId || sourceImportedDeck) return;",
-    );
+    expect(shortcutBody).toContain("if (!activeSlideId) return;");
     expect(shortcutBody).toContain(
       "selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId]",
     );
@@ -157,43 +153,6 @@ describe("slide thumbnail shortcuts", () => {
     expect(deckEditorSource).toContain(
       "const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();",
     );
-  });
-});
-
-describe("source-imported deck structure", () => {
-  it("recognizes source-preserving import metadata", () => {
-    expect(
-      isSourceImportedDeck({
-        sourceImport: {
-          mode: "source-preserving",
-          format: "pptx",
-          slides: [],
-        },
-      } as unknown as Deck),
-    ).toBe(true);
-  });
-
-  it("does not block an editable source snapshot", () => {
-    expect(
-      isSourceImportedDeck({
-        sourceImport: {
-          mode: "source-preserving",
-          format: "pptx",
-          slides: [],
-          editableSnapshot: true,
-        },
-      } as unknown as Deck),
-    ).toBe(false);
-  });
-
-  it("does not block ordinary or malformed deck metadata", () => {
-    expect(isSourceImportedDeck(null)).toBe(false);
-    expect(isSourceImportedDeck(undefined)).toBe(false);
-    expect(
-      isSourceImportedDeck({
-        sourceImport: { mode: "source-preserving", format: "pptx" },
-      } as unknown as Deck),
-    ).toBe(false);
   });
 });
 

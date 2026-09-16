@@ -186,6 +186,31 @@ describe("slide text targets", () => {
     expect(findSmartBlock(text, root)).toBe(text);
   });
 
+  it("keeps a structural wrapper around a text block selectable", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div data-fmd-autofit-content>
+          <div class="layout-wrapper">
+            <div class="text-block"><p>Text block</p></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const wrapper = root.querySelector(".layout-wrapper") as HTMLElement;
+    const textBlock = root.querySelector(".text-block") as HTMLElement;
+    const paragraph = textBlock.querySelector("p") as HTMLElement;
+
+    expect(isRichTextBlock(wrapper)).toBe(false);
+    expect(shouldTraverseSlideLayerChildren(wrapper)).toBe(true);
+    expect(shouldStampBuilderId(wrapper)).toBe(true);
+    expect(isRichTextBlock(textBlock)).toBe(true);
+    expect(shouldStampBuilderId(textBlock)).toBe(true);
+    expect(shouldStampBuilderId(paragraph)).toBe(false);
+    expect(findSmartBlock(paragraph, root)).toBe(textBlock);
+  });
+
   it("keeps table cells selectable instead of owning them as one text layer", () => {
     const root = document.createElement("div");
     root.innerHTML = `

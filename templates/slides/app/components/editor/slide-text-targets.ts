@@ -231,12 +231,7 @@ export function isRichTextBlock(element: HTMLElement): boolean {
       children.some((child) => child.tagName === "HR")) &&
     children.every((child) => {
       const childElement = child as HTMLElement;
-      return (
-        RICH_TEXT_BLOCK_TAGS.has(childElement.tagName) ||
-        (children.length === 1 &&
-          !isSmartGroup(childElement) &&
-          isRichTextBlock(childElement))
-      );
+      return RICH_TEXT_BLOCK_TAGS.has(childElement.tagName);
     })
   );
 }

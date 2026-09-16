@@ -59,6 +59,30 @@ describe("SlideEditor render-phase safety", () => {
     expect(flushBody).not.toContain("onUpdateSlideRef.current");
   });
 
+  it("promotes every selected root before a shared keyboard nudge", () => {
+    const nudgeStart = source.indexOf(
+      "const nudge = resolveSlidesCanvasNudge(e);",
+    );
+    const singleNudgeStart = source.indexOf(
+      "// Arrow nudging is also a first-class way to move flow-layout text",
+      nudgeStart,
+    );
+    const multiNudgeBody = source.slice(nudgeStart, singleNudgeStart);
+
+    expect(multiNudgeBody).toContain(
+      "freezeElementForFreeformSelection(element)",
+    );
+    expect(multiNudgeBody).toContain(
+      "applySlideObjectMoveDelta(members, dx, dy, applyObjectGeometry)",
+    );
+    expect(multiNudgeBody).toContain(
+      "commitMultiObjectChange(\n          members.map((member) => member.objectId),\n          html,",
+    );
+    expect(multiNudgeBody).not.toContain(
+      "elements.some((element) => !isPersistedFreeformObject(element))",
+    );
+  });
+
   it("queues the latest rich-text draft before disposing its editor", () => {
     const start = source.indexOf("const disposeRichTextEditor");
     const end = source.indexOf("const flushInlineEditDraft", start);
