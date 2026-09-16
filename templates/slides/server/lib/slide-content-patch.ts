@@ -654,7 +654,9 @@ function applyRegexReplace(
   // Name the mistake so the agent rewrites the pattern instead of retrying it.
   // The flags are part of the verdict: `^(a|A)+$` is unambiguous on its own and
   // catastrophic under `i`.
-  const verdict = analyzeRegexSource(edit.pattern, flags);
+  const verdict = analyzeRegexSource(edit.pattern, flags, {
+    inputBounded: false,
+  });
   if (!verdict.safe) {
     throw new SlideContentEditError(
       `regex-replace pattern cannot be run safely: ${verdict.reason}. Rewrite it without overlapping repetition, or use a \`find\` edit instead.`,

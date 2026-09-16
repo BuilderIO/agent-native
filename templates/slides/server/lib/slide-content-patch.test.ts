@@ -312,6 +312,15 @@ describe("SlideContentEditError transport contract", () => {
     expect((error as Error).message).toMatch(/cannot be run safely/i);
   });
 
+  it("refuses quadratic overlap before scanning uncapped slide content", async () => {
+    const error = await applySlideContentEdits("<p>aaaaaaaa</p>", [
+      { op: "regex-replace", pattern: "^(a+)(a+)$", replace: "x" },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    expect((error as Error).message).toMatch(/cannot be run safely/i);
+  });
+
   it("judges a regex-replace pattern with the flags it will run under", async () => {
     // `(a|A)+` is unambiguous on its own and catastrophic under `i`, so the
     // verdict has to see the same flags the RegExp is built with.

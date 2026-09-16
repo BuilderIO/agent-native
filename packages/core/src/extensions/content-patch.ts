@@ -444,7 +444,9 @@ function applyRegexReplace(
   edit: Extract<ExtensionContentEdit, { op: "regex-replace" }>,
 ): { content: string; summary: string } {
   const flags = normalizeRegexFlags(edit.flags, edit.all);
-  const verdict = analyzeRegexSource(edit.pattern, flags);
+  const verdict = analyzeRegexSource(edit.pattern, flags, {
+    inputBounded: false,
+  });
   if (!verdict.safe) {
     throw new ExtensionContentEditError(
       `regex-replace pattern cannot be run safely: ${verdict.reason}. Rewrite it without overlapping repetition, or use a literal find edit instead.`,

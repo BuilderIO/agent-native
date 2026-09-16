@@ -544,19 +544,19 @@ function analyzeRepeatedGroup(
 }
 
 /**
- * Three or more adjacent variable-length repetitions over the same characters
- * backtrack cubically or worse, which exceeds the input cap even though no
- * single group is ambiguous on its own: `^(a+)(a+)(a+)$` needs over 20 seconds
- * at 4096 characters. Two adjacent overlapping repetitions are only quadratic
- * and stay inside the budget, so the run has to reach three before this fires.
- * Non-overlapping separators (the `@` in an email pattern) break the run, which
- * is what keeps ordinary patterns out of this check.
+ * Adjacent variable-length repetitions over the same characters compete for
+ * input. Bounded callers can keep a quadratic pair within the input cap, but
+ * callers scanning uncapped content must reject it too. Non-overlapping
+ * separators (the `@` in an email pattern) break the run, which is what keeps
+ * ordinary patterns out of this check.
  */
 function analyzeAdjacentRun(
   branch: RegexAtom[],
   ctx: AnalysisContext,
+  rejectQuadratic: boolean,
 ): string | null {
   const atoms = consuming(branch);
+  const minimumRun = rejectQuadratic ? 2 : 3;
   let run: RegexAtom[] = [];
   for (const atom of atoms) {
     const previous = run[run.length - 1];
@@ -565,16 +565,22 @@ function analyzeAdjacentRun(
       (run.length === 0 ||
         overlaps(charSetOf(previous, ctx), charSetOf(atom, ctx)));
     run = continues ? [...run, atom] : isVariableLength(atom) ? [atom] : [];
-    if (run.length >= 3) {
-      return `\`${run.map(describe).join("")}\` chains three repetitions over the same characters, which backtracks cubically`;
+    if (run.length >= minimumRun) {
+      return rejectQuadratic
+        ? `\`${run.map(describe).join("")}\` chains adjacent repetitions over the same characters, which backtracks quadratically on uncapped input`
+        : `\`${run.map(describe).join("")}\` chains three repetitions over the same characters, which backtracks cubically`;
     }
   }
   return null;
 }
 
-function walk(branches: RegexAtom[][], ctx: AnalysisContext): string | null {
+function walk(
+  branches: RegexAtom[][],
+  ctx: AnalysisContext,
+  rejectQuadratic: boolean,
+): string | null {
   for (const branch of branches) {
-    const chained = analyzeAdjacentRun(branch, ctx);
+    const chained = analyzeAdjacentRun(branch, ctx, rejectQuadratic);
     if (chained) return chained;
     for (const atom of branch) {
       if (atom.kind !== "group") continue;
@@ -585,7 +591,7 @@ function walk(branches: RegexAtom[][], ctx: AnalysisContext): string | null {
         const reason = analyzeRepeatedGroup(atom, ctx);
         if (reason) return reason;
       }
-      const nested = walk(atom.branches ?? [], ctx);
+      const nested = walk(atom.branches ?? [], ctx, rejectQuadratic);
       if (nested) return nested;
     }
   }
@@ -604,6 +610,7 @@ function walk(branches: RegexAtom[][], ctx: AnalysisContext): string | null {
 export function analyzeRegexSource(
   source: string,
   flags = "",
+  options: { inputBounded?: boolean } = {},
 ): RegexSafetyVerdict {
   // The analysis itself is super-linear in the pattern length — every pair of
   // alternatives is compared — so it needs the same cap it exists to enforce.
@@ -630,11 +637,15 @@ export function analyzeRegexSource(
   const probeFlags = MATCHING_FLAGS.filter((flag) => flags.includes(flag)).join(
     "",
   );
-  const reason = walk(branches, {
-    flags: probeFlags,
-    probeChars: collectProbeChars(source),
-    charSets: new Map(),
-  });
+  const reason = walk(
+    branches,
+    {
+      flags: probeFlags,
+      probeChars: collectProbeChars(source),
+      charSets: new Map(),
+    },
+    options.inputBounded === false,
+  );
   return reason ? { safe: false, reason } : { safe: true };
 }
 

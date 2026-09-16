@@ -152,6 +152,15 @@ describe("analyzeRegexSource", () => {
     );
   });
 
+  it("rejects quadratic overlap when the caller cannot cap input", () => {
+    expect(analyzeRegexSource("^(a+)(a+)$").safe).toBe(true);
+    const verdict = analyzeRegexSource("^(a+)(a+)$", "", {
+      inputBounded: false,
+    });
+    expect(verdict.safe).toBe(false);
+    if (!verdict.safe) expect(verdict.reason).toContain("quadratically");
+  });
+
   it("refuses to clear a pattern it cannot parse", () => {
     expect(analyzeRegexSource("^(unclosed").safe).toBe(false);
   });

@@ -140,6 +140,21 @@ describe("extension content patching", () => {
     expect((error as Error).message).toMatch(/cannot be run safely/i);
   });
 
+  it("refuses quadratic overlap before scanning uncapped extension content", async () => {
+    const error = await applyExtensionContentUpdate("<p>aaaaaaaa</p>", {
+      edits: [
+        {
+          op: "regex-replace",
+          pattern: "^(a+)(a+)$",
+          replace: "x",
+        },
+      ],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ExtensionContentEditError);
+    expect((error as Error).message).toMatch(/cannot be run safely/i);
+  });
+
   it("formats the final HTML when requested", async () => {
     const result = await applyExtensionContentUpdate(
       "<div><span>Hi</span></div>",
