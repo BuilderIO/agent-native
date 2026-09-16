@@ -270,7 +270,7 @@ describe("<EditorToolbar>", () => {
     expect(screen.getByText("editorToolbar.sourcePreserving")).toBeTruthy();
   });
 
-  it("surfaces history from the top-right overflow menu", async () => {
+  it("surfaces history as a top-right toolbar action", () => {
     const onShowHistory = vi.fn();
     const historyButtonRef = createRef<HTMLButtonElement>();
 
@@ -292,17 +292,10 @@ describe("<EditorToolbar>", () => {
       </TooltipProvider>,
     );
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "editorToolbar.more" }),
-      { button: 0, ctrlKey: false },
-    );
-
-    const historyItem = await screen.findByRole("menuitem", {
-      name: "History",
-    });
-    fireEvent.click(historyItem);
-
-    await waitFor(() => expect(onShowHistory).toHaveBeenCalledTimes(1));
+    const historyButton = screen.getByRole("button", { name: "History" });
+    expect(historyButtonRef.current).toBe(historyButton);
+    fireEvent.click(historyButton);
+    expect(onShowHistory).toHaveBeenCalledTimes(1);
   });
 
   it("keeps transition choices, media tools, and theme toggles out of the overflow menu", async () => {

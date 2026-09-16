@@ -822,6 +822,23 @@ export default function EditorToolbar({
           className="flex-shrink-0 pl-2"
         />
 
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              ref={historyButtonRef}
+              onClick={onShowHistory}
+              className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
+              aria-label={t("editorToolbar.savedVersions")}
+            >
+              <IconHistory className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("editorToolbar.savedVersions")}</TooltipContent>
+        </Tooltip>
+
         {/* Consolidated editor menu */}
         <DropdownMenu>
           <Tooltip>
@@ -831,7 +848,6 @@ export default function EditorToolbar({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  ref={historyButtonRef}
                   className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
                   aria-label={t("editorToolbar.more")}
                 >
@@ -951,13 +967,6 @@ export default function EditorToolbar({
               </>
             )}
 
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={onShowHistory}>
-                <IconHistory className="size-4" />
-                {t("editorToolbar.savedVersions")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <ExportMenu
               ref={exportMenuRef}
