@@ -268,10 +268,16 @@ export function getLayerMoveSourceContent(args: {
 
 export function getFreshActiveFileContent(args: {
   activeContent: string;
+  pendingContent?: string | null;
   latestContent?: string | null;
   lastLocalContent?: string | null;
 }) {
-  return args.latestContent ?? args.lastLocalContent ?? args.activeContent;
+  return (
+    args.pendingContent ??
+    args.latestContent ??
+    args.lastLocalContent ??
+    args.activeContent
+  );
 }
 
 export function getFreshScreenContent(args: {

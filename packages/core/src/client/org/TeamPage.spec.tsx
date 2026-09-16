@@ -14,6 +14,7 @@ vi.mock("./hooks.js", () => ({
   useAppRoles: () => ({ data: undefined }),
   useChangeMemberRole: () => mocks.changeRole,
   useRemoveMember: () => mocks.removeMember,
+  useSetAppMemberRoles: () => mocks.action,
 }));
 
 vi.mock("../use-action.js", () => ({
@@ -32,6 +33,9 @@ vi.mock("../i18n.js", () => ({
     if (key === "org.noPeopleFound") return "No people found";
     if (key === "org.noMembers") return "No members";
     if (key === "org.inviteMembers") return "Invite members";
+    if (key === "org.appPermissions") return "App permissions";
+    if (key === "org.loading") return "Loading";
+    if (key === "org.newGroup") return "New group";
     return key;
   },
 }));
@@ -102,6 +106,32 @@ describe("MemberRow organization controls", () => {
     ).not.toBeNull();
   });
 
+  it("offers an explain-access popover for members with app permissions", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MemberRow
+            email="morgan@example.test"
+            role="member"
+            isCurrentUser={false}
+            currentUserRole="owner"
+            appRoles={{
+              appId: "dispatch",
+              roles: ["editor"],
+              permissions: { approve: ["editor"] },
+            }}
+            appRole={[]}
+            canManageAppRoles
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      container.querySelector('[aria-label="App permissions"]'),
+    ).not.toBeNull();
+  });
+
   it("does not offer controls for the current user's own row", () => {
     act(() => {
       root.render(
@@ -145,6 +175,7 @@ describe("MemberRow organization controls", () => {
             nextMemberOffset={null}
             onMemberPageChange={vi.fn()}
             onMemberSearchChange={onMemberSearchChange}
+            onCreateGroup={vi.fn()}
           />
         </TooltipProvider>,
       );
@@ -166,6 +197,39 @@ describe("MemberRow organization controls", () => {
       search!.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(onMemberSearchChange).toHaveBeenCalledWith("morgan");
+  });
+
+  it("hides the invite flow when email delivery is not configured", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MembersTableCard
+            members={[]}
+            totalMembers={0}
+            pendingInvites={[]}
+            isLoadingMembers={false}
+            isFetchingMembers={false}
+            membersError={null}
+            onRetryMembers={vi.fn()}
+            currentUserEmail="admin@example.test"
+            currentUserRole="admin"
+            emailConfigured={false}
+            groups={[]}
+            canManageGroups={false}
+            memberOffset={0}
+            memberSearch=""
+            activeMemberSearch=""
+            hasNextPage={false}
+            nextMemberOffset={null}
+            onMemberPageChange={vi.fn()}
+            onMemberSearchChange={vi.fn()}
+            onCreateGroup={vi.fn()}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Invite members");
   });
 
   it("uses a search-specific empty state", () => {
@@ -191,6 +255,7 @@ describe("MemberRow organization controls", () => {
             nextMemberOffset={null}
             onMemberPageChange={vi.fn()}
             onMemberSearchChange={vi.fn()}
+            onCreateGroup={vi.fn()}
           />
         </TooltipProvider>,
       );
@@ -198,5 +263,56 @@ describe("MemberRow organization controls", () => {
 
     expect(container.textContent).toContain("No people found");
     expect(container.textContent).not.toContain("Invite members");
+  });
+
+  it("offers to create a group for selected members when none exist", () => {
+    const onCreateGroup = vi.fn();
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MembersTableCard
+            members={[
+              {
+                email: "morgan@example.test",
+                role: "member",
+              },
+            ]}
+            totalMembers={1}
+            pendingInvites={[]}
+            isLoadingMembers={false}
+            isFetchingMembers={false}
+            membersError={null}
+            onRetryMembers={vi.fn()}
+            currentUserEmail="owner@example.test"
+            currentUserRole="owner"
+            groups={[]}
+            canManageGroups
+            memberOffset={0}
+            memberSearch=""
+            activeMemberSearch=""
+            hasNextPage={false}
+            nextMemberOffset={null}
+            onMemberPageChange={vi.fn()}
+            onMemberSearchChange={vi.fn()}
+            onCreateGroup={onCreateGroup}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const select = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Select morgan@example.test"]',
+    );
+    expect(select).not.toBeNull();
+    act(() => select?.click());
+
+    const createButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim() === "New group");
+    expect(createButton).not.toBeUndefined();
+    act(() => createButton?.click());
+
+    expect(onCreateGroup).toHaveBeenCalledWith(["morgan@example.test"]);
   });
 });

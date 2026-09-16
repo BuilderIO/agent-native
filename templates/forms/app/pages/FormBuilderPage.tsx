@@ -1164,8 +1164,11 @@ function BuilderContent({
                         dragIdx === idx && "opacity-50",
                       )}
                     >
+                      {/* Sits in the row's negative-margin gutter (sm:-mx-4 / sm:px-4
+                          = 16px). Offset must clear the handle's own width (size-10 =
+                          40px) or the grip icon bleeds across the input's left border. */}
                       <div
-                        className="absolute -start-5 top-1/2 hidden size-10 -translate-y-1/2 items-center justify-center cursor-grab text-muted-foreground opacity-0 transition-[color,opacity,transform] duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground sm:flex"
+                        className="absolute -start-8 top-1/2 hidden size-10 -translate-y-1/2 items-center justify-center cursor-grab text-muted-foreground opacity-0 transition-[color,opacity,transform] duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground sm:flex"
                         aria-label={t("builder.dragToReorder")}
                       >
                         <IconGripVertical className="h-4 w-4 translate-x-px" />

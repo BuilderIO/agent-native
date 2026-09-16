@@ -18,14 +18,19 @@ Context, reference deck, or source material that the app already provides.
    from presentation structure. Respect `contextMode: "off"`.
 2. Unless the user named a reference deck or design system, call
    `get-workspace-defaults` and use what it returns. See "Workspace Defaults".
-3. Plan the slides (deck title, title slide, section dividers, content slides).
+3. Plan the slides and write a compact deck brief: audience, thesis, one message
+   per slide, visual direction, and the deck-level theme contract.
 4. Call `create-deck --title "..." --slides '[]'` with a concise, specific
    title derived from the user's request and source material. The action opens
    the new empty deck through application state. Never use `Untitled Deck` or
    another placeholder title for a generated deck.
 5. If the connected browser does not consume the navigation command, call
    `navigate` with the new deck id.
-6. Call `add-slide` once per slide in slide order, waiting for each result.
+6. Add every generated slide with `add-slide` in slide order, waiting for each
+   result so each slide preserves its per-slide Creative Context provenance.
+   After the first slide, read it back with `get-deck` using its returned
+   `slideId` and `compact=false` to verify the visual contract before
+   continuing.
 
 When speaker notes are requested, put presenter-only text in each slide's
 `notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
@@ -52,10 +57,19 @@ narrative thesis, one-sentence visual direction, active design-system tokens,
 reference-deck composition pattern, image treatment, and known fit risks. The
 linked Agent-Native design system controls tokens, typography, spacing, imagery,
 and slide chrome. Impeccable-inspired advice about hierarchy, subtraction,
-contrast, and polish is a review lens, not a competing theme. If the request is
-open-ended and no approved direction exists, ask one targeted guided question
-or present a bounded choice before writing; do not silently pick a new brand
-language.
+contrast, rhythm, and polish is a review lens, not a competing theme. If the
+request is open-ended and no approved direction exists, ask one targeted guided
+question or present a bounded choice before writing; do not silently pick a new
+brand language.
+
+Before the first slide, lock a deck-level visual contract: background family,
+text and surface roles, accent treatment, heading/body type pairing, spacing
+scale, radius, and image treatment. With a linked system, derive the contract
+from its hydrated tokens. Without one, choose a subject-appropriate direction
+and repeat the same semantic `--deck-*` values on every slide wrapper. Vary
+composition and information hierarchy, not the canvas, font system, or palette.
+Alternating light and dark slides are a theme failure unless the user explicitly
+asks for that structure.
 
 When the source is a transcript or meeting notes, extract the audience's
 terminology, goals, objections, decisions, owners, dates, metrics, and open
@@ -73,9 +87,11 @@ has already been authored; that would fabricate influence. With an empty
 library, omit them. With Library mode Off, omit them and create normally.
    before adding the next slide
 
-Do not create multiple slides in parallel for the same deck. Do not spawn
-sub-agents to write into the same deck at the same time. Sub-agents may research
-or draft slide copy, but one writer should call `add-slide` sequentially so the
+Do not create multiple independent writes in parallel for the same deck. Do not
+spawn sub-agents to write into the same deck at the same time. Every newly
+generated slide must use `add-slide`; reserve `patch-deck` for deck fields,
+existing-slide edits, ordering, or source-preserving work. Sub-agents may
+research or draft slide copy, but one writer owns every deck mutation so the
 editor stays stable and the user can watch progress.
 
 ## Reference Decks
@@ -179,16 +195,17 @@ pnpm action add-slide --deckId=<id> --layout content --content "..."
 Every slide's `content` must use this exact outer div:
 
 ```html
-<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--ds-body-font, Inter, sans-serif);">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
   <!-- slide content here -->
 </div>
 ```
 
-The literal values in the examples below are fallback values for a deck with no
-linked system. When a system is linked, use its hydrated values or the renderer
-variables (`--ds-accent`, `--ds-bg`, `--ds-text`, `--ds-text-muted`,
-`--ds-heading-font`, `--ds-body-font`, `--ds-radius`) instead of copying
-Poppins, cyan, white, black, or a stock radius into new markup.
+When a system is linked, use its hydrated values or the renderer variables
+(`--ds-accent`, `--ds-bg`, `--ds-text`, `--ds-text-muted`, `--ds-heading-font`,
+`--ds-body-font`, `--ds-radius`) through the semantic `--deck-*` contract
+instead of copying values into individual elements. With no linked system,
+choose the contract once from the subject and repeat it exactly; do not import
+a stock presentation palette, font, or component language.
 
 ## Fit budget
 
@@ -202,16 +219,15 @@ stack. Keep body text at or above 16px. Never hide overflow with zoom,
 may reduce the slide's explicit padding, and that padding must remain intact
 when the saved HTML is rendered.
 
-When no reference deck or hydrated design system is available, use the fallback
-direction: warm neutral paper (`#F5F2EA`), ink text (`#1F2933`), Inter or a
-close sans-serif, 64px vertical and 80px horizontal padding, and one restrained
-blue or coral accent. Build an intentional composition beyond a text dump: use
-a title block, two-column split, metric treatment, rule, callout, visual
-placeholder, or simple diagram where it fits the message. Never use a black
-background with white text as the generic fallback, never omit the padded
-wrapper, and never let body copy touch the canvas edge. Do not add decorative
-cards or shapes without a semantic role, and keep any accent treatment away
-from text so contrast stays readable.
+When no reference deck or hydrated design system is available, derive the
+fallback direction from the subject instead of using a fixed palette. Lock one
+background family, readable text/surface roles, type pairing, spacing scale,
+radius, and accent treatment as semantic `--deck-*` values, then repeat them on
+every wrapper. Build an intentional composition beyond a text dump: use a title
+block, two-column split, metric treatment, rule, callout, visual placeholder,
+or simple diagram where it fits the message. Keep the canvas stable across the
+deck, use accents only for hierarchy or meaning, and do not add decorative
+cards, gradients, fake logos, or shapes without a semantic role.
 
 ## Bounded visual QA
 
@@ -225,31 +241,33 @@ was rendered and compared.
 
 ## Ready-to-Use Templates
 
-Copy and fill in the bracketed values. Keep the wrapper styles and replace
-tokens with the hydrated design-system values when available.
+Copy and fill in the bracketed values. Each example includes the complete
+semantic wrapper contract. If no design system is linked, replace the
+`--ds-*` fallbacks with the one subject-appropriate contract chosen for this
+deck before copying the wrapper to another slide.
 
 ### Title Slide
 
 ```html
-<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; font-family: var(--ds-body-font, Inter, sans-serif);">
-  <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ds-accent, #2457D6);">[LABEL OR DATE]</div>
-  <h1 style="font-size: 56px; font-weight: 750; color: var(--ds-text, #1F2933); line-height: 1.05; letter-spacing: -0.04em; margin: 0; max-width: 760px;">[TITLE]</h1>
-  <p style="font-size: 20px; color: var(--ds-text-muted, #667085); margin: 4px 0 0;">[SUBTITLE OR PRESENTER]</p>
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; font-family: var(--deck-body-font);">
+  <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--deck-accent, var(--ds-accent, currentColor));">[LABEL OR DATE]</div>
+  <h1 style="font-size: 56px; font-weight: 750; color: var(--deck-ink, var(--ds-text, currentColor)); font-family: var(--deck-heading-font, var(--ds-heading-font, var(--deck-body-font, sans-serif))); line-height: 1.05; letter-spacing: -0.04em; margin: 0; max-width: 760px;">[TITLE]</h1>
+  <p style="font-size: 20px; color: var(--deck-muted, var(--ds-text-muted, currentColor)); margin: 4px 0 0;">[SUBTITLE OR PRESENTER]</p>
 </div>
 ```
 
 ### Content or Two-Column Slide
 
 ```html
-<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; gap: 18px; font-family: var(--ds-body-font, Inter, sans-serif);">
-  <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ds-accent, #2457D6);">[SECTION LABEL]</div>
-  <h2 style="font-size: 34px; font-weight: 750; color: var(--ds-text, #1F2933); line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 18px;">[SLIDE HEADING]</h2>
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; gap: 18px; font-family: var(--deck-body-font);">
+  <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--deck-accent, var(--ds-accent, currentColor));">[SECTION LABEL]</div>
+  <h2 style="font-size: 34px; font-weight: 750; color: var(--deck-ink, var(--ds-text, currentColor)); font-family: var(--deck-heading-font, var(--ds-heading-font, var(--deck-body-font, sans-serif))); line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 18px;">[SLIDE HEADING]</h2>
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
     <div style="display: flex; flex-direction: column; gap: 14px;">
-      <div style="border-left: 3px solid var(--ds-accent, #2457D6); padding: 12px 16px; background: var(--ds-surface, #FFFFFF); border-radius: var(--ds-radius, 14px); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
-      <div style="border-left: 3px solid var(--ds-secondary, #C85C3A); padding: 12px 16px; background: var(--ds-surface, #FFFFFF); border-radius: var(--ds-radius, 14px); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
+      <div style="border-left: 3px solid var(--deck-accent, var(--ds-accent, currentColor)); padding: 12px 16px; background: var(--deck-surface, var(--ds-surface, transparent)); border-radius: var(--deck-radius, var(--ds-radius, 0px)); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
+      <div style="border-left: 3px solid var(--deck-accent, var(--ds-accent, currentColor)); padding: 12px 16px; background: var(--deck-surface, var(--ds-surface, transparent)); border-radius: var(--deck-radius, var(--ds-radius, 0px)); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
     </div>
-    <div class="fmd-img-placeholder" style="min-height: 220px; border-radius: var(--ds-radius, 14px);">[VISUAL OR IMAGE DESCRIPTION]</div>
+    <div class="fmd-img-placeholder" style="min-height: 220px; border-radius: var(--deck-radius, var(--ds-radius, 0px));">[VISUAL OR IMAGE DESCRIPTION]</div>
   </div>
 </div>
 ```
@@ -264,14 +282,15 @@ When a slide needs a visual, use this div. It renders as a styled placeholder
 and can later be replaced with a generated image:
 
 ```html
-<div class="fmd-img-placeholder" style="width: 100%; min-height: 220px; border-radius: var(--ds-radius, 14px);">[Description of what image should show]</div>
+<div class="fmd-img-placeholder" style="width: 100%; min-height: 220px; border-radius: var(--deck-radius, var(--ds-radius, 0px));">[Description of what image should show]</div>
 ```
 
 ## Bulk Replacement Only
 
 Use a non-empty `create-deck --slides '[...]'` payload only for imports or an
 intentional atomic bulk replacement. For normal AI-generated decks, use the
-empty-deck plus sequential `add-slide` workflow above.
+empty-deck workflow above: sequential `add-slide` calls for every generated
+slide.
 
 For a bulk replacement, pass the same fully styled HTML templates in the
 `slides` array. After creating, navigate to the deck:

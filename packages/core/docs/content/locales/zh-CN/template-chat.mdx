@@ -123,13 +123,13 @@ description: "一个极简的、以聊天为先的 agent-native 应用：持久�
 ## 开始使用 {#get-started}
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
 ```
 
 请参阅 [聊天：开发者指南](/docs/template-chat-developers#quick-start) 了解安装、首次运行和连接 LLM 的方法。如果是完全没有浏览器 UI 的 automation-first 工作，请改用 `--headless` 来搭建脚手架：
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 ```
 
 适用于计划任务、队列、CLI 循环，或聊天和应用页面尚无用处的外部代理工作流。关键的不变量保持不变：actions 是聊天、UI、HTTP、MCP、A2A 和 CLI 共用的界面。有关这条路径的详细说明，请参阅 [Automation-First Apps](/docs/pure-agent-apps)。

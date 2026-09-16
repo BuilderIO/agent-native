@@ -10,6 +10,8 @@ import tailwindRuntimeUrl from "@tailwindcss/browser?url";
 import alpineRuntimeUrl from "alpinejs/dist/cdn.min.js?url";
 import { parse } from "parse5";
 
+import { ensureGroupRuntime } from "../../../../shared/group-runtime";
+
 /**
  * Only the major version this app vendors may be substituted. Swapping v3's Play
  * CDN for the v4 runtime looks equivalent and is not: v4 resolves spacing and
@@ -112,6 +114,7 @@ export function withLocalRuntimes(
   html: string,
   urls: { tailwind: string; alpine: string } = localRuntimeUrls(),
 ): string {
+  html = ensureGroupRuntime(html);
   if (!html || !/<script/i.test(html)) return html;
   const spans = runtimeSrcSpans(html, urls);
   if (spans.length === 0) return html;

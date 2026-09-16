@@ -20,7 +20,7 @@ Agent-Native is an open-source TypeScript framework for building agents that pai
 ## Quick start
 
 ```bash
-npx @agent-native/core@latest create my-agent --standalone --template chat
+npx --yes @agent-native/core@latest create my-agent --standalone --template chat
 ```
 
 Follow the [getting started guide](https://agent-native.com/docs/getting-started) for a full intro to the framework.

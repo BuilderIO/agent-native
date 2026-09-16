@@ -1,5 +1,5 @@
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -8,6 +8,18 @@ const CONFLICT_BACKOFF_MS = 8;
 const designDataLocks = new Map<string, Promise<unknown>>();
 
 export type DesignDataRecord = Record<string, unknown>;
+
+export interface DesignFileContentMutation {
+  fileId: string;
+  content: string;
+}
+
+export interface DesignFileContentSnapshot {
+  id: string;
+  content: string;
+  fileType: string;
+  updatedAt: string | null;
+}
 
 export class DesignDataMutationConflictError extends Error {
   constructor(designId: string, attempts: number) {
@@ -115,6 +127,18 @@ interface MutateDesignDataOptions {
    * writer may safely add unrelated keys immediately after our commit.
    */
   isApplied: (persisted: DesignDataRecord) => boolean;
+  /**
+   * Optional content changes committed in the same transaction as `data`.
+   * The callback receives the same latest design snapshot used by `mutate`.
+   */
+  mutateFiles?: (
+    current: DesignDataRecord,
+    next: DesignDataRecord,
+    context: {
+      updatedAt: string;
+      files: readonly DesignFileContentSnapshot[];
+    },
+  ) => readonly DesignFileContentMutation[];
   maxAttempts?: number;
   now?: () => Date;
 }
@@ -138,11 +162,17 @@ async function mutateDesignDataUnlocked({
   designId,
   mutate,
   isApplied,
+  mutateFiles,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   now = () => new Date(),
 }: MutateDesignDataOptions): Promise<{
   data: DesignDataRecord;
   updatedAt: string;
+  updatedFiles: Array<{
+    id: string;
+    content: string;
+    previousContent: string;
+  }>;
 }> {
   // Re-assert at the shared write boundary. Callers also check before doing
   // parse/index work so unauthorized requests fail early, but this helper must
@@ -151,10 +181,31 @@ async function mutateDesignDataUnlocked({
   const db = getDb();
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    let committed: { data: DesignDataRecord; updatedAt: string } | undefined;
+    let committed:
+      | {
+          data: DesignDataRecord;
+          updatedAt: string;
+          updatedFiles: Array<{
+            id: string;
+            content: string;
+            previousContent: string;
+          }>;
+        }
+      | undefined;
 
     try {
       committed = await db.transaction(async (tx) => {
+        if (mutateFiles) {
+          // Keep the design-data CAS and HTML rewrites in one transaction.
+          // ponytail: reuse the existing design-file lock; split by design only
+          // if breakpoint edits become a measurable multi-tenant bottleneck.
+          await (
+            tx as unknown as {
+              execute: (query: unknown) => Promise<unknown>;
+            }
+          ).execute(sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`);
+        }
+
         const [currentRow] = await tx
           .select({
             data: schema.designs.data,
@@ -167,10 +218,22 @@ async function mutateDesignDataUnlocked({
           throw new Error(`Design "${designId}" not found.`);
         }
 
-        const updatedAt = nextUpdatedAt(currentRow.updatedAt, now());
+        const currentTime = now();
+        const updatedAt = nextUpdatedAt(currentRow.updatedAt, currentTime);
         const currentData = parseDesignData(designId, currentRow.data);
         const nextData = mutate(currentData, { updatedAt });
         const nextSerialized = serializeDesignData(designId, nextData);
+        const currentFiles = mutateFiles
+          ? await tx
+              .select({
+                id: schema.designFiles.id,
+                content: schema.designFiles.content,
+                fileType: schema.designFiles.fileType,
+                updatedAt: schema.designFiles.updatedAt,
+              })
+              .from(schema.designFiles)
+              .where(eq(schema.designFiles.designId, designId))
+          : [];
         const revisionConditions = [
           eq(schema.designs.id, designId),
           currentRow.data === null
@@ -202,7 +265,78 @@ async function mutateDesignDataUnlocked({
           throw new DesignDataMutationConflictError(designId, attempt + 1);
         }
 
-        return { data: nextData, updatedAt };
+        const updatedFiles: Array<{
+          id: string;
+          content: string;
+          previousContent: string;
+        }> = [];
+        if (mutateFiles) {
+          const fileMutations = mutateFiles(currentData, nextData, {
+            updatedAt,
+            files: currentFiles,
+          });
+          const seenFileIds = new Set<string>();
+          const filesById = new Map(
+            currentFiles.map((file) => [file.id, file]),
+          );
+          for (const mutation of fileMutations) {
+            if (seenFileIds.has(mutation.fileId)) {
+              throw new Error(
+                `Duplicate design file mutation: ${mutation.fileId}`,
+              );
+            }
+            seenFileIds.add(mutation.fileId);
+            const file = filesById.get(mutation.fileId);
+            if (!file) {
+              throw new Error(
+                `Design file mutation does not belong to design ${designId}: ${mutation.fileId}`,
+              );
+            }
+            if (file.content === mutation.content) continue;
+            const fileUpdatedAt = nextUpdatedAt(file.updatedAt, currentTime);
+            await tx
+              .update(schema.designFiles)
+              .set({
+                content: mutation.content,
+                updatedAt: fileUpdatedAt,
+                contentOperationSource: null,
+                contentOperationRevision: null,
+                contentOperationResultHash: null,
+              })
+              .where(
+                and(
+                  eq(schema.designFiles.id, file.id),
+                  eq(schema.designFiles.designId, designId),
+                  eq(schema.designFiles.content, file.content),
+                  file.updatedAt === null
+                    ? isNull(schema.designFiles.updatedAt)
+                    : eq(schema.designFiles.updatedAt, file.updatedAt),
+                ),
+              );
+            const [confirmedFile] = await tx
+              .select({
+                content: schema.designFiles.content,
+                updatedAt: schema.designFiles.updatedAt,
+              })
+              .from(schema.designFiles)
+              .where(eq(schema.designFiles.id, file.id))
+              .limit(1);
+            if (
+              !confirmedFile ||
+              confirmedFile.content !== mutation.content ||
+              confirmedFile.updatedAt !== fileUpdatedAt
+            ) {
+              throw new DesignDataMutationConflictError(designId, attempt + 1);
+            }
+            updatedFiles.push({
+              id: file.id,
+              content: mutation.content,
+              previousContent: file.content,
+            });
+          }
+        }
+
+        return { data: nextData, updatedAt, updatedFiles };
       });
     } catch (error) {
       if (
@@ -223,7 +357,11 @@ async function mutateDesignDataUnlocked({
       }
       const persistedData = parseDesignData(designId, persistedRow.data);
       if (isApplied(persistedData)) {
-        return { data: persistedData, updatedAt: committed.updatedAt };
+        return {
+          data: persistedData,
+          updatedAt: committed.updatedAt,
+          updatedFiles: committed.updatedFiles,
+        };
       }
     }
 
@@ -233,9 +371,15 @@ async function mutateDesignDataUnlocked({
   throw new DesignDataMutationConflictError(designId, maxAttempts);
 }
 
-export function mutateDesignData(
-  options: MutateDesignDataOptions,
-): Promise<{ data: DesignDataRecord; updatedAt: string }> {
+export function mutateDesignData(options: MutateDesignDataOptions): Promise<{
+  data: DesignDataRecord;
+  updatedAt: string;
+  updatedFiles: Array<{
+    id: string;
+    content: string;
+    previousContent: string;
+  }>;
+}> {
   // Serialize same-process calls before entering a backend transaction. This
   // avoids overlapping PGlite transactions on one client; the CAS
   // remains necessary for multi-instance and cross-process writers.

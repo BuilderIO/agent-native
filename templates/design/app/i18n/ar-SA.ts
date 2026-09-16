@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["ar-SA"],
   designEditor: {
     ...messagesByLocale["ar-SA"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["ar-SA"].designEditor.componentInstances,
+      restore: "استعادة المكوّن",
+    },
     commenterRoleLabel: "معلّق",
     commenterRoleDescription: "يمكنه العرض وإضافة تعليقات المراجعة",
     toasts: {
@@ -56,6 +60,9 @@ const messages = {
     placeholder: "اترك ملاحظاتك…",
     commentingOn: "التعليق على {{name}}",
     emptyState: "لا توجد تعليقات مراجعة بعد.",
+    filter: "تصفية التعليقات",
+    all: "الكل",
+    open: "مفتوحة",
     clickToPin: "انقر في أي مكان لتثبيت ملاحظة",
     escToExit: "اضغط Esc للخروج",
     newComment: "تعليق جديد",
@@ -76,6 +83,9 @@ const messages = {
     resolveFailed: "تعذر حل هذه المحادثة",
     deleteComment: "حذف التعليق",
     moreActions: "مزيد من الإجراءات",
+    copyLink: "نسخ الرابط",
+    linkCopied: "تم نسخ الرابط",
+    copyLinkFailed: "تعذر نسخ الرابط",
     resolved: "تم الحل",
     reviewer: "المراجع",
     applyFeedback: "تطبيق الملاحظات ({{count}})",

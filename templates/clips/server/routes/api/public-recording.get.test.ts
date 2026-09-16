@@ -35,6 +35,7 @@ vi.mock("h3", () => ({
 vi.mock("drizzle-orm", () => ({
   asc: vi.fn(),
   eq: vi.fn(),
+  sql: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -249,6 +250,33 @@ describe("/api/public-recording route", () => {
       expect.objectContaining({ id: "rec-1" }),
       expect.objectContaining({ addPasswordToken: false }),
     );
+  });
+
+  it("keeps static and animated thumbnails behind the same-origin proxy", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [
+          makeRecording({
+            thumbnailUrl: "https://private-bucket.example/thumb.jpg",
+            animatedThumbnailUrl: "https://private-bucket.example/preview.gif",
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: {
+        thumbnailUrl: "/api/thumbnail/rec-1?t=media-token",
+        animatedThumbnailUrl: "/api/thumbnail/rec-1?t=media-token&animated=1",
+      },
+    });
   });
 
   it("exposes durable media verification to processing players", async () => {

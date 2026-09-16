@@ -154,16 +154,15 @@ codex login status
 데스크탑과 CLI는 `codex login status`를 읽고 `codex exec`를 실행하므로
 설치된 Codex CLI 구독 또는 API 키 인증을 재사용하세요
 reports. This is separate from the `@ai-sdk/harness-codex` package used by
-[Harness Agents](/docs/harness-agents); 하네스 어댑터는 로컬을 복사할 수 있습니다
-Codex CLI는 `codexCliAuth: true`가 다음인 경우에만 신뢰할 수 있는 샌드박스에 인증합니다.
-명시적으로 활성화되었습니다.
+[Harness Agents](/docs/harness-agents); 이 어댑터는 이제 로컬 인증 파일을 샌드박스에
+복사하지 않고 호스트에서 지원되는 네이티브 구독 자격 증명을 확인합니다.
 
 ## 브라우저 호스트
 
 이전 숨겨진 `code` 템플릿이 제거되었습니다. 브라우저에서 호스팅되는 코드 표면을 빌드하려면 일반 앱을 만들고 호스트 구현을 사용하여 공유 UI 패키지를 마운트하세요.
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template chat
+npx --yes @agent-native/core@latest create my-code-ui --template chat
 cd my-code-ui
 pnpm add @agent-native/code-agents-ui
 pnpm install

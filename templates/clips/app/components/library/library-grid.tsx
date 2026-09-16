@@ -533,7 +533,7 @@ export function LibraryGrid({
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
-        <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_auto]">
           <div className="min-w-0 flex-1 lg:flex-none">
             {pageBreadcrumbItems.length > 0 ? (
               <PageBreadcrumb items={pageBreadcrumbItems} />
@@ -543,7 +543,7 @@ export function LibraryGrid({
             side="bottom"
             className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
           />
-          <div className="ms-auto flex min-w-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
+          <div className="ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
             {extraActions}
             <SortMenu value={sort} onChange={handleSortChange} />
           </div>

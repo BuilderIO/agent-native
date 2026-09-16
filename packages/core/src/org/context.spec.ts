@@ -34,6 +34,7 @@ import {
   resolveOrgIdForEmail,
   resolveOrgIdForEmailViaEvent,
   createOrganization,
+  bootstrapAdminOrganization,
   getOrgDomain,
   getOrgA2ASecret,
   getA2ASecretByDomain,
@@ -865,6 +866,26 @@ describe("getOrgContext", () => {
       expect(ctx.orgId).toBeNull();
       expect(mockGetSetting).not.toHaveBeenCalled();
     });
+
+    it("does NOT auto-create a personal org when org creation is closed", async () => {
+      process.env.ORG_CREATION = "closed";
+      process.env.AUTO_CREATE_DEFAULT_ORG = "1";
+      mockGetSession.mockResolvedValue({
+        email: "employee@company.test",
+        emailVerified: true,
+      });
+      queueSelect([], []); // memberships and domain auto-join lookup
+
+      const ctx = await getOrgContext(EVENT);
+
+      expect(ctx.orgId).toBeNull();
+      expect(mockGetSetting).not.toHaveBeenCalled();
+      expect(
+        mockExecute.mock.calls.some(([query]) =>
+          query.sql.includes("INSERT INTO organizations"),
+        ),
+      ).toBe(false);
+    });
   });
 });
 
@@ -1132,6 +1153,83 @@ describe("createOrganization", () => {
         { orgId: result.id },
       );
     });
+  });
+});
+
+describe("bootstrapAdminOrganization", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rows: [] });
+    process.env.AUTH_BOOTSTRAP_ADMINS = "admin@example.test";
+  });
+
+  it("creates the stable canonical organization when none exists", async () => {
+    mockExecute.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      bootstrapAdminOrganization("Admin@Example.test"),
+    ).resolves.toBe(true);
+
+    expect(mockExecute.mock.calls[0][0].sql).toContain(
+      "SELECT id FROM organizations",
+    );
+    expect(mockExecute.mock.calls[1][0].sql).toContain(
+      "INSERT INTO organizations",
+    );
+    expect(mockExecute.mock.calls[1][0].args[0]).toMatch(/^bootstrap-/);
+    expect(mockExecute.mock.calls[2][0].sql).toContain(
+      "INSERT INTO org_members",
+    );
+  });
+
+  it("adds a bootstrap admin as owner to the sole organization", async () => {
+    mockExecute.mockResolvedValueOnce({ rows: [{ id: "org-1" }] });
+
+    await expect(
+      bootstrapAdminOrganization("admin@example.test"),
+    ).resolves.toBe(true);
+
+    const membershipInsert = mockExecute.mock.calls.find(([query]) =>
+      query.sql.includes("INSERT INTO org_members"),
+    )?.[0];
+    expect(membershipInsert?.args).toEqual(
+      expect.arrayContaining(["org-1", "admin@example.test"]),
+    );
+    expect(membershipInsert?.sql).toContain("'owner'");
+  });
+
+  it("refuses to choose a canonical organization when several exist", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ id: "org-1" }, { id: "org-2" }],
+    });
+
+    await expect(
+      bootstrapAdminOrganization("admin@example.test"),
+    ).resolves.toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("could not choose among multiple"),
+    );
+    warn.mockRestore();
+  });
+
+  it("recovers when a concurrent bootstrap wins the stable-id insert", async () => {
+    mockExecute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockRejectedValueOnce(new Error("duplicate key value"))
+      .mockResolvedValueOnce({ rows: [{ id: "canonical-org" }] });
+
+    await expect(
+      bootstrapAdminOrganization("admin@example.test"),
+    ).resolves.toBe(true);
+
+    expect(mockExecute.mock.calls.map(([query]) => query.sql)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("INSERT INTO organizations"),
+        expect.stringContaining("SELECT id FROM organizations WHERE id = ?"),
+        expect.stringContaining("INSERT INTO org_members"),
+      ]),
+    );
   });
 });
 

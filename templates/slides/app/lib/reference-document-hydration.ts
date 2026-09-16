@@ -21,8 +21,18 @@ export const REFERENCE_HYDRATION_DEADLINE_MS = 4 * 60 * 1000;
 const HYDRATION_CONCURRENCY = 3;
 
 const MAX_CHARS_PER_REFERENCE = 12_000;
-/** Ceiling across all references, so N attachments cannot flood the prompt. */
+/**
+ * Ceiling on reference *content* across all references, so N attachments
+ * cannot flood the prompt. The short per-file notice left behind for a
+ * reference the budget could not fit is fixed overhead on top of this.
+ */
 const MAX_TOTAL_REFERENCE_CHARS = 36_000;
+/**
+ * A block clipped below this is a fragment, not a reference — not even the
+ * heading is guaranteed to survive — so the agent is told the file was
+ * omitted rather than handed an unidentifiable stub.
+ */
+const MIN_PARTIAL_REFERENCE_CHARS = 600;
 const MAX_PDF_PAGES_IN_CONTEXT = 20;
 const MAX_PPTX_SLIDES_IN_CONTEXT = 20;
 const MAX_DOCX_SECTIONS_IN_CONTEXT = 20;
@@ -346,16 +356,27 @@ export async function hydrateReferenceDocuments(
   let measuredDesignCount = 0;
   for (const outcome of outcomes) {
     if (outcome.status !== "read") continue;
-    if (outcome.measuredDesign) measuredDesignCount += 1;
-    if (budget.remaining <= 0) {
+    const fitsWhole = outcome.block.length <= budget.remaining;
+    if (!fitsWhole && budget.remaining < MIN_PARTIAL_REFERENCE_CHARS) {
       blocks.push(
-        `### ${outcome.originalName}\nRead successfully, but omitted here because earlier references filled the reference budget. Call \`import-file\` for this one if you need it.`,
+        `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
       );
       continue;
     }
     const block = truncate(outcome.block, budget.remaining);
     budget.remaining -= block.length;
-    blocks.push(block);
+    // A clipped block has to say so in the same words as a dropped one, or
+    // the no-reread rule leaves the missing remainder with no way back.
+    blocks.push(
+      fitsWhole
+        ? block
+        : `${block}\nThe rest of this reference was omitted for space; call \`import-file\` for this file if you need the remainder.`,
+    );
+    // Counted only when the whole block survives the budget. A digest the
+    // budget clipped — wholly or partly — cannot be matched, and counting it
+    // would suppress the styling fallback while leaving the agent nothing to
+    // follow.
+    if (outcome.measuredDesign && fitsWhole) measuredDesignCount += 1;
   }
 
   return {
@@ -365,7 +386,7 @@ export async function hydrateReferenceDocuments(
     context: [
       "",
       "## Attached Reference Documents",
-      "These files were read before this run started. Their content and measured visual language below are the reference; do not re-read them with `import-file` and do not generate as if they were missing.",
+      "These files were read before this run started. Their content and measured visual language below are the reference; do not re-read them with `import-file` unless a section below says the file was omitted for space, and do not generate as if they were missing.",
       "Match the reference's type scale, weights, colors, alignment, and margins when the user asked for a visual or style reference. Take structure and wording from the user's request, not from the reference's own page order.",
       ...blocks,
     ].join("\n\n"),

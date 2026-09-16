@@ -1,16 +1,18 @@
 ---
 title: "App-übergreifendes SSO"
-description: "Dokumentiert Desktop-Arbeitsbereichs-SSO und serverseitige Organisationsföderation. Die Browser-Anmeldung mit Agent-Native wurde entfernt."
+description: "Unterscheidet zwischen OIDC- oder SAML-Anmeldung einer Organisation und App-übergreifender Identitätsföderation."
 ---
 
-# App-übergreifendes SSO
+# Organisations-SSO und App-Föderation
+
+Organisations-SSO nutzt den OIDC- oder SAML-Anbieter eines Unternehmens für die Anmeldung bei einer Agent-Native-Bereitstellung. App-übergreifende Föderation überträgt verifizierte Identität oder Organisationskontext zwischen getrennten Bereitstellungen. Einrichtung und Vertrauensgrenzen unterscheiden sich.
 
 Die browserbasierte Option "Sign in with Agent-Native" und die automatische
 Browser-Weiterleitung wurden entfernt. Die Anmeldung pro App bleibt der
 Standard für Webnutzer. Diese Seite beschreibt die verbleibenden Desktop- und
 serverseitigen Föderationsverträge.
 
-## Was bleibt
+## App-übergreifende Föderation
 
 ### Desktop-Arbeitsbereich
 
@@ -127,3 +129,9 @@ normale lokale Authentifizierung verfügbar.
 - [Dispatch](/docs/dispatch)
 - [Sicherheit und Datenscoping](/docs/security)
 - [Multi-App-Arbeitsbereiche](/docs/multi-app-workspace)
+
+Unternehmensanmeldung über OIDC oder SAML unterscheidet sich von der Identitätsföderation zwischen Apps. Der [Leitfaden für verwaltete Bereitstellungen](/docs/administered-deployments) beschreibt das Unternehmensmodell. Wenn `browser.identity-sso` aktiviert ist, versucht die App eine stille `prompt=none`-Prüfung; das lokale Anmeldeformular bleibt der Fallback. Siehe [Design für Cross-App Connect](/docs/cross-app-connect-design).
+
+## Rollout-Anleitung für Browser-Identity-SSO
+
+Aktiviere `browser.identity-sso` zunächst nur für eine Testadresse. Melde dich bei Dispatch an, melde dich in der Ziel-App ab und prüfe beim nächsten Laden die stille Prüfung. Wiederhole den Test ohne Hub-Sitzung und bestätige bei `login_required` das lokale Formular, bevor du die Gruppe erweiterst. Beim ersten Aktivieren kann eine einmalige Sitzungswiderrufung nötig sein.

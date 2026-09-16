@@ -6,6 +6,7 @@ const warnings = vi.hoisted(() => ({
   ] as string[],
 }));
 const toastCalls = vi.hoisted(() => ({ warning: [] as string[] }));
+const callAction = vi.hoisted(() => vi.fn());
 
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), {
@@ -20,13 +21,15 @@ vi.mock("sonner", () => ({
   }),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
-  callAction: vi.fn(async () => ({
-    designId: "d1",
-    strategy: "localKiwi",
-    unresolvedImages: 33,
-    files: [{ id: "f1" }],
-    warnings: warnings.value,
-  })),
+  callAction,
+}));
+
+callAction.mockImplementation(async () => ({
+  designId: "d1",
+  strategy: "localKiwi",
+  unresolvedImages: 33,
+  files: [{ id: "f1" }],
+  warnings: warnings.value,
 }));
 vi.mock("@/lib/figma-clipboard", () => ({
   resolveFigmaPasteImportCall: () => ({ action: "import-figma-clipboard" }),
@@ -38,12 +41,15 @@ vi.mock("@/lib/design-import", () => ({
 const { runImportFigmaClipboardIntoDesign } =
   await import("./import-figma-clipboard-into-design.js");
 
-function args(showPastedImagesNotice: (a: unknown) => void) {
+function args(
+  showPastedImagesNotice: (a: unknown) => void,
+  navigate = vi.fn(),
+) {
   return {
     canEditDesign: true,
     figmaPasteImportingRef: { current: false },
     id: "d1",
-    navigate: vi.fn(),
+    navigate,
     queryClient: { invalidateQueries: vi.fn() },
     showPastedImagesNotice,
     t: (key: string) => key,
@@ -68,5 +74,31 @@ describe("a paste whose images could not come through", () => {
     warnings.value = ["The selection was truncated."];
     await runImportFigmaClipboardIntoDesign(args(vi.fn()), "<figmeta>");
     expect(toastCalls.warning).toEqual(["designEditor.import.warningsToast"]);
+  });
+
+  it("focuses the first imported screen in the overview", async () => {
+    const navigate = vi.fn();
+    await runImportFigmaClipboardIntoDesign(
+      args(vi.fn(), navigate),
+      "<figmeta>",
+    );
+
+    expect(navigate).toHaveBeenCalledWith("/design/d1?view=overview&screen=f1");
+  });
+
+  it("keeps the overview route when the first imported file has no id", async () => {
+    callAction.mockResolvedValueOnce({
+      designId: "d1",
+      files: [{ id: "", filename: "pasted.html" }],
+      warnings: [],
+    });
+    const navigate = vi.fn();
+
+    await runImportFigmaClipboardIntoDesign(
+      args(vi.fn(), navigate),
+      "<figmeta>",
+    );
+
+    expect(navigate).toHaveBeenCalledWith("/design/d1?view=overview");
   });
 });

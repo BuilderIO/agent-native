@@ -36,11 +36,18 @@ export function trackOnboardingEvent(
     properties.flow,
     properties.step_id,
     properties.extension_id,
+    properties.integration_id,
+    properties.role,
   ]
     .map((value) => String(value ?? ""))
     .join(":");
-  if (seenOnboardingEvents.has(key)) return;
-  seenOnboardingEvents.add(key);
+  const isRepeatableInteraction =
+    name.startsWith("integration_") ||
+    name === "onboarding_method_clicked" ||
+    name === "onboarding_dismissed" ||
+    name === "onboarding_reopened";
+  if (!isRepeatableInteraction && seenOnboardingEvents.has(key)) return;
+  if (!isRepeatableInteraction) seenOnboardingEvents.add(key);
   trackEvent(name, properties);
 }
 
@@ -223,16 +230,32 @@ export function useOnboarding(
 
   const dismiss = useCallback(async () => {
     setDismissed(true); // optimistic
+    const currentStepIndex = steps.findIndex((step) => !step.complete);
+    const currentStep = steps[currentStepIndex];
+    trackOnboardingEvent("onboarding_dismissed", {
+      flow: "checklist",
+      ...(currentStepIndex >= 0
+        ? {
+            step_id: currentStep?.id,
+            step_index: currentStepIndex,
+          }
+        : {}),
+      reason: "user_action",
+    });
     await fetch(agentNativePath("/_agent-native/onboarding/dismiss"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
     });
     await fetchAll();
-  }, [fetchAll]);
+  }, [fetchAll, steps]);
 
   const reopen = useCallback(async () => {
     setDismissed(false); // optimistic
+    trackOnboardingEvent("onboarding_reopened", {
+      flow: "checklist",
+      reason: "user_action",
+    });
     await fetch(agentNativePath("/_agent-native/onboarding/reopen"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -9,7 +9,9 @@ import { readBody } from "../server/h3-helpers.js";
 import {
   getRegisteredAppRoles,
   listAppMemberRoles,
-  setAppMemberRole,
+  setAppMemberRoles,
+  getAppPermissionOverrides,
+  setAppPermissionRoles,
   type AppRolesDescriptor,
 } from "./app-roles.js";
 import { getOrgContext } from "./context.js";
@@ -38,6 +40,14 @@ function requireDescriptor(appId: string | null): AppRolesDescriptor<string> {
   return descriptor;
 }
 
+function appIdFromEvent(event: H3Event, fallback?: unknown): string | null {
+  const url = getRequestURL(event);
+  const match = url.pathname.match(/(?:\/app-permissions\/|^\/)([^/]+)\/?$/);
+  if (match?.[1]) return decodeURIComponent(match[1]);
+  if (typeof fallback === "string") return fallback;
+  return url.searchParams.get("appId");
+}
+
 /** Extract the :email tail. The mount prefix is stripped before we see it. */
 function extractMemberEmail(event: H3Event): string | undefined {
   const path = getRequestURL(event).pathname;
@@ -61,11 +71,28 @@ export const listAppRolesHandler = defineEventHandler(
       roles: descriptor.roles,
       defaultRole: descriptor.defaultRole ?? null,
       roleLabels: descriptor.roleLabels ?? {},
+      permissions: descriptor.permissions ?? {},
       canManage: canManageOrg(ctx.role),
     };
-    if (!ctx.orgId) return { ...base, assignments: [], myRole: null };
+    if (!ctx.orgId)
+      return {
+        ...base,
+        assignments: [],
+        myRoles: [],
+        // Compatibility fields for clients upgrading from the single-role API.
+        myRole: null,
+      };
 
-    const assignments = await listAppMemberRoles(descriptor.appId, ctx.orgId);
+    const assignments = (
+      await listAppMemberRoles(descriptor.appId, ctx.orgId)
+    ).map((assignment) => ({
+      ...assignment,
+      roles: assignment.roles.filter((role) => descriptor.roles.includes(role)),
+      // Compatibility field: the old API exposed only its first role.
+      role:
+        assignment.roles.find((role) => descriptor.roles.includes(role)) ??
+        null,
+    }));
     const mine = assignments.find(
       (a) => a.email.toLowerCase() === ctx.email.toLowerCase(),
     );
@@ -75,14 +102,18 @@ export const listAppRolesHandler = defineEventHandler(
       // The caller's own role, for progressive disclosure only. Every guarded
       // operation re-resolves this server-side; a client that lies about it gains
       // nothing but a differently-shaped UI.
-      myRole: mine && descriptor.roles.includes(mine.role) ? mine.role : null,
+      myRoles: mine
+        ? mine.roles.filter((role) => descriptor.roles.includes(role))
+        : [],
+      myRole:
+        mine?.roles.find((role) => descriptor.roles.includes(role)) ?? null,
     };
   },
 );
 
 /**
- * PUT /_agent-native/org/app-roles/:email — assign or clear an app role.
- * Body: `{ appId, role }`, where `role: null` clears the assignment.
+ * PUT /_agent-native/org/app-roles/:email — replace a member's app roles.
+ * Body: `{ appId, roles: string[] }`; an empty array clears the assignment.
  *
  * Org owner/admin only. App roles never confer the right to manage app roles:
  * that would let an app admin escalate inside a team they cannot otherwise
@@ -111,11 +142,17 @@ export const setAppRoleHandler = defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 400, message: "Member email is required" });
   }
 
-  const role = body?.role ?? null;
-  if (role !== null && !descriptor.roles.includes(String(role))) {
+  const roles = body?.roles;
+  if (
+    !Array.isArray(roles) ||
+    roles.some(
+      (role: unknown) =>
+        typeof role !== "string" || !descriptor.roles.includes(role),
+    )
+  ) {
     throw createError({
       statusCode: 400,
-      message: `Unknown ${descriptor.appId} role "${role}"`,
+      message: `roles must contain only declared ${descriptor.appId} roles`,
     });
   }
 
@@ -128,17 +165,142 @@ export const setAppRoleHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  await setAppMemberRole({
+  await setAppMemberRoles({
     appId: descriptor.appId,
     orgId: ctx.orgId,
     email,
-    role: role === null ? null : String(role),
+    roles,
     updatedBy: ctx.email,
   });
 
   return {
     appId: descriptor.appId,
     email,
-    role: role === null ? null : String(role),
+    roles: [...new Set(roles)],
   };
 });
+
+export const getAppPermissionsHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const descriptor = requireDescriptor(appIdFromEvent(event));
+    if (
+      !descriptor.permissions ||
+      !Object.keys(descriptor.permissions).length
+    ) {
+      throw createError({
+        statusCode: 404,
+        message: `No permissions registered for "${descriptor.appId}"`,
+      });
+    }
+    const ctx = await getOrgContext(event);
+    if (!canManageOrg(ctx.role)) {
+      throw createError({
+        statusCode: 403,
+        message: "Organization admin role required",
+      });
+    }
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No active organization" });
+    }
+    const overrides = await getAppPermissionOverrides(
+      descriptor.appId,
+      ctx.orgId,
+    );
+    return {
+      appId: descriptor.appId,
+      permissions: Object.fromEntries(
+        Object.entries(descriptor.permissions).map(([permission, roles]) => [
+          permission,
+          {
+            defaults: roles,
+            roles: overrides[permission] ?? roles,
+            overridden: overrides[permission] !== undefined,
+          },
+        ]),
+      ),
+      canManage: canManageOrg(ctx.role),
+    };
+  },
+);
+
+export const setAppPermissionsHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.email)
+      throw createError({
+        statusCode: 401,
+        message: "Authentication required",
+      });
+    if (!ctx.orgId)
+      throw createError({ statusCode: 400, message: "No active organization" });
+    if (!canManageOrg(ctx.role))
+      throw createError({
+        statusCode: 403,
+        message: "Organization admin role required",
+      });
+    const body = await readBody(event);
+    const descriptor = requireDescriptor(appIdFromEvent(event, body?.appId));
+    const permission = String(body?.permission ?? "");
+    const declared = descriptor.permissions?.[permission];
+    if (!declared)
+      throw createError({
+        statusCode: 400,
+        message: `Unknown ${descriptor.appId} permission "${permission}"`,
+      });
+    const roles = body?.roles;
+    if (
+      !Array.isArray(roles) ||
+      roles.some(
+        (role: unknown) =>
+          typeof role !== "string" || !descriptor.roles.includes(role),
+      )
+    ) {
+      throw createError({
+        statusCode: 400,
+        message: `roles must contain only declared ${descriptor.appId} roles`,
+      });
+    }
+    await setAppPermissionRoles({
+      appId: descriptor.appId,
+      orgId: ctx.orgId,
+      permission,
+      roles,
+      updatedBy: ctx.email,
+    });
+    return { appId: descriptor.appId, permission, roles: [...new Set(roles)] };
+  },
+);
+
+export const resetAppPermissionHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.email)
+      throw createError({
+        statusCode: 401,
+        message: "Authentication required",
+      });
+    if (!ctx.orgId)
+      throw createError({ statusCode: 400, message: "No active organization" });
+    if (!canManageOrg(ctx.role))
+      throw createError({
+        statusCode: 403,
+        message: "Organization admin role required",
+      });
+    const body = await readBody(event);
+    const descriptor = requireDescriptor(appIdFromEvent(event, body?.appId));
+    const permission = String(body?.permission ?? "");
+    if (!descriptor.permissions?.[permission])
+      throw createError({
+        statusCode: 400,
+        message: `Unknown ${descriptor.appId} permission "${permission}"`,
+      });
+    await setAppPermissionRoles({
+      appId: descriptor.appId,
+      orgId: ctx.orgId,
+      permission,
+      roles: null,
+      updatedBy: ctx.email,
+    });
+    return { appId: descriptor.appId, permission, reset: true };
+  },
+);

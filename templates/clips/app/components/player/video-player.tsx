@@ -1114,11 +1114,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       (rate: number) => {
         const nextSpeed = parsePlaybackSpeed(rate) ?? defaultSpeed;
         const v = videoRef.current;
-        const shouldKeepPlaying = Boolean(
-          v &&
-          !v.ended &&
-          (isPlaying || playAttemptPendingRef.current || !v.paused),
-        );
 
         if (v) {
           v.defaultPlaybackRate = nextSpeed;
@@ -1127,15 +1122,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setSpeed(nextSpeed);
         savePlaybackSpeedPreference(nextSpeed);
         onSpeedChange?.(nextSpeed);
-
-        if (shouldKeepPlaying && typeof window !== "undefined") {
-          window.requestAnimationFrame(() => {
-            const current = videoRef.current;
-            if (current && current.paused && !current.ended) requestPlay();
-          });
-        }
       },
-      [defaultSpeed, isPlaying, onSpeedChange, requestPlay],
+      [defaultSpeed, onSpeedChange],
     );
 
     const seekToVisibleMs = useCallback(
@@ -1560,6 +1548,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       return () => {
         v.removeEventListener("enterpictureinpicture", onEnter);
         v.removeEventListener("leavepictureinpicture", onLeave);
+        if (document.pictureInPictureElement === v) {
+          v.pause();
+          void document
+            .exitPictureInPicture()
+            .catch((error) =>
+              console.warn("[clips] PiP cleanup failed", error),
+            );
+        }
       };
     }, [activeVideoSrc]);
 

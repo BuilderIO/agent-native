@@ -24,9 +24,11 @@ export default defineConfig({
 독립 앱은 Netlify 출력을 빌드한 뒤 정적 자산과 함수를 배포합니다:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+첫 번째 프로덕션 배포 전에 Netlify 사이트 환경 변수에 `DATABASE_URL`과 안정적인 `BETTER_AUTH_SECRET`을 설정하세요. 로컬 개발용 PGlite 데이터베이스에 의존하지 말고, `DATABASE_URL`은 배포된 함수가 접근할 수 있는 영구 PostgreSQL 데이터베이스를 가리켜야 합니다.
 
 작업 공간의 경우, 다음을 실행해 하나의 Netlify 사이트에서 모든 앱을 배포하세요:
 

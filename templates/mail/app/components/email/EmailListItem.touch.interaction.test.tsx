@@ -228,6 +228,74 @@ describe("EmailListItem touch swipe interactions", () => {
     expect(props.onSelect).toHaveBeenCalledExactlyOnceWith(thread);
   });
 
+  it("uses localized read-state labels in the hover action tooltip", () => {
+    const unreadTooltipRow = renderRow({ onToggleRead: vi.fn() }).row;
+    expect(unreadTooltipRow.textContent).toContain("mail.actions.markUnread");
+
+    cleanup();
+    const readTooltipRow = renderRow({
+      email: { ...email, isRead: false },
+      thread: {
+        ...thread,
+        latestMessage: { ...email, isRead: false },
+        hasUnread: true,
+      },
+      onToggleRead: vi.fn(),
+    }).row;
+    expect(readTooltipRow.textContent).toContain("mail.actions.markRead");
+  });
+
+  it("names every visible row action for keyboard and assistive technology", () => {
+    renderRow({
+      onToggleRead: vi.fn(),
+      onArchive: vi.fn(),
+      canArchive: true,
+      onSnooze: vi.fn(),
+      canSnooze: true,
+      onTrash: vi.fn(),
+      canTrash: true,
+      onSendNow: vi.fn(),
+      onCancelSchedule: vi.fn(),
+      scheduledJobId: "scheduled-1",
+    });
+
+    for (const name of [
+      "mail.selection.selectEmail",
+      "mail.actions.markUnread",
+      "mail.actions.archive",
+      "mail.snooze.snooze",
+      "mail.sendLater.sendNow",
+      "mail.sendLater.cancelScheduledSend",
+      "mail.actions.moveToTrash",
+      "mail.actions.star",
+    ]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+
+    cleanup();
+    renderRow({
+      email: { ...email, isRead: false, isStarred: true },
+      thread: {
+        ...thread,
+        latestMessage: { ...email, isRead: false, isStarred: true },
+        hasUnread: true,
+        hasStarred: true,
+      },
+      isMultiSelected: true,
+      onToggleRead: vi.fn(),
+    });
+
+    expect(
+      screen.getByRole("button", { name: "mail.selection.deselectEmail" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "mail.actions.markRead" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "mail.actions.unstar" }),
+    ).toBeTruthy();
+  });
+
   it("does not reveal or commit the direction whose handler is absent", () => {
     const onSwipeArchive = vi.fn();
     const { row } = renderRow({ onSwipeArchive });

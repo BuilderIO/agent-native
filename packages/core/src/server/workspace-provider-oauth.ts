@@ -334,6 +334,7 @@ export async function handleWorkspaceProviderOAuthStart(
         state,
         challenge,
         loginHint: session.email,
+        includeGrantedScopes: providerId !== "google_calendar",
         ...(salesforceLoginUrl
           ? {
               authorizationUrl: salesforceOAuthEndpoint(
@@ -555,6 +556,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   challenge: string;
   authorizationUrl?: string;
   loginHint?: string;
+  includeGrantedScopes?: boolean;
 }): string {
   if (!input.provider.oauth)
     throw new Error("Provider does not support OAuth.");
@@ -578,7 +580,10 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   }
   if (isGoogleWorkspaceOAuthProvider(input.provider.id)) {
     url.searchParams.set("access_type", "offline");
-    url.searchParams.set("include_granted_scopes", "true");
+    url.searchParams.set(
+      "include_granted_scopes",
+      String(input.includeGrantedScopes ?? true),
+    );
     url.searchParams.set("prompt", "consent select_account");
     if (input.loginHint) url.searchParams.set("login_hint", input.loginHint);
   }
@@ -1399,7 +1404,7 @@ async function requireWorkspaceProviderOAuthAccess(
         userEmail: context.email,
         orgId: context.orgId,
       });
-      if (role.status === "assigned" && role.role === "admin") {
+      if (role.status === "assigned" && role.roles.includes("admin")) {
         return { ...context, oauthScope: "app" };
       }
     }

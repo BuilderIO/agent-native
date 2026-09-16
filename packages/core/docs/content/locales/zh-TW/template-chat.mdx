@@ -124,13 +124,13 @@ description: "一款極簡的聊天優先 Agent-Native 應用程式：持久的�
 ## 開始使用 {#get-started}
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
 ```
 
 如需安裝、首次執行和連線 LLM 的說明，請參閱 [聊天：開發者指南](/docs/template-chat-developers#quick-start)。若是完全沒有瀏覽器 UI 的自動化優先工作，請改用 `--headless` 建立鷹架：
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 ```
 
 用於排程工作、佇列、CLI 迴圈，或聊天和應用程式頁面尚無用處的外部代理工作流程。關鍵不變數保持不變：actions 是聊天、UI、HTTP、MCP、A2A 和 CLI 共用的介面。深入了解這條路徑，請參閱 [自動化優先應用程式](/docs/pure-agent-apps)。

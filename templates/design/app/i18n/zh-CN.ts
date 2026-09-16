@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["zh-CN"],
   designEditor: {
     ...messagesByLocale["zh-CN"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["zh-CN"].designEditor.componentInstances,
+      restore: "恢复组件",
+    },
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加审阅评论",
     toasts: {
@@ -56,6 +60,9 @@ const messages = {
     placeholder: "留下反馈…",
     commentingOn: "正在评论 {{name}}",
     emptyState: "暂无审阅评论。",
+    filter: "筛选评论",
+    all: "全部",
+    open: "未解决",
     clickToPin: "点击任意位置固定反馈",
     escToExit: "按 Esc 退出",
     newComment: "新评论",
@@ -76,6 +83,9 @@ const messages = {
     resolveFailed: "无法解决此讨论",
     deleteComment: "删除评论",
     moreActions: "更多操作",
+    copyLink: "复制链接",
+    linkCopied: "链接已复制",
+    copyLinkFailed: "无法复制链接",
     resolved: "已解决",
     reviewer: "审阅者",
     applyFeedback: "应用反馈 ({{count}})",

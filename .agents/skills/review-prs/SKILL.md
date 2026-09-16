@@ -1,10 +1,10 @@
 ---
 name: review-prs
 description: >-
-  Review recent BuilderIO/agent-native pull requests, approve eligible PRs from
-  liamdebeasi, approve other safe internal fixes under the internal-author and
-  owner exceptions, merge safe Dependabot updates, skip drafts, and recap
-  every disposition. Use for scheduled or manual PR review sweeps.
+  Review recent BuilderIO/agent-native human pull requests, approve eligible
+  PRs from liamdebeasi and other safe internal fixes under the internal-author
+  and owner exceptions, skip bots, steve8708, and drafts, and recap every
+  human disposition. Use for scheduled or manual PR review sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -13,11 +13,10 @@ metadata:
 
 # Review Pull Requests
 
-Review the newest relevant pull requests in `BuilderIO/agent-native`. Approve
-safe fixes from verified BuilderIO organization members under the internal
-author policy below. Treat approval as a trust decision, and merge only the
-narrow Dependabot exception below. Never approve an external or unverified
-author.
+Review the newest relevant human pull requests in `BuilderIO/agent-native`.
+Approve safe fixes from verified BuilderIO organization members under the
+internal author policy below. Treat approval as a trust decision. Never
+approve an external or unverified author.
 
 ## Selection and evidence
 
@@ -28,22 +27,30 @@ new commit, review, comment, or check result; otherwise do not create duplicate
 review noise.
 
 Before selecting a PR for review, read only enough metadata to determine its
-draft state and current review summary:
+author and draft state:
+
+ - Ignore every bot-authored PR, including Dependabot and
+   `builder-io-integration[bot]`, and ignore every PR authored by the exact
+   login `steve8708`. Do not inspect their diff, checks, reviews, membership,
+   or source links; do not take any review or merge action; and do not add
+   them to the end-of-run recap.
 
  - Ignore draft PRs completely. Do not inspect their diff, checks, reviews,
    membership, or source links; do not take any review action; and do not add
    them to the end-of-run recap.
- - Ignore ordinary PRs that already have a current, non-dismissed `APPROVED`
-   review, including bot approvals. This exclusion applies even when the PR
-   has newer commits, comments, reviews, or check results; do not re-review it
-   or add it to the recap. A non-draft PR authored by the exact Dependabot
-   login remains eligible for the merge gate below even when it already has an
-   approval; do not submit a duplicate approval.
 
-Only the remaining non-draft, unapproved PRs enter the ordinary evidence
-sweep below. Eligible Liam PRs with only older-head approvals also enter the
-sweep so the current head can be approved; non-draft Dependabot candidates
-also enter the merge evidence sweep even when they already have an approval.
+ - For remaining human PRs, read the current review summary to determine
+   whether the PR already has a current, non-dismissed `APPROVED` review.
+
+ - Ignore human PRs only when their current, non-dismissed `APPROVED` review
+   targets the current PR head and no newer commit, comment, review, or check
+   result exists. A current-head approval does not suppress re-review after a
+   later event; do not add the PR to the recap unless that re-review changes
+   its disposition.
+
+Only the remaining non-draft, unapproved human PRs enter the ordinary
+evidence sweep below. Eligible Liam PRs with only older-head approvals also
+enter the sweep so the current head can be approved.
 
 For every PR you inspect, read:
 
@@ -223,51 +230,14 @@ For a PR that passes the applicable gate, submit one GitHub approval review and
 record the approval URL in the recap. Do not add a tag, assignment, mention,
 or explanatory comment unless the invocation explicitly asks for it.
 
-For a non-draft PR whose GitHub author login is exactly `dependabot[bot]` (or
-the exact `dependabot` login returned by GitHub), use the merge exception below
-instead of the membership gate. Branch-protection approvals still apply. Do
-not infer Dependabot from a title, branch name, or author association.
-
-## Dependabot merge exception
-
-The user has authorized this review skill to merge safe Dependabot PRs. A
-qualifying Dependabot PR may skip the ordinary babysit soak, but it must still
-meet branch-protection requirements. Merge it only when every condition below
-is true:
-
-1. The PR is in `BuilderIO/agent-native`, is not a draft, is mergeable with no
-   conflict, and its update is patch or minor rather than a major upgrade. A
-   minor update qualifies only when both its current and proposed major
-   versions are at least `1`; dependencies on major version `0` are patch-only
-   for this exception.
-2. The complete diff changes only dependency manifests and their lockfiles.
-   The manifest changes are dependency-version changes only, with no scripts,
-   resolutions, package-manager/runtime, workflow, generated source, or other
-   configuration edits.
-3. All required checks are successful. No required lane is pending, skipped,
-   neutral, unknown, failing, or unavailable, and no active review is
-   `CHANGES_REQUESTED` or leaves an unresolved review thread. Any required
-   approving review must be from a verified BuilderIO human member who is not
-   the PR author or a bot. If it is absent, verify the approver's GitHub user
-   type is `User` and `gh api orgs/BuilderIO/members/<login>` succeeds, then
-   have that reviewer submit one current-head approval; do not duplicate an
-   existing approval. If the approver or membership cannot be verified, flag
-   the PR.
-4. The dependency change has no credible auth, permission, tenant-isolation,
-   secret, data-loss, remote-code-execution, SSRF, payment, deployment, or
-   other ultra-scary production risk. If the dependency or diff touches one of
-   those boundaries, flag it for human review.
-
-Use the expected head SHA with `gh pr merge <number> --squash --match-head-commit <sha>`, use the normal protected merge path rather than an
-admin bypass, and re-read the PR after the merge to record the merged SHA and
-result. A failed or unavailable safety check means flagged, never “probably
-safe.”
+Bot-authored PRs, including Dependabot, are outside this skill's review and
+merge scope and must remain completely untouched.
 
 For a PR that fails any applicable gate, do not submit an approval. Flag the
 exact concern and the evidence needed to resolve it. External PRs may be
-inspected and recapped, but never approved; non-Dependabot external PRs are
-never auto-merged. If GitHub or organization membership is unavailable,
-preserve the no-approval outcome and name the missing check.
+inspected and recapped, but never approved or auto-merged. If GitHub or
+organization membership is unavailable, preserve the no-approval outcome and
+name the missing check.
 
 ## Worktrees and PR provenance
 
@@ -282,12 +252,12 @@ explicit authorization.
 
 ## End-of-run recap
 
-Every run ends with a succinct row for every PR that entered the evidence
+Every run ends with a succinct row for every human PR that entered the evidence
 sweep, including approved, flagged, external, duplicate, already handled, and
 unavailable cases. Include the PR link, author and membership result, decision,
 the relevant issue or source link, checks or review links, and the reason. Do
-not add rows for drafts or PRs excluded because they already had an approval;
-those are ignored completely.
+not add rows for bots, `steve8708`, drafts, or human PRs excluded because they
+already had an approval; those are ignored completely.
 
 Use this shape:
 

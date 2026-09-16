@@ -52,14 +52,27 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
 } from "../shared/code-layer.js";
-import type { CodeLayerSource, ClassEditIntent } from "../shared/code-layer.js";
+import type {
+  ClassEditIntent,
+  CodeLayerNode,
+  CodeLayerSource,
+  DeleteNodeEditIntent,
+  MoveNodeEditIntent,
+  StyleEditIntent,
+  StyleRemoveEditIntent,
+  UnwrapEditIntent,
+  WrapNodesEditIntent,
+} from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
+import { componentDeletionGeometrySchema } from "../shared/component-archive.js";
 import {
+  applyComponentStructureEdit,
+  applyComponentStructureIntent,
   applyComponentPropertyEdit,
-  linkedComponentRootForNode,
+  applyComponentStyleTargetsEdit,
   resetComponentInstanceOverrides,
   type ComponentPropertyEdit,
-  type ComponentPropertyTransformResult,
+  type ComponentStructureTransformResult,
   type ComponentSourceDocument,
 } from "../shared/component-links.js";
 import {
@@ -68,6 +81,269 @@ import {
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
+import {
+  ComponentArchiveMutationError,
+  deleteComponentMainFromDesign,
+  restoreComponentMainInDesign,
+  type ComponentArchiveMutationResult,
+} from "./_component-archive.js";
+
+type SupportedStructureIntent =
+  | DeleteNodeEditIntent
+  | MoveNodeEditIntent
+  | WrapNodesEditIntent
+  | UnwrapEditIntent
+  | StyleEditIntent
+  | StyleRemoveEditIntent;
+
+type ComponentStructureEdit =
+  | {
+      kind: "structure";
+      before: string;
+      after: string;
+      selectionNodeIds?: string[];
+    }
+  | { kind: "structure"; intents: SupportedStructureIntent[] };
+
+interface LinkedComponentSelection {
+  fileId: string;
+  nodeIds: string[];
+}
+
+const structureTargetSchema = z.object({ nodeId: z.string().min(1) }).strict();
+
+const MAX_STRUCTURE_SIZE_HINT = 1_000_000;
+const structureSizeHintCoordinate = z
+  .number()
+  .finite()
+  .min(-MAX_STRUCTURE_SIZE_HINT)
+  .max(MAX_STRUCTURE_SIZE_HINT);
+const structureSizeHintSchema = z
+  .object({
+    width: structureSizeHintCoordinate.nonnegative(),
+    height: structureSizeHintCoordinate.nonnegative(),
+    left: structureSizeHintCoordinate.optional(),
+    top: structureSizeHintCoordinate.optional(),
+  })
+  .strict();
+
+const structureStyleIntentSchema = z
+  .object({
+    kind: z.literal("style"),
+    target: structureTargetSchema,
+    property: z.string().min(1),
+    operation: z.enum(["set", "remove"]).optional(),
+    value: z.string().optional(),
+  })
+  .strict()
+  .superRefine((intent, context) => {
+    const operation = intent.operation ?? "set";
+    if (operation === "set" && intent.value === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["value"],
+        message: "A style set intent requires a value.",
+      });
+    }
+    if (operation === "remove" && intent.value !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["value"],
+        message: "A style remove intent cannot include a value.",
+      });
+    }
+  });
+
+const structureIntentSchema = z.union([
+  z
+    .object({ kind: z.literal("deleteNode"), target: structureTargetSchema })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("moveNode"),
+      target: structureTargetSchema,
+      anchor: structureTargetSchema,
+      placement: z.enum(["before", "after", "inside"]),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("wrapNodes"),
+      targetIds: z.array(z.string().min(1)).min(1),
+      autoLayout: z.boolean().optional(),
+      wrapperKind: z.enum(["group", "frame"]).optional(),
+      sizeHints: z.record(z.string(), structureSizeHintSchema).optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal("unwrap"), targetId: z.string().min(1) }).strict(),
+  structureStyleIntentSchema,
+]);
+
+const structureEditSchema = z
+  .object({
+    kind: z.literal("structure"),
+    before: z.string().optional(),
+    after: z.string().optional(),
+    selectionNodeIds: z.array(z.string().min(1)).min(1).optional(),
+    intents: z.array(structureIntentSchema).min(1).optional(),
+  })
+  .strict()
+  .superRefine((edit, context) => {
+    const hasSnapshot = edit.before !== undefined || edit.after !== undefined;
+    const hasIntents = edit.intents !== undefined;
+    if (hasSnapshot === hasIntents) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "A structure edit must provide either before and after snapshots or semantic intents.",
+      });
+    }
+    if (
+      hasSnapshot &&
+      (edit.before === undefined || edit.after === undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["before", "after"],
+        message: "Structure snapshots require both before and after.",
+      });
+    }
+    if (
+      edit.selectionNodeIds &&
+      new Set(edit.selectionNodeIds).size !== edit.selectionNodeIds.length
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["selectionNodeIds"],
+        message: "Snapshot selection node ids must be unique.",
+      });
+    }
+  })
+  .describe(
+    "Atomic linked structure edit. Use before/after snapshots or semantic deleteNode, wrapNodes, unwrap, moveNode, and style intents. Auto-layout conversion, Boolean operations, responsive edits, and selector targets are outside this bounded path.",
+  );
+
+function durableNodeId(node: CodeLayerNode): string | undefined {
+  return node.dataAttributes["data-agent-native-node-id"];
+}
+
+function directChildDurableIds(
+  projection: ReturnType<typeof buildCodeLayerProjection>,
+  targetId: string,
+): string[] {
+  const matches = projection.nodes.filter((node) =>
+    componentNodeIdMatches(node, targetId),
+  );
+  if (matches.length !== 1) return [];
+  const target = matches[0];
+  if (!target) return [];
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  return target.children.flatMap((childId) => {
+    const child = nodesById.get(childId);
+    const nodeId = child ? durableNodeId(child) : undefined;
+    return nodeId ? [nodeId] : [];
+  });
+}
+
+function selectionForStructureIntent(
+  intent: SupportedStructureIntent,
+  projection: ReturnType<typeof buildCodeLayerProjection>,
+  wrapperNodeId?: string,
+): string[] | undefined {
+  switch (intent.kind) {
+    case "deleteNode":
+      return [];
+    case "moveNode":
+      if (!intent.target.nodeId) return [];
+      return directNodeDurableIds(projection, [intent.target.nodeId]);
+    case "wrapNodes":
+      return typeof wrapperNodeId === "string" && wrapperNodeId.trim()
+        ? [wrapperNodeId]
+        : undefined;
+    case "unwrap":
+      return directChildDurableIds(projection, intent.targetId);
+    default:
+      return undefined;
+  }
+}
+
+function directNodeDurableIds(
+  projection: ReturnType<typeof buildCodeLayerProjection>,
+  nodeIds: string[],
+): string[] {
+  return nodeIds.flatMap((nodeId) => {
+    const matches = projection.nodes.filter((node) =>
+      componentNodeIdMatches(node, nodeId),
+    );
+    if (matches.length !== 1) return [];
+    const durable = durableNodeId(matches[0]!);
+    return durable ? [durable] : [];
+  });
+}
+
+function subtreeDurableNodeIds(
+  projection: ReturnType<typeof buildCodeLayerProjection>,
+  rootId: string,
+): Set<string> {
+  const root = projection.nodes.find((node) =>
+    componentNodeIdMatches(node, rootId),
+  );
+  if (!root) return new Set();
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  const ids = new Set<string>();
+  const visit = (node: CodeLayerNode) => {
+    const durable = durableNodeId(node);
+    if (durable) ids.add(durable);
+    for (const childId of node.children) {
+      const child = nodesById.get(childId);
+      if (child) visit(child);
+    }
+  };
+  visit(root);
+  return ids;
+}
+
+function componentArchiveReceipt(args: {
+  designId: string;
+  nodeId: string;
+  fileId: string;
+  result: ComponentArchiveMutationResult;
+}): Record<string, unknown> {
+  return {
+    designId: args.designId,
+    nodeId: args.nodeId,
+    componentId: args.result.componentId,
+    persisted: true,
+    ctaRequired: false,
+    fileId: args.fileId,
+    changes: args.result.changes,
+    sourceBases: args.result.sourceBases,
+    selection: args.result.selection,
+    archive: args.result.archive,
+    checkpointId: args.result.checkpointId,
+    referenceNodeIds: args.result.referenceNodeIds,
+  };
+}
+
+function componentArchiveFailureReceipt(args: {
+  designId: string;
+  nodeId: string;
+  fileId: string;
+  error: unknown;
+}): Record<string, unknown> {
+  if (!(args.error instanceof ComponentArchiveMutationError)) {
+    throw args.error;
+  }
+  return {
+    designId: args.designId,
+    nodeId: args.nodeId,
+    fileId: args.fileId,
+    persisted: false,
+    conflict: true,
+    transformStatus: args.error.reason,
+    error: args.error.message,
+  };
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -193,7 +469,8 @@ async function persistLinkedComponentEdit(args: {
           styles: Record<string, string>;
         }>;
       }
-    | { kind: "resetOverrides" };
+    | { kind: "resetOverrides" }
+    | ComponentStructureEdit;
   expectedFiles: Array<{ fileId: string; versionHash: string }>;
 }): Promise<Record<string, unknown>> {
   const workspace = await resolveSourceWorkspace(args.designId, {
@@ -216,6 +493,7 @@ async function persistLinkedComponentEdit(args: {
     args.expectedFiles.map(({ fileId, versionHash }) => [fileId, versionHash]),
   );
   if (
+    expected.size !== args.expectedFiles.length ||
     expected.size !== files.length ||
     files.some((file) => !expected.has(file.id))
   ) {
@@ -258,7 +536,8 @@ async function persistLinkedComponentEdit(args: {
       content,
     }),
   );
-  let transformed: ComponentPropertyTransformResult | null = null;
+  let transformed: ComponentStructureTransformResult | null = null;
+  let selection: LinkedComponentSelection | undefined;
   if (args.edit.kind === "resetOverrides") {
     transformed = resetComponentInstanceOverrides({
       documents,
@@ -311,114 +590,126 @@ async function persistLinkedComponentEdit(args: {
       };
     }
   } else if (args.edit.kind === "styleTargetsBatch") {
-    let currentDocuments = documents;
-    let componentId = "";
-    for (const target of args.edit.targets) {
-      const targetDocument = currentDocuments.find(
-        (document) => document.source.fileId === target.fileId,
-      );
-      if (!targetDocument) {
-        transformed = { status: "missing-file", fileId: target.fileId };
-        break;
-      }
-      const projection = buildCodeLayerProjection(targetDocument.content, {
-        source: targetDocument.source,
-      });
-      const node = projection.nodes.find((candidate) =>
-        componentNodeIdMatches(candidate, target.nodeId),
-      );
-      if (!node) {
-        transformed = {
-          status: "missing-node",
-          fileId: target.fileId,
-          nodeId: target.nodeId,
-        };
-        break;
-      }
-      const linked = linkedComponentRootForNode(node, projection) !== null;
-      for (const [property, value] of Object.entries(target.styles)) {
-        if (linked) {
-          const next = applyComponentPropertyEdit({
-            documents: currentDocuments,
-            target: { fileId: target.fileId, nodeId: target.nodeId },
-            edit: { kind: "style", property, value },
-          });
-          if (next.status !== "updated") {
-            transformed = next;
-            break;
-          }
-          componentId = next.componentId;
-          const changesByFileId = new Map(
-            next.changes.map((change) => [change.fileId, change.after]),
-          );
-          currentDocuments = currentDocuments.map((document) => ({
-            ...document,
-            content:
-              changesByFileId.get(document.source.fileId ?? "") ??
-              document.content,
-          }));
+    transformed = applyComponentStyleTargetsEdit({
+      documents,
+      targets: args.edit.targets,
+    });
+  } else if (args.edit.kind === "structure") {
+    const targetDocument = documents.find(
+      (document) => document.source.fileId === args.fileId,
+    );
+    if (!targetDocument) {
+      transformed = { status: "missing-file", fileId: args.fileId };
+    } else if ("intents" in args.edit) {
+      const mainBefore = targetDocument.content;
+      let mainAfter = mainBefore;
+      let selectedNodeIds: string[] | undefined;
+
+      for (const rawIntent of args.edit.intents) {
+        const intent = rawIntent as SupportedStructureIntent;
+        const beforeProjection = buildCodeLayerProjection(mainAfter, {
+          source: targetDocument.source,
+        });
+        const patch = applyComponentStructureIntent({
+          content: mainAfter,
+          intent,
+          source: targetDocument.source,
+        });
+        if (patch.result.status !== "applied") {
+          transformed = {
+            status: "edit-refused",
+            fileId: args.fileId,
+            nodeId: args.nodeId,
+            message:
+              patch.result.message ??
+              `Structural intent ${intent.kind} was refused.`,
+          };
+          break;
+        }
+        const nextSelection = selectionForStructureIntent(
+          intent,
+          beforeProjection,
+          patch.result.wrapperNodeId,
+        );
+        if (intent.kind === "wrapNodes" && !nextSelection) {
+          transformed = {
+            status: "edit-refused",
+            fileId: args.fileId,
+            nodeId: args.nodeId,
+            message:
+              "The structural wrapper did not receive a durable node id.",
+          };
+          break;
+        }
+        if (intent.kind === "unwrap" && nextSelection) {
+          selectedNodeIds = [
+            ...new Set([...(selectedNodeIds ?? []), ...nextSelection]),
+          ];
         } else {
-          const targetSource = currentDocuments.find(
-            (document) => document.source.fileId === target.fileId,
-          )!;
-          const patch = applyVisualEdit(
-            targetSource.content,
-            {
-              kind: "style",
-              target: { nodeId: target.nodeId },
-              property,
-              value,
-            },
-            { source: targetSource.source },
-          );
-          if (patch.result.status !== "applied") {
+          selectedNodeIds = nextSelection ?? selectedNodeIds;
+        }
+        mainAfter = patch.content;
+      }
+
+      if (!transformed) {
+        if (selectedNodeIds) {
+          const finalProjection = buildCodeLayerProjection(mainAfter, {
+            source: targetDocument.source,
+          });
+          const validIds = subtreeDurableNodeIds(finalProjection, args.nodeId);
+          if (selectedNodeIds.some((nodeId) => !validIds.has(nodeId))) {
             transformed = {
               status: "edit-refused",
-              fileId: target.fileId,
-              nodeId: target.nodeId,
-              message: patch.result.message,
+              fileId: args.fileId,
+              nodeId: args.nodeId,
+              message:
+                "The structural edit returned a selection outside its canonical component subtree.",
             };
-            break;
           }
-          currentDocuments = currentDocuments.map((document) =>
-            document.source.fileId === target.fileId
-              ? { ...document, content: patch.content }
-              : document,
-          );
         }
       }
-      if (transformed) break;
-    }
-    if (!transformed && !componentId) {
-      const firstTarget = args.edit.targets[0];
-      transformed = {
-        status: "not-linked",
-        fileId: firstTarget?.fileId,
-        nodeId: firstTarget?.nodeId,
-      };
-    }
-    if (!transformed) {
-      const originalByFileId = new Map(
-        documents.map((document) => [document.source.fileId!, document]),
-      );
-      transformed = {
-        status: "updated",
-        componentId,
-        changes: currentDocuments.flatMap((document) => {
-          const fileId = document.source.fileId ?? "";
-          const before = originalByFileId.get(fileId)?.content;
-          return before === undefined || before === document.content
-            ? []
-            : [
-                {
-                  fileId,
-                  source: document.source,
-                  before,
-                  after: document.content,
-                },
-              ];
-        }),
-      };
+
+      if (!transformed) {
+        transformed = applyComponentStructureEdit({
+          documents,
+          target: { fileId: args.fileId, nodeId: args.nodeId },
+          mainBefore,
+          mainAfter,
+        });
+        if (transformed.status === "updated" && selectedNodeIds) {
+          selection = { fileId: args.fileId, nodeIds: selectedNodeIds };
+        }
+      }
+    } else {
+      const mainBefore = args.edit.before;
+      const mainAfter = args.edit.after;
+      const snapshotSelection = args.edit.selectionNodeIds;
+      if (snapshotSelection) {
+        const finalProjection = buildCodeLayerProjection(mainAfter, {
+          source: targetDocument.source,
+        });
+        const validIds = subtreeDurableNodeIds(finalProjection, args.nodeId);
+        if (snapshotSelection.some((nodeId) => !validIds.has(nodeId))) {
+          transformed = {
+            status: "edit-refused",
+            fileId: args.fileId,
+            nodeId: args.nodeId,
+            message:
+              "The snapshot selection is outside its canonical component subtree.",
+          };
+        }
+      }
+      if (!transformed) {
+        transformed = applyComponentStructureEdit({
+          documents,
+          target: { fileId: args.fileId, nodeId: args.nodeId },
+          mainBefore,
+          mainAfter,
+        });
+        if (transformed.status === "updated" && snapshotSelection) {
+          selection = { fileId: args.fileId, nodeIds: snapshotSelection };
+        }
+      }
     }
   } else {
     transformed = applyComponentPropertyEdit({
@@ -454,6 +745,7 @@ async function persistLinkedComponentEdit(args: {
     const persisted = await writeInlineSourceFilesBatch({
       designId: args.designId,
       files: batches,
+      expectedHtmlFileIds: liveFiles.map(({ file }) => file.id),
     });
     const persistedById = new Map(
       persisted.files.map((file) => [file.id, file]),
@@ -501,6 +793,7 @@ async function persistLinkedComponentEdit(args: {
       fileId: args.fileId,
       changes,
       sourceBases,
+      ...(selection ? { selection } : {}),
     };
   } finally {
     for (const id of entered) agentLeaveDocument(id);
@@ -516,7 +809,12 @@ export default defineAction({
     "x-data expression, or class list of the component root via the deterministic " +
     "HTML-patch path (same seam as apply-visual-edit). " +
     "For real-app sources, returns ctaRequired=true without modifying any file; " +
-    "compiled source requires a dedicated consented bridge transform.",
+    "compiled source requires a dedicated consented bridge transform. " +
+    "The structure variant atomically propagates bounded delete, wrap, unwrap, " +
+    "move, and style intents across linked HTML files; unsupported structural " +
+    "operations fail before any file is written. " +
+    "The deleteMain and restoreMain variants archive or restore a canonical " +
+    "component main across all linked HTML files.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
     nodeId: z
@@ -589,6 +887,14 @@ export default defineAction({
           value: z.string(),
         }),
         z.object({ kind: z.literal("resetOverrides") }),
+        z
+          .object({
+            kind: z.literal("deleteMain"),
+            deletionGeometry: componentDeletionGeometrySchema.optional(),
+          })
+          .strict(),
+        z.object({ kind: z.literal("restoreMain") }).strict(),
+        structureEditSchema,
       ])
       .describe("The prop edit to apply"),
     source: z
@@ -615,7 +921,7 @@ export default defineAction({
           .min(1)
           .optional()
           .describe(
-            "Exact source version hashes for every HTML file in the Design. Required for linked property edits.",
+            "Exact source version hashes for every HTML file in the Design. Required for linked property and structure edits.",
           ),
       })
       .optional(),
@@ -650,6 +956,67 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
+
+    if (edit.kind === "deleteMain" || edit.kind === "restoreMain") {
+      if (!fileId || !source?.expectedFiles) {
+        return {
+          designId,
+          nodeId,
+          persisted: false,
+          conflict: true,
+          error:
+            "Component archive edits require the target file and exact source versions. Refresh the design and retry.",
+        };
+      }
+      const expectedTarget = source.expectedFiles.find(
+        (expected) => expected.fileId === fileId,
+      );
+      if (!expectedTarget) {
+        return {
+          designId,
+          nodeId,
+          persisted: false,
+          conflict: true,
+          error:
+            "The target file is missing from the expected source version set. Refresh the design and retry.",
+        };
+      }
+      try {
+        const result =
+          edit.kind === "deleteMain"
+            ? await deleteComponentMainFromDesign({
+                designId,
+                fileId,
+                mainNodeId: nodeId,
+                expectedVersionHash: expectedTarget.versionHash,
+                expectedFiles: source.expectedFiles,
+                ...(edit.deletionGeometry
+                  ? { deletionGeometry: edit.deletionGeometry }
+                  : {}),
+              })
+            : await restoreComponentMainInDesign({
+                designId,
+                fileId,
+                instanceNodeId: nodeId,
+                expectedVersionHash: expectedTarget.versionHash,
+                expectedFiles: source.expectedFiles,
+              });
+        return componentArchiveReceipt({
+          designId,
+          nodeId,
+          fileId,
+          result,
+        });
+      } catch (error) {
+        return componentArchiveFailureReceipt({
+          designId,
+          nodeId,
+          fileId,
+          error,
+        });
+      }
+    }
+
     await snapshotDesignBeforeAgentEdit(designId, context);
     const db = getDb();
 
@@ -680,7 +1047,8 @@ export default defineAction({
       edit.kind === "styleTargetsBatch" ||
       edit.kind === "textContent" ||
       edit.kind === "layerName" ||
-      edit.kind === "resetOverrides"
+      edit.kind === "resetOverrides" ||
+      edit.kind === "structure"
     ) {
       if (!fileId || !source?.expectedFiles) {
         return {
@@ -703,14 +1071,17 @@ export default defineAction({
               styles: Record<string, string>;
             }>;
           }
-        | { kind: "resetOverrides" } =
+        | { kind: "resetOverrides" }
+        | ComponentStructureEdit =
         edit.kind === "style" ||
         edit.kind === "textContent" ||
         edit.kind === "layerName"
           ? edit
           : edit.kind === "styleBatch" || edit.kind === "styleTargetsBatch"
             ? edit
-            : { kind: "resetOverrides" };
+            : edit.kind === "structure"
+              ? (edit as ComponentStructureEdit)
+              : { kind: "resetOverrides" };
       return persistLinkedComponentEdit({
         designId,
         nodeId,

@@ -1,15 +1,17 @@
 ---
 title: "ऐप्स के बीच SSO"
-description: "Desktop workspace SSO और server-side organization federation के बचे हुए अनुबंधों का विवरण। Browser Agent-Native login हटा दिया गया है।"
+description: "संगठन के OIDC या SAML साइन-इन और ऐप्स के बीच identity federation का अंतर बताता है।"
 ---
 
-# ऐप्स के बीच SSO
+# संगठन SSO और ऐप फेडरेशन
+
+संगठन SSO, एक Agent-Native deployment में कंपनी के OIDC या SAML प्रदाता से साइन-इन की सुविधा देता है। ऐप federation अलग deployments के बीच सत्यापित identity या संगठन संदर्भ साझा करता है। इनके setup और trust boundaries अलग हैं।
 
 Browser का "Sign in with Agent-Native" विकल्प और automatic browser handoff हटा दिया गया
 है। Web users के लिए app-specific login अभी भी default है। यह पेज केवल बचे हुए
 Desktop और server-side federation contracts बताता है।
 
-## क्या बचा है
+## ऐप federation
 
 ### Packaged Desktop workspace
 
@@ -114,3 +116,9 @@ deployment से <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> हटाकर red
 - [Dispatch](/docs/dispatch)
 - [Security and data scoping](/docs/security)
 - [Multi-app workspaces](/docs/multi-app-workspace)
+
+OIDC या SAML से enterprise sign-in, apps के बीच identity federation से अलग है। [प्रशासित डिप्लॉयमेंट गाइड](/docs/administered-deployments) enterprise मॉडल बताती है। `browser.identity-sso` enabled होने पर app silent `prompt=none` probe करती है और local sign-in form fallback रहता है। [Cross-App Connect design](/docs/cross-app-connect-design) देखें।
+
+## Browser identity SSO rollout runbook
+
+पहले `browser.identity-sso` को केवल एक test email के लिए enable करें। Dispatch में sign in करें, target app से sign out करें और अगली load पर silent probe जांचें। Hub session के बिना फिर जांचें और `login_required` पर local form लौटने की पुष्टि करें, फिर cohort बढ़ाएं। पहली enablement पर मौजूदा sessions को एक बार revoke करना पड़ सकता है।

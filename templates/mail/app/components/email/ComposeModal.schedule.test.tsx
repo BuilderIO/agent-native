@@ -128,6 +128,7 @@ vi.mock("./RecipientInput", () => ({
       />
       <input
         data-mail-recipient-input
+        data-recipient-field={field}
         data-pending-recipient-field={field}
         defaultValue=""
       />
@@ -236,6 +237,150 @@ describe("ComposeModal scheduling", () => {
       }).getAttribute("aria-pressed"),
     ).toBe("false");
   });
+
+  it("focuses the initial unsaved draft when the modal mounts", async () => {
+    const { container } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector(
+          '[data-mail-recipient-input][data-recipient-field="to"]',
+        ),
+      );
+    });
+  });
+
+  it("focuses the To field after a new draft is added", async () => {
+    const secondDraft: ComposeState = {
+      ...draft,
+      id: "draft-2",
+      to: "",
+      subject: "",
+      body: "",
+    };
+    const props = {
+      drafts: [draft],
+      activeId: draft.id,
+      activeDraft: draft,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard: vi.fn(),
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+    };
+    const { container, getByTestId, rerender } = render(
+      <>
+        <button data-testid="compose-opener" type="button">
+          Compose
+        </button>
+        <ComposeModal {...props} />
+      </>,
+    );
+    getByTestId("compose-opener").focus();
+
+    rerender(
+      <>
+        <button data-testid="compose-opener" type="button">
+          Compose
+        </button>
+        <ComposeModal
+          {...props}
+          drafts={[draft, secondDraft]}
+          activeId={secondDraft.id}
+          activeDraft={secondDraft}
+        />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector(
+          '[data-mail-recipient-input][data-recipient-field="to"]',
+        ),
+      );
+    });
+  });
+
+  it.each([
+    ["saved", { savedDraftId: "gmail-draft-2" }],
+    ["queued", { queuedDraftId: "queued-draft-2" }],
+  ])(
+    "does not focus a %s draft that arrives after mount",
+    async (_, metadata) => {
+      const existingDraft: ComposeState = {
+        ...draft,
+        id: "existing-draft",
+      };
+      const reopenedDraft: ComposeState = {
+        ...draft,
+        id: "reopened-draft",
+        to: "",
+        subject: "",
+        body: "",
+        ...metadata,
+      };
+      const props = {
+        drafts: [existingDraft],
+        activeId: existingDraft.id,
+        activeDraft: existingDraft,
+        onSetActiveId: vi.fn(),
+        onUpdate: vi.fn(),
+        onClose: vi.fn(),
+        onCloseAll: vi.fn(),
+        onDiscard: vi.fn(),
+        onStageForSend: vi.fn(),
+        onRestoreAfterSend: vi.fn(),
+        onNewDraft: vi.fn(),
+        onFlush: vi.fn(),
+      };
+      const { getByTestId, rerender } = render(
+        <>
+          <button data-testid="compose-opener" type="button">
+            Compose
+          </button>
+          <ComposeModal {...props} />
+        </>,
+      );
+      getByTestId("compose-opener").focus();
+
+      rerender(
+        <>
+          <button data-testid="compose-opener" type="button">
+            Compose
+          </button>
+          <ComposeModal
+            {...props}
+            drafts={[existingDraft, reopenedDraft]}
+            activeId={reopenedDraft.id}
+            activeDraft={reopenedDraft}
+          />
+        </>,
+      );
+
+      await waitFor(() => {
+        expect(document.activeElement).toBe(getByTestId("compose-opener"));
+      });
+    },
+  );
 
   it("honors an explicit fullscreen compose request", () => {
     const { getByRole } = render(

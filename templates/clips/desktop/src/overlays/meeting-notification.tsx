@@ -11,7 +11,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 
-import { CLIPS_MEETINGS } from "../../../shared/labs";
+import { CLIPS_MEETINGS, isLabEnabled } from "../../../shared/labs";
 import { loadDesktopAuthToken } from "../app";
 import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
@@ -180,8 +180,10 @@ export function MeetingNotification() {
       if (!values || typeof values !== "object" || Array.isArray(values)) {
         return false;
       }
-      const enabled =
-        (values as Record<string, unknown>)[CLIPS_MEETINGS.key] === true;
+      const enabled = isLabEnabled(
+        values as Record<string, unknown>,
+        CLIPS_MEETINGS,
+      );
       meetingsLabEnabledRef.current = enabled;
       if (!enabled) {
         pendingNotificationRef.current = null;
