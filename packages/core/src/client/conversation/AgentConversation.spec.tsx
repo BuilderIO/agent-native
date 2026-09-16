@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentNativeI18nProvider } from "../i18n.js";
 import { AgentConversationMessageView } from "./AgentConversation.js";
 
 vi.mock("../extensions/InlineExtensionFrame.js", () => ({
@@ -204,5 +205,102 @@ describe("AgentConversationMessageView", () => {
     expect(container.querySelector("a")).toBeNull();
 
     expect(open).not.toHaveBeenCalled();
+  });
+});
+
+describe("AgentConversationMessageView tool labels", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the app's catalog label for a tool row", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "de-DE",
+            messages: {
+              agentChat: {
+                toolLabels: {
+                  list_files: "Dateien auflisten",
+                },
+              },
+            },
+          }}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <AgentConversationMessageView
+            message={{
+              id: "message-1",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-1",
+                  type: "tool",
+                  tool: {
+                    id: "tool-1",
+                    name: "list_files",
+                    state: "completed",
+                  },
+                },
+              ],
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Dateien auflisten");
+    expect(container.textContent).not.toContain("list files");
+  });
+
+  it("falls back to the derived name when the catalog has no entry", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{ sourceLocale: "de-DE", messages: {} }}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <AgentConversationMessageView
+            message={{
+              id: "message-1",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-1",
+                  type: "tool",
+                  tool: {
+                    id: "tool-1",
+                    name: "list_files",
+                    state: "completed",
+                  },
+                },
+              ],
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("list files");
   });
 });
