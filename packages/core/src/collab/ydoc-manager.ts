@@ -729,10 +729,12 @@ export async function seedFromText(
       throw error;
     }
     if (!saved) {
+      releaseDoc(docId);
       doc.destroy();
       return;
     }
 
+    releaseDoc(docId);
     // A caller-owned transaction may still roll back after this function
     // returns, so never publish its uncommitted doc into the process cache.
     if (client) {
@@ -861,10 +863,12 @@ export async function seedFromJson(
       throw error;
     }
     if (!saved) {
+      releaseDoc(docId);
       doc.destroy();
       return;
     }
 
+    releaseDoc(docId);
     // See seedFromText: a transaction-owned seed becomes cacheable only after
     // its commit, when the route reads the now-durable state.
     if (client) {
