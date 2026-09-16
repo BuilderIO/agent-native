@@ -128,17 +128,14 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
         RETURN NEW;
       END;';
       DO 'BEGIN
-        IF NOT EXISTS (
-          SELECT 1
-          FROM pg_trigger
-          WHERE tgname = ''trg_workspace_user_groups_normalized_name''
-            AND tgrelid = ''public.workspace_user_groups''::regclass
-        ) THEN
+        BEGIN
           CREATE TRIGGER trg_workspace_user_groups_normalized_name
             BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
             FOR EACH ROW
             EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();
-        END IF;
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END;
       END';
       CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
       ON workspace_user_groups (org_id, normalized_name)
@@ -166,17 +163,14 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
         RETURN NEW;
       END;';
       DO 'BEGIN
-        IF NOT EXISTS (
-          SELECT 1
-          FROM pg_trigger
-          WHERE tgname = ''trg_workspace_user_groups_normalized_name''
-            AND tgrelid = ''public.workspace_user_groups''::regclass
-        ) THEN
+        BEGIN
           CREATE TRIGGER trg_workspace_user_groups_normalized_name
             BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
             FOR EACH ROW
             EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();
-        END IF;
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END;
       END';
       CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
       ON workspace_user_groups (org_id, normalized_name)
@@ -204,17 +198,14 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
         RETURN NEW;
       END;';
       DO 'BEGIN
-        IF NOT EXISTS (
-          SELECT 1
-          FROM pg_trigger
-          WHERE tgname = ''trg_workspace_user_groups_normalized_name''
-            AND tgrelid = ''public.workspace_user_groups''::regclass
-        ) THEN
+        BEGIN
           CREATE TRIGGER trg_workspace_user_groups_normalized_name
             BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
             FOR EACH ROW
             EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();
-        END IF;
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END;
       END'`,
   },
   {

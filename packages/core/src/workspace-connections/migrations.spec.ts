@@ -131,6 +131,16 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
     expect(v11Sql.indexOf("CREATE UNIQUE INDEX")).toBeLessThan(
       v11Sql.indexOf("UPDATE workspace_user_groups"),
     );
+    for (const version of [11, 12, 13]) {
+      const migration = WORKSPACE_CONNECTIONS_MIGRATIONS.find(
+        (entry) => entry.version === version,
+      );
+      const migrationSql =
+        typeof migration?.sql === "string"
+          ? migration.sql
+          : (migration?.sql.postgres ?? "");
+      expect(migrationSql).toMatch(/EXCEPTION WHEN duplicate_object/i);
+    }
     expect(read("./groups.ts")).not.toMatch(
       /backfillWorkspaceUserGroupNameKeys|SET normalized_name = LOWER\(BTRIM\(/i,
     );
