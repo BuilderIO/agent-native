@@ -25,6 +25,7 @@ import {
   positionAnchoredCommentCard,
   positionUnanchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
+  sameAnchoredCommentPosition,
   suggestionPresentation,
   suggestionAmendmentTargetIsResolved,
   refreshUnchangedTitleSaveWatermark,
@@ -81,6 +82,42 @@ describe("document editor layout", () => {
         boundaryRect: { top: 0 },
       }),
     ).toEqual({ left: 16, top: 116, width: 248, placement: "below" });
+  });
+  it("re-validates the pending comment target on selection changes only", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    // One effect, keyed on the selection. Keying it on the whole pending
+    // comment resets the target to invalid for a frame on every keystroke,
+    // which flashes the "select text" alert inside the open composer.
+    expect(
+      source.match(/setPendingCommentTargetValid\(false\);\n    update\(\);/g),
+    ).toHaveLength(1);
+    expect(source).toContain(
+      "}, [pendingCommentTargetId, pendingCommentQuotedText]);",
+    );
+    expect(source).not.toContain("  }, [pendingComment]);");
+  });
+  it("keeps an unchanged anchored comment position out of state", () => {
+    const position = {
+      left: 16,
+      top: 120,
+      width: 248,
+      placement: "below" as const,
+    };
+    expect(sameAnchoredCommentPosition(position, { ...position })).toBe(true);
+    expect(sameAnchoredCommentPosition(null, null)).toBe(true);
+    expect(sameAnchoredCommentPosition(null, position)).toBe(false);
+    expect(
+      sameAnchoredCommentPosition(position, { ...position, top: 121 }),
+    ).toBe(false);
+    expect(
+      sameAnchoredCommentPosition(position, {
+        ...position,
+        placement: "above",
+      }),
+    ).toBe(false);
   });
   it("hides suggestion decorations with comments without losing resolved anchor metadata", () => {
     const source = readFileSync(
@@ -459,7 +496,7 @@ describe("document editor layout", () => {
     );
     const handler = source.slice(
       source.indexOf("const handleContentChange"),
-      source.indexOf("const handleContentSaveNow"),
+      source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("localContentRef.current = newContent");
     expect(
@@ -474,22 +511,24 @@ describe("document editor layout", () => {
     );
     const handler = source.slice(
       source.indexOf("const handleContentChange"),
-      source.indexOf("const handleContentSaveNow"),
+      source.indexOf("const handleImmediateContentChange"),
     );
-    expect(handler).toContain("if (documentReconcileConflict)");
-    expect(handler).toContain(
-      "setDocumentReconcileConflict({ localDraft: newContent });",
-    );
+    expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
+    expect(handler).toContain("retainActiveRecoveryDraft({");
     expect(handler.indexOf("return;")).toBeLessThan(
       handler.indexOf("debouncedSave("),
     );
-    expect(source).toContain('{t("editor.keepLocalDraft")}');
-    expect(source).toContain("void handleContentSaveNow(localDraft, true);");
-    expect(source).toContain("handleContentSaveNow(result.content, true)");
-    expect(source).toContain("if (options.adoptCurrentServerBase)");
-    expect(source).toContain(
-      "else if (contentEditVersionRef.current === contentEditVersion)",
+    expect(handler.indexOf("updateReconcileDraft(newContent)")).toBeLessThan(
+      handler.indexOf("debouncedSave("),
     );
+    expect(source).toContain("if (reconcileRecoveryStateRef.current) return;");
+    expect(handler).toContain("retainActiveRecoveryDraft({");
+    expect(source).toContain(
+      "void reconcileRetainRef.current(draft).catch(reportRetentionFailure)",
+    );
+    expect(source).toContain("<DocumentReconcileRecovery");
+    expect(source).toContain("onKeepMine={handleResolveReconcile}");
+    expect(source).toContain("contentBase: reconcileBase");
     expect(source).toContain("if (!result.contentPersisted)");
   });
 
@@ -1668,6 +1707,12 @@ describe("document editor layout", () => {
     expect(teardown).toContain("const loadedContentWasEmpty");
     expect(teardown).toContain("const loadedUpdatedAt");
     expect(teardown).toContain("lastSavedContentRef.current.content");
+    expect(teardown).toContain("documentRevisionRef.current !==");
+    expect(teardown).toContain("lastSavedContentRef.current.revision");
+    expect(teardown).toContain("...lastSavedContentRef.current");
+    expect(teardown).not.toContain(
+      "serverUpdatedAt > lastSavedContentRef.current.updatedAt",
+    );
     expect(teardown).toContain("{ loadedContentWasEmpty }");
     expect(teardown).toContain("{ loadedUpdatedAt }");
   });
@@ -1841,7 +1886,25 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl",
     );
-    expect(source).toContain("navigator.clipboard.writeText(copyPageUrl)");
+    expect(source).toContain("writeClipboardText(copyPageUrl)");
+    expect(source).not.toContain("navigator.clipboard.writeText");
+  });
+
+  it("routes Content text-copy controls through the shared clipboard boundary", () => {
+    const sources = [
+      "./DocumentToolbar.tsx",
+      "./extensions/AudioBlock.tsx",
+      "./extensions/ImageBlock.tsx",
+      "./extensions/VideoBlock.tsx",
+      "../sidebar/NotionButton.tsx",
+    ].map((path) =>
+      readFileSync(new URL(path, import.meta.url), { encoding: "utf8" }),
+    );
+
+    for (const source of sources) {
+      expect(source).toContain("writeClipboardText");
+      expect(source).not.toContain("navigator.clipboard.writeText");
+    }
   });
 
   it("builds a Notion-style breadcrumb from parent documents", () => {

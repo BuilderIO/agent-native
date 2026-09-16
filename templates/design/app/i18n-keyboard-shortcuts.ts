@@ -518,6 +518,7 @@ interface KeyboardMessagesSource {
     duplicate: string;
     delete: string;
     rename: string;
+    subtract: string;
     flipHorizontal: string;
     flipVertical: string;
     bringForward: string;
@@ -605,6 +606,7 @@ export function attachLocalizedKeyboardShortcuts<
           ellipse: d.tools.ellipse,
           line: d.tools.line,
           arrow: d.tools.arrow,
+          booleanSubtract: layers.subtract,
           selectAll: labels.selection,
           selectParent: `${labels.selection}: ${layers.title}`,
           enterSelection: labels.selection,

@@ -155,6 +155,31 @@ function parseAbsoluteUrl(raw: string): URL | null {
   }
 }
 
+function netlifyPreviewSiteName(appId: string): string | null {
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      CANONICAL_IDENTITY_SSO_APP_ORIGINS,
+      appId,
+    )
+  ) {
+    return null;
+  }
+  return appId === "chat" ? "agent-native-starter" : `agent-native-${appId}`;
+}
+
+function isNetlifyPreviewOriginForApp(url: URL, appId?: string): boolean {
+  if (url.protocol !== "https:" || url.port) return false;
+  const deployHost = /^([a-f0-9]{24})--([a-z0-9-]+)\.netlify\.app$/i.exec(
+    url.hostname,
+  );
+  if (!deployHost) return false;
+  if (appId) return deployHost[2] === netlifyPreviewSiteName(appId);
+  return Object.keys(CANONICAL_IDENTITY_SSO_APP_ORIGINS).some(
+    (canonicalAppId) =>
+      deployHost[2] === netlifyPreviewSiteName(canonicalAppId),
+  );
+}
+
 /**
  * General redirect-origin validation. The authorize route additionally calls
  * `resolveIdentitySsoApp`, which enforces the exact registered callback.
@@ -169,7 +194,9 @@ export function isAllowedRedirectUri(rawRedirectUri: unknown): boolean {
     return true;
   }
   return (
-    url.protocol === "https:" && DEFAULT_ALLOWED_ORIGINS.includes(url.origin)
+    (url.protocol === "https:" &&
+      DEFAULT_ALLOWED_ORIGINS.includes(url.origin)) ||
+    isNetlifyPreviewOriginForApp(url)
   );
 }
 
@@ -231,6 +258,20 @@ export function resolveIdentitySsoApp(
       appId,
       clientId,
       origin: url.origin,
+      callbackPath: IDENTITY_SSO_CALLBACK_PATH,
+    };
+  }
+  if (
+    clientId === appId &&
+    parsedRedirect.pathname === IDENTITY_SSO_CALLBACK_PATH &&
+    !parsedRedirect.search &&
+    !parsedRedirect.hash &&
+    isNetlifyPreviewOriginForApp(parsedRedirect, appId)
+  ) {
+    return {
+      appId,
+      clientId,
+      origin: parsedRedirect.origin,
       callbackPath: IDENTITY_SSO_CALLBACK_PATH,
     };
   }

@@ -133,6 +133,38 @@ describe("useLabels", () => {
   });
 });
 
+describe("account-scoped triage mutations", () => {
+  it("forwards the selected account through spam, block, and mute requests", () => {
+    const source = emailsHookSource();
+    const reportSpam = source.slice(
+      source.indexOf("export function useReportSpam()"),
+      source.indexOf("export function useBlockSender()"),
+    );
+    const blockSender = source.slice(
+      source.indexOf("export function useBlockSender()"),
+      source.indexOf("export function useMuteThread()"),
+    );
+    const muteThread = source.slice(
+      source.indexOf("export function useMuteThread()"),
+      source.indexOf(
+        "// ─── Contacts",
+        source.indexOf("export function useMuteThread()"),
+      ),
+    );
+
+    expect(reportSpam).toContain("accountEmail?: string");
+    expect(reportSpam).toContain(
+      "body: JSON.stringify({ accountEmail, threadId })",
+    );
+    expect(blockSender).toContain("accountEmail?: string");
+    expect(blockSender).toContain(
+      "body: JSON.stringify({ senderEmail, accountEmail })",
+    );
+    expect(muteThread).toContain("accountEmail?: string");
+    expect(muteThread).toContain("body: JSON.stringify({ accountEmail })");
+  });
+});
+
 describe("useEmails query warming", () => {
   it("shares the infinite-query fetcher with tab prefetches", () => {
     const source = emailsHookSource();
@@ -206,6 +238,18 @@ describe("useMarkRead", () => {
     expect(rollbackReadMutation("message-confirmed", second)).toBe(false);
   });
 
+  it("keeps a newer completion authoritative over an older completion", () => {
+    const first = beginReadMutation("message-out-of-order", true, false);
+    const second = beginReadMutation("message-out-of-order", false, true);
+
+    expect(confirmReadMutation("message-out-of-order", second, true)).toBe(
+      true,
+    );
+    expect(confirmReadMutation("message-out-of-order", first, false)).toBe(
+      true,
+    );
+  });
+
   it("retains an earlier in-flight mutation when the latest fails", () => {
     const first = beginReadMutation("message-pending", false, true);
     const second = beginReadMutation("message-pending", true, false);
@@ -225,9 +269,7 @@ describe("useMarkRead", () => {
     expect(hook).toContain("const restartThread = resolvedThreadId");
     expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
     expect(hook).toContain("resolvedThreadId && restartThread");
-    expect(source).toContain(
-      'clearOptimisticOverrideProperty(emailId, "isRead")',
-    );
+    expect(source).toContain("clearOptimisticOverrideProperty(emailId, field)");
     expect(hook).toContain("refreshThreadAfterMutations(");
   });
 });
@@ -405,12 +447,8 @@ describe("apiFetch quota signaling", () => {
 });
 
 describe("inbox-thread cache rollback on mutation error", () => {
-  // PR #4801 round 3: archive/trash/mark-read/star mutations optimistically
-  // update the list-inbox-threads cache via use-inbox-threads.ts's helpers,
-  // but only rolled back the legacy ['emails'] cache on error — a Gmail
-  // rejection left the synced inbox missing the thread (decremented counts)
-  // until the delayed invalidation. Each mutation below must snapshot the
-  // inbox cache in onMutate and restore it in onError.
+  // Inbox optimistic state is a journal overlay. Errors retire only their own
+  // entry, so overlapping mutations never restore an older cache snapshot.
   const boundaries: Array<[string, string]> = [
     ["export function useMarkRead()", "export function useMarkThreadRead()"],
     ["export function useMarkThreadRead()", "export function useToggleStar()"],
@@ -439,13 +477,105 @@ describe("inbox-thread cache rollback on mutation error", () => {
   ];
 
   it.each(boundaries)(
-    "%s snapshots and restores the inbox cache",
+    "%s journals and retires its inbox mutation",
     (start, end) => {
       const source = emailsHookSource();
       const hook = source.slice(source.indexOf(start), source.indexOf(end));
 
-      expect(hook).toContain("snapshotInboxThreads(qc)");
-      expect(hook).toContain("restoreInboxThreadsOptimistic(qc, context");
+      expect(hook).toContain("cancelInboxThreadsQueries(qc)");
+      expect(hook).toContain("forgetInboxMutation(qc");
+      expect(hook).not.toContain("restoreInboxThreadsOptimistic(qc, context");
     },
   );
+
+  it("clears the inbox removal journal when either undo mutation starts", () => {
+    const source = emailsHookSource();
+
+    for (const name of ["useUnarchiveEmail", "useUntrashEmail"]) {
+      const start = source.indexOf(`export function ${name}()`);
+      const end = source.indexOf("export function", start + 1);
+      const hook = source.slice(start, end === -1 ? undefined : end);
+
+      expect(hook).toContain("onMutate:");
+      expect(hook).toContain("findInboxThreadIdByMessageId(qc, id)");
+      expect(hook).toContain("clearInboxThreadRemoval(qc, threadId)");
+      expect(hook).toContain("restoreInboxThreadRemovals(qc");
+    }
+  });
+
+  it("keeps bulk Gmail rollbacks scoped to the items that failed", () => {
+    const source = emailsHookSource();
+    const bulkHooks = [
+      [
+        "export function useBulkArchiveEmails()",
+        "export function useBulkTrashEmails()",
+        [
+          "enqueueBulkGmailMutation",
+          "BulkGmailMutationFailure",
+          "reconcilePartialInboxMutation",
+        ],
+      ],
+      [
+        "export function useBulkToggleStar()",
+        "export function useBulkMarkRead()",
+        [
+          "enqueueBulkGmailMutation",
+          "resolveBulkThreadIds(qc, targets)",
+          "BulkGmailMutationFailure",
+          "mutationVersions",
+          "beginStarMutation",
+          "reconcilePartialInboxMutation",
+        ],
+      ],
+      [
+        "export function useBulkMarkRead()",
+        "export function useMoveEmail()",
+        [
+          "enqueueBulkGmailMutation",
+          "resolveBulkThreadIds(qc, targets)",
+          "BulkGmailMutationFailure",
+          "mutationVersions",
+          "beginReadMutation",
+          "reconcilePartialInboxMutation",
+        ],
+      ],
+    ] as const;
+
+    for (const [start, end, markers] of bulkHooks) {
+      const hook = source.slice(source.indexOf(start), source.indexOf(end));
+      for (const marker of markers) expect(hook).toContain(marker);
+    }
+    expect(source).toContain('enqueueBulkGmailMutation("trash"');
+    expect(source).toContain('cancelOrWait("trash", id)');
+  });
+
+  it("treats a partial move as an error and keeps only successful threads removed", () => {
+    const source = emailsHookSource();
+    const start = source.indexOf("export function useMoveEmail()");
+    const end = source.indexOf("export function useSaveDraft()", start);
+    const hook = source.slice(start, end);
+
+    expect(hook).toContain('result.status === "partial"');
+    expect(hook).toContain("throw new MoveEmailPartialFailure(result)");
+    expect(hook).toContain("forgetInboxMutation(qc, context.inboxMutationId)");
+    expect(hook).toContain(
+      "removeInboxThreadsOptimistic(qc, succeededThreadIds)",
+    );
+    expect(hook).toContain(
+      "context.previous.forEach(([key, data]) =>\n          qc.setQueryData(",
+    );
+  });
+
+  it("passes per-target account and thread hints to the Move action", () => {
+    const source = emailsHookSource();
+    const start = source.indexOf("export function useMoveEmail()");
+    const end = source.indexOf("export function useSaveDraft()", start);
+    const hook = source.slice(start, end);
+
+    expect(hook).toContain("accountEmails?: string");
+    expect(hook).toContain("threadIds?: string");
+    expect(hook).toContain("accountEmails,");
+    expect(hook).toContain("threadIds,");
+    expect(hook).toContain('callAction("move-email", {');
+  });
 });

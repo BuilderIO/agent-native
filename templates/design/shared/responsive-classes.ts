@@ -546,6 +546,85 @@ export function maxWidthClassToken(boundPx: number, utility: string): string {
 }
 
 /**
+ * Move generated arbitrary max-width tokens to their new bounds while
+ * leaving core max-* variants and every unrelated token untouched.
+ *
+ * Returns null when a moved token would collide with another utility for the
+ * same property at its target bound. Callers should treat that as a typed
+ * refusal and roll back the surrounding write.
+ */
+export function migrateMaxWidthClassBounds(
+  className: string,
+  boundMap: ReadonlyMap<number, number | null>,
+): string | null {
+  if (boundMap.size === 0) return className;
+
+  const parts = className.split(/(\s+)/);
+  const migrations: Array<{
+    index: number;
+    token: string;
+    boundPx: number;
+    targetPx: number;
+    stem: string;
+    utility: string;
+  }> = [];
+
+  for (const [index, token] of parts.entries()) {
+    if (!token || /^\s+$/.test(token) || !token.startsWith("max-[")) {
+      continue;
+    }
+    const parsed = parseMaxWidthClassToken(token);
+    if (!parsed) continue;
+    const requestedTarget = boundMap.has(parsed.boundPx)
+      ? boundMap.get(parsed.boundPx)!
+      : parsed.boundPx;
+    if (
+      requestedTarget === null ||
+      !Number.isFinite(requestedTarget) ||
+      requestedTarget <= 0
+    ) {
+      return null;
+    }
+    migrations.push({
+      index,
+      token,
+      boundPx: parsed.boundPx,
+      targetPx: Math.round(requestedTarget),
+      stem: utilityStem(parsed.utility),
+      utility: parsed.utility,
+    });
+  }
+
+  const owners = new Map<
+    string,
+    { token: string; boundPx: number; targetPx: number }
+  >();
+  for (const current of migrations) {
+    const key = `${current.targetPx}\u0000${current.stem}`;
+    const previous = owners.get(key);
+    if (
+      previous &&
+      previous.token !== current.token &&
+      (previous.targetPx !== previous.boundPx ||
+        current.targetPx !== current.boundPx)
+    ) {
+      return null;
+    }
+    owners.set(key, current);
+  }
+
+  for (const migration of migrations) {
+    if (migration.targetPx !== migration.boundPx) {
+      parts[migration.index] = maxWidthClassToken(
+        migration.targetPx,
+        migration.utility,
+      );
+    }
+  }
+  return parts.join("");
+}
+
+/**
  * Return all max-width-scoped tokens for `stem` at exactly `boundPx`.
  */
 export function getMaxWidthPropertyClasses(

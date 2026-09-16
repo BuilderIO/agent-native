@@ -58,7 +58,9 @@ export default defineAction({
         authorModel: comment.authorModel,
         author: comment.authorName,
       })),
-      submittedConversation: JSON.parse(request.submittedSnapshotJson),
+      submittedConversation: JSON.parse(
+        request.submittedSnapshotJson ?? request.snapshotJson,
+      ),
       priorSuggestions: suggestions
         .filter(
           (suggestion) =>

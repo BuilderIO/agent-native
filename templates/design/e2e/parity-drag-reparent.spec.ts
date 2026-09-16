@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { canvasZoom, designFrame, gotoEditor } from "./helpers";
+import { appPath, canvasZoom, designFrame, gotoEditor } from "./helpers";
 
 /**
  * Figma-parity check for §2 Move / auto-nesting (Part 3 resolutions): drag an
@@ -48,11 +48,7 @@ const SCREEN_TWO = `<!doctype html>
   </body>
 </html>`;
 
-// Style-carry fixture (host-path proof for portableStyleTagDefaults/
-// collectPortableStyleSnapshot in editor-chrome.bridge.ts): the card's
-// appearance comes ONLY from a class rule the destination screen doesn't
-// have, so it can only survive the cross-screen move if the bare-tag-probe
-// diff actually ran and captured it as an inline style.
+// The source class rules are deliberately absent from the destination.
 const STYLE_CARRY_SOURCE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Style Carry Source</title>
@@ -163,6 +159,18 @@ async function fileIdFor(
   const file = (record.files ?? []).find((f: any) => f.filename === filename);
   if (!file) throw new Error(`no file ${filename} in design ${id}`);
   return file.id;
+}
+
+async function selectionContext(page: Page) {
+  const response = await page.request.get(
+    appPath("/_agent-native/application-state/design-selection"),
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `could not read design selection: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return response.json();
 }
 
 /**
@@ -781,6 +789,28 @@ test.describe("drag reparent parity", () => {
         },
       )
       .toBe(true);
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () => {
+        const selection = await selectionContext(page);
+        return (
+          selection.activeFileId === screenOneId &&
+          selection.selectedElement?.sourceId === "widget"
+        );
+      })
+      .toBe(true);
+
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => {
+        const selection = await selectionContext(page);
+        return (
+          selection.activeFileId === screenTwoId &&
+          selection.selectedElement?.sourceId === "widget"
+        );
+      })
+      .toBe(true);
   });
 
   test("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
@@ -837,12 +867,8 @@ test.describe("drag reparent parity", () => {
     const trace = await dumpTrace(page);
     await page.mouse.up();
 
-    // The move writes screen one (source) and screen two (destination) as
-    // two separate, independently debounced (~400ms) autosaves — polling
-    // the destination alone and then reading the source ONCE is a race, not
-    // proof of move-not-copy semantics: the destination save can win that
-    // race while the source save is still in flight. Poll both together
-    // until they agree on the same instant.
+    // Source and destination files save independently, so poll both to confirm
+    // the move has settled in each.
     let screenTwoHtml = "";
     let screenOneHtmlAfter = "";
     await expect
@@ -869,9 +895,7 @@ test.describe("drag reparent parity", () => {
       )
       .toBe(true);
 
-    // Live check: screen two has no `.card` rule, so the destination node's
-    // rendered appearance must match the source's only via the carried
-    // inline style, not any stylesheet it inherited.
+    // The destination has no `.card` rule; carried styles must render inline.
     const destNode = designFrame(page, screenTwoId).locator(
       '[data-agent-native-node-id="style-card"]',
     );
@@ -884,12 +908,8 @@ test.describe("drag reparent parity", () => {
       )
       .toEqual([colorBefore, backgroundBefore]);
 
-    // `.card`'s `width:320px` is class-authored (not inline) but is the ONE
-    // rule matching `style-card` for width, agreeing with its rendered size
-    // — resolvePortableBoxSizeValue's unambiguous case (see
-    // editor-chrome.bridge.ts / portable-style-snapshot.bridge.spec.ts) — so
-    // the moved node must keep it as a persisted inline style, and its
-    // rendered box in screen two must match.
+    // Read computed width inside the iframe; overview zoom affects canvas
+    // coordinates, not this layout value.
     expect(
       styleOf(screenTwoHtml, "style-card"),
       "Style Card must persist width:320px as inline style after landing in screen two",

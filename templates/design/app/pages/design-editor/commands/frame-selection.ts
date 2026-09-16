@@ -1,7 +1,9 @@
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
+  type CodeLayerNode,
   type CodeLayerProjection,
+  type WrapNodeSizeHint,
 } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -13,10 +15,17 @@ import {
 } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { queryFirstSelector } from "@/pages/design-editor/clone-and-pen-edit";
 import {
   codeLayerPatchMessage,
+  codeLayerSelectorAliases,
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "@/pages/design-editor/commands/selection-publication";
 import {
   captureContentUndoStackTop,
   captureYjsUndoStackTop,
@@ -30,6 +39,11 @@ import {
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { buildActiveFileNodeIdSet } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import {
+  dispatchLinkedComponentStructure,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
 
 /**
  * Live-rendered width/height per target node id, keyed for
@@ -47,8 +61,8 @@ export function collectLiveSizeHints(
   projection: CodeLayerProjection,
   activeIframeId: string,
   boardFileId: string | undefined,
-): Record<string, { width: number; height: number }> {
-  const hints: Record<string, { width: number; height: number }> = {};
+): Record<string, WrapNodeSizeHint> {
+  const hints: Record<string, WrapNodeSizeHint> = {};
   if (typeof document === "undefined") return hints;
   // Only the active file's own iframe can legitimately contain these node
   // ids (they came from parsing the active file's own source) — querying
@@ -66,34 +80,234 @@ export function collectLiveSizeHints(
     boardFileId,
   )?.contentDocument;
   if (!doc) return hints;
-  for (const nodeId of nodeIds) {
-    // Mirrors applyWrapNodes's own target resolution: a caller-supplied id
-    // can be either the real data-agent-native-node-id attribute or the
-    // projection's internal node id — only the attribute value is queryable
-    // in the live DOM.
-    const node = projection.nodes.find(
-      (n) =>
-        n.dataAttributes["data-agent-native-node-id"] === nodeId ||
-        n.id === nodeId,
+  for (const requestedId of nodeIds) {
+    let node = projection.nodes.find(
+      (candidate) => candidate.id === requestedId,
     );
-    const attrId = node?.dataAttributes["data-agent-native-node-id"];
-    if (!attrId) continue;
-    const el = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(attrId)}"]`,
-    );
-    if (!el) continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-      // Keyed by the real attribute value: computeAbsoluteUnionBounds
-      // reads data-agent-native-node-id straight off the parsed element,
-      // not the caller's (possibly internal-projection-id) target id.
-      hints[attrId] = { width: rect.width, height: rect.height };
+    if (!node) {
+      const rawIdMatches = projection.nodes.filter(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] === requestedId,
+      );
+      // Raw source IDs are only a safe fallback when the projection has
+      // exactly one owner. Duplicate legacy IDs must not collapse multiple
+      // nodes onto whichever attribute selector happens to match first.
+      if (rawIdMatches.length !== 1) continue;
+      node = rawIdMatches[0];
+    }
+    if (!node) continue;
+
+    const rawId = node.dataAttributes["data-agent-native-node-id"];
+    const sameRawIdNodes = rawId
+      ? projection.nodes.filter(
+          (candidate) =>
+            candidate.dataAttributes["data-agent-native-node-id"] === rawId,
+        )
+      : [];
+    // The stable-attribute alias is ambiguous for legacy duplicate IDs; use
+    // only this node's positional path. If that exact path is absent from the
+    // live iframe, do not fall through to an alias that could now identify a
+    // surviving sibling instead.
+    const selectors =
+      sameRawIdNodes.length > 1 ? [node.path] : codeLayerSelectorAliases(node);
+    const element = queryFirstSelector(doc, selectors);
+    const iframeWindow = doc.defaultView;
+    if (
+      !element ||
+      !iframeWindow ||
+      !(element instanceof iframeWindow.HTMLElement)
+    ) {
+      continue;
+    }
+    // offsetWidth/offsetHeight preserve the element's layout border box.
+    // getBoundingClientRect includes transforms and iframe scaling, which
+    // would inflate the source-space frame geometry for rotated/scaled nodes.
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+    if (width > 0 && height > 0) {
+      const computedPosition = iframeWindow.getComputedStyle(element).position;
+      const computedOutOfFlow =
+        computedPosition === "absolute" || computedPosition === "fixed";
+      // Keep the existing integer layout dimensions for absolute/fixed
+      // targets. Their hints feed the freeform union fallback, where a
+      // transformed client rect would incorrectly enlarge the frame.
+      if (isOutOfFlowHintTarget(node) || computedOutOfFlow) {
+        hints[node.id] = {
+          width,
+          height,
+          ...(!isOutOfFlowHintTarget(node) && computedOutOfFlow
+            ? { outOfFlow: true as const }
+            : {}),
+        };
+        continue;
+      }
+      if (hasUnsupportedMeasuredFlowAncestry(element, iframeWindow)) {
+        hints[node.id] = { width, height };
+        continue;
+      }
+      const position = measureParentRelativePosition(element, iframeWindow);
+      hints[node.id] = position
+        ? {
+            width: position.width,
+            height: position.height,
+            left: position.left,
+            top: position.top,
+          }
+        : { width, height };
     }
   }
   return hints;
 }
 
+function hasUnsupportedMeasuredFlowAncestry(
+  element: HTMLElement,
+  iframeWindow: Window,
+): boolean {
+  let isTarget = true;
+  for (
+    let current: HTMLElement | null = element;
+    current;
+    current = current.parentElement
+  ) {
+    const style = iframeWindow.getComputedStyle(current);
+    if (
+      (style.perspective && style.perspective !== "none") ||
+      hasNonIdentityScale(
+        style.scale ||
+          style.getPropertyValue("scale") ||
+          current.style.getPropertyValue("scale"),
+      ) ||
+      (style.rotate &&
+        style.rotate !== "none" &&
+        style.rotate !== "0deg" &&
+        style.rotate !== "0") ||
+      (style.zoom && style.zoom !== "normal" && style.zoom !== "1")
+    ) {
+      return true;
+    }
+    if (style.transform && style.transform !== "none") {
+      if (
+        isTarget ||
+        !isTranslationOnlyTransform(style.transform, iframeWindow)
+      ) {
+        return true;
+      }
+    }
+    // A translation on an ancestor affects both client rects and cancels in
+    // the child-parent delta. This includes the managed Board surface offset.
+    // A translation on the target affects only the child rect, so persisting
+    // that viewport delta as source left/top would double-apply it.
+    if (
+      isTarget &&
+      hasNonZeroTranslate(
+        style.translate ||
+          style.getPropertyValue("translate") ||
+          current.style.getPropertyValue("translate"),
+      )
+    ) {
+      return true;
+    }
+    isTarget = false;
+  }
+  return false;
+}
+
+function hasNonIdentityScale(value: string | undefined): boolean {
+  const scale = (value ?? "").trim().toLowerCase();
+  if (!scale || scale === "none") return false;
+  return scale.split(/\s+/).some((part) => Number(part) !== 1);
+}
+
+function hasNonZeroTranslate(value: string | undefined): boolean {
+  const translate = (value ?? "").trim().toLowerCase();
+  if (!translate || translate === "none") return false;
+  return translate
+    .split(/\s+/)
+    .some((part) => !/^[-+]?0(?:\.0+)?(?:[a-z%]+)?$/.test(part));
+}
+
+function isTranslationOnlyTransform(
+  transform: string,
+  iframeWindow: Window,
+): boolean {
+  const Matrix = (
+    iframeWindow as Window & {
+      DOMMatrixReadOnly?: typeof DOMMatrixReadOnly;
+    }
+  ).DOMMatrixReadOnly;
+  if (!Matrix) return false;
+  try {
+    const matrix = new Matrix(transform);
+    return (
+      matrix.is2D &&
+      Math.abs(matrix.a - 1) <= 0.001 &&
+      Math.abs(matrix.b) <= 0.001 &&
+      Math.abs(matrix.c) <= 0.001 &&
+      Math.abs(matrix.d - 1) <= 0.001
+    );
+    // coercion-ok: false keeps transformed viewport geometry out of source.
+  } catch {
+    return false;
+  }
+}
+
+function isOutOfFlowHintTarget(node: CodeLayerNode): boolean {
+  const position = node.style.position?.toLowerCase();
+  if (position) return position === "absolute" || position === "fixed";
+  return node.classes.some((token) => {
+    const parts = token.split(":");
+    const utility = parts[parts.length - 1]?.replace(/^!/, "");
+    return utility === "absolute" || utility === "fixed";
+  });
+}
+
+/**
+ * Match measureFreeformGeometry's padding-box coordinate convention while
+ * staying scoped to the active preview document. Client rects keep parent
+ * transforms and scrolling in the same coordinate space as the child; the
+ * border inset converts the parent's border box to its positioning origin.
+ */
+function measureParentRelativePosition(
+  element: HTMLElement,
+  iframeWindow: Window,
+): { left: number; top: number; width: number; height: number } | null {
+  const parent = element.parentElement;
+  if (!parent) return null;
+  const childRect = element.getBoundingClientRect();
+  const parentRect = parent.getBoundingClientRect();
+  if (
+    childRect.width <= 0 ||
+    childRect.height <= 0 ||
+    ![childRect.left, childRect.top, parentRect.left, parentRect.top].every(
+      Number.isFinite,
+    )
+  ) {
+    return null;
+  }
+  const parentStyle = iframeWindow.getComputedStyle(parent);
+  const borderLeft = Number.parseFloat(parentStyle.borderLeftWidth || "0");
+  const borderTop = Number.parseFloat(parentStyle.borderTopWidth || "0");
+  const left =
+    childRect.left +
+    parent.scrollLeft -
+    parentRect.left -
+    (Number.isFinite(borderLeft) ? borderLeft : 0);
+  const top =
+    childRect.top +
+    parent.scrollTop -
+    parentRect.top -
+    (Number.isFinite(borderTop) ? borderTop : 0);
+  return Number.isFinite(left) &&
+    Number.isFinite(childRect.width) &&
+    Number.isFinite(childRect.height) &&
+    childRect.width > 0 &&
+    childRect.height > 0
+    ? { left, top, width: childRect.width, height: childRect.height }
+    : null;
+}
+
 export interface FrameSelectionArgs {
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
@@ -110,7 +324,7 @@ export interface FrameSelectionArgs {
       clipboardMutation?: ClipboardContentMutationPublication;
       selectionBefore?: YjsUndoSelectionSnapshot;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   boardFileId: string | undefined;
   canEditDesign: boolean;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
@@ -127,6 +341,7 @@ export interface FrameSelectionArgs {
 
 export function runFrameSelection({
   activeBreakpointWidthState,
+  applyLinkedComponentEdit,
   activeFile,
   applyLocalContentUpdate,
   boardFileId,
@@ -144,8 +359,9 @@ export function runFrameSelection({
 }: FrameSelectionArgs) {
   if (!canEditDesign || !activeFile) return;
   const baseContent = getFreshActiveContent();
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
   const fileIds = new Set(files.map((f) => f.id));
-  const baseProjection = buildCodeLayerProjection(baseContent);
+  const baseProjection = buildCodeLayerProjection(baseContent, { source });
   const activeNodeIdSet = buildActiveFileNodeIdSet(baseProjection);
   const nodeIds = selectedLayerIdsState.filter(
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
@@ -164,18 +380,40 @@ export function runFrameSelection({
     activeIframeId,
     boardFileId,
   );
-  const patch = applyVisualEdit(baseContent, {
-    kind: "wrapNodes",
-    targetIds: nodeIds,
-    autoLayout: false,
-    wrapperKind: "frame",
-    sizeHints,
-  });
+  if (
+    dispatchLinkedComponentStructure({
+      content: baseContent,
+      source,
+      intents: [
+        {
+          kind: "wrapNodes",
+          targetIds: nodeIds,
+          autoLayout: false,
+          wrapperKind: "frame",
+          sizeHints,
+        },
+      ],
+      applyLinkedComponentEdit,
+    })
+  )
+    return;
+  const patch = applyVisualEdit(
+    baseContent,
+    {
+      kind: "wrapNodes",
+      targetIds: nodeIds,
+      autoLayout: false,
+      wrapperKind: "frame",
+      sizeHints,
+    },
+    { source },
+  );
   if (patch.result.status !== "applied") {
     toast.error(
       codeLayerPatchMessage(
         patch.result.message,
         t("designEditor.toasts.layerMoveFailed"),
+        t,
       ),
       { duration: 4000 },
     );
@@ -197,23 +435,8 @@ export function runFrameSelection({
       "Frame",
     );
     if (renamed) nextContent = renamed;
-    const taggedProjection = buildCodeLayerProjection(nextContent);
-    const taggedNode = taggedProjection.nodes.find(
-      (n) =>
-        n.dataAttributes["data-agent-native-node-id"] ===
-        patch.result.wrapperNodeId,
-    );
-    if (taggedNode) {
-      const tagged = setCodeLayerAttributeInHtml(
-        nextContent,
-        taggedNode,
-        "data-an-primitive",
-        "frame",
-      );
-      if (tagged) nextContent = tagged;
-    }
     wrapperNode =
-      buildCodeLayerProjection(nextContent).nodes.find(
+      buildCodeLayerProjection(nextContent, { source }).nodes.find(
         (n) =>
           n.dataAttributes["data-agent-native-node-id"] ===
           patch.result.wrapperNodeId,
@@ -240,10 +463,25 @@ export function runFrameSelection({
   const contentUndoStackTopBeforeFrame = captureContentUndoStackTop(
     contentUndoStackRef.current,
   );
-  applyLocalContentUpdate(nextContent, {
+  const initialWrapperNode = wrapperNode;
+  const submittedProjection = buildCodeLayerProjection(nextContent, { source });
+  const submittedWrapper = initialWrapperNode
+    ? submittedProjection.nodes.find(
+        (candidate) => candidate.id === initialWrapperNode.id,
+      )
+    : undefined;
+  const publication = applyLocalContentUpdate(nextContent, {
     forcePreviewFullDocument: true,
     selectionBefore: selectionBeforeFrame,
   });
+  if (publication.status !== "accepted") return;
+  const acceptedProjection = projectAcceptedSource(publication, source);
+  wrapperNode =
+    mapAcceptedSelectionNode(
+      publication,
+      acceptedProjection,
+      submittedWrapper,
+    ) ?? undefined;
   stampYjsUndoSelection(
     undoManagerRef.current,
     undoStackTopBeforeFrame,

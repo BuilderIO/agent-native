@@ -209,7 +209,7 @@ export function PlayerControls(props: PlayerControlsProps) {
                   step={0.05}
                   value={[muted ? 0 : volume]}
                   onValueChange={([value]) => onVolumeChange(value ?? 0)}
-                  className="h-24 w-2 [&_[data-orientation=vertical]]:h-full [&_[data-orientation=vertical]]:w-1.5 [&_[role=slider]]:size-3.5"
+                  className="h-24 w-2 data-[orientation=vertical]:flex-col [&_[data-orientation=vertical]]:h-full [&_[data-orientation=vertical]]:w-1.5 [&_[role=slider]]:size-3.5"
                 />
               </div>
             </PopoverContent>

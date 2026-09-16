@@ -20,6 +20,7 @@ import {
   isElectron,
   encodeOAuthState,
   resolveOAuthRedirectUri,
+  wrapNetlifyPreviewGoogleOAuthState,
   safeReturnPath,
 } from "@agent-native/core/server";
 import {
@@ -52,7 +53,13 @@ export default defineEventHandler(async (event: H3Event) => {
     // Use the framework-standard callback path. The local Google OAuth client
     // is documented/configured for `/_agent-native/google/callback`; using a
     // custom `/api/auth/...` callback causes redirect_uri_mismatch locally.
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -86,6 +93,7 @@ export default defineEventHandler(async (event: H3Event) => {
       app: CLIPS_GOOGLE_OAUTH_APP_ID,
       returnUrl,
     });
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
     const params = new URLSearchParams({
       client_id: credentials.clientId,
@@ -97,7 +105,7 @@ export default defineEventHandler(async (event: H3Event) => {
       prompt: "consent",
       include_granted_scopes: "true",
       scope: GOOGLE_CALENDAR_SCOPES.join(" "),
-      state,
+      state: oauthState,
     });
     const url = `${GOOGLE_AUTH_URL}?${params.toString()}`;
 

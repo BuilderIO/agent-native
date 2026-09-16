@@ -62,6 +62,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { HostOverlayStatusIcon } from "@/components/booking/HostOverlayStatusIcon";
+import { SharedAvailabilityPanel } from "@/components/booking/SharedAvailabilityPanel";
 import {
   TimeZoneGrid,
   type TimeZoneGridHost,
@@ -143,7 +145,14 @@ import {
   type BookingAvailabilityPreview,
 } from "@/hooks/use-bookings";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useOverlayPeople } from "@/hooks/use-overlay-people";
+import {
+  useHostOverlayStatus,
+  useSendOverlayRequest,
+} from "@/hooks/use-host-overlay-status";
+import {
+  useAddOverlayPerson,
+  useOverlayPeople,
+} from "@/hooks/use-overlay-people";
 import { usePublicBookingLink } from "@/hooks/use-public-data";
 import { useSettings } from "@/hooks/use-settings";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
@@ -236,7 +245,7 @@ const DEFAULT_SCHEDULE: DaySchedule = {
   slots: [{ ...DEFAULT_TIME_SLOT }],
 };
 
-type Tab = "links" | "availability" | "bookings";
+type Tab = "links" | "availability" | "shared" | "bookings";
 
 function createEmptyDraft(): DraftLink {
   return {
@@ -555,9 +564,15 @@ function BookingConferencingSelect({
 function BookingHostsEditor({
   hosts,
   onChange,
+  bookingLinkId,
+  isNewDraft,
 }: {
   hosts: BookingHost[];
-  onChange: (hosts: BookingHost[]) => void;
+  onChange: (
+    hosts: BookingHost[] | ((current: BookingHost[]) => BookingHost[]),
+  ) => void;
+  bookingLinkId: string | undefined;
+  isNewDraft: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -576,11 +591,16 @@ function BookingHostsEditor({
       toast.error(t("bookingLinks.invalidEmail", { email }));
       return;
     }
-    if (selectedEmails.has(normalized)) return;
-    onChange([
-      ...hosts,
-      displayName ? { email: normalized, displayName } : { email: normalized },
-    ]);
+    onChange((current) =>
+      current.some((host) => host.email.toLowerCase() === normalized)
+        ? current
+        : [
+            ...current,
+            displayName
+              ? { email: normalized, displayName }
+              : { email: normalized },
+          ],
+    );
   }
 
   function toggleOverlayPerson(person: OverlayPerson) {
@@ -628,21 +648,62 @@ function BookingHostsEditor({
     onChange(hosts.filter((host) => host.email !== email));
   }
 
+  // Sorted so the query key stays stable when chips are reordered — the key is
+  // hashed from param content, so reordering hosts must not look like a new
+  // query. Queried for every host, not just the ones the signed-in editor's
+  // own overlay list already recognizes: a shared editor's overlay list can
+  // differ from the link owner's, and the server only ever reports statuses
+  // for hosts on the owner's own list, so its response is the source of
+  // truth for which hosts are calendar-managed.
+  const allHostEmails = hosts.map((host) => host.email).sort();
+  const { data: hostStatuses } = useHostOverlayStatus(
+    allHostEmails,
+    bookingLinkId,
+    // Never fire with an ambiguous identity: either this is genuinely a new
+    // draft (no id yet, caller is the presumptive owner), or the real link
+    // and its bookingLinkId have finished loading.
+    allHostEmails.length > 0 && (isNewDraft || !!bookingLinkId),
+  );
+
   function isOverlayHost(host: BookingHost) {
     const normalized = normalizeHostEmail(host.email);
-    return overlayPeople.some(
-      (person) => normalizeHostEmail(person.email) === normalized,
-    );
+    // Once the owner-scoped status list has loaded, it is authoritative.
+    if (hostStatuses) {
+      return hostStatuses.some(
+        (entry) => normalizeHostEmail(entry.email) === normalized,
+      );
+    }
+    // Before that, the signed-in user's own overlay list is only a safe
+    // stand-in for a brand-new, unsaved draft, where they are certainly the
+    // eventual owner. For a real link, a shared (non-owner) editor's own
+    // list can disagree with the owner's — guessing from it would briefly
+    // render an owner-managed host as manual, so show manual (undetermined)
+    // instead until the real status resolves.
+    return isNewDraft
+      ? overlayPeople.some(
+          (person) => normalizeHostEmail(person.email) === normalized,
+        )
+      : false;
   }
 
   const calendarHosts = hosts.filter((host) => isOverlayHost(host));
   const manualHosts = hosts.filter((host) => !isOverlayHost(host));
+  const sendOverlayRequest = useSendOverlayRequest();
+  const addOverlayPerson = useAddOverlayPerson();
 
-  function renderHostBadge(host: BookingHost) {
+  function renderHostBadge(host: BookingHost, options: { overlay: boolean }) {
     const normalized = normalizeHostEmail(host.email);
     const overlayColor = overlayPeople.find(
       (person) => normalizeHostEmail(person.email) === normalized,
     )?.color;
+    // Only overlay chips have a server-reported status. A missing row means
+    // loading, an error, or a client/server disagreement about overlay
+    // membership — all three render nothing rather than a guessed state.
+    const status = options.overlay
+      ? hostStatuses?.find(
+          (entry) => normalizeHostEmail(entry.email) === normalized,
+        )
+      : undefined;
     return (
       <Badge key={host.email} variant="secondary" className="gap-1.5 pr-1">
         {overlayColor && (
@@ -652,6 +713,16 @@ function BookingHostsEditor({
           />
         )}
         {host.displayName || host.email}
+        {(options.overlay ? Boolean(status) : true) && (
+          <HostOverlayStatusIcon
+            variant={options.overlay ? "overlay" : "manual"}
+            status={status}
+            email={normalized ?? host.email}
+            bookingLinkId={bookingLinkId}
+            mutation={sendOverlayRequest}
+            addPerson={addOverlayPerson}
+          />
+        )}
         <button
           type="button"
           onClick={() => removeHost(host.email)}
@@ -776,7 +847,9 @@ function BookingHostsEditor({
 
       {calendarHosts.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {calendarHosts.map((host) => renderHostBadge(host))}
+          {calendarHosts.map((host) =>
+            renderHostBadge(host, { overlay: true }),
+          )}
         </div>
       )}
 
@@ -806,7 +879,7 @@ function BookingHostsEditor({
 
       {manualHosts.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {manualHosts.map((host) => renderHostBadge(host))}
+          {manualHosts.map((host) => renderHostBadge(host, { overlay: false }))}
         </div>
       )}
 
@@ -820,6 +893,7 @@ function BookingHostsEditor({
         open={addCalendarOpen}
         onOpenChange={setAddCalendarOpen}
         defaultTab="people"
+        onPersonAdded={(person) => addHost(person.email, person.name)}
       />
     </div>
   );
@@ -832,7 +906,7 @@ export default function BookingLinksPage({
 }) {
   const t = useT();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") as Tab) || "links";
   const bookingLinksQuery = useBookingLinks();
   const {
@@ -846,6 +920,13 @@ export default function BookingLinksPage({
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  // The sidebar links straight to `?tab=shared`, which does not remount this
+  // page when it is already open — so follow the param rather than only
+  // reading it once.
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab) setActiveTab(tab as Tab);
+  }, [searchParams]);
   const [draft, setDraft] = useState<DraftLink>(() => createEmptyDraft());
   const [savedDraftSignature, setSavedDraftSignature] = useState<string | null>(
     null,
@@ -990,6 +1071,15 @@ export default function BookingLinksPage({
     () => bookingLinks.find((link) => link.id === selectedId) ?? null,
     [bookingLinks, selectedId],
   );
+  // An optimistic id is assigned client-side the moment a new link is created,
+  // before the route ever loads, so it is never ambiguous with an existing
+  // link that simply hasn't finished loading yet.
+  const isNewBookingLinkDraft =
+    typeof selectedId === "string" && selectedId.startsWith(OPTIMISTIC_PREFIX);
+  const hostOverlayBookingLinkId =
+    selectedLink && !selectedLink.id.startsWith(OPTIMISTIC_PREFIX)
+      ? selectedLink.id
+      : undefined;
   const canEditSelectedLink = canEditBookingLink(selectedLink);
   const canDeleteSelectedLink = canDeleteBookingLink(selectedLink);
 
@@ -1670,9 +1760,17 @@ export default function BookingLinksPage({
 
                 <div className="border-t border-border pt-8">
                   <BookingHostsEditor
+                    bookingLinkId={hostOverlayBookingLinkId}
+                    isNewDraft={isNewBookingLinkDraft}
                     hosts={draft.hosts}
-                    onChange={(hosts) =>
-                      setDraft((prev) => ({ ...prev, hosts }))
+                    onChange={(update) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        hosts:
+                          typeof update === "function"
+                            ? update(prev.hosts)
+                            : update,
+                      }))
                     }
                   />
                 </div>
@@ -1812,6 +1910,16 @@ export default function BookingLinksPage({
             tab: v,
           });
           setActiveTab(v as Tab);
+          // Keep the param in step, so the effect above can't snap the user
+          // back to a tab they navigated away from.
+          setSearchParams(
+            (current) => {
+              const next = new URLSearchParams(current);
+              next.set("tab", v);
+              return next;
+            },
+            { replace: true },
+          );
         }}
       >
         <TabsList>
@@ -1820,6 +1928,9 @@ export default function BookingLinksPage({
           </TabsTrigger>
           <TabsTrigger value="availability">
             {t("bookingLinks.availability")}
+          </TabsTrigger>
+          <TabsTrigger value="shared">
+            {t("bookingLinks.sharedAvailability")}
           </TabsTrigger>
           <TabsTrigger value="bookings">
             {t("bookingLinks.bookings")}
@@ -2224,6 +2335,12 @@ export default function BookingLinksPage({
                 ? t("common.saving")
                 : t("bookingLinks.saveAvailability")}
             </Button>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="shared">
+          <div className="max-w-2xl">
+            <SharedAvailabilityPanel />
           </div>
         </TabsContent>
 

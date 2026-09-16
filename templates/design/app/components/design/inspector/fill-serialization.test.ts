@@ -1,5 +1,7 @@
+import { parseCssColor } from "@shared/color-utils";
 import { describe, expect, it } from "vitest";
 
+import { parseGradientLayer } from "../edit-panel/fill-gradient-helpers";
 import {
   defaultGradient,
   gradientToCss,
@@ -17,6 +19,27 @@ import {
 } from "./ShaderFillsPanel";
 
 describe("gradient serialization", () => {
+  it.each(["linear", "radial", "angular", "diamond"] as const)(
+    "preserves stop alpha when a %s fill fades to zero and returns",
+    (kind) => {
+      const original = defaultGradient(kind, "#cc3366");
+      for (const opacity of [20, 0, 100]) {
+        const css = gradientToCss({ ...original, opacity });
+        const editor = parseGradientCss(css)!;
+        const inspector = parseGradientLayer(css)!;
+        expect(editor.opacity ?? 100).toBe(opacity);
+        expect(inspector.opacity ?? 100).toBe(opacity);
+        expect(
+          editor.stops.map((stop) => parseCssColor(stop.color)?.a),
+        ).toEqual([1, 0]);
+        expect(inspector.stops.map((stop) => stop.opacity)).toEqual([100, 0]);
+        expect(
+          gradientToCss({ ...editor, opacity: 100 }).replace(" in srgb", ""),
+        ).toBe(gradientToCss(original));
+      }
+    },
+  );
+
   it("builds a valid linear-gradient with angle + percent stops", () => {
     const css = gradientToCss({
       kind: "linear",

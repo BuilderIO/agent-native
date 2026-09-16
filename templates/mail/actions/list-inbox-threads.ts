@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
 import {
-  getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   isConnected,
 } from "../server/lib/google-auth.js";
 import { classifyAutomated } from "../server/lib/inbox-classify.js";
@@ -183,8 +183,12 @@ export default defineAction({
     // OAuth rows with Gmail scope, else a managed workspace grant's email —
     // so a managed grant with no per-user OAuth row isn't mistaken for
     // disconnected.
-    const connectedAccounts = await getConnectedAccounts(ownerEmail);
+    const { accounts: connectedAccounts, errors: accountErrors } =
+      await getConnectedAccountsWithErrors(ownerEmail);
     if (connectedAccounts.length === 0) {
+      if (accountErrors.length > 0) {
+        throw new Error(accountErrors.map(({ error }) => error).join("; "));
+      }
       const [emails, settings, localSetting] = await Promise.all([
         readLocalEmails(ownerEmail),
         readSettings(ownerEmail),

@@ -3,17 +3,27 @@ import { toast } from "sonner";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
-import { insertClonedHtmlLayer } from "@/pages/design-editor/clone-and-pen-edit";
+import {
+  insertClonedHtmlLayer,
+  planLinkedComponentStructureClone,
+  type ComponentCloneBatchContext,
+} from "@/pages/design-editor/clone-and-pen-edit";
 import {
   codeLayerSelectorAliases,
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import { isCodeLayerNodeOrDescendant } from "@/pages/design-editor/commands/visual-duplicate-change";
+import type { GeometryHistorySelection } from "@/pages/design-editor/history";
+import { captureHistorySelectionSources } from "@/pages/design-editor/history-identity";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
 
 export interface ScreenVisualDuplicateChangeArgs {
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
+  componentLinksForFile?: (fileId: string) => ComponentCloneBatchContext;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -29,12 +39,18 @@ export interface ScreenVisualDuplicateChangeArgs {
   ) => void;
   canEditDesign: boolean;
   getScreenContent: (screenId: string) => string;
+  remapMotionTracksForClone?: (
+    nodeIdMap: Map<string, string>,
+    targetFileId: string,
+  ) => void;
+  selectionBefore?: GeometryHistorySelection;
   handleVisualDuplicateChange: (
     selector: string,
     cloneHtml: string,
     elementInfo?: ElementInfo,
     details?: {
       sourceId?: string;
+      sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
       anchorSelector?: string;
       anchorSourceId?: string;
       placement?: "before" | "after" | "inside";
@@ -46,10 +62,14 @@ export interface ScreenVisualDuplicateChangeArgs {
 export function runScreenVisualDuplicateChange(
   {
     activeFile,
+    applyLinkedComponentEdit,
     applyFileContentUpdate,
     canEditDesign,
+    componentLinksForFile,
     getScreenContent,
     handleVisualDuplicateChange,
+    remapMotionTracksForClone,
+    selectionBefore,
     t,
   }: ScreenVisualDuplicateChangeArgs,
   screenId: string,
@@ -58,6 +78,7 @@ export function runScreenVisualDuplicateChange(
   elementInfo?: ElementInfo,
   details?: {
     sourceId?: string;
+    sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
     anchorSelector?: string;
     anchorSourceId?: string;
     placement?: "before" | "after" | "inside";
@@ -69,9 +90,17 @@ export function runScreenVisualDuplicateChange(
       false
     );
   }
+  let structureUnsupported = false;
+  const onUnsupportedStructure = () => {
+    structureUnsupported = true;
+    toast.error(
+      t("designEditor.componentInstances.linkedStructureUnsupported"),
+    );
+  };
   if (!canEditDesign) return false;
   const baseContent = getScreenContent(screenId);
-  const projection = buildCodeLayerProjection(baseContent);
+  const source = { kind: "design-file" as const, fileId: screenId };
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo
     ? {
         ...elementInfo,
@@ -99,7 +128,8 @@ export function runScreenVisualDuplicateChange(
   const effectivePlacement = anchorNestedInTarget
     ? "after"
     : (details?.placement ?? "after");
-  const nextContent = insertClonedHtmlLayer(baseContent, cloneHtml, {
+  const cloneOptions = {
+    onUnsupportedStructure,
     targetSelectors: targetNode
       ? codeLayerSelectorAliases(targetNode)
       : [selector],
@@ -110,7 +140,53 @@ export function runScreenVisualDuplicateChange(
         : undefined,
     placement: effectivePlacement,
     preserveIncomingNodeIds: true,
-  });
+    componentLinks: componentLinksForFile
+      ? {
+          ...componentLinksForFile(screenId),
+          sourceNodeIdMaps: [details?.sourceNodeIdMap],
+        }
+      : undefined,
+  };
+  const linkedPlan = applyLinkedComponentEdit
+    ? planLinkedComponentStructureClone(baseContent, [cloneHtml], cloneOptions)
+    : null;
+  if (linkedPlan && applyLinkedComponentEdit) {
+    const linkedSelectionBefore =
+      targetNode && selectionBefore
+        ? captureHistorySelectionSources(
+            {
+              ...selectionBefore,
+              activeFileId: screenId,
+              selectedLayerIds: [targetNode.id],
+            },
+            {
+              ...selectionBefore.sourceContentByFileId,
+              [screenId]: baseContent,
+            },
+          )
+        : selectionBefore;
+    applyLinkedComponentEdit(
+      screenId,
+      linkedPlan.targetNodeId,
+      {
+        kind: "structure",
+        before: linkedPlan.mainBefore,
+        after: linkedPlan.mainAfter,
+        selectionNodeIds: linkedPlan.selectionNodeIds,
+      },
+      linkedSelectionBefore,
+      remapMotionTracksForClone
+        ? () => remapMotionTracksForClone(linkedPlan.nodeIdMap, screenId)
+        : undefined,
+    );
+    return true;
+  }
+  const nextContent = insertClonedHtmlLayer(
+    baseContent,
+    cloneHtml,
+    cloneOptions,
+  );
+  if (structureUnsupported) return false;
   if (!nextContent) {
     toast.error(t("designEditor.toasts.layerMoveFailed"), {
       duration: 4000,

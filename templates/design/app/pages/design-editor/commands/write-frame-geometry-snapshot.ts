@@ -23,6 +23,7 @@ export interface WriteFrameGeometrySnapshotArgs {
   ) => boolean;
   frameGeometrySaveTimerRef: RefObject<number | null>;
   id: string | undefined;
+  liveFrameGeometryRef?: RefObject<CanvasFrameGeometryById>;
   pendingFrameGeometrySaveRef: RefObject<{
     geometryById: CanvasFrameGeometryById;
     previousGeometry: CanvasFrameGeometryById;
@@ -38,17 +39,42 @@ export function runWriteFrameGeometrySnapshot(
     enqueueFrameGeometryDataSave,
     frameGeometrySaveTimerRef,
     id,
+    liveFrameGeometryRef,
     pendingFrameGeometrySaveRef,
     queryClient,
   }: WriteFrameGeometrySnapshotArgs,
   geometryById: CanvasFrameGeometryById,
   options?: {
+    replacePendingGeometrySave?: boolean;
     syncViewportFrameIds?: string[];
     pinHeightFrameIds?: string[];
   },
 ) {
   if (!id || !canEditDesignRef.current) return;
   const queuedSave = pendingFrameGeometrySaveRef.current;
+  const replacePendingGeometrySave =
+    options?.replacePendingGeometrySave === true;
+  const previousGeometryForSnapshot =
+    replacePendingGeometrySave && queuedSave
+      ? sanitizeCanvasFrameGeometryForPersist(
+          queuedSave.geometryById,
+          queuedSave.previousGeometry,
+          boardFileId ? [boardFileId] : [],
+        ).geometryById
+      : getCanvasFrameGeometry(designDataJsonRef.current);
+  const queuedOperations = replacePendingGeometrySave
+    ? []
+    : queuedSave
+      ? buildFrameGeometryDataOperations({
+          previousGeometry: queuedSave.previousGeometry,
+          nextGeometry: sanitizeCanvasFrameGeometryForPersist(
+            queuedSave.geometryById,
+            queuedSave.previousGeometry,
+            boardFileId ? [boardFileId] : [],
+          ).geometryById,
+          designData: designDataJsonRef.current,
+        })
+      : [];
   if (frameGeometrySaveTimerRef.current !== null) {
     window.clearTimeout(frameGeometrySaveTimerRef.current);
     frameGeometrySaveTimerRef.current = null;
@@ -64,21 +90,11 @@ export function runWriteFrameGeometrySnapshot(
       boardFileId ? [boardFileId] : [],
     );
   const snapshot = cloneCanvasFrameGeometry(safeGeometryById);
-  const queuedOperations = queuedSave
-    ? buildFrameGeometryDataOperations({
-        previousGeometry: queuedSave.previousGeometry,
-        nextGeometry: sanitizeCanvasFrameGeometryForPersist(
-          queuedSave.geometryById,
-          queuedSave.previousGeometry,
-          boardFileId ? [boardFileId] : [],
-        ).geometryById,
-        designData: designDataJsonRef.current,
-      })
-    : [];
+  if (liveFrameGeometryRef) liveFrameGeometryRef.current = snapshot;
   const dataOperations = compactDesignDataOperations([
     ...queuedOperations,
     ...buildFrameGeometryDataOperations({
-      previousGeometry: getCanvasFrameGeometry(designDataJsonRef.current),
+      previousGeometry: previousGeometryForSnapshot,
       nextGeometry: snapshot,
       designData: designDataJsonRef.current,
       syncViewportFrameIds: options?.syncViewportFrameIds,
@@ -91,6 +107,7 @@ export function runWriteFrameGeometrySnapshot(
     dataOperations,
   );
   designDataJsonRef.current = nextData;
+  if (liveFrameGeometryRef) liveFrameGeometryRef.current = snapshot;
   queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
     if (!old || typeof old !== "object") return old;
     return { ...old, data: JSON.stringify(nextData) };

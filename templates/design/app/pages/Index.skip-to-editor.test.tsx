@@ -113,6 +113,19 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => mocks.queryClient,
 }));
 
+vi.mock("@agent-native/creative-context/client", () => ({
+  CreativeContextShareSheet: () => null,
+  parseCreativeContexts: () => [],
+  useCreativeContextLab: () => false,
+  useCreativeContexts: () => ({ data: undefined, isLoading: false }),
+  useCreativeContextState: () => ({
+    state: { contextMode: "auto", selectedContextId: null },
+    setState: vi.fn(),
+    isLoading: false,
+    error: null,
+  }),
+}));
+
 vi.mock("react-router", () => ({
   useNavigate: () => mocks.navigate,
   useSearchParams: () => [new URLSearchParams(), mocks.setSearchParams],
@@ -292,6 +305,30 @@ describe("Index skip to editor", () => {
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
     expect(mocks.promptProps?.open).toBe(true);
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
+  });
+
+  it("starts each new design with a fresh prompt draft scope", async () => {
+    const card = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "home.newDesign",
+    );
+    expect(card).toBeDefined();
+
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+    expect(mocks.promptProps?.draftScope).toBe("design:new:1");
+
+    await act(async () => {
+      mocks.promptProps?.onOpenChange(false);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.promptProps?.draftScope).toBe("design:new:2");
   });
 
   it("still asks up front when the design-or-app choice exists", async () => {

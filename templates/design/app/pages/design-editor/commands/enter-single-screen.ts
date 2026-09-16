@@ -1,5 +1,4 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
-import type { PenPath } from "@shared/pen-path";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import { getScreenPreviewViewport } from "@/components/design/multi-screen/frame-geometry";
@@ -37,9 +36,7 @@ export interface EnterSingleScreenArgs {
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setScreenZoom: Dispatch<SetStateAction<number>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
-  setVectorEditingState: Dispatch<
-    SetStateAction<{ screenId: string; nodeId: string; path: PenPath } | null>
-  >;
+  setVectorEditingState: (value: null) => void;
   setViewMode: Dispatch<SetStateAction<"single" | "overview">>;
   viewModeRef: RefObject<"single" | "overview">;
 }

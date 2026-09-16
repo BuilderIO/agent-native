@@ -4,6 +4,7 @@ import {
   writeChatFirstMode,
 } from "@agent-native/core/client/agent-chat";
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
@@ -14,6 +15,7 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
+import { CONNECT_APPS_FLAG } from "@agent-native/core/feature-flags/registry";
 import { Button } from "@agent-native/dispatch/components/ui/button";
 import { Switch } from "@agent-native/dispatch/components/ui/switch";
 import { IconShield } from "@tabler/icons-react";
@@ -31,6 +33,7 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
+  const connectAppsEnabled = useFeatureFlag(CONNECT_APPS_FLAG.key);
   const agentSettingsTabs = useAgentSettingsTabs({
     usageAppId: "dispatch",
     usageViewAllHref: "/admin/metrics",
@@ -140,6 +143,18 @@ export default function SettingsRoute() {
                 </Button>
               }
             />
+            {connectAppsEnabled ? (
+              <SettingsRow
+                id="connect-apps"
+                label={t("settings.connectApps")}
+                description={t("settings.connectAppsDescription")}
+                control={
+                  <Button variant="outline" asChild>
+                    <Link to="/connect">{t("settings.openConnectApps")}</Link>
+                  </Button>
+                }
+              />
+            ) : null}
           </SettingsGroup>
 
           <SettingsGroup id="chat-first">

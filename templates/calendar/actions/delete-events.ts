@@ -8,7 +8,7 @@ import {
   normalizeWeekdays,
   requireValidTimezone,
 } from "../server/lib/event-weekday.js";
-import { isGoogleNotFoundError } from "../server/lib/google-api.js";
+import { isGoogleEventAbsentError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   BOOKED_EVENT_REASON,
@@ -367,7 +367,7 @@ export default defineAction({
           }
           return { ...target.display, outcome: "deleted" };
         } catch (error) {
-          if (isGoogleNotFoundError(error)) {
+          if (isGoogleEventAbsentError(error)) {
             return {
               ...target.display,
               outcome: "already_absent",

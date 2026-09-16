@@ -96,6 +96,36 @@ describe("gmailMutationQueue", () => {
     expect(actions).toEqual(["archive-email", "mark-read"]);
   });
 
+  it("batches trash and settles partial per-item results from one action call", async () => {
+    callAction.mockResolvedValueOnce({
+      requested: ["m1", "m2"],
+      succeeded: ["m1"],
+      failed: [{ id: "m2", error: "provider unavailable" }],
+    });
+    const first = gmailMutationQueue.enqueue("trash", {
+      id: "m1",
+      threadId: "t1",
+      accountEmail: "a@x.com",
+    });
+    const second = gmailMutationQueue.enqueue("trash", {
+      id: "m2",
+      threadId: "t2",
+      accountEmail: "b@x.com",
+    });
+    const secondError = expect(second).rejects.toThrow("provider unavailable");
+
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(first).resolves.toBeUndefined();
+    await secondError;
+    expect(callAction).toHaveBeenCalledTimes(1);
+    expect(callAction).toHaveBeenCalledWith("trash-email", {
+      id: "m1,m2",
+      threadIds: "t1,t2",
+      accountEmails: "a@x.com,b@x.com",
+    });
+  });
+
   it("cancel drops a pending archive before flush", async () => {
     const pending = gmailMutationQueue.enqueue("archive", {
       id: "m1",
@@ -108,15 +138,99 @@ describe("gmailMutationQueue", () => {
     expect(callAction).not.toHaveBeenCalled();
   });
 
-  it("rejects waiters when the flush action fails", async () => {
+  it("waits for an in-flight archive before allowing its inverse", async () => {
+    let resolveAction!: (value: string) => void;
+    callAction.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveAction = resolve;
+      }),
+    );
+    const pending = gmailMutationQueue.enqueue("archive", {
+      id: "m1",
+      threadId: "t1",
+    });
+
+    await vi.advanceTimersByTimeAsync(200);
+    const waiting = gmailMutationQueue.cancelOrWait("archive", "m1");
+    let settled = false;
+    void waiting.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveAction("ok");
+    await expect(waiting).resolves.toBe("succeeded");
+    await expect(pending).resolves.toBeUndefined();
+    expect(callAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for an in-flight trash before allowing its inverse", async () => {
+    let resolveAction!: (value: string) => void;
+    callAction.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveAction = resolve;
+      }),
+    );
+    const pending = gmailMutationQueue.enqueue("trash", { id: "m1" });
+
+    await vi.advanceTimersByTimeAsync(200);
+    const waiting = gmailMutationQueue.cancelOrWait("trash", "m1");
+    let settled = false;
+    void waiting.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveAction("Trashed 1 email(s) successfully");
+    await expect(waiting).resolves.toBe("succeeded");
+    await expect(pending).resolves.toBeUndefined();
+    expect(callAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries each item when a bulk flush fails", async () => {
     callAction.mockRejectedValueOnce(new Error("rate limited"));
     const pending = gmailMutationQueue.enqueue("archive", {
       id: "m1",
       threadId: "t1",
     });
-    const expectation = expect(pending).rejects.toThrow("rate limited");
     await vi.advanceTimersByTimeAsync(200);
-    await expectation;
+    await pending;
+    expect(callAction).toHaveBeenCalledTimes(2);
+    expect(callAction.mock.calls[1]).toEqual([
+      "archive-email",
+      {
+        id: "m1",
+        threadId: "t1",
+        accountEmail: undefined,
+        removeLabel: undefined,
+      },
+    ]);
+  });
+
+  it("falls back from partial mark-read results to independent items", async () => {
+    callAction
+      .mockResolvedValueOnce("Marked 1/2 email(s) as read")
+      .mockResolvedValue("Marked 1/1 email(s) as read");
+    const first = gmailMutationQueue.enqueue("mark-read", {
+      id: "m1",
+      accountEmail: "a@x.com",
+      flag: true,
+    });
+    const second = gmailMutationQueue.enqueue("mark-read", {
+      id: "m2",
+      accountEmail: "a@x.com",
+      flag: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(200);
+    await Promise.all([first, second]);
+    expect(callAction).toHaveBeenCalledTimes(3);
+    expect(callAction.mock.calls.slice(1).map((call) => call[1].id)).toEqual([
+      "m1",
+      "m2",
+    ]);
   });
 
   it("flushes on max-wait even if debounce keeps resetting", async () => {

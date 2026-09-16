@@ -41,6 +41,12 @@ export {
 } from "./remote-store.js";
 
 export {
+  findConnectedMcpServersForProvider,
+  type ConnectedMcpProviderResult,
+  type ConnectedMcpProviderServer,
+} from "./provider-connections.js";
+
+export {
   finishMcpOAuthAuthorization,
   getMcpOAuthAccessToken,
   readMcpOAuthCredentials,

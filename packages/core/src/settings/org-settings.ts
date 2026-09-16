@@ -16,6 +16,7 @@ import {
   deleteSettingsByPrefix,
   listSettingsByPrefix,
   type StoreWriteOptions,
+  type StoreReadOptions,
 } from "./store.js";
 
 function orgKey(orgId: string, key: string): string {
@@ -28,8 +29,9 @@ const ORG_PREFIX_RE = /^o:([^:]+):(.+)$/;
 export async function getOrgSetting(
   orgId: string,
   key: string,
+  options?: StoreReadOptions,
 ): Promise<Record<string, unknown> | null> {
-  return getSetting(orgKey(orgId, key));
+  return getSetting(orgKey(orgId, key), options);
 }
 
 /** Write an org-scoped setting. Always writes to the prefixed key. */

@@ -127,6 +127,7 @@ describe("direct recording route shell cue", () => {
     expect(commentsSection).toContain(
       '"flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
     );
+    expect(commentsSection).not.toContain('t("playerSettings.comments")');
     expect(toolbar).not.toContain("renderSidebarToggleButton()");
     expect(toolbar).not.toContain("renderPanelTabs()");
     expect(route).toContain("<ViewerTabsList");
@@ -181,13 +182,16 @@ describe("direct recording route shell cue", () => {
     );
     expect(sidePanelFrame).toContain("data-recording-side-panel");
     expect(sidePanelFrame).toContain("border-y border-border bg-background");
-    expect(sidePanelFrame).toContain("lg:bg-sidebar");
+    expect(sidePanelFrame).toContain("lg:bg-background");
     expect(sidePanelFrame).toContain("lg:me-4");
     expect(sidePanelFrame).toContain("lg:rounded-xl");
     expect(sidePanelFrame).not.toContain("IconX");
     expect(route).toContain("alwaysShowControls");
     expect(route).toContain(
       "overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto]",
+    );
+    expect(route).toContain(
+      'ViewerTabsList className="min-w-0 shrink-0 bg-background"',
     );
 
     const shareRoute = readRoute("share.$shareId.tsx");
@@ -228,6 +232,7 @@ describe("direct recording route shell cue", () => {
 
     expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
     expect(route).not.toContain("<AgentPanel");
+    expect(route).toContain("focusAgentChat");
     expect(route).toContain("requestAgentSidebarOpen");
     expect(route).toContain("SIDEBAR_STATE_CHANGE_EVENT");
     expect(route).toContain("useGlobalAgentSidebarOpen");
@@ -328,6 +333,18 @@ describe("direct recording route shell cue", () => {
     expect(commentsSection).toContain(
       '"flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
     );
+  });
+
+  it("keeps the redesign comments preview fixture read-only", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      "recordingId === VIEWER_REDESIGN_PREVIEW_ID\n      ? VIEWER_PREVIEW_COMMENTS",
+    );
+    expect(route).toContain(
+      "role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID",
+    );
+    expect(route).not.toContain("persistedPreviewReplies");
   });
 
   it("badges the Debug tab with an unviewed count instead of an always-on dot", () => {

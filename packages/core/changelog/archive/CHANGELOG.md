@@ -1,3 +1,22 @@
+## 0.163.2
+
+### Patch Changes
+
+- 8236ce6: Fence session replay uploads that time out before transport cancellation.
+
+## 0.163.1
+
+### Patch Changes
+
+- 3ffbacb: Keep collaboration auto-seeding correct for mapped document ids without issuing one database read per source row, and carry the configured deployment lane into server telemetry.
+- 3ffbacb: Harden the local self-hosting Docker quickstart and document PostgreSQL volume upgrades.
+
+## 0.163.0
+
+### Minor Changes
+
+- a688849: Add organization groups and privacy controls for workspace apps. New apps use the organization default (organization-wide by default), while creators and organization admins can manage individual, group, and organization access from the shared popover.
+
 ## 0.162.0
 
 ### Minor Changes

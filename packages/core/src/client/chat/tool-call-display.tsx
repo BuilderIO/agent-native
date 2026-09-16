@@ -71,6 +71,7 @@ import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
   isBuiltinDataWidgetActionRenderer,
   isBuiltinWorkspaceFileResult,
+  isBuiltinConnectRequiredResult,
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
 } from "./widgets/builtin-tool-renderers.js";
@@ -970,7 +971,8 @@ function ToolCallDisplayGeneric({
         context={nativeToolContext}
         isBuiltinDataWidget={
           isBuiltinDataWidgetActionRenderer(nativeToolContext) ||
-          isBuiltinWorkspaceFileResult(nativeToolContext)
+          isBuiltinWorkspaceFileResult(nativeToolContext) ||
+          isBuiltinConnectRequiredResult(nativeToolContext)
         }
       >
         <NativeToolRenderer context={nativeToolContext} />
@@ -1225,6 +1227,11 @@ function AgentCallCell({
                     activity?.activePhase === "responding" &&
                     index === inlineSegments.length - 1
                   }
+                  caret={
+                    isRunning &&
+                    activity?.activePhase === "responding" &&
+                    index === inlineSegments.length - 1
+                  }
                   resetKey={`agent-response-${responseKey}-${index}`}
                   statusType={isRunning ? "running" : "complete"}
                 />
@@ -1306,6 +1313,7 @@ function AgentCallCell({
               <SmoothMarkdownText
                 text={finalText}
                 streaming={isRunning}
+                caret={isRunning}
                 resetKey={`agent-response-${responseKey}`}
                 statusType={isRunning ? "running" : "complete"}
               />
@@ -1464,6 +1472,7 @@ export function ReconnectStreamMessage({
           key={`reconnect-text-${i}`}
           text={part.text}
           streaming={partStreaming}
+          caret={partStreaming}
           resetKey={`reconnect-text-${i}`}
           statusType={partStreaming ? "running" : "complete"}
         />

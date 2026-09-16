@@ -26,7 +26,13 @@ import {
 import { overviewSelectionTargetsElement } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import {
+  dispatchLinkedComponentStructure,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+
 export interface NudgeSelectionArgs {
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
     nextContent: string,
@@ -76,6 +82,7 @@ export interface NudgeSelectionArgs {
 
 export function runNudgeSelection(
   {
+    applyLinkedComponentEdit,
     activeFile,
     applyLocalContentUpdate,
     boardFileId,
@@ -166,6 +173,9 @@ export function runNudgeSelection(
 
   const intent = resolveElementNudgeIntent({
     content: activeFile ? getFreshActiveContent() : "",
+    source: activeFile
+      ? { kind: "design-file", fileId: activeFile.id }
+      : undefined,
     selectedElement: nudgeTarget,
     direction,
     largeStep,
@@ -173,12 +183,37 @@ export function runNudgeSelection(
   });
   if (intent.kind === "none") return;
   if (intent.kind === "reorder") {
-    const patch = applyVisualEdit(intent.content, {
-      kind: "moveNode",
-      target: { nodeId: intent.targetNodeId },
-      anchor: { nodeId: intent.anchorNodeId },
-      placement: intent.placement,
-    } satisfies MoveNodeEditIntent);
+    if (
+      activeFile &&
+      dispatchLinkedComponentStructure({
+        content: intent.content,
+        source: { kind: "design-file", fileId: activeFile.id },
+        intents: [
+          {
+            kind: "moveNode",
+            target: { nodeId: intent.targetNodeId },
+            anchor: { nodeId: intent.anchorNodeId },
+            placement: intent.placement,
+          },
+        ],
+        applyLinkedComponentEdit,
+      })
+    )
+      return;
+    const patch = applyVisualEdit(
+      intent.content,
+      {
+        kind: "moveNode",
+        target: { nodeId: intent.targetNodeId },
+        anchor: { nodeId: intent.anchorNodeId },
+        placement: intent.placement,
+      } satisfies MoveNodeEditIntent,
+      {
+        ...(activeFile
+          ? { source: { kind: "design-file" as const, fileId: activeFile.id } }
+          : {}),
+      },
+    );
     if (patch.result.status !== "applied") return;
     applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
     // A node with no stable `data-agent-native-node-id` has its id derived

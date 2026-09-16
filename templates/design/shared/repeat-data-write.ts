@@ -171,6 +171,7 @@ export function duplicateRepeatItem(args: {
   html: string;
   xFor: string;
   index: number;
+  keyField?: string;
 }): RepeatWrite {
   const found = itemsFor(args.html, args.xFor);
   if ("reason" in found) return refuse(found.reason);
@@ -180,8 +181,63 @@ export function duplicateRepeatItem(args: {
   const texts = items.map((candidate) =>
     args.html.slice(candidate.span.start, candidate.span.end),
   );
-  texts.splice(args.index + 1, 0, texts[args.index]!);
+  let duplicate = texts[args.index]!;
+  if (args.keyField) {
+    if (item.kind !== "object") {
+      return refuse("A keyed scalar item cannot be duplicated safely.");
+    }
+    const key = item.fields.find((field) => field.key === args.keyField);
+    if (!key) {
+      return refuse(`The duplicated item has no "${args.keyField}" key field.`);
+    }
+    const values = items.flatMap((candidate) =>
+      candidate.kind === "object"
+        ? candidate.fields
+            .filter((field) => field.key === args.keyField)
+            .map((field) => field.value)
+        : [],
+    );
+    const nextKey = nextDuplicateKey(key.value, values);
+    if (nextKey === undefined) {
+      return refuse(
+        `Could not create a unique string or safe-integer "${args.keyField}" key for the duplicate.`,
+      );
+    }
+    const start = key.valueSpan.start - item.span.start;
+    const end = key.valueSpan.end - item.span.start;
+    duplicate = splice(
+      duplicate,
+      { start, end },
+      literalFor(nextKey, duplicate.slice(start, end)),
+    );
+  }
+  texts.splice(args.index + 1, 0, duplicate);
   return { status: "written", html: rewriteItems(args.html, items, texts) };
+}
+
+function nextDuplicateKey(
+  value: RepeatScalar,
+  keys: RepeatScalar[],
+): string | number | undefined {
+  const used = new Set(keys);
+  if (typeof value === "number") {
+    const max = Math.max(
+      ...keys.filter((key): key is number => typeof key === "number"),
+    );
+    const candidate = Math.floor(max) + 1;
+    return Number.isSafeInteger(candidate) &&
+      candidate > max &&
+      !used.has(candidate)
+      ? candidate
+      : undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  const base = `${value}-copy`;
+  for (let suffix = 1; suffix <= used.size + 1; suffix += 1) {
+    const candidate = suffix === 1 ? base : `${base}-${suffix}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 /**

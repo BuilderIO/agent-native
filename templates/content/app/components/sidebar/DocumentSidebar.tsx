@@ -7,6 +7,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebarFooter,
@@ -36,6 +37,7 @@ import {
   IconChevronRight,
   IconTrash,
   IconGitBranch,
+  IconSearch,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -478,7 +480,7 @@ function WorkspaceSidebarItem({
   );
   const filesDatabase = useContentDatabaseById(
     deferredFilesDatabase.databaseId,
-    { enabled: deferredFilesDatabase.enabled },
+    { enabled: deferredFilesDatabase.enabled, systemRole: "files" },
   );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
@@ -1881,6 +1883,32 @@ export function DocumentSidebar({
       </Tooltip>
     ) : null;
 
+  const renderSearchButton = () =>
+    collapsed ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="flex size-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label={t("sidebar.search")}
+            onClick={openCommandMenu}
+          >
+            <IconSearch size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+      </Tooltip>
+    ) : (
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+        onClick={openCommandMenu}
+      >
+        <IconSearch className="size-4 shrink-0" />
+        <span>{t("sidebar.search")}</span>
+      </button>
+    );
+
   const renderSettingsNavButton = () => (
     <Link
       to="/settings"
@@ -2318,6 +2346,7 @@ export function DocumentSidebar({
         />
         <div className="flex flex-col items-center gap-1 px-2 py-3">
           {renderCollapsedNewButton()}
+          {renderSearchButton()}
         </div>
         <div className="mt-auto shrink-0 w-full">
           <AppSidebarFooter
@@ -2369,6 +2398,8 @@ export function DocumentSidebar({
         collapsed={false}
         onBrandClick={onToggleCollapsed}
       />
+
+      <div className="shrink-0 px-2 pt-2">{renderSearchButton()}</div>
 
       <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
         <div className="w-full min-w-0 py-2 pe-2">

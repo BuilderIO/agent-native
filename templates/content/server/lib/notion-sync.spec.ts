@@ -47,10 +47,23 @@ const notionMocks = vi.hoisted(() => {
     }
   }
 
+  const getNotionConnectionForOwner = vi.fn();
+
   return {
     createNotionPageWithMarkdown: vi.fn(),
     fetchNotionPage: vi.fn(),
-    getNotionConnectionForOwner: vi.fn(),
+    getNotionConnectionForOwner,
+    // Mirrors the real helper: same lookup, but throws the connection-specific
+    // error instead of answering null.
+    requireNotionConnectionForOwner: vi.fn(
+      async (owner: string, intent: string) => {
+        const connection = await getNotionConnectionForOwner(owner);
+        if (!connection) {
+          throw new Error(`Connect your Notion account before ${intent}.`);
+        }
+        return connection;
+      },
+    ),
     normalizeNotionPageId: vi.fn((input: string) => input),
     notionFetch: vi.fn(),
     readNotionPageAsDocument: vi.fn(),

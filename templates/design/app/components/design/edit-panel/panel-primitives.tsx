@@ -1,5 +1,8 @@
-import { parseCssColor } from "@shared/color-utils";
-import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
+import {
+  parseCssColor,
+  rgbaToCss,
+  withColorOpacity,
+} from "@shared/color-utils";
 import { Children, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -218,6 +221,9 @@ export function ColorInput({
   label,
   value,
   onChange,
+  open: controlledOpen,
+  onOpenChange: onControlledOpenChange,
+  onSolidToGradientChange,
   backgroundImage,
   backgroundSize,
   backgroundRepeat,
@@ -229,14 +235,28 @@ export function ColorInput({
   onBlendModeChange,
   supportsLayeredFills = false,
   allowDesignHistoryHotkeys = false,
+  onChangeCancel,
   documentColors,
   supportedPaintTypes,
   pickerKey,
   glslShaderContext,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string, meta?: StyleChangeMeta) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onSolidToGradientChange?: (
+    patch: Record<
+      | "backgroundColor"
+      | "backgroundImage"
+      | "backgroundSize"
+      | "backgroundRepeat"
+      | "backgroundPosition",
+      string
+    >,
+  ) => void;
   backgroundImage?: string;
   backgroundSize?: string;
   backgroundRepeat?: string;
@@ -274,6 +294,7 @@ export function ColorInput({
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
   allowDesignHistoryHotkeys?: boolean;
+  onChangeCancel?: (value: string) => void;
   /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
   documentColors?: string[];
   /**
@@ -284,6 +305,7 @@ export function ColorInput({
    */
   supportedPaintTypes?: DesignPaintType[];
   pickerKey?: string;
+  disabled?: boolean;
   /**
    * Persistence context for the code-backed GLSL Shader paint type. When
    * provided, the picker's Shader tab opens the GlslShaderPanel (Created by
@@ -448,7 +470,12 @@ export function ColorInput({
       ? (type: DesignGradientType) => {
           replaceBackgroundLayer(
             activeGradientIndex,
-            buildGradientLayer(type, activeGradient.stops),
+            buildGradientLayer(
+              type,
+              activeGradient.stops,
+              undefined,
+              activeGradient.opacity,
+            ),
           );
         }
       : undefined;
@@ -481,9 +508,18 @@ export function ColorInput({
           : null;
       if (selectedLayer !== null) removeBackgroundLayer(selectedLayer);
       setSelectedFillId(SOLID_FILL_ID);
+      const firstStopColor = removedGradient?.stops[0]?.color;
+      const parsedStop = firstStopColor ? parseCssColor(firstStopColor) : null;
       setNext(
         cssColorOrFallback(
-          removedGradient?.stops[0]?.color || draft || value,
+          parsedStop
+            ? rgbaToCss(
+                withColorOpacity(
+                  parsedStop,
+                  parsedStop.a * (removedGradient?.opacity ?? 100),
+                ),
+              )
+            : firstStopColor || draft || value,
           "#000000",
         ),
       );
@@ -508,32 +544,48 @@ export function ColorInput({
       return;
     }
     const nextType: DesignGradientType = type;
-    const layerIndex = selectedLayer ?? activeGradientIndex;
-    if (layerIndex !== null) {
+    if (selectedLayer !== null) {
       const currentGradient = parseGradientLayer(
-        backgroundLayers[layerIndex] || "",
+        backgroundLayers[selectedLayer] || "",
       );
       const stops =
         currentGradient?.stops ?? defaultGradientStops(draft || value);
-      replaceBackgroundLayer(layerIndex, buildGradientLayer(nextType, stops));
-      setSelectedFillId(fillLayerId(layerIndex));
+      replaceBackgroundLayer(
+        selectedLayer,
+        buildGradientLayer(
+          nextType,
+          stops,
+          undefined,
+          currentGradient?.opacity,
+        ),
+      );
+      setSelectedFillId(fillLayerId(selectedLayer));
       setSelectedStopId(stops[0]?.id);
       return;
     }
 
     const patch = solidToGradientPatch(
       draft || value || "#000000",
-      backgroundLayers,
+      {
+        backgroundImage: backgroundLayers,
+        backgroundSize: backgroundSizeLayers,
+        backgroundRepeat: backgroundRepeatLayers,
+        backgroundPosition: backgroundPositionLayers,
+      },
       nextType,
     );
-    onBackgroundImageChange(patch.backgroundImage);
-    // Clear the solid base fill in the same switch — this is a convert
-    // (the mirror of the gradient -> solid branch above), not a stack.
-    // Leaving backgroundColor set kept a second real fill alive under the
-    // alpha-0 tail of the default gradient, so the panel listed a phantom
-    // extra row for what the user meant as one paint-type change.
-    setNext(patch.backgroundColor);
-    setSelectedFillId(fillLayerId(0));
+    if (onSolidToGradientChange) {
+      onSolidToGradientChange(patch);
+    } else {
+      onBackgroundImageChange(patch.backgroundImage);
+      // Clear the solid base fill in the same switch — this is a convert
+      // (the mirror of the gradient -> solid branch above), not a stack.
+      // Leaving backgroundColor set kept a second real fill alive under the
+      // alpha-0 tail of the default gradient, so the panel listed a phantom
+      // extra row for what the user meant as one paint-type change.
+      setNext(patch.backgroundColor);
+    }
+    setSelectedFillId(fillLayerId(backgroundLayers.length));
     setSelectedStopId("stop-0");
   };
 
@@ -552,6 +604,8 @@ export function ColorInput({
   return (
     <DesignColorPicker
       key={pickerKey}
+      open={controlledOpen}
+      onOpenChange={onControlledOpenChange}
       label={label}
       value={pickerValue}
       // PF12: `onChange` fires on every SV/hue/alpha drag tick — tag those as
@@ -562,6 +616,15 @@ export function ColorInput({
       // authoritative source write always happens exactly once.
       onChange={(v) => setNext(v, "preview")}
       onChangeComplete={(v) => setNext(v, "commit")}
+      onChangeCancel={
+        onChangeCancel
+          ? (v) => {
+              pendingGestureRef.current = false;
+              setDraft(v);
+              onChangeCancel(v);
+            }
+          : undefined
+      }
       onPaintValueChange={
         supportsLayeredFills ? handlePaintValueChange : undefined
       }
@@ -583,6 +646,7 @@ export function ColorInput({
       supportedPaintTypes={supportedPaintTypes}
       glslShaderContext={glslShaderContext}
       allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
+      disabled={disabled}
     />
   );
 }
@@ -685,23 +749,18 @@ export {
 } from "./inspector-grid";
 
 /**
- * design-editor inspector section: divider above, title left, actions right.
- * The chevron appears only when there is content, so a collapsed section is
- * never mistaken for an empty one — and an empty section offers no control
- * that does nothing.
+ * design-editor inspector section: divider above, fixed title left, actions right.
+ * Empty sections remain add-only: their heading/actions render without a content spacer.
  */
 export function PanelSection({
   title,
   actions,
   children,
-  defaultCollapsed = false,
 }: {
   title: string;
   actions?: ReactNode;
   children?: ReactNode;
-  defaultCollapsed?: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const hasContent = Children.toArray(children).length > 0;
   const heading = (
     <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
@@ -717,23 +776,7 @@ export function PanelSection({
           layout={actions ? "header-actions" : "columns"}
         >
           <InspectorGridCell span={actions ? 20 : 28}>
-            {hasContent ? (
-              <button
-                type="button"
-                className="flex w-full min-w-0 cursor-pointer items-center gap-1 bg-transparent text-left"
-                onClick={() => setCollapsed((c) => !c)}
-                aria-expanded={!collapsed}
-              >
-                {collapsed ? (
-                  <IconChevronRight className="size-3 shrink-0 text-muted-foreground/50 rtl:-scale-x-100" />
-                ) : (
-                  <IconChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
-                )}
-                {heading}
-              </button>
-            ) : (
-              <div className="flex min-w-0 items-center pl-4">{heading}</div>
-            )}
+            <div className="flex min-w-0 items-center">{heading}</div>
           </InspectorGridCell>
           {actions ? (
             <InspectorGridCell span={8}>
@@ -743,15 +786,8 @@ export function PanelSection({
         </InspectorGrid>
       </div>
       {hasContent ? (
-        <div
-          className="grid transition-[grid-template-rows] duration-200 ease-[var(--ease-collapse)] motion-reduce:transition-none"
-          style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
-        >
-          <div className="overflow-hidden">
-            <div className="design-sidebar-control-text design-sidebar-section-content">
-              {children}
-            </div>
-          </div>
+        <div className="design-sidebar-control-text design-sidebar-section-content">
+          {children}
         </div>
       ) : null}
     </section>

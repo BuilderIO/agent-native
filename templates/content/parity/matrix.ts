@@ -437,7 +437,11 @@ export const parityMatrix: ParityRow[] = [
     uiImplementation:
       "The database preview uses the shared draft actions to preserve in-progress body edits across hydration and conflict states.",
     status: "action-backed",
-    actions: ["get-preview-document-draft", "update-preview-document-draft"],
+    actions: [
+      "get-preview-document-draft",
+      "resolve-preview-document-draft",
+      "update-preview-document-draft",
+    ],
     exception:
       "These per-user editor-state actions are intentionally hidden from agent tools because preview drafts are a private UI recovery mechanism.",
     reliabilityRisk: "none",
@@ -787,6 +791,39 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: ["parity/__tests__/matrix-route-gap-classify.test.ts"],
     routePatterns: ["/api/notion/auth-url", "/api/notion/callback"],
+  },
+  {
+    id: "comments.ai-intents",
+    surface: "comments",
+    label:
+      "Ask AI to reply, propose a suggestion, or apply an edit and resolve feedback",
+    uiEntrypoints: [
+      "app/components/editor/CommentsSidebar.tsx",
+      "app/components/editor/comment-ai.tsx",
+    ],
+    durableEffect:
+      "Intent-bound requests retain their feedback and document revisions, dispatch one scoped agent run, and persist the resulting reply, suggestion, or verified edit receipt.",
+    uiImplementation:
+      "Comment thread controls start a request through the shared action surface; the scoped agent can call only the context action and the operation bound to the selected intent.",
+    status: "action-backed",
+    actions: [
+      "apply-comment-ai-request",
+      "create-comment-ai-suggestion",
+      "get-comment-ai-context",
+      "list-comment-ai-requests",
+      "reply-to-comment-ai-request",
+      "start-comment-ai-request",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/comment-ai-flow.test.ts",
+      "app/components/editor/comment-ai.test.tsx",
+      "server/lib/comment-ai-progress.test.ts",
+    ],
   },
   {
     id: "comments.threads",

@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,6 +13,7 @@ import {
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -953,7 +953,11 @@ export default defineAction({
           ),
         );
       if (contextDatabase) {
-        await assertAccess("document", contextDatabase.documentId, "editor");
+        await assertDocumentMutationAccess(
+          contextDatabase.documentId,
+          "editor",
+          "id",
+        );
         const [membership] = await db
           .select({ id: schema.contentDatabaseItems.id })
           .from(schema.contentDatabaseItems)
@@ -984,7 +988,7 @@ export default defineAction({
       }
     }
 
-    const access = await assertAccess("document", id, "admin");
+    const access = await assertDocumentMutationAccess(id, "admin", "id");
     const existing = access.resource;
     const [systemDatabase] = await db
       .select({ systemRole: schema.contentDatabases.systemRole })

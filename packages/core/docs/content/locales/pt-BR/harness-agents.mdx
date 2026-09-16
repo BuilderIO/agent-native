@@ -98,8 +98,8 @@ gerar execução de segundo plano/subagente com [Custom Agents & Teams](/docs/ag
 
 Seus pacotes de tempo de execução são **dependências de pares opcionais** e carregam lentamente, portanto,
 aplicativo que nunca usa arnês não paga por isso. Cada adaptador carrega um
-Dica `installPackage` (por exemplo `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` lança uma instalação clara
+Dica `installPackage` (por exemplo `@ai-sdk/harness@latest
+@ai-sdk/harness-codex@latest`); `resolveAgentHarness` lança uma instalação clara
 erro se os pacotes estiverem faltando e `isAgentHarnessPackageInstalled(entry)`
 permite verificar primeiro.
 
@@ -162,38 +162,23 @@ Eventos `approval-request`. O adaptador serve `fs/read_text_file` e
 it) e as gravações emitem eventos `file-change`; métodos de terminal não são anunciados,
 portanto, o agente usa seu próprio shell.
 
-## Autenticação Codex: Código UI versus sandboxes de chicote {#codex-auth}
+## Autenticação Codex: Código UI versus adaptadores de chicote {#codex-auth}
 
-Existem duas superfícies Codex e elas autenticam de maneira diferente:
+Existem duas superfícies do Codex:
 
-- **Agent-Native Code / Desktop** executa `codex exec` na máquina do usuário. Se
-  o usuário executou `codex login`, esta execução local reutiliza qualquer ChatGPT
-  assinatura ou chave API autentica os relatórios Codex CLI instalados por meio de
-  `codex login status`.
-- **`ai-sdk-harness:codex`** carrega `@ai-sdk/harness-codex`, que aciona Codex
-  dentro da caixa de proteção do chicote através de `@openai/codex-sdk`. Não acontece silenciosamente
-  herdar o login do usuário Desktop `~/.codex` porque o sandbox pode ser remoto
-  ou isolado. Para sandboxes confiáveis/privadas, opte por `codexCliAuth: true`;
-  Agent-Native copia o arquivo de autenticação local Codex CLI para o sandbox antes do
-  arnês começa. Para sandboxes hospedados ou compartilhados, configure API-key/gateway
-  autenticação.
+- **Agent-Native Code / Desktop** executa `codex exec` na máquina do usuário e
+  reutiliza o login local do Codex CLI informado por `codex login status`.
+- **`ai-sdk-harness:codex`** usa o fluxo de assinatura nativa do AI SDK Harness
+  quando compatível com o chicote subjacente. Não é necessária configuração extra:
+  as credenciais permanecem no host, as credenciais explícitas de API têm prioridade
+  e a autenticação resultante é encaminhada ao sandbox sem copiar o arquivo de
+  autenticação local. Defina `harnessOptions.auth` como `"ai-gateway"` para usar
+  somente o AI Gateway; esse modo nunca lê uma assinatura nativa.
 
-Então, se alguém perguntar qual pacote carrega o caminho Codex OAuth: para codificação local
-sessões, use `@agent-native/core` / Desktop mais o instalado
-`@openai/codex` CLI e `codex login`. Para `ai-sdk-harness:codex` em sandbox,
-use a opção `codexCliAuth` explícita ao copiar esse login para o sandbox
-é aceitável.
-
-```ts
-const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
-  codexCliAuth: true,
-});
-```
-
-`codexCliAuth: true` lê `CODEX_HOME/auth.json` ou `~/.codex/auth.json`. Para
-aponte para um login local diferente, passe
-`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` ou
-`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
+O adaptador integrado `ai-sdk-harness:codex` aceita apenas
+`permissionMode: "allow-all"`, pois esse é o único modo aceito pelo runtime Codex
+estável. Omita `permissionMode` para usar esse padrão; `allow-reads` e
+`allow-edits` são rejeitados por este adaptador.
 
 ## Registrar e resolver {#register-resolve}
 
@@ -210,9 +195,13 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `resolveAgentHarness(name, config?)` retorna um `AgentHarnessAdapter`. O
 O `config` opcional é encaminhado para a fábrica do adaptador — para os adaptadores AI SDK
 que mapeia para `AiSdkHarnessAdapterOptions` (`label`, `description`,
-`permissionMode`, `harnessOptions`, `agentOptions` e Codex somente
-`codexCliAuth`). Use `listAgentHarnesses()` para enumerar o que está registrado
+`permissionMode`, `harnessOptions` e `agentOptions`). Use `listAgentHarnesses()` para enumerar o que está registrado
 um seletor.
+
+Para harnesses integrados com sandbox, passe um provedor de sandbox por
+`agentOptions.sandbox` ao registrá-los. O provedor deve implementar
+`resumeSession` para a reidratação após a reinicialização do processo; uma sessão
+`sandbox` fornecida pelo chamador cobre apenas a criação inicial.
 
 ## Fazer uma curva {#run-a-turn}
 
@@ -234,7 +223,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

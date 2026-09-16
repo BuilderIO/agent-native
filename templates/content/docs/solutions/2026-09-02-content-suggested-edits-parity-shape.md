@@ -3,11 +3,206 @@ title: "Content Suggested Edits parity shape"
 date: 2026-09-02
 status: shape-complete
 authoritySchemaVersion: 3
-ledgerRevision: content-suggested-edits-shape-r5
-governingArtifactRevision: content-suggested-edits-shape-r5
+ledgerRevision: content-suggested-edits-shape-r7
+governingArtifactRevision: content-suggested-edits-shape-r7
 ---
 
 # Content Suggested Edits parity
+
+## September 12 beta repair plan
+
+### September 14 reconciliation: follow-up recovery repair
+
+PR #4911 merged on September 14. Its durable persisted-draft resolution,
+body-revision and title guards, history retention, source restrictions and
+suggested-edit behavior remain the base for one focused follow-up PR from current
+`main`. The follow-up ports only the live-editor acknowledgement and recovery
+lifecycle protections that remain absent, then gives live and page-load recovery
+one shared two-choice presentation. It does not merge, deploy, diagnose the
+reported production incidents, add automatic merging or selective acceptance,
+or promote the related product records beyond their current status.
+
+The two recovery entry points retain separate lifecycles. Live-editor recovery
+allows continued typing and returns focus to the editor when review closes.
+Persisted-draft recovery settles only the exact private draft version reviewed at
+page load. Both initially show equally weighted **Keep my edits** and **Use saved
+version** actions. **Save a separate copy** and **Copy my edits** live in an
+accessible **More options** menu. Neither version is preselected or recommended.
+
+The comparison shows changed passages with nearby context and collapses long
+unchanged runs behind **View full versions**. Full versions use the ordinary
+read-only renderer, with faithful source as the fallback. Wide editor panes align
+the two versions; narrow panes stack based on available pane width. The actual
+editor route must fit at desktop, 390px and 320px, including 200% text zoom,
+without horizontal overflow or obscured actions.
+
+Implementation sequence:
+
+1. Wire explicit successful-save acknowledgements into live reconciliation so an
+   older confirmed save advances the base without replaying its bytes over newer
+   typing. An old acknowledgement cannot supersede a newer observed revision, and
+   an identical-byte external revision still reconciles normally.
+2. Guard live recovery by generation and exact reviewed base, block duplicate
+   submission, distinguish overlap/reconcile/save failures, and repeat persistence
+   when title or body changes during an in-flight recovery. Optimistic cache state
+   is never a save acknowledgement.
+3. Reuse the existing durable draft, history and resolution actions through small
+   lifecycle adapters. A stale completion cannot clear newer recovery; the
+   unchosen version remains recoverable; separate copy creates one discoverable
+   page without changing the original.
+4. Prove the combined final revision with focused tests, independent concurrency
+   and retention review, and real-interface QA through both entry points using
+   private task-owned pages and real actions. Capture representative desktop,
+   narrow, expanded, menu, pending/error and refreshed-conflict states, then clean
+   up every fixture.
+
+Additional acceptance (cumulative with C01–C08):
+
+- **D01:** Initially exactly two visible, equally weighted resolution buttons;
+  More options exposes separate-copy and exact-copy actions with correct keyboard
+  and focus behavior.
+- **D02:** The actual editor route fits desktop, narrow desktop panes, 390px and
+  320px at normal and 200% text zoom, with readable text, modest gutters, safe-area
+  actions and no page-level horizontal overflow.
+- **D03:** Title-only, body-only, deletion, disjoint and long formatted changes
+  show faithful contextual differences; expansion reveals every passage through
+  the renderer or an explicit source fallback.
+- **D04:** Both main choices survive reload and leave the unchosen version
+  access-scoped and recoverable. An unseen update refreshes comparison and
+  requires another choice.
+- **D05:** Slow, offline, failed and repeated actions acknowledge promptly, retain
+  both versions, prevent duplicate writes and retry honestly. Copy reports success
+  or failure, and separate copy opens the one created page.
+- **D06:** Human QA uses the production component and real actions in the actual
+  editor route. Replicas and historical screenshots are not acceptance evidence.
+- **E01:** Delayed confirmed own saves advance the base without false conflict or
+  lost newer typing; old acknowledgements and identical-byte external revisions
+  preserve revision ordering.
+- **E02:** Title-only and body edits during recovery saving survive completion,
+  any required follow-up save and reload. Navigation, unmount or a newer conflict
+  cannot be cleared by an older completion.
+- **E03:** Both entry points share the two-choice comparison and secondary menu
+  while retaining their own exact lifecycle. Closing live review restores editing
+  focus without releasing recovery.
+- **E04:** Overlap, reconcile failure and save failure remain distinct and
+  retryable; interface and action read-back confirm title, body and recoverability
+  for both entry paths.
+
+Destination: one ready-for-review follow-up PR against current `main`. Do not
+merge or deploy it. The product lane remains `contract_repair` for
+`content.version.field-history` and `content.history.queryable`; neither record
+becomes fully verified through this bounded repair.
+
+### September 13 amendment: ordinary-save reliability and recovery choices
+
+Destination: extend the existing PR #4911 on `codex/content-suggestion-beta-repairs`.
+This is a shaping amendment, not implementation or merge authorization. Preserve
+B01–B04 and all non-conflicting A/R assertions. B05 now requires the recovery
+choices below; Copy/Discard alone is insufficient. Previous handcrafted recovery
+screenshots do not establish component or end-to-end acceptance.
+
+Evidence: `update-document.ts` guards content-bearing writes against the overall
+document `updatedAt`, which also advances for title/description/icon changes.
+`DocumentEditor.tsx` retains recovery drafts against `lastSavedContentRef` and
+deletes them with exact version/title/content comparison. `PageDraftRecovery.tsx`
+restores against the original timestamp and switches to Copy/Discard on conflict.
+These are confirmed code paths, not a diagnosis of Alice's recent incidents.
+Prior recovery work in checkout 460c is a discovery lead only; verify whether its
+confirmed-save and title-preservation repairs reached the current branch/deploy.
+
+1. Establish the failing sequence before changing conflict policy. Identify the
+   deployed revision and correlate a reproduction's editor session, mutation ID,
+   origin, expected/observed page and body revisions, successful acknowledgements,
+   and draft create/delete results. Log revision/hash metadata, not document text.
+   Exercise one-tab typing, title then body edits, slow/out-of-order responses,
+   reconnect, reload and navigation; separately exercise agent/source writes.
+   Distinguish a real overlapping edit, a metadata-only revision advance, an own
+   save acknowledgement, and an already-saved leftover draft. Record a causal
+   trace and regression for each demonstrated defect.
+2. Repair the demonstrated boundary using existing save queues, body revisions,
+   typed actions, collaboration reconciliation and history. Scope conflict checks
+   to the fields actually edited; a body revision alone cannot protect a changed
+   title. Advance baselines from confirmed saves and preserve newer in-flight
+   typing. Clear only the exact acknowledged draft. Auto-reconcile identical and
+   provably disjoint changes; do not introduce a generic rich-document merge on
+   the strength of string similarity. Audit live-editor and reload recovery paths.
+3. For genuine conflicts, show rendered `Your edits` and `Saved version` with
+   differences and available time/actor context. Offer `Keep my version`,
+   `Use saved version`, and `Save mine as a separate page`; Copy is secondary.
+   Keep mine writes only the reviewed conflicting fields, guarded against the
+   displayed saved revision, and preserves displaced content in history. A new
+   intervening edit refreshes the comparison without overwriting it. Use saved
+   retains a recoverable copy of local work before releasing the draft. Saving a
+   separate page preserves title/body and returns its link without changing the
+   original. Reuse shared actions/history/renderers; preserve source write policy.
+4. Verify through the actual components and actions before considering this PR
+   ready. Add proportional independent technical review for concurrency and data
+   retention. Run affected tests, typecheck, guards and localization checks, then
+   human-qa with preferred independence and same-context-allowed custody. Capture
+   real desktop/narrow-screen states and embed exported image files in the reply.
+   No hand-built replica is evidence for the implemented interaction.
+
+Acceptance assertions (cumulative B05 refinement):
+
+- **C01:** Ordinary one-tab editing, title/body changes, navigation, reload and
+  reconnect retain all acknowledged and pending edits without false conflicts.
+- **C02:** Delayed/out-of-order own saves and metadata-only updates cannot cause
+  an unnecessary body conflict or regress a title/body baseline.
+- **C03:** A draft already confirmed saved clears exactly; a newer draft or edit
+  survives a stale acknowledgement and failed deletion.
+- **C04:** Real overlapping changes show both versions and exact differences;
+  source/actor is shown only when supported by evidence.
+- **C05:** Keep mine preserves displaced history, commits exactly once, survives
+  reload, and refuses an unseen intervening revision without losing either side.
+- **C06:** Use saved and Save separately each preserve recoverable local work;
+  the latter creates one discoverable page and leaves the original intact.
+- **C07:** Failed/offline operations remain recoverable and retryable; controls
+  acknowledge pending work, prevent duplicates, and work by keyboard on desktop
+  and narrow screens. Copy success/failure and comparison refresh are exercised.
+- **C08:** Existing suggestion creation/review and warm-peer behavior retain their
+  applicable evidence, with affected assertions rerun after shared-path changes.
+
+Product scope: existing Page title/body recovery substrate under
+`content.version.field-history` and `content.history.queryable`, plus the existing
+suggestion capabilities. This does not claim generic field history or named Page
+Versions are complete. Confirm product-impact declaration against the final diff.
+Integration remains separate from local acceptance; do not defer required local
+conflict acceptance to an unreviewed post-merge rollout.
+
+This follow-up repairs the five failures in the cumulative September 12 beta QA
+checkpoint against current main. It preserves A01–A10/R01–R44, the accepted
+Escape focus behavior, and the separately triaged code-block limitation. The
+lane is `contract_repair` for `content.feature.review-changes-in-place`,
+`content.revision.suggestions`, and `content.diff.in-place`; it does not promote
+their broader generic contracts.
+
+- **B01 — supported representation:** native hard breaks and Underline save as
+  reviewable proposals and survive reload, Accept, and Reject without allowing
+  unrelated unsupported structures.
+- **B02 — whole-paragraph text deletion:** deleting exactly a paragraph's text
+  retains its empty structural location and exact comparison through save,
+  reload, Accept, and Reject. Paragraph-boundary deletion remains distinct.
+- **B03 — actual-agent contract:** the documented typed agent action creates an
+  attributable pending suggestion on its first valid attempt, with canonical
+  isolation and idempotency. Current main's `suggest-document-edit` is the
+  candidate repair and must be verified rather than duplicated.
+- **B04 — warm-peer convergence:** Accept and Reject remove pending controls in
+  two already-open clients without reload; accepted text appears once and a
+  later ordinary peer edit persists. Current main's targeted action-query
+  invalidation is the candidate repair and must be verified rather than
+  replaced with polling.
+- **B05 — conflict recovery:** a stale draft restore presents the typed revision
+  conflict explicitly, retains and allows copying the exact draft, and permits
+  explicit discard without silently rebasing over newer canonical content.
+
+Start with focused regressions, then run affected Content adapter/database,
+editor, shared Action, synchronization and recovery suites plus typecheck,
+build, guards, product-impact checks, localization guards and an independent
+technical review. Final owning-task human QA uses a disposable page, an actual
+agent, two warm peers, desktop/mobile keyboard paths, reload and recovery. A
+ready follow-up PR requires B01–B05 on its final revision. Beta is fixed only
+after an authorized merge/deploy and a separate replay on the verified build;
+local proof or deployment smoke alone is not beta acceptance.
 
 ## September 10 landing decision
 

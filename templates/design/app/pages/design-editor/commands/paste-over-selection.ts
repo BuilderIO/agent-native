@@ -5,6 +5,7 @@ import type { ClipboardContentMutationPublication } from "@/lib/clipboard-conten
 import {
   extractLayerPosition,
   insertClonedHtmlLayers,
+  portableStyleSnapshotForPasteTarget,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
 import {
@@ -120,6 +121,15 @@ export function runPasteOverSelection({
 }: PasteOverSelectionArgs) {
   const entries = getCanvasClipboardEntries();
   if (!activeFile || entries.length === 0) return;
+  const styleSnapshots = entries.map((entry) =>
+    portableStyleSnapshotForPasteTarget(entry, activeFile.id),
+  );
+  if (styleSnapshots.some((snapshot) => snapshot === null)) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), {
+      duration: 4000,
+    });
+    return;
+  }
   const positions = resolvePasteOverPositions(
     entries,
     selectedElement,
@@ -137,7 +147,7 @@ export function runPasteOverSelection({
         ...position,
         space: "layout" as const,
       })),
-      styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
+      styleSnapshots,
       managedStyleSnapshots: entries.map((entry) => entry.managedStyleSnapshot),
     },
   );

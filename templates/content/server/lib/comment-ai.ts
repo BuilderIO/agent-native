@@ -5,6 +5,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestRunContext,
   getRequestUserEmail,
+  getThread,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
@@ -35,6 +36,12 @@ export const commentAiScopeSchema = z
   .object({
     type: z.literal("content-comment-ai"),
     id: z.string().uuid(),
+  })
+  .strict();
+export const commentAiActionScopeSchema = z
+  .object({
+    kind: z.literal("content-comment-ai"),
+    requestId: z.string().uuid(),
   })
   .strict();
 const statusSchema = z.enum([
@@ -72,6 +79,13 @@ type RequestRow = typeof schema.commentAiRequests.$inferSelect;
 export type CommentAiAttemptRow = typeof schema.commentAiAttempts.$inferSelect;
 type CommentRow = typeof schema.documentComments.$inferSelect;
 type CommentSource = Awaited<ReturnType<typeof readCommentAiSource>>;
+type CommentAiActionSurfaceDetails = {
+  ownerEmail: string | null;
+  threadId?: string;
+  requestedTurnId?: string;
+  queuedMessageId?: string;
+  actionScope?: Readonly<Record<string, unknown>>;
+};
 
 export class CommentAiOperationError extends Error {
   constructor(
@@ -178,6 +192,7 @@ export function serializeCommentAiRequest(
     | "attemptCount"
     | "runId"
     | "agentThreadId"
+    | "agentTurnId"
     | "model"
     | "engine"
     | "resultJson"
@@ -199,6 +214,7 @@ export function serializeCommentAiRequest(
     attemptCount: row.attemptCount,
     runId: row.runId,
     agentThreadId: row.agentThreadId,
+    agentTurnId: row.agentTurnId,
     model: row.model,
     engine: row.engine,
     result:
@@ -227,7 +243,7 @@ export async function loadCommentAiRequest(
       ),
     )
     .limit(1);
-  if (!request) throw new Error("Comment AI operation not found");
+  if (!request) throw new Error("Comment AI request not found");
   await assertAccess(
     "document",
     request.documentId,
@@ -307,7 +323,7 @@ function assertSubmittedCommentContext(
         anchorStartOffset: z.number().nullable(),
       }),
     )
-    .parse(JSON.parse(request.submittedSnapshotJson));
+    .parse(JSON.parse(request.submittedSnapshotJson ?? request.snapshotJson));
   const submittedRoot = submitted.find(
     (comment) =>
       comment.id === request.rootCommentId && comment.parentId === null,
@@ -331,7 +347,7 @@ function assertSubmittedCommentContext(
   }
   if (
     currentThreadDigest(request, source.comments) !==
-    request.submittedThreadDigest
+    (request.submittedThreadDigest ?? request.threadDigest)
   ) {
     throw operationError(
       "discussion_changed",
@@ -340,11 +356,30 @@ function assertSubmittedCommentContext(
   }
 }
 
+export async function assertCommentAiSourceUnchanged(request: RequestRow) {
+  const source = await readCommentAiSource(request);
+  try {
+    assertSubmittedCommentContext(request, source);
+  } catch {
+    throw new Error(
+      "The comment changed during this request. Its thread remains open for review.",
+    );
+  }
+  return source;
+}
+
 function backgroundSession(request: RequestRow) {
+  if (!request.agentThreadId) {
+    throw new Error("Comment AI operation is missing its agent thread");
+  }
   return {
     operationId: request.id,
     threadId: request.agentThreadId,
     scope: { type: "content-comment-ai" as const, id: request.id },
+    actionScope: {
+      kind: "content-comment-ai" as const,
+      requestId: request.id,
+    },
   };
 }
 
@@ -385,6 +420,29 @@ export async function startCommentAiRequest(args: {
         errorCode: "comment_ai_operation_conflict",
       });
     }
+    if (["needs-review", "failed", "cancelled"].includes(request.status)) {
+      const [reclaimed] = await db
+        .update(schema.commentAiRequests)
+        .set({
+          status: "queued",
+          errorCode: null,
+          error: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.commentAiRequests.id, request.id),
+            inArray(schema.commentAiRequests.status, [
+              "needs-review",
+              "failed",
+              "cancelled",
+            ]),
+          ),
+        )
+        .returning();
+      request = reclaimed ?? (await loadCommentAiRequest(request.id));
+      dispatch = Boolean(reclaimed);
+    }
   } else {
     const source = await readCommentAiSource(args);
     if (source.root.resolved)
@@ -416,6 +474,13 @@ export async function startCommentAiRequest(args: {
         intent: args.intent,
         submittedThreadDigest: commentThreadDigest(source.comments),
         submittedSnapshotJson: JSON.stringify(snapshot),
+        threadDigest: commentThreadDigest(source.comments),
+        snapshotJson: JSON.stringify(snapshot),
+        baseRevision: documentRevisionToken(
+          source.document.bodyRevision,
+          source.document.content,
+        ),
+        suggestionRevision: source.document.updatedAt,
         agentThreadId,
       })
       .onConflictDoNothing()
@@ -461,28 +526,117 @@ export async function startCommentAiRequest(args: {
     ...serializeCommentAiRequest(request),
     dispatch,
     backgroundSession: backgroundSession(request),
+    actionScope: {
+      kind: "content-comment-ai" as const,
+      requestId: request.id,
+    },
     prompt: `${intent} for this comment.`,
     context: `Original comment: /page/${encodeURIComponent(request.documentId)}?comment=${encodeURIComponent(request.threadId)}. Read the scoped context before acting and follow any refresh instruction before publishing.`,
   };
 }
 
-export async function resolveCommentAiActionSurface(details: {
-  ownerEmail: string | null;
-  threadId?: string;
-}) {
-  const scope = getRequestRunContext()?.chatScope;
-  if (!scope || scope.type !== "content-comment-ai") {
+export async function resolveCommentAiActionSurface(
+  details: CommentAiActionSurfaceDetails,
+) {
+  const parsedActionScope = commentAiActionScopeSchema.safeParse(
+    details.actionScope,
+  );
+  let requestId = parsedActionScope.success
+    ? parsedActionScope.data.requestId
+    : null;
+  const thread = details.threadId ? await getThread(details.threadId) : null;
+  const protectedScope = commentAiScopeSchema.safeParse(thread?.scope);
+
+  if (thread && thread.ownerEmail !== details.ownerEmail) {
+    fail("This agent thread is unavailable", {
+      statusCode: 404,
+      errorCode: "comment_ai_thread_unavailable",
+    });
+  }
+  if (!requestId && details.threadId) {
+    const bindings = await getDb()
+      .select({ id: schema.commentAiRequests.id })
+      .from(schema.commentAiRequests)
+      .where(
+        and(
+          eq(schema.commentAiRequests.agentThreadId, details.threadId),
+          eq(schema.commentAiRequests.requesterEmail, details.ownerEmail ?? ""),
+        ),
+      )
+      .limit(2);
+    if (bindings.length > 1) {
+      fail("This agent thread has conflicting comment operation bindings", {
+        statusCode: 409,
+        errorCode: "comment_ai_thread_conflict",
+      });
+    }
+    requestId = bindings[0]?.id ?? null;
+  }
+  if (!requestId) {
+    if (protectedScope.success) {
+      fail("This protected comment conversation has no authorized operation", {
+        statusCode: 409,
+        errorCode: "comment_ai_binding_missing",
+      });
+    }
     return { mode: "default" as const };
   }
-  const parsed = commentAiScopeSchema.parse(scope);
+
   const request = await loadCommentAiRequest(
-    parsed.id,
+    requestId,
     details.ownerEmail ?? undefined,
   );
-  if (details.threadId && details.threadId !== request.agentThreadId) {
+  if (!details.threadId || details.threadId !== request.agentThreadId) {
     fail("This agent thread is not bound to the selected comment operation", {
       statusCode: 409,
       errorCode: "comment_ai_thread_conflict",
+    });
+  }
+  if (protectedScope.success && protectedScope.data.id !== request.id) {
+    fail("This agent thread is bound to another comment operation", {
+      statusCode: 409,
+      errorCode: "comment_ai_thread_conflict",
+    });
+  }
+  if (details.queuedMessageId === request.id && details.requestedTurnId) {
+    await getDb().transaction(async (tx) => {
+      const [locked] = await tx
+        .select()
+        .from(schema.commentAiRequests)
+        .where(eq(schema.commentAiRequests.id, request.id))
+        .for("update");
+      if (!locked || locked.agentThreadId !== details.threadId) {
+        fail(
+          "This agent thread is not bound to the selected comment operation",
+          {
+            statusCode: 409,
+            errorCode: "comment_ai_thread_conflict",
+          },
+        );
+      }
+      if (
+        locked.agentTurnId &&
+        locked.agentTurnId !== details.requestedTurnId
+      ) {
+        fail("This agent turn is not bound to the selected comment operation", {
+          statusCode: 409,
+          errorCode: "comment_ai_turn_conflict",
+        });
+      }
+      if (!locked.agentTurnId) {
+        await tx
+          .update(schema.commentAiRequests)
+          .set({
+            agentTurnId: details.requestedTurnId,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.commentAiRequests.id, locked.id));
+      }
+    });
+  } else if (!request.agentTurnId) {
+    fail("This comment operation is missing its initial agent turn binding", {
+      statusCode: 409,
+      errorCode: "comment_ai_binding_missing",
     });
   }
   const operation = {
@@ -491,15 +645,20 @@ export async function resolveCommentAiActionSurface(details: {
     "apply-resolve": "apply-comment-ai-request",
   }[commentAiIntentSchema.parse(request.intent)];
   return {
+    mode: "allowlist" as const,
     allowedActionNames: ["get-comment-ai-context", operation],
+    actionScope: {
+      kind: "content-comment-ai",
+      requestId: request.id,
+    },
   };
 }
 
 export async function requireCommentAiRequest(intent?: CommentAiIntent) {
   const run = getRequestRunContext();
   if (!run) throw new Error("This operation requires a scoped comment AI run");
-  const scope = commentAiScopeSchema.parse(run.chatScope);
-  const request = await loadCommentAiRequest(scope.id);
+  const scope = commentAiActionScopeSchema.parse(run.actionScope);
+  const request = await loadCommentAiRequest(scope.requestId);
   if (run.threadId !== request.agentThreadId) {
     throw new Error("This agent thread is not bound to the comment operation");
   }
@@ -885,6 +1044,7 @@ export async function updateCommentAiRequest(
 export async function reconcileCommentAiSession(args: {
   operationId: string;
   threadId: string;
+  turnId: string;
   status: CommentAiSessionStatus;
   runId?: string;
   terminalReason?: string;
@@ -901,6 +1061,12 @@ export async function reconcileCommentAiSession(args: {
       fail("This agent thread is not bound to the selected comment operation", {
         statusCode: 409,
         errorCode: "comment_ai_thread_conflict",
+      });
+    }
+    if (!request.agentTurnId || request.agentTurnId !== args.turnId) {
+      fail("This agent turn is not bound to the selected comment operation", {
+        statusCode: 409,
+        errorCode: "comment_ai_turn_conflict",
       });
     }
     if (terminalSuccess(request.status) || request.status === "cancelled") {
@@ -940,7 +1106,13 @@ export async function reconcileCommentAiSession(args: {
           ? "The agent stopped before completing this operation. Review the retained attempt before retrying."
           : "The agent finished without recording an operation result. Review the retained attempt before retrying.";
       attemptStatus = "needs-review";
-    } else if (args.status === "errored" || args.status === "unavailable") {
+    } else if (args.status === "unavailable") {
+      status = "needs-review";
+      errorCode = "run_unavailable";
+      error =
+        "The agent run could not be confirmed. Its durable state may still arrive; review or retry this same operation before starting another.";
+      attemptStatus = attempt ? "needs-review" : null;
+    } else if (args.status === "errored") {
       if (result?.editApplied || attempt?.status === "committing") {
         status = "needs-review";
         errorCode = "operation_failed";
@@ -953,9 +1125,7 @@ export async function reconcileCommentAiSession(args: {
         errorCode = "run_unavailable";
         error =
           args.terminalReason?.trim().slice(0, 500) ||
-          (args.status === "unavailable"
-            ? "The agent run is unavailable"
-            : "The agent run failed before completing this operation");
+          "The agent run failed before completing this operation";
         attemptStatus = "failed";
       }
     }

@@ -1,4 +1,5 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
 import type { EmailMessage, Label } from "@shared/types";
@@ -56,6 +57,7 @@ import {
   useLabels,
   EMPTY_LABELS,
   useMoveEmail,
+  MoveEmailPartialFailure,
   unsuppressThread,
   type AccountError,
 } from "@/hooks/use-emails";
@@ -83,7 +85,7 @@ type SnoozeTarget = {
 };
 import { toast } from "sonner";
 
-import { setUndoAction } from "@/hooks/use-undo";
+import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 
 interface EmailListProps {
@@ -105,7 +107,10 @@ interface EmailListProps {
   setFocusedId: (id: string | null) => void;
   selectedIds: Set<string>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
-  onCompose?: (email: EmailMessage, mode: "reply" | "forward") => void;
+  onCompose?: (
+    email: EmailMessage,
+    mode: "reply" | "replyAll" | "forward",
+  ) => void;
   onArchived?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
   onNavigateThread?: (threadId: string) => void;
@@ -691,6 +696,7 @@ export function EmailList({
       const emailRefs = targets.map((t) => ({
         id: t.latestMessage.id,
         accountEmail: t.latestMessage.accountEmail,
+        threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
       // Move focus to the next non-selected thread (or previous if at end)
@@ -726,7 +732,9 @@ export function EmailList({
       for (const id of emailIds) onArchived?.(id);
 
       const undo = () => {
-        for (const key of threadKeys) unsuppressThread(key);
+        for (const key of threadKeys) {
+          unsuppressThread(key);
+        }
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
           (old) => {
@@ -747,13 +755,17 @@ export function EmailList({
         );
         for (const ref of emailRefs) unarchiveEmail.mutate(ref);
       };
-      setUndoAction(undo);
-      toast(
+      const consumeUndo = setUndoAction(undo);
+      const toastId = toast(
         threadKeys.length > 1
           ? t("mail.toasts.archivedMany", { count: threadKeys.length })
           : t("mail.toasts.archived"),
-        { action: { label: t("mail.actions.undo"), onClick: undo } },
+        {
+          action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+          duration: UNDO_DURATION,
+        },
       );
+      setUndoToastId(toastId);
       if (targets.length > 1) {
         // Bulk selection: one action call (server batches into one Gmail
         // call per account) + one optimistic cache update instead of N.
@@ -812,6 +824,7 @@ export function EmailList({
       const emailRefs = targets.map((t) => ({
         id: t.latestMessage.id,
         accountEmail: t.latestMessage.accountEmail,
+        threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
       // Move focus to the next non-selected thread
@@ -838,7 +851,9 @@ export function EmailList({
       }
 
       const undo = () => {
-        for (const key of threadKeys) unsuppressThread(key);
+        for (const key of threadKeys) {
+          unsuppressThread(key);
+        }
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
           (old) => {
@@ -858,13 +873,17 @@ export function EmailList({
         );
         for (const ref of emailRefs) untrashEmail.mutate(ref);
       };
-      setUndoAction(undo);
-      toast(
+      const consumeUndo = setUndoAction(undo);
+      const toastId = toast(
         threadKeys.length > 1
           ? t("mail.toasts.trashedMany", { count: threadKeys.length })
           : t("mail.toasts.trashed"),
-        { action: { label: t("mail.actions.undo"), onClick: undo } },
+        {
+          action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+          duration: UNDO_DURATION,
+        },
       );
+      setUndoToastId(toastId);
       if (targets.length > 1) {
         // Bulk selection: one action call, bounded-concurrency on the server
         // (Gmail has no batch trash endpoint) instead of N parallel mutate()
@@ -980,6 +999,7 @@ export function EmailList({
         targets: toMarkUnread.map((t) => ({
           id: t.latestMessage.id,
           accountEmail: t.latestMessage.accountEmail,
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
         })),
         isRead: false,
       });
@@ -989,6 +1009,7 @@ export function EmailList({
           id: t.latestMessage.id,
           isRead: false,
           accountEmail: t.latestMessage.accountEmail,
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
         });
       }
     }
@@ -1019,6 +1040,7 @@ export function EmailList({
         targets: targets.map((t) => ({
           id: t.latestMessage.id,
           accountEmail: t.latestMessage.accountEmail,
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
         })),
         isRead: false,
       });
@@ -1028,6 +1050,7 @@ export function EmailList({
           id: t.latestMessage.id,
           isRead: false,
           accountEmail: t.latestMessage.accountEmail,
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
         });
       }
     }
@@ -1041,23 +1064,47 @@ export function EmailList({
   ]);
 
   const moveFocusedToLabel = useCallback(
-    (labelId: string, labelName: string) => {
+    async (labelId: string, labelName: string) => {
       const keys = getActionThreadKeys();
       if (keys.length === 0) return;
       const targets = resolveTargets(keys);
-      for (const t of targets) {
-        moveEmail.mutate({
-          id: t.latestMessage.id,
+      try {
+        const result = await moveEmail.mutateAsync({
+          id: targets.map((target) => target.latestMessage.id).join(","),
           label: labelId,
           removeLabel: labelParam || undefined,
+          accountEmails: targets
+            .map((target) => target.latestMessage.accountEmail ?? "")
+            .join(","),
+          threadIds: targets
+            .map(
+              (target) =>
+                target.latestMessage.threadId || target.latestMessage.id,
+            )
+            .join(","),
         });
+        setSelectedIds(new Set());
+        toast(
+          targets.length > 1
+            ? t("mail.toasts.moveManySucceeded", {
+                count: result.succeeded.length,
+                label: labelName,
+              })
+            : t("mail.toasts.moveSucceeded", { label: labelName }),
+        );
+      } catch (error) {
+        if (error instanceof MoveEmailPartialFailure) {
+          toast.error(
+            t("mail.toasts.movePartialFailed", {
+              succeeded: error.result.succeeded.length,
+              total: error.result.requested.length,
+              failed: error.result.failed.length,
+            }),
+          );
+        } else {
+          toast.error(actionErrorMessage(error) ?? t("mail.toasts.moveFailed"));
+        }
       }
-      setSelectedIds(new Set());
-      toast(
-        targets.length > 1
-          ? `Moved ${targets.length} conversations to ${labelName}.`
-          : `Moved to ${labelName}.`,
-      );
     },
     [
       getActionThreadKeys,
@@ -1065,6 +1112,7 @@ export function EmailList({
       moveEmail,
       labelParam,
       setSelectedIds,
+      t,
     ],
   );
 
@@ -1141,6 +1189,13 @@ export function EmailList({
     if (thread) onCompose(thread.latestMessage, "reply");
   }, [threads, onCompose]);
 
+  const replyAllFocused = useCallback(() => {
+    const id = focusedIdRef.current;
+    if (!id || !onCompose) return;
+    const thread = threads.find((t) => t.latestMessage.id === id);
+    if (thread) onCompose(thread.latestMessage, "replyAll");
+  }, [threads, onCompose]);
+
   const forwardFocused = useCallback(() => {
     const id = focusedIdRef.current;
     if (!id || !onCompose) return;
@@ -1168,13 +1223,14 @@ export function EmailList({
     { key: "o", handler: openFocused },
     { key: "e", handler: archiveFocused },
     { key: "d", handler: trashFocused },
+    { key: "#", shift: "either", handler: trashFocused },
     { key: "u", handler: toggleFocusedRead },
     { key: "I", handler: markFocusedRead, shift: true },
     { key: "U", handler: markFocusedUnread, shift: true },
     { key: "s", handler: starFocused },
     { key: "r", handler: replyFocused },
     { key: "f", handler: forwardFocused },
-    { key: "a", handler: replyFocused }, // reply-all (same as reply for single messages)
+    { key: "a", handler: replyAllFocused },
     { key: "Escape", handler: clearSelection },
   ]);
 
@@ -1360,6 +1416,7 @@ export function EmailList({
           id: email.id,
           isRead: false,
           accountEmail: email.accountEmail,
+          threadId: email.threadId || email.id,
         });
       }
     },
@@ -1494,12 +1551,14 @@ export function EmailList({
             };
           },
         );
-        unarchiveEmail.mutate({ id, accountEmail });
+        unarchiveEmail.mutate({ id, accountEmail, threadId: tid });
       };
-      setUndoAction(undo);
-      toast(t("mail.toasts.archived"), {
-        action: { label: t("mail.actions.undo"), onClick: undo },
+      const consumeUndo = setUndoAction(undo);
+      const toastId = toast(t("mail.toasts.archived"), {
+        action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+        duration: UNDO_DURATION,
       });
+      setUndoToastId(toastId);
       archiveEmail.mutate({
         id,
         accountEmail: thread.latestMessage.accountEmail,

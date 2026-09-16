@@ -15,6 +15,17 @@ const mocks = vi.hoisted(() => ({
     invalidateQueries: vi.fn(),
   },
   headerActions: null as unknown,
+  creativeContextLabEnabled: { value: false },
+  creativeContexts: vi.fn(() => ({ data: undefined, isLoading: false })),
+  creativeContextState: vi.fn(() => ({
+    state: {
+      contextMode: "auto",
+      selectedContextId: "saved-context",
+      pinnedPackId: null,
+    },
+    setState: vi.fn().mockResolvedValue(undefined),
+  })),
+  promptPopoverProps: undefined as Record<string, unknown> | undefined,
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
@@ -67,6 +78,16 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("@agent-native/creative-context/client", () => ({
+  CreativeContextShareSheet: () => (
+    <div data-testid="creative-context-share-sheet" />
+  ),
+  parseCreativeContexts: () => [],
+  useCreativeContextLab: () => mocks.creativeContextLabEnabled.value,
+  useCreativeContexts: mocks.creativeContexts,
+  useCreativeContextState: mocks.creativeContextState,
+}));
+
 vi.mock("@agent-native/toolkit/app-shell", () => ({
   // The real hook portals its argument into app-shell chrome outside this
   // tree; capture it so the search input (also passed here) can be rendered
@@ -96,7 +117,10 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/components/editor/PromptDialog", () => ({
-  default: () => null,
+  default: (props: Record<string, unknown>) => {
+    mocks.promptPopoverProps = props;
+    return null;
+  },
 }));
 
 vi.mock("@/hooks/use-design-systems", () => ({
@@ -163,6 +187,8 @@ beforeEach(async () => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.creativeContextLabEnabled.value = false;
+  mocks.promptPopoverProps = undefined;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -238,5 +264,52 @@ describe("Index rename dialog accessibility", () => {
 
     await act(async () => headerRoot.unmount());
     headerContainer.remove();
+  });
+});
+
+describe("Index Creative Context Labs gate", () => {
+  it("hides context picker props and sharing UI while the lab is disabled", () => {
+    expect(mocks.creativeContexts).toHaveBeenLastCalledWith(
+      {},
+      { enabled: false },
+    );
+    expect(mocks.creativeContextState).toHaveBeenLastCalledWith({
+      enabled: false,
+    });
+    expect(mocks.promptPopoverProps).toMatchObject({
+      creativeContexts: [],
+      creativeContextsLoading: false,
+      selectedCreativeContextId: undefined,
+      onCreativeContextChange: undefined,
+    });
+    expect(
+      document.querySelector('[data-testid="creative-context-share-sheet"]'),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "creativeContext.addToContext",
+    );
+  });
+
+  it("restores context picker props and sharing UI when the lab is enabled", async () => {
+    mocks.creativeContextLabEnabled.value = true;
+    await act(async () => root.render(<Index />));
+
+    expect(mocks.creativeContexts).toHaveBeenLastCalledWith(
+      {},
+      { enabled: true },
+    );
+    expect(mocks.creativeContextState).toHaveBeenLastCalledWith({
+      enabled: true,
+    });
+    expect(mocks.promptPopoverProps?.onCreativeContextChange).toEqual(
+      expect.any(Function),
+    );
+    expect(mocks.promptPopoverProps?.selectedCreativeContextId).toBe(
+      "saved-context",
+    );
+    expect(
+      document.querySelector('[data-testid="creative-context-share-sheet"]'),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain("creativeContext.addToContext");
   });
 });

@@ -186,6 +186,12 @@ describe("parseDesignVersionSnapshot", () => {
         tweaks: [{ id: "color", cssVar: "--color" }],
         appliedTweaks: { color: "blue" },
         resolvedCssVars: { "--color": "blue" },
+        deletionGeometry: {
+          fileId: "file-1",
+          mainNodeId: "main-1",
+          sourceVersionHash: "hash-1",
+          boundingRect: { x: 10, y: 20, width: 100, height: 70 },
+        },
         files: [
           {
             id: "file-1",
@@ -207,6 +213,12 @@ describe("parseDesignVersionSnapshot", () => {
       tweaks: [{ id: "color", cssVar: "--color" }],
       appliedTweaks: { color: "blue" },
       resolvedCssVars: { "--color": "blue" },
+      deletionGeometry: {
+        fileId: "file-1",
+        mainNodeId: "main-1",
+        sourceVersionHash: "hash-1",
+        boundingRect: { x: 10, y: 20, width: 100, height: 70 },
+      },
       chatContext: { threadId: "thread-1", turnId: "turn-1" },
     });
     expect(snapshot.files).toEqual([
@@ -329,6 +341,35 @@ describe("createDesignVersionSnapshot", () => {
 
     expect(changed.id).not.toBe(first.id);
     expect(captureMocks.revisions).toHaveLength(2);
+  });
+
+  it("includes deletion geometry in snapshot dedupe and identity", async () => {
+    const geometry = {
+      fileId: "file-1",
+      mainNodeId: "main-1",
+      sourceVersionHash: "hash-1",
+      boundingRect: { x: 10, y: 20, width: 100, height: 70 },
+    };
+    const first = await createDesignVersionSnapshot("design-1", {
+      label: "Before component delete",
+    });
+    const withGeometry = await createDesignVersionSnapshot("design-1", {
+      label: "Before component delete",
+      deletionGeometry: geometry,
+    });
+    const sameGeometry = await createDesignVersionSnapshot("design-1", {
+      label: "Before component delete",
+      deletionGeometry: geometry,
+    });
+
+    expect(withGeometry.id).not.toBe(first.id);
+    expect(sameGeometry).toEqual(withGeometry);
+    expect(captureMocks.revisions).toHaveLength(2);
+    expect(
+      JSON.parse(captureMocks.revisions[1]!.snapshot as string),
+    ).toMatchObject({
+      deletionGeometry: geometry,
+    });
   });
 
   it("keeps a new chat turn's pre-edit checkpoint when state is unchanged", async () => {

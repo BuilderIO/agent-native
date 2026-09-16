@@ -76,10 +76,23 @@ const messages: AgentChatTranslation = {
     "Création ou réutilisation de votre compte Builder.io. Cela prend généralement quelques secondes.",
   "onboarding.builderConnectionDescription":
     "Terminez la connexion en un clic dans la nouvelle fenêtre.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Les crédits IA et les modifications de code dans le cloud sont prêts à l’emploi.",
+  "onboarding.builderReadyCreditsOnly":
+    "Les crédits IA sont prêts à l’emploi. Les modifications de code dans le cloud nécessitent un projet Builder dans les paramètres de l’agent en arrière-plan.",
+  "onboarding.openBackgroundAgentSettings":
+    "Ouvrir les paramètres de l’agent en arrière-plan",
   "onboarding.capability.llm.keySummary":
     "Connectez un fournisseur d’IA ou un modèle local",
   "onboarding.capability.fileStorage.keySummary":
     "Stockage Builder ou bucket compatible S3",
+  "onboarding.fileStorage.title": "Choisir le stockage des fichiers",
+  "onboarding.fileStorage.description":
+    "Choisissez le stockage Builder géré ou vos propres clés pour un bucket compatible S3.",
+  "onboarding.fileStorage.custom":
+    "Utiliser des clés de stockage personnalisées",
+  "onboarding.fileStorage.customDescription":
+    "Configurez un bucket compatible S3 avec une URL publique stable.",
   "onboarding.capability.voiceInput.label": "Entrée vocale",
   "onboarding.capability.voiceInput.keySummary":
     "Reconnaissance vocale du navigateur ou conversion parole-texte",
@@ -113,6 +126,15 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "Interface utilisateur",
+  "agentPanel.keyScope": "Portée de la clé",
+  "agentPanel.personalKeyScope": "Personnelle",
+  "agentPanel.organizationKeyScope": "Organisation",
+  "agentPanel.personalKeyInEffect": "Votre clé personnelle est utilisée.",
+  "agentPanel.organizationKeyInEffect":
+    "La clé de l’organisation est utilisée.",
+  "agentPanel.sharedKeyInEffect": "Une clé partagée est utilisée.",
+  "agentPanel.useOrganizationKey": "Utiliser la clé de l’organisation",
+  "agentPanel.keyStatusUnavailable": "L’état de la clé est indisponible.",
   "agentHostNudge.sidebarTitle": "Utiliser le chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Vous discutez déjà avec {{agent}}. Demandez-lui de travailler directement avec cette app.",
@@ -135,6 +157,40 @@ const messages: AgentChatTranslation = {
   "common.no": "Non",
   "common.retry": "Réessayer",
   "common.save": "Enregistrer",
+  "agents.hostedAgent": "Agent hébergé",
+  "agents.provider": "Fournisseur",
+  "agents.providerA2A": "Agent A2A (Foundry, Gemini ou personnalisé)",
+  "agents.providerAnthropic": "Agents gérés Anthropic",
+  "agents.agentId": "ID de l’agent",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "ID de l’environnement",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "URL de base de l’API (facultative)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Complétez les champs Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "La connexion est vérifiée lorsque vous déléguez depuis le chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent enregistré. Déléguez-lui une tâche depuis le chat.",
+  "agents.cardUrl": "URL de la carte de l’agent",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Authentification",
+  "agents.authNone": "Aucune authentification",
+  "agents.authBearer": "Jeton Bearer",
+  "agents.authClientCredentials": "Identifiants client OAuth",
+  "agents.chooseCredential": "Choisir un identifiant",
+  "agents.vault": "Coffre",
+  "agents.tokenUrl": "URL du jeton",
+  "agents.clientId": "ID client",
+  "agents.scope": "Portée",
+  "agents.authIncomplete":
+    "Complétez les champs d’authentification de l’agent hébergé.",
+  "agents.invalidUrl":
+    "Les URL d’agent doivent utiliser HTTPS, sauf pour localhost ou les URL de développement de bouclage.",
+  "agents.statusReachable": "Accessible",
+  "agents.statusAuthRejected": "Authentification refusée",
+  "agents.statusNoJsonRpc": "Pas de JSON-RPC",
   "common.saveFailed": "Échec de l’enregistrement",
   "common.saveFailedStatus": "Échec de l’enregistrement ({{status}})",
   "common.saving": "Enregistrement...",
@@ -346,6 +402,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Informations sur les données",
   "widget.dataTable": "Tableau de données",
   "widget.downloadCsv": "Télécharger le CSV",
+  "widget.connectProvider": "Connecter {{provider}}",
   "widget.loadingToolResult": "Chargement du résultat de l’outil",
   "widget.noRows": "Aucune ligne",
   "widget.points": "{{formattedCount}} points",
@@ -598,6 +655,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} lignes",
   "errorMessages.agentConnection":
     "La connexion de l'agent a été interrompue. Vérifiez votre connexion et réessayez.",
+  "errorMessages.attachmentPasswordProtected":
+    "Ce PDF est protégé par mot de passe et ne peut pas être lu. Supprimez la protection par mot de passe ou collez le texte pertinent, puis réessayez.",
   "errorMessages.builderAuthentication":
     "Builder a rejeté les identifiants connectés. Reconnectez Builder.io dans les paramètres, puis réessayez.",
   "errorMessages.builderModelUnauthorized":
@@ -607,10 +666,16 @@ const messages: AgentChatTranslation = {
     "La passerelle du modèle a rencontré une erreur interne avant que l'agent puisse répondre. Réessayez dans un instant et indiquez l'identifiant d'erreur ci-dessous si cela persiste.",
   "errorMessages.gatewayNoDetails":
     "La passerelle du modèle n’a fourni aucun détail sur l’erreur et la discussion n’a pas pu reprendre. Patientez un instant et réessayez. Si le problème persiste, démarrez une nouvelle discussion.",
+  "errorMessages.creditsLimitReached":
+    "Vous avez atteint votre limite de crédits IA.",
   "errorMessages.inactivityTimeout":
     "La connexion à l’agent a expiré avant la fin. Vous pouvez poursuivre à partir du travail partiel ou réessayer.",
   "errorMessages.invalidToolSchema":
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
+  "errorMessages.malformedRequest":
+    "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.malformedRequestAttachment":
+    "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
   "errorMessages.noProviderConnected":
     "Aucun fournisseur de LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs d’IA, puis connectez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":
@@ -634,6 +699,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Peu utile",
   "feedback.placeholder": "Dites-nous ce qui n'a pas fonctionné...",
   "feedback.submit": "Envoyer",
+  "feedback.submitted": "Commentaires envoyés",
   "feedback.thumbsDown": "Pouce vers le bas",
   "feedback.thumbsUp": "Pouce vers le haut",
   "feedback.tooSlow": "Trop lent",
@@ -759,6 +825,14 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Lecteur",
   "share.viewerDescription": "Peut consulter",
   "share.userGroup": "Groupe d’utilisateurs",
+  "settings.emailTitle": "Adresse e-mail",
+  "settings.emailChange": "Changer d’adresse e-mail",
+  "settings.emailChanging": "Envoi...",
+  "settings.emailChangeSent":
+    "Consultez vos e-mails pour confirmer ce changement.",
+  "settings.emailChangeError": "Impossible d’envoyer la confirmation.",
+  "settings.emailNewLabel": "Nouvelle adresse e-mail",
+  "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
 };
 
 export default messages;

@@ -84,4 +84,19 @@ describe("review canvas draft state", () => {
       source: "selector",
     });
   });
+
+  it("uses the source-relative point only for the matching screen", () => {
+    const anchor = {
+      point: { xPct: 18, yPct: 72 },
+      screenId: "screen-1",
+      screenPoint: { xPct: 61, yPct: 39 },
+    };
+    expect(getReviewPinPosition(anchor, "screen-1")?.point).toEqual(
+      anchor.screenPoint,
+    );
+    expect(getReviewPinPosition(anchor, "screen-2")?.point).toEqual(
+      anchor.point,
+    );
+    expect(getReviewPinPosition(anchor)?.point).toEqual(anchor.point);
+  });
 });
