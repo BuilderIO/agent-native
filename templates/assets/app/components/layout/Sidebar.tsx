@@ -365,6 +365,7 @@ export function Sidebar() {
       collapsed={collapsed}
       onCollapsedChange={setCollapsed}
       brandName={t("navigation.brand")}
+      appId="assets"
       brandHref="/home"
       secondaryItems={secondaryItems}
       feedback={feedbackButton}

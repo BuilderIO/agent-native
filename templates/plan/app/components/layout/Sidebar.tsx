@@ -573,6 +573,7 @@ export function Sidebar({
       collapsible={collapsible}
       onCollapsedChange={onCollapsedChange}
       brandName={APP_TITLE}
+      appId="plan"
       brandHref="/plans"
       brandLink={
         <div className="group/brand flex min-w-0 items-center gap-1">

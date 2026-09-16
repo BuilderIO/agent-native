@@ -107,6 +107,7 @@ export function Sidebar({
       collapsible={collapsible}
       onCollapsedChange={onCollapsedChange}
       brandName={APP_TITLE}
+      appId="tasks"
       brandHref="/tasks"
       items={items}
       secondaryItems={secondaryItems}
