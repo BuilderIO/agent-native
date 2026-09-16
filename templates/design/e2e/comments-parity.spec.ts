@@ -18,6 +18,7 @@ test("comments toolbar opens an anchored composer", async ({ page }) => {
   const box = await clickPlane.boundingBox();
   if (!box) throw new Error("comment click plane has no layout box");
   await clickPlane.click({
+    force: true,
     position: {
       x: Math.min(120, box.width / 2),
       y: Math.min(120, box.height / 2),
