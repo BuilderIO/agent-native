@@ -56,10 +56,11 @@ unavailable, use full reaction-aware enumeration, do not place `👀` beside the
 stale marker, and claim only after cleanup.
 
 Every eyed clear-bug or upvoted item enters the ledger; the eye is not
-completion. Before finishing, re-read each claim and verify a reply of
-**Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or a
-recorded disposition from the complete vocabulary below. Evidence-limited
-states retain the eye; terminal states need their disposition-specific marker.
+completion. Before finishing, re-read each claim and record a reply or
+disposition from the vocabulary below. Evidence-limited states retain the eye
+and carry forward: next run, re-read the thread, act on evidence, and replace
+the state only after verification or blocker resolution. A reply or source change alone never promotes one to
+**Fixed**. Terminal states need their disposition-specific release marker.
 Record **Owned elsewhere** for a foreign eye without changing it. Pending
 clarification keeps the eye; **In progress** needs real ownership and a revisit.
 Mistaken out-of-scope eyes use the cleanup rule.
