@@ -68,6 +68,7 @@
         "shadcn/no-raw-colors": "warn",
         "shadcn/no-arbitrary-values": "warn",
         "shadcn/no-inline-styles": "warn",
+        "shadcn/no-unknown-classes": "warn",
         "shadcn/require-static-classes": "warn"
       }
     },
