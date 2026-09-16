@@ -223,6 +223,23 @@ export async function getResourceVersionById(
   return row ? mapVersionRow(row, true) : null;
 }
 
+export async function deleteResourceVersionById(
+  id: string,
+  scope: ResourceHistoryScope,
+  options: { bypassScope?: boolean } = {},
+): Promise<boolean> {
+  await ensureResourceVersionsTable();
+  const client = getDbExec();
+  const { clause, params } = options.bypassScope
+    ? { clause: "1 = 1", params: [] as unknown[] }
+    : scopedResourceClause(scope);
+  const result = await client.execute({
+    sql: `DELETE FROM agent_resource_versions WHERE id = ? AND ${clause}`,
+    args: [id, ...params],
+  });
+  return result.rowsAffected > 0;
+}
+
 export async function getResourceVersionByNumber(
   resourceType: string,
   resourceId: string,

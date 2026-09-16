@@ -5,11 +5,14 @@ export {
 } from "./VersionHistoryPanel.js";
 export {
   useCreateResourceVersion,
+  useDeleteResourceVersion,
   useResourceHistory,
   useResourceVersion,
   useResourceVersions,
   useRestoreResourceVersion,
   type CreateResourceVersionInput,
+  type DeleteResourceVersionInput,
+  type DeleteResourceVersionResult,
   type GetResourceVersionInput,
   type GetResourceVersionResult,
   type ListResourceHistoryResult,

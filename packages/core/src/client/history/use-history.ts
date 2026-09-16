@@ -30,6 +30,13 @@ export interface RestoreResourceVersionInput {
   versionNumber?: number;
 }
 
+export interface DeleteResourceVersionInput {
+  id?: string;
+  resourceType?: string;
+  resourceId?: string;
+  versionNumber?: number;
+}
+
 export interface GetResourceVersionInput {
   id?: string;
   resourceType?: string;
@@ -53,6 +60,11 @@ export interface GetResourceVersionResult {
 export interface RestoreResourceVersionResult {
   version: ResourceVersion;
   result: unknown;
+}
+
+export interface DeleteResourceVersionResult {
+  ok: boolean;
+  version: ResourceVersion;
 }
 
 export function useResourceVersions(
@@ -111,4 +123,11 @@ export function useRestoreResourceVersion() {
     RestoreResourceVersionResult,
     RestoreResourceVersionInput
   >("restore-resource-version");
+}
+
+export function useDeleteResourceVersion() {
+  return useActionMutation<
+    DeleteResourceVersionResult,
+    DeleteResourceVersionInput
+  >("delete-resource-version");
 }

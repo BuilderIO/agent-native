@@ -108,3 +108,34 @@ export async function findFactoryAutomationDefinition(
     definitions.find((entry) => entry.resource.id === automationId) ?? null
   );
 }
+
+export async function findFactoryAutomationByResourceId(
+  orgId: string,
+  resourceId: string,
+): Promise<(FactoryAutomationDefinition & { factoryId: string }) | null> {
+  const { listFactoryDefinitions } = await import("../factory-graph/store.js");
+  const { DEFAULT_FACTORY_ID, readAutomationFactoryId } =
+    await import("./factory-scope.js");
+  const factories = await listFactoryDefinitions(orgId);
+  const factoryIds = [
+    ...new Set([DEFAULT_FACTORY_ID, ...factories.map((row) => row.id)]),
+  ];
+  for (const factoryId of factoryIds) {
+    const definition = await findFactoryAutomationDefinition(
+      orgId,
+      factoryId,
+      resourceId,
+    );
+    if (definition) {
+      return {
+        ...definition,
+        factoryId: readAutomationFactoryId(
+          definition.meta,
+          definition.resource.content,
+          definition.resource.path,
+        ),
+      };
+    }
+  }
+  return null;
+}

@@ -31,6 +31,7 @@ vi.mock("../db/client.js", () => ({
 
 const {
   __resetHistoryInitForTests,
+  deleteResourceVersionById,
   ensureResourceVersionsTable,
   getResourceVersionById,
   insertResourceVersion,
@@ -168,5 +169,58 @@ describe("resource history store", () => {
         scope: {},
       }),
     ).toHaveLength(1);
+  });
+
+  it("deletes a version by id and leaves the others in place", async () => {
+    const first = await insertResourceVersion({
+      resourceType: "doc",
+      resourceId: "d1",
+      ownerEmail: "alice@example.com",
+      snapshot: { n: 1 },
+    });
+    const second = await insertResourceVersion({
+      resourceType: "doc",
+      resourceId: "d1",
+      ownerEmail: "alice@example.com",
+      snapshot: { n: 2 },
+    });
+
+    const deleted = await deleteResourceVersionById(first.id, {
+      userEmail: "alice@example.com",
+    });
+    expect(deleted).toBe(true);
+
+    const remaining = await queryResourceVersions({
+      resourceType: "doc",
+      resourceId: "d1",
+      scope: { userEmail: "alice@example.com" },
+    });
+    expect(remaining.map((row) => row.id)).toEqual([second.id]);
+  });
+
+  it("does not delete a version outside the caller's scope", async () => {
+    const version = await insertResourceVersion({
+      resourceType: "doc",
+      resourceId: "scoped",
+      ownerEmail: "alice@example.com",
+      snapshot: { n: 1 },
+    });
+
+    const deleted = await deleteResourceVersionById(version.id, {
+      userEmail: "mallory@example.com",
+    });
+    expect(deleted).toBe(false);
+
+    const stillThere = await getResourceVersionById(version.id, {
+      userEmail: "alice@example.com",
+    });
+    expect(stillThere).not.toBeNull();
+  });
+
+  it("reports false for a version id that does not exist", async () => {
+    const deleted = await deleteResourceVersionById("ver_missing", {
+      userEmail: "alice@example.com",
+    });
+    expect(deleted).toBe(false);
   });
 });

@@ -12,8 +12,22 @@ const recordFactoryGovernanceAuditMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
 
+const insertResourceVersionMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
+
+vi.mock("@agent-native/core/history", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/history")>();
+  return {
+    ...actual,
+    insertResourceVersion: insertResourceVersionMock,
+  };
+});
+
 vi.mock("../triage/audit.js", () => ({
   recordFactoryGovernanceAudit: recordFactoryGovernanceAuditMock,
+  recordFactoryAutomationRunPrompt: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@agent-native/core/event-bus", () => ({
@@ -251,6 +265,80 @@ ${customPrompt}
     expect(saved).toBeDefined();
     expect(saved).toContain(customPrompt);
     expect(saved).not.toContain("# Factory Slack feedback triage");
+  });
+
+  it("recomposes duplicate alignment blocks while preserving identity and user prompt", async () => {
+    const path = "jobs/factories/product-an-feedback/factory-slack-feedback.md";
+    const { managedReviewSkillAlignmentMarkers } =
+      await import("../triage/review-skill-alignment.js");
+    const { start, end } = managedReviewSkillAlignmentMarkers();
+    const userPrompt = "Only triage paying customers.";
+    const content = `---
+schedule: "* * * * *"
+enabled: true
+orgId: org-1
+appId: factory
+template: slack-feedback
+source: slack
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+authorIds: U096KN3EL2Y
+model: claude-sonnet-4-20250514
+maxIterations: 20
+maxRunInputTokens: 200000
+---
+${start}
+stale one
+${end}
+
+${start}
+stale two
+${end}
+
+${userPrompt}
+`;
+    resourceListContentMock.mockResolvedValue([
+      {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+      },
+    ]);
+    resourceGetByPathMock.mockImplementation((_owner: string, p: string) => {
+      if (p !== path) return null;
+      return {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+        updatedAt: 1,
+      };
+    });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "slack-feedback" });
+
+    await ensureFactoryAutomations(
+      "owner@example.com",
+      "org-1",
+      "product-an-feedback",
+    );
+
+    const saved = resourcePutIfCurrentMock.mock.calls.find(
+      (call) => call[0]?.path === path,
+    )?.[0]?.content as string | undefined;
+    expect(saved).toBeDefined();
+    expect(saved).toContain("displayName: Product feedback");
+    expect(saved).toContain("slackChannelId: C0ATH3CCZT4");
+    expect(saved).toContain("authorIds: U096KN3EL2Y");
+    expect(saved).toContain(userPrompt);
+    expect(saved!.split(start).length - 1).toBe(1);
+    expect(insertResourceVersionMock).toHaveBeenCalled();
+    expect(recordFactoryGovernanceAuditMock).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.objectContaining({
+        action: "repair-factory-automation-body",
+      }),
+    );
   });
 
   it("keeps the Slack template prompt lean and names the reaction argument", () => {

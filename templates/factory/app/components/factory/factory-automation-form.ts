@@ -174,6 +174,110 @@ export function omitNullDestination(
   return value ?? undefined;
 }
 
+export type FactoryAutomationSnapshotConfig = {
+  source: AutomationSource;
+  template: AutomationTemplateId;
+  slackWorkspace: "primary" | "secondary";
+  slackChannelId: string | null;
+  slackChannelName: string | null;
+  repository: string | null;
+  sentryOrgSlug: string | null;
+  sentryProjectSlug: string | null;
+  sentryEnvironment: string | null;
+  authorMode: AutomationAuthorMode;
+  authorIds: string[];
+  scheduleMode: AutomationScheduleMode;
+  intervalMinutes: (typeof INTERVAL_MINUTES)[number];
+  dailyHour: number;
+  dailyMinute: number;
+  timezone: string | null;
+  inboxLimit: number;
+  workLimit: number;
+};
+
+export type FactoryAutomationVersionSnapshot = {
+  userPrompt: string;
+  displayName: string | null;
+  config: FactoryAutomationSnapshotConfig;
+  promptVersion: number;
+  configSavedAt: string | null;
+};
+
+function isAutomationSnapshotConfig(
+  value: unknown,
+): value is FactoryAutomationSnapshotConfig {
+  if (!value || typeof value !== "object") return false;
+  const config = value as Record<string, unknown>;
+  return (
+    typeof config.source === "string" &&
+    typeof config.template === "string" &&
+    typeof config.authorMode === "string" &&
+    Array.isArray(config.authorIds)
+  );
+}
+
+export function parseFactoryAutomationVersionSnapshot(
+  value: unknown,
+): FactoryAutomationVersionSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const snapshot = value as Record<string, unknown>;
+  if (typeof snapshot.promptVersion !== "number") return null;
+  if (typeof snapshot.userPrompt !== "string") return null;
+  if (!isAutomationSnapshotConfig(snapshot.config)) return null;
+  return {
+    userPrompt: snapshot.userPrompt,
+    displayName:
+      typeof snapshot.displayName === "string" ? snapshot.displayName : null,
+    config: snapshot.config,
+    promptVersion: snapshot.promptVersion,
+    configSavedAt:
+      typeof snapshot.configSavedAt === "string"
+        ? snapshot.configSavedAt
+        : null,
+  };
+}
+
+export function applyAutomationSnapshotToDraft<
+  T extends AutomationEditorSnapshot,
+>(current: T, snapshot: FactoryAutomationVersionSnapshot): T {
+  const { config } = snapshot;
+  return {
+    ...current,
+    displayName: snapshot.displayName ?? current.displayName ?? "",
+    prompt: snapshot.userPrompt,
+    source: config.source,
+    template: config.template,
+    slackWorkspace: config.slackWorkspace,
+    slackChannelId: config.slackChannelId ?? "",
+    slackChannelName: config.slackChannelName ?? "",
+    repository: config.repository ?? "",
+    sentryOrgSlug: config.sentryOrgSlug ?? "",
+    sentryProjectSlug: config.sentryProjectSlug ?? "",
+    sentryEnvironment: config.sentryEnvironment ?? "",
+    authorMode: config.authorMode,
+    authorIds: [...config.authorIds],
+    authorFilter: formAuthorFilter(config.authorMode, config.authorIds),
+    scheduleMode: config.scheduleMode,
+    intervalMinutes: config.intervalMinutes,
+    dailyHour: config.dailyHour,
+    dailyMinute: config.dailyMinute,
+    timezone: config.timezone ?? browserTimezone(),
+    inboxLimit: config.inboxLimit,
+    workLimit: config.workLimit,
+    promptVersion: snapshot.promptVersion,
+    configSavedAt: snapshot.configSavedAt,
+  };
+}
+
+export function automationPromptPreview(prompt: string): string {
+  const line = prompt
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find(Boolean);
+  if (!line) return "";
+  return line.length > 160 ? `${line.slice(0, 159)}…` : line;
+}
+
 export type AutomationEditorSnapshot = {
   id: string;
   name: string;
@@ -202,6 +306,8 @@ export type AutomationEditorSnapshot = {
   timezone?: string | null;
   inboxLimit?: number | null;
   workLimit?: number | null;
+  promptVersion?: number | null;
+  configSavedAt?: string | null;
   updatedAt?: string | number | null;
   runs?: unknown;
   pastRuns?: unknown;

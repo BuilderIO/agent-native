@@ -50,6 +50,10 @@ vi.mock("../server/connectors/credentials.js", () => ({
   VaultUnavailableError,
 }));
 
+vi.mock("@agent-native/core/history", () => ({
+  insertResourceVersion: vi.fn().mockResolvedValue(undefined),
+}));
+
 const existingContent = `---
 domain: factory
 factoryId: support-triage

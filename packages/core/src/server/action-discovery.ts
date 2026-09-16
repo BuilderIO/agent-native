@@ -855,6 +855,10 @@ export async function mergeCoreSharingActions(
       () => import("../history/actions/restore-resource-version.js"),
     ],
     [
+      "delete-resource-version",
+      () => import("../history/actions/delete-resource-version.js"),
+    ],
+    [
       "list-resource-history",
       () => import("../history/actions/list-resource-history.js"),
     ],

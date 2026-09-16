@@ -180,6 +180,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/history/actions/restore-resource-version",
   },
   {
+    name: "delete-resource-version",
+    specifier: "@agent-native/core/history/actions/delete-resource-version",
+  },
+  {
     name: "list-resource-history",
     specifier: "@agent-native/core/history/actions/list-resource-history",
   },
