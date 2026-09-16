@@ -1,4 +1,8 @@
-import { insertResourceVersion } from "@agent-native/core/history";
+import {
+  deleteResourceVersionById,
+  insertResourceVersion,
+  type ResourceVersion,
+} from "@agent-native/core/history";
 import { type Resource } from "@agent-native/core/resources";
 
 import { FACTORY_ALIGNMENT_REVISION } from "../triage/review-skill-alignment.js";
@@ -46,13 +50,6 @@ export function snapshotFromAutomationResource(
   };
 }
 
-function snapshotsEqual(
-  left: FactoryAutomationSnapshot,
-  right: FactoryAutomationSnapshot,
-): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 export function snapshotContentIdentity(
   snapshot: Pick<
     FactoryAutomationSnapshot,
@@ -95,11 +92,17 @@ export async function insertFactoryAutomationVersionIfChanged(input: {
   previousSnapshot: FactoryAutomationSnapshot;
   nextSnapshot: FactoryAutomationSnapshot;
   summary: string;
-}): Promise<void> {
-  if (snapshotsEqual(input.previousSnapshot, input.nextSnapshot)) {
-    return;
+}): Promise<ResourceVersion | null> {
+  // Compare content identity, not the full snapshot: configSavedAt is
+  // rewritten on every save, so a full-snapshot comparison would treat a
+  // true no-op save as a change and insert a duplicate predecessor snapshot.
+  if (
+    snapshotContentIdentity(input.previousSnapshot) ===
+    snapshotContentIdentity(input.nextSnapshot)
+  ) {
+    return null;
   }
-  await insertResourceVersion({
+  return insertResourceVersion({
     resourceType: FACTORY_AUTOMATION_RESOURCE_TYPE,
     resourceId: input.resourceId,
     createdBy: input.userEmail,
@@ -148,13 +151,14 @@ export function buildAutomationContentFromSnapshot(
       snapshot.configSavedAt,
     );
   }
-  if (snapshot.displayName) {
-    content = setAutomationFrontmatterField(
-      content,
-      "displayName",
-      snapshot.displayName,
-    );
-  }
+  // Write unconditionally, not only when truthy: a null displayName means
+  // this snapshot had no name, and the restore must clear a newer one rather
+  // than silently keeping it.
+  content = setAutomationFrontmatterField(
+    content,
+    "displayName",
+    snapshot.displayName ?? "",
+  );
   content = setAutomationFrontmatterField(content, "factoryId", factoryId);
   return content;
 }
@@ -203,22 +207,17 @@ export async function restoreFactoryAutomationSnapshot(input: {
     input.factoryId,
     { ...input.snapshot, promptVersion: resolvedPromptVersion, configSavedAt },
   );
-  const updated = await resourcePutIfCurrent({
-    owner: current.owner,
-    path: current.path,
-    content,
-    mimeType: "text/markdown",
-    expectedId: current.id,
-    expectedUpdatedAt: current.updatedAt,
-    expectedContent: current.content,
-  });
-  if (!updated) {
-    throw new Error(
-      "Factory automation changed concurrently. Refresh and try again.",
-    );
-  }
-  if (!snapshotsEqual(previousSnapshot, input.snapshot)) {
-    await insertResourceVersion({
+  // Insert the predecessor snapshot before the live write commits: if the
+  // live write below fails, the resource never changed and the snapshot is
+  // simply an unused extra row, but if it succeeded and this insert had run
+  // after it, a crash or history-insert failure here would silently discard
+  // the last state before restore with no way to recover it.
+  let insertedVersion: ResourceVersion | null = null;
+  if (
+    snapshotContentIdentity(previousSnapshot) !==
+    snapshotContentIdentity(input.snapshot)
+  ) {
+    insertedVersion = await insertResourceVersion({
       resourceType: FACTORY_AUTOMATION_RESOURCE_TYPE,
       resourceId: current.id,
       createdBy: input.userEmail,
@@ -231,6 +230,27 @@ export async function restoreFactoryAutomationSnapshot(input: {
       snapshot: previousSnapshot,
       metadata: { factoryId: input.factoryId },
     });
+  }
+  const updated = await resourcePutIfCurrent({
+    owner: current.owner,
+    path: current.path,
+    content,
+    mimeType: "text/markdown",
+    expectedId: current.id,
+    expectedUpdatedAt: current.updatedAt,
+    expectedContent: current.content,
+  });
+  if (!updated) {
+    if (insertedVersion) {
+      await deleteResourceVersionById(
+        insertedVersion.id,
+        { userEmail: input.userEmail, orgId: input.orgId },
+        { bypassScope: true },
+      ).catch(() => {});
+    }
+    throw new Error(
+      "Factory automation changed concurrently. Refresh and try again.",
+    );
   }
   return {
     resource: updated,

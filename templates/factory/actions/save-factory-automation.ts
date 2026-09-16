@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { deleteResourceVersionById } from "@agent-native/core/history";
 import { isValidCron, nextOccurrence } from "@agent-native/core/jobs";
 import {
   resourceGetByPath,
@@ -300,21 +301,12 @@ export default defineAction({
       ).toISOString();
       content = setAutomationFrontmatterField(content, "nextRun", nextRun);
     }
-    const updated = await resourcePutIfCurrent({
-      owner: definition.resource.owner,
-      path: definition.resource.path,
-      content,
-      mimeType: "text/markdown",
-      expectedId: resource.id,
-      expectedUpdatedAt: resource.updatedAt,
-      expectedContent: resource.content,
-    });
-    if (!updated) {
-      throw new Error(
-        "Factory automation changed concurrently. Refresh and try again.",
-      );
-    }
-    await insertFactoryAutomationVersionIfChanged({
+    // Insert the predecessor snapshot before the live write commits: if the
+    // write below fails, this is just an unused extra row, but if the order
+    // were reversed a crash or history-insert failure after a successful
+    // write would report a failed save while silently losing the last
+    // pre-save state with no way to recover it.
+    const insertedVersion = await insertFactoryAutomationVersionIfChanged({
       resourceId: definition.resource.id,
       orgId,
       userEmail,
@@ -327,6 +319,27 @@ export default defineAction({
       ),
       summary: "Automation save",
     });
+    const updated = await resourcePutIfCurrent({
+      owner: definition.resource.owner,
+      path: definition.resource.path,
+      content,
+      mimeType: "text/markdown",
+      expectedId: resource.id,
+      expectedUpdatedAt: resource.updatedAt,
+      expectedContent: resource.content,
+    });
+    if (!updated) {
+      if (insertedVersion) {
+        await deleteResourceVersionById(
+          insertedVersion.id,
+          { userEmail, orgId },
+          { bypassScope: true },
+        ).catch(() => {});
+      }
+      throw new Error(
+        "Factory automation changed concurrently. Refresh and try again.",
+      );
+    }
     return {
       ok: true,
       id: definition.resource.id,

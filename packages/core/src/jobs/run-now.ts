@@ -172,6 +172,7 @@ export async function queueAutomationRunNow(
     orgId: input.scope === "organization" ? input.orgId : null,
     appId: input.appId,
     dispatchPending: true,
+    promptSnapshot: resource.content,
   });
   try {
     await dispatchAutomationRun(historyId, input.requestHeaders);

@@ -11,6 +11,9 @@ const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const recordFactoryGovernanceAuditMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
+const recordFactoryAutomationRunPromptMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
 
 const insertResourceVersionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
@@ -27,7 +30,7 @@ vi.mock("@agent-native/core/history", async (importOriginal) => {
 
 vi.mock("../triage/audit.js", () => ({
   recordFactoryGovernanceAudit: recordFactoryGovernanceAuditMock,
-  recordFactoryAutomationRunPrompt: vi.fn().mockResolvedValue(undefined),
+  recordFactoryAutomationRunPrompt: recordFactoryAutomationRunPromptMock,
 }));
 
 vi.mock("@agent-native/core/event-bus", () => ({
@@ -77,6 +80,7 @@ vi.mock("../lib/factory-automation-repair.js", () => ({
 import {
   ensureFactoryAutomations,
   factoryAutomationTemplatePrompt,
+  recordFinishedAutomationPrompt,
   removeFactoryAutomationResources,
   removeFactoryAutomationRunHistory,
   snapshotFactoryAutomations,
@@ -486,5 +490,56 @@ describe("snapshotFactoryAutomations", () => {
         "support-triage",
       ),
     ).rejects.toThrow("unreadable and cannot be snapshotted");
+  });
+});
+
+describe("recordFinishedAutomationPrompt", () => {
+  const path = "jobs/factories/support-triage/factory-slack-feedback.md";
+
+  it("audits the prompt captured at dispatch, not the live resource", async () => {
+    // If this read the live resource, it would see promptVersion 9 here —
+    // proving the fix by making the live and dispatch-time content disagree.
+    resourceGetByPathMock.mockResolvedValue({
+      path,
+      content: "---\npromptVersion: 9\n---\nEdited after the run started.\n",
+    });
+
+    await recordFinishedAutomationPrompt({
+      automationRunId: "run-1",
+      owner: "workspace",
+      automation: "factory-slack-feedback",
+      path,
+      orgId: "org-1",
+      runId: null,
+      threadId: null,
+      status: "success",
+      error: null,
+      promptSnapshot: "---\npromptVersion: 3\n---\nOriginal prompt.\n",
+    });
+
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+    expect(recordFactoryAutomationRunPromptMock).toHaveBeenCalledTimes(1);
+    const call = recordFactoryAutomationRunPromptMock.mock.calls[0][0];
+    expect(call.promptVersion).toBe(3);
+    expect(call.automationRunId).toBe("run-1");
+    expect(call.path).toBe(path);
+  });
+
+  it("does not guess from the live resource when no snapshot was captured", async () => {
+    await recordFinishedAutomationPrompt({
+      automationRunId: "run-2",
+      owner: "workspace",
+      automation: "factory-slack-feedback",
+      path,
+      orgId: "org-1",
+      runId: null,
+      threadId: null,
+      status: "success",
+      error: null,
+      promptSnapshot: null,
+    });
+
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+    expect(recordFactoryAutomationRunPromptMock).not.toHaveBeenCalled();
   });
 });

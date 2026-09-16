@@ -243,7 +243,10 @@ export function applyAutomationSnapshotToDraft<
   const { config } = snapshot;
   return {
     ...current,
-    displayName: snapshot.displayName ?? current.displayName ?? "",
+    // `?? ""`, not `?? current.displayName ?? ""`: a null displayName on the
+    // snapshot means it had no name, and the draft must clear the field
+    // rather than silently keeping whatever is currently in it.
+    displayName: snapshot.displayName ?? "",
     prompt: snapshot.userPrompt,
     source: config.source,
     template: config.template,

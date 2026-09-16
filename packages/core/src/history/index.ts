@@ -19,6 +19,7 @@ export {
 } from "./registry.js";
 export {
   __resetHistoryInitForTests,
+  deleteResourceVersionById,
   ensureResourceVersionsTable,
   getResourceVersionById,
   getResourceVersionByNumber,

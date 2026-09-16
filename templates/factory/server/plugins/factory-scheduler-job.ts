@@ -72,15 +72,12 @@ import {
   recordFactoryAutomationRunPrompt,
   recordFactoryGovernanceAudit,
 } from "../triage/audit.js";
-import {
-  FACTORY_ALIGNMENT_REVISION,
-  type FactoryAutomationName,
-} from "../triage/review-skill-alignment.js";
+import { FACTORY_ALIGNMENT_REVISION } from "../triage/review-skill-alignment.js";
 
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
 const FAILURE_ALERT_COOLDOWN_MS = 15 * 60_000;
 
-type AutomationRunFinishedEvent = {
+export type AutomationRunFinishedEvent = {
   automationRunId: string;
   owner: string;
   automation: string;
@@ -90,6 +87,9 @@ type AutomationRunFinishedEvent = {
   threadId: string | null;
   status: "success" | "error" | "interrupted";
   error: string | null;
+  /** The automation's exact content as read at dispatch time, before the run
+   *  started. Null when it predates this column or capture failed. */
+  promptSnapshot: string | null;
 };
 
 let failureAlertSubscription: string | null = null;
@@ -191,7 +191,7 @@ async function notifyFactoryAutomationFailure(
   );
 }
 
-async function recordFinishedAutomationPrompt(
+export async function recordFinishedAutomationPrompt(
   event: AutomationRunFinishedEvent,
 ): Promise<void> {
   if (
@@ -201,18 +201,20 @@ async function recordFinishedAutomationPrompt(
   ) {
     return;
   }
-  const owner = event.owner;
-  const resource = await resourceGetByPath(owner, event.path);
-  if (!resource) return;
-  const { body } = splitAutomationFrontmatter(resource.content);
+  // Read from the content captured at dispatch time, not the live resource:
+  // re-reading the live resource here would record whatever prompt is
+  // current when the run happens to finish, not the one it actually ran
+  // with, if the automation was edited while the run was in flight.
+  if (event.promptSnapshot == null) return;
+  const { body } = splitAutomationFrontmatter(event.promptSnapshot);
   const factoryId =
     readFactoryIdFromAutomationPath(event.path) ?? DEFAULT_FACTORY_ID;
   await recordFactoryAutomationRunPrompt({
-    identity: { userEmail: owner, orgId: event.orgId },
+    identity: { userEmail: event.owner, orgId: event.orgId },
     automationRunId: event.automationRunId,
     factoryId,
     path: event.path,
-    promptVersion: readPromptVersion(resource.content),
+    promptVersion: readPromptVersion(event.promptSnapshot),
     executionPromptHash: computeExecutionPromptHash(body),
   });
 }

@@ -12,7 +12,12 @@ const rawClient = {
     }
     const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
+    // The real db client always returns `rows` from the driver, regardless of
+    // statement type — an INSERT/UPDATE with RETURNING produces rows just
+    // like a SELECT does. Matching that here, not only `SELECT`, is what lets
+    // this fixture exercise an upsert-and-RETURNING allocator the same way
+    // production does.
+    if (/^\s*select/i.test(input.sql) || /\breturning\b/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
     const info = await stmt.run(...args);

@@ -31,6 +31,15 @@ registerEvent({
      *  start timestamp being readable, so "not measured" stays distinct from
      *  "took no time". */
     durationMs: z.number().nullable(),
+    /**
+     * The automation resource's exact content as read at dispatch time,
+     * before the run started — not the (possibly since-edited) live
+     * resource. Null for rows written before this column existed, or when
+     * capturing it at dispatch failed. A subscriber that needs to know what
+     * actually ran must use this instead of re-reading the current resource,
+     * which may have been saved over while the run was in flight.
+     */
+    promptSnapshot: z.string().nullable(),
   }),
 });
 
@@ -79,6 +88,13 @@ export interface StartAutomationRunInput {
   threadId?: string | null;
   /** A pre-created row still waiting for its background worker handoff. */
   dispatchPending?: boolean;
+  /**
+   * The automation resource's exact content as read at dispatch time, before
+   * the run starts executing. Passed through unchanged on the terminal event
+   * so a subscriber can audit what actually ran instead of re-reading the
+   * live resource, which may be edited while the run is in flight.
+   */
+  promptSnapshot?: string | null;
 }
 
 const TABLE = "automation_runs";
@@ -161,6 +177,11 @@ export const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[] = [
     name: "automation-runs-error-code",
     sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS error_code TEXT`,
   },
+  {
+    version: 6,
+    name: "automation-runs-prompt-snapshot",
+    sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS prompt_snapshot TEXT`,
+  },
 ];
 
 export async function runAutomationRunMigrations(
@@ -193,7 +214,8 @@ export async function ensureTable(): Promise<void> {
           error TEXT,
           error_code TEXT,
           claimed_at BIGINT,
-          dispatch_pending BIGINT NOT NULL DEFAULT 0
+          dispatch_pending BIGINT NOT NULL DEFAULT 0,
+          prompt_snapshot TEXT
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation ON ${TABLE} (owner, automation, started_at)`;
@@ -214,6 +236,11 @@ export async function ensureTable(): Promise<void> {
           TABLE,
           "error_code",
           `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS error_code TEXT`,
+        );
+        await ensureColumnExists(
+          TABLE,
+          "prompt_snapshot",
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS prompt_snapshot TEXT`,
         );
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
         return;
@@ -272,8 +299,8 @@ export async function startAutomationRun(
   await ensureTable();
   const id = randomUUID();
   await getDbExec().execute({
-    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, app_id, run_id, thread_id, status, started_at, dispatch_pending)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
+    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, app_id, run_id, thread_id, status, started_at, dispatch_pending, prompt_snapshot)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
     args: [
       id,
       input.owner,
@@ -286,6 +313,7 @@ export async function startAutomationRun(
       input.threadId ?? null,
       Date.now(),
       input.dispatchPending ? 1 : 0,
+      input.promptSnapshot ?? null,
     ],
   });
   await pruneAutomationRuns(input.owner, input.automation);
@@ -391,7 +419,7 @@ export async function finishAutomationRun(
 ): Promise<void> {
   await ensureTable();
   const existing = await getDbExec().execute({
-    sql: `SELECT owner, automation, path, org_id, run_id, thread_id, started_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
+    sql: `SELECT owner, automation, path, org_id, run_id, thread_id, started_at, prompt_snapshot FROM ${TABLE} WHERE id = ? LIMIT 1`,
     args: [id],
   });
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
@@ -425,6 +453,10 @@ export async function finishAutomationRun(
         errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
         durationMs:
           startedAt === null ? null : Math.max(0, finishedAt - startedAt),
+        promptSnapshot:
+          row.prompt_snapshot == null
+            ? null
+            : stringifyValue(row.prompt_snapshot),
       },
       { owner: stringifyValue(row.owner) },
     );
