@@ -4499,6 +4499,40 @@ export function collectTopLevelFrames(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
 ): FigNode[] {
+  type Affine = {
+    m00: number;
+    m01: number;
+    m02: number;
+    m10: number;
+    m11: number;
+    m12: number;
+  };
+  const identity: Affine = {
+    m00: 1,
+    m01: 0,
+    m02: 0,
+    m10: 0,
+    m11: 1,
+    m12: 0,
+  };
+  const multiply = (parentMatrix: Affine, localMatrix: Affine): Affine => ({
+    m00:
+      parentMatrix.m00 * localMatrix.m00 + parentMatrix.m01 * localMatrix.m10,
+    m01:
+      parentMatrix.m00 * localMatrix.m01 + parentMatrix.m01 * localMatrix.m11,
+    m02:
+      parentMatrix.m00 * localMatrix.m02 +
+      parentMatrix.m01 * localMatrix.m12 +
+      parentMatrix.m02,
+    m10:
+      parentMatrix.m10 * localMatrix.m00 + parentMatrix.m11 * localMatrix.m10,
+    m11:
+      parentMatrix.m10 * localMatrix.m01 + parentMatrix.m11 * localMatrix.m11,
+    m12:
+      parentMatrix.m10 * localMatrix.m02 +
+      parentMatrix.m11 * localMatrix.m12 +
+      parentMatrix.m12,
+  });
   const sortChildren = (kids: FigNode[]): FigNode[] =>
     kids.slice().sort((a, b) => {
       const pa = a.parentIndex?.position ?? "";
@@ -4509,10 +4543,10 @@ export function collectTopLevelFrames(
   const visitedSections = new Set<string>();
   const stack = sortChildren(childrenOf.get(guidKey(parent.guid)) ?? [])
     .reverse()
-    .map((node) => ({ node, depth: 1, x: 0, y: 0 }));
+    .map((node) => ({ node, depth: 1, matrix: identity }));
   let visited = 0;
   while (stack.length > 0) {
-    const { node, depth, x, y } = stack.pop()!;
+    const { node, depth, matrix } = stack.pop()!;
     visited += 1;
     if (visited > DEFAULT_MAX_RENDERED_NODES) {
       throw new Error(".fig section traversal exceeded its node budget.");
@@ -4521,11 +4555,7 @@ export function collectTopLevelFrames(
       throw new Error(".fig section tree is nested too deeply.");
     }
     if (!node.type || node.visible === false) continue;
-    // Accumulate ancestor SECTION offsets so a frame nested inside one or
-    // more sections still sorts by its true canvas position, not its
-    // position relative to the innermost section.
-    const nodeX = x + (node.transform?.m02 ?? 0);
-    const nodeY = y + (node.transform?.m12 ?? 0);
+    const nodeMatrix = multiply(matrix, node.transform ?? identity);
     if (node.type === "SECTION") {
       const key = guidKey(node.guid);
       if (visitedSections.has(key)) {
@@ -4537,14 +4567,13 @@ export function collectTopLevelFrames(
         stack.push({
           node: children[index]!,
           depth: depth + 1,
-          x: nodeX,
-          y: nodeY,
+          matrix: nodeMatrix,
         });
       }
       continue;
     }
     if (TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) {
-      out.push({ node, x: nodeX, y: nodeY });
+      out.push({ node, x: nodeMatrix.m02, y: nodeMatrix.m12 });
     }
   }
   return out

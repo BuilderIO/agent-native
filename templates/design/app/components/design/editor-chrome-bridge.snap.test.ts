@@ -153,6 +153,9 @@ function loadSnapMath(): {
 }
 
 const { rectBounds, computeMoveSnapOffset } = loadSnapMath();
+const mergeFlipIntoTransform = loadPureBridgeFn<
+  (transform: string, flipX: boolean, flipY: boolean) => string
+>("mergeFlipIntoTransform");
 
 // These functions read only their arguments (plus, for dragTargetForPointerDown,
 // the containerScopeAncestor helper it calls), so brace-extracted declarations
@@ -190,6 +193,53 @@ const nextStackCandidate =
   loadPureBridgeFn<(keys: string[], current: string | null) => string | null>(
     "nextStackCandidate",
   );
+const resolveCornerRadiusXY = loadPureBridgeFn<
+  (value: string, width: number, height: number) => { x: number; y: number }
+>("resolveCornerRadiusXY", ["resolveCornerRadiusComponent"]);
+const radiusDragMaximums =
+  loadPureBridgeFn<
+    (
+      corner: string,
+      radii: Record<string, { x: number; y: number }>,
+      width: number,
+      height: number,
+    ) => { x: number; y: number }
+  >("radiusDragMaximums");
+
+describe("editor-chrome bridge — resize transform preservation", () => {
+  it("preserves authored transforms until a relative mirror is required", () => {
+    const authored = "translate(15px, 20px) scale(-2, 3)";
+    expect(mergeFlipIntoTransform(authored, false, false)).toBe(authored);
+    expect(mergeFlipIntoTransform(authored, true, false)).toBe(
+      `${authored} matrix(-1, 0, 0, 1, 0, 0)`,
+    );
+    expect(
+      mergeFlipIntoTransform("matrix(2, 0, 0, 3, 15, 20)", false, true),
+    ).toBe("matrix(2, 0, 0, 3, 15, 20) matrix(1, 0, 0, -1, 0, 0)");
+  });
+});
+
+describe("editor-chrome bridge — corner radius math", () => {
+  it("resolves percentage radii against the border box axes", () => {
+    expect(resolveCornerRadiusXY("50%", 200, 100)).toEqual({ x: 100, y: 50 });
+  });
+
+  it("leaves room for the adjacent corners before clamping a drag", () => {
+    expect(
+      radiusDragMaximums(
+        "nw",
+        {
+          nw: { x: 10, y: 10 },
+          ne: { x: 140, y: 20 },
+          se: { x: 10, y: 10 },
+          sw: { x: 20, y: 70 },
+        },
+        200,
+        100,
+      ),
+    ).toEqual({ x: 60, y: 30 });
+  });
+});
 
 describe("editor-chrome bridge — dragTargetForPointerDown", () => {
   const selRect = {

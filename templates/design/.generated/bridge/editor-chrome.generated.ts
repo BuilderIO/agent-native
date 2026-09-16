@@ -2904,7 +2904,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       "backgroundImage",
       "backgroundColor",
       "color",
-      "fill"
+      "fill",
+      "borderRadius",
+      "borderTopLeftRadius",
+      "borderTopRightRadius",
+      "borderBottomRightRadius",
+      "borderBottomLeftRadius"
     ];
     function collectInlineStyles(el) {
       var styles = {};
@@ -3606,7 +3611,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var handle = document.createElement("span");
       handle.setAttribute("data-agent-native-edit-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : pos === "e" || pos === "w" ? "ew-resize" : pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize";
-      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,0.25);pointer-events:auto;cursor:" + cursor + ";";
+      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" + cursor + ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -3624,7 +3629,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     ["nw", "ne", "se", "sw"].forEach(function(pos) {
       var handle = document.createElement("span");
       handle.setAttribute("data-agent-native-radius-handle", pos);
-      handle.style.cssText = "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,0.25);pointer-events:auto;cursor:pointer;display:none;";
+      handle.style.cssText = "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:pointer;display:none;";
       selectionOverlay.appendChild(handle);
     });
     (function() {
@@ -3717,7 +3722,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.body.appendChild(constraintGuideLayer);
     var sizeBadge = document.createElement("div");
     sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
-    sizeBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color, #0d99ff);color:var(--design-editor-accent-contrast-color, #ffffff);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.15);";
+    sizeBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 15%,transparent);";
     document.body.appendChild(sizeBadge);
     var insertionGuide = document.createElement("div");
     insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
@@ -5708,7 +5713,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       var radiusHandlesSupported = supportsCornerRadiusHandles(el);
       selectionOverlay.querySelectorAll("[data-agent-native-radius-handle]").forEach(function(handle) {
-        if (!radiusHandlesSupported || !(elWidth > 0) || !(elHeight > 0)) {
+        if (readOnly || !!activeTextEditEl || !radiusHandlesSupported || !(elWidth > 0) || !(elHeight > 0)) {
           handle.style.display = "none";
           return;
         }
@@ -6726,7 +6731,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function setSelectionOverlayResizeChromeVisible(visible) {
       selectionOverlay.querySelectorAll(
-        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]"
+        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]"
       ).forEach(function(node) {
         if (!(node instanceof HTMLElement)) return;
         node.style.display = visible ? "" : "none";
@@ -7549,6 +7554,74 @@ export const editorChromeBridgeScript: string = `"use strict";
         )
       };
     }
+    function borderBoxDimensions(cs) {
+      var width = readPx(cs.width);
+      var height = readPx(cs.height);
+      if (cs.boxSizing === "border-box") return { width, height };
+      width += readPx(cs.paddingLeft) + readPx(cs.paddingRight) + readPx(cs.borderLeftWidth) + readPx(cs.borderRightWidth);
+      height += readPx(cs.paddingTop) + readPx(cs.paddingBottom) + readPx(cs.borderTopWidth) + readPx(cs.borderBottomWidth);
+      return { width, height };
+    }
+    function radiusLinearTransform(el) {
+      var cs = window.getComputedStyle(el);
+      var transform = { a: 1, b: 0, c: 0, d: 1 };
+      if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
+        try {
+          var matrix = new DOMMatrixReadOnly(cs.transform);
+          transform = { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
+        } catch (err) {
+          void err;
+        }
+      }
+      var scaleParts = (cs.scale || "none").trim().split(/\\s+/).map(function(part) {
+        return parseFloat(part);
+      });
+      var scaleX = Number.isFinite(scaleParts[0]) ? scaleParts[0] : 1;
+      var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
+      var angle = independentRotation(cs.rotate || "");
+      var radians = angle * Math.PI / 180;
+      var cos = Math.cos(radians);
+      var sin = Math.sin(radians);
+      var rotateScale = {
+        a: cos * scaleX,
+        b: sin * scaleX,
+        c: -sin * scaleY,
+        d: cos * scaleY
+      };
+      return {
+        a: transform.a * rotateScale.a + transform.c * rotateScale.b,
+        b: transform.b * rotateScale.a + transform.d * rotateScale.b,
+        c: transform.a * rotateScale.c + transform.c * rotateScale.d,
+        d: transform.b * rotateScale.c + transform.d * rotateScale.d
+      };
+    }
+    function radiusLocalDelta(el, screenDx, screenDy) {
+      var matrix = radiusLinearTransform(el);
+      var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+      if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-4) {
+        return { x: screenDx, y: screenDy };
+      }
+      return {
+        x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
+        y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant
+      };
+    }
+    function cornerRadiusMap(cs, width, height) {
+      return {
+        nw: resolveCornerRadiusXY(cs.borderTopLeftRadius, width, height),
+        ne: resolveCornerRadiusXY(cs.borderTopRightRadius, width, height),
+        se: resolveCornerRadiusXY(cs.borderBottomRightRadius, width, height),
+        sw: resolveCornerRadiusXY(cs.borderBottomLeftRadius, width, height)
+      };
+    }
+    function radiusDragMaximums(corner, radii, width, height) {
+      var horizontalNeighbor = corner === "nw" ? radii.ne.x : corner === "ne" ? radii.nw.x : corner === "se" ? radii.sw.x : radii.se.x;
+      var verticalNeighbor = corner === "nw" ? radii.sw.y : corner === "ne" ? radii.se.y : corner === "se" ? radii.ne.y : radii.nw.y;
+      return {
+        x: Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
+        y: Math.max(0, Math.min(height / 2, height - verticalNeighbor))
+      };
+    }
     var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
       nw: "borderTopLeftRadius",
       ne: "borderTopRightRadius",
@@ -7915,47 +7988,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return ((transform && transform !== "none" ? transform + " " : "") + "rotate(" + degrees + "deg)").trim();
     }
-    function flipFromTransform(transform, independentScale) {
-      var value = transform || "";
-      var signX = 1;
-      var signY = 1;
-      var re = /scale(X|Y)?\\(\\s*([^)]+)\\s*\\)/gi;
-      var match;
-      while (match = re.exec(value)) {
-        var axis = match[1];
-        var args = match[2].split(",").map(function(part) {
-          return parseFloat(part);
-        });
-        if (axis === "X") {
-          if (Number.isFinite(args[0])) signX *= args[0] < 0 ? -1 : 1;
-        } else if (axis === "Y") {
-          if (Number.isFinite(args[0])) signY *= args[0] < 0 ? -1 : 1;
-        } else {
-          var sx = args[0];
-          var sy = args.length > 1 ? args[1] : args[0];
-          if (Number.isFinite(sx)) signX *= sx < 0 ? -1 : 1;
-          if (Number.isFinite(sy)) signY *= sy < 0 ? -1 : 1;
-        }
-      }
-      if (independentScale && independentScale !== "none") {
-        var isParts = independentScale.trim().split(/\\s+/).map(function(part) {
-          return parseFloat(part);
-        });
-        var isx = isParts[0];
-        var isy = isParts.length > 1 ? isParts[1] : isParts[0];
-        if (Number.isFinite(isx)) signX *= isx < 0 ? -1 : 1;
-        if (Number.isFinite(isy)) signY *= isy < 0 ? -1 : 1;
-      }
-      return { x: signX < 0, y: signY < 0 };
-    }
     function mergeFlipIntoTransform(transform, flipX, flipY) {
       var base = transform && transform !== "none" ? transform : "";
-      if (/^matrix(?:3d)?\\(/i.test(base.trim())) {
-        var angle = rotationFromTransform(base);
-        base = angle ? "rotate(" + angle + "deg)" : "";
-      }
-      base = base.replace(/\\s*scaleX\\(\\s*-?1\\s*\\)/gi, "").replace(/\\s*scaleY\\(\\s*-?1\\s*\\)/gi, "").replace(/\\s*scale\\(\\s*-?1\\s*(?:,\\s*-?1\\s*)?\\)/gi, "").trim();
-      var suffix = (flipX ? " scaleX(-1)" : "") + (flipY ? " scaleY(-1)" : "");
+      var suffix = (flipX ? " matrix(-1, 0, 0, 1, 0, 0)" : "") + (flipY ? " matrix(1, 0, 0, -1, 0, 0)" : "");
       return (base + suffix).trim();
     }
     function ensurePositionable(el) {
@@ -11906,10 +11941,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       ensurePositionable(resizeEl);
       var cs = window.getComputedStyle(resizeEl);
       var flipTransformBase = originalInlineTransform && originalInlineTransform !== "none" ? originalInlineTransform : cs.transform;
-      var originFlip = flipFromTransform(
-        flipTransformBase,
-        cs.scale
-      );
       var originW = readPx(cs.width);
       var originH = readPx(cs.height);
       var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
@@ -11961,6 +11992,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       var widthTouched = false;
       var heightTouched = false;
+      var transformTouched = false;
       var scaledStyleTargetsCache = null;
       function scaledStyleTargets() {
         if (!scaledStyleTargetsCache) {
@@ -12015,8 +12047,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var movingTop = handle.indexOf("n") !== -1 ? anchorTop - height : anchorTop + height;
         var widthCrossed = width < 0;
         var heightCrossed = height < 0;
-        var flipX = originFlip.x !== widthCrossed;
-        var flipY = originFlip.y !== heightCrossed;
+        var flipX = widthCrossed;
+        var flipY = heightCrossed;
         left = Math.min(anchorLeft, movingLeft);
         width = Math.max(1, Math.abs(movingLeft - anchorLeft));
         top = Math.min(anchorTop, movingTop);
@@ -12059,11 +12091,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
         if (heightTouched)
           resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
-        resizeEl.style.transform = mergeFlipIntoTransform(
-          flipTransformBase,
-          rect.flipX,
-          rect.flipY
-        );
+        if (rect.flipX || rect.flipY) {
+          transformTouched = true;
+          resizeEl.style.transform = mergeFlipIntoTransform(
+            flipTransformBase,
+            rect.flipX,
+            rect.flipY
+          );
+        } else if (transformTouched) {
+          resizeEl.style.transform = originalInlineTransform;
+        }
         if (scaleToolEnabled) {
           var kScaleFactor = rect.width / Math.max(1, origin.width);
           if (originFontSize > 0 && !svgViewBoxScalesFont) {
@@ -12083,8 +12120,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
         if (widthTouched) previewStyles.width = resizeEl.style.width;
         if (heightTouched) previewStyles.height = resizeEl.style.height;
-        if (resizeEl.style.transform)
-          previewStyles.transform = resizeEl.style.transform;
+        if (transformTouched) previewStyles.transform = resizeEl.style.transform;
         if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
           previewStyles.fontSize = resizeEl.style.fontSize;
         }
@@ -12597,21 +12633,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       var radiusEl = selectedEl;
       var cs = window.getComputedStyle(radiusEl);
       var cornerProperty = CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
-      var elWidthPx = readPx(cs.width);
-      var elHeightPx = readPx(cs.height);
+      rememberLiveVisualEditOriginalStyles(radiusEl);
+      var borderBox = borderBoxDimensions(cs);
+      var elWidthPx = borderBox.width;
+      var elHeightPx = borderBox.height;
       var originRadius = resolveCornerRadiusXY(
         radiusEl.style[cornerProperty] || cs[cornerProperty],
         elWidthPx,
         elHeightPx
       );
-      var maxRadiusX = Math.max(0, elWidthPx / 2);
-      var maxRadiusY = Math.max(0, elHeightPx / 2);
+      var maxRadius = radiusDragMaximums(
+        corner,
+        cornerRadiusMap(cs, elWidthPx, elHeightPx),
+        elWidthPx,
+        elHeightPx
+      );
+      var maxRadiusX = maxRadius.x;
+      var maxRadiusY = maxRadius.y;
       var originalRadiusValue = radiusEl.style[cornerProperty];
       var startX = e.clientX;
       var startY = e.clientY;
-      var theta = currentRotation(radiusEl) * Math.PI / 180;
-      var cos = Math.cos(theta);
-      var sin = Math.sin(theta);
+      var radiusMoved = false;
       var signX = corner.indexOf("w") !== -1 ? 1 : -1;
       var signY = corner.indexOf("n") !== -1 ? 1 : -1;
       function applyRadius(nextX, nextY) {
@@ -12623,11 +12665,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!radiusEl) return;
         var screenDx = ev.clientX - startX;
         var screenDy = ev.clientY - startY;
-        var localDx = screenDx * cos + screenDy * sin;
-        var localDy = -screenDx * sin + screenDy * cos;
+        if (screenDx === 0 && screenDy === 0) return;
+        radiusMoved = true;
+        var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
         applyRadius(
-          originRadius.x + localDx * signX,
-          originRadius.y + localDy * signY
+          originRadius.x + local.x * signX,
+          originRadius.y + local.y * signY
         );
         applySelectionHandleHitGeometry(radiusEl);
         refreshOverlays();
@@ -12657,6 +12700,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       function onUp() {
         cleanupRadiusDrag();
         if (!radiusEl) return;
+        if (!radiusMoved) return;
         var styles = {};
         styles[cornerProperty] = radiusEl.style[cornerProperty];
         window.parent.postMessage(

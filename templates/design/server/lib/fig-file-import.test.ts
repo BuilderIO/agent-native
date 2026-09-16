@@ -26,7 +26,11 @@ import {
   convertDecodedFigToEditableHtml,
   importFigFileToEditableHtml,
 } from "./fig-file-import.js";
-import { renderHtmlTemplates } from "./fig-file-to-html.js";
+import {
+  collectTopLevelFrames,
+  renderHtmlTemplates,
+  type FigNode,
+} from "./fig-file-to-html.js";
 
 function kiwiContainer(chunks: Buffer[], version = 124): Buffer {
   const header = Buffer.alloc(12);
@@ -416,6 +420,57 @@ describe("editable .fig conversion", () => {
 
     expect(rendered.frames[0]!.html).toContain("left: 26px; top: 0px");
     expect(rendered.frames[0]!.html).toContain("left: 10px; top: 20px");
+  });
+
+  it("sorts section frames by their full accumulated affine transform", () => {
+    const guid = (localID: number) => ({ sessionID: 1, localID });
+    const transform = (
+      m00: number,
+      m01: number,
+      m02: number,
+      m10: number,
+      m11: number,
+      m12: number,
+    ) => ({
+      m00,
+      m01,
+      m02,
+      m10,
+      m11,
+      m12,
+    });
+    const page: FigNode = { guid: guid(1), type: "CANVAS" };
+    const rotatedSection: FigNode = {
+      guid: guid(2),
+      type: "SECTION",
+      transform: transform(0, -1, 100, 1, 0, 0),
+    };
+    const rotatedFrame: FigNode = {
+      guid: guid(3),
+      type: "FRAME",
+      name: "Rotated section frame",
+      transform: transform(1, 0, 0, 0, 1, 200),
+    };
+    const rightSection: FigNode = {
+      guid: guid(4),
+      type: "SECTION",
+      transform: transform(1, 0, -50, 0, 1, 0),
+    };
+    const rightFrame: FigNode = {
+      guid: guid(5),
+      type: "FRAME",
+      name: "Right frame",
+      transform: transform(1, 0, 0, 0, 1, 0),
+    };
+    const childrenOf = new Map<string, FigNode[]>([
+      ["1:1", [rotatedSection, rightSection]],
+      ["1:2", [rotatedFrame]],
+      ["1:4", [rightFrame]],
+    ]);
+
+    expect(
+      collectTopLevelFrames(page, childrenOf).map((frame) => frame.name),
+    ).toEqual(["Rotated section frame", "Right frame"]);
   });
 
   it("imports all frames from the uploaded file", async () => {
