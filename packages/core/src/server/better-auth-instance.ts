@@ -105,7 +105,10 @@ import {
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import { resolveDeployEnvironment } from "./deploy-environment.js";
+import {
+  isExplicitLocalDeployEnvironment,
+  resolveDeployEnvironment,
+} from "./deploy-environment.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
   renderChangeEmailConfirmationEmail,
@@ -592,9 +595,7 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   if (workspaceDerivedSecret) return workspaceDerivedSecret;
 
   const deployEnvironment = resolveDeployEnvironment();
-  const explicitlyLocal =
-    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase() ===
-    "local";
+  const explicitlyLocal = isExplicitLocalDeployEnvironment();
 
   // In production, beyond the workspace A2A-derived fallback above, never
   // auto-generate or use legacy fallbacks. A generated secret invalidates every
