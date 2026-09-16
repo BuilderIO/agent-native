@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { getDesignCanvasIframeSandbox } from "./design-canvas/external-preview";
+
 const source = (path: string) =>
   readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -25,6 +27,12 @@ describe("Design session replay iframe wiring", () => {
 
   it("keeps URL fallback frames live while preserving opaque srcdoc frames", () => {
     const multiScreenCanvas = source("./MultiScreenCanvas.tsx");
+    expect(
+      getDesignCanvasIframeSandbox({ externalPreview: true, readOnly: true }),
+    ).toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({ externalPreview: false, readOnly: true }),
+    ).not.toContain("allow-same-origin");
     const iframeBlock = (marker: string, endMarker: string) => {
       const start = multiScreenCanvas.lastIndexOf(
         "<iframe",
