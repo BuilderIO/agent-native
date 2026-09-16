@@ -2806,6 +2806,49 @@ describe("runNitroBuildPipeline", () => {
     expect(publicDirContentsAtNitroBuild).toContain("entry.client-abc.js");
   });
 
+  it("uses the explicitly paired client artifact for the trusted Nitro build", async () => {
+    const { cwd, clientDir, publicOutputDir } = setupFixture();
+    const pairedClientDir = path.join(cwd, "paired-client");
+    fs.mkdirSync(path.join(pairedClientDir, "assets"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pairedClientDir, "assets", "entry.client-paired.js"),
+      "paired-client",
+    );
+    const previous = process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;
+    process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR = pairedClientDir;
+    try {
+      const nitro: any = {
+        options: { output: { publicDir: publicOutputDir } },
+      };
+      await runNitroBuildPipeline({
+        nitro,
+        hooks: {
+          prepare: async () => {},
+          copyPublicAssets: async () => {},
+          nitroBuild: async () => {},
+        },
+        clientDir,
+        publicOutputDir,
+        appBasePath: "",
+        cwd,
+      });
+      expect(
+        fs.existsSync(
+          path.join(publicOutputDir, "assets", "entry.client-paired.js"),
+        ),
+      ).toBe(true);
+      expect(
+        fs.existsSync(
+          path.join(publicOutputDir, "assets", "entry.client-abc.js"),
+        ),
+      ).toBe(false);
+    } finally {
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;
+      else process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR = previous;
+    }
+  });
+
   it("mirrors client assets under the app base path when configured", async () => {
     const { cwd, clientDir, publicOutputDir } = setupFixture();
 
