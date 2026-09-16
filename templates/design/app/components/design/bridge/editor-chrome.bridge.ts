@@ -1964,14 +1964,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ];
 
   /** A rect padded so a hairline or empty box can still be hit and outlined. */
-  function selectableBounds(el: Element): {
+  interface SelectableBounds {
     left: number;
     top: number;
     right: number;
     bottom: number;
     width: number;
     height: number;
-  } {
+  }
+
+  function selectableBounds(el: Element): SelectableBounds {
     var rect = el.getBoundingClientRect();
     var padX =
       rect.width < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
@@ -3874,19 +3876,78 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return cs.display === "none" || cs.visibility === "hidden";
   }
 
-  function collectSelectableElementInfos(deep: boolean): unknown[] {
+  /** An `atPoint` that is present but unreadable must not silently widen into
+   *  "collect everything": the caller asked a point question, so a malformed
+   *  point is a caller bug, not a request for the whole document. Absent stays
+   *  absent (collect all); malformed throws. */
+  function readSelectablePoint(raw: unknown): SelectablePoint | null {
+    if (raw === undefined || raw === null) return null;
+    var point = raw as Partial<SelectablePoint>;
+    if (
+      typeof point.x !== "number" ||
+      typeof point.y !== "number" ||
+      !isFinite(point.x) ||
+      !isFinite(point.y)
+    ) {
+      throw new Error(
+        "agent-native:collect-selectable-rects received a malformed atPoint",
+      );
+    }
+    return { x: point.x, y: point.y };
+  }
+
+  interface SelectablePoint {
+    x: number;
+    y: number;
+  }
+
+  function collectSelectableElementInfos(
+    deep: boolean,
+    atPoint?: SelectablePoint | null,
+  ): unknown[] {
     // This answers agent-native:collect-selectable-rects, which the overview
     // host uses for BOTH the overview marquee (scoped: direct children of
     // the current container, like the in-iframe marquee) and double-click
     // drill-in/click-to-pick (deep: needs every descendant to walk one level
     // further per repeat click) — the caller says which via `deep`.
-    return collectSelectableElements(deep).map(function (target) {
-      // Bulk candidates only need identity plus geometry. A selected
-      // candidate is replayed through select-element for the full inspector
-      // payload; portable snapshots here make deep picking quadratic in the
-      // number of descendants.
-      return getLightElementInfo(target, true);
+    var targets = collectSelectableElements(deep);
+    // getElementInfo is the expensive part by two orders of magnitude: it
+    // snapshots portable computed styles for the element AND its whole
+    // subtree. A drill-in/pick asks a POINT question and then discards every
+    // candidate whose box misses that point (drillInChainAtPoint), so
+    // narrowing here — before the map — is the difference between building
+    // ~1200 infos and building the handful actually on the containment
+    // chain. Deliberately a superset of the host's own filter: padded like
+    // selectableBounds and given a rounding tolerance, because the host
+    // re-filters in board space and must never lose a candidate this pass
+    // dropped.
+    if (atPoint) {
+      targets = targets.filter(function (el) {
+        return documentSpaceBoundsContainPoint(el, atPoint);
+      });
+    }
+    return targets.map(function (target) {
+      return getElementInfo(target);
     });
+  }
+
+  /** Containment test in the same document space getElementInfo reports
+   *  boundingRect in (client rect + scroll), padded like selectableBounds so a
+   *  hairline element under the pointer stays reachable. */
+  function documentSpaceBoundsContainPoint(
+    el: Element,
+    point: SelectablePoint,
+  ): boolean {
+    var bounds = selectableBounds(el);
+    var scrollX = window.scrollX || window.pageXOffset || 0;
+    var scrollY = window.scrollY || window.pageYOffset || 0;
+    var tolerance = 1;
+    return (
+      point.x >= bounds.left + scrollX - tolerance &&
+      point.x <= bounds.right + scrollX + tolerance &&
+      point.y >= bounds.top + scrollY - tolerance &&
+      point.y <= bounds.bottom + scrollY + tolerance
+    );
   }
 
   var shieldOverlay = document.createElement("div");
@@ -4449,8 +4510,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     moved: boolean;
     pointerId?: number;
     candidates?: Element[];
-    candidateBounds?: ReturnType<typeof selectableBounds>[];
-    lastReportedElements?: Element[];
+    /** Parallel to `candidates`: each candidate's padded bounds, measured once
+     *  per gesture. A marquee never changes layout, so re-measuring every
+     *  candidate on every mousemove was pure waste. */
+    candidateBounds?: SelectableBounds[];
+    /** Per-gesture getElementInfo memo. The same element is re-reported on
+     *  every tick it stays inside the band, and getElementInfo snapshots
+     *  portable computed styles for the element AND its subtree — so without
+     *  this the drag pays that cost once per element PER TICK. Valid only
+     *  while the gesture runs, which is exactly while layout is frozen. */
+    infoCache?: Map<Element, unknown>;
+    moveFrame?: number | null;
+    pendingMoveEvent?: MouseEvent | null;
     move: string;
     up: string;
     onMove: (ev: MouseEvent) => void;
@@ -4948,11 +5019,42 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
   }
 
+  /** Grows/shrinks the pooled passive overlays to `count`. A style change
+   *  rebuilds the pool, because the two styles are different cssText. */
+  var passiveSelectionOverlayPoolStyle: "default" | "soft" = "default";
+  function syncPassiveSelectionOverlayPool(
+    count: number,
+    style: "default" | "soft",
+  ): void {
+    if (style !== passiveSelectionOverlayPoolStyle) {
+      removePassiveSelectionOverlays();
+      passiveSelectionOverlayPoolStyle = style;
+    }
+    while (passiveSelectionOverlays.length > count) {
+      var extra = passiveSelectionOverlays.pop();
+      if (extra && extra.parentNode) extra.parentNode.removeChild(extra);
+    }
+    while (passiveSelectionOverlays.length < count) {
+      passiveSelectionOverlays.push(makePassiveSelectionOverlay(style));
+    }
+  }
+
+  function samePassiveSelectionElements(
+    current: Element[],
+    next: Element[],
+  ): boolean {
+    if (current.length !== next.length) return false;
+    for (var index = 0; index < current.length; index += 1) {
+      if (current[index] !== next[index]) return false;
+    }
+    return true;
+  }
+
   function setPassiveSelectionElements(
     elements: Element[],
     style: "default" | "soft" = "default",
   ): void {
-    passiveSelectionEls = elements.filter(function (el, index, all) {
+    var nextPassiveEls = elements.filter(function (el, index, all) {
       return (
         el &&
         el !== selectedEl &&
@@ -4960,11 +5062,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         all.indexOf(el) === index
       );
     });
-    removePassiveSelectionOverlays();
-    passiveSelectionEls.forEach(function (el) {
-      var overlay = makePassiveSelectionOverlay(style);
-      passiveSelectionOverlays.push(overlay);
-      positionOverlay(overlay, el);
+    // A marquee drag reports on every frame, but the hit-set only changes on
+    // the frames where the band actually crosses an element boundary. Tearing
+    // down and rebuilding every passive overlay on the unchanged frames was
+    // one DOM write plus one forced layout read per selected element per
+    // frame, for no visible difference.
+    if (
+      style === passiveSelectionOverlayPoolStyle &&
+      passiveSelectionOverlays.length === nextPassiveEls.length &&
+      samePassiveSelectionElements(passiveSelectionEls, nextPassiveEls)
+    ) {
+      passiveSelectionEls = nextPassiveEls;
+      positionMultiSelectionBounds();
+      return;
+    }
+    passiveSelectionEls = nextPassiveEls;
+    // Pool the overlay nodes rather than dropping and re-creating one per
+    // selected element: a marquee changes the hit-set on most frames, and the
+    // create/append/remove churn invalidated layout right before
+    // positionOverlay read it back, turning every frame into N forced
+    // reflows.
+    syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
+    passiveSelectionEls.forEach(function (el, index) {
+      var overlay = passiveSelectionOverlays[index];
+      if (overlay) positionOverlay(overlay, el);
     });
     // Selection changes do not go through refreshOverlays, so the combined
     // bounds must be recomputed here too.
@@ -7506,7 +7627,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
     if (!placedRotatedLocalBox) {
-      var rect = el.getBoundingClientRect();
+      // Only the primary selection overlay consumes this (updateComponentTag
+      // below); a marquee repositions every passive overlay on every frame,
+      // so measuring for them too was a forced layout per hit per tick.
+      var rect =
+        overlay === selectionOverlay ? el.getBoundingClientRect() : undefined;
       // Only a degenerate box is padded, so every normal outline still matches
       // the element rect exactly.
       var box = selectableBounds(el);
@@ -8937,6 +9062,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function clearActiveMarqueeSelection(): void {
     if (!activeMarqueeSelection) return;
+    if (activeMarqueeSelection.moveFrame != null) {
+      window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
+      activeMarqueeSelection.moveFrame = null;
+    }
     document.removeEventListener(
       activeMarqueeSelection.move,
       activeMarqueeSelection.onMove,
@@ -9002,19 +9131,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     additive: boolean,
     e,
     final?: boolean,
+    infoCache?: Map<Element, unknown> | null,
   ): void {
-    var primaryIndex = elements.length - 1;
     (window.parent as Window).postMessage(
       {
         type: "agent-native:layer-marquee-selection",
         phase: "change",
-        // Multi-selection consumers need identity for every hit, but only the
-        // primary (last) item drives the inspector. Avoid building computed
-        // styles and portable snapshots for every sibling on every drag tick.
-        payload: elements.map(function (el, index) {
-          return index === primaryIndex
-            ? getElementInfo(el)
-            : getLightElementInfo(el, true);
+        payload: elements.map(function (el) {
+          if (!infoCache) return getElementInfo(el);
+          var cached = infoCache.get(el);
+          if (cached === undefined) {
+            cached = getElementInfo(el);
+            infoCache.set(el, cached);
+          }
+          return cached;
         }),
         intent: {
           additive: additive,
@@ -9049,18 +9179,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     marqueeSelectionOverlay.style.height = rect.height + "px";
 
     // Collected once per gesture: this runs on every pointermove, and a
-    // generated screen can hold thousands of nodes.
-    var candidates = activeMarqueeSelection.candidates;
-    if (!candidates) {
-      candidates = collectSelectableElements(activeMarqueeSelection.deep);
-      activeMarqueeSelection.candidates = candidates;
-      // ponytail: snapshot bounds for this gesture; recompute per frame if
-      // animated or scrolling targets ever need live marquee tracking.
-      activeMarqueeSelection.candidateBounds = candidates.map(selectableBounds);
+    // generated screen can hold thousands of nodes. Bounds are measured in the
+    // same pass — a marquee moves the band, never the page, so every
+    // candidate's box is constant for the life of the gesture.
+    if (!activeMarqueeSelection.candidates) {
+      var collected = collectSelectableElements(activeMarqueeSelection.deep);
+      activeMarqueeSelection.candidates = collected;
+      activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
     }
-    var candidateBounds = activeMarqueeSelection.candidateBounds!;
-    var hitElements = candidates.filter(function (_el, index) {
+    var candidates = activeMarqueeSelection.candidates;
+    var candidateBounds = activeMarqueeSelection.candidateBounds || [];
+    var hitElements: Element[] = [];
+    for (var index = 0; index < candidates.length; index += 1) {
       var bounds = candidateBounds[index];
+      if (!bounds) continue;
       // A candidate that encloses the band is the container being banded
       // inside, not something aimed at: sweeping it in selects the whole
       // screen and every later drag moves everything.
@@ -9070,15 +9202,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bounds.right >= rect.right &&
         bounds.bottom >= rect.bottom
       ) {
-        return false;
+        continue;
       }
-      return rectsIntersect(rect, {
-        left: bounds.left,
-        top: bounds.top,
-        right: bounds.right,
-        bottom: bounds.bottom,
-      });
-    });
+      if (rectsIntersect(rect, bounds)) {
+        hitElements.push(candidates[index]!);
+      }
+    }
     var primary = hitElements[hitElements.length - 1] || null;
     if (primary) {
       selectedEl = primary;
@@ -9088,23 +9217,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     setPassiveSelectionElements(hitElements);
-    // The host also dedupes unchanged hit sets, but doing it after postMessage
-    // still pays to serialize every selection payload. Skip identical live
-    // ticks here; mouseup must always send the final packet for undo history.
-    var lastReported = activeMarqueeSelection.lastReportedElements;
-    var sameHitSet =
-      !!lastReported &&
-      lastReported.length === hitElements.length &&
-      hitElements.every(function (el, index) {
-        return lastReported![index] === el;
-      });
-    if (!final && sameHitSet) return;
-    activeMarqueeSelection.lastReportedElements = hitElements;
     postElementMarqueeSelect(
       hitElements,
       activeMarqueeSelection.additive,
       e,
       final,
+      activeMarqueeSelection.infoCache,
     );
   }
 
@@ -9116,6 +9234,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     clearActiveMarqueeSelection();
     var events = dragEventNames(e);
     var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+    // rAF-coalesce raw move events, mirroring the host canvas's own drag
+    // listeners (PF15 in MultiScreenCanvas.installDragListeners). A pointer
+    // can emit several moves per frame; each one repositions the band,
+    // rebuilds passive overlays, and posts a selection message, so doing that
+    // per-event rather than per-frame was the dominant cost of the gesture.
+    // Latest-wins, and mouseup force-flushes so the gesture always ends on the
+    // true final pointer position.
+    function flushMarqueeMove() {
+      var session = activeMarqueeSelection;
+      if (!session) return;
+      if (session.moveFrame != null) {
+        window.cancelAnimationFrame(session.moveFrame);
+        session.moveFrame = null;
+      }
+      var ev = session.pendingMoveEvent;
+      if (!ev) return;
+      session.pendingMoveEvent = null;
+      updateMarqueeSelection(ev);
+    }
     function onMove(ev) {
       if (!activeMarqueeSelection) return;
       if (
@@ -9132,12 +9269,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         suppressNextShieldClickBriefly();
       }
       stopNativeInteraction(ev);
-      updateMarqueeSelection(ev);
+      activeMarqueeSelection.pendingMoveEvent = ev;
+      if (activeMarqueeSelection.moveFrame != null) return;
+      activeMarqueeSelection.moveFrame = window.requestAnimationFrame(
+        function () {
+          if (!activeMarqueeSelection) return;
+          activeMarqueeSelection.moveFrame = null;
+          flushMarqueeMove();
+        },
+      );
     }
     function onUp(ev) {
       var didMove = Boolean(activeMarqueeSelection?.moved);
       if (didMove) {
         stopNativeInteraction(ev);
+        // Drop any frame still queued from the last move: this mouseup event
+        // carries the final position and must be the tick tagged `final`,
+        // or the host never gets its one-drag-one-undo history entry.
+        if (
+          activeMarqueeSelection &&
+          activeMarqueeSelection.moveFrame != null
+        ) {
+          window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
+          activeMarqueeSelection.moveFrame = null;
+        }
+        if (activeMarqueeSelection)
+          activeMarqueeSelection.pendingMoveEvent = null;
         updateMarqueeSelection(ev, true);
         suppressNextShieldClickBriefly();
       }
@@ -9150,6 +9307,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       additive: additive,
       deep: Boolean(e && (e.metaKey || e.ctrlKey)),
       moved: false,
+      infoCache: new Map<Element, unknown>(),
+      moveFrame: null,
+      pendingMoveEvent: null,
       pointerId: e.pointerId,
       move: events.move,
       up: events.up,
@@ -14482,12 +14642,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalSelectedEl = selectedEl;
     var duplicatedForDrag = false;
     var duplicatedSourceNodeIdMap: Array<[string, string]> | undefined;
+    // Client-space vector from the clone's own layout box back to the box the
+    // pointer grabbed. A flow clone is inserted one slot after its source, so
+    // its layout box sits a whole slot away from the grab point; dragGrabRect
+    // below anchors every geometry baseline of this gesture to the grabbed box
+    // instead, so the duplicate drags, previews, and drops from where the user
+    // took hold of it.
+    var duplicateGrabOffset: { x: number; y: number } | null = null;
     if (
       e.altKey &&
       selectedEl &&
       selectedEl !== document.body &&
       selectedEl !== document.documentElement
     ) {
+      var grabbedRect = selectedEl.getBoundingClientRect();
       var clone = selectedEl.cloneNode(true);
       duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
       selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
@@ -14495,6 +14663,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectedEl = clone;
       duplicatedForDrag = true;
       gestureEl = clone;
+      var insertedRect = (clone as Element).getBoundingClientRect();
+      duplicateGrabOffset = {
+        x: grabbedRect.left - insertedRect.left,
+        y: grabbedRect.top - insertedRect.top,
+      };
       positionOverlay(selectionOverlay, selectedEl);
       // No `e` here: this reselects the clone mid-gesture, before the drag's
       // own commit persists it (postVisualDuplicateChange, at gesture end).
@@ -14502,6 +14675,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // the host records every intent-carrying pick as its own undo step —
       // stacking a stray one under this gesture's real content entry.
       postElementSelect(selectedEl);
+    }
+    // Read every drag baseline through this, never getBoundingClientRect
+    // directly: an alt-drag clone must be measured at the box the pointer
+    // grabbed, not at the flow slot it was inserted into. Identity for every
+    // other drag.
+    function dragGrabRect(el: Element): DOMRect {
+      var rect = el.getBoundingClientRect();
+      if (!duplicateGrabOffset || el !== gestureEl) return rect;
+      return new DOMRect(
+        rect.left + duplicateGrabOffset.x,
+        rect.top + duplicateGrabOffset.y,
+        rect.width,
+        rect.height,
+      );
     }
     // Multi-select group move: every member of the current 2+ selection moves
     // with the gesture when the drag started on a member. Alt-drag duplicates
@@ -14593,7 +14780,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // clear-selection postMessage cannot mutate the wrong element mid-drag.
       var reorderEl = gestureEl;
       var reorderGroupStartRects = groupEls.map(function (member) {
-        return member.getBoundingClientRect();
+        return dragGrabRect(member);
       });
       // Capture structural + inline positioning origins before any drop
       // preparation. Control-dragging a flow child calls
@@ -14609,7 +14796,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           prevInlinePositionStyles: snapshotInlinePositionStyles(member),
         };
       });
-      var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+      var reorderGestureStartRect = dragGrabRect(reorderEl);
       var reorderLastTargetKey = null;
       var keepCurrentFlowParent = bridgeSpaceKeyPressed;
       // Ctrl/Cmd overrides auto-layout drag resistance for the WHOLE
@@ -14640,7 +14827,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
       crossScreenClaimedByHost = false;
       var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
-      var reorderRect = reorderEl.getBoundingClientRect();
+      var reorderRect = dragGrabRect(reorderEl);
       var reorderPointerStart = pointerStartParam || e;
       var reorderPointerOffset = {
         x: reorderPointerStart.clientX - reorderRect.left,
@@ -14709,12 +14896,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // Translate FIRST so movement is in screen space (an authored rotate
           // would otherwise send the drag off-axis), composed with the element's
           // own transform (inline OR class/stylesheet) so the drag never wipes
-          // it.
+          // it. The grab offset rides along so an alt-drag clone follows the
+          // cursor from the grabbed box rather than from its inserted slot.
+          var liftDx = dx + (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+          var liftDy = dy + (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
           el.style.transform =
             "translate(" +
-            dx +
+            liftDx +
             "px, " +
-            dy +
+            liftDy +
             "px)" +
             (snap.authoredTransform ? " " + snap.authoredTransform : "");
         });
@@ -14730,6 +14920,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           el.style.pointerEvents = snap.prevPointerEvents;
         });
         reorderLiftedMembers = [];
+      }
+      // Without this the clone renders in the slot it was inserted into until
+      // the first pointer move, so the gesture opens with the element visibly
+      // jumping away from the cursor.
+      if (
+        duplicateGrabOffset &&
+        (duplicateGrabOffset.x !== 0 || duplicateGrabOffset.y !== 0)
+      ) {
+        applyReorderLift(0, 0);
+        positionOverlay(selectionOverlay, selectedEl);
       }
       // Live sibling reflow, restricted to same-container simple-packed flex so
       // a constant per-sibling shift always matches the real drop; ported from
@@ -19249,7 +19449,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             typeof e.data.correlationId === "string"
               ? e.data.correlationId
               : "",
-          payload: collectSelectableElementInfos(Boolean(e.data.deep)),
+          payload: collectSelectableElementInfos(
+            Boolean(e.data.deep),
+            readSelectablePoint(e.data.atPoint),
+          ),
         },
         "*",
       );

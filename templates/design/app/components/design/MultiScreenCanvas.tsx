@@ -153,6 +153,7 @@ import type {
   TransformBadge,
   VectorEditOverlayState,
 } from "./multi-screen/types";
+import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
 import { type ElementInfo, type PortableStyleSnapshot } from "./types";
 
 /**
@@ -172,7 +173,12 @@ const DRAG_THRESHOLD = 3;
 // One postMessage round trip into an iframe. 80ms was tuned on a warm local
 // dev server; a cold hosted screen or a large generated document blows it, and
 // a late reply is dropped as if the screen held nothing selectable.
-const SELECTABLE_RECTS_REPLY_TIMEOUT_MS = 400;
+// A drill-in narrows the collect to the pointer's containment chain and answers
+// in ~100ms, but an area query (the marquee) still builds info for every
+// candidate on the screen, which measures near a second on a large generated
+// document. Giving up at 400ms there did not make the marquee faster — it made
+// in-screen layers unselectable while the abandoned pass still ran.
+const SELECTABLE_RECTS_REPLY_TIMEOUT_MS = 2_000;
 // A drop-guide preview may flicker if a reply is late; a commit may not guess.
 // Resolving the commit's anchor from a timeout changes where the layer lands.
 const HIT_TEST_PREVIEW_TIMEOUT_MS = 250;
@@ -3656,7 +3662,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     | { status: "unanswered"; reason: "no-iframe" | "timeout" };
 
   const requestSelectableElementInfos = useCallback(
-    (screenId: string, deep: boolean): Promise<SelectableRectsReply> => {
+    (
+      screenId: string,
+      deep: boolean,
+      /** Screen-local point. When given, the bridge only builds ElementInfo
+       *  for candidates whose box contains it — the drill-in/pick question —
+       *  instead of for every selectable node on the screen. */
+      atPoint?: Point | null,
+    ): Promise<SelectableRectsReply> => {
       const targetScreen = screensRef.current.find((s) => s.id === screenId);
       const iframeId = targetScreen
         ? getActiveScreenIframeId(targetScreen)
@@ -3718,6 +3731,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             type: "agent-native:collect-selectable-rects",
             correlationId,
             deep,
+            ...(atPoint ? { atPoint } : {}),
           },
           "*",
         );
@@ -3743,7 +3757,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  (`drillIntoScreenAtPoint`) always pass true — they need the full
    *  descendant list to walk one level deeper per repeat click/click. */
   const collectLayerMarqueeCandidates = useCallback(
-    async (screenIds?: Set<string>, deep = false) => {
+    async (
+      screenIds?: Set<string>,
+      deep = false,
+      /** Board-space point for a drill-in/pick. Converted into each frame's
+       *  own local space so the bridge can skip building ElementInfo for
+       *  candidates the containment chain would discard anyway. */
+      atBoardPoint?: Point | null,
+    ) => {
       const unanswered: Array<{
         screenId: string;
         reason: "no-iframe" | "timeout";
@@ -3751,7 +3772,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const frameEntries = getSelectableFrameEntries().filter(
         (entry) => !screenIds || screenIds.has(entry.id),
       );
-      const frameCandidates = await Promise.all(
+      // Started, not awaited: the board request must not queue behind the
+      // screens' round-trips. A single slow screen would otherwise burn the
+      // whole reply timeout before the board — whose own iframe is ready —
+      // is even asked, and a marquee that ends in the meantime drops it.
+      const frameCandidatesPromise = Promise.all(
         frameEntries.map(async (entry) => {
           const screen = screensRef.current.find(
             (item) => item.id === entry.id,
@@ -3763,12 +3788,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const metadata = getResolvedMetadata(screen);
           const viewportWidth = iframe?.clientWidth || metadata.width;
           const viewportHeight = iframe?.clientHeight || metadata.height;
-          const reply = await requestSelectableElementInfos(entry.id, deep);
-          if (reply.status !== "ok") {
-            unanswered.push({ screenId: entry.id, reason: reply.reason });
-            return [] as CanvasLayerMarqueeCandidate[];
-          }
-          const infos = reply.infos;
           // entry.geometry.height trails the measured auto-height, and an
           // independent y-scale off it squashes every child rect.
           const contentScale =
@@ -3777,6 +3796,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             ...entry.geometry,
             height: viewportHeight * contentScale,
           };
+          const reply = await requestSelectableElementInfos(
+            entry.id,
+            deep,
+            atBoardPoint
+              ? boardPointToScreenLocalPoint(atBoardPoint, renderedFrame, {
+                  width: viewportWidth,
+                  height: viewportHeight,
+                })
+              : null,
+          );
+          if (reply.status !== "ok") {
+            unanswered.push({ screenId: entry.id, reason: reply.reason });
+            return [] as CanvasLayerMarqueeCandidate[];
+          }
+          const infos = reply.infos;
           return infos.map((info) => ({
             screenId: entry.id,
             info,
@@ -3794,14 +3828,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }));
         }),
       );
-      const boardCandidates =
+      const boardCandidatesPromise =
         boardFileId &&
         boardSurfaceRenderGeometry &&
         (!screenIds || screenIds.has(boardFileId))
-          ? await (async () => {
+          ? (async () => {
               const reply = await requestSelectableElementInfos(
                 boardFileId,
                 deep,
+                atBoardPoint
+                  ? boardPointToScreenLocalPoint(
+                      atBoardPoint,
+                      boardSurfaceRenderGeometry,
+                      {
+                        width: boardSurfaceRenderGeometry.width,
+                        height: boardSurfaceRenderGeometry.height,
+                      },
+                    )
+                  : null,
               );
               if (reply.status !== "ok") {
                 unanswered.push({
@@ -3829,7 +3873,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 frameGeometry: boardSurfaceRenderGeometry,
               }));
             })()
-          : [];
+          : Promise.resolve([] as CanvasLayerMarqueeCandidate[]);
+      const [frameCandidates, boardCandidates] = await Promise.all([
+        frameCandidatesPromise,
+        boardCandidatesPromise,
+      ]);
       if (unanswered.length > 0) {
         dndHostLog("overview:selectable-rects-unanswered", { unanswered });
       }
@@ -3867,40 +3915,42 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // Deep: drill-in/pick must see nested descendants to walk one level
       // further per repeat click — unlike a marquee, which stops at the
       // current container scope's direct children by default.
-      void collectLayerMarqueeCandidates(new Set([id]), true).then((result) => {
-        if (drillInRequestRef.current !== requestId) return;
-        if (result.unanswered.length > 0) {
-          // The screen never answered, so "nothing under the pointer" is not
-          // knowable. Keep the current selection instead of clearing it.
-          return;
-        }
-        const candidates = result.candidates;
-        const target =
-          mode === "pick"
-            ? resolvePickTargetAtPoint({ candidates, screenId: id, point })
-            : resolveDrillInTarget({
-                candidates,
-                screenId: id,
-                point,
-                previousKey,
-              });
-        if (!target) {
-          // Nothing selectable under the pointer (e.g. an empty frame). Leave
-          // the frame itself selected rather than falling back to Interact.
-          drillInTargetRef.current = null;
-          return;
-        }
-        drillInTargetRef.current = {
-          screenId: id,
-          key: drillInCandidateKey(target),
-        };
-        updateSelectedDraftIds(() => []);
-        updateSelectedIds(() => []);
-        onLayerMarqueeSelectionChange?.(
-          [{ screenId: target.screenId, info: target.info }],
-          { source: "pointer" },
-        );
-      });
+      void collectLayerMarqueeCandidates(new Set([id]), true, point).then(
+        (result) => {
+          if (drillInRequestRef.current !== requestId) return;
+          if (result.unanswered.length > 0) {
+            // The screen never answered, so "nothing under the pointer" is not
+            // knowable. Keep the current selection instead of clearing it.
+            return;
+          }
+          const candidates = result.candidates;
+          const target =
+            mode === "pick"
+              ? resolvePickTargetAtPoint({ candidates, screenId: id, point })
+              : resolveDrillInTarget({
+                  candidates,
+                  screenId: id,
+                  point,
+                  previousKey,
+                });
+          if (!target) {
+            // Nothing selectable under the pointer (e.g. an empty frame). Leave
+            // the frame itself selected rather than falling back to Interact.
+            drillInTargetRef.current = null;
+            return;
+          }
+          drillInTargetRef.current = {
+            screenId: id,
+            key: drillInCandidateKey(target),
+          };
+          updateSelectedDraftIds(() => []);
+          updateSelectedIds(() => []);
+          onLayerMarqueeSelectionChange?.(
+            [{ screenId: target.screenId, info: target.info }],
+            { source: "pointer" },
+          );
+        },
+      );
     },
     [
       collectLayerMarqueeCandidates,
@@ -4473,6 +4523,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // in flight or done.
       const collectedScreenIds = new Set<string>();
       const collectingScreenIds = new Set<string>();
+      // A screen that answered too slowly once will answer too slowly again:
+      // the collect runs on the iframe's own single thread, so re-asking every
+      // tick queues another full pass behind the one we already gave up on and
+      // makes the rest of the drag progressively worse. "No iframe yet" is the
+      // opposite case — transient, and worth retrying — which is why the reply
+      // distinguishes the two reasons.
+      const timedOutScreenIds = new Set<string>();
       // Figma parity: one marquee drag is one undo step. Every tick below
       // reports its hit-set as it changes, but the host only records
       // selection history for the report tagged `final` — see
@@ -4523,7 +4580,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       };
       const collectForIntersectedScreens = (hitIds: string[]) => {
         const newIds = hitIds.filter(
-          (id) => !collectedScreenIds.has(id) && !collectingScreenIds.has(id),
+          (id) =>
+            !collectedScreenIds.has(id) &&
+            !collectingScreenIds.has(id) &&
+            !timedOutScreenIds.has(id),
         );
         // The board spans the whole surface, so include it once anything
         // intersects (or immediately, for the initial zero-size rect) rather
@@ -4532,7 +4592,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           boardFileId &&
           boardFrameGeometry &&
           !collectedScreenIds.has(boardFileId) &&
-          !collectingScreenIds.has(boardFileId)
+          !collectingScreenIds.has(boardFileId) &&
+          !timedOutScreenIds.has(boardFileId)
         ) {
           newIds.push(boardFileId);
         }
@@ -4544,6 +4605,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             const unanswered = new Set(
               result.unanswered.map((entry) => entry.screenId),
             );
+            result.unanswered.forEach((entry) => {
+              if (entry.reason === "timeout")
+                timedOutScreenIds.add(entry.screenId);
+            });
             newIds.forEach((id) => {
               collectingScreenIds.delete(id);
               // A screen that never answered is not "collected" — leave it out
@@ -9369,6 +9434,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
                 background: CANVAS_BACKGROUND_VAR,
+                ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
               }}
             />
           </div>
@@ -11491,12 +11557,7 @@ const Screen = memo(function Screen({
                   transformOrigin: "top left",
                   backgroundColor: "white",
                   colorScheme: "light",
-                  // Prevent the browser from discarding the composited layer at
-                  // fractional zoom levels, which causes the iframe to go black.
-                  // backface-visibility:hidden forces the browser to keep the
-                  // backing store alive even when the effective scale is very small
-                  // (e.g. 0.25 iframe scale × 0.5 canvas zoom = 0.125 total).
-                  backfaceVisibility: "hidden",
+                  ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
                 }}
                 title={screen.filename}
               />
@@ -12254,7 +12315,7 @@ function BreakpointPreviewRow({
                       transformOrigin: "top left",
                       backgroundColor: "white",
                       colorScheme: "light",
-                      backfaceVisibility: "hidden",
+                      ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
                     }}
                     title={`${screen.filename} — ${breakpointLabel(widthPx)}`}
                   />
