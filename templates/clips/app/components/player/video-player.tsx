@@ -397,6 +397,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // not a deliberate viewer choice. The viewer's first real gesture inside
     // the player clears it and restores sound (see `unmuteAutoplayFallback`).
     const autoMutedRef = useRef(!!autoPlay);
+    const lastAutoMutedRecordingIdRef = useRef(recordingId);
     const [speed, setSpeed] = useState(() =>
       readPlaybackSpeedPreference(defaultSpeed),
     );
@@ -1369,7 +1370,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
       autoPlayAttemptedSourceRef.current = "";
-      autoMutedRef.current = !!autoPlay;
+      // Only re-arm the autoplay-muted marker for an actual recording change.
+      // A repaired/replaced media URL for the *same* recording changes
+      // `activeVideoSourceIdentity` too, and must not overwrite a mute choice
+      // the viewer already made on this clip.
+      if (lastAutoMutedRecordingIdRef.current !== recordingId) {
+        lastAutoMutedRecordingIdRef.current = recordingId;
+        autoMutedRef.current = !!autoPlay;
+      }
       clearPlayAttemptWatchdog();
       setCanPlay(false);
       setIsPlayPending(!!autoPlay);
