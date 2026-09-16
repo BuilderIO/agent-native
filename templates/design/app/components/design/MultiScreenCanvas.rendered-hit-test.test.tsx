@@ -184,17 +184,25 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
               id: "remote-settings",
               filename: "settings.html",
               content: "https://authenticated.example.test/settings",
+              sourceType: "localhost",
               breakpointWidths: [390],
             },
             {
               id: "remote-library",
               filename: "library.html",
               content: "https://authenticated.example.test/library",
+              sourceType: "fusion",
             },
             {
               id: "same-origin",
               filename: "editor-owned.html",
               content: `${window.location.origin}/editor-owned`,
+              sourceType: "localhost",
+            },
+            {
+              id: "untrusted",
+              filename: "untrusted.html",
+              content: "https://untrusted.example.test/landing",
             },
             {
               id: "inline",
@@ -234,6 +242,7 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
       "allow-scripts allow-same-origin",
     );
     expect(primarySandboxById.get("same-origin")).toBe("allow-scripts");
+    expect(primarySandboxById.get("untrusted")).toBe("allow-scripts");
     expect(primarySandboxById.get("inline")).toBe("allow-scripts");
 
     const breakpointFrames = Array.from(

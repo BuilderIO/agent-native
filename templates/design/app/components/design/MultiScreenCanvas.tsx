@@ -188,14 +188,22 @@ const FRAME_LABEL_HEIGHT = 28;
 const FRAME_HEADER_BUTTON_COMPACT_WIDTH = 260;
 const FRAME_HEADER_BUTTON_RESERVE = 116;
 const FRAME_HEADER_COMPACT_BUTTON_RESERVE = 32;
-// Cross-origin URL-backed fallback previews need their real origin for
-// origin-scoped session state. Keep same-origin URL fallbacks opaque: combining
-// allow-scripts with allow-same-origin would let them remove their sandbox.
+// Explicit localhost/Fusion URL previews need their real origin for
+// origin-scoped session state. Keep arbitrary URL content and same-origin URL
+// fallbacks opaque: combining allow-scripts with allow-same-origin would let
+// them remove their sandbox.
 const URL_SCREEN_IFRAME_SANDBOX = "allow-scripts allow-same-origin";
 const INLINE_SCREEN_IFRAME_SANDBOX = "allow-scripts";
 
-function getScreenIframeSandbox(previewUrl?: string): string {
-  if (!previewUrl || typeof window === "undefined") {
+function getScreenIframeSandbox(
+  previewUrl: string | undefined,
+  source: ResolvedScreenMetadata["source"],
+): string {
+  if (
+    !previewUrl ||
+    (source !== "localhost" && source !== "fusion") ||
+    typeof window === "undefined"
+  ) {
     return INLINE_SCREEN_IFRAME_SANDBOX;
   }
   try {
@@ -11944,7 +11952,7 @@ const Screen = memo(function Screen({
                 data-screen-iframe-id={screen.id}
                 src={previewUrl}
                 srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                sandbox={getScreenIframeSandbox(previewUrl)}
+                sandbox={getScreenIframeSandbox(previewUrl, metadata.source)}
                 // Visible includes the generous overscan band, so eager load
                 // here prewarms the document before it crosses the raw
                 // viewport edge. Warm hidden iframes are already loaded.
@@ -12730,7 +12738,10 @@ function BreakpointPreviewRow({
                     }}
                     src={previewUrl}
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                    sandbox={getScreenIframeSandbox(previewUrl)}
+                    sandbox={getScreenIframeSandbox(
+                      previewUrl,
+                      metadata.source,
+                    )}
                     onLoad={() => {
                       getBootStartCallback?.(
                         screen.id,
