@@ -179,11 +179,9 @@ export async function probeMediaDurationMs(
             "-nostdin",
             "-i",
             inputPath,
-            "-map",
-            requireComplete ? "0:v:0" : "0:v:0?",
             ...(requireComplete
-              ? ["-an", "-f", "null", "-"]
-              : ["-frames:v", "1", "-f", "null", "-"]),
+              ? ["-map", "0", "-f", "null", "-"]
+              : ["-map", "0:v:0?", "-frames:v", "1", "-f", "null", "-"]),
           ],
           requireComplete ? COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS : undefined,
         );
