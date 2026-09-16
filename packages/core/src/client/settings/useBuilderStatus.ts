@@ -1090,20 +1090,25 @@ export function useBuilderConnectFlow(
             );
           })();
         } else {
+          const isCurrentConnectAttempt = () =>
+            mountedRef.current &&
+            connectAttemptIdRef.current === connectAttemptId &&
+            connectStartedAtRef.current === started;
           const popupReady = embeddedWindow
             ? waitForBuilderConnectPopupLoad(
                 opened,
-                () => !mountedRef.current || isPopupClosed(opened),
+                () => !isCurrentConnectAttempt() || isPopupClosed(opened),
               )
             : Promise.resolve(true);
           showBuilderConnectPopupPlaceholder(opened);
           void (async () => {
             const s = await fetchStatus(undefined, connectAttemptId);
-            if (!mountedRef.current) {
+            if (!isCurrentConnectAttempt()) {
               try {
                 opened.close();
               } catch {
-                // Ignore close failures.
+                // coercion-ok: closing a popup from a superseded attempt is
+                // best effort.
               }
               return;
             }
@@ -1153,7 +1158,17 @@ export function useBuilderConnectFlow(
               );
               return;
             }
-            if (!(await popupReady)) {
+            const popupLoaded = await popupReady;
+            if (!isCurrentConnectAttempt()) {
+              try {
+                opened.close();
+              } catch {
+                // coercion-ok: closing a popup from a superseded attempt is
+                // best effort.
+              }
+              return;
+            }
+            if (!popupLoaded) {
               try {
                 opened.close();
               } catch {

@@ -561,6 +561,58 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("does not navigate an embedded popup after the connect attempt ends", async () => {
+    vi.useFakeTimers();
+    setEmbeddedWindow(true);
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const disconnectedStatus = {
+      configured: false,
+      envManaged: false,
+      builderEnabled: true,
+      orgName: null,
+      connectUrl: signedConnectUrl,
+      appHost: "https://builder.io",
+      apiHost: "https://api.builder.io",
+      publicKeyConfigured: false,
+      privateKeyConfigured: false,
+    };
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(jsonResponse(connectedBuilderStatus));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(container.textContent).toContain("configured idle resolved");
+
+    await act(async () => {
+      popup.fireLoad();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe("");
+    expect(popup.close).toHaveBeenCalled();
+  });
+
   it("marks the first-run popup for account provisioning", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
