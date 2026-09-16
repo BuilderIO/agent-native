@@ -38,6 +38,7 @@ export interface ReviewCommentComposerProps {
   onMentionsChange?: (mentions: ReviewMention[]) => void;
   mentionOptions?: readonly ReviewMention[];
   showCommentTools?: boolean;
+  commentToolsEnd?: ReactNode;
   emojiChoices?: readonly string[];
   emojiLabel?: string;
   mentionLabel?: string;
@@ -68,6 +69,7 @@ export function ReviewCommentComposer({
   onMentionsChange,
   mentionOptions = [],
   showCommentTools = false,
+  commentToolsEnd,
   emojiChoices = DEFAULT_COMPOSER_EMOJIS,
   emojiLabel = "Add emoji",
   mentionLabel = "Mention someone",
@@ -302,10 +304,16 @@ export function ReviewCommentComposer({
           }
         }}
       />
-      {showCommentTools || showCommentAction || showAgentAction ? (
+      {showCommentTools ||
+      commentToolsEnd ||
+      showCommentAction ||
+      showAgentAction ? (
         <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @2xs/review:flex-row @2xs/review:items-center">
-          {showCommentTools ? (
-            <div className="flex min-w-0 items-center gap-0.5 @2xs/review:me-auto">
+          {showCommentTools || commentToolsEnd ? (
+            <div
+              data-review-comment-tools
+              className="flex min-w-0 items-center gap-0.5 @2xs/review:me-auto"
+            >
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -395,6 +403,11 @@ export function ReviewCommentComposer({
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
+              ) : null}
+              {commentToolsEnd ? (
+                <div data-review-comment-tools-end className="shrink-0">
+                  {commentToolsEnd}
+                </div>
               ) : null}
             </div>
           ) : null}

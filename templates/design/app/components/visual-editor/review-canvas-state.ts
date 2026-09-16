@@ -14,11 +14,15 @@ export interface ReviewPinPosition {
 // Layer identity enriches the comment; the point remains user-authored.
 export function getReviewPinPosition(
   anchor: unknown,
+  screenId?: string | null,
 ): ReviewPinPosition | null {
   const parsed = parseReviewAnchor(anchor);
   if (!parsed) return null;
   return {
-    point: parsed.point,
+    point:
+      screenId && parsed.screenId === screenId && parsed.screenPoint
+        ? parsed.screenPoint
+        : parsed.point,
     source: parsed.nodeId ? "node" : parsed.selector ? "selector" : "point",
     ...(parsed.canvasPoint ? { canvasPoint: parsed.canvasPoint } : {}),
   };

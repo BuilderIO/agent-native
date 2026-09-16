@@ -505,6 +505,20 @@ export async function setAppMemberRoles(opts: {
   });
 }
 
+/** @deprecated Use setAppMemberRoles instead. */
+export async function setAppMemberRole(opts: {
+  appId: string;
+  orgId: string;
+  email: string;
+  role: string | null;
+  updatedBy: string;
+}): Promise<void> {
+  await setAppMemberRoles({
+    ...opts,
+    roles: opts.role === null ? [] : [opts.role],
+  });
+}
+
 export async function getAppPermissionOverrides(
   appId: string,
   orgId: string,

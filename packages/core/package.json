@@ -176,6 +176,7 @@
     "./client/AgentPanel": "./dist/client/AgentPanel.js",
     "./client/application-state": "./dist/client/application-state.js",
     "./client/api-path": "./dist/client/api-path.js",
+    "./client/oauth-popup": "./dist/client/oauth-popup.js",
     "./client/clipboard": "./dist/client/clipboard.js",
     "./client/route-state": "./dist/client/route-state.js",
     "./client/observability": "./dist/client/observability/index.js",

@@ -281,7 +281,17 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function layerNameForElement(el) {
       if (!el || !el.getAttribute) return "";
-      return el.getAttribute("data-agent-native-layer-name") || el.getAttribute("data-layer-name") || "";
+      var attributes = [
+        "data-agent-native-layer-name",
+        "data-layer-name",
+        "layer-name"
+      ];
+      for (var i = 0; i < attributes.length; i += 1) {
+        var value = el.getAttribute(attributes[i]);
+        var trimmed = value && value.trim ? value.trim() : "";
+        if (trimmed) return trimmed;
+      }
+      return "";
     }
     function isTemplateCloneElement(el) {
       var node = el;
@@ -807,6 +817,7 @@ export const hitTestBridgeScript: string = `"use strict";
             placement,
             axis,
             dropMode,
+            layerName: result ? layerNameForElement(result.anchor) || void 0 : void 0,
             anchorRect: anchorRect ? {
               left: anchorRect.left,
               top: anchorRect.top,
