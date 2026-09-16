@@ -206,6 +206,13 @@ describe("Netlify PR preview workflow guard", () => {
       reusableSource,
       /supplies static files; arbitrary PR Functions never reach Netlify\./,
     );
+    assert.match(reusableSource, /verify-netlify-prebuilt-client\.ts/);
+    assert.match(trustedPreviewBuildSource, /AGENT_NATIVE_PREBUILT_CLIENT_DIR/);
+    assert.match(reusableSource, /artifact_root\/client/);
+    assert(
+      reusableSource.indexOf("Verify paired client and publish artifacts") <
+        trustedPreviewBuildStart,
+    );
     assert.match(
       pullRequestPreviewSource,
       /needs\.deploy\.result != 'cancelled'/,
@@ -1118,11 +1125,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 13);
+    assert.equal(nodeHeredocs.length, 15);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      13,
+      15,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
@@ -1534,6 +1541,16 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(previewSmoke.run), /--check-assets/);
     assert.match(String(previewSmoke.run), /--asset-path \/overview/);
     assert.match(String(previewSmoke.run), /--preview/);
+    assert.match(String(previewSmoke.run), /immutable_url/);
+    assert.match(String(previewSmoke.run), /preview alias/);
+    assert.match(String(previewSmoke.run), /deploy_ssl_url/);
+    assert.match(String(previewSmoke.run), /NETLIFY_SITE_ID/);
+    assert.match(String(previewSmoke.run), /PREVIEW_ALIAS/);
+    assert.match(String(previewSmoke.run), /resolveNetlifyPreviewAliasUrl/);
+    assert.match(
+      String(previewSmoke.run),
+      /aliasUrl === process\.env\.DEPLOY_URL/,
+    );
     assert.doesNotMatch(String(previewSmoke.run), /--allow-missing-health/);
 
     assert(previewDatabaseMirror);

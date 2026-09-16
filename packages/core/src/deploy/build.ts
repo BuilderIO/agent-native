@@ -5041,6 +5041,7 @@ export interface NitroBuildPipelineOptions {
 }
 
 const DRIZZLE_MIGRATIONS_SOURCE_DIR = path.join("server", "db", "migrations");
+const PREBUILT_CLIENT_DIRECTORY_ENV = "AGENT_NATIVE_PREBUILT_CLIENT_DIR";
 
 function listDrizzleMigrationFiles(sourceDir: string): string[] {
   if (!fs.existsSync(sourceDir)) return [];
@@ -5101,7 +5102,9 @@ export async function runNitroBuildPipeline(
     cwd,
     includeImmutableAssetRouteRules = true,
   } = opts;
-  const hasClientBuild = fs.existsSync(clientDir) && Boolean(publicOutputDir);
+  const resolvedClientDir = resolveNitroClientDirectory(cwd, clientDir);
+  const hasClientBuild =
+    fs.existsSync(resolvedClientDir) && Boolean(publicOutputDir);
 
   if (hasClientBuild && includeImmutableAssetRouteRules) {
     // Install hashed-asset route rules before Nitro prepares platform output.
@@ -5111,7 +5114,7 @@ export async function runNitroBuildPipeline(
     nitro.options.routeRules ??= {};
     addImmutableAssetRouteRulesForClientBuild(
       nitro.options.routeRules,
-      clientDir,
+      resolvedClientDir,
       appBasePath,
     );
   }
@@ -5120,12 +5123,15 @@ export async function runNitroBuildPipeline(
   await hooks.copyPublicAssets(nitro);
 
   if (hasClientBuild && publicOutputDir) {
-    copyDir(clientDir, publicOutputDir);
+    copyDir(resolvedClientDir, publicOutputDir);
     if (
       appBasePath &&
       !publicDirIsMountedAtBasePath(publicOutputDir, appBasePath)
     ) {
-      copyDir(clientDir, path.join(publicOutputDir, appBasePath.slice(1)));
+      copyDir(
+        resolvedClientDir,
+        path.join(publicOutputDir, appBasePath.slice(1)),
+      );
     }
     console.log(
       `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
@@ -5133,6 +5139,30 @@ export async function runNitroBuildPipeline(
   }
 
   await hooks.nitroBuild(nitro);
+}
+
+function resolveNitroClientDirectory(
+  cwd: string,
+  defaultClientDirectory: string,
+): string {
+  const configured = process.env[PREBUILT_CLIENT_DIRECTORY_ENV]?.trim();
+  const clientDirectory = configured
+    ? path.resolve(configured)
+    : path.resolve(cwd, defaultClientDirectory);
+  if (
+    configured &&
+    !fs.statSync(clientDirectory, { throwIfNoEntry: false })?.isDirectory()
+  ) {
+    throw new Error(
+      `${PREBUILT_CLIENT_DIRECTORY_ENV} points to a missing client artifact: ${clientDirectory}`,
+    );
+  }
+  if (configured) {
+    console.log(
+      `[deploy] Using paired prebuilt client artifact from ${clientDirectory}`,
+    );
+  }
+  return clientDirectory;
 }
 
 /**

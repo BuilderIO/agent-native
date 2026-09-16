@@ -9,6 +9,26 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
+export function shouldRenderEmptyBoardReviewCanvas(args: {
+  hasSurfaceContent: boolean;
+  reviewPinMode: boolean;
+  reviewCommentsHidden: boolean;
+  reviewTargetId?: string | null;
+}): boolean {
+  return (
+    !args.hasSurfaceContent &&
+    !args.reviewCommentsHidden &&
+    (args.reviewPinMode || args.reviewTargetId === null)
+  );
+}
+
+export function shouldRenderOverviewReviewCanvas(args: {
+  boardFileId?: string;
+  boardFileContent?: string;
+}): boolean {
+  return !args.boardFileId || args.boardFileContent === undefined;
+}
+
 /**
  * `color-scheme` is load-bearing, not cosmetic. Chrome paints an opaque base
  * behind a frame whose scheme disagrees with its embedder, and that base sits

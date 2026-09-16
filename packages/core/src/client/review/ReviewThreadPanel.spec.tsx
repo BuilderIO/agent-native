@@ -77,6 +77,12 @@ vi.mock("./use-review.js", () => ({
   useCreateReviewComment: () => ({ mutate, isPending: false }),
   useDeleteReviewComment: () => ({ mutate, isPending: false }),
   useReplyReviewComment: () => ({ mutate, isPending: false }),
+  useReactToReviewComment: () => ({
+    mutate,
+    isPending: false,
+    variables: undefined,
+  }),
+  useUpdateReviewComment: () => ({ mutate, isPending: false }),
   useResolveReviewThread: () => ({ mutate, isPending: false }),
 }));
 
@@ -119,6 +125,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     act(() => root.unmount());
     container.remove();
     rootComment.body = "Make the heading clearer";
+    (rootComment as ReviewComment).mentions = [];
     (rootComment as ReviewComment).createdBy = "human";
     const comment = rootComment as ReviewComment & {
       resolutionNote?: string;
@@ -243,7 +250,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     act(() => replyButton?.click());
 
     expect(
-      container.querySelector('input[placeholder="Reply to this thread"]'),
+      container.querySelector('textarea[placeholder="Reply to this thread"]'),
     ).not.toBeNull();
     expect(
       container.querySelector('button[aria-label="Cancel reply"]'),
@@ -324,6 +331,58 @@ describe("ReviewThreadPanel sidebar layout", () => {
     ).toBeNull();
   });
 
+  it("preserves mentions while editing a comment", async () => {
+    const mention = { label: "Alice", email: "alice@example.com" };
+    rootComment.body = "Ping @Alice";
+    rootComment.mentions = [mention];
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canEditComment
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="More actions"]')
+        ?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+          }),
+        );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Edit comment");
+    expect(editItem).toBeTruthy();
+    await act(async () => editItem?.click());
+
+    const editComposer = document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Edit comment"]',
+    );
+    expect(editComposer).not.toBeNull();
+    setTextareaValue(editComposer!, "Ping @Alice updated");
+    const save = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Save",
+    );
+    await act(async () => save?.click());
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: "Ping @Alice updated",
+        mentions: [mention],
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("shows only the controls authorized for the current viewer", () => {
     act(() => {
       root.render(
@@ -352,7 +411,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
 
     act(() => replyButton?.click());
     expect(
-      container.querySelector('input[placeholder="Reply..."]'),
+      container.querySelector('textarea[placeholder="Reply..."]'),
     ).not.toBeNull();
 
     act(() => {

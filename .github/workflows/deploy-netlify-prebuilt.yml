@@ -407,15 +407,19 @@ jobs:
           TARGET_PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
         run: |
           set -euo pipefail
+          target_client_directory="${{ steps.target.outputs.client_directory }}"
           if [[ "$ARTIFACT_DOWNLOAD" == "true" ]]; then
             echo "publish_directory=$RUNNER_TEMP/netlify-artifact/publish" >> "$GITHUB_OUTPUT"
             if [[ "$TARGET" == "preview" ]]; then
               echo "functions_directory=$TARGET_FUNCTIONS_DIRECTORY" >> "$GITHUB_OUTPUT"
+              echo "client_directory=$RUNNER_TEMP/netlify-artifact/client" >> "$GITHUB_OUTPUT"
             else
               echo "functions_directory=$RUNNER_TEMP/netlify-artifact/functions" >> "$GITHUB_OUTPUT"
+              echo "client_directory=" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "functions_directory=$TARGET_FUNCTIONS_DIRECTORY" >> "$GITHUB_OUTPUT"
+            echo "client_directory=$target_client_directory" >> "$GITHUB_OUTPUT"
             echo "publish_directory=$TARGET_PUBLISH_DIRECTORY" >> "$GITHUB_OUTPUT"
           fi
 
@@ -551,12 +555,27 @@ jobs:
           netlify "${build_args[@]}"
           unset ANALYTICS_DATABASE_URL_SECRET
 
+      - name: Verify paired client and publish artifacts
+        if: >-
+          inputs.migration_only != true &&
+          inputs.target == 'preview' &&
+          (inputs.artifact_upload || inputs.artifact_download)
+        run: |
+          set -euo pipefail
+          client_directory="${{ steps.directories.outputs.client_directory }}"
+          publish_directory="${{ steps.directories.outputs.publish_directory }}"
+          : "${client_directory:?Client artifact directory is required}"
+          node --experimental-strip-types scripts/verify-netlify-prebuilt-client.ts \
+            --client "$client_directory" \
+            --publish "$publish_directory"
+
       - name: Build trusted preview Functions for the PR artifact
         if: >-
           inputs.target == 'preview' && inputs.deploy &&
           inputs.artifact_download && inputs.migration_only != true
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
+          AGENT_NATIVE_PREBUILT_CLIENT_DIR: ${{ steps.directories.outputs.client_directory }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
@@ -565,6 +584,7 @@ jobs:
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          : "${AGENT_NATIVE_PREBUILT_CLIENT_DIR:?Paired PR client artifact is required}"
           # This checkout is the trusted base revision. The PR build job only
           # supplies static files; arbitrary PR Functions never reach Netlify.
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" || "$SOURCE_TEMPLATE" == "crm" || "$SOURCE_TEMPLATE" == "chat" ]]; then
@@ -718,9 +738,14 @@ jobs:
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
+          client_directory="${{ steps.directories.outputs.client_directory }}"
           artifact_root="$RUNNER_TEMP/netlify-artifact"
           mkdir -p "$artifact_root/publish"
           cp -R "$PUBLISH_DIRECTORY"/. "$artifact_root/publish/"
+          if [[ "$TARGET" == "preview" ]]; then
+            mkdir -p "$artifact_root/client"
+            cp -R "$client_directory"/. "$artifact_root/client/"
+          fi
           if [[ "$TARGET" != "preview" ]]; then
             mkdir -p "$artifact_root/functions"
             cp -R "$FUNCTIONS_DIRECTORY"/. "$artifact_root/functions/"
@@ -2205,12 +2230,56 @@ jobs:
           steps.target.outputs.source_template != '@agent-native/docs'
         env:
           DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
           HOST: ${{ steps.target.outputs.host }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PREVIEW_ALIAS: ${{ inputs.preview_alias }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
+          immutable_url="$(node --experimental-strip-types <<'NODE'
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+
+            const response = await requestNetlifyApi(
+              `https://api.netlify.com/api/v1/deploys/${process.env.DEPLOY_ID}`,
+              { headers: { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` } },
+            );
+            const deploy = await response.json();
+            const url = deploy.deploy_ssl_url || deploy.ssl_url || deploy.deploy_url || deploy.url || "";
+            if (!response.ok || !/^https:\/\//.test(url)) {
+              throw new Error(`Netlify did not return an immutable deploy URL for ${process.env.DEPLOY_ID}.`);
+            }
+            process.stdout.write(url);
+          NODE
+          )"
+          alias_url="$(node --experimental-strip-types <<'NODE'
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const { resolveNetlifyPreviewAliasUrl } = await import("./scripts/netlify-prebuilt-target.ts");
+
+            const response = await requestNetlifyApi(
+              `https://api.netlify.com/api/v1/sites/${process.env.NETLIFY_SITE_ID}`,
+              { headers: { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` } },
+            );
+            const site = await response.json();
+            if (
+              !response.ok ||
+              site?.id !== process.env.NETLIFY_SITE_ID ||
+              typeof site?.name !== "string"
+            ) {
+              throw new Error(`Netlify did not return the preview site slug for ${process.env.NETLIFY_SITE_ID}.`);
+            }
+            const aliasUrl = resolveNetlifyPreviewAliasUrl(
+              process.env.PREVIEW_ALIAS,
+              site.name,
+            );
+            if (aliasUrl === process.env.DEPLOY_URL) {
+              throw new Error("Netlify preview alias resolved to the immutable deploy URL.");
+            }
+            process.stdout.write(aliasUrl);
+          NODE
+          )"
           smoke_args=(
-            --url "$DEPLOY_URL"
             --canonical-host "$HOST"
             --auth-routes
             --check-assets
@@ -2219,7 +2288,13 @@ jobs:
           if [[ "$SOURCE_TEMPLATE" == "dispatch" ]]; then
             smoke_args+=(--asset-path /overview)
           fi
-          node --experimental-strip-types scripts/smoke-check-health.ts "${smoke_args[@]}"
+          for probe in "immutable deploy|$immutable_url" "preview alias|$alias_url"; do
+            label="${probe%%|*}"
+            url="${probe#*|}"
+            echo "Smoke-testing $label: $url"
+            node --experimental-strip-types scripts/smoke-check-health.ts \
+              --url "$url" "${smoke_args[@]}"
+          done
 
       # The active managed client and its capability are observable only from
       # the live host, so this is a post-publish verification. If the declared

@@ -52,6 +52,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
+  buildReviewThreads,
   useReviewComments,
   useSendReviewThreadToAgent,
   type ReviewThread,
@@ -311,7 +312,10 @@ import {
   MotionDock,
   type MotionDockTrack,
 } from "@/components/design/MotionDock";
-import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/board-surface-html";
+import {
+  getBoardSurfaceContentBounds,
+  shouldRenderOverviewReviewCanvas,
+} from "@/components/design/multi-screen/board-surface-html";
 import {
   deviceViewportFloorForWidth,
   getCanonicalScreenStack,
@@ -340,6 +344,7 @@ import type {
   GradientEditOverlayTarget,
   MultiScreenCanvasTool,
   Point,
+  ScreenContentRenderOptions,
   ScreenProjectionNodeIdentity,
   VectorEditOverlayState,
 } from "@/components/design/multi-screen/types";
@@ -355,7 +360,11 @@ import {
   ResponsiveInteractBar,
   ResponsiveInteractExitButton,
 } from "@/components/design/ResponsiveInteractBar";
-import { type ReviewCommentsPanelProps } from "@/components/design/ReviewCommentsPanel";
+import { reviewThreadIdFromHash } from "@/components/design/review-link";
+import {
+  getUnreadReviewThreadIds,
+  type ReviewCommentsPanelProps,
+} from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
@@ -903,6 +912,12 @@ import {
   getBoardSelectionFitBounds,
 } from "./design-editor/overview-camera";
 import {
+  clearPendingEditSessionMarker,
+  readPendingEditSessionMarker,
+  type PendingEditSessionMarkerResult,
+  writePendingEditSessionMarker,
+} from "./design-editor/pending-edit-session-marker";
+import {
   applyInteractionStateStyleCommit,
   buildPendingVisualStyleRevertPatches,
   deriveStatePreviewTarget,
@@ -1334,6 +1349,37 @@ function DesignEditor() {
   const [pendingLiveNonStyleEdits, setPendingLiveNonStyleEdits] = useState<
     PendingLiveNonStyleEdit[]
   >([]);
+  const [pendingEditSessionMarker, setPendingEditSessionMarker] =
+    useState<PendingEditSessionMarkerResult>({ status: "absent" });
+  const [
+    pendingEditSessionRecoveryMarker,
+    setPendingEditSessionRecoveryMarker,
+  ] = useState<PendingEditSessionMarkerResult>({ status: "absent" });
+  const pendingEditSessionDesignIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    pendingEditSessionDesignIdRef.current = null;
+    const marker = readPendingEditSessionMarker(id);
+    setPendingEditSessionMarker(marker);
+    setPendingEditSessionRecoveryMarker(marker);
+  }, [id]);
+  const clearPendingEditSessionRecovery = useCallback(() => {
+    if (!id) return;
+    pendingEditSessionDesignIdRef.current = null;
+    const result = clearPendingEditSessionMarker(id);
+    const nextState: PendingEditSessionMarkerResult =
+      result.status === "cleared"
+        ? { status: "absent" }
+        : { status: "unavailable", reason: result.reason };
+    setPendingEditSessionMarker(nextState);
+    setPendingEditSessionRecoveryMarker(nextState);
+  }, [id]);
+  const clearPendingEditSessionRecoveryRef = useRef(
+    clearPendingEditSessionRecovery,
+  );
+  useEffect(() => {
+    clearPendingEditSessionRecoveryRef.current =
+      clearPendingEditSessionRecovery;
+  }, [clearPendingEditSessionRecovery]);
   const [pendingVisualStyleRevertRequest, setPendingVisualStyleRevertRequest] =
     useState<{
       requestId: number;
@@ -1545,6 +1591,9 @@ function DesignEditor() {
   const clearPendingLiveEditState = useCallback(() => {
     stagedSourceHandoffRef.current = "idle";
     setApplyingViaHost(false);
+    if (pendingEditSessionDesignIdRef.current === id) {
+      clearPendingEditSessionRecovery();
+    }
     if (stagedHandoffStartTimerRef.current !== undefined) {
       window.clearTimeout(stagedHandoffStartTimerRef.current);
       stagedHandoffStartTimerRef.current = undefined;
@@ -1563,7 +1612,7 @@ function DesignEditor() {
     pendingLiveNonStyleEditsRef.current = [];
     setPendingVisualStyleEdits([]);
     setPendingLiveNonStyleEdits([]);
-  }, [cancelPendingStructureVerification]);
+  }, [cancelPendingStructureVerification, clearPendingEditSessionRecovery, id]);
   const clearPendingLiveEditStateRef = useRef(clearPendingLiveEditState);
   useEffect(() => {
     clearPendingLiveEditStateRef.current = clearPendingLiveEditState;
@@ -1658,9 +1707,11 @@ function DesignEditor() {
   const [reviewFocusRequest, setReviewFocusRequest] = useState<{
     nonce: number;
     anchor: unknown;
-    targetId?: string;
+    targetId?: string | null;
+    threadId?: string;
   } | null>(null);
   const reviewFocusNonceRef = useRef(0);
+  const openedReviewHashRef = useRef<string | null>(null);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
   const layersRevealedForFirstCreateRef = useRef(false);
@@ -3434,23 +3485,19 @@ function DesignEditor() {
     {
       resourceType: "design",
       resourceId: id ?? "",
-      includeResolved: false,
+      includeResolved: true,
       limit: 500,
     },
     { enabled: Boolean(id) && !shellMode },
   );
   const reviewComments = reviewResult.data?.comments ?? [];
-  const reviewOpenThreadIds = useMemo(
+  const reviewUnreadCount = useMemo(
     () =>
-      new Set(
-        reviewComments
-          .filter(
-            (comment) =>
-              comment.status === "open" && comment.parentCommentId === null,
-          )
-          .map((comment) => comment.threadId),
-      ),
-    [reviewComments],
+      getUnreadReviewThreadIds(
+        reviewComments,
+        reviewResult.data?.discussion?.threadPreferences ?? {},
+      ).size,
+    [reviewComments, reviewResult.data?.discussion?.threadPreferences],
   );
   const reviewAgentQueueThreadIds = useMemo(
     () =>
@@ -3468,8 +3515,6 @@ function DesignEditor() {
     [reviewComments],
   );
   const persistedReviewSummary = readDesignReviewSummary(reviewResult.data);
-  const reviewOpenCount =
-    persistedReviewSummary?.openCount ?? reviewOpenThreadIds.size;
   const reviewAgentQueueCount =
     persistedReviewSummary?.agentQueueCount ?? reviewAgentQueueThreadIds.size;
   const sendReviewThreadToAgent = useSendReviewThreadToAgent();
@@ -7782,6 +7827,7 @@ function DesignEditor() {
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
+        replacementElementInfo?: ElementInfo;
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
@@ -9491,6 +9537,7 @@ function DesignEditor() {
         shouldClearSelectionForReviewThreadTarget({
           activeFileId: activeFile?.id,
           targetId,
+          boardFileId,
         })
       ) {
         setSelectedElement(null);
@@ -9499,15 +9546,16 @@ function DesignEditor() {
         setHoveredElementScreenId(null);
         setOverviewClearSelectionRequest((request) => request + 1);
       }
-      if (targetId) {
+      const boardTarget = targetId === null;
+      if (targetId || boardTarget) {
         // Review is editing context on the infinite canvas. Selecting a thread
         // reveals its screen there; it must not revive the removed focused
         // non-Interact view.
         viewModeRef.current = "overview";
         setViewMode("overview");
-        setActiveFileId(targetId);
-        setOverviewSelectedScreenIds([targetId]);
-        setSelectedLayerIdsState([targetId]);
+        setActiveFileId(boardTarget ? (boardFileId ?? null) : targetId);
+        setOverviewSelectedScreenIds(boardTarget ? [] : [targetId]);
+        setSelectedLayerIdsState(boardTarget ? [] : [targetId]);
         setMode("edit");
       }
       setActiveInspectorTab("comments");
@@ -9515,11 +9563,32 @@ function DesignEditor() {
       setReviewFocusRequest({
         nonce: reviewFocusNonceRef.current,
         anchor: thread.root.anchor,
-        targetId: targetId ?? undefined,
+        targetId,
+        threadId: thread.root.threadId,
       });
     },
-    [activeFile?.id],
+    [activeFile?.id, boardFileId],
   );
+
+  useEffect(() => {
+    if (!id || reviewResult.isLoading) return;
+    const threadId = reviewThreadIdFromHash(location.hash);
+    if (!threadId) return;
+    const hashKey = `${id}:${threadId}`;
+    if (openedReviewHashRef.current === hashKey) return;
+    const thread = buildReviewThreads(reviewComments).find(
+      (candidate) => candidate.root.threadId === threadId,
+    );
+    if (!thread) return;
+    openedReviewHashRef.current = hashKey;
+    handleReviewThreadSelect(thread);
+  }, [
+    handleReviewThreadSelect,
+    id,
+    location.hash,
+    reviewComments,
+    reviewResult.isLoading,
+  ]);
 
   const reviewCommentsPanelProps = useMemo<
     ReviewCommentsPanelProps | undefined
@@ -9529,6 +9598,9 @@ function DesignEditor() {
         ? {
             designId: id,
             canComment: canCommentDesign,
+            currentUserEmail: session?.email,
+            currentTargetId:
+              activeFile?.id === boardFileId ? null : activeFile?.id,
             canResolve: canEditDesign,
             canDeleteComment: (comment) =>
               canEditDesign ||
@@ -9546,6 +9618,7 @@ function DesignEditor() {
     [
       canCommentDesign,
       canEditDesign,
+      activeFile?.id,
       handleReviewThreadSelect,
       handleSendReviewThreadToAgent,
       id,
@@ -12018,6 +12091,7 @@ function DesignEditor() {
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
+        replacementElementInfo?: ElementInfo;
       },
     ) =>
       runVisualStructureChange(
@@ -12259,6 +12333,7 @@ function DesignEditor() {
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
+        replacementElementInfo?: ElementInfo;
       },
     ) =>
       runScreenVisualStructureChange(
@@ -15196,7 +15271,18 @@ function DesignEditor() {
   });
   historyDispatchRef.current = { undo: runCurrentUndo, redo: runCurrentRedo };
   const dispatchHistory = useCallback((direction: "undo" | "redo") => {
-    const run = () => historyDispatchRef.current[direction]();
+    const pendingCountBefore =
+      pendingVisualStyleEditsRef.current.length +
+      pendingLiveNonStyleEditsRef.current.length;
+    const run = () => {
+      historyDispatchRef.current[direction]();
+      const pendingCountAfter =
+        pendingVisualStyleEditsRef.current.length +
+        pendingLiveNonStyleEditsRef.current.length;
+      if (pendingCountBefore > 0 && pendingCountAfter === 0) {
+        clearPendingEditSessionRecoveryRef.current();
+      }
+    };
     const queue = linkedComponentMutationQueueRef.current?.queue;
     const pending = queue
       ? queue.dispatchHistory(queue.hasPending() ? () => flushSync(run) : run)
@@ -15852,12 +15938,13 @@ function DesignEditor() {
   );
 
   const handlePinToolToggle = useCallback(() => {
-    if (!activeFile || !canCommentDesign) return;
+    if (!canCommentDesign) return;
     if (pinMode) {
       handleExitReviewCommentMode();
       return;
     }
     setCommentsHidden(false);
+    setActiveInspectorTab("comments");
     // Comment pins are an editing overlay on the infinite canvas, not a third
     // focused view. If invoked from Interact, leave it before arming the pin.
     if (viewMode !== "overview") {
@@ -15868,7 +15955,6 @@ function DesignEditor() {
     setPinMode(true);
     setDrawMode(false);
   }, [
-    activeFile,
     canCommentDesign,
     enterOverviewFromZoom,
     handleExitReviewCommentMode,
@@ -16776,6 +16862,26 @@ function DesignEditor() {
       ),
     [pendingLiveNonStyleEdits, pendingVisualStyleEdits],
   );
+  useEffect(() => {
+    if (!id) return;
+    if (pendingVisualEditCount > 0) {
+      pendingEditSessionDesignIdRef.current = id;
+      const result = writePendingEditSessionMarker(id, pendingVisualEditCount);
+      setPendingEditSessionMarker(
+        result.status === "stored"
+          ? { status: "absent" }
+          : { status: "unavailable", reason: result.reason },
+      );
+      return;
+    }
+    if (pendingEditSessionDesignIdRef.current === id) {
+      pendingEditSessionDesignIdRef.current = null;
+      const result = clearPendingEditSessionMarker(id);
+      if (result.status === "unavailable") {
+        setPendingEditSessionMarker(result);
+      }
+    }
+  }, [id, pendingVisualEditCount]);
   const pendingVisualStyleScreenSourceTypes = useMemo(
     () =>
       new Map<string, unknown>(
@@ -16842,15 +16948,56 @@ function DesignEditor() {
       screenRoutesById,
     ],
   );
-  const visualEditPromptResult = useCallback<() => VisualEditPromptResult>(
-    () => ({
+  const visualEditPromptResult = useCallback<
+    () => VisualEditPromptResult
+  >(() => {
+    if (pendingVisualEditCount > 0) {
+      return {
+        designId: id ?? null,
+        pendingEditCount: pendingVisualEditCount,
+        status: "ready",
+        prompt: pendingVisualStylePrompt,
+      };
+    }
+    const recoveryMarker = pendingEditSessionRecoveryMarker;
+    if (recoveryMarker.status === "present") {
+      const count = recoveryMarker.marker.count;
+      return {
+        designId: id ?? null,
+        pendingEditCount: count,
+        status: "session-ended",
+        prompt: `The previous visual-edit session ended with ${count} pending edit${count === 1 ? "" : "s"}. Those live edits are no longer recoverable; recreate them in the canvas before asking the agent to apply source changes.`,
+      };
+    }
+    if (recoveryMarker.status === "unavailable") {
+      return {
+        designId: id ?? null,
+        pendingEditCount: 0,
+        status: "unknown",
+        prompt: `The previous visual-edit session marker could not be read (${recoveryMarker.reason}). Do not treat an empty prompt as proof that no edits were lost; inspect the source and recreate the intended canvas changes before applying.`,
+      };
+    }
+    if (pendingEditSessionMarker.status === "unavailable") {
+      return {
+        designId: id ?? null,
+        pendingEditCount: 0,
+        status: "unknown",
+        prompt: `The current visual-edit session marker could not be read (${pendingEditSessionMarker.reason}). Do not treat an empty prompt as proof that no edits were lost; inspect the source and recreate the intended canvas changes before applying.`,
+      };
+    }
+    return {
       designId: id ?? null,
-      pendingEditCount: pendingVisualEditCount,
-      status: pendingVisualEditCount > 0 ? "ready" : "empty",
+      pendingEditCount: 0,
+      status: "empty",
       prompt: pendingVisualStylePrompt,
-    }),
-    [id, pendingVisualEditCount, pendingVisualStylePrompt],
-  );
+    };
+  }, [
+    id,
+    pendingEditSessionMarker,
+    pendingEditSessionRecoveryMarker,
+    pendingVisualEditCount,
+    pendingVisualStylePrompt,
+  ]);
   const handleApplyPendingVisualStylesWithAgent = useCallback(
     async () =>
       runApplyPendingVisualStylesWithAgent({
@@ -21367,6 +21514,7 @@ function DesignEditor() {
       metadata: OverviewScreenRendererArgs[1],
       geometry: OverviewScreenRendererArgs[2],
       breakpointFrame?: OverviewBreakpointRendererArgs[2],
+      renderOptions?: ScreenContentRenderOptions,
     ) => {
       const breakpointWidthPx = breakpointFrame?.widthPx;
       const screenIsActive =
@@ -21493,6 +21641,8 @@ function DesignEditor() {
           nativePreviewActive={screenIsActive}
           previewToken={screenPreviewToken}
           externalSnapshotHtml={screenSnapshot}
+          onBootStart={renderOptions?.onBootStart}
+          onBootReady={renderOptions?.onBootReady}
           onExternalContentSnapshot={(snapshot) =>
             handleScreenExternalContentSnapshot(screen.id, snapshot)
           }
@@ -21662,6 +21812,13 @@ function DesignEditor() {
           commentPinsHidden={commentsHidden || !screenIsActive}
           onExitPinMode={handleExitReviewCommentMode}
           designId={id}
+          reviewCanPost={canCommentDesign}
+          reviewCanResolve={canEditDesign}
+          reviewCurrentUserEmail={session?.email}
+          reviewFocusRequest={reviewFocusRequest}
+          onDispatchCommentToAgent={handleDispatchCommentToAgent}
+          onSendThreadToAgent={handleSendReviewThreadToAgent}
+          reviewSendingThreadId={reviewSendingThreadId}
           designTitle={design?.title}
           commentContextId={`${id}:${screen.id}`}
           commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(screen.filename)}`}
@@ -21708,6 +21865,7 @@ function DesignEditor() {
       overviewCanvasZoom,
       mode,
       canEditDesign,
+      canCommentDesign,
       activeTool,
       pinMode,
       commentsHidden,
@@ -21740,6 +21898,11 @@ function DesignEditor() {
       cssVarValues,
       id,
       design?.title,
+      session?.email,
+      reviewFocusRequest,
+      handleDispatchCommentToAgent,
+      handleSendReviewThreadToAgent,
+      reviewSendingThreadId,
       repromptDraftRequest,
       handleRepromptDraftConsumed,
       handleExitReviewCommentMode,
@@ -21748,8 +21911,14 @@ function DesignEditor() {
     ],
   );
   const renderScreenContent = useCallback<OverviewScreenRenderer>(
-    (screen, metadata, geometry) =>
-      renderEditableScreenContent(screen, metadata, geometry),
+    (screen, metadata, geometry, options) =>
+      renderEditableScreenContent(
+        screen,
+        metadata,
+        geometry,
+        undefined,
+        options,
+      ),
     [renderEditableScreenContent],
   );
   const renderBreakpointContent = useCallback<OverviewBreakpointRenderer>(
@@ -21764,6 +21933,10 @@ function DesignEditor() {
           height: frame.displayHeight,
         },
         frame,
+        {
+          onBootStart: frame.onBootStart,
+          onBootReady: frame.onBootReady,
+        },
       ),
     [renderEditableScreenContent],
   );
@@ -23390,7 +23563,7 @@ function DesignEditor() {
     statesPanelProps,
     reviewPanelProps: resolvedReviewPanelProps,
     reviewCommentsPanelProps,
-    reviewCommentsCount: reviewOpenCount,
+    reviewCommentsCount: reviewUnreadCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     alignSelectionDisabled: !alignAvailability.canAlign,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
@@ -24289,6 +24462,19 @@ function DesignEditor() {
                         directlyHoveredScreenId={hoveredScreenRootId}
                         previewDeviceFrame={deviceFrame}
                         activeTool={activeTool}
+                        reviewResourceId={id}
+                        reviewPinMode={pinMode}
+                        reviewCommentsHidden={commentsHidden}
+                        reviewCanPost={canCommentDesign}
+                        reviewCanResolve={canEditDesign}
+                        reviewTargetId={null}
+                        reviewCurrentUserEmail={session?.email}
+                        reviewFocusRequest={reviewFocusRequest}
+                        onExitReviewPinMode={handleExitReviewCommentMode}
+                        onDispatchCommentToAgent={handleDispatchCommentToAgent}
+                        onSendThreadToAgent={handleSendReviewThreadToAgent}
+                        reviewSendingThreadId={reviewSendingThreadId}
+                        reviewDesignTitle={design?.title}
                         onActiveToolChange={handleOverviewActiveToolChange}
                         onCommentPin={
                           canCommentDesign
@@ -24469,9 +24655,14 @@ function DesignEditor() {
                         }
                         onEditBreakpoint={handleOverviewEditBreakpoint}
                         renderScreenContent={renderScreenContent}
+                        screenSnapshotsById={liveScreenSnapshotsById}
                         renderBreakpointContent={renderBreakpointContent}
                       />
-                      {id ? (
+                      {id &&
+                      shouldRenderOverviewReviewCanvas({
+                        boardFileId,
+                        boardFileContent,
+                      }) ? (
                         <ReviewCanvasPins
                           active={pinMode}
                           hidden={commentsHidden}
@@ -24727,6 +24918,7 @@ function DesignEditor() {
                         designId={id}
                         reviewCanPost={canCommentDesign}
                         reviewCanResolve={canEditDesign}
+                        reviewCurrentUserEmail={session?.email}
                         reviewFocusRequest={reviewFocusRequest}
                         onDispatchCommentToAgent={
                           canEditDesign

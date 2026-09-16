@@ -822,6 +822,15 @@ const reusableSteps = Array.isArray(reusableDeployJob?.steps)
   : [];
 const parsedStepIndex = (name: string) =>
   reusableSteps.findIndex((step) => step?.name === name);
+const parsedClientPairingIndex = parsedStepIndex(
+  "Verify paired client and publish artifacts",
+);
+const parsedTrustedPreviewBuildIndex = parsedStepIndex(
+  "Build trusted preview Functions for the PR artifact",
+);
+const parsedPreviewSmokeIndex = parsedStepIndex(
+  "Smoke-test the uploaded PR preview",
+);
 const parsedPauseIndex = parsedStepIndex(
   "Pause automatic Netlify builds for production cutover",
 );
@@ -850,6 +859,39 @@ const parsedResumeIndex = parsedStepIndex(
 const parsedCleanupIndex = parsedStepIndex(
   "Restore the production deploy lock after a failed cutover",
 );
+const parsedClientPairingStep = reusableSteps[parsedClientPairingIndex];
+const parsedPreviewSmokeStep = reusableSteps[parsedPreviewSmokeIndex];
+if (
+  parsedClientPairingIndex < 0 ||
+  parsedTrustedPreviewBuildIndex < 0 ||
+  parsedClientPairingIndex >= parsedTrustedPreviewBuildIndex ||
+  !reusable.includes("client_directory") ||
+  !reusable.includes("AGENT_NATIVE_PREBUILT_CLIENT_DIR") ||
+  !reusable.includes("verify-netlify-prebuilt-client.ts") ||
+  !reusable.includes("artifact_root/client") ||
+  !String(parsedClientPairingStep?.run ?? "").includes(
+    '--client "$client_directory"',
+  )
+) {
+  issues.push(
+    `${reusablePath} must pair the PR client artifact with publish output before the trusted Functions build`,
+  );
+}
+const previewSmokeRun = String(parsedPreviewSmokeStep?.run ?? "");
+if (
+  parsedPreviewSmokeIndex < 0 ||
+  !previewSmokeRun.includes("immutable_url") ||
+  !previewSmokeRun.includes("preview alias") ||
+  !previewSmokeRun.includes("deploy_ssl_url") ||
+  !previewSmokeRun.includes("NETLIFY_SITE_ID") ||
+  !previewSmokeRun.includes("PREVIEW_ALIAS") ||
+  !previewSmokeRun.includes("resolveNetlifyPreviewAliasUrl") ||
+  !previewSmokeRun.includes("aliasUrl === process.env.DEPLOY_URL")
+) {
+  issues.push(
+    `${reusablePath} PR preview smoke must probe both the immutable deploy URL and the mutable alias`,
+  );
+}
 issues.push(...validateGoogleCallbackVerificationWorkflow(reusable));
 issues.push(...validateNetlifyApiRateLimitHandling(reusable));
 const parsedClipsMigrationIf = reusableSteps[parsedClipsMigrationIndex]?.if;
