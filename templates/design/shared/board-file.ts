@@ -13,6 +13,7 @@
  */
 
 import type { BoardObjectEntry } from "./board-objects.js";
+import { resolveLayerNameAttribute } from "./layer-name.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -32,6 +33,16 @@ const DEFAULT_SHAPE_STROKE = "rgb(168 168 168)";
 // Keep these two values in sync if either canonical token ever changes.
 const DEFAULT_LINE_STROKE = "#000000";
 const DEFAULT_LINE_STROKE_WIDTH_PX = 1;
+
+function getHtmlAttributeValue(tag: string, name: string): string {
+  const match = tag.match(
+    new RegExp(
+      `\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>]+))`,
+      "i",
+    ),
+  );
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? "";
+}
 
 // ---------------------------------------------------------------------------
 // isBoardFile
@@ -271,7 +282,7 @@ function kindToLayerName(kind: BoardObjectEntry["kind"]): string {
  * | `<svg>` containing exactly one `<path>` and no other shape | `"path"`  |
  * | `<svg>` with no reliable vector signal                  | *(skip — left unmarked, still classifies as a generic shape via tag)* |
  * | Inline style contains `border-radius:50%`              | `"ellipse"`   |
- * | Inline style contains `background:transparent` or no background, but has `data-agent-native-layer-name` starting with "Frame" | `"frame"` |
+ * | Inline style contains `background:transparent` or no background, but has a layer-name attribute starting with "Frame" | `"frame"` |
  * | Element has non-empty text content and no background color in style | `"text"` |
  * | Otherwise                                              | `"rectangle"` |
  *
@@ -546,10 +557,10 @@ function _inferPrimitiveKind(openTag: string): string {
   }
 
   // Extract the layer name for additional hints.
-  const layerNameMatch = openTag.match(
-    /\bdata-agent-native-layer-name="([^"]*)"/i,
-  );
-  const layerName = layerNameMatch ? layerNameMatch[1] : "";
+  const layerName =
+    resolveLayerNameAttribute((attribute) =>
+      getHtmlAttributeValue(openTag, attribute),
+    )?.value ?? "";
 
   // Frame: layer name starts with "Frame".
   if (/^frame/i.test(layerName)) {

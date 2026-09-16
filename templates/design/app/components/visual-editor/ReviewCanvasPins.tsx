@@ -55,6 +55,7 @@ import {
 } from "@/lib/node-reprompt";
 import { cn } from "@/lib/utils";
 
+import { resolveLayerNameAttribute } from "../../../shared/layer-name";
 import {
   resolveReviewAnchor,
   type DesignReviewAnchor,
@@ -370,9 +371,8 @@ function elementAnchorAtPoint(
       anchor.getAttribute("id") ??
       undefined;
     const layerName =
-      anchor.getAttribute("data-agent-native-layer-name") ||
-      anchor.getAttribute("data-layer-name") ||
-      undefined;
+      resolveLayerNameAttribute((attribute) => anchor.getAttribute(attribute))
+        ?.value ?? undefined;
     const targetSelector = nodeId
       ? undefined
       : structuralSelector(anchor, document) || undefined;
