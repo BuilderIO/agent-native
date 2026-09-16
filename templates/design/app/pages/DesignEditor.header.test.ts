@@ -20,6 +20,7 @@ describe("Design editor header", () => {
     expect(surface).toContain("storageKey={DESIGN_CHAT_STORAGE_KEY}");
     expect(surface).toContain("scope={designChatScope}");
     expect(surface).toContain("chatHistory={designChatHistory}");
+    expect(surface).toContain("isolateHistoryByScope={true}");
     expect(surface).toContain("showHeader={true}");
     expect(surface).toContain("showTabBar={true}");
   });

@@ -23262,6 +23262,7 @@ function DesignEditor() {
                     dynamicSuggestions={designAgentSuggestionConfig}
                     scope={designChatScope}
                     chatHistory={designChatHistory}
+                    isolateHistoryByScope={true}
                     showScopeBadge={false}
                     showHeader={true}
                     showTabBar={true}
