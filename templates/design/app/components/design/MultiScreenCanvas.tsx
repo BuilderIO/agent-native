@@ -1195,6 +1195,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // lineup fit so a stale controlled prop cannot undo a pending command on an
   // unrelated screen/selection render.
   const lastCameraCommandZoomRef = useRef<number | null>(null);
+  const lastCameraCommandControlledZoomRef = useRef<number | null>(null);
   const pendingChromeSettleRef = useRef(false);
   const chromeSettleTimerRef = useRef<number | null>(null);
   const [chromeSettling, setChromeSettling] = useState(false);
@@ -1756,8 +1757,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // buttons, keyboard shortcuts) that never touched zoomRef/panRef.
     const previousZoom = zoomRef.current;
     const pendingCameraZoom = lastCameraCommandZoomRef.current;
+    const pendingCameraControlledZoom =
+      lastCameraCommandControlledZoomRef.current;
     if (pendingCameraZoom !== null && zoom === pendingCameraZoom) {
       lastCameraCommandZoomRef.current = null;
+      lastCameraCommandControlledZoomRef.current = null;
       if (zoom === previousZoom) return;
       // The command already applied the matching pan imperatively. Reconcile
       // the controlled zoom without applying a second anchor compensation.
@@ -1770,13 +1774,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (
       pendingCameraZoom !== null &&
       cameraCommand &&
-      lastCameraCommandNonceRef.current === cameraCommand.nonce
+      lastCameraCommandNonceRef.current === cameraCommand.nonce &&
+      zoom === pendingCameraControlledZoom
     ) {
       // The command owns the camera until its zoom reaches the controlled
       // prop. An unrelated render must not replay that stale prop.
       return;
     }
-    if (pendingCameraZoom !== null) lastCameraCommandZoomRef.current = null;
+    if (pendingCameraZoom !== null) {
+      lastCameraCommandZoomRef.current = null;
+      lastCameraCommandControlledZoomRef.current = null;
+    }
     if (zoom === previousZoom) return;
     // External zoom changes otherwise anchor at world origin (0,0) since
     // only canvasZoom is updated here — content visibly jumps diagonally
@@ -8360,6 +8368,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       camera.x += chromeInsetLeft;
       zoomRef.current = camera.zoom;
       lastCameraCommandZoomRef.current = camera.zoom;
+      lastCameraCommandControlledZoomRef.current = zoom;
       panRef.current = { x: camera.x, y: camera.y };
       applyViewToDom();
       scheduleViewCommit();
