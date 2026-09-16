@@ -89,6 +89,7 @@ import {
 import { useOptionalLocale, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
+import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import { McpAccessSettings } from "../resources/McpAccessSettings.js";
 import { BuilderConnectionMenu } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
@@ -3023,6 +3024,7 @@ function SettingsPanelContent({
   builderConnectionOwnedExternally = false,
   agentAdditionalContent,
 }: SettingsPanelContentProps) {
+  const t = useT();
   const {
     status: builder,
     loading: builderLoading,
@@ -3074,6 +3076,7 @@ function SettingsPanelContent({
 
   const isPage = surface === "page";
   const isWorkspacePage = isPage && sections.includes("hosting");
+  const { isWorkspace, dispatchAllAppsHref } = useOrgSwitcherAppLinks(isPage);
 
   return (
     <SettingsSurfaceProvider surface={surface}>
@@ -3221,9 +3224,23 @@ function SettingsPanelContent({
             </SettingsGroup>
           )}
 
-        {isWorkspacePage && (
+        {isPage && (isWorkspace || isWorkspacePage) && (
           <SettingsGroup title="Workspace">
-            {shouldShowSection("demo-mode") && (
+            {isWorkspace && (
+              <SettingsRow
+                label={t("dispatch.pages.workspaceApps")}
+                control={
+                  <a
+                    href={dispatchAllAppsHref}
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
+                  >
+                    {t("dispatch.pages.browseApps")}
+                    <IconExternalLink size={14} />
+                  </a>
+                }
+              />
+            )}
+            {isWorkspacePage && shouldShowSection("demo-mode") && (
               <SettingsRow
                 id={settingsSectionDomId("demo-mode")}
                 label="Demo mode"
@@ -3231,7 +3248,7 @@ function SettingsPanelContent({
                 control={<DemoModeSection compact />}
               />
             )}
-            {shouldShowSection("hosting") && (
+            {isWorkspacePage && shouldShowSection("hosting") && (
               <SettingsRow
                 id={settingsSectionDomId("hosting")}
                 label="Hosting"

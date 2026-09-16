@@ -12,6 +12,7 @@ import {
   IconMoodSmile,
   IconCornerDownRight,
   IconDots,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -31,7 +32,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import {
   Popover,
   PopoverContent,
@@ -909,16 +915,21 @@ function EmptyCommentsState({
   const t = useT();
   if (!enableComments) {
     return (
-      <div
+      <Empty
         className={cn(
-          "text-center text-sm text-muted-foreground",
-          isSharePresentation
-            ? "flex flex-1 items-center justify-center px-8 py-12"
-            : "p-6",
+          "gap-2 rounded-none px-8 py-10",
+          isSharePresentation ? "flex-1" : "min-h-full",
         )}
       >
-        {t("commentsPanel.disabled")}
-      </div>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <IconMessageCircle />
+          </EmptyMedia>
+          <EmptyTitle className="text-sm font-medium text-muted-foreground">
+            {t("commentsPanel.disabled")}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
@@ -935,6 +946,9 @@ function EmptyCommentsState({
       )}
     >
       <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <IconMessageCircle />
+        </EmptyMedia>
         <EmptyTitle className="text-sm font-medium text-muted-foreground">
           {t("commentsPanel.beFirst")}
         </EmptyTitle>

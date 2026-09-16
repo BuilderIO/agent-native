@@ -17,7 +17,10 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
-import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
 import {
   attachGatewaySocketErrorSink,
   normalizeOrigin,
@@ -346,6 +349,20 @@ async function discoverApps(
     const pkg = readJson(path.join(dir, "package.json"));
     if (!pkg) continue;
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    let homePath: string;
+    try {
+      homePath = normalizeWorkspaceAppHomePath(
+        (await readConfiguredWorkspaceAppHomePath(dir)) ??
+          inferWorkspaceAppRootHomePath(dir),
+      );
+    } catch (error) {
+      // A broken app must not prevent healthy siblings from starting.
+      console.warn(
+        `[workspace] Could not discover app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
     apps.push({
       id: entry.name,
       name: pkg.displayName || pkg.name || entry.name,
@@ -355,9 +372,7 @@ async function discoverApps(
         DEFAULT_WORKSPACE_APP_AUDIENCE,
       publicPaths: routeAccess.publicPaths ?? [],
       protectedPaths: routeAccess.protectedPaths ?? [],
-      homePath: normalizeWorkspaceAppHomePath(
-        await readConfiguredWorkspaceAppHomePath(dir),
-      ),
+      homePath,
       dir,
       port: appPortStart,
     });
