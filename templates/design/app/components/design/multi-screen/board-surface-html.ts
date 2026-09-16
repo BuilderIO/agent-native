@@ -9,6 +9,26 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
+export function shouldRenderEmptyBoardReviewCanvas(args: {
+  hasSurfaceContent: boolean;
+  reviewPinMode: boolean;
+  reviewCommentsHidden: boolean;
+  reviewTargetId?: string | null;
+}): boolean {
+  return (
+    !args.hasSurfaceContent &&
+    !args.reviewCommentsHidden &&
+    (args.reviewPinMode || args.reviewTargetId === null)
+  );
+}
+
+export function shouldRenderOverviewReviewCanvas(args: {
+  boardFileId?: string;
+  boardFileContent?: string;
+}): boolean {
+  return !args.boardFileId || args.boardFileContent === undefined;
+}
+
 /**
  * `color-scheme` is load-bearing, not cosmetic. Chrome paints an opaque base
  * behind a frame whose scheme disagrees with its embedder, and that base sits
@@ -17,7 +37,7 @@ export function hasBoardSurfaceContent(html: string | undefined) {
  */
 function boardSurfaceRenderStyle(darkScheme: boolean) {
   const scheme = darkScheme ? "html{color-scheme:dark!important;}" : "";
-  return `<style data-agent-native-board-surface-render>${scheme}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
+  return `<style data-agent-native-board-surface-render>${scheme}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"],body>[data-layer-name="body"],body>[data-layer-name="Body"],body>[data-layer-name="<body>"],body>[layer-name="body"],body>[layer-name="Body"],body>[layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
 }
 
 const BOARD_SURFACE_BACKDROP_MIN_EDGE_PX = 2400;

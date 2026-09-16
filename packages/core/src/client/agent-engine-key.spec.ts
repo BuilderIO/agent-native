@@ -75,6 +75,7 @@ describe("saveAgentEngineApiKey", () => {
         body: JSON.stringify({
           key: "OPENAI_API_KEY",
           value: "sk-example",
+          scope: "org",
         }),
       },
     );
@@ -99,6 +100,7 @@ describe("saveAgentEngineApiKey", () => {
         body: JSON.stringify({
           key: "OPENAI_API_KEY",
           baseUrl: "https://gateway.example/v1",
+          scope: "org",
         }),
       },
     );

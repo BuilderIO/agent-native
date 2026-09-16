@@ -63,6 +63,17 @@ export interface UseCollabReconcileOptions {
   contentUpdatedAt?: string | null;
   /** Opaque authoritative body revision. Enables base-aware reconciliation. */
   contentRevision?: string | null;
+  /**
+   * A server-confirmed snapshot written by this editor. This is deliberately
+   * separate from `registerEmitted`: an emitted value may still fail to save,
+   * while an acknowledged revision is safe to adopt as the next merge base.
+   */
+  acknowledgedLocalSnapshot?: {
+    value: string;
+    revision: string;
+    updatedAt: string;
+    sequence: number;
+  } | null;
   /** This exact body revision is already represented in durable Yjs state. */
   collabContentRevision?: string | null;
   /** Resolves as synced only after a fresh provider response is applied. */
@@ -252,6 +263,7 @@ export function useCollabReconcile({
   value,
   contentUpdatedAt,
   contentRevision,
+  acknowledgedLocalSnapshot,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
@@ -302,6 +314,15 @@ export function useCollabReconcile({
     revision: string;
   } | null>(contentRevision ? { value, revision: contentRevision } : null);
   const reportedConflictRevisionRef = useRef<string | null>(null);
+  const acknowledgedLocalSnapshotRef = useRef<{
+    value: string;
+    revision: string;
+    updatedAt: string;
+    sequence: number;
+  } | null>(null);
+  const latestObservedUpdatedAtRef = useRef<string | null>(
+    contentUpdatedAt ?? null,
+  );
   const acknowledgedCollabRef = useRef<{ ydoc: YDoc; revision: string } | null>(
     null,
   );
@@ -595,6 +616,69 @@ export function useCollabReconcile({
     // change isn't inserted twice (Yjs + setContent → duplicated region).
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
+      if (
+        contentUpdatedAt &&
+        (!latestObservedUpdatedAtRef.current ||
+          contentUpdatedAt > latestObservedUpdatedAtRef.current)
+      ) {
+        latestObservedUpdatedAtRef.current = contentUpdatedAt;
+      }
+      if (acknowledgedLocalSnapshot) {
+        const acceptedAcknowledgement = acknowledgedLocalSnapshotRef.current;
+        const acknowledgementIsNewestAccepted =
+          !acceptedAcknowledgement ||
+          acknowledgedLocalSnapshot.sequence > acceptedAcknowledgement.sequence;
+        const acknowledgementIsNotSuperseded =
+          !latestObservedUpdatedAtRef.current ||
+          acknowledgedLocalSnapshot.updatedAt >=
+            latestObservedUpdatedAtRef.current;
+        if (acknowledgementIsNewestAccepted && acknowledgementIsNotSuperseded) {
+          acknowledgedLocalSnapshotRef.current = acknowledgedLocalSnapshot;
+          authoritativeBaseRef.current = {
+            value: acknowledgedLocalSnapshot.value,
+            revision: acknowledgedLocalSnapshot.revision,
+          };
+          if (
+            !lastAppliedUpdatedAtRef.current ||
+            acknowledgedLocalSnapshot.updatedAt >
+              lastAppliedUpdatedAtRef.current
+          ) {
+            lastAppliedUpdatedAtRef.current =
+              acknowledgedLocalSnapshot.updatedAt;
+          }
+        }
+      }
+      const acknowledged = acknowledgedLocalSnapshotRef.current;
+      if (
+        acknowledged &&
+        contentRevision === acknowledged.revision &&
+        value === acknowledged.value
+      ) {
+        const acknowledgementWasSuperseded =
+          latestObservedUpdatedAtRef.current !== null &&
+          acknowledged.updatedAt < latestObservedUpdatedAtRef.current;
+        if (!acknowledgementWasSuperseded) {
+          authoritativeBaseRef.current = {
+            value: acknowledged.value,
+            revision: acknowledged.revision,
+          };
+          if (
+            !lastAppliedUpdatedAtRef.current ||
+            acknowledged.updatedAt > lastAppliedUpdatedAtRef.current
+          ) {
+            lastAppliedUpdatedAtRef.current = acknowledged.updatedAt;
+          }
+          reportedConflictRevisionRef.current = null;
+        }
+        return;
+      }
+      if (
+        acknowledged &&
+        contentUpdatedAt &&
+        contentUpdatedAt < acknowledged.updatedAt
+      ) {
+        return;
+      }
       // In collab mode, defer all reconcile until the shared doc is seeded so we
       // never setContent over an unseeded fragment.
       if (collab && !collabSynced) {
@@ -661,6 +745,7 @@ export function useCollabReconcile({
       if (
         currentMarkdown === normalizedValue ||
         (typingRecently &&
+          !contentRevision &&
           // A stale echo of our own (possibly partial) save while the user is
           // actively typing would clobber the fresh tail. Outside active
           // typing, the same bytes can be a deliberate newer external revert
@@ -905,6 +990,7 @@ export function useCollabReconcile({
   }, [
     contentUpdatedAt,
     contentRevision,
+    acknowledgedLocalSnapshot,
     editor,
     ydoc,
     editable,

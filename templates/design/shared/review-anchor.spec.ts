@@ -109,4 +109,17 @@ describe("review anchors", () => {
       }),
     ).toBeNull();
   });
+
+  it("parses stable board-world point and region coordinates", () => {
+    expect(
+      parseReviewAnchor({
+        point,
+        worldPoint: { x: 240, y: 360 },
+        worldRegion: { x: 100, y: 120, width: 280, height: 160 },
+      }),
+    ).toMatchObject({
+      worldPoint: { x: 240, y: 360 },
+      worldRegion: { x: 100, y: 120, width: 280, height: 160 },
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { usePinchZoom } from "@agent-native/core/client/hooks";
+import { callAction, usePinchZoom } from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
@@ -47,6 +47,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -81,6 +82,10 @@ import { shaderFillPreviewBridgeScript } from "../../../.generated/bridge/shader
 import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-runtime.generated";
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
+import type {
+  ReviewAnchorWorldPoint,
+  ReviewBoardGeometry,
+} from "../../../shared/review-anchor";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
@@ -98,6 +103,7 @@ import {
 import {
   isComputedStyleMap,
   isElementInfoPayload,
+  parseRuntimeSnapshotHtml,
 } from "./design-canvas/element-payload";
 import {
   embeddedContentOffsetCss,
@@ -110,6 +116,7 @@ import {
   classifyBridgeRegistrationFailure,
   getDesignCanvasIframeSandbox,
   getSnapshotRetryDelayMs,
+  isPreviewTokenStaleStatus,
   resolveLiveEditPreviewUrl,
   sanitizeLocalhostSourceSnapshotHtml,
   shouldFetchExternalSourceSnapshot,
@@ -135,6 +142,21 @@ import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import type { MotionTrackWire } from "./design-canvas/motion-types";
 import {
+  acknowledgePendingTextInsert,
+  beginPendingTextDelivery,
+  type BeginTextEditOptions,
+  cancelPendingTextCapture,
+  isPendingTextInterceptionOpen,
+  onPendingTextCaptureCancel,
+  owePendingTextCapture,
+  registerTextEditOwner,
+  releasePendingTextCapture,
+  returnPendingTextCapture,
+  takePendingTextCapture,
+} from "./design-canvas/pending-text-capture";
+import {
+  BRIDGE_READINESS_PROBE_ATTEMPTS,
+  BRIDGE_READINESS_PROBE_INTERVAL_MS,
   PENDING_TEXT_EDIT_TIMEOUT_MS,
   routePendingTextEditKey,
   schedulePendingTextEditActivation,
@@ -467,6 +489,8 @@ type StyleReplayPatch = {
   interactionState?: string;
 };
 
+type BridgeRegistrationAttemptResult = boolean | "stale-preview-token" | null;
+
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
@@ -516,6 +540,11 @@ interface DesignCanvasProps {
     nodeCount: number;
     documentId?: string;
   }) => void;
+  /** Called once when this document has a usable runtime bridge. */
+  onBridgeReady?: () => void;
+  /** Called once when the live document finishes its browser load. */
+  onBootStart?: () => void;
+  onBootReady?: () => void;
   onScreenRootComputedStyles?: (computedStyles: Record<string, string>) => void;
   onRuntimeVerificationSnapshot?: (snapshot: {
     requestId: number;
@@ -669,6 +698,8 @@ interface DesignCanvasProps {
       replaced?: true;
       replacementSelector?: string;
       replacementSourceId?: string;
+      replacementElementInfo?: ElementInfo;
+      replacementSnapshotHtml?: string;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -730,6 +761,14 @@ interface DesignCanvasProps {
   reviewCanPost?: boolean;
   /** Whether the current viewer may resolve review threads. */
   reviewCanResolve?: boolean;
+  /** Override the review target; null scopes comments to the board surface. */
+  reviewTargetId?: string | null;
+  /** Current finite board window used to resolve stable board-world anchors. */
+  reviewBoardGeometry?: ReviewBoardGeometry | null;
+  /** Re-centers the overview camera on a stable board-world review anchor. */
+  onReviewFocusBoardPoint?: (point: ReviewAnchorWorldPoint) => boolean | void;
+  /** Current viewer email used for author-only comment editing. */
+  reviewCurrentUserEmail?: string | null;
   /** A panel-driven request to focus an anchored review comment. */
   reviewFocusRequest?: ReviewFocusRequest | null;
   /** Dispatch a newly created agent-targeted comment to the local agent chat. */
@@ -1244,6 +1283,9 @@ export function DesignCanvas({
   externalSnapshotHtml,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
+  onBridgeReady,
+  onBootStart,
+  onBootReady,
   onScreenRootComputedStyles,
   onRuntimeVerificationSnapshot,
   fusionUrl,
@@ -1314,6 +1356,10 @@ export function DesignCanvas({
   designId,
   reviewCanPost = false,
   reviewCanResolve = false,
+  reviewTargetId,
+  reviewBoardGeometry,
+  onReviewFocusBoardPoint,
+  reviewCurrentUserEmail,
   reviewFocusRequest,
   onDispatchCommentToAgent,
   onSendThreadToAgent,
@@ -1411,6 +1457,7 @@ export function DesignCanvas({
   // bridge and thus never post ready) and flush in order.
   const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
+  const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
@@ -1431,10 +1478,10 @@ export function DesignCanvas({
     const probe = () => {
       const win = iframeRef.current?.contentWindow;
       const drained = pendingOneShotMessagesRef.current.length === 0;
-      // 20 x 250ms covers a frame still finishing navigation without leaving a
-      // timer running against a frame that has no bridge at all (interact-mode
+      // The schedule covers a frame still finishing navigation without leaving
+      // a timer running against a frame that has no bridge at all (interact-mode
       // documents never inject one, and must keep queueing as before).
-      if (!win || drained || attempts >= 20) {
+      if (!win || drained || attempts >= BRIDGE_READINESS_PROBE_ATTEMPTS) {
         window.clearInterval(bridgeReadinessProbeTimerRef.current);
         bridgeReadinessProbeTimerRef.current = undefined;
         return;
@@ -1451,7 +1498,10 @@ export function DesignCanvas({
     };
     probe();
     if (pendingOneShotMessagesRef.current.length === 0) return;
-    bridgeReadinessProbeTimerRef.current = window.setInterval(probe, 250);
+    bridgeReadinessProbeTimerRef.current = window.setInterval(
+      probe,
+      BRIDGE_READINESS_PROBE_INTERVAL_MS,
+    );
   }, []);
   useEffect(
     () => () => {
@@ -1462,6 +1512,18 @@ export function DesignCanvas({
     },
     [],
   );
+  /** Removes a not-yet-flushed begin-text-edit for `nodeId` from the one-shot
+   *  ready queue. Identity-scoped so a cancelled creation cannot take a live
+   *  one's command with it. */
+  const dropQueuedBeginTextEdit = useCallback((nodeId: string) => {
+    pendingOneShotMessagesRef.current =
+      pendingOneShotMessagesRef.current.filter((message) => {
+        const queued = message as { type?: unknown; nodeId?: unknown } | null;
+        return !(
+          queued?.type === "begin-text-edit" && queued.nodeId === nodeId
+        );
+      });
+  }, []);
   const postOneShotBridgeMessage = useCallback(
     (message: unknown) => {
       const iframe = iframeRef.current;
@@ -1672,6 +1734,11 @@ export function DesignCanvas({
     content,
     sourceContent: authoredSourceContent ?? content,
   }));
+  const [effectivePreviewToken, setEffectivePreviewToken] =
+    useState(previewToken);
+  useEffect(() => {
+    setEffectivePreviewToken(previewToken);
+  }, [previewToken]);
   const renderedContent = renderedDocument.content;
   // What a freshly loaded document already contains, since srcdoc is built from
   // it. The load handler below needs this to skip redundant pushes.
@@ -1949,7 +2016,7 @@ export function DesignCanvas({
   );
   const usesLiveEditInjectedBridge =
     sourceType === "localhost" &&
-    Boolean(bridgeUrl && previewToken && rawExternalPreviewUrl);
+    Boolean(bridgeUrl && effectivePreviewToken && rawExternalPreviewUrl);
   // Hoisted above usesLiveEditEditorBridge (rather than declared next to
   // externalPreviewUrl/usingRawFallbackPreview below, which reuse it) because
   // a failed registration's raw-URL fallback document has no injected editor
@@ -1979,14 +2046,14 @@ export function DesignCanvas({
   const requiresExternalSourceSnapshot = shouldFetchExternalSourceSnapshot({
     sourceType,
     bridgeUrl,
-    previewToken,
+    previewToken: effectivePreviewToken,
     previewUrl: rawExternalPreviewUrl,
     hasSnapshotConsumer: Boolean(onExternalContentSnapshot),
   });
   const liveEditExternalPreviewUrl = resolveLiveEditPreviewUrl({
     sourceType,
     bridgeUrl,
-    previewToken,
+    previewToken: effectivePreviewToken,
     previewUrl: rawExternalPreviewUrl,
     bridgeKey: liveEditBridgeKey,
     registeredBridgeKey: effectiveRegisteredLiveEditBridgeKey,
@@ -2250,113 +2317,127 @@ export function DesignCanvas({
   // handleConnectLocalNetworkAccess) — see bridgeRegistrationAttemptGeneration
   // Ref's comment for why a shared, generation-guarded function is required
   // instead of each caller firing its own independent fetch.
-  // Returns true/false for a definite, still-applicable outcome, or null when
-  // a newer attempt (effect-driven or manual) has already superseded this
-  // one — callers must treat null as "nothing to do", not as a failure, or a
-  // stale attempt could schedule a redundant retry after a later attempt
-  // already succeeded.
-  const attemptBridgeRegistration = useCallback(async (): Promise<
-    boolean | null
-  > => {
-    if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
-      return null;
-    }
-    const generation = ++bridgeRegistrationAttemptGenerationRef.current;
-    // Unmount is covered by the dedicated cleanup-only effect above, which
-    // bumps this same counter — a manual Connect click's fetch has no effect
-    // cleanup of its own to cancel it, but that effect's bump still
-    // invalidates it the same way a superseded attempt is invalidated.
-    const isCurrent = () =>
-      bridgeRegistrationAttemptGenerationRef.current === generation;
-    // A fresh attempt — whether auto-retry or a manual Connect click,
-    // including one retried from the destructive bridgeConnectionLostError
-    // card's own Retry button (see handleConnectLocalNetworkAccess) — means
-    // we're no longer in "connection lost, needs a click" limbo. Clear it now
-    // rather than only on success/failure, or the full-cover destructive card
-    // stays visible (it takes priority in the overlay below) even once this
-    // attempt resolves as an ordinary registration-fetch failure instead.
-    setBridgeConnectionLostError(null);
-    const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-design-preview-token": previewToken,
-        },
-        body: JSON.stringify({
-          script: liveEditBridgeScript,
-          bridgeKey: liveEditBridgeKey,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`Bridge registration failed (${response.status})`);
+  // Returns true/false for a transient definite outcome, a terminal stale-token
+  // outcome, or null when a newer attempt (effect-driven or manual) has already
+  // superseded this one. Callers must treat null and stale-token as "nothing to
+  // retry", or a stale attempt could schedule a redundant retry after a later
+  // attempt already succeeded.
+  const attemptBridgeRegistration =
+    useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
+      if (!usesLiveEditInjectedBridge || !bridgeUrl || !effectivePreviewToken) {
+        return null;
       }
-      // coercion-ok: response.ok already confirmed the registration itself
-      // succeeded above; bridgeInstanceId is supplementary metadata for the
-      // restart-detection heuristic only (see classifyLiveEditHealthProbe),
-      // and the null/missing case below is checked explicitly, not treated
-      // as equivalent to a present value.
-      const payload = (await response.json().catch(() => null)) as {
-        bridgeInstanceId?: string;
-      } | null;
-      if (!isCurrent()) return null;
-      if (payload && typeof payload.bridgeInstanceId === "string") {
-        // Cache the instance id from THIS successful registration so a
-        // later suspected-restart probe (see handleSuspectedBridgeRestart)
-        // can tell a genuinely restarted bridge process apart from the same
-        // process rejecting a stale key. Written only after isCurrent()
-        // passes: an older overlapping request resolving after a newer one
-        // must not overwrite the current attempt's instance id, or the
-        // watchdog misdiagnoses a restart and burns its reload/retry budget.
-        bridgeInstanceIdRef.current = payload.bridgeInstanceId;
-      }
-      bridgeRegistrationRetryAttemptRef.current = 0;
-      if (registrationHandoffKey) {
-        liveEditRegistrationHandoff.set(registrationHandoffKey, Date.now());
-      }
-      // liveEditRestartAttemptRef is intentionally NOT reset here: a
-      // successful registration POST only proves the bridge accepted the
-      // script, not that the live document actually loaded it (that's what
-      // the ready-handshake watchdog below still has to confirm). Resetting
-      // the restart budget on every registration success — rather than only
-      // on a genuine agent-native:editor-chrome-ready — would let a
-      // pathological bridge that keeps minting a new bridgeInstanceId
-      // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
-      setBridgeRegistrationError(null);
-      setBridgeRegistrationFailureKind(null);
+      const generation = ++bridgeRegistrationAttemptGenerationRef.current;
+      // Unmount is covered by the dedicated cleanup-only effect above, which
+      // bumps this same counter — a manual Connect click's fetch has no effect
+      // cleanup of its own to cancel it, but that effect's bump still
+      // invalidates it the same way a superseded attempt is invalidated.
+      const isCurrent = () =>
+        bridgeRegistrationAttemptGenerationRef.current === generation;
+      // A fresh attempt — whether auto-retry or a manual Connect click,
+      // including one retried from the destructive bridgeConnectionLostError
+      // card's own Retry button (see handleConnectLocalNetworkAccess) — means
+      // we're no longer in "connection lost, needs a click" limbo. Clear it now
+      // rather than only on success/failure, or the full-cover destructive card
+      // stays visible (it takes priority in the overlay below) even once this
+      // attempt resolves as an ordinary registration-fetch failure instead.
       setBridgeConnectionLostError(null);
-      setConnectingLocalNetworkAccess(false);
-      lateLiveEditReadyRecoveryRef.current = null;
-      setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
-      return true;
-    } catch (error) {
-      if (!isCurrent()) return null;
-      if (registrationHandoffKey) {
-        liveEditRegistrationHandoff.delete(registrationHandoffKey);
+      const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-design-preview-token": effectivePreviewToken,
+          },
+          body: JSON.stringify({
+            script: liveEditBridgeScript,
+            bridgeKey: liveEditBridgeKey,
+          }),
+        });
+        if (isPreviewTokenStaleStatus(response.status)) {
+          if (!isCurrent()) return null;
+          if (registrationHandoffKey) {
+            liveEditRegistrationHandoff.delete(registrationHandoffKey);
+          }
+          setRegisteredLiveEditBridgeKey(null);
+          setBridgeRegistrationError({
+            bridgeKey: liveEditBridgeKey,
+            message:
+              "The local bridge rejected this screen's preview token (401). Reconnect this screen before retrying.",
+          });
+          setBridgeRegistrationFailureKind("stalePreviewToken");
+          setConnectingLocalNetworkAccess(false);
+          return "stale-preview-token";
+        }
+        if (!response.ok) {
+          throw new Error(`Bridge registration failed (${response.status})`);
+        }
+        // coercion-ok: response.ok already confirmed the registration itself
+        // succeeded above; bridgeInstanceId is supplementary metadata for the
+        // restart-detection heuristic only (see classifyLiveEditHealthProbe),
+        // and the null/missing case below is checked explicitly, not treated
+        // as equivalent to a present value.
+        const payload = (await response.json().catch(() => null)) as {
+          bridgeInstanceId?: string;
+        } | null;
+        if (!isCurrent()) return null;
+        if (payload && typeof payload.bridgeInstanceId === "string") {
+          // Cache the instance id from THIS successful registration so a
+          // later suspected-restart probe (see handleSuspectedBridgeRestart)
+          // can tell a genuinely restarted bridge process apart from the same
+          // process rejecting a stale key. Written only after isCurrent()
+          // passes: an older overlapping request resolving after a newer one
+          // must not overwrite the current attempt's instance id, or the
+          // watchdog misdiagnoses a restart and burns its reload/retry budget.
+          bridgeInstanceIdRef.current = payload.bridgeInstanceId;
+        }
+        bridgeRegistrationRetryAttemptRef.current = 0;
+        if (registrationHandoffKey) {
+          liveEditRegistrationHandoff.set(registrationHandoffKey, Date.now());
+        }
+        // liveEditRestartAttemptRef is intentionally NOT reset here: a
+        // successful registration POST only proves the bridge accepted the
+        // script, not that the live document actually loaded it (that's what
+        // the ready-handshake watchdog below still has to confirm). Resetting
+        // the restart budget on every registration success — rather than only
+        // on a genuine agent-native:editor-chrome-ready — would let a
+        // pathological bridge that keeps minting a new bridgeInstanceId
+        // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
+        setBridgeRegistrationError(null);
+        setBridgeRegistrationFailureKind(null);
+        setBridgeConnectionLostError(null);
+        setConnectingLocalNetworkAccess(false);
+        lateLiveEditReadyRecoveryRef.current = null;
+        setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
+        return true;
+      } catch (error) {
+        if (!isCurrent()) return null;
+        if (registrationHandoffKey) {
+          liveEditRegistrationHandoff.delete(registrationHandoffKey);
+        }
+        console.warn("live-edit bridge registration failed", error);
+        setRegisteredLiveEditBridgeKey(null);
+        setBridgeRegistrationError({
+          bridgeKey: liveEditBridgeKey,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        setConnectingLocalNetworkAccess(false);
+        void classifyBridgeRegistrationFailure().then((kind) => {
+          if (isCurrent()) setBridgeRegistrationFailureKind(kind);
+        });
+        return false;
       }
-      console.warn("live-edit bridge registration failed", error);
-      setRegisteredLiveEditBridgeKey(null);
-      setBridgeRegistrationError({
-        bridgeKey: liveEditBridgeKey,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      setConnectingLocalNetworkAccess(false);
-      void classifyBridgeRegistrationFailure().then((kind) => {
-        if (isCurrent()) setBridgeRegistrationFailureKind(kind);
-      });
-      return false;
-    }
-  }, [
-    bridgeUrl,
-    liveEditBridgeKey,
-    liveEditBridgeScript,
-    previewToken,
-    registrationHandoffKey,
-    usesLiveEditInjectedBridge,
-  ]);
+    }, [
+      bridgeUrl,
+      liveEditBridgeKey,
+      liveEditBridgeScript,
+      effectivePreviewToken,
+      registrationHandoffKey,
+      usesLiveEditInjectedBridge,
+    ]);
   useEffect(() => {
-    if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
+    if (!usesLiveEditInjectedBridge || !bridgeUrl || !effectivePreviewToken) {
       // Invalidate any attempt still in flight from before this branch was
       // entered (previous bridge key/mode) BEFORE clearing state below —
       // otherwise that stale attempt's isCurrent() check would still pass
@@ -2403,7 +2484,7 @@ export function DesignCanvas({
     bridgeRegistrationRetryNonce,
     bridgeUrl,
     liveEditBridgeKey,
-    previewToken,
+    effectivePreviewToken,
     scheduleBridgeRegistrationRetry,
     usesLiveEditInjectedBridge,
   ]);
@@ -2441,7 +2522,7 @@ export function DesignCanvas({
   // buttons elsewhere in this file, so the user-initiated attempt starts
   // every counter fresh and any already-scheduled auto-retry doesn't fire a
   // second, redundant attempt shortly after this one.
-  const handleConnectLocalNetworkAccess = useCallback(() => {
+  const handleConnectLocalNetworkAccess = useCallback(async () => {
     setConnectingLocalNetworkAccess(true);
     bridgeRegistrationRetryAttemptRef.current = 0;
     liveEditRestartAttemptRef.current = 0;
@@ -2456,6 +2537,40 @@ export function DesignCanvas({
       window.clearTimeout(bridgeRegistrationRetryTimerRef.current);
       bridgeRegistrationRetryTimerRef.current = undefined;
     }
+    if (
+      bridgeRegistrationFailureKind === "stalePreviewToken" &&
+      designId &&
+      connectionId
+    ) {
+      try {
+        const refreshed = await callAction<{
+          previewToken?: string;
+        }>(
+          "refresh-localhost-preview-token",
+          {
+            designId,
+            connectionId,
+          },
+          { method: "GET" },
+        );
+        const nextPreviewToken = refreshed?.previewToken;
+        if (!nextPreviewToken || nextPreviewToken === effectivePreviewToken) {
+          throw new Error(
+            "The bridge token is still stale. Run design connect again, then retry.",
+          );
+        }
+        setEffectivePreviewToken(nextPreviewToken);
+        setConnectingLocalNetworkAccess(false);
+        return;
+      } catch (error) {
+        setConnectingLocalNetworkAccess(false);
+        setBridgeRegistrationError({
+          bridgeKey: liveEditBridgeKey,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+    }
     // A failed manual attempt (still-refused permission, dev server still
     // down) must not silently stop automatic recovery — schedule the same
     // backoff retry the automatic path uses. null means a newer attempt
@@ -2465,7 +2580,15 @@ export function DesignCanvas({
     void attemptBridgeRegistration().then((result) => {
       if (result === false) scheduleBridgeRegistrationRetry();
     });
-  }, [attemptBridgeRegistration, scheduleBridgeRegistrationRetry]);
+  }, [
+    attemptBridgeRegistration,
+    bridgeRegistrationFailureKind,
+    connectionId,
+    designId,
+    effectivePreviewToken,
+    liveEditBridgeKey,
+    scheduleBridgeRegistrationRetry,
+  ]);
   const handleDismissLocalNetworkAccessPrompt = useCallback(() => {
     setLocalNetworkAccessDismissedForKey(liveEditBridgeKey);
   }, [liveEditBridgeKey]);
@@ -2481,7 +2604,7 @@ export function DesignCanvas({
   // ready never arrives. Treat a stuck non-ready state as a suspected restart
   // and settle it with a /health probe instead of guessing from the error UI.
   const handleSuspectedBridgeRestart = useCallback(async () => {
-    if (!bridgeUrl || !previewToken) return;
+    if (!bridgeUrl || !effectivePreviewToken) return;
     if (liveEditRestartInFlightRef.current) return;
     liveEditRestartInFlightRef.current = true;
     // Captured once per call, not re-read at each checkpoint below: a probe
@@ -2643,7 +2766,13 @@ export function DesignCanvas({
     } finally {
       liveEditRestartInFlightRef.current = false;
     }
-  }, [bridgeUrl, liveEditBridgeKey, previewToken, registrationHandoffKey, t]);
+  }, [
+    bridgeUrl,
+    effectivePreviewToken,
+    liveEditBridgeKey,
+    registrationHandoffKey,
+    t,
+  ]);
 
   // Manual retry for the NON-destructive same-instance-id stalled card only
   // (see liveEditSameInstanceStalledError below): unlike
@@ -2711,7 +2840,7 @@ export function DesignCanvas({
       !requiresExternalSourceSnapshot ||
       sourceType !== "localhost" ||
       !bridgeUrl ||
-      !previewToken ||
+      !effectivePreviewToken ||
       !previewUrl
     ) {
       snapshotRetryAttemptRef.current = 0;
@@ -2740,10 +2869,20 @@ export function DesignCanvas({
           method: "GET",
           headers: {
             accept: "application/json",
-            "x-design-preview-token": previewToken,
+            "x-design-preview-token": effectivePreviewToken,
           },
           signal: controller.signal,
         });
+        if (isPreviewTokenStaleStatus(response.status)) {
+          if (cancelled) return;
+          setExternalSnapshotState({
+            url: previewUrl,
+            status: "error",
+            message:
+              "The local bridge rejected this screen's preview token (401). Reconnect this screen before retrying.",
+          });
+          return;
+        }
         const payload = (await response.json().catch(() => null)) as {
           ok?: boolean;
           url?: string;
@@ -2753,6 +2892,15 @@ export function DesignCanvas({
           error?: string;
         } | null;
         if (cancelled) return;
+        if (isPreviewTokenStaleStatus(payload?.status ?? 0)) {
+          setExternalSnapshotState({
+            url: previewUrl,
+            status: "error",
+            message:
+              "The local bridge rejected this screen's preview token (401). Reconnect this screen before retrying.",
+          });
+          return;
+        }
         if (!response.ok || !payload?.ok) {
           setExternalSnapshotState({
             url: previewUrl,
@@ -2809,7 +2957,7 @@ export function DesignCanvas({
     rawExternalPreviewUrl,
     requiresExternalSourceSnapshot,
     sourceType,
-    previewToken,
+    effectivePreviewToken,
   ]);
 
   // Manual retry (offline-state "Retry" button): reset the backoff so the
@@ -2834,6 +2982,7 @@ export function DesignCanvas({
       // has already run and posted its own new ready message; resetting on
       // `load` would incorrectly clobber that just-arrived ready signal.
       bridgeReadyRef.current = false;
+      bootReadyRef.current = false;
       pendingOneShotMessagesRef.current = [];
       setRenderedDocument({
         content,
@@ -3104,6 +3253,7 @@ export function DesignCanvas({
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
+    bootReadyRef.current = false;
   }
   // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
   // an onLoad that already fired would strand a spinner over finished content.
@@ -3150,24 +3300,34 @@ export function DesignCanvas({
           allowedOrigins: canvasBridgeAllowedOrigins,
         });
       if (trustedRuntimeVerificationFrame) {
+        if (e.data?.type === "agent-native:runtime-layer-snapshot-error") {
+          onRuntimeStructureInsertRejected?.(
+            e.data.payload?.reason === "snapshot-too-large"
+              ? "verification-snapshot-too-large"
+              : "verification-snapshot-unavailable",
+          );
+          return;
+        }
         if (e.data?.type !== "agent-native:runtime-layer-snapshot") return;
         const payload = e.data.payload;
-        if (
-          payload &&
-          typeof payload.html === "string" &&
-          payload.html.length <= 2_000_000 &&
-          Number.isFinite(payload.nodeCount)
-        ) {
-          onRuntimeVerificationSnapshot?.({
-            requestId: runtimeVerificationRequest.requestId,
-            html: payload.html,
-            nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
-            documentId:
-              typeof payload.documentId === "string"
-                ? payload.documentId
-                : undefined,
-          });
+        const snapshot = parseRuntimeSnapshotHtml(payload?.html);
+        if (!snapshot.ok || !Number.isFinite(payload?.nodeCount)) {
+          onRuntimeStructureInsertRejected?.(
+            snapshot.ok
+              ? "verification-snapshot-unavailable"
+              : `verification-${snapshot.reason}`,
+          );
+          return;
         }
+        onRuntimeVerificationSnapshot?.({
+          requestId: runtimeVerificationRequest.requestId,
+          html: snapshot.html,
+          nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
+          documentId:
+            typeof payload.documentId === "string"
+              ? payload.documentId
+              : undefined,
+        });
         return;
       }
       const lateReadyRecovery =
@@ -3225,6 +3385,8 @@ export function DesignCanvas({
         // exposing the iframe's blank navigation frame; the replacement
         // document's ready handshake clears this fallback again.
         if (usesLiveEditEditorBridge) {
+          bootReadyRef.current = false;
+          onBootStart?.();
           setReadyIframeDocumentIdentity(null);
         }
         return;
@@ -3240,6 +3402,7 @@ export function DesignCanvas({
       // nothing. Re-derive readiness here so the queue always drains.
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
+        onBridgeReady?.();
         setReadyIframeDocumentIdentity(iframeDocumentIdentity);
         flushPendingOneShotMessages();
       }
@@ -3284,6 +3447,7 @@ export function DesignCanvas({
         }
         lateLiveEditReadyRecoveryRef.current = null;
         bridgeReadyRef.current = true;
+        onBridgeReady?.();
         setReadyIframeDocumentIdentity(iframeDocumentIdentity);
         // A confirmed ready handshake proves this bridgeInstanceId/key pair
         // is genuinely live — clear the suspected-restart attempt counter so
@@ -3441,6 +3605,21 @@ export function DesignCanvas({
         });
         const requestId =
           typeof e.data.requestId === "string" ? e.data.requestId : undefined;
+        const replacementSnapshot = replaced
+          ? parseRuntimeSnapshotHtml(e.data.replacementSnapshotHtml)
+          : undefined;
+        if (replacementSnapshot?.ok === false) {
+          if (requestId) {
+            iframeRef.current?.contentWindow?.postMessage(
+              { type: "visual-structure-ack", requestId, applied: false },
+              "*",
+            );
+          }
+          onRuntimeStructureInsertRejected?.(
+            `replacement-${replacementSnapshot.reason}`,
+          );
+          return;
+        }
         const sourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : undefined;
         const anchorSourceId =
@@ -3515,6 +3694,12 @@ export function DesignCanvas({
                     replaced: true as const,
                     replacementSelector: selector,
                     replacementSourceId: sourceId,
+                    replacementSnapshotHtml: replacementSnapshot?.ok
+                      ? replacementSnapshot.html
+                      : undefined,
+                    replacementElementInfo: isElementInfoPayload(e.data.payload)
+                      ? e.data.payload
+                      : undefined,
                   }
                 : {}),
             },
@@ -3602,33 +3787,124 @@ export function DesignCanvas({
         const pendingNodeId =
           typeof e.data.nodeId === "string" ? e.data.nodeId : "";
         const currentPending = pendingTextEditRef.current;
+        // A breakpoint preview renders the SAME screenId as the primary frame
+        // (which is why owner registration excludes it). Without the same
+        // exclusion here, a preview's reply drains the creation's buffer into
+        // a frame that will never own the session.
+        const capturedOwner = capturedOwnerRef.current;
         if (e.data.pending && pendingNodeId) {
+          // A reply for a request that has already been stood down (pointer
+          // away, Escape, undo, superseded) must not re-arm the buffer or keep
+          // the abandoned node alive; only this canvas's own live request may.
+          // Owed text rides in its own begin-text-edit, so once interception
+          // has ended nothing moves it back into a canvas that intercepts.
+          // A breakpoint preview deliberately has no owner identity: it can
+          // never take this capture, drain it, or acknowledge it, so arming its
+          // key listener only swallowed keys nobody could ever deliver.
+          if (!capturedOwner) return;
+          if (
+            currentPending?.nodeId !== pendingNodeId &&
+            !isPendingTextInterceptionOpen(capturedOwner, pendingNodeId)
+          ) {
+            return;
+          }
           if (currentPending && currentPending.nodeId === pendingNodeId) {
             currentPending.startedAt = Date.now();
           } else {
+            // The retry ladder posts begin-text-edit straight at the iframe,
+            // so this can be the first time THIS canvas learns it owns the
+            // node — take the creation gesture's buffer here too.
             pendingTextEditRef.current = {
               nodeId: pendingNodeId,
-              buffer: "",
+              buffer:
+                takePendingTextCapture(capturedOwner, pendingNodeId) ?? "",
               startedAt: Date.now(),
             };
           }
-        } else if (currentPending?.nodeId === pendingNodeId) {
-          pendingTextEditRef.current = null;
+        } else if (pendingNodeId) {
+          // pending:false covers two different facts. Escape, a pointerdown in
+          // the frame, and a superseding dblclick are the USER abandoning this
+          // request, and the host request dies with it. The frame's own
+          // pump deadline is not: it only means the node has not arrived there
+          // yet, and escalating it to abandonment deletes a node the host's own
+          // ladder is still working on. An unlabelled report is treated as the
+          // latter — the host's deadline still decides.
+          const abandonedByUser =
+            e.data.reason === "escape" ||
+            e.data.reason === "pointerdown" ||
+            e.data.reason === "superseded";
+          // The frame's own deadline, a failed takeover, and an unlabelled
+          // report all mean "not yet", not "abandoned". Clearing the typed
+          // buffer on those discarded everything the user had typed while a
+          // slow board mounted.
+          if (abandonedByUser && currentPending?.nodeId === pendingNodeId) {
+            pendingTextEditRef.current = null;
+          }
+          if (!capturedOwner) return;
+          if (abandonedByUser) {
+            cancelPendingTextCapture(capturedOwner, pendingNodeId);
+          } else if (e.data.reason === "committed") {
+            // The frame has the text; the host copy is no longer the original.
+            pendingTextEditRef.current =
+              currentPending?.nodeId === pendingNodeId
+                ? null
+                : pendingTextEditRef.current;
+            releasePendingTextCapture(capturedOwner, pendingNodeId);
+          }
+        }
+        return;
+      }
+      if (e.data.type === "text-edit-insert-result") {
+        // The frame is the only place that knows whether handed-over keystrokes
+        // reached the document. Until it says so the capture keeps owing them,
+        // so a dropped insert is re-delivered instead of vanishing.
+        const insertNodeId =
+          typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        const owner = capturedOwnerRef.current;
+        if (owner && insertNodeId) {
+          acknowledgePendingTextInsert(
+            owner,
+            insertNodeId,
+            e.data.inserted === true,
+          );
         }
         return;
       }
       if (e.data.type === "text-editing-state") {
         // Creation-race replay: the bridge just armed the session for the
-        // node we were waiting on — flush any keystrokes the host buffered
-        // during the round-trip window into the now-live editable.
-        if (e.data.active && pendingTextEditRef.current) {
-          const pendingBuffer = pendingTextEditRef.current.buffer;
-          pendingTextEditRef.current = null;
-          if (pendingBuffer) {
+        // node we were waiting on — complete that request and flush everything
+        // still held for it into the now-live editable. Keyed on the reported
+        // element: a late activation for the PREVIOUS creation used to swallow
+        // the next one's buffer, splicing its keystrokes into the wrong layer
+        // ("Beta" landing inside "Alpha"). Complete first: a capture that ends
+        // interception on this very call reclaims this canvas's buffer.
+        const activatedSourceId =
+          typeof e.data.sourceId === "string" ? e.data.sourceId : "";
+        if (e.data.active && activatedSourceId) {
+          const owner = capturedOwnerRef.current;
+          const pending = pendingTextEditRef.current;
+          let buffered = "";
+          if (pending && pending.nodeId === activatedSourceId) {
+            buffered = pending.buffer;
+            pendingTextEditRef.current = null;
+          }
+          const delivery = owner
+            ? beginPendingTextDelivery(owner, activatedSourceId, buffered)
+            : null;
+          const text = delivery ? delivery.text : buffered;
+          // An owed delivery carried its text in its own begin command, so its
+          // result settles the request — a second copy would double the text.
+          // The capture keeps owning this one until the frame says it landed.
+          if (delivery?.alreadyPosted) {
+            // Nothing to send; the begin command's own result decides.
+          } else if (text) {
             postOneShotBridgeMessage({
               type: "text-edit-insert-text",
-              text: pendingBuffer,
+              nodeId: activatedSourceId,
+              text,
             });
+          } else if (owner && delivery) {
+            releasePendingTextCapture(owner, activatedSourceId);
           }
         }
         const textState = {
@@ -3898,6 +4174,8 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onRuntimeLayerSnapshot,
+    onBridgeReady,
+    onBootStart,
     onScreenRootComputedStyles,
     onRuntimeVerificationSnapshot,
     onElementMarqueeSelect,
@@ -4142,11 +4420,30 @@ export function DesignCanvas({
       if (!shouldUseIframeLoadReadyFallback(usesLiveEditEditorBridge)) return;
       if (bridgeReadyRef.current) return;
       bridgeReadyRef.current = true;
+      onBridgeReady?.();
       flushPendingOneShotMessages();
     }
     iframe.addEventListener("load", handleLoadReadyFallback);
     return () => iframe.removeEventListener("load", handleLoadReadyFallback);
-  }, [flushPendingOneShotMessages, usesLiveEditEditorBridge]);
+  }, [flushPendingOneShotMessages, onBridgeReady, usesLiveEditEditorBridge]);
+
+  useEffect(() => {
+    if (!onBootReady || !externalPreviewUrl) return;
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const handleLoad = () => {
+      if (bootReadyRef.current) return;
+      bootReadyRef.current = true;
+      onBootReady();
+    };
+    iframe.addEventListener("load", handleLoad);
+    return () => iframe.removeEventListener("load", handleLoad);
+  }, [externalPreviewUrl, iframeDocumentIdentity, onBootReady]);
+
+  useLayoutEffect(() => {
+    if (!onBootStart || !externalPreviewUrl) return;
+    onBootStart();
+  }, [externalPreviewUrl, iframeDocumentIdentity, onBootStart]);
 
   useEffect(() => {
     if (clearSelectionRequest === undefined) return;
@@ -4416,23 +4713,94 @@ export function DesignCanvas({
    * Posts { type: 'begin-text-edit', nodeId } to the iframe bridge.
    * The bridge enters the same contenteditable text-editing path used on dblclick.
    */
+  // The one identity this canvas owns text-edit requests under. A breakpoint
+  // preview renders the SAME screenId and must never own one. Read through a
+  // ref because the keystroke listener below installs once while `screenId`
+  // mutates in place on the single-screen canvas (no key), and a stale owner
+  // made every identity check a silent no-op.
+  const capturedOwnerRef = useRef<string | null>(null);
+  capturedOwnerRef.current = previewFrameId ? null : (screenId ?? null);
+
   const beginTextEdit = useCallback(
-    (nodeId: string, options?: { afterPointerGesture?: boolean }) => {
+    (nodeId: string, options?: BeginTextEditOptions): boolean => {
       const iframe = iframeRef.current;
-      if (!iframe?.contentWindow || !nodeId) return;
-      // Arm the creation-race keystroke buffer (see routePendingTextEditKey):
-      // until the bridge reports text-editing-state active for this command,
-      // host keystrokes are buffered/swallowed instead of hitting host
-      // shortcuts, then replayed into the editable. Re-arming for the same
-      // node preserves an in-progress buffer.
+      // Not delivered: the caller keeps the intent so a later render (or the
+      // next registration) can post it, instead of losing the creation here.
+      if (!iframe?.contentWindow || !nodeId) return false;
+      const owner = capturedOwnerRef.current;
+      // Take over the creation gesture's host-level buffer (see
+      // pending-text-capture.ts) for this node: from here until the bridge
+      // reports text-editing-state active, host keystrokes are
+      // buffered/swallowed here instead of hitting host shortcuts, then
+      // replayed into the editable. Re-arming for the same node preserves an
+      // in-progress buffer.
+      const adopted = owner ? takePendingTextCapture(owner, nodeId) : null;
       if (pendingTextEditRef.current?.nodeId !== nodeId) {
         pendingTextEditRef.current = {
           nodeId,
-          buffer: "",
+          buffer: adopted ?? "",
           startedAt: Date.now(),
         };
+      } else if (adopted) {
+        pendingTextEditRef.current.buffer += adopted;
       }
-      schedulePendingTextEditActivation(
+      // Re-arming the same node only replaces its timer. Running the full
+      // cancel here would drop the buffer this call just adopted and tell the
+      // bridge to forget a request we are about to re-issue.
+      const previousActivation = pendingTextEditActivationRef.current;
+      if (previousActivation?.nodeId === nodeId) {
+        previousActivation.cancelTimer();
+      } else {
+        previousActivation?.cancelRequest();
+      }
+      if (options?.commitImmediately || options?.deliverOwed) {
+        // Escape's commit, or text still owed after interception ended: the
+        // buffer travels WITH the command, and the command is only a COPY — the
+        // host capture keeps the original until the frame acknowledges it,
+        // because this payload dies with an iframe swap or an unmount and
+        // nothing downstream would know the text had been lost. Nothing
+        // intercepts from here: new keys belong to the host, or to the session.
+        const commitImmediately = options.commitImmediately === true;
+        const local = pendingTextEditRef.current;
+        const localText = local?.nodeId === nodeId ? local.buffer : "";
+        if (local?.nodeId === nodeId) pendingTextEditRef.current = null;
+        // No live request means no host original to fold into; this canvas's
+        // own copy is then the only text there is.
+        const insertText = owner
+          ? (owePendingTextCapture(owner, nodeId, localText, {
+              commit: commitImmediately,
+            }) ?? localText)
+          : localText;
+        // The plain activation for this node may still be queued; letting both
+        // flush would open an empty session and then re-open it for the text.
+        dropQueuedBeginTextEdit(nodeId);
+        postOneShotBridgeMessage({
+          type: "begin-text-edit",
+          nodeId,
+          force: true,
+          insertText,
+          ...(commitImmediately ? { commitImmediately: true } : {}),
+        });
+        if (owner) {
+          onPendingTextCaptureCancel(owner, nodeId, () => {
+            dropQueuedBeginTextEdit(nodeId);
+            // Dropping the QUEUED copy is not enough: the frame may already
+            // hold this begin, and the host-side commit that follows a
+            // stand-down would then be a second copy of the same characters.
+            // Revoke it at the frame, identity-scoped, before that commit.
+            iframeRef.current?.contentWindow?.postMessage(
+              {
+                type: "agent-native:cancel-text-edit",
+                screenId: capturedOwnerRef.current ?? "",
+                nodeId,
+              },
+              "*",
+            );
+          });
+        }
+        return true;
+      }
+      const cancelTimer = schedulePendingTextEditActivation(
         () => {
           postOneShotBridgeMessage({
             type: "begin-text-edit",
@@ -4442,9 +4810,87 @@ export function DesignCanvas({
         },
         { afterPointerGesture: options?.afterPointerGesture },
       );
+      // Pointer-away stands the creation's whole request down, and this post is
+      // part of it. Cancelling the timer is not enough: a post made while the
+      // bridge was not ready is sitting in the one-shot queue, and the flush
+      // that follows readiness focuses a node the user has already left. Drop
+      // it by node id while it is still ours to drop — once the iframe has the
+      // message, only the iframe can decide.
+      const cancelRequest = () => {
+        cancelTimer();
+        dropQueuedBeginTextEdit(nodeId);
+        // Posted straight at the frame, not through the one-shot queue: a
+        // cancel only matters to a bridge that already HAS the begin, and
+        // queueing it would just replay behind the begin we dropped.
+        iframeRef.current?.contentWindow?.postMessage(
+          {
+            type: "agent-native:cancel-text-edit",
+            screenId: capturedOwnerRef.current ?? "",
+            nodeId,
+          },
+          "*",
+        );
+        if (pendingTextEditRef.current?.nodeId === nodeId) {
+          pendingTextEditRef.current = null;
+        }
+      };
+      pendingTextEditActivationRef.current = {
+        nodeId,
+        cancelTimer,
+        cancelRequest,
+      };
+      if (owner) onPendingTextCaptureCancel(owner, nodeId, cancelRequest);
+      return true;
     },
-    [postOneShotBridgeMessage],
+    [dropQueuedBeginTextEdit, postOneShotBridgeMessage],
   );
+  // The keystroke listener below is installed once and must still reach the
+  // CURRENT beginTextEdit when Escape asks it to commit.
+  const beginTextEditRef = useRef(beginTextEdit);
+  beginTextEditRef.current = beginTextEdit;
+
+  // Routing target for a just-created node's text edit. Only the PRIMARY frame
+  // of a screen registers — a breakpoint preview renders the same screen and
+  // would collide on the same key — and the board canvas registers under the
+  // board file id. Deliberately NOT gated on `registerRuntimeBridge`: a board
+  // canvas is inactive at the moment its own first primitive is created, and
+  // an unroutable owner is exactly how the gesture's typing got lost.
+  useEffect(() => {
+    if (previewFrameId) return;
+    const owner = screenId;
+    // Registered per OWNER IDENTITY, not per callback identity: beginTextEdit
+    // is re-created whenever its own dependencies churn, and re-running this
+    // effect for that treated a live creation as an owner going away — handing
+    // its buffer back and re-beginning mid-session.
+    const unregister = registerTextEditOwner(
+      owner,
+      (nodeId, options) => Boolean(beginTextEditRef.current?.(nodeId, options)),
+      (nodeId) => {
+        const pending = pendingTextEditRef.current;
+        if (pending?.nodeId !== nodeId) return "";
+        pendingTextEditRef.current = null;
+        return pending.buffer;
+      },
+    );
+    return () => {
+      unregister();
+      // Unmounting between the handoff and activation would otherwise destroy
+      // the only copy of the gesture's keystrokes; hand them back so a remount
+      // (or the retry ladder's own pending-window arming) can still use them.
+      // An EMPTY buffer has to go back too: the user may not have typed their
+      // first character yet, and a capture left handed-off buffers nothing
+      // during the remount window.
+      const pending = pendingTextEditRef.current;
+      if (owner && pending) {
+        returnPendingTextCapture(owner, pending.nodeId, pending.buffer);
+      }
+      pendingTextEditRef.current = null;
+      // Only the timer: the REQUEST outlives this instance, so cancelling it
+      // here would tell the bridge to drop a begin the replacement still wants.
+      pendingTextEditActivationRef.current?.cancelTimer();
+      pendingTextEditActivationRef.current = null;
+    };
+  }, [previewFrameId, screenId]);
 
   // Creation-race keystroke routing (host side). Active only while a
   // beginTextEdit() command is pending; see routePendingTextEditKey's doc
@@ -4455,11 +4901,32 @@ export function DesignCanvas({
     buffer: string;
     startedAt: number;
   } | null>(null);
+  // The one in-flight delayed begin-text-edit post, kept so pointer-away (and
+  // the next creation) can drop it instead of letting it land late.
+  const pendingTextEditActivationRef = useRef<{
+    nodeId: string;
+    /** Drops only this instance's delayed post — what an unmount needs, since
+     *  the request itself survives into the replacement canvas. */
+    cancelTimer: () => void;
+    /** Drops the whole request: timer, queued command, and the bridge's copy. */
+    cancelRequest: () => void;
+  } | null>(null);
   useEffect(() => {
     function onPendingTextEditKeyDown(e: KeyboardEvent) {
       const pending = pendingTextEditRef.current;
       if (!pending) return;
-      if (Date.now() - pending.startedAt > PENDING_TEXT_EDIT_TIMEOUT_MS) {
+      const interceptOwner = capturedOwnerRef.current;
+      if (interceptOwner) {
+        // The creation's capture decides how long keys are held back. Asking it
+        // past the cap is what takes this buffer on for delivery, and the key
+        // that asked goes to the host like every key after it.
+        if (!isPendingTextInterceptionOpen(interceptOwner, pending.nodeId)) {
+          return;
+        }
+      } else if (
+        Date.now() - pending.startedAt >
+        PENDING_TEXT_EDIT_TIMEOUT_MS
+      ) {
         pendingTextEditRef.current = null;
         return;
       }
@@ -4473,13 +4940,36 @@ export function DesignCanvas({
       } else if (routed.action === "drop-last") {
         pending.buffer = pending.buffer.slice(0, -1);
       } else if (routed.action === "clear-and-swallow") {
+        // This handler registered on mount, so it runs BEFORE the capture's own
+        // listener and stopImmediatePropagation() above means that listener
+        // never sees the Escape. Decide it here instead, or the capture and its
+        // retry ladder stay live and re-focus the node.
+        const escapedNodeId = pending.nodeId;
+        const escapedText = pending.buffer;
+        pendingTextEditActivationRef.current?.cancelTimer();
+        pendingTextEditActivationRef.current = null;
+        if (escapedText) {
+          // Escape ends the session and KEEPS the text (Figma). The commit
+          // rides straight to the bridge; the creation's own exhaustion
+          // cleanup then keeps the node because it now has content.
+          beginTextEditRef.current?.(escapedNodeId, {
+            commitImmediately: true,
+          });
+          return;
+        }
         pendingTextEditRef.current = null;
+        pendingTextEditActivationRef.current = null;
+        const owner = capturedOwnerRef.current;
+        if (owner) cancelPendingTextCapture(owner, escapedNodeId);
       }
     }
     function onPendingTextEditPointerDown() {
       // The user clicked somewhere else in the host — stand down so buffered
-      // keys are never replayed into an edit they've abandoned.
+      // keys are never replayed into an edit they've abandoned, and so the
+      // delayed begin-text-edit cannot arrive after they moved on.
       pendingTextEditRef.current = null;
+      pendingTextEditActivationRef.current?.cancelRequest();
+      pendingTextEditActivationRef.current = null;
     }
     window.addEventListener("keydown", onPendingTextEditKeyDown, true);
     window.addEventListener("pointerdown", onPendingTextEditPointerDown, true);
@@ -4973,6 +5463,7 @@ export function DesignCanvas({
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
       bridgeReadyRef.current = false;
+      bootReadyRef.current = false;
       pendingOneShotMessagesRef.current = [];
       setRenderedDocument({
         content: runtimeReplacementContent,
@@ -5137,9 +5628,6 @@ export function DesignCanvas({
     (window as any).__designCanvasSendShaderFillPreview = sendShaderFillPreview;
     (window as any).__designCanvasClearShaderFillPreview =
       clearShaderFillPreview;
-    // Imperative text-edit entry — call after creating a TEXT primitive so the
-    // user can type immediately without a second click.
-    (window as any).__designCanvasBeginTextEdit = beginTextEdit;
     return () => {
       // Identity-guard each delete so a stale unmounting instance never clobbers
       // a freshly mounted instance's bridge during a remount race.
@@ -5191,9 +5679,6 @@ export function DesignCanvas({
       ) {
         delete (window as any).__designCanvasClearShaderFillPreview;
       }
-      if ((window as any).__designCanvasBeginTextEdit === beginTextEdit) {
-        delete (window as any).__designCanvasBeginTextEdit;
-      }
     };
   }, [
     deleteRuntimeElement,
@@ -5206,7 +5691,6 @@ export function DesignCanvas({
     clearMotionPreview,
     sendShaderFillPreview,
     clearShaderFillPreview,
-    beginTextEdit,
   ]);
 
   // Device dimensions match real-world devices. iframes are replaced elements
@@ -5508,6 +5992,10 @@ export function DesignCanvas({
           data-design-preview-iframe
           onLoad={(event) => {
             setPreviewFrameLoaded(true);
+            if (onBootReady && externalPreviewUrl && !bootReadyRef.current) {
+              bootReadyRef.current = true;
+              onBootReady();
+            }
             sendBridgeToContainer();
             // The bridge logs into the IFRAME console and cannot read
             // import.meta.env, so dev has to switch it on from out here.
@@ -5850,9 +6338,16 @@ export function DesignCanvas({
         canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
         resourceType="design"
         resourceId={designId}
-        targetId={screenId ?? commentContextId ?? ""}
+        targetId={
+          reviewTargetId !== undefined
+            ? reviewTargetId
+            : (screenId ?? commentContextId ?? null)
+        }
+        boardGeometry={reviewBoardGeometry}
+        onFocusBoardPoint={onReviewFocusBoardPoint}
         canPost={reviewCanPost}
         canResolve={reviewCanResolve}
+        currentUserEmail={reviewCurrentUserEmail}
         focusRequest={reviewFocusRequest}
         onDispatchCommentToAgent={onDispatchCommentToAgent}
         onSendThreadToAgent={onSendThreadToAgent}

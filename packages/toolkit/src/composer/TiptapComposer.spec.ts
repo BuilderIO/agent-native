@@ -124,13 +124,14 @@ describe("createTiptapComposerExtensions", () => {
     );
   });
 
-  it("uses compact GPT-5.6 model and effort names in the collapsed trigger", () => {
-    expect(compactComposerModelName("gpt-5.6-sol")).toBe("GPT-5.6 Sol");
-    expect(compactComposerModelName("gpt-5-6-terra")).toBe("GPT-5.6 Terra");
-    expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe(
-      "GPT-5.6 Luna",
+  it("uses concise OpenAI variant names in the trigger and picker", () => {
+    expect(compactComposerModelName("gpt-5.6-sol")).toBe("Sol");
+    expect(compactComposerModelName("gpt-5-6-terra")).toBe("Terra");
+    expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe("Luna");
+    expect(compactComposerModelName("openai/gpt-6-astra")).toBe("Astra");
+    expect(compactComposerModelName("openai/gpt-6-astra-pro")).toBe(
+      "Astra Pro",
     );
-    expect(compactComposerModelName("openai/gpt-6-astra")).toBe("GPT-6 Astra");
     expect(compactComposerModelName("google/gemini-3.8-flash")).toBe(
       "Gemini 3.8 Flash",
     );
@@ -1267,12 +1268,26 @@ describe("createTiptapComposerExtensions", () => {
       (tab) => tab.textContent?.includes("Connect keys"),
     );
     expect(modelTab?.textContent).toContain("Connect keys");
+    act(() => modelButton?.click());
 
     act(() => root.render(React.createElement(Harness, { configured: true })));
     expect(
       container.querySelector('[data-agent-composer-slot="model-button"]')
         ?.textContent,
-    ).toContain("GPT-5.6 Luna");
+    ).toContain("Luna");
+
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-agent-composer-slot="model-button"]',
+        )
+        ?.click(),
+    );
+    const picker = document.querySelector(
+      '[data-agent-native-composer-popover="true"]',
+    );
+    expect(picker?.textContent).toContain("Luna");
+    expect(picker?.textContent).not.toContain("GPT-5.6 Luna");
   });
 
   it("resets a hidden model when switching to Claude Code", async () => {

@@ -1,5 +1,6 @@
 import { decodeHTML } from "entities";
 
+import { ensureGroupRuntime } from "../../shared/group-runtime.js";
 import {
   isActiveXmlAttributeValue,
   isNonStaticExportElement,
@@ -140,14 +141,14 @@ export function buildStandaloneHtml(args: {
       }
     }
 
-    return injectHiddenLayerExportStyle(html);
+    return ensureGroupRuntime(injectHiddenLayerExportStyle(html));
   }
 
   const combinedBody = [...htmlFiles, ...jsxFiles]
     .map((f) => extractRenderableHtml(f.content ?? ""))
     .join("\n\n");
 
-  return `<!DOCTYPE html>
+  return ensureGroupRuntime(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -163,7 +164,7 @@ export function buildStandaloneHtml(args: {
 <body>
   ${combinedBody}
 </body>
-</html>`;
+</html>`);
 }
 
 function escapeXmlAttribute(value: string): string {

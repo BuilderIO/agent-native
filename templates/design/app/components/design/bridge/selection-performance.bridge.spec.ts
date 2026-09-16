@@ -255,34 +255,55 @@ describe("a marquee drag does not rebuild element info every frame", () => {
       await page.mouse.move(8, 8);
       await page.mouse.down();
       await page.mouse.move(780, 700, { steps: 30 });
+      // Measure the live portion before mouseup. The final primary item is
+      // intentionally enriched with its portable subtree snapshot for copy,
+      // paste, and cross-screen fidelity; that one bounded snapshot must not
+      // be mistaken for per-frame marquee work.
+      await page.waitForTimeout(80);
+      const live = await page.evaluate(() => {
+        const msgs = (
+          window as unknown as {
+            __marqueeMessages: Array<{
+              payload?: Array<{
+                computedStyles?: Record<string, string>;
+                portableStyleSnapshot?: unknown;
+              }>;
+            }>;
+          }
+        ).__marqueeMessages;
+        return {
+          styleReads: (window as unknown as { __styleReads: number })
+            .__styleReads,
+          messages: msgs.length,
+          selectedCount: (msgs[msgs.length - 1]?.payload ?? []).length,
+          payloads: msgs.flatMap((message) => message.payload ?? []),
+        };
+      });
       await page.mouse.up();
       await page.waitForTimeout(80);
 
-      const { styleReads, messages, selectedCount } = await page.evaluate(
-        () => {
-          const msgs = (
-            window as unknown as {
-              __marqueeMessages: Array<{ payload?: unknown[] }>;
-            }
-          ).__marqueeMessages;
-          return {
-            styleReads: (window as unknown as { __styleReads: number })
-              .__styleReads,
-            messages: msgs.length,
-            selectedCount: (msgs[msgs.length - 1]?.payload ?? []).length,
-          };
-        },
-      );
-
       expect(errors, errors.join("\n")).toEqual([]);
       // The drag really did sweep a large hit-set over many frames.
-      expect(messages).toBeGreaterThan(5);
-      expect(selectedCount).toBeGreaterThan(20);
+      expect(live.messages).toBeGreaterThan(5);
+      expect(live.selectedCount).toBeGreaterThan(20);
+
+      // Live reports carry only the identity/geometry descriptor. A full
+      // subtree snapshot belongs to the final primary report, so the bridge
+      // never pays that cost once per distinct hit-set while the band moves.
+      expect(
+        live.payloads.every(
+          (info) =>
+            Object.keys(info.computedStyles ?? {}).length === 0 &&
+            info.portableStyleSnapshot === undefined,
+        ),
+      ).toBe(true);
 
       // Before the per-gesture memo, every frame rebuilt getElementInfo for
       // every element still inside the band, so reads scaled with
-      // frames x elements. They must now scale with elements alone.
-      expect(styleReads).toBeLessThan(messages * selectedCount);
+      // frames x elements. Live work is now bounded by the swept elements,
+      // while the final primary snapshot is measured by the separate payload
+      // contract above.
+      expect(live.styleReads).toBeLessThan(live.selectedCount * 25);
     } finally {
       await browser.close();
     }

@@ -3,6 +3,21 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-15
+
+### Improved
+
+- Design previews can inspect every onboarding step and apply visual edits more reliably across screens.
+- Generated slide decks keep a cohesive visual theme while layouts vary with the story
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+
+### Fixed
+
+- Google Slides exports keep every line of text where it sits in Slides instead of re-wrapping into overlapping, stacked text.
+- Imported decks now export to PowerPoint and Google Slides in their original layer order, so background panels no longer cover slide content
+- PowerPoint and Google Slides exports keep full-size text on every slide, not just the one open in the editor.
+- Table rules and dividers now export to PowerPoint and Google Slides as editable lines instead of images
+
 ## 2026-09-14
 
 ### Improved
@@ -12,6 +27,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Asking the agent to restyle a whole deck no longer reports slides as beautified when their content was left exactly as it was, and a restyle that changes nothing now fails instead of claiming success.
 - An attached PDF, PowerPoint, or Word reference is now read before a new deck is generated, and its typography, palette, and page proportions steer the design instead of being silently dropped
 - Creating a design system no longer fails silently when Builder indexing is unavailable.
 - Design system creation from onboarding now opens inline instead of a new tab, so onboarding progress is no longer lost

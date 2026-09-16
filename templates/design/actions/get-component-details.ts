@@ -27,8 +27,14 @@ import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
-import type { CodeLayerSource } from "../shared/code-layer.js";
+import type { CodeLayerNode, CodeLayerSource } from "../shared/code-layer.js";
 import {
+  COMPONENT_ARCHIVE_ATTR,
+  readComponentArchivePointer,
+} from "../shared/component-archive.js";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_REF_ATTR,
   componentNameFor,
   componentNodeIdMatches,
   extractProps,
@@ -36,6 +42,19 @@ import {
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
+
+export function canRestoreComponentMain(
+  node: Pick<CodeLayerNode, "dataAttributes">,
+): boolean {
+  const componentRef = node.dataAttributes[COMPONENT_REF_ATTR]?.trim();
+  if (!componentRef) return false;
+  const archive = readComponentArchivePointer(
+    node.dataAttributes[COMPONENT_ARCHIVE_ATTR],
+  );
+  return (
+    archive.status === "valid" && archive.pointer.componentId === componentRef
+  );
+}
 
 function parseJson<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -211,6 +230,11 @@ export default defineAction({
       sourceType,
       instance,
       name,
+      isMain: Boolean(
+        node.dataAttributes[COMPONENT_ID_ATTR] &&
+        !node.dataAttributes[COMPONENT_REF_ATTR],
+      ),
+      canRestore: canRestoreComponentMain(node),
       // Props: merge observed attribute props with richer persisted prop types
       // when available.  Real-app callers get the full TS/cva prop table.
       observedProps,

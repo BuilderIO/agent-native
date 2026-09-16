@@ -1017,7 +1017,7 @@ describe("pending React source anchors", () => {
 
     expect(prompt).toContain('"semanticHandoffFailure"');
     expect(prompt).toContain('"code": "unsafe-source-path"');
-    expect(prompt).toContain("does not include a safe project-relative path");
+    expect(prompt).toContain("app-authored owner path");
     expect(prompt).toContain("/Users/private/work/app/Card.tsx");
     expect(prompt).toContain('"sourcePathStatus": "outside-connected-root"');
   });

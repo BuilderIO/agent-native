@@ -9,6 +9,8 @@ import {
   normalizeMcpUrl,
 } from "../../shared/mcp-provider-hosts.js";
 import { mergeDefinitionsById } from "../../shared/merge-by-id.js";
+import { agentNativePath } from "../api-path.js";
+import { openOAuthPopup } from "../oauth-popup.js";
 import { markMcpConnectionPending } from "./mcp-connection-refresh.js";
 import { mcpIntegrationLogo } from "./mcp-integration-logos.js";
 
@@ -1024,16 +1026,18 @@ export function buildMcpOAuthStartUrl({
       ? { tracking_integration_id: trackingIntegrationId }
       : {}),
   });
-  return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
+  return `${agentNativePath("/_agent-native/mcp/servers/oauth/start")}?${params.toString()}`;
 }
 
 export function navigateToMcpOAuthStart(url: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    const popup = window.open("about:blank", "_blank");
+    const popup = openOAuthPopup({
+      initialUrl: url,
+      features: "width=640,height=760",
+    });
     if (!popup) return false;
     popup.opener = null;
-    popup.location.replace(url);
     // The callback redirects the popup, not this window, so this marker is the
     // only thing that tells the opener its cached server list is now suspect.
     markMcpConnectionPending();

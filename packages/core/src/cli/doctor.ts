@@ -32,6 +32,7 @@ import {
   scanExplicitCollabAccess,
   scanIdentityColumnsRegistered,
   scanLocalhostFallback,
+  scanResourceActionAccess,
   scanUnscopedCredentials,
   scanUnscopedQueries,
 } from "../guards/index.js";
@@ -54,6 +55,7 @@ export type GuardName =
   | "no-localhost-fallback"
   | "explicit-collab-access"
   | "identity-columns-registered"
+  | "resource-action-access"
   | "migration-manifest";
 
 export const ALL_GUARD_NAMES: GuardName[] = [
@@ -67,6 +69,7 @@ export const ALL_GUARD_NAMES: GuardName[] = [
   "no-localhost-fallback",
   "explicit-collab-access",
   "identity-columns-registered",
+  "resource-action-access",
   "migration-manifest",
 ];
 
@@ -171,6 +174,8 @@ function runGuard(
       return scanExplicitCollabAccess({ root });
     case "identity-columns-registered":
       return scanIdentityColumnsRegistered({ root });
+    case "resource-action-access":
+      return scanResourceActionAccess({ root });
     case "migration-manifest": {
       const imports = scanDeprecatedImports({
         root,
