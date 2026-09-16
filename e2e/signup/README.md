@@ -6,8 +6,8 @@ authenticated Better Auth session before a refresh, then proves it again after
 the refresh that exposed the reported outage.
 
 The scheduled target is `all` email-capable sites on beta. That currently covers
-12 of the 16 fleet apps; Google-only apps (`mail` and `calendar`) and apps
-without the Better Auth email magic-link flow (`factory` and `macros`) are
+12 of the 15 fleet apps; Google-only apps (`mail` and `calendar`) and the app
+without the Better Auth email magic-link flow (`factory`) are
 intentionally excluded. Every target uses a fresh reserved address per run to
 exercise new-user creation. Production is opt-in through `workflow_dispatch`
 and also uses a fresh reserved address. The runner uses one worker so browser
@@ -51,8 +51,8 @@ The reserved `+autoz-` address marker is suppressed by the shared tracking
 registry, including `track()` and `identify()` calls. The marker is stable
 enough to filter canary accounts from signup data by local-part pattern, while
 the full address remains unique for every run.
-`SIGNUP_E2E_APPS=all` intentionally excludes Google-only apps and Macros,
-which do not expose the Better Auth email magic-link flow.
+`SIGNUP_E2E_APPS=all` intentionally excludes Google-only apps and Factory,
+which does not expose the Better Auth email magic-link flow.
 
 The existing `Beta E2E (scheduled)` workflow already runs the Luna agentic chat
 journey. This lane stays deterministic and focuses on the email, redirect,

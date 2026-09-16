@@ -28,6 +28,17 @@ describe("EmailThread trash shortcuts", () => {
   });
 });
 
+describe("EmailThread removal undo", () => {
+  it("passes the thread key to both reversal mutations", () => {
+    expect(source).toMatch(
+      /unarchiveEmail\.mutate\(\{[\s\S]*threadId: t\.threadId \|\| t\.id/,
+    );
+    expect(source).toMatch(
+      /untrashEmail\.mutate\(\{[\s\S]*threadId: t\.threadId \|\| t\.id/,
+    );
+  });
+});
+
 describe("EmailThread control accessibility", () => {
   it("names icon-only toolbar, message, attachment, and search controls", () => {
     for (const label of [

@@ -92,7 +92,7 @@ duplicated work and can drift in behavior.
 4. Convert Clips from `ClipsCommandMenu` JSX groups to registered static
    commands plus registered search providers. Preserve its route-aware
    commands and action-backed searches.
-5. Convert the other app menus (including CRM, Forms, Dispatch, and Macros) to
+5. Convert the other app menus (including CRM, Forms, and Dispatch) to
    the same registration surface.
 6. Remove duplicate per-app shortcut listeners and bespoke static filtering
    after all consumers migrate.

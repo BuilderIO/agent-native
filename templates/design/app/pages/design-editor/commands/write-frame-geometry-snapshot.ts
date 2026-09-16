@@ -107,6 +107,7 @@ export function runWriteFrameGeometrySnapshot(
     dataOperations,
   );
   designDataJsonRef.current = nextData;
+  if (liveFrameGeometryRef) liveFrameGeometryRef.current = snapshot;
   queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
     if (!old || typeof old !== "object") return old;
     return { ...old, data: JSON.stringify(nextData) };

@@ -19,11 +19,15 @@ import {
   buildDeckPptxBlob,
   exportDeckAsPptx,
   gradientPaint,
+  markWrappedLines,
   materializeClipPathShapes,
   patchBulletIndentsInPptxBlob,
+  pinRenderedFontFamilies,
   pptxExportScale,
   replaceInlineSvgsWithImages,
+  widenInPlace,
 } from "./export-pptx-client";
+import { WRAP_MARK } from "./pptx-google-slides";
 
 async function buildMinimalPptxBlob(slideCount = 1): Promise<Blob> {
   const zip = new JSZip();
@@ -995,5 +999,181 @@ describe("retypeThemeFonts", () => {
   it("leaves east-asian and complex-script faces alone", () => {
     const original = '<a:minorFont><a:ea typeface="MS Gothic"/></a:minorFont>';
     expect(retypeThemeFonts(original, "Geist")).toBe(original);
+  });
+});
+
+describe("pinRenderedFontFamilies", () => {
+  it("is a no-op in happy-dom, where the canvas probe cannot distinguish fonts", () => {
+    const root = document.createElement("div");
+    // A generic family the function would otherwise retype to a concrete face
+    // (see GENERIC_EXPORT_FACES) — a meaningful no-op check, not just an
+    // absence of a crash.
+    root.innerHTML = '<p style="font-family: sans-serif;">Some text</p>';
+    document.body.appendChild(root);
+    const paragraph = root.querySelector("p")!;
+
+    expect(() => pinRenderedFontFamilies(root, "google-slides")).not.toThrow();
+
+    expect(paragraph.style.fontFamily).toBe("sans-serif");
+    root.remove();
+  });
+});
+
+/**
+ * happy-dom lays out nothing, so `Range.getClientRects()` always answers
+ * empty — every stubbed test below fakes layout by keying the rect's `top` off
+ * which text node (and offset) the walk is currently ranging over.
+ */
+describe("markWrappedLines", () => {
+  it("inserts a wrap mark immediately before the text that starts a new line", () => {
+    document.body.innerHTML = "<div><p>alpha beta gamma</p></div>";
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const top = this.startOffset < 11 ? 0 : 24;
+        return [
+          { bottom: top + 20, height: 20, top, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(1);
+    expect(root.querySelector("p")?.textContent).toBe(
+      `alpha beta ${WRAP_MARK}gamma`,
+    );
+  });
+
+  it("does not mark a line that starts after an explicit <br>", () => {
+    document.body.innerHTML = "<div><p>alpha<br>beta</p></div>";
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const top = (this.startContainer as Text).data === "beta" ? 24 : 0;
+        return [
+          { bottom: top + 20, height: 20, top, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(0);
+    expect(root.querySelector("p")?.textContent).toBe("alphabeta");
+  });
+
+  it("skips text inside an aria-hidden subtree even when it looks wrapped", () => {
+    document.body.innerHTML =
+      '<div><p aria-hidden="true">alpha beta gamma</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const top = this.startOffset < 11 ? 0 : 24;
+        return [
+          { bottom: top + 20, height: 20, top, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(0);
+    expect(root.querySelector("p")?.textContent).toBe("alpha beta gamma");
+  });
+
+  it("marks a wrap after a tall inline run whose glyphs reach below the next line's centres", () => {
+    document.body.innerHTML = "<div><p>BIG small next</p></div>";
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const offset = this.startOffset;
+        const rect =
+          offset < 3
+            ? { top: 0, height: 60, left: offset * 30 }
+            : offset < 10
+              ? { top: 44, height: 12, left: 60 + offset * 8 }
+              : { top: 50, height: 12, left: (offset - 10) * 8 };
+        return [
+          { ...rect, bottom: rect.top + rect.height, width: 8 },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(1);
+    expect(root.querySelector("p")?.textContent).toBe(
+      `BIG small ${WRAP_MARK}next`,
+    );
+  });
+
+  it("marks a wrap after a tall inline run in right-to-left text, where the next line starts on the right", () => {
+    document.body.innerHTML =
+      '<div><p style="direction: rtl">BIG small next</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+      function (this: Range) {
+        const offset = this.startOffset;
+        const rect =
+          offset < 3
+            ? { top: 0, height: 60, left: 400 - offset * 30 }
+            : offset < 10
+              ? { top: 44, height: 12, left: 300 - offset * 8 }
+              : { top: 50, height: 12, left: 400 - (offset - 10) * 8 };
+        return [
+          {
+            ...rect,
+            bottom: rect.top + rect.height,
+            right: rect.left + 8,
+            width: 8,
+          },
+        ] as unknown as DOMRectList;
+      },
+    );
+
+    const count = markWrappedLines(root);
+
+    expect(count).toBe(1);
+    expect(root.querySelector("p")?.textContent).toBe(
+      `BIG small ${WRAP_MARK}next`,
+    );
+  });
+});
+
+describe("widenInPlace", () => {
+  it.each([
+    ["ltr", "start", "10px", "-10px"],
+    ["ltr", "end", "-10px", "10px"],
+    ["rtl", "start", "-10px", "10px"],
+    ["rtl", "end", "10px", "-10px"],
+  ])(
+    "keeps the aligned edge fixed for %s text aligned to %s",
+    (direction, textAlign, marginLeft, marginRight) => {
+      document.body.innerHTML = `<p style="direction: ${direction}; text-align: ${textAlign}; margin-left: 10px; margin-right: 10px">Label</p>`;
+      const element = document.querySelector<HTMLElement>("p")!;
+      vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+        width: 100,
+      } as DOMRect);
+
+      widenInPlace(element, 120);
+
+      expect(element.style.marginLeft).toBe(marginLeft);
+      expect(element.style.marginRight).toBe(marginRight);
+    },
+  );
+
+  it("moves a box back to its aligned edge when pinning its margins shifts it, as a grid item's auto margins do", () => {
+    document.body.innerHTML =
+      '<p style="text-align: left; margin-left: 0px; margin-right: 0px">Label</p>';
+    const element = document.querySelector<HTMLElement>("p")!;
+    vi.spyOn(element, "getBoundingClientRect")
+      .mockReturnValueOnce({ left: 170, width: 60 } as DOMRect)
+      .mockReturnValueOnce({ left: 0, width: 80 } as DOMRect);
+
+    widenInPlace(element, 80);
+
+    expect(element.style.marginLeft).toBe("170px");
+    expect(element.style.marginRight).toBe("-190px");
   });
 });

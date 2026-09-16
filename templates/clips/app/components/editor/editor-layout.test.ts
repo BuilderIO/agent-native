@@ -29,4 +29,15 @@ describe("EditorLayout media loading", () => {
     );
     expect(source).toContain('timelineActive={editingSurface === "timeline"}');
   });
+
+  it("renders the editor toolbar below the preview and above the surface tabs", () => {
+    const source = readSource();
+
+    expect(source.indexOf("overflow-hidden bg-black p-4")).toBeLessThan(
+      source.indexOf("<EditorToolbar"),
+    );
+    expect(source.indexOf("<EditorToolbar")).toBeLessThan(
+      source.indexOf("<Tabs\n"),
+    );
+  });
 });

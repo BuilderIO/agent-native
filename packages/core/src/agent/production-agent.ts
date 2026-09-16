@@ -39,6 +39,11 @@ import type { AgentNativeHarnessSetting } from "../config.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import {
+  describeAttachmentBytesVerdict,
+  reconcileImageBytes,
+  reconcilePdfBytes,
+} from "../file-upload/attachment-bytes.js";
+import {
   formatBase64CharBudget,
   MAX_INLINE_FILE_BASE64_CHARS,
   MAX_INLINE_IMAGE_BASE64_CHARS,
@@ -2060,11 +2065,35 @@ export function buildUserContentWithAttachments(opts: {
         continue;
       }
       if (match && isSupportedImageMediaType(match[1])) {
-        userContent.push({
-          type: "image",
-          data: match[2],
-          mediaType: match[1],
+        // The label comes from the browser, which derives it from the file
+        // extension, so it is a guess. The provider validates the bytes and
+        // rejects the WHOLE request when the two disagree, taking every other
+        // attachment and the user's text down with it. Trust the bytes.
+        const verdict = reconcileImageBytes({
+          base64: match[2],
+          declared: match[1],
         });
+        if (verdict.kind === "ok") {
+          userContent.push({
+            type: "image",
+            data: match[2],
+            mediaType: verdict.mediaType,
+          });
+        } else {
+          const label = att.name ? `"${att.name}"` : "An image";
+          const uploadedHint = uploadedUrl
+            ? ` It is available at ${uploadedUrl}; use that URL for embedding/reference if the task does not require vision analysis.`
+            : "";
+          const logName = att.name ?? "(unnamed)";
+          console.warn(
+            `[attachments] dropped image block name=${logName} declared=${match[1]} verdict=${verdict.kind} base64Chars=${match[2].length}`,
+          );
+          textAttachments.push(
+            `[${label} could not be sent for vision analysis because ${describeAttachmentBytesVerdict(verdict)}.` +
+              uploadedHint +
+              ` Tell the user which file it was and what is wrong with it; do not describe its contents, and do not blame file storage or a size limit.]`,
+          );
+        }
       } else {
         // The client sent an image in an unsupported format (HEIC, TIFF, AVIF,
         // etc.). Inject a short text placeholder so the model knows the image
@@ -2106,6 +2135,29 @@ export function buildUserContentWithAttachments(opts: {
             : `[${label} exceeds the ${limit} per-file limit for inline reading, so you cannot read its contents. This is a size limit, not a storage-configuration problem. Tell the user the file is over the ${limit} limit and ask for a smaller one.]`,
         );
         continue;
+      }
+      if (filePart.mediaType === "application/pdf") {
+        // Only PDF survives as a real document block downstream, and the
+        // provider rejects the request outright when those bytes are not a
+        // PDF, which is routine for a DOCX saved under a `.pdf` name.
+        const verdict = reconcilePdfBytes({
+          base64: filePart.data,
+          declared: filePart.mediaType,
+        });
+        if (verdict.kind !== "ok") {
+          const label = att.name ? `"${att.name}"` : "A file";
+          const logName = att.name ?? "(unnamed)";
+          console.warn(
+            `[attachments] dropped document block name=${logName} verdict=${verdict.kind} base64Chars=${filePart.data.length}`,
+          );
+          const why = describeAttachmentBytesVerdict(verdict);
+          textAttachments.push(
+            uploadedUrl
+              ? `[${label} could not be read as a PDF because ${why}. It was uploaded to ${uploadedUrl}; use that URL for reference. Tell the user the file is not a readable PDF.]`
+              : `[${label} could not be read as a PDF because ${why}. Tell the user which file it was and what is wrong with it; do not describe its contents.]`,
+          );
+          continue;
+        }
       }
       userContent.push(filePart);
       continue;

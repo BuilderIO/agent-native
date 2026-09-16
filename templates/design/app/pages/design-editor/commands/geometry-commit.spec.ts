@@ -11,6 +11,7 @@ import { runGeometryCommit } from "./geometry-commit";
 
 function runCommit(
   options?: {
+    source?: "pointer" | "keyboard";
     kScaleStyleChangesByFrameId?: Record<string, []>;
   },
   before: CanvasFrameGeometryById = {
@@ -19,8 +20,15 @@ function runCommit(
   after: CanvasFrameGeometryById = {
     screen: { x: 0.2, y: 0.2, width: 416.2, height: 416.2 },
   },
+  seed?: {
+    previousEntry?: GeometryHistoryEntry;
+    lastGeometryCommitAt?: number;
+    lastGeometryCommitSource?: "pointer" | "keyboard";
+  },
 ) {
-  const geometryUndoStackRef = { current: [] as GeometryHistoryEntry[] };
+  const geometryUndoStackRef = {
+    current: seed?.previousEntry ? [seed.previousEntry] : [],
+  };
   const historyOrderRef = { current: [] as UndoRedoOrderKind[] };
   const liveFrameGeometryRef = { current: before };
   const writeFrameGeometrySnapshot = vi.fn();
@@ -42,8 +50,12 @@ function runCommit(
       historyOrderRef,
       id: "design",
       liveFrameGeometryRef,
-      lastGeometryCommitAtRef: { current: 0 },
-      lastGeometryCommitSourceRef: { current: null },
+      lastGeometryCommitAtRef: {
+        current: seed?.lastGeometryCommitAt ?? 0,
+      },
+      lastGeometryCommitSourceRef: {
+        current: seed?.lastGeometryCommitSource ?? null,
+      },
       locallyPinnedHeightIdsRef: { current: new Set<string>() },
       queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
       queueFrameGeometrySave: vi.fn(),
@@ -252,5 +264,32 @@ describe("runGeometryCommit", () => {
       screen: { x: 5, y: 0.2, width: 416.2, height: 416.2 },
       other: before.other,
     });
+  });
+
+  it("publishes the live snapshot for a coalesced keyboard commit", () => {
+    const before = {
+      screen: { x: 0, y: 0, width: 400, height: 400 },
+    };
+    const previousEntry: GeometryHistoryEntry = {
+      before: { screen: { ...before.screen, x: -1 } },
+      after: before,
+      selectionAfter: {
+        overviewSelectedScreenIds: ["screen"],
+        selectedLayerIds: [],
+        activeFileId: null,
+      },
+    };
+    const after = {
+      screen: { ...before.screen, x: 1 },
+    };
+
+    const result = runCommit({ source: "keyboard" }, before, after, {
+      previousEntry,
+      lastGeometryCommitAt: Date.now(),
+      lastGeometryCommitSource: "keyboard",
+    });
+
+    expect(result.liveFrameGeometryRef.current).toEqual(after);
+    expect(result.writeFrameGeometrySnapshot).not.toHaveBeenCalled();
   });
 });

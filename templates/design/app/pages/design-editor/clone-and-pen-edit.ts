@@ -15,6 +15,7 @@ import {
   COMPONENT_REF_ATTR,
   linkedComponentRootForNode,
 } from "@shared/component-model";
+import { resolveLayerNameAttribute } from "@shared/layer-name";
 import {
   createCornerNode,
   createSmoothNode,
@@ -1064,9 +1065,8 @@ export function prepareClonedHtmlLayer(
   if (!source) return null;
   let clone = doc.importNode(source, true) as Element;
   const sourceLayerName =
-    source.getAttribute("data-agent-native-layer-name") ||
-    source.getAttribute("data-layer-name") ||
-    "";
+    resolveLayerNameAttribute((attribute) => source.getAttribute(attribute))
+      ?.value ?? "";
   const sourceNodeId = source.getAttribute("data-agent-native-node-id") || "";
   const sourceIsLegacyGroup =
     /^an-[a-z0-9]+$/i.test(sourceNodeId) &&
@@ -1088,9 +1088,7 @@ export function prepareClonedHtmlLayer(
     });
   }
   if (
-    !["data-agent-native-layer-name", "data-layer-name"].some((attribute) =>
-      clone.getAttribute(attribute)?.trim(),
-    )
+    !resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute))
   ) {
     const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
     // A "tag" source means the name was never authored — it is derived from

@@ -273,7 +273,6 @@ describe("buildOrgAppsResponse", () => {
       "scheduling",
       "issues",
       "recruiting",
-      "macros",
       "code",
       "migration",
       "starter",

@@ -836,7 +836,7 @@ describe("integrations plugin routes", () => {
     });
   });
 
-  it("answers platform verification challenges before requiring enablement", async () => {
+  it("answers POST platform verification challenges before requiring enablement", async () => {
     const challengeAdapter: PlatformAdapter = {
       ...adapter,
       handleVerification: async () => ({
@@ -856,6 +856,50 @@ describe("integrations plugin routes", () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ challenge: "qa-challenge" });
+  });
+
+  it("answers GET platform verification challenges before POST signature checks or enablement", async () => {
+    const verifyWebhook = vi.fn(async () => false);
+    const challengeAdapter: PlatformAdapter = {
+      ...adapter,
+      verifyWebhook,
+      handleVerification: async () => ({
+        handled: true,
+        response: { challenge: "qa-challenge" },
+      }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [challengeAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "GET",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ challenge: "qa-challenge" });
+    expect(verifyWebhook).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid GET platform verification challenge with 403", async () => {
+    const challengeAdapter: PlatformAdapter = {
+      ...adapter,
+      handleVerification: async () => ({ handled: false }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [challengeAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "GET",
+    );
+
+    expect(result.status).toBe(403);
+    expect(result.body).toEqual({
+      error: "Invalid webhook verification challenge",
+    });
   });
 
   it("authenticates Google Drive push notifications with channel headers", async () => {

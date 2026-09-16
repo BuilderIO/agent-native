@@ -226,6 +226,7 @@ export function runGeometryCommit(
       return { ...old, data: JSON.stringify(nextData) };
     });
     queueFrameGeometrySave(afterSnapshot);
+    liveFrameGeometryRef.current = cloneCanvasFrameGeometry(afterSnapshot);
   } else {
     writeFrameGeometrySnapshot(
       afterSnapshot,

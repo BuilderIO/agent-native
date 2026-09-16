@@ -15,7 +15,6 @@ const APP_IDS = [
   "dispatch",
   "factory",
   "forms",
-  "macros",
   "mail",
   "plan",
   "slides",

@@ -24,7 +24,11 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
-import { describeErrorWithCauses } from "./error-detail.js";
+import {
+  describeErrorWithCauses,
+  isBareProviderRejectionMessage,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+} from "./error-detail.js";
 import { createFirstEventAbortController } from "./first-event-timeout.js";
 import { limitProviderTools } from "./limit-provider-tools.js";
 import {
@@ -351,6 +355,16 @@ class AnthropicEngine implements AgentEngine {
         !timedOut &&
         statusCode === undefined &&
         rawMessage.trim().toLowerCase() === "connection error.";
+      // A 403 whose only "reason" is a status echo is the provider shedding
+      // load, not a revoked key: the same signature `builder-engine` and
+      // `classifyProviderError` already route to the retry lane. Landing on the
+      // credential lane instead ends the turn on its first occurrence and tells
+      // the reader to reconnect a key that is working. A 403 that DOES carry a
+      // reason (permission_error, a region block) keeps `http_403`.
+      const isBareForbidden =
+        statusCode === 403 &&
+        (isBareProviderRejectionMessage(rawMessage) ||
+          isBareProviderRejectionMessage(errorMessage));
       if (statusCode === 401) {
         await recordProviderCredentialAuthFailure({
           key: "ANTHROPIC_API_KEY",
@@ -373,7 +387,13 @@ class AnthropicEngine implements AgentEngine {
         // gateway path does. `http_429`/`http_529` also let the run-level
         // continuation logic auto-resume a rate-limited turn.
         ...(statusCode !== undefined
-          ? { errorCode: `http_${statusCode}`, statusCode }
+          ? isBareForbidden
+            ? {
+                errorCode: PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+                statusCode,
+                providerRetryable: true,
+              }
+            : { errorCode: `http_${statusCode}`, statusCode }
           : isConnectionError || timedOut
             ? {
                 errorCode: "provider_network_error",

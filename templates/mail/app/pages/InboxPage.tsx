@@ -237,6 +237,7 @@ function ThreadListSidebar({
                     id: email.id,
                     isRead: true,
                     accountEmail: email.accountEmail,
+                    threadId: email.threadId || email.id,
                   });
                 onNavigateThread(threadKey);
                 void navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
