@@ -414,13 +414,24 @@ type SuppressionAction =
   | "snooze"
   | "move";
 
+// What the action removed the thread from — never where it might still be
+// listed. Only the mutation knows this: archive and move drop INBOX plus the
+// `removeLabel` they were handed and leave every other label attached, so
+// describing the remaining locations instead hid threads from labels they
+// still carry.
+type SuppressionRemoval = {
+  // Set when the action moved the thread into exactly one list (trash, spam).
+  // It is gone from every other view and label.
+  onlyIn?: string;
+  // Views the thread left, plus the single label the action removed, if any.
+  // Every other list — including labels it still carries — keeps showing it.
+  views?: string[];
+  label?: string;
+};
+
 type SuppressionEntry = {
   action: SuppressionAction;
-  // Where the thread legitimately lives after the action, so it stays visible
-  // there. The entry carries this instead of the filter testing one action at
-  // a time: a move's destination is a label the filter cannot guess. `all` has
-  // no Gmail query, so everything except trash and spam stays listed there.
-  destination?: { views?: string[]; label?: string };
+  removed?: SuppressionRemoval;
   timestamp: number;
 };
 
@@ -444,17 +455,17 @@ function subscribeToSuppression(listener: () => void) {
 }
 
 /**
- * Suppress a thread from appearing in views it was removed from. Returns the
+ * Suppress a thread from the lists the action removed it from. Returns the
  * entry id so a rollback can drop only this mutation's claim.
  */
 export function suppressThread(
   threadId: string,
   action: SuppressionAction,
-  destination?: { views?: string[]; label?: string },
+  removed?: SuppressionRemoval,
 ): number {
   const id = nextSuppressionId++;
   const entries = suppressedThreads.get(threadId) ?? new Map();
-  entries.set(id, { action, destination, timestamp: Date.now() });
+  entries.set(id, { action, removed, timestamp: Date.now() });
   suppressedThreads.set(threadId, entries);
   notifySuppressionListeners();
   return id;
@@ -499,13 +510,15 @@ function isSuppressedInView(
   // Only the newest claim says where the thread now lives: an archive claim
   // must stop hiding it from Trash once a later trash put it there. Older
   // claims stay in the map purely so their own rollback stays scoped.
-  const destination = newest.destination;
-  // A label tab is fetched as view "all" with that label, so `views` alone
-  // cannot tell bare All Mail from a label-scoped query. Only the destination
-  // label may reveal a thread in a label list; otherwise archiving or moving
-  // out of a label would leave it listed in the label it just left.
-  if (label) return destination?.label !== label;
-  return !destination?.views?.includes(view);
+  const removed = newest.removed;
+  if (!removed) return true;
+  // Trash and spam leave exactly one list and nothing else, labels included.
+  if (removed.onlyIn) return view !== removed.onlyIn;
+  // A label tab is fetched as view "all" with that label, so only the label
+  // the action actually removed may stop listing the thread; every label it
+  // still carries keeps it.
+  if (label) return removed.label === label;
+  return removed.views?.includes(view) ?? false;
 }
 
 export function filterSuppressedThreads(
@@ -1521,6 +1534,7 @@ export function useArchiveEmail() {
       }),
     onMutate: async ({
       id,
+      removeLabel,
       threadId: hintedThreadId,
     }: {
       id: string;
@@ -1542,7 +1556,8 @@ export function useArchiveEmail() {
         findInboxThreadIdByMessageId(qc, id) ||
         id;
       const suppressionId = suppressThread(threadId, "archive", {
-        views: ["archive", "all"],
+        views: ["inbox", "unread"],
+        label: removeLabel,
       });
       invalidateCachedThread(threadId);
       const inboxMutationId = removeInboxThreadsOptimistic(
@@ -1669,7 +1684,7 @@ export function useTrashEmail() {
         findInboxThreadIdByMessageId(qc, id) ||
         id;
       const suppressionId = suppressThread(threadId, "trash", {
-        views: ["trash"],
+        onlyIn: "trash",
       });
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
@@ -1794,7 +1809,7 @@ export function useBulkArchiveEmails() {
         ...target,
         removeLabel,
       })).then(() => `Queued archive for ${targets.length} email(s)`),
-    onMutate: async ({ targets }: BulkArchiveVars) => {
+    onMutate: async ({ targets, removeLabel }: BulkArchiveVars) => {
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
@@ -1817,7 +1832,8 @@ export function useBulkArchiveEmails() {
       const suppressionIds: Record<string, number> = {};
       for (const threadId of threadIdSet) {
         suppressionIds[threadId] = suppressThread(threadId, "archive", {
-          views: ["archive", "all"],
+          views: ["inbox", "unread"],
+          label: removeLabel,
         });
         invalidateCachedThread(threadId);
       }
@@ -1894,7 +1910,7 @@ export function useBulkTrashEmails() {
       const suppressionIds: Record<string, number> = {};
       for (const threadId of threadIdSet)
         suppressionIds[threadId] = suppressThread(threadId, "trash", {
-          views: ["trash"],
+          onlyIn: "trash",
         });
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIdSet);
       return {
@@ -2177,7 +2193,7 @@ export function useMoveEmail() {
         throw new MoveEmailPartialFailure(result);
       return result;
     },
-    onMutate: async ({ id, label }) => {
+    onMutate: async ({ id, removeLabel }) => {
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
@@ -2207,11 +2223,11 @@ export function useMoveEmail() {
         // Suppress per thread rather than snapshotting the legacy cache: a
         // snapshot restore also reverts whatever landed after this move
         // started, which is how an overlapping move gets resurrected. The
-        // destination label keeps the thread visible in the list it moved to,
-        // and a move never removes it from All Mail.
+        // move drops INBOX and the source label it was handed; every other
+        // label the thread carries still lists it.
         suppressionIds[threadId] = suppressThread(threadId, "move", {
-          views: ["all"],
-          label,
+          views: ["inbox", "unread"],
+          label: removeLabel,
         });
       }
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIds);
@@ -2499,7 +2515,9 @@ export function useReportSpam() {
       // it in the synced inbox, so rollback drops this thread's own entries.
       // Restoring a whole cache snapshot here would revert a concurrent
       // mutation that landed after this one started.
-      const suppressionId = suppressThread(threadId, "spam");
+      const suppressionId = suppressThread(threadId, "spam", {
+        onlyIn: "spam",
+      });
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
@@ -2546,7 +2564,9 @@ export function useBlockSender() {
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      const suppressionId = suppressThread(threadId, "block");
+      const suppressionId = suppressThread(threadId, "block", {
+        onlyIn: "spam",
+      });
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
@@ -2594,9 +2614,10 @@ export function useMuteThread() {
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      // Muting only drops the thread out of the inbox; it stays in All Mail.
+      // Muting only drops the thread out of the inbox; All Mail and every
+      // label it carries still list it.
       const suppressionId = suppressThread(threadId, "mute", {
-        views: ["all"],
+        views: ["inbox", "unread"],
       });
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,

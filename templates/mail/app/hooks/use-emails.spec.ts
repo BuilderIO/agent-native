@@ -57,7 +57,7 @@ describe("filterSuppressedThreads", () => {
 
   it("keeps an archived thread hidden from stale inbox refetches", () => {
     suppressThread("thread-archived", "archive", {
-      views: ["archive", "all"],
+      views: ["inbox", "unread"],
     });
 
     const visible = filterSuppressedThreads(
@@ -73,13 +73,15 @@ describe("filterSuppressedThreads", () => {
 
   it("allows an archived thread in the archive destination view", () => {
     suppressThread("thread-archived", "archive", {
-      views: ["archive", "all"],
+      views: ["inbox", "unread"],
     });
     const row = () => [makeEmail("msg-archived", "thread-archived")];
 
     expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
-    // Archiving does not remove the thread from All Mail.
+    // Archiving removes only INBOX, so All Mail and every label it carries
+    // still list the thread.
     expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
   });
 });
 
@@ -575,11 +577,10 @@ describe("inbox-thread cache rollback on mutation error", () => {
 
   it("keeps a later mutation hidden when an earlier move rolls back", () => {
     const moved = suppressThread("thread-moved", "move", {
-      views: ["all"],
-      label: "Receipts",
+      views: ["inbox", "unread"],
     });
     suppressThread("thread-archived-later", "archive", {
-      views: ["archive", "all"],
+      views: ["inbox", "unread"],
     });
 
     // The move failed for its own thread only; an archive that landed while it
@@ -602,10 +603,9 @@ describe("inbox-thread cache rollback on mutation error", () => {
     // Move, then archive the same thread, then fail the move. The archive is
     // still pending, so releasing the move's claim must not reveal the row.
     const moved = suppressThread("thread-both", "move", {
-      views: ["all"],
-      label: "Receipts",
+      views: ["inbox", "unread"],
     });
-    suppressThread("thread-both", "archive", { views: ["archive", "all"] });
+    suppressThread("thread-both", "archive", { views: ["inbox", "unread"] });
 
     releaseSuppression("thread-both", moved);
 
@@ -623,62 +623,67 @@ describe("inbox-thread cache rollback on mutation error", () => {
     // Archive then trash the same thread: Trash is its final location, so the
     // older archive claim must not keep hiding it there.
     suppressThread("thread-relocated", "archive", {
-      views: ["archive", "all"],
+      views: ["inbox", "unread"],
     });
-    suppressThread("thread-relocated", "trash", { views: ["trash"] });
+    suppressThread("thread-relocated", "trash", { onlyIn: "trash" });
     const row = () => [makeEmail("msg-relocated", "thread-relocated")];
 
     expect(filterSuppressedThreads(row(), "trash")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "archive")).toEqual([]);
-    // Trash leaves All Mail, so the newest claim hides it there too.
+    // Trash leaves All Mail and every label behind as well.
     expect(filterSuppressedThreads(row(), "all")).toEqual([]);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toEqual([]);
 
     unsuppressThread("thread-relocated");
   });
 
-  it("shows a moved thread in the label it was moved to and in All Mail", () => {
+  it("keeps a moved thread in the labels it still carries", () => {
+    // Moving out of the inbox with no source label leaves every label the
+    // thread already had attached, so only the inbox loses the row.
     const moved = suppressThread("thread-filed", "move", {
-      views: ["all"],
-      label: "Receipts",
+      views: ["inbox", "unread"],
     });
     const row = () => [makeEmail("msg-filed", "thread-filed")];
 
     expect(filterSuppressedThreads(row(), "inbox")).toEqual([]);
-    expect(filterSuppressedThreads(row(), "label", "Receipts")).toHaveLength(1);
-    expect(filterSuppressedThreads(row(), "label", "Invoices")).toEqual([]);
-    // Bare All Mail carries no label; a move never removes the thread from it.
     expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all", "Receipts")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
 
     releaseSuppression("thread-filed", moved);
   });
 
-  it("hides a moved thread in the source label it was moved out of", () => {
+  it("hides a moved thread only in the source label it was moved out of", () => {
     // A mailbox-wide label tab fetches with view "all" plus the active label,
-    // so All Mail visibility must not leak into the label the thread left.
+    // so only the label the move actually removed may stop listing it.
     const moved = suppressThread("thread-refiled", "move", {
-      views: ["all"],
-      label: "Receipts",
+      views: ["inbox", "unread"],
+      label: "Marketing",
     });
     const row = () => [makeEmail("msg-refiled", "thread-refiled")];
 
     expect(filterSuppressedThreads(row(), "all", "Marketing")).toEqual([]);
     expect(filterSuppressedThreads(row(), "all", "Receipts")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
 
     releaseSuppression("thread-refiled", moved);
   });
 
-  it("hides an archived thread in the label the archive removed", () => {
-    // Archiving from a label view passes removeLabel, so that label list must
-    // not keep showing the thread while stale data is still cached.
+  it("hides an archived thread only in the label the archive removed", () => {
+    // Archiving from a label view passes removeLabel, so that label stops
+    // listing the thread while every other label it carries keeps it.
     suppressThread("thread-filed-away", "archive", {
-      views: ["archive", "all"],
+      views: ["inbox", "unread"],
+      label: "Marketing",
     });
     const row = () => [makeEmail("msg-filed-away", "thread-filed-away")];
 
     expect(filterSuppressedThreads(row(), "all", "Marketing")).toEqual([]);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "inbox")).toEqual([]);
 
     unsuppressThread("thread-filed-away");
   });
