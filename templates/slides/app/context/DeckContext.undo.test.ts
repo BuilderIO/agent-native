@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyOpToDeck,
+  applyUndoOpToDecks,
   deriveInverseOp,
   reorderSlidesById,
   type Deck,
@@ -255,6 +256,25 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
     for (const op of structuralOps) {
       expect(applyOpToDeck(before, op).sourceImport).toBeUndefined();
     }
+  });
+
+  it("restores imported source provenance through a replacement undo", () => {
+    const before = deck([slide("a"), slide("b")], {
+      sourceImport: { mode: "source-preserving", slideIds: ["a", "b"] },
+    });
+    const after = applyOpToDeck(before, {
+      op: "delete-slide",
+      slideId: "a",
+    });
+
+    expect(after.sourceImport).toBeUndefined();
+    expect(
+      applyUndoOpToDecks([after], {
+        op: "replace-deck",
+        deckId: before.id,
+        deck: before,
+      }),
+    ).toEqual([before]);
   });
 
   it("patch-deck-fields: inverse restores prior deck fields", () => {

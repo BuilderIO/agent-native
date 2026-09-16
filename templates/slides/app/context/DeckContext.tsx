@@ -1123,6 +1123,14 @@ function clearSourceImport(deck: Deck): Deck {
   return next;
 }
 
+function isStructuralOp(op: PatchDeckOp): boolean {
+  return (
+    op.op === "delete-slide" ||
+    op.op === "reorder-slides" ||
+    op.op === "add-slide"
+  );
+}
+
 /** Reorders the current slide list by stable IDs, or returns null for a no-op. */
 export function reorderSlidesById(
   slides: Slide[],
@@ -2267,6 +2275,20 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       redoOp: PatchDeckOp,
       opts?: { label?: string; coalesceKey?: string },
     ) => {
+      if (
+        before.sourceImport !== undefined &&
+        before.sourceImport !== null &&
+        isStructuralOp(redoOp) &&
+        applyOpToDeck(before, redoOp) !== before
+      ) {
+        undoControllerRef.current?.push({
+          undo: [{ op: "replace-deck", deckId: before.id, deck: before }],
+          redo: [{ deckId: before.id, ...redoOp }],
+          label: opts?.label,
+          coalesceKey: opts?.coalesceKey,
+        });
+        return;
+      }
       const inverseOps = deriveInverseOp(before, redoOp);
       if (!inverseOps || inverseOps.length === 0) return;
       const entry: LocalOpUndoEntry<DeckUndoOp> = {
@@ -2283,14 +2305,30 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const recordUndoBatch = useCallback(
     (before: Deck, redoOps: PatchDeckOp[], label: string) => {
       let state = before;
+      let structuralMutation = false;
       const undoOps: PatchDeckOp[] = [];
       for (const redoOp of redoOps) {
+        const nextState = applyOpToDeck(state, redoOp);
+        if (isStructuralOp(redoOp) && nextState !== state) {
+          structuralMutation = true;
+        }
         const inverseOps = deriveInverseOp(state, redoOp);
-        if (!inverseOps) continue;
-        undoOps.unshift(...inverseOps);
-        state = applyOpToDeck(state, redoOp);
+        if (inverseOps) undoOps.unshift(...inverseOps);
+        state = nextState;
       }
       if (undoOps.length === 0) return;
+      if (
+        before.sourceImport !== undefined &&
+        before.sourceImport !== null &&
+        structuralMutation
+      ) {
+        undoControllerRef.current?.push({
+          undo: [{ op: "replace-deck", deckId: before.id, deck: before }],
+          redo: redoOps.map((op) => ({ deckId: before.id, ...op })),
+          label,
+        });
+        return;
+      }
       undoControllerRef.current?.push({
         undo: undoOps.map((op) => ({ deckId: before.id, ...op })),
         redo: redoOps.map((op) => ({ deckId: before.id, ...op })),

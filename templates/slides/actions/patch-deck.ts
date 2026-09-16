@@ -430,14 +430,14 @@ export function applyOperation(
   deck: any,
   op: Operation,
   options?: { clearLayoutWarningDismissal?: boolean },
-): void {
+): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
 
   switch (op.op) {
     case "patch-slide": {
       const idx = slides.findIndex((s: { id: string }) => s.id === op.slideId);
-      if (idx === -1) return; // slide was concurrently deleted — ignore
+      if (idx === -1) return false; // slide was concurrently deleted — ignore
       const slide = slides[idx];
       const fields = op.fields;
       const previousFitFields = {
@@ -482,15 +482,17 @@ export function applyOperation(
           delete slide.layoutWarningDismissed;
         }
       }
-      break;
+      return false;
     }
 
     case "delete-slide": {
       const idx = slides.findIndex((s: { id: string }) => s.id === op.slideId);
-      if (idx !== -1) slides.splice(idx, 1);
+      const removed = idx !== -1;
+      if (removed) slides.splice(idx, 1);
       // Ensure at least one slide remains for direct user deletes. Undoing an
       // add-slide from a legitimately empty deck opts into preserving empty.
-      if (slides.length === 0 && !op.allowEmpty) {
+      const addedFallback = slides.length === 0 && !op.allowEmpty;
+      if (addedFallback) {
         slides.push({
           id: `slide-${Date.now()}-fallback`,
           content: `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;"><div style="font-size: 28px; font-weight: 600; color: hsl(var(--muted-foreground) / 0.4);">Double-click to edit</div></div>`,
@@ -498,9 +500,10 @@ export function applyOperation(
           layout: "blank",
         });
       }
+      if (!removed && !addedFallback) return false;
       deck.slides = slides;
       delete deck.sourceImport;
-      break;
+      return true;
     }
 
     case "reorder-slides": {
@@ -524,15 +527,21 @@ export function applyOperation(
       for (const s of slides) {
         if (!orderedSet.has(s.id)) reordered.push(s);
       }
+      if (
+        reordered.length === slides.length &&
+        reordered.every((slide, index) => slide?.id === slides[index]?.id)
+      ) {
+        return false;
+      }
       deck.slides = reordered;
       delete deck.sourceImport;
-      break;
+      return true;
     }
 
     case "add-slide": {
       const { slideId, afterSlideId, fields } = op;
       // Idempotency: if the slide already exists (duplicate delivery), skip.
-      if (slides.some((s: { id: string }) => s.id === slideId)) return;
+      if (slides.some((s: { id: string }) => s.id === slideId)) return false;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       // Copy every provided field: a duplicated or undo-restored slide has to
       // keep its transition, animations, and image data, not just its text.
@@ -558,7 +567,7 @@ export function applyOperation(
       }
       deck.slides = slides;
       delete deck.sourceImport;
-      break;
+      return true;
     }
 
     case "patch-deck-fields": {
@@ -586,7 +595,7 @@ export function applyOperation(
       if (fields.starred !== undefined) deck.starred = fields.starred;
       if (fields.generationContext !== undefined)
         deck.generationContext = fields.generationContext;
-      break;
+      return false;
     }
   }
 }
@@ -893,46 +902,10 @@ export default defineAction({
       const sourceImport = sourceImportForDeck(deck.sourceImport);
       const sourceRewriteRequested =
         isAgentCaller && rewriteSource && sourceImport !== null;
-      const hasStructuralOperation = operations.some(
-        (operation) =>
-          operation.op === "delete-slide" ||
-          operation.op === "reorder-slides" ||
-          operation.op === "add-slide",
-      );
-      const sourceImportCleared =
-        sourceImport !== null &&
-        (sourceRewriteRequested || hasStructuralOperation);
       if (isAgentCaller && rewriteSource && sourceImport === null) {
         throw new Error(
           "rewriteSource=true only applies to a source-preserving deck; omit it for a regular deck",
         );
-      }
-      if (isAgentCaller) {
-        assertSourceImportSlidesCovered(
-          sourceImport,
-          operations,
-          sourceImportCleared ? false : requireAllSourceSlides,
-        );
-      }
-      for (const op of operations) {
-        if (
-          !isAgentCaller ||
-          sourceRewriteRequested ||
-          op.op !== "patch-slide" ||
-          (op.fields.content === undefined && op.fields.notes === undefined)
-        ) {
-          continue;
-        }
-        assertSourceSlidePreserved({
-          metadata: sourceImport,
-          slideId: op.slideId,
-          nextContent:
-            op.fields.content === undefined
-              ? undefined
-              : normalizeSlidePadding(op.fields.content),
-          nextNotes: op.fields.notes,
-          preserveSource: op.preserveSource,
-        });
       }
 
       const targetSlideCount = persistedTargetSlideCount(deck);
@@ -996,15 +969,17 @@ export default defineAction({
               ] as const,
           ),
       );
+      let structuralOperationApplied = false;
       for (const op of operations) {
         const existedBeforeDelete =
           op.op === "delete-slide" &&
           (deck.slides as Array<{ id?: string }>).some(
             (slide) => slide.id === op.slideId,
           );
-        applyOperation(deck, op, {
+        const operationChangedStructure = applyOperation(deck, op, {
           clearLayoutWarningDismissal: isAgentCaller,
         });
+        structuralOperationApplied ||= operationChangedStructure;
         if (
           existedBeforeDelete &&
           !(deck.slides as Array<{ id?: string }>).some(
@@ -1012,6 +987,35 @@ export default defineAction({
           )
         ) {
           deletedSlideIds.add(op.slideId);
+        }
+      }
+      const sourceImportCleared =
+        sourceImport !== null &&
+        (sourceRewriteRequested || structuralOperationApplied);
+      if (isAgentCaller) {
+        assertSourceImportSlidesCovered(
+          sourceImport,
+          operations,
+          sourceImportCleared ? false : requireAllSourceSlides,
+        );
+        for (const op of operations) {
+          if (
+            sourceImportCleared ||
+            op.op !== "patch-slide" ||
+            (op.fields.content === undefined && op.fields.notes === undefined)
+          ) {
+            continue;
+          }
+          assertSourceSlidePreserved({
+            metadata: sourceImport,
+            slideId: op.slideId,
+            nextContent:
+              op.fields.content === undefined
+                ? undefined
+                : normalizeSlidePadding(op.fields.content),
+            nextNotes: op.fields.notes,
+            preserveSource: op.preserveSource,
+          });
         }
       }
       // ─── What actually changed, per slide ─────────────────────────────────
