@@ -44,6 +44,24 @@ if (!layoutFiles.length) {
   console.error(`No slide-NN.json layout files in ${anDir}`);
   process.exit(1);
 }
+// A dump that stopped partway leaves a gap; a dump that stopped at the end
+// leaves nothing to see, so `--slides <n>` holds it to the deck's own count.
+const slideNumbers = layoutFiles.map((name) => Number(name.match(/\d+/)![0]));
+if (slideNumbers.some((value, index) => value !== index + 1)) {
+  console.error(
+    `Layout dump is not a contiguous slide-01..N set in ${anDir}: got ${slideNumbers.join(", ")}`,
+  );
+  process.exit(1);
+}
+const expectedSlides = Number(
+  process.argv[process.argv.indexOf("--slides") + 1],
+);
+if (expectedSlides > 0 && slideNumbers.length !== expectedSlides) {
+  console.error(
+    `Layout dump has ${slideNumbers.length} slide(s), expected ${expectedSlides}`,
+  );
+  process.exit(1);
+}
 for (const file of layoutFiles) {
   const { slide, texts } = JSON.parse(
     readFileSync(path.join(anDir, file), "utf8"),

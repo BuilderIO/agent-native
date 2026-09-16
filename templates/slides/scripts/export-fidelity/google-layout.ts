@@ -11,7 +11,12 @@
 // nearest editor-owned shape ancestor, projected into 960-wide slide space
 // via its own screen CTM, then runs within 1px of the same baseline are
 // merged (Google splits a wrapped line into multiple adjacent <text> runs).
-export function extractGoogleSlideLayout(slideNumber: number): string[] {
+export function extractGoogleSlideLayout(
+  slideNumber: number,
+  // Decks ship in 16:9, 1:1, 9:16, 4:5 and 4:3, so the frame to look for and
+  // the coordinate space to report in both come from the deck being checked.
+  { aspect = 16 / 9, width = 960 }: { aspect?: number; width?: number } = {},
+): string[] {
   const svg = [...document.querySelectorAll("svg")]
     .map((s) => ({ s, r: s.getBoundingClientRect() }))
     .filter((x) => x.r.width > 400)
@@ -25,34 +30,42 @@ export function extractGoogleSlideLayout(slideNumber: number): string[] {
   const f = [...svg.querySelectorAll("path,rect")]
     .map((e) => e.getBoundingClientRect())
     .filter(
-      (r) => r.width > 300 && Math.abs(r.width / r.height - 16 / 9) < 0.02,
+      (r) => r.width > 300 && Math.abs(r.width / r.height - aspect) < 0.02,
     )
     .sort((a, b) => b.width - a.width)[0];
   if (!f) {
     throw new Error(
-      "extractGoogleSlideLayout: no 16:9 slide frame (path/rect) found inside the slide SVG",
+      `extractGoogleSlideLayout: no ${aspect.toFixed(3)}:1 slide frame (path/rect) found inside the slide SVG`,
     );
   }
 
-  const k = 960 / f.width;
+  const k = width / f.width;
   type Run = { text: string; x: number; base: number; right: number };
   const byShape = new Map<string, Run[]>();
   for (const t of svg.querySelectorAll("text")) {
     const g = t.closest('g[id^="editor-"]:not([id*="paragraph"])');
     const id = g ? g.id : "";
-    // A run carrying its own <tspan x/y> is placed by that point, not the
-    // parent's, so measure whichever element states the coordinates.
-    const placed = [...t.querySelectorAll("tspan")].filter(
-      (span) => span.hasAttribute("x") || span.hasAttribute("y"),
+    // Every rendered run counts. A styling tspan inherits the point declared
+    // before it, so taking only the ones that state x/y drops their text and
+    // reads back as a broken line. Leaf tspans only, or a wrapper's text would
+    // be counted twice.
+    const spans = [...t.querySelectorAll("tspan")].filter(
+      (span) => !span.querySelector("tspan"),
     );
-    for (const node of placed.length ? placed : [t]) {
+    let carriedX = Number(t.getAttribute("x")) || 0;
+    let carriedY = Number(t.getAttribute("y")) || 0;
+    for (const node of spans.length ? spans : [t]) {
       const m = node.getScreenCTM();
       if (!m) continue;
       // Transform the whole point rather than x alone: Google keeps each
       // line's offset in the element's own transform today, so `y` is usually
       // 0 and dropping its terms happens to land right — until a run has one.
-      const x = Number(node.getAttribute("x") ?? t.getAttribute("x")) || 0;
-      const y = Number(node.getAttribute("y") ?? t.getAttribute("y")) || 0;
+      const declaredX = node.getAttribute("x");
+      const declaredY = node.getAttribute("y");
+      if (declaredX !== null) carriedX = Number(declaredX) || 0;
+      if (declaredY !== null) carriedY = Number(declaredY) || 0;
+      const x = carriedX;
+      const y = carriedY;
       const bb = node.getBoundingClientRect();
       const runs = byShape.get(id) ?? [];
       runs.push({
@@ -71,6 +84,10 @@ export function extractGoogleSlideLayout(slideNumber: number): string[] {
     let cur: Run | null = null;
     for (const r of runs) {
       if (cur && Math.abs(cur.base - r.base) < 1) {
+        // Joined with a space on purpose: Google splits a line where it
+        // consumed one far more often than it splits mid-word, and the
+        // comparison collapses runs of whitespace — so a space too many costs
+        // nothing, while a space too few reads as a changed line.
         cur.text += " " + r.text;
         cur.right = Math.max(cur.right, r.right);
         cur.x = Math.min(cur.x, r.x);

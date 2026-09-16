@@ -35,19 +35,30 @@ pnpm exec tsx scripts/export-fidelity/export.ts \
   (or `--fixture <fixture.json>` instead of `--deck` to create the deck
   first) — exports one deck as a PPTX for the given target, writing
   `<dir>/deck.pptx`. Target defaults to `google-slides`.
-- **`compare-layout.ts <chrome-layout-dir> <google.txt>`** — matches Chrome's
-  `layout/slide-NN.json` lines against `google.txt` rows and prints per-slide
-  pass/fail plus `|dy|`/`|dx|` percentile stats.
+- **`compare-layout.ts <chrome-layout-dir> <google.txt> [--slides <n>]`** —
+  matches Chrome's `layout/slide-NN.json` lines against `google.txt` rows and
+  prints per-slide pass/fail plus `|dy|`/`|dx|` percentile stats. This is the
+  harness's pass/fail gate: it exits nonzero when a line is unmatched, a line
+  break differs, a line sits more than 1.5px out, or a Google row is never
+  claimed. Pass `--slides <n>` — the deck's own slide count — so a dump that
+  stopped early cannot pass by comparing fewer slides on both sides.
 - **`diff.ts <refDir> <candDir> --out <dir>`** — pixel-diffs two directories
   of `slide-NN.png` renders (full-resolution + blurred/downscaled layout
   ratio) and writes `<dir>/report.json` and `<dir>/*-compare.png` montages.
+  It is an inspection aid rather than a gate, and fails only when a slide has
+  no usable pair: a pixel threshold tight enough to catch a real regression
+  also fires on ordinary font-rendering differences between machines. Read its
+  ratios and montages; let `compare-layout.ts` decide pass or fail.
 - **`generate-calibration.ts`** (run from `templates/slides`) — rebuilds
   `calibration.pptx`/`cases.json` from a real exported deck's package parts.
   Pass `--template <deck.pptx>` — any exported deck, such as the `deck.pptx`
   written by `export.ts --out <dir>`; its presentation, layout, master and
   theme parts are reused and only the slides are replaced.
-- **`google-layout.ts`** exports `extractGoogleSlideLayout(slideNumber)`, not
-  a standalone script — see extraction procedure below.
+- **`google-layout.ts`** exports
+  `extractGoogleSlideLayout(slideNumber, { aspect, width })`, not a standalone
+  script — see the extraction procedure below. `aspect` and `width` default to
+  16:9 in a 960-wide coordinate space; pass the deck's own ratio and width for
+  a 1:1, 9:16, 4:5 or 4:3 deck, or it will not find the slide frame.
 
 ## Google Slides import procedure (for a browser agent)
 
