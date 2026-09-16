@@ -486,6 +486,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(
       document.querySelector("[data-review-attachment-button]"),
     ).not.toBeNull();
+    expect(
+      document
+        .querySelector("[data-review-comment-tools]")
+        ?.querySelector("[data-review-attachment-button]"),
+    ).not.toBeNull();
     await act(async () => {
       document
         .querySelector<HTMLButtonElement>("[data-review-test-submit]")

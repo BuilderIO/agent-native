@@ -2174,6 +2174,9 @@ export function ReviewCanvasPins({
       {placementPlaneVisible ? (
         <div
           data-review-click-plane
+          data-review-click-plane-target={
+            screenAnchorId ?? (boardGeometry ? "board" : undefined)
+          }
           className="fixed z-40 cursor-crosshair"
           style={{
             left: rect.left,
@@ -3026,17 +3029,6 @@ function DraftComposer({
           </Button>
         </div>
       </div>
-      {revealTools ? (
-        <ReviewImageAttachments
-          attachments={attachments}
-          disabled={busy}
-          onUploadingChange={setAttachmentsUploading}
-          onChange={(next) => {
-            setEngaged(true);
-            onAttachmentsChange(next);
-          }}
-        />
-      ) : null}
       <ReviewCommentComposer
         className="px-3 pb-3"
         autoFocus
@@ -3048,6 +3040,20 @@ function DraftComposer({
         emojiLabel={t("review.addEmoji")}
         mentionLabel={t("review.mention")}
         noMentionsLabel={t("review.noMentions")}
+        commentToolsEnd={
+          revealTools ? (
+            <ReviewImageAttachments
+              attachments={attachments}
+              disabled={busy}
+              onUploadingChange={setAttachmentsUploading}
+              onChange={(next) => {
+                setEngaged(true);
+                onAttachmentsChange(next);
+              }}
+              className="flex-nowrap p-0"
+            />
+          ) : undefined
+        }
         disabled={busy}
         onChange={(next) => {
           setEngaged(true);
