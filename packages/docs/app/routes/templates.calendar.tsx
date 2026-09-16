@@ -7,6 +7,7 @@ import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
@@ -138,6 +139,7 @@ export default function CalendarTemplate() {
               <span className="font-sans text-2xl font-bold tracking-tight">
                 {t("templateLanding.calendar.heroEyebrow")}
               </span>
+              <AppStatusBadge appId="calendar" />
             </span>
           }
           customizeTemplate={template}

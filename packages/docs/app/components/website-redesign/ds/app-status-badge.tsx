@@ -1,9 +1,20 @@
-import { getAppStatus } from "@agent-native/core/shared";
+import { getAppStatus, type AppStatus } from "@agent-native/core/shared";
 
-export function AppStatusBadge({ appId }: { appId: string }) {
-  return (
-    <span className="inline-flex shrink-0 items-center rounded-[var(--b-radius-sm)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] px-[5px] py-px font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
-      {getAppStatus(appId)}
-    </span>
-  );
+// The brand --b-* tokens only resolve inside .builder-brand-tokens (header,
+// footer, homepage); app landing pages carry the docs --fg/--bg pair instead.
+// Both flip with the theme, so the fallback keeps one inverse pill everywhere.
+const PILL_CLASS = [
+  "inline-flex shrink-0 items-center rounded-full px-2 py-[3px]",
+  "font-[family-name:var(--b-font-sans)] text-[10px] font-semibold uppercase leading-none tracking-[0.08em]",
+  "bg-[var(--b-text-primary,var(--fg))] text-[var(--b-bg-page,var(--bg))]",
+].join(" ");
+
+export function AppStatusBadge({
+  appId,
+  status,
+}: {
+  appId?: string;
+  status?: AppStatus;
+}) {
+  return <span className={PILL_CLASS}>{status ?? getAppStatus(appId)}</span>;
 }

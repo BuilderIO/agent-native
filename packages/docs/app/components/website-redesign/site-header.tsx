@@ -1,4 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { DEFAULT_APP_STATUS } from "@agent-native/core/shared";
 import {
   IconBrandGithub,
   IconMenu2,
@@ -12,6 +13,7 @@ import { Link } from "react-router";
 import { getGithubStarCount } from "../../../lib/github-star-count";
 import { sitePathForLocale } from "../docs-locale";
 import { useSearchModal } from "../use-search-modal";
+import { AppStatusBadge } from "./ds/app-status-badge";
 import { Button } from "./ds/button";
 import { IconButton, ThemeIconButton } from "./ds/icon-button";
 import { Kbd } from "./ds/kbd";
@@ -176,15 +178,18 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
     >
       <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
         <div className="flex items-center gap-[var(--spacing-8)]">
-          <LogoContextMenu brandHref={localizedPath("/brand")}>
-            <Link
-              to={localizedPath("/")}
-              aria-label="Agent-Native"
-              className="flex text-[var(--b-text-primary)]"
-            >
-              <Logo />
-            </Link>
-          </LogoContextMenu>
+          <div className="flex items-center gap-[var(--spacing-3)]">
+            <LogoContextMenu brandHref={localizedPath("/brand")}>
+              <Link
+                to={localizedPath("/")}
+                aria-label="Agent-Native"
+                className="flex text-[var(--b-text-primary)]"
+              >
+                <Logo />
+              </Link>
+            </LogoContextMenu>
+            <AppStatusBadge status={DEFAULT_APP_STATUS} />
+          </div>
 
           <nav className="hidden items-center gap-1 lg:flex">
             {navLinks.map((link) => (

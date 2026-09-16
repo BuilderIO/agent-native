@@ -10,6 +10,7 @@ import { ClipsBriefOutputsMock } from "../components/template-landing/ClipsBrief
 import { ClipsInvestigateBugMock } from "../components/template-landing/ClipsInvestigateBugMock";
 import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
@@ -162,6 +163,7 @@ export default function ClipsTemplate() {
               <span className="font-sans text-2xl font-bold tracking-tight">
                 {t("templateLanding.clips.heroEyebrow")}
               </span>
+              <AppStatusBadge appId="clips" />
             </span>
           }
           customizeTemplate={template}

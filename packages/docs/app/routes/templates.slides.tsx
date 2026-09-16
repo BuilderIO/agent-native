@@ -10,6 +10,7 @@ import { SlidesEditorMock } from "../components/template-landing/SlidesEditorMoc
 import { SlidesPitchDeckMock } from "../components/template-landing/SlidesPitchDeckMock";
 import { SlidesStrategyMock } from "../components/template-landing/SlidesStrategyMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
@@ -140,6 +141,7 @@ export default function SlidesTemplate() {
               <span className="font-sans text-2xl font-bold tracking-tight">
                 {t("templateLanding.slides.heroEyebrow")}
               </span>
+              <AppStatusBadge appId="slides" />
             </span>
           }
           customizeTemplate={template}
