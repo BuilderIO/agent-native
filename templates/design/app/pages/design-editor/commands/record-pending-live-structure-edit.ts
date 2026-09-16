@@ -23,7 +23,10 @@ import {
   reactSourceAnchorForPendingEdit,
   runtimeStructureNodeSignature,
 } from "@/pages/design-editor/pending-edits";
-import { isPendingStructureDropNoOp } from "@/pages/design-editor/pending-structure-verification";
+import {
+  isPendingStructureDropNoOp,
+  runtimeStructureSnapshotSignature,
+} from "@/pages/design-editor/pending-structure-verification";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface RecordPendingLiveStructureEditArgs {
@@ -86,6 +89,7 @@ export function runRecordPendingLiveStructureEdit(
     replacementSelector?: string;
     replacementSourceId?: string;
     replacementElementInfo?: ElementInfo;
+    replacementSnapshotHtml?: string;
     /** This change DELETED the subject; it has no anchor. */
     removed?: true;
   },
@@ -108,9 +112,7 @@ export function runRecordPendingLiveStructureEdit(
   const subjectInfo = details?.replaced
     ? details.anchorElementInfo
     : elementInfo;
-  const subjectSourceId = details?.replaced
-    ? details.anchorSourceId
-    : (details?.sourceId ?? elementInfo?.sourceId);
+  const subjectSourceId = details?.sourceId ?? subjectInfo?.sourceId;
   const nextEdit: PendingLiveStructureEdit = {
     kind: "structure",
     screenId,
@@ -164,6 +166,9 @@ export function runRecordPendingLiveStructureEdit(
           replaced: true as const,
           replacementSelector: details.replacementSelector,
           replacementSourceId: details.replacementSourceId,
+          replacementSnapshotSignature: details.replacementSnapshotHtml
+            ? runtimeStructureSnapshotSignature(details.replacementSnapshotHtml)
+            : undefined,
         }
       : {}),
     ...(details?.removed ? { removed: true as const } : {}),

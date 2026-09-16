@@ -7,11 +7,15 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
 - Mail labels recipient and account controls for keyboard and assistive-technology parity.
 - Match Superhuman's compact compose card geometry on desktop
 
 ### Fixed
 
+- Inbox archive and read-state changes stay consistent during rapid actions
+- Mail keeps rapid archive and read actions in sync
+- Mail recovers cleanly when an email view or navigation takes too long to load.
 - New drafts focus the To field immediately for keyboard-first composing
 
 ## 2026-09-14

@@ -2,9 +2,9 @@ import {
   buildCodeLayerProjection,
   type CodeLayerNode,
 } from "@shared/code-layer";
+import { parse, type DefaultTreeAdapterMap } from "parse5";
 
 import {
-  bridgeSourceIdForCodeLayerNode,
   collapsedElementText,
   resolveCodeLayerTargetFromBridge,
 } from "./code-layer-state";
@@ -20,6 +20,8 @@ export type RuntimeStructureVerificationFailure =
   | "ambiguous-subject"
   | "subject-still-present"
   | "missing-replacement"
+  | "missing-replacement-evidence"
+  | "replacement-context-changed"
   | "ambiguous-replacement"
   | "missing-anchor"
   | "ambiguous-anchor"
@@ -37,7 +39,6 @@ type RuntimeStructureNodeRole = "subject" | "replacement" | "anchor";
 interface RuntimeStructureNodeResolution {
   node?: CodeLayerNode;
   failure?: RuntimeStructureVerificationFailure;
-  matchedBy?: "identity" | "selector" | "signature";
 }
 
 function runtimeStructureResolutionFailure(
@@ -85,16 +86,11 @@ function resolveRuntimeStructureNode(args: {
     args.sourceId ?? undefined,
   );
   if (direct.status === "resolved") {
-    const matchedBy =
-      args.sourceId &&
-      bridgeSourceIdForCodeLayerNode(direct.node) === args.sourceId
-        ? "identity"
-        : "selector";
     if (
       !args.signature ||
       runtimeStructureNodeMatchesSignature(direct.node, args.signature)
     ) {
-      return { node: direct.node, matchedBy };
+      return { node: direct.node };
     }
     // A live identity is stronger evidence than a stale content signature.
     // Do not let an unrelated sibling with the old signature validate this
@@ -108,75 +104,31 @@ function resolveRuntimeStructureNode(args: {
             : "missing-anchor",
     };
   }
-
-  if (!args.signature) {
+  if (direct.status === "ambiguous") {
     return {
-      failure: runtimeStructureResolutionFailure(
-        direct.status === "ambiguous" ? "ambiguous" : "absent",
-        args.role,
-      ),
+      failure: runtimeStructureResolutionFailure("ambiguous", args.role),
     };
   }
 
-  const matches = args.projection.nodes.filter((node) =>
-    runtimeStructureNodeMatchesSignature(node, args.signature!),
-  );
-  if (matches.length === 1) {
-    return { node: matches[0], matchedBy: "signature" };
-  }
-  return {
-    failure: runtimeStructureResolutionFailure(
-      matches.length > 1 ? "ambiguous" : "absent",
-      args.role,
-    ),
-  };
-}
-
-function resolveRuntimeStructureNodeByIdentity(args: {
-  projection: { nodes: CodeLayerNode[] };
-  selector?: string;
-  sourceId?: string | null;
-  role: RuntimeStructureNodeRole;
-}): RuntimeStructureNodeResolution {
-  const direct = resolveCodeLayerTargetFromBridge(
-    args.projection,
-    args.selector,
-    args.sourceId ?? undefined,
-  );
-  if (direct.status === "resolved") {
-    return {
-      node: direct.node,
-      matchedBy:
-        args.sourceId &&
-        bridgeSourceIdForCodeLayerNode(direct.node) === args.sourceId
-          ? "identity"
-          : "selector",
-    };
-  }
-  return {
-    failure: runtimeStructureResolutionFailure(
-      direct.status === "ambiguous" ? "ambiguous" : "absent",
-      args.role,
-    ),
-  };
+  return resolveRuntimeStructureNodeBySignature(args);
 }
 
 function resolveRuntimeStructureNodeBySignature(args: {
   projection: { nodes: CodeLayerNode[] };
   signature?: RuntimeStructureNodeSignature;
   role: RuntimeStructureNodeRole;
-  excludedNodeIds?: ReadonlySet<string>;
+  excludedNode?: CodeLayerNode;
 }): RuntimeStructureNodeResolution {
   if (!args.signature) {
     return { failure: runtimeStructureResolutionFailure("absent", args.role) };
   }
   const matches = args.projection.nodes.filter(
     (node) =>
-      !args.excludedNodeIds?.has(node.id) &&
+      node !== args.excludedNode &&
       runtimeStructureNodeMatchesSignature(node, args.signature!),
   );
   if (matches.length === 1) {
-    return { node: matches[0], matchedBy: "signature" };
+    return { node: matches[0] };
   }
   return {
     failure: runtimeStructureResolutionFailure(
@@ -186,18 +138,142 @@ function resolveRuntimeStructureNodeBySignature(args: {
   };
 }
 
-function resolveRuntimeStructureNodeForPresence(args: {
-  projection: { nodes: CodeLayerNode[] };
-  selector?: string;
-  sourceId?: string | null;
-  signature?: RuntimeStructureNodeSignature;
-  role: RuntimeStructureNodeRole;
-}): RuntimeStructureNodeResolution {
-  const identity = resolveRuntimeStructureNodeByIdentity(args);
-  if (identity.node || identity.failure?.startsWith("ambiguous")) {
-    return identity;
+function verifyRuntimeStructureSubjectAbsent(
+  projection: { nodes: CodeLayerNode[] },
+  edit: PendingLiveStructureEdit,
+  replacement?: CodeLayerNode,
+): RuntimeStructureVerificationResult {
+  // Absence must inspect the old identity alone: a positional selector may
+  // now point at the replacement or an unrelated sibling.
+  const subject = resolveCodeLayerTargetFromBridge(
+    projection,
+    edit.sourceId ? undefined : edit.selector,
+    edit.sourceId ?? undefined,
+  );
+  if (subject.status === "ambiguous") {
+    return { ok: false, failure: "ambiguous-subject" };
   }
-  return resolveRuntimeStructureNodeBySignature(args);
+  if (
+    subject.status === "resolved" &&
+    (edit.sourceId ||
+      replacement === undefined ||
+      (subject.node === replacement &&
+        (!edit.subjectSignature ||
+          runtimeStructureNodeMatchesSignature(
+            subject.node,
+            edit.subjectSignature,
+          ))))
+  ) {
+    return { ok: false, failure: "subject-still-present" };
+  }
+
+  // Signature-only fallback cannot distinguish unchanged old content. A
+  // unique identity or selector independently resolves the replacement;
+  // captured document evidence still has to prove the resulting structure.
+  const replacementTarget = resolveCodeLayerTargetFromBridge(
+    projection,
+    edit.replacementSourceId ? undefined : edit.replacementSelector,
+    edit.replacementSourceId ?? undefined,
+  );
+  const signature = resolveRuntimeStructureNodeBySignature({
+    projection,
+    signature: edit.subjectSignature,
+    role: "subject",
+    excludedNode:
+      replacementTarget.status === "resolved" &&
+      replacementTarget.node === replacement
+        ? replacement
+        : undefined,
+  });
+  if (signature.failure === "ambiguous-subject") {
+    return { ok: false, failure: signature.failure };
+  }
+  return signature.node
+    ? { ok: false, failure: "subject-still-present" }
+    : { ok: true };
+}
+
+// These attributes are injected by serializeRuntimeLayerSnapshot, not authored
+// semantic state. Keep this list exact so other data-* attributes remain evidence.
+const runtimeSnapshotMetadataAttributes = new Set([
+  "style",
+  "data-agent-native-node-id",
+  "data-agent-native-node-rewrite-proposal",
+  "data-agent-native-group-runtime-state",
+  "data-agent-native-runtime-hidden",
+  "data-agent-native-runtime-locked",
+  "data-agent-native-previous-display",
+  "data-agent-native-text-editing",
+  "data-an-runtime-layer-snapshot",
+  "data-an-pending-node-id",
+  "data-an-state-preview",
+  "data-an-state-preview-key",
+  "data-an-vector-logical-width",
+  "data-an-vector-stroke-defs",
+  "data-an-vector-stroke-geometry",
+  "data-an-vector-stroke-original-overflow",
+  "data-an-vector-stroke-original-overflow-priority",
+  "data-an-vector-stroke-overlay",
+  "data-an-vector-stroke-position",
+  "data-source-framework",
+  "data-source-file",
+  "data-source-line",
+  "data-source-method",
+  "data-source-column",
+  "data-component-name",
+  "data-source-owner-file",
+  "data-source-owner-line",
+  "data-source-owner-column",
+  "data-source-owner-component",
+  "data-source-owner-method",
+  "data-source-owner-key",
+  "data-source-unavailable",
+]);
+
+/** Full visual-tree evidence: sibling order, nesting, content and semantic
+ * attributes must match; runtime identities and computed styles may change. */
+export function runtimeStructureSnapshotSignature(
+  snapshotHtml: string,
+): string {
+  function structure(node: DefaultTreeAdapterMap["node"]): unknown[] {
+    if ("value" in node && node.nodeName === "#text") {
+      const text = collapsedElementText(node.value);
+      return text ? [text] : [];
+    }
+    if ("tagName" in node && node.tagName === "head") return [];
+    const children =
+      "childNodes" in node ? node.childNodes.flatMap(structure) : [];
+    if (!("tagName" in node) || node.tagName === "html") return children;
+    return [
+      [
+        node.namespaceURI,
+        node.tagName,
+        normalizeRuntimeStructureClasses(
+          (
+            node.attrs.find((attribute) => attribute.name === "class")?.value ??
+            ""
+          ).split(/\s+/),
+        ),
+        node.attrs
+          .filter(
+            (attribute) =>
+              attribute.namespace ||
+              (attribute.name !== "class" &&
+                !runtimeSnapshotMetadataAttributes.has(attribute.name)),
+          )
+          .map((attribute) =>
+            JSON.stringify([
+              attribute.namespace ?? "",
+              attribute.name,
+              attribute.value,
+            ]),
+          )
+          .sort(),
+        children,
+      ],
+    ];
+  }
+  return JSON.stringify(structure(parse(snapshotHtml)));
 }
 
 function runtimeStructureNodeForNoOp(
@@ -229,9 +305,9 @@ export function verifyPendingStructureRuntime(
 ): RuntimeStructureVerificationResult {
   const projection = buildCodeLayerProjection(snapshotHtml);
   if (edit.replaced) {
-    const replacementResolution = resolveRuntimeStructureNodeForPresence({
+    const replacementResolution = resolveRuntimeStructureNode({
       projection,
-      selector: edit.replacementSelector,
+      selector: edit.replacementSourceId ? undefined : edit.replacementSelector,
       sourceId: edit.replacementSourceId,
       signature: edit.replacementSignature,
       role: "replacement",
@@ -243,83 +319,22 @@ export function verifyPendingStructureRuntime(
       };
     }
 
-    const subjectIdentityResolution = resolveRuntimeStructureNodeByIdentity({
+    const absence = verifyRuntimeStructureSubjectAbsent(
       projection,
-      selector: edit.selector,
-      sourceId: edit.sourceId,
-      role: "subject",
-    });
-    if (subjectIdentityResolution.failure === "ambiguous-subject") {
-      return { ok: false, failure: "ambiguous-subject" };
-    }
-    if (subjectIdentityResolution.node) {
-      const sameNode =
-        subjectIdentityResolution.node.id === replacementResolution.node.id;
-      const replacementIsProvenByPosition =
-        sameNode &&
-        subjectIdentityResolution.matchedBy === "selector" &&
-        replacementResolution.matchedBy === "selector";
-      if (!replacementIsProvenByPosition) {
-        return { ok: false, failure: "subject-still-present" };
-      }
-    }
-
-    const subjectMatches = projection.nodes.filter((node) =>
-      edit.subjectSignature
-        ? runtimeStructureNodeMatchesSignature(node, edit.subjectSignature)
-        : false,
+      edit,
+      replacementResolution.node,
     );
-    const replacementIsUniquelyLocated =
-      replacementResolution.matchedBy === "identity" ||
-      replacementResolution.matchedBy === "selector";
-    const remainingSubjectMatches = replacementIsUniquelyLocated
-      ? subjectMatches.filter(
-          (node) => node.id !== replacementResolution.node!.id,
-        )
-      : subjectMatches;
-    const replacementIsProvenByPosition =
-      subjectIdentityResolution.node?.id === replacementResolution.node.id &&
-      subjectIdentityResolution.matchedBy === "selector" &&
-      replacementResolution.matchedBy === "selector";
-    if (!replacementIsProvenByPosition) {
-      if (remainingSubjectMatches.length > 1) {
-        return { ok: false, failure: "ambiguous-subject" };
-      }
-      if (remainingSubjectMatches.length === 1) {
-        return { ok: false, failure: "subject-still-present" };
-      }
+    if (!absence.ok) return absence;
+    if (!edit.replacementSnapshotSignature) {
+      return { ok: false, failure: "missing-replacement-evidence" };
     }
-    return { ok: true };
+    return runtimeStructureSnapshotSignature(snapshotHtml) ===
+      edit.replacementSnapshotSignature
+      ? { ok: true }
+      : { ok: false, failure: "replacement-context-changed" };
   }
-  // A removal proves itself by ABSENCE. Running it through the anchor/order
-  // checks below would report "missing-subject" for the exact outcome it
-  // asked for, and the apply flow would sit in awaiting-runtime until it
-  // timed out on a source write that actually succeeded.
   if (edit.removed) {
-    const subjectIdentityResolution = resolveRuntimeStructureNodeByIdentity({
-      projection,
-      selector: edit.selector,
-      sourceId: edit.sourceId,
-      role: "subject",
-    });
-    if (subjectIdentityResolution.failure === "ambiguous-subject") {
-      return { ok: false, failure: "ambiguous-subject" };
-    }
-    if (subjectIdentityResolution.node) {
-      return { ok: false, failure: "subject-still-present" };
-    }
-    const subjectSignatureResolution = resolveRuntimeStructureNodeBySignature({
-      projection,
-      signature: edit.subjectSignature,
-      role: "subject",
-    });
-    if (subjectSignatureResolution.failure === "ambiguous-subject") {
-      return { ok: false, failure: "ambiguous-subject" };
-    }
-    if (subjectSignatureResolution.node) {
-      return { ok: false, failure: "subject-still-present" };
-    }
-    return { ok: true };
+    return verifyRuntimeStructureSubjectAbsent(projection, edit);
   }
 
   const subjectResolution = resolveRuntimeStructureNode({
@@ -433,14 +448,30 @@ export function isPendingStructureDropNoOp(
   );
 }
 
+function replacementSnapshotsByScreen(
+  edits: readonly PendingLiveStructureEdit[],
+) {
+  // Later replacement gestures include the earlier optimistic replacements.
+  // Verify the composed screen without discarding each edit's identity checks.
+  return new Map(
+    edits
+      .filter((edit) => edit.replaced)
+      .map((edit) => [edit.screenId, edit.replacementSnapshotSignature]),
+  );
+}
+
 export function verifyPendingStructuresRuntime(
   snapshots: Record<string, { html: string } | undefined>,
   edits: readonly PendingLiveStructureEdit[],
 ): RuntimeStructureVerificationResult {
+  const replacementSnapshots = replacementSnapshotsByScreen(edits);
   for (const edit of edits) {
     const snapshot = snapshots[edit.screenId];
     if (!snapshot) return { ok: false, failure: "missing-subject" };
-    const result = verifyPendingStructureRuntime(snapshot.html, edit);
+    const result = verifyPendingStructureRuntime(snapshot.html, {
+      ...edit,
+      replacementSnapshotSignature: replacementSnapshots.get(edit.screenId),
+    });
     if (!result.ok) return result;
   }
   return { ok: true };
@@ -453,11 +484,30 @@ export function partitionPendingStructuresRuntime(
   verified: PendingLiveStructureEdit[];
   remaining: PendingLiveStructureEdit[];
 } {
+  const replacementSnapshots = replacementSnapshotsByScreen(edits);
+  const results = edits.map((edit) => {
+    const snapshot = snapshots[edit.screenId];
+    return {
+      edit,
+      ok: Boolean(
+        snapshot &&
+        verifyPendingStructureRuntime(snapshot.html, {
+          ...edit,
+          replacementSnapshotSignature: replacementSnapshots.get(edit.screenId),
+        }).ok,
+      ),
+    };
+  });
+  // Keep the shared evidence until every replacement using it verifies.
+  const blockedScreens = new Set(
+    results
+      .filter(({ edit, ok }) => edit.replaced && !ok)
+      .map(({ edit }) => edit.screenId),
+  );
   const verified: PendingLiveStructureEdit[] = [];
   const remaining: PendingLiveStructureEdit[] = [];
-  for (const edit of edits) {
-    const snapshot = snapshots[edit.screenId];
-    if (snapshot && verifyPendingStructureRuntime(snapshot.html, edit).ok) {
+  for (const { edit, ok } of results) {
+    if (ok && (!edit.replaced || !blockedScreens.has(edit.screenId))) {
       verified.push(edit);
     } else {
       remaining.push(edit);

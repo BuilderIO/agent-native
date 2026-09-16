@@ -326,6 +326,10 @@ export interface PendingLiveStructureEdit {
   replacementSelector?: string;
   replacementSourceId?: string | null;
   replacementSignature?: RuntimeStructureNodeSignature;
+  /** Expected visual tree captured by the bridge while it still owns the
+   * original DOM element. Runtime ids and computed styles are excluded.
+   * Missing evidence or later context changes cannot prove replacement. */
+  replacementSnapshotSignature?: string;
   /**
    * This edit DELETED the subject from the running app. A removal has no
    * anchor — `anchorSelector`/`placement` carry no meaning for it — so every
