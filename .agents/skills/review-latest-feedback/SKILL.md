@@ -102,8 +102,8 @@ Claiming only marks work; it does not investigate or reply. Search-discovered
 work gets the same eye-first read-back. Release out-of-scope work with
 `:no_entry_sign:`; preserve foreign eyes and stop on unverified reactions.
 
-Never end with an unworked claim: give each eye a disposition and marker. Every
-item gets a recap row, but only informative outcomes get a reply. A fresh
+Never end with an unworked claim: give each eye a disposition; release markers
+apply only to terminal states. Every item gets a recap row, but only informative outcomes get a reply. A fresh
 symptom after an answer is a repeat; claim and cluster it for Phase 2.
 
 ### External trackers are evidence, not status
