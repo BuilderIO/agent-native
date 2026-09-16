@@ -16,14 +16,27 @@ export type ResolvedNetlifyPrebuiltTarget = {
   sourceTemplate: string;
 };
 
+const VALID_NETLIFY_SLUG = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+export function resolveNetlifyImmutableDeployUrl(
+  deployId: string,
+  siteName: string,
+): string {
+  const deploy = deployId.trim().toLowerCase();
+  const site = siteName.trim().toLowerCase();
+  if (!VALID_NETLIFY_SLUG.test(deploy) || !VALID_NETLIFY_SLUG.test(site)) {
+    throw new Error("Netlify deploy URLs require valid deploy and site slugs.");
+  }
+  return `https://${deploy}--${site}.netlify.app`;
+}
+
 export function resolveNetlifyPreviewAliasUrl(
   previewAlias: string,
   siteName: string,
 ): string {
   const alias = previewAlias.trim().toLowerCase();
   const site = siteName.trim().toLowerCase();
-  const validNetlifySlug = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-  if (!validNetlifySlug.test(alias) || !validNetlifySlug.test(site)) {
+  if (!VALID_NETLIFY_SLUG.test(alias) || !VALID_NETLIFY_SLUG.test(site)) {
     throw new Error("Netlify preview aliases require valid site slugs.");
   }
   return `https://${alias}--${site}.netlify.app`;

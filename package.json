@@ -37,7 +37,7 @@
     "test:agentkit-stream-ownership": "tsx --test scripts/guard-agentkit-stream-ownership.test.ts",
     "test:modal-layer-integrity": "tsx --test scripts/guard-modal-layer-integrity.test.ts",
     "test:ci-change-scope": "tsx --test scripts/ci-change-scope.test.ts",
-    "test:netlify-prebuilt-workflow": "tsx --test scripts/guard-netlify-prebuilt-workflow.test.ts scripts/smoke-check-health.test.ts scripts/check-production-cache-contract.test.ts scripts/cleanup-netlify-pr-previews.test.ts scripts/netlify-pr-preview-targets.test.ts scripts/sync-netlify-preview-database.test.ts",
+    "test:netlify-prebuilt-workflow": "tsx --test scripts/guard-netlify-prebuilt-workflow.test.ts scripts/verify-netlify-prebuilt-client.spec.ts scripts/smoke-check-health.test.ts scripts/check-production-cache-contract.test.ts scripts/cleanup-netlify-pr-previews.test.ts scripts/netlify-prebuilt-target.spec.ts scripts/netlify-pr-preview-targets.test.ts scripts/sync-netlify-preview-database.test.ts",
     "test:function-size-baseline": "tsx --test scripts/check-function-size-baseline.test.ts",
     "test:package-release-workflow": "tsx --test scripts/package-release-workflow.test.ts scripts/create-release-changeset.test.ts scripts/release-everything-workflow.test.ts scripts/prepare-dev-snapshot.test.ts scripts/release-dev.test.ts",
     "test:oauth-postgres": "pnpm --filter @agent-native/core exec vitest --run src/oauth-tokens/lifecycle.postgres.integration.spec.ts --config vitest.config.ts",
