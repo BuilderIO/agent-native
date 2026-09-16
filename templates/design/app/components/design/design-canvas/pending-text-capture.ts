@@ -41,6 +41,8 @@ export type PendingTextHostCommitFn = (
  */
 type OwnerIdentity = string;
 
+type TeardownKind = "revoke" | "cleanup";
+
 export interface PendingTextCaptureHandle {
   readonly token: number;
   /** Attaches the created node once the insert has returned its id. */
@@ -81,10 +83,23 @@ interface ActiveCapture {
    *  it. That copy dies with the owner's bridge queue, so this one stays. */
   deliveryPosted: boolean;
   deliveryFallbackArmed: boolean;
+  /** The host-side commit owns this record now: it is detached from `active`,
+   *  intercepts nothing, and exists only to carry the text until a write is
+   *  accepted. */
+  committing: boolean;
+  commitAttempts: number;
+  teardownRun: boolean;
   timers: number[];
-  /** Everything else this one creation started: the owning canvas's delayed
-   *  activation and the editor's begin-text-edit retry ladder. */
-  teardown: Array<() => void>;
+  /** The host write that owns this payload, captured when the record detached.
+   *  Retrying against whatever is registered LATER would write one editor's
+   *  text through another's writer. */
+  commitFn: PendingTextHostCommitFn | null;
+  retryTimer: number | null;
+  /** Everything else this one creation started. `revoke` undoes what could
+   *  still write the text (the canvas's delayed activation, its queued begin,
+   *  the frame's copy); `cleanup` deletes the abandoned node. The host-side
+   *  write runs only the former — the node is where its text has to land. */
+  teardown: Array<{ run: () => void; kind: TeardownKind; done: boolean }>;
 }
 
 /**
@@ -108,6 +123,8 @@ let active: ActiveCapture | null = null;
 let nextToken = 1;
 const owners = new Map<OwnerIdentity, TextEditOwner>();
 let hostCommit: PendingTextHostCommitFn | null = null;
+/** Records detached from `active` that still owe their text to a host write. */
+const hostCommitQueue = new Set<ActiveCapture>();
 
 function liveCapture(): ActiveCapture | null {
   if (active?.intercepting && Date.now() > active.interceptUntil) {
@@ -152,13 +169,25 @@ function clearRecord(): ActiveCapture | null {
   return record;
 }
 
+/** Everything this one creation started: the owning canvas's delayed
+ *  activation, its bridge copy of the delivery, and the editor's retry ladder.
+ *  Idempotent — the host-side commit runs it before its write, and a later
+ *  stand-down must not run it twice. */
+function runTeardown(capture: ActiveCapture, kind?: TeardownKind): void {
+  for (const entry of capture.teardown) {
+    if (entry.done || (kind && entry.kind !== kind)) continue;
+    entry.done = true;
+    entry.run();
+  }
+}
+
 /** Drops the request AND everything it started. Clears `active` first, so a
  *  teardown that settles the retry ladder sees the capture already stood down
  *  and lets the ladder's own empty-node cleanup run. */
 function cancelActive(): void {
   const canceled = clearRecord();
   if (!canceled) return;
-  for (const run of canceled.teardown) run();
+  runTeardown(canceled);
 }
 
 /** Ends interception for good and gathers every typed character into this
@@ -212,24 +241,87 @@ function armDeliveryFallback(capture: ActiveCapture): void {
   );
 }
 
+/** Backoff for a host write that was refused or threw. A rejected publication
+ *  and a momentarily unreadable source are both recoverable a moment later. */
+export const HOST_COMMIT_RETRY_DELAYS_MS = [250, 1_000, 3_000];
+
+/**
+ * The frame's copy is revoked FIRST — from here only this write can land the
+ * text, so an accepted commit is the single copy (see the delivery revoke in
+ * DesignCanvas). ONLY the revoke teardowns run: the cleanup teardown deletes
+ * the node this text still has to land in. The record then leaves `active`:
+ * detached it holds no listeners, intercepts nothing, and cannot be resurrected
+ * into a session or block the next creation, but it still carries the only
+ * buffer there is until a write is accepted.
+ */
 function commitOwedHostSide(capture: ActiveCapture): void {
-  const { owner, nodeId, buffer } = capture;
-  cancelActive();
+  runTeardown(capture, "revoke");
+  const detached = (active === capture ? clearRecord() : null) ?? capture;
+  detached.committing = true;
+  detached.intercepting = false;
+  detached.handedOff = false;
+  detached.pendingBegin = null;
+  detached.deliveryPosted = false;
+  // Bound to the writer that exists NOW. A retry that reached whatever was
+  // registered later would push one editor's text through another's writer.
+  detached.commitFn = hostCommit;
+  hostCommitQueue.add(detached);
+  attemptHostCommit(detached);
+}
+
+function attemptHostCommit(record: ActiveCapture): void {
+  if (!hostCommitQueue.has(record) || !record.buffer) return;
+  const { owner, nodeId, buffer, commitFn } = record;
   let committed = false;
   let error: unknown = null;
   try {
-    committed = Boolean(nodeId && hostCommit?.(owner, nodeId, buffer));
+    committed = Boolean(nodeId && commitFn?.(owner, nodeId, buffer));
   } catch (caught) {
     error = caught;
   }
-  if (committed) return;
+  if (committed) {
+    settleHostCommit(record);
+    return;
+  }
+  // Refused or threw: the text is still owed. Dropping it here left nothing but
+  // a log line with its length — the exact unrecoverable failure this whole
+  // capture exists to prevent.
+  const delay = HOST_COMMIT_RETRY_DELAYS_MS[record.commitAttempts];
+  record.commitAttempts += 1;
+  if (delay !== undefined && commitFn && typeof window !== "undefined") {
+    record.retryTimer = window.setTimeout(() => {
+      record.retryTimer = null;
+      attemptHostCommit(record);
+    }, delay);
+    return;
+  }
+  settleHostCommit(record);
+  reportUnwrittenText(record, error, commitFn ? "commit-failed" : "no-writer");
+}
+
+function settleHostCommit(record: ActiveCapture): void {
+  hostCommitQueue.delete(record);
+  if (record.retryTimer !== null && typeof window !== "undefined") {
+    window.clearTimeout(record.retryTimer);
+  }
+  record.retryTimer = null;
+}
+
+/** The write never landed. The NODE is what stays recoverable — its cleanup
+ *  teardown is deliberately never run from this path — and the report names it
+ *  so the failure is actionable. The characters themselves are never logged. */
+function reportUnwrittenText(
+  record: ActiveCapture,
+  error: unknown,
+  reason: string,
+): void {
   console.error(
-    `[design] typed text was never delivered to ${owner}/${nodeId} and could not be committed`,
+    `[design] typed text could not be written to ${record.owner}/${record.nodeId} after ${record.commitAttempts} attempts; the empty layer is kept so the text can be retyped into it`,
     {
-      screenId: owner,
-      nodeId,
-      length: buffer.length,
-      reason: hostCommit ? "commit-failed" : "no-host-commit",
+      screenId: record.owner,
+      nodeId: record.nodeId,
+      length: record.buffer.length,
+      reason,
       error,
     },
   );
@@ -298,7 +390,12 @@ export function armPendingTextCapture(args: {
     commitOnBegin: false,
     deliveryPosted: false,
     deliveryFallbackArmed: false,
+    committing: false,
+    commitAttempts: 0,
+    teardownRun: false,
     timers: [],
+    commitFn: null,
+    retryTimer: null,
     teardown: [],
   };
   active = capture;
@@ -334,10 +431,15 @@ export function onPendingTextCaptureCancel(
   owner: OwnerIdentity,
   nodeId: string,
   teardown: () => void,
+  options?: { kind?: TeardownKind },
 ): void {
   const capture = liveCapture();
   if (!matches(capture, owner, nodeId)) return;
-  capture.teardown.push(teardown);
+  capture.teardown.push({
+    run: teardown,
+    kind: options?.kind ?? "revoke",
+    done: false,
+  });
 }
 
 /** Registers the canvas that owns `identity`. Call it for the primary frame of
@@ -401,6 +503,14 @@ export function registerPendingTextHostCommit(
   hostCommit = commit;
   return () => {
     if (hostCommit === commit) hostCommit = null;
+    // The editor that owned these writes is gone. A retry timer that outlived
+    // it would fire into a torn-down editor, or worse, into whatever writer
+    // registers next — one design's text written through another's.
+    for (const record of [...hostCommitQueue]) {
+      if (record.commitFn !== commit) continue;
+      settleHostCommit(record);
+      reportUnwrittenText(record, null, "writer-unregistered");
+    }
   };
 }
 

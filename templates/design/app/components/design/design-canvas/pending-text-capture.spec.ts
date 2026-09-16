@@ -8,6 +8,8 @@ import {
   armPendingTextCapture,
   beginPendingTextDelivery,
   beginTextEditForOwner,
+  failPendingTextCapture,
+  HOST_COMMIT_RETRY_DELAYS_MS,
   isPendingTextCaptureBound,
   isPendingTextRequestLive,
   onPendingTextCaptureCancel,
@@ -336,7 +338,102 @@ describe("pending text capture", () => {
     expect(teardown).toHaveBeenCalledOnce();
   });
 
-  it("fails loudly with the screen and node when the host-side commit fails", () => {
+  it("retries a refused host commit and lands exactly one copy", () => {
+    vi.useFakeTimers();
+    const commit = vi
+      .fn<(owner: string, nodeId: string, text: string) => boolean>()
+      .mockImplementationOnce(() => false)
+      .mockImplementationOnce(() => true);
+    unregisterAll.push(registerPendingTextHostCommit(commit));
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-retry");
+    type("Standalone");
+
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
+    expect(commit).toHaveBeenCalledTimes(1);
+
+    // The refusal left the text owed rather than discarded, so the next attempt
+    // carries the same characters — and only one of them lands.
+    vi.advanceTimersByTime(HOST_COMMIT_RETRY_DELAYS_MS[0]);
+    expect(commit.mock.calls).toEqual([
+      ["board", "text-retry", "Standalone"],
+      ["board", "text-retry", "Standalone"],
+    ]);
+    vi.advanceTimersByTime(60_000);
+    expect(commit).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the node, and never logs the text, when every host commit throws", () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const commit = vi.fn(() => {
+      throw new Error("source temporarily unreadable");
+    });
+    unregisterAll.push(registerPendingTextHostCommit(commit));
+    const removeNode = vi.fn();
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-throw");
+    onPendingTextCaptureCancel("board", "text-throw", removeNode, {
+      kind: "cleanup",
+    });
+    type("Standalone");
+
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
+    // A throw is not a discard: the payload is still owed, and still retried.
+    expect(commit).toHaveBeenCalledTimes(1);
+    for (const delay of HOST_COMMIT_RETRY_DELAYS_MS) {
+      vi.advanceTimersByTime(delay);
+    }
+    expect(commit).toHaveBeenCalledTimes(
+      HOST_COMMIT_RETRY_DELAYS_MS.length + 1,
+    );
+
+    // The node is the recoverable place, so this path never deletes it — and
+    // the report names the layer without ever carrying the characters.
+    expect(removeNode).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledOnce();
+    const reported = error.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(reported).toMatchObject({ screenId: "board", nodeId: "text-throw" });
+    expect(reported).not.toHaveProperty("text");
+    error.mockRestore();
+  });
+
+  it("unregistering one editor settles only its own queued write", () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // Two owed writes queued at the same time, each bound to its OWN
+    // registration — the only shape in which "settle mine" and "settle
+    // everything" differ.
+    const writerA = vi.fn(() => false);
+    const unregisterA = registerPendingTextHostCommit(writerA);
+    const a = armPendingTextCapture({ owner: "board-a" });
+    a.bind("text-a");
+    type("Alpha");
+    failPendingTextCapture("board-a");
+    expect(writerA).toHaveBeenCalledTimes(1);
+
+    const writerB = vi.fn(() => false);
+    unregisterAll.push(registerPendingTextHostCommit(writerB));
+    const b = armPendingTextCapture({ owner: "board-b" });
+    b.bind("text-b");
+    type("Beta");
+    failPendingTextCapture("board-b");
+    expect(writerB).toHaveBeenCalledTimes(1);
+
+    // A's editor goes away mid-backoff. B's write is a different editor's and
+    // is still owed.
+    unregisterA();
+    vi.advanceTimersByTime(HOST_COMMIT_RETRY_DELAYS_MS[0]);
+
+    expect(writerB).toHaveBeenCalledTimes(2);
+    expect(writerA).toHaveBeenCalledTimes(1);
+    error.mockRestore();
+  });
+
+  it("fails loudly with the screen and node once the retries are exhausted", () => {
     vi.useFakeTimers();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     unregisterAll.push(registerPendingTextHostCommit(() => false));
@@ -345,6 +442,13 @@ describe("pending text capture", () => {
     type("Standalone");
 
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS * 2 + 1);
+    // Still retrying: a refused write is not yet a lost one, so nothing is
+    // reported while the text is still owed.
+    expect(error).not.toHaveBeenCalled();
+    for (const delay of HOST_COMMIT_RETRY_DELAYS_MS) {
+      vi.advanceTimersByTime(delay);
+    }
+
     expect(error).toHaveBeenCalledOnce();
     expect(error.mock.calls[0]?.[1]).toMatchObject({
       screenId: "board",

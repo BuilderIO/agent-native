@@ -171,10 +171,19 @@ export function runPrimitiveCreated(
     // already — it stops at the first live session — so an abandoned session
     // that was never typed into needs its own pass, or the empty node stays on
     // the canvas with nothing left to remove it.
-    onPendingTextCaptureCancel(screenId, textNodeId, () => {
-      abandoned = true;
-      window.setTimeout(cleanUpIfUntouched, PENDING_TEXT_EDIT_TIMEOUT_MS);
-    });
+    // Registered as CLEANUP, not revoke: this deletes the node. A host-side
+    // commit still owes that node its text, so the fallback must never run
+    // this — deleting the only target before the write lands loses the text
+    // exactly where the capture exists to save it.
+    onPendingTextCaptureCancel(
+      screenId,
+      textNodeId,
+      () => {
+        abandoned = true;
+        window.setTimeout(cleanUpIfUntouched, PENDING_TEXT_EDIT_TIMEOUT_MS);
+      },
+      { kind: "cleanup" },
+    );
     const cancel = scheduleBeginTextEditForScreen(screenId, textNodeId, {
       boardFileId,
       // A request that COMPLETED stops asking too. The frame's commit releases
