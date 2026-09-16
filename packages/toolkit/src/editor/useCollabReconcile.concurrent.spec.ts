@@ -1224,6 +1224,68 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     ]);
   });
 
+  it("does not replace an external base with an acknowledgement at the same timestamp", async () => {
+    vi.useFakeTimers();
+    const { captured, Harness } = makeHarness();
+    render(root, Harness, {
+      value: "Alpha saved\n\nBravo\n\nCharlie",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    act(() =>
+      captured.editor!.commands.setContent(
+        "Alpha saved\n\nBravo\n\nCharlie local",
+      ),
+    );
+    render(root, Harness, {
+      value: "Alpha saved\n\nBravo server\n\nCharlie",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-3",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha saved\n\nBravo server\n\nCharlie local",
+    );
+
+    const staleAcknowledgement = {
+      value: "Alpha saved\n\nBravo\n\nCharlie",
+      revision: "revision-2",
+      updatedAt: "2024-01-01T00:00:02.000Z",
+      sequence: 1,
+    };
+    render(root, Harness, {
+      value: staleAcknowledgement.value,
+      contentUpdatedAt: staleAcknowledgement.updatedAt,
+      contentRevision: staleAcknowledgement.revision,
+      acknowledgedLocalSnapshot: staleAcknowledgement,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    render(root, Harness, {
+      value: "Alpha saved\n\nBravo remote\n\nCharlie",
+      contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+      contentRevision: "revision-4",
+      acknowledgedLocalSnapshot: staleAcknowledgement,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha saved\n\nBravo remote\n\nCharlie local",
+    );
+    expect(captured.reconciled).toEqual([
+      {
+        status: "merged",
+        content: "Alpha saved\n\nBravo server\n\nCharlie local",
+      },
+      {
+        status: "merged",
+        content: "Alpha saved\n\nBravo remote\n\nCharlie local",
+      },
+    ]);
+  });
+
   it("persists the first local edit after a synced empty collaborative document", async () => {
     const captured: Captured = {
       editor: null,

@@ -323,6 +323,9 @@ export function useCollabReconcile({
   const latestObservedUpdatedAtRef = useRef<string | null>(
     contentUpdatedAt ?? null,
   );
+  const latestObservedRevisionRef = useRef<string | null>(
+    contentRevision ?? null,
+  );
   const acknowledgedCollabRef = useRef<{ ydoc: YDoc; revision: string } | null>(
     null,
   );
@@ -616,13 +619,25 @@ export function useCollabReconcile({
     // change isn't inserted twice (Yjs + setContent → duplicated region).
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
-      if (
-        contentUpdatedAt &&
-        (!latestObservedUpdatedAtRef.current ||
-          contentUpdatedAt > latestObservedUpdatedAtRef.current)
-      ) {
-        latestObservedUpdatedAtRef.current = contentUpdatedAt;
+      if (contentUpdatedAt) {
+        if (
+          !latestObservedUpdatedAtRef.current ||
+          contentUpdatedAt > latestObservedUpdatedAtRef.current
+        ) {
+          latestObservedUpdatedAtRef.current = contentUpdatedAt;
+          latestObservedRevisionRef.current = contentRevision ?? null;
+        } else if (
+          contentUpdatedAt === latestObservedUpdatedAtRef.current &&
+          contentRevision &&
+          latestObservedRevisionRef.current !== contentRevision
+        ) {
+          // Equal timestamps do not order revisions. Once two different
+          // revisions share one timestamp, no acknowledgement at that time can
+          // safely replace the authoritative base.
+          latestObservedRevisionRef.current = null;
+        }
       }
+      let rejectedMatchingAcknowledgement = false;
       if (acknowledgedLocalSnapshot) {
         const acceptedAcknowledgement = acknowledgedLocalSnapshotRef.current;
         const acknowledgementIsNewestAccepted =
@@ -630,8 +645,12 @@ export function useCollabReconcile({
           acknowledgedLocalSnapshot.sequence > acceptedAcknowledgement.sequence;
         const acknowledgementIsNotSuperseded =
           !latestObservedUpdatedAtRef.current ||
-          acknowledgedLocalSnapshot.updatedAt >=
-            latestObservedUpdatedAtRef.current;
+          acknowledgedLocalSnapshot.updatedAt >
+            latestObservedUpdatedAtRef.current ||
+          (acknowledgedLocalSnapshot.updatedAt ===
+            latestObservedUpdatedAtRef.current &&
+            latestObservedRevisionRef.current ===
+              acknowledgedLocalSnapshot.revision);
         if (acknowledgementIsNewestAccepted && acknowledgementIsNotSuperseded) {
           acknowledgedLocalSnapshotRef.current = acknowledgedLocalSnapshot;
           authoritativeBaseRef.current = {
@@ -646,8 +665,14 @@ export function useCollabReconcile({
             lastAppliedUpdatedAtRef.current =
               acknowledgedLocalSnapshot.updatedAt;
           }
+        } else if (
+          contentRevision === acknowledgedLocalSnapshot.revision &&
+          value === acknowledgedLocalSnapshot.value
+        ) {
+          rejectedMatchingAcknowledgement = true;
         }
       }
+      if (rejectedMatchingAcknowledgement) return;
       const acknowledged = acknowledgedLocalSnapshotRef.current;
       if (
         acknowledged &&
@@ -656,7 +681,9 @@ export function useCollabReconcile({
       ) {
         const acknowledgementWasSuperseded =
           latestObservedUpdatedAtRef.current !== null &&
-          acknowledged.updatedAt < latestObservedUpdatedAtRef.current;
+          (acknowledged.updatedAt < latestObservedUpdatedAtRef.current ||
+            (acknowledged.updatedAt === latestObservedUpdatedAtRef.current &&
+              latestObservedRevisionRef.current !== acknowledged.revision));
         if (!acknowledgementWasSuperseded) {
           authoritativeBaseRef.current = {
             value: acknowledged.value,

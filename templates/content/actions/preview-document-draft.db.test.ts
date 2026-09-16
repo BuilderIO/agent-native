@@ -132,6 +132,146 @@ describe("private preview document drafts", () => {
     updateSpy.mockRestore();
   });
 
+  it("does not take over an aged processing claim while its write is still running", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    let release!: () => void;
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => (started = resolve));
+    const releasePromise = new Promise<void>((resolve) => (release = resolve));
+    const originalRun = updateDocument.run.bind(updateDocument);
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockImplementationOnce(async (...callArgs) => {
+        started();
+        await releasePromise;
+        return originalRun(...callArgs);
+      });
+    const request = {
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Local recovery",
+      expectedDocumentUpdatedAt: before.updatedAt,
+    };
+    const first = asUser(OWNER, () => resolveDraft.run(request));
+    await startedPromise;
+    const [claim] = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, documentId),
+          eq(
+            schema.documentVersions.operation,
+            "claim-preview-draft-keep_mine",
+          ),
+        ),
+      );
+    await getDb()
+      .update(schema.documentVersions)
+      .set({
+        chatContext: JSON.stringify({
+          ...JSON.parse(claim.chatContext),
+          processingStartedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      })
+      .where(eq(schema.documentVersions.id, claim.id));
+
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).rejects.toThrow("already being applied");
+    release();
+    await expect(first).resolves.toMatchObject({ status: "resolved" });
+    updateSpy.mockRestore();
+  });
+
+  it("does not let an older processor resolve a replacement processing token", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const originalRun = updateDocument.run.bind(updateDocument);
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockImplementationOnce(async (...callArgs) => {
+        const result = await originalRun(...callArgs);
+        const [claim] = await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(
+            and(
+              eq(schema.documentVersions.documentId, documentId),
+              eq(
+                schema.documentVersions.operation,
+                "claim-preview-draft-keep_mine",
+              ),
+            ),
+          );
+        await getDb()
+          .update(schema.documentVersions)
+          .set({
+            chatContext: JSON.stringify({
+              ...JSON.parse(claim.chatContext),
+              processingToken: "replacement-token",
+            }),
+          })
+          .where(eq(schema.documentVersions.id, claim.id));
+        return result;
+      });
+
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: before.updatedAt,
+        }),
+      ),
+    ).rejects.toThrow("already being applied");
+    updateSpy.mockRestore();
+    const [claim] = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, documentId),
+          eq(
+            schema.documentVersions.operation,
+            "claim-preview-draft-keep_mine",
+          ),
+        ),
+      );
+    expect(JSON.parse(claim.chatContext)).toMatchObject({
+      status: "processing",
+      processingToken: "replacement-token",
+    });
+  });
+
   it("keeps the local version against the exact displayed page and preserves history", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()
@@ -545,19 +685,21 @@ describe("private preview document drafts", () => {
         draft: { ...payload("Local recovery"), deferredReason: "conflict" },
       }),
     );
-    await asUser(OWNER, () =>
-      resolveDraft.run({
-        choice: "save_separately",
-        documentId,
-        expectedDraftVersion: 1,
-        expectedDraftTitle: "Builder row",
-        expectedDraftContent: "Local recovery",
-        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
-      }),
-    );
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "save_separately",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+        }),
+      ),
+    ).rejects.toThrow("saved draft changed");
     expect(
-      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
-    ).toBeNull();
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft?.content,
+    ).toBe("Local recovery");
   });
 
   it("preserves a matching leading H1 in a separate recovery page", async () => {

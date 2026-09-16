@@ -2419,7 +2419,9 @@ function PageEditorSessionBody({
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
           ...(baseRevision !== undefined ? { baseRevision } : {}),
           ...(updates.title !== undefined
-            ? { baseTitle: lastSavedTitleRef.current.title }
+            ? {
+                baseTitle: options.titleBase ?? lastSavedTitleRef.current.title,
+              }
             : {}),
         });
       } catch (error) {
@@ -3952,7 +3954,7 @@ function PageEditorSessionBody({
       if (result.status === "merged") {
         if (documentContentRef.current === result.serverContent) {
           void resolveReconcile({
-            title: document.title,
+            title: documentTitleRef.current,
             content: result.serverContent,
             updatedAt: documentUpdatedAtRef.current,
             revision: result.serverRevision,
