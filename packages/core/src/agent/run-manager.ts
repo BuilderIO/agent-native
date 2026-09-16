@@ -25,7 +25,7 @@ import {
   getRunAbortState,
   getRunStatus,
   getRunEventsSince,
-  getCurrentTurnEventsForThread,
+  getCurrentTurnRunEventsForThread,
   getRunById,
   getRunByThread,
   getRunTurnRef,
@@ -2433,21 +2433,62 @@ export async function replayCompletedTurn(
   threadId: string,
   turnId: string,
 ): Promise<ReadableStream<Uint8Array> | null> {
-  const persisted = await getCurrentTurnEventsForThread(threadId, turnId);
+  const persisted = await getCurrentTurnRunEventsForThread(threadId, turnId);
   if (persisted.length === 0) return null;
-  const events = persisted.filter((event) => event.type !== "auto_continue");
-  if (!events.some(isTerminalRunEvent)) events.push({ type: "done" });
+  const events = persisted.filter(
+    ({ event }) => event.type !== "auto_continue",
+  );
+  const hasTerminalEvent = events.some(({ event }) =>
+    isTerminalRunEvent(event),
+  );
+  if (!hasTerminalEvent) {
+    const last = events.at(-1);
+    events.push({
+      runId: last?.runId ?? `turn-replay-${turnId}`,
+      seq: (last?.seq ?? -1) + 1,
+      event: { type: "done" },
+    });
+  }
   const encoder = new TextEncoder();
   return new ReadableStream({
     start(controller) {
-      events.forEach((event, seq) => {
+      events.forEach(({ event, runId, seq }, replaySeq) => {
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ ...event, seq })}\n\n`),
+          encoder.encode(
+            `data: ${JSON.stringify({
+              ...event,
+              seq: replaySeq,
+              eventId: runEventIdentity(runId, seq),
+            })}\n\n`,
+          ),
         );
       });
       controller.close();
     },
   });
+}
+
+function runEventIdentity(runId: string, seq: number): string {
+  return `${runId}:${seq}`;
+}
+
+function streamRunEvent(
+  runId: string,
+  runEvent: RunEvent,
+): Record<string, unknown> {
+  return {
+    ...runEvent.event,
+    seq: runEvent.seq,
+    eventId: runEventIdentity(runId, runEvent.seq),
+  };
+}
+
+function streamEventWithIdentity(
+  runId: string,
+  event: AgentChatEvent | Record<string, unknown>,
+  seq: number,
+): Record<string, unknown> {
+  return { ...event, seq, eventId: runEventIdentity(runId, seq) };
 }
 
 /** In-memory subscription (same isolate, fast path) */
@@ -2479,7 +2520,7 @@ function subscribeInMemory(
         try {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ ...run.events[i].event, seq: run.events[i].seq })}\n\n`,
+              `data: ${JSON.stringify(streamRunEvent(run.runId, run.events[i]!))}\n\n`,
             ),
           );
         } catch {
@@ -2507,7 +2548,7 @@ function subscribeInMemory(
             try {
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ ...buffered.event, seq: buffered.seq })}\n\n`,
+                  `data: ${JSON.stringify(streamRunEvent(run.runId, buffered))}\n\n`,
                 ),
               );
             } catch {
@@ -2542,10 +2583,13 @@ function subscribeInMemory(
           try {
             controller.enqueue(
               encoder.encode(
-                `data: ${JSON.stringify({
-                  ...UNKNOWN_RUN_STATUS_ERROR_EVENT,
-                  seq: run.events.length,
-                })}\n\n`,
+                `data: ${JSON.stringify(
+                  streamEventWithIdentity(
+                    run.runId,
+                    UNKNOWN_RUN_STATUS_ERROR_EVENT,
+                    run.events.length,
+                  ),
+                )}\n\n`,
               ),
             );
             // coercion-ok: enqueue throws only once the reader is gone; the lost terminal event is already reported by captureError above.
@@ -2564,7 +2608,7 @@ function subscribeInMemory(
         try {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ ...event.event, seq: event.seq })}\n\n`,
+              `data: ${JSON.stringify(streamRunEvent(run.runId, event))}\n\n`,
             ),
           );
           // Close stream after terminal events
@@ -2657,7 +2701,7 @@ function subscribeFromSQL(
         try {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ ...event, seq: lastSeq })}\n\n`,
+              `data: ${JSON.stringify(streamEventWithIdentity(runId, event, lastSeq))}\n\n`,
             ),
           );
         } catch {}
@@ -2693,7 +2737,7 @@ function subscribeFromSQL(
             try {
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ ...parsed, seq })}\n\n`,
+                  `data: ${JSON.stringify(streamEventWithIdentity(runId, parsed, seq))}\n\n`,
                 ),
               );
             } catch {
@@ -2771,7 +2815,7 @@ function subscribeFromSQL(
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({ ...parsed, seq })}\n\n`,
+                      `data: ${JSON.stringify(streamEventWithIdentity(runId, parsed, seq))}\n\n`,
                     ),
                   );
                 } catch {
@@ -2802,10 +2846,13 @@ function subscribeFromSQL(
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({
-                        ...terminalEvent,
-                        seq: existing?.seq ?? lastSeq,
-                      })}\n\n`,
+                      `data: ${JSON.stringify(
+                        streamEventWithIdentity(
+                          runId,
+                          terminalEvent,
+                          existing?.seq ?? lastSeq,
+                        ),
+                      )}\n\n`,
                     ),
                   );
                 } catch {
@@ -2836,10 +2883,13 @@ function subscribeFromSQL(
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({
-                        ...terminalEvent,
-                        seq: existing?.seq ?? lastSeq,
-                      })}\n\n`,
+                      `data: ${JSON.stringify(
+                        streamEventWithIdentity(
+                          runId,
+                          terminalEvent,
+                          existing?.seq ?? lastSeq,
+                        ),
+                      )}\n\n`,
                     ),
                   );
                 } catch {
@@ -2867,10 +2917,13 @@ function subscribeFromSQL(
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({
-                        ...resolved.event,
-                        seq: existing?.seq ?? lastSeq,
-                      })}\n\n`,
+                      `data: ${JSON.stringify(
+                        streamEventWithIdentity(
+                          runId,
+                          resolved.event,
+                          existing?.seq ?? lastSeq,
+                        ),
+                      )}\n\n`,
                     ),
                   );
                 } catch {
@@ -2929,10 +2982,13 @@ function subscribeFromSQL(
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({
-                        ...terminalEvent,
-                        seq: existing?.seq ?? lastSeq,
-                      })}\n\n`,
+                      `data: ${JSON.stringify(
+                        streamEventWithIdentity(
+                          runId,
+                          terminalEvent,
+                          existing?.seq ?? lastSeq,
+                        ),
+                      )}\n\n`,
                     ),
                   );
                 } catch {

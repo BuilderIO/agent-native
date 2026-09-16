@@ -3074,10 +3074,16 @@ export async function listRunsForThread(
  * Returns an empty array when the thread has no run yet or no parseable events.
  * Best-effort on parse: malformed ledger rows are skipped rather than thrown.
  */
-export async function getCurrentTurnEventsForThread(
+export interface CurrentTurnRunEvent {
+  runId: string;
+  seq: number;
+  event: AgentChatEvent;
+}
+
+async function getCurrentTurnRunEvents(
   threadId: string,
   knownTurnId?: string,
-): Promise<AgentChatEvent[]> {
+): Promise<CurrentTurnRunEvent[]> {
   await ensureRunTables();
   const client = getDbExec();
   // Callers that already know their turn MUST pass it: `startRun` persists the
@@ -3099,25 +3105,52 @@ export async function getCurrentTurnEventsForThread(
   // read their events in seq order. COALESCE(turn_id, id) folds older rows that
   // predate the turn_id backfill into a turn keyed by their own run id.
   const { rows } = await client.execute({
-    sql: `SELECT e.event_data AS event_data
+    sql: `SELECT e.run_id AS run_id, e.seq AS seq, e.event_data AS event_data
           FROM agent_run_events e
           JOIN agent_runs r ON r.id = e.run_id
           WHERE r.thread_id = ?
             AND COALESCE(r.turn_id, r.id) = ?
-          ORDER BY r.started_at ASC, e.seq ASC`,
+          ORDER BY r.started_at ASC, r.id ASC, e.seq ASC`,
     args: [threadId, turnId],
   });
-  const events: AgentChatEvent[] = [];
+  const events: CurrentTurnRunEvent[] = [];
   for (const r of rows) {
-    const raw = (r as { event_data?: string }).event_data;
-    if (!raw) continue;
+    const row = r as {
+      run_id?: string;
+      seq?: number | string;
+      event_data?: string;
+    };
+    const raw = row.event_data;
+    const seq = Number(row.seq);
+    if (!row.run_id || !Number.isFinite(seq) || !raw) continue;
     try {
-      events.push(JSON.parse(raw) as AgentChatEvent);
+      events.push({
+        runId: row.run_id,
+        seq,
+        event: JSON.parse(raw) as AgentChatEvent,
+      });
     } catch {
       // Skip malformed ledger rows — the journal is best-effort.
     }
   }
   return events;
+}
+
+/** Read a logical turn with source identity preserved for replay streams. */
+export async function getCurrentTurnRunEventsForThread(
+  threadId: string,
+  knownTurnId?: string,
+): Promise<CurrentTurnRunEvent[]> {
+  return getCurrentTurnRunEvents(threadId, knownTurnId);
+}
+
+/** Read the current logical turn's events for journal and prompt recovery. */
+export async function getCurrentTurnEventsForThread(
+  threadId: string,
+  knownTurnId?: string,
+): Promise<AgentChatEvent[]> {
+  const persisted = await getCurrentTurnRunEvents(threadId, knownTurnId);
+  return persisted.map(({ event }) => event);
 }
 
 /**

@@ -660,7 +660,7 @@ function cloneContentParts(content: ContentPart[]): ContentPart[] {
 
 export function settleInterruptedAssistantToolCallsInRepo<
   T extends { messages?: unknown[] },
->(repo: T): { repo: T; changed: boolean } {
+>(repo: T, options?: { userStopped?: boolean }): { repo: T; changed: boolean } {
   if (!Array.isArray(repo.messages)) return { repo, changed: false };
   let changed = false;
   const nextMessages = repo.messages.map((entry) => {
@@ -669,7 +669,12 @@ export function settleInterruptedAssistantToolCallsInRepo<
         ? (entry as { message?: unknown })
         : null;
     const message = (wrapper?.message ?? entry) as
-      | { role?: unknown; content?: unknown; status?: unknown }
+      | {
+          role?: unknown;
+          content?: unknown;
+          status?: unknown;
+          metadata?: { custom?: Record<string, unknown> };
+        }
       | null
       | undefined;
     if (message?.role !== "assistant" || !Array.isArray(message.content)) {
@@ -677,7 +682,10 @@ export function settleInterruptedAssistantToolCallsInRepo<
     }
     const content = cloneContentParts(message.content as ContentPart[]);
     if (
-      !settleInterruptedToolCalls(content, undefined, { includeActivity: true })
+      !settleInterruptedToolCalls(content, undefined, {
+        includeActivity: true,
+        userStopped: options?.userStopped,
+      })
     ) {
       return entry;
     }
@@ -685,7 +693,20 @@ export function settleInterruptedAssistantToolCallsInRepo<
     const nextMessage = {
       ...message,
       content,
-      status: { type: "incomplete", reason: "error" },
+      status: options?.userStopped
+        ? { type: "complete", reason: "stop" }
+        : { type: "incomplete", reason: "error" },
+      ...(options?.userStopped
+        ? {
+            metadata: {
+              ...(message.metadata ?? {}),
+              custom: {
+                ...(message.metadata?.custom ?? {}),
+                userStopped: true,
+              },
+            },
+          }
+        : {}),
     };
     return wrapper
       ? { ...(entry as Record<string, unknown>), message: nextMessage }
@@ -1416,8 +1437,10 @@ export function shouldShowReconnectOverlay(state: {
   isRuntimeRunning: boolean;
   isReconnecting: boolean;
   reconnectFrozen: boolean;
+  reconnectOwnsStream?: boolean;
 }): boolean {
   if (state.isRuntimeRunning) return false;
+  if (state.reconnectOwnsStream === false) return false;
   return state.isReconnecting || state.reconnectFrozen;
 }
 
@@ -3128,15 +3151,15 @@ const AssistantChatInner = forwardRef<
     updateActiveRunActivity(null);
   }, []);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
-  // When stop is clicked during reconnect, keep content visible (don't wipe it)
+  // Reconnect content is display-only and is discarded on an explicit Stop.
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
-  // Adapter took over while reconnect still had visible tool cards — keep the
-  // overlay until the adapter message catches up so we don't flash an empty gap.
+  // A reconnect overlay is visible only while this reader owns the logical turn.
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectTurnIdRef = useRef<string | null>(null);
   const reconnectTailOnlyRef = useRef(false);
   const reconnectCanMaterializeRef = useRef(false);
   const reconnectAbortRef = useRef<AbortController | null>(null);
+  const reconnectOwnershipTokenRef = useRef<symbol | null>(null);
   const reconnectAutoRecoveryCountRef = useRef(0);
   const reconnectOwnerMountedRef = useReconnectReaderOwner(
     reconnectRunIdRef,
@@ -3149,6 +3172,7 @@ const AssistantChatInner = forwardRef<
     reconnectAbortRef.current = null;
     reconnectRunIdRef.current = null;
     reconnectTurnIdRef.current = null;
+    reconnectOwnershipTokenRef.current = null;
     reconnectTailOnlyRef.current = false;
     reconnectCanMaterializeRef.current = false;
     setIsReconnecting(false);
@@ -3841,6 +3865,12 @@ const AssistantChatInner = forwardRef<
       }
       const runId = String(runInfo.runId);
       if (wasUserStoppedRun(runId, runInfo.turnId)) return false;
+      const logicalTurnId =
+        typeof runInfo.turnId === "string" && runInfo.turnId.length > 0
+          ? runInfo.turnId
+          : getActiveRun()?.runId === runId
+            ? (getActiveRun()?.turnId ?? undefined)
+            : undefined;
       if (reconnectRunIdRef.current === runId) return true;
       // SINGLE-READER OWNERSHIP: never start a second reader while the
       // adapter's own stream is live (or mid auto-continuation) for this
@@ -3857,7 +3887,9 @@ const AssistantChatInner = forwardRef<
       // claim is the actual mutual exclusion: module-scoped, synchronous, and
       // re-checked on every state write below.
       const ownershipToken = createRunStreamToken(`reconnect:${runId}`);
-      if (!claimRunStream(threadId, runId, ownershipToken)) return false;
+      if (!claimRunStream(threadId, runId, ownershipToken, logicalTurnId)) {
+        return false;
+      }
 
       // SUPERSEDE THE PREVIOUS RECONNECT GENERATION. A turn that keeps failing
       // (e.g. repeated stale_run at "Contacting model") produces a new runId
@@ -3879,10 +3911,8 @@ const AssistantChatInner = forwardRef<
       }
 
       reconnectRunIdRef.current = runId;
-      reconnectTurnIdRef.current =
-        typeof runInfo.turnId === "string" && runInfo.turnId.length > 0
-          ? runInfo.turnId
-          : (getActiveRun()?.turnId ?? null);
+      reconnectTurnIdRef.current = logicalTurnId ?? null;
+      reconnectOwnershipTokenRef.current = ownershipToken;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
       reconnectTailOnlyRef.current = afterSeq > 0;
       reconnectCanMaterializeRef.current = afterSeq === 0;
@@ -3984,6 +4014,8 @@ const AssistantChatInner = forwardRef<
         let noProgressDuringReconnect = false;
         let latestContent: ContentPart[] = [];
         const preparingActionState: PreparingActionState = {};
+        const seenEventSeqs = new Set<number>();
+        const seenEventIds = new Set<string>();
         // Exponential backoff for the reattach retry loop. A run that is
         // "active" server-side but producing no stream (the exact stuck state
         // that triggers a reconnect) would otherwise re-fetch /runs/:id/events
@@ -4072,7 +4104,7 @@ const AssistantChatInner = forwardRef<
                 if (
                   !reconnectOwnerMountedRef.current ||
                   reconnectRunIdRef.current !== runId ||
-                  !ownsRunStream(threadId, runId, ownershipToken)
+                  !ownsRunStream(threadId, runId, ownershipToken, logicalTurnId)
                 ) {
                   return;
                 }
@@ -4091,12 +4123,27 @@ const AssistantChatInner = forwardRef<
                   // The adapter can preempt this reader mid-stream. Advancing
                   // the cursor after that would move a run this reader no
                   // longer represents.
-                  if (!ownsRunStream(threadId, runId, ownershipToken)) return;
+                  if (
+                    !ownsRunStream(
+                      threadId,
+                      runId,
+                      ownershipToken,
+                      logicalTurnId,
+                    )
+                  ) {
+                    return;
+                  }
                   markReconnectProgress();
                   reconnectRetryCount = 0;
                   updateActiveRunSeq(threadId, runId, seq, isProgress);
                 },
-                { preparingActionState },
+                {
+                  preparingActionState,
+                  runId,
+                  turnId: logicalTurnId,
+                  seenEventSeqs,
+                  seenEventIds,
+                },
               );
               if (reconnectAfterSeq === 0) {
                 setReconnectContent([...content]);
@@ -4145,7 +4192,10 @@ const AssistantChatInner = forwardRef<
           threadPollEngine?.stop();
           watchdog.stop();
           clearInterval(idleCheck);
-          releaseRunStream(threadId, runId, ownershipToken);
+          releaseRunStream(threadId, runId, ownershipToken, logicalTurnId);
+          if (reconnectOwnershipTokenRef.current === ownershipToken) {
+            reconnectOwnershipTokenRef.current = null;
+          }
         }
 
         // A newer reader, live adapter, stop action, or component unmount took
@@ -4218,6 +4268,8 @@ const AssistantChatInner = forwardRef<
             reconnectAbortRef.current = null;
             setIsReconnecting(false);
             reconnectRunIdRef.current = null;
+            reconnectTurnIdRef.current = null;
+            reconnectOwnershipTokenRef.current = null;
             reconnectTailOnlyRef.current = false;
             if (afterSeq > 0) {
               reconnectCanMaterializeRef.current = false;
@@ -4263,6 +4315,8 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
+          reconnectTurnIdRef.current = null;
+          reconnectOwnershipTokenRef.current = null;
           reconnectTailOnlyRef.current = false;
           if (afterSeq > 0) {
             reconnectCanMaterializeRef.current = false;
@@ -4303,6 +4357,8 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
+          reconnectTurnIdRef.current = null;
+          reconnectOwnershipTokenRef.current = null;
           reconnectTailOnlyRef.current = false;
           if (loaded || afterSeq > 0 || latestContent.length === 0) {
             reconnectCanMaterializeRef.current = false;
@@ -4956,7 +5012,8 @@ const AssistantChatInner = forwardRef<
       }
       const stopped = userStoppedRunRef.current;
       if (
-        matchesUserStoppedRun(stopped, threadId, detail.runId, detail.turnId)
+        matchesUserStoppedRun(stopped, threadId, detail.runId, detail.turnId) ||
+        (forceStopped && stopped?.threadId === threadId)
       ) {
         return;
       }
@@ -4984,6 +5041,7 @@ const AssistantChatInner = forwardRef<
   }, [
     clearAutoResume,
     clearReconnectReaderForTerminalError,
+    forceStopped,
     latestAssistantRunId,
     tabId,
     threadId,
@@ -5261,6 +5319,8 @@ const AssistantChatInner = forwardRef<
       // several assistant messages). One owner, one surface: drop the overlay.
       if (reconnectRunIdRef.current !== null) {
         reconnectRunIdRef.current = null;
+        reconnectTurnIdRef.current = null;
+        reconnectOwnershipTokenRef.current = null;
         reconnectAbortRef.current?.abort();
         reconnectAbortRef.current = null;
         setIsReconnecting(false);
@@ -5372,7 +5432,9 @@ const AssistantChatInner = forwardRef<
   const settleVisibleInterruptedTools = useCallback(() => {
     try {
       const repo = normalizeThreadRepository(threadRuntime.export());
-      const settled = settleInterruptedAssistantToolCallsInRepo(repo);
+      const settled = settleInterruptedAssistantToolCallsInRepo(repo, {
+        userStopped: true,
+      });
       if (settled.changed) {
         threadRuntime.import(ensureMessageMetadata(settled.repo));
       }
@@ -5406,6 +5468,7 @@ const AssistantChatInner = forwardRef<
         if (custom.userStopped === true) return;
         const nextMessage = {
           ...message,
+          status: { type: "complete", reason: "stop" },
           metadata: {
             ...metadata,
             custom: { ...custom, userStopped: true },
@@ -5498,24 +5561,14 @@ const AssistantChatInner = forwardRef<
         reconnectAbortRef.current?.abort();
         reconnectAbortRef.current = null;
         reconnectRunIdRef.current = null;
+        reconnectTurnIdRef.current = null;
+        reconnectOwnershipTokenRef.current = null;
         setIsReconnecting(false);
-        const shouldFreezeReconnectContent =
-          !reconnectTailOnlyRef.current &&
-          reconnectCanMaterializeRef.current &&
-          reconnectContent.length > 0;
-        if (shouldFreezeReconnectContent) {
-          const frozenContent = cloneContentParts(reconnectContent);
-          settleInterruptedToolCalls(frozenContent, undefined, {
-            includeActivity: true,
-          });
-          setReconnectContent(frozenContent);
-          setReconnectFrozen(true);
-        } else {
-          setReconnectFrozen(false);
-          setReconnectContent([]);
-          reconnectCanMaterializeRef.current = false;
-          reconnectTurnIdRef.current = null;
-        }
+        // Stop is a user decision, not an error. Drop the reconnect overlay
+        // instead of freezing it with a synthetic interruption warning.
+        setReconnectFrozen(false);
+        setReconnectContent([]);
+        reconnectCanMaterializeRef.current = false;
         reconnectTailOnlyRef.current = false;
       }
       settleVisibleInterruptedTools();
@@ -6180,6 +6233,20 @@ const AssistantChatInner = forwardRef<
     isRuntimeRunning,
     isReconnecting,
     reconnectFrozen,
+    reconnectOwnsStream:
+      isReconnecting || reconnectFrozen
+        ? Boolean(
+            threadId &&
+            reconnectRunIdRef.current &&
+            reconnectOwnershipTokenRef.current &&
+            ownsRunStream(
+              threadId,
+              reconnectRunIdRef.current,
+              reconnectOwnershipTokenRef.current,
+              reconnectTurnIdRef.current ?? undefined,
+            ),
+          )
+        : undefined,
   });
   const reconnectStatusContent =
     visibleReconnectContent.length > 0
@@ -6309,6 +6376,7 @@ const AssistantChatInner = forwardRef<
     !!visibleRunError &&
     !isCreditsLimitErrorCode(visibleRunError.errorCode) &&
     !showRunningInUI &&
+    !forceStopped &&
     visibleRunErrorKey !== dismissedRunErrorKey &&
     !showProviderAuthSetup &&
     !matchesUserStoppedRun(

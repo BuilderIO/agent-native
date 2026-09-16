@@ -88,6 +88,8 @@ export interface SSEEvent {
   tool?: string;
   /** Server-assigned call identifier emitted on tool_start / tool_done events. */
   id?: string;
+  /** Stable transport identity, preserved when a durable turn is replayed. */
+  eventId?: string;
   label?: string;
   progressBytes?: number;
   input?: Record<string, string>;
@@ -197,23 +199,41 @@ function waitForNextEventLoopTurn(): Promise<void> {
 export function settleInterruptedToolCalls(
   content: ContentPart[],
   result = INTERRUPTED_TOOL_RESULT,
-  options?: { includeActivity?: boolean; activityResult?: string },
+  options?: {
+    includeActivity?: boolean;
+    activityResult?: string;
+    userStopped?: boolean;
+  },
 ): boolean {
   let changed = false;
   for (const part of content) {
+    const clearsSyntheticInterruption =
+      options?.userStopped === true &&
+      part.type === "tool-call" &&
+      part.outcome === "unknown" &&
+      (part.result === INTERRUPTED_TOOL_RESULT ||
+        part.result === INTERRUPTED_ACTIVITY_RESULT);
     if (
       part.type === "tool-call" &&
-      part.result === undefined &&
+      (part.result === undefined || clearsSyntheticInterruption) &&
       (part.activity !== true || options?.includeActivity === true)
     ) {
-      part.result =
-        part.activity === true
-          ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
-          : result;
-      // Interrupted is not failed: the side effect may well have landed. Never
-      // set `isError` here — that is reserved for a result the server told us
-      // failed.
-      part.outcome = "unknown";
+      if (options?.userStopped) {
+        // A deliberate Stop is a neutral terminal state. The card must stop
+        // spinning, but the user should not see an error or an unknown-outcome
+        // warning for an action they chose to cancel.
+        part.result = "";
+        delete part.outcome;
+      } else {
+        part.result =
+          part.activity === true
+            ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
+            : result;
+        // Interrupted is not failed: the side effect may well have landed. Never
+        // set `isError` here — that is reserved for a result the server told us
+        // failed.
+        part.outcome = "unknown";
+      }
       changed = true;
     }
   }
@@ -360,6 +380,34 @@ export interface SSEStreamOptions {
    * fresh stall budget every time the browser reattaches to the same run.
    */
   preparingActionState?: PreparingActionState;
+  /** Run identity attached to processor-generated error events. */
+  runId?: string;
+  /** Logical turn identity attached to processor-generated error events. */
+  turnId?: string;
+  /**
+   * Caller-owned sequence admission shared by every read of one run. Durable
+   * reconnects can replay the last persisted frame after a dropped response;
+   * admit it once before any progress accounting or content folding.
+   */
+  seenEventSeqs?: Set<number>;
+  /** Caller-owned identity admission shared by every read of one logical turn. */
+  seenEventIds?: Set<string>;
+}
+
+export function admitSSEEvent(
+  event: SSEEvent,
+  seenEventSeqs?: Set<number>,
+  seenEventIds?: Set<string>,
+): boolean {
+  if (event.eventId && seenEventIds) {
+    if (seenEventIds.has(event.eventId)) return false;
+    seenEventIds.add(event.eventId);
+    return true;
+  }
+  if (event.seq === undefined || !seenEventSeqs) return true;
+  if (seenEventSeqs.has(event.seq)) return false;
+  seenEventSeqs.add(event.seq);
+  return true;
 }
 
 type ActivityTrailEntry = AgentActivityTrailEntry;
@@ -1522,6 +1570,7 @@ export function processEvent(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   state?: ProcessEventState,
+  context?: { runId?: string; turnId?: string },
 ): {
   action:
     | "continue"
@@ -2033,7 +2082,12 @@ export function processEvent(
       dispatchMissingApiKey(tabId);
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
-          detail: { ...runError, tabId },
+          detail: {
+            ...runError,
+            tabId,
+            ...(context?.runId ? { runId: context.runId } : {}),
+            ...(context?.turnId ? { turnId: context.turnId } : {}),
+          },
         }),
       );
     }
@@ -2149,7 +2203,12 @@ export function processEvent(
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
-          detail: { ...runError, tabId },
+          detail: {
+            ...runError,
+            tabId,
+            ...(context?.runId ? { runId: context.runId } : {}),
+            ...(context?.turnId ? { turnId: context.turnId } : {}),
+          },
         }),
       );
     }
@@ -2182,7 +2241,10 @@ export function processEvent(
       ...interruptedTools.activity,
     ];
     if (allInterruptedTools.length > 0) {
-      settleInterruptedToolCalls(content, undefined, { includeActivity: true });
+      settleInterruptedToolCalls(content, undefined, {
+        includeActivity: true,
+        userStopped: userStoppedRun,
+      });
       if (userStoppedRun) {
         return {
           action: "done",
@@ -2203,7 +2265,12 @@ export function processEvent(
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("agent-chat:run-error", {
-            detail: { ...runError, tabId },
+            detail: {
+              ...runError,
+              tabId,
+              ...(context?.runId ? { runId: context.runId } : {}),
+              ...(context?.turnId ? { turnId: context.turnId } : {}),
+            },
           }),
         );
       }
@@ -2435,6 +2502,9 @@ export async function* readSSEStream(
         } catch {
           continue;
         }
+        if (!admitSSEEvent(ev, options?.seenEventSeqs, options?.seenEventIds)) {
+          continue;
+        }
         const now = Date.now();
         inFlightWork = Math.max(0, inFlightWork + sseInFlightWorkDelta(ev));
         const actionPreparationProgress = updatePreparingActionState(
@@ -2490,6 +2560,10 @@ export async function* readSSEStream(
           toolCallCounter,
           tabId,
           processEventState,
+          {
+            runId: options?.runId ?? runId ?? undefined,
+            turnId: options?.turnId,
+          },
         );
 
         const terminalResult =
@@ -2649,6 +2723,9 @@ export async function readSSEStreamRaw(
         } catch {
           continue;
         }
+        if (!admitSSEEvent(ev, options?.seenEventSeqs, options?.seenEventIds)) {
+          continue;
+        }
         const now = Date.now();
         inFlightWork = Math.max(0, inFlightWork + sseInFlightWorkDelta(ev));
         const actionPreparationProgress = updatePreparingActionState(
@@ -2703,6 +2780,7 @@ export async function readSSEStreamRaw(
           toolCallCounter,
           tabId,
           processEventState,
+          { runId: options?.runId, turnId: options?.turnId },
         );
 
         if (
