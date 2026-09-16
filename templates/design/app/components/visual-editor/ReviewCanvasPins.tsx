@@ -1439,10 +1439,12 @@ function ReviewImageAttachments({
   attachments,
   disabled,
   onChange,
+  onUploadingChange,
 }: {
   attachments: ReviewImageAttachment[];
   disabled: boolean;
   onChange: (attachments: ReviewImageAttachment[]) => void;
+  onUploadingChange?: (uploading: boolean) => void;
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1454,6 +1456,7 @@ function ReviewImageAttachments({
       .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS - attachments.length);
     if (!selected.length) return;
     setUploading(true);
+    onUploadingChange?.(true);
     const results = await Promise.allSettled(
       selected.map(async (file) => {
         const uploaded = await uploadEditorImage(file);
@@ -1479,6 +1482,7 @@ function ReviewImageAttachments({
       toast.error(t("review.postFailed"));
     }
     setUploading(false);
+    onUploadingChange?.(false);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -1579,6 +1583,7 @@ function DraftComposer({
   agentSubmitting: boolean;
 }) {
   const t = useT();
+  const [uploading, setUploading] = useState(false);
   const [modeOverride, setModeOverride] = useState<
     "auto" | NodeRepromptSendMode
   >(initialAgentMode);
@@ -1587,6 +1592,7 @@ function DraftComposer({
   });
   const sendMode = modeOverride === "auto" ? inferredMode : modeOverride;
   const submitting = commentSubmitting || agentSubmitting;
+  const busy = submitting || uploading;
   const agentLabel =
     modeOverride === "auto"
       ? t("review.sendToAgent")
@@ -1600,7 +1606,7 @@ function DraftComposer({
         size="sm"
         variant={initialAgentMode === "preview" ? "default" : "outline"}
         className="h-8 min-w-0 flex-1 gap-1.5 rounded-e-none"
-        disabled={submitting || !value.trim()}
+        disabled={busy || !value.trim()}
         onClick={() => onSmartSubmit(sendMode)}
       >
         {agentSubmitting ? (
@@ -1617,7 +1623,7 @@ function DraftComposer({
             size="sm"
             variant={initialAgentMode === "preview" ? "default" : "outline"}
             className="h-8 shrink-0 rounded-s-none border-s-0 px-2"
-            disabled={submitting}
+            disabled={busy}
             aria-label={t("designEditor.nodeRewrite.agentModeOptions")}
           >
             <IconChevronDown className="size-3" />
@@ -1670,7 +1676,7 @@ function DraftComposer({
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            disabled={submitting}
+            disabled={busy}
             onClick={onCancel}
             aria-label={t("designEditor.close")}
           >
@@ -1682,7 +1688,7 @@ function DraftComposer({
         className="px-3 pb-3"
         autoFocus
         value={value}
-        disabled={submitting}
+        disabled={busy}
         onChange={onChange}
         onSubmit={(target) => {
           if (target === "agent" && smartAgentAvailable) {
@@ -1712,8 +1718,9 @@ function DraftComposer({
       <ReviewMentionSuggestions value={value} onChange={onChange} />
       <ReviewImageAttachments
         attachments={attachments}
-        disabled={submitting}
+        disabled={busy}
         onChange={onAttachmentsChange}
+        onUploadingChange={setUploading}
       />
     </div>
   );
@@ -1880,6 +1887,7 @@ function ReviewThreadPopover({
   onSendToAgent?: () => void;
 }) {
   const t = useT();
+  const [replyUploading, setReplyUploading] = useState(false);
   const rootAuthor = reviewAuthorLabel(thread.root, t("review.reviewer"));
   const avatarUrl = useAvatarUrl(thread.root.authorEmail);
   return (
@@ -1954,7 +1962,7 @@ function ReviewThreadPopover({
             <>
               <ReviewCommentComposer
                 value={replyDraft}
-                disabled={replying || resolving}
+                disabled={replying || resolving || replyUploading}
                 onChange={onReplyDraftChange}
                 onSubmit={() => onReply()}
                 submittingTarget={replying ? "human" : null}
@@ -1969,8 +1977,9 @@ function ReviewThreadPopover({
               />
               <ReviewImageAttachments
                 attachments={replyAttachments}
-                disabled={replying || resolving}
+                disabled={replying || resolving || replyUploading}
                 onChange={onReplyAttachmentsChange}
+                onUploadingChange={setReplyUploading}
               />
             </>
           ) : null}
@@ -1984,7 +1993,7 @@ function ReviewThreadPopover({
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 px-2 text-xs text-primary hover:text-primary"
-                  disabled={sending || resolving}
+                  disabled={sending || resolving || replyUploading}
                   onClick={onSendToAgent}
                 >
                   {sending ? (
@@ -2003,7 +2012,7 @@ function ReviewThreadPopover({
                 variant="ghost"
                 size="sm"
                 className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
-                disabled={resolving || sending}
+                disabled={resolving || sending || replyUploading}
                 onClick={onStatusChange}
               >
                 {resolving ? (

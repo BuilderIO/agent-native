@@ -763,7 +763,10 @@ function CommentBubble({
           </div>
         ) : null}
         {showReactions ? (
-          <div className="mt-2 flex flex-wrap items-center gap-1">
+          <div
+            className="mt-2 flex flex-wrap items-center gap-1"
+            onClick={(event) => event.stopPropagation()}
+          >
             {reactions.map((item) => (
               <button
                 key={item.reaction}
