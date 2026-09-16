@@ -131,7 +131,7 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   investigation marker, but do not treat it as a disposition or suppression
   signal. After classifying the parent, re-read the complete thread and, for
   an actionable in-scope item, require a verified feedback-ledger disposition
-  and reaction state - **Fixed**, **Shipped**, **Resolved elsewhere**,
+  and reaction state - **Fixed**, **Shipped**, **Live verified**, **Resolved elsewhere**,
   **Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, or
   **Open - no reply** after this workflow's eye has been released with its
   disposition-specific marker;
@@ -164,7 +164,9 @@ Use the disposition-specific release contract from
 the release marker for other terminal, non-fixed closures. When reopening or
 re-claiming an item, remove this workflow's stale release marker before adding
 `👀`; if reaction removal is unavailable, use full enumeration with reaction
-metadata and do not trust the optimized negative-marker cursor.
+metadata, do not re-add or retain `👀` beside the stale marker, and do not
+trust the optimized negative-marker cursor; claim the item only after the
+marker is removed.
 
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present
