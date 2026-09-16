@@ -17,8 +17,10 @@ metadata:
 
 This skill keeps shadcn/ui work project-aware. Components are source files in the
 app, so always inspect the local project before adding, importing, or rewriting
-them. The repository's `@shadcn/lint` rules are part of the design-system
-contract; treat their feedback as implementation guidance, not cosmetic noise.
+them. When `@shadcn/lint` is configured, treat its feedback as implementation
+guidance, not cosmetic noise. The framework repository runs it through the root
+Oxlint configuration; generated workspaces carry this skill and the MCP
+workflow, but do not automatically inherit that repository-only lint setup.
 
 ## First Steps
 
@@ -52,10 +54,19 @@ shadcn project, and would make installs target the wrong project.
 
 ## Design-System Lint Feedback
 
-From the repository root, `pnpm lint` runs Oxlint with `@shadcn/lint`. Run it
-after UI changes and fix every `shadcn/*` finding before handing off. Template
-packages use the workspace lint configuration; do not create a second local
-lint configuration just for one app.
+In the framework repository, `pnpm lint` runs Oxlint with `@shadcn/lint` for the
+scoped template UI paths. Run it after UI changes and fix every `shadcn/*`
+finding before handing off. Template packages use the workspace lint
+configuration; do not create a second local lint configuration just for one
+app.
+
+Before claiming that shadcn lint ran in another workspace, inspect its root
+`package.json` and `.oxlintrc.json`. The generic generated workspace currently
+exposes `pnpm lint` as formatting-only and does not ship `@shadcn/lint` or the
+framework repository's Oxlint config. In that scaffold, use this skill plus the
+connected shadcn MCP (or the CLI fallback) for design-system guidance, and do
+not report `shadcn/*` checks as having run. If the workspace owner adopts the
+linter, add the dependency, scoped config, and lint script together.
 
 The Plan template is intentionally excluded from this rollout. Its files remain
 under `templates/plan/**`, but the root Oxlint ignore list keeps them out of the

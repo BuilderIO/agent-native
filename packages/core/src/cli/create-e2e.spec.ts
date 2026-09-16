@@ -871,6 +871,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const schedDir = path.join(wsDir, "packages", "scheduling");
     expect(fs.existsSync(schedDir)).toBe(true);
     expect(fs.existsSync(path.join(schedDir, "package.json"))).toBe(true);
+    expect(readPkg(wsDir).packageManager).toBe("pnpm@10.29.1");
   });
 
   it("does not scaffold the optional pinpoint package with design", async () => {
