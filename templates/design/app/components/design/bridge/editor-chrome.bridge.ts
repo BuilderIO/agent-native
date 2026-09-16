@@ -10079,13 +10079,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Number.isFinite(num) ? num : 0;
   }
 
-  function resolveCornerRadiusPx(value, width, height) {
-    var trimmed = typeof value === "string" ? value.trim() : "";
-    if (trimmed.charAt(trimmed.length - 1) === "%") {
-      var pct = parseFloat(trimmed) || 0;
-      return (pct / 100) * Math.min(width, height);
+  function resolveCornerRadiusComponent(part, axisSize) {
+    if (!part) return 0;
+    if (part.charAt(part.length - 1) === "%") {
+      var pct = parseFloat(part) || 0;
+      return (pct / 100) * axisSize;
     }
-    return readPx(value);
+    return readPx(part);
+  }
+
+  // CSS resolves each border-*-radius longhand as a horizontal/vertical pair:
+  // even a single value like `50%` produces an ellipse (not a circle) on a
+  // non-square box, because the horizontal component resolves against width
+  // and the vertical component resolves against height independently — a
+  // 200x100 box with `border-radius: 50%` renders 100px horizontal by 50px
+  // vertical corners, not a uniform 50px radius.
+  function resolveCornerRadiusXY(value, width, height) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    var parts = trimmed.split(/\s+/);
+    return {
+      x: resolveCornerRadiusComponent(parts[0], width),
+      y: resolveCornerRadiusComponent(
+        parts.length > 1 ? parts[1] : parts[0],
+        height,
+      ),
+    };
   }
 
   var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
@@ -10617,19 +10635,54 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ).trim();
   }
 
-  // Reads whether `transform` mirrors the element around its own center via
-  // scaleX(-1)/scaleY(-1) -- the resize-through-zero flip startResize below
-  // writes. Matches rotationFromTransform's posture: a class-authored
-  // matrix() transform has no flip info extracted from it (matrix
-  // decomposition into independent flip/rotate parts is not reliably
+  // Reads whether `transform` mirrors the element around its own center.
+  // Checks scaleX()/scaleY() plus the bare scale(sx[, sy]) form (sy defaults
+  // to sx), and an optional independent CSS `scale` property value (the
+  // computed value of the separate `scale` longhand, which composes with
+  // `transform` at render time but isn't part of its string) -- a flip
+  // authored via `scale: -1` or `scale(-1, 1)` must read the same as one
+  // authored via `scaleX(-1)`, else a resize-through-zero on an
+  // already-flipped element treats it as unflipped and appends another
+  // mirror instead of undoing it. Matches rotationFromTransform's posture: a
+  // class-authored matrix() transform has no flip info extracted from it
+  // (matrix decomposition into independent flip/rotate parts is not reliably
   // invertible), so it reads as unflipped, same tradeoff mergeAbsoluteRotation
   // already accepts for rotation.
-  function flipFromTransform(transform) {
+  function flipFromTransform(transform, independentScale) {
     var value = transform || "";
-    return {
-      x: /scaleX\(\s*-1\s*\)/i.test(value),
-      y: /scaleY\(\s*-1\s*\)/i.test(value),
-    };
+    var signX = 1;
+    var signY = 1;
+    var re = /scale(X|Y)?\(\s*([^)]+)\s*\)/gi;
+    var match;
+    while ((match = re.exec(value))) {
+      var axis = match[1];
+      var args = match[2].split(",").map(function (part) {
+        return parseFloat(part);
+      });
+      if (axis === "X") {
+        if (Number.isFinite(args[0])) signX *= args[0] < 0 ? -1 : 1;
+      } else if (axis === "Y") {
+        if (Number.isFinite(args[0])) signY *= args[0] < 0 ? -1 : 1;
+      } else {
+        var sx = args[0];
+        var sy = args.length > 1 ? args[1] : args[0];
+        if (Number.isFinite(sx)) signX *= sx < 0 ? -1 : 1;
+        if (Number.isFinite(sy)) signY *= sy < 0 ? -1 : 1;
+      }
+    }
+    if (independentScale && independentScale !== "none") {
+      var isParts = independentScale
+        .trim()
+        .split(/\s+/)
+        .map(function (part) {
+          return parseFloat(part);
+        });
+      var isx = isParts[0];
+      var isy = isParts.length > 1 ? isParts[1] : isParts[0];
+      if (Number.isFinite(isx)) signX *= isx < 0 ? -1 : 1;
+      if (Number.isFinite(isy)) signY *= isy < 0 ? -1 : 1;
+    }
+    return { x: signX < 0, y: signY < 0 };
   }
 
   // Scale counterpart to mergeAbsoluteRotation: rewrites `transform`'s
@@ -10649,6 +10702,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     base = base
       .replace(/\s*scaleX\(\s*-?1\s*\)/gi, "")
       .replace(/\s*scaleY\(\s*-?1\s*\)/gi, "")
+      .replace(/\s*scale\(\s*-?1\s*(?:,\s*-?1\s*)?\)/gi, "")
       .trim();
     var suffix = (flipX ? " scaleX(-1)" : "") + (flipY ? " scaleY(-1)" : "");
     return (base + suffix).trim();
@@ -16764,7 +16818,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       originalInlineTransform && originalInlineTransform !== "none"
         ? originalInlineTransform
         : cs.transform;
-    var originFlip = flipFromTransform(flipTransformBase);
+    var originFlip = flipFromTransform(
+      flipTransformBase,
+      (cs as unknown as { scale?: string }).scale,
+    );
     // Bug fix: use COMPUTED width/height (never the raw inline style string)
     // for the resize origin dimensions. Two distinct hazards, one fix:
     //   1. Rotated elements — getBoundingClientRect() returns the inflated
@@ -17623,12 +17680,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // the number 50 and misinterpret it as 50px, snapping the shape the
     // instant the drag starts. Resolve it against the box's own dimensions
     // first, same convention as CSS's own circle/pill radius authoring.
-    var originRadius = resolveCornerRadiusPx(
+    var originRadius = resolveCornerRadiusXY(
       radiusEl.style[cornerProperty] || cs[cornerProperty],
       elWidthPx,
       elHeightPx,
     );
-    var maxRadius = Math.max(0, Math.min(elWidthPx, elHeightPx) / 2);
+    var maxRadiusX = Math.max(0, elWidthPx / 2);
+    var maxRadiusY = Math.max(0, elHeightPx / 2);
     var originalRadiusValue = radiusEl.style[cornerProperty];
     var startX = e.clientX;
     var startY = e.clientY;
@@ -17639,9 +17697,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var sin = Math.sin(theta);
     var signX = corner.indexOf("w") !== -1 ? 1 : -1;
     var signY = corner.indexOf("n") !== -1 ? 1 : -1;
-    function applyRadius(value) {
-      var next = Math.max(0, Math.min(maxRadius, Math.round(value))) + "px";
-      radiusEl.style[cornerProperty] = next;
+    function applyRadius(nextX, nextY) {
+      var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX)));
+      var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
+      radiusEl.style[cornerProperty] =
+        x === y ? x + "px" : x + "px " + y + "px";
     }
     function onMove(ev) {
       if (!radiusEl) return;
@@ -17649,8 +17709,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var screenDy = ev.clientY - startY;
       var localDx = screenDx * cos + screenDy * sin;
       var localDy = -screenDx * sin + screenDy * cos;
-      var delta = (localDx * signX + localDy * signY) / 2;
-      applyRadius(originRadius + delta);
+      applyRadius(
+        originRadius.x + localDx * signX,
+        originRadius.y + localDy * signY,
+      );
       applySelectionHandleHitGeometry(radiusEl);
       refreshOverlays();
     }

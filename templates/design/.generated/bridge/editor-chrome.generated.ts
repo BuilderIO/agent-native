@@ -7530,13 +7530,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       var num = parseFloat(value);
       return Number.isFinite(num) ? num : 0;
     }
-    function resolveCornerRadiusPx(value, width, height) {
-      var trimmed = typeof value === "string" ? value.trim() : "";
-      if (trimmed.charAt(trimmed.length - 1) === "%") {
-        var pct = parseFloat(trimmed) || 0;
-        return pct / 100 * Math.min(width, height);
+    function resolveCornerRadiusComponent(part, axisSize) {
+      if (!part) return 0;
+      if (part.charAt(part.length - 1) === "%") {
+        var pct = parseFloat(part) || 0;
+        return pct / 100 * axisSize;
       }
-      return readPx(value);
+      return readPx(part);
+    }
+    function resolveCornerRadiusXY(value, width, height) {
+      var trimmed = typeof value === "string" ? value.trim() : "";
+      var parts = trimmed.split(/\\s+/);
+      return {
+        x: resolveCornerRadiusComponent(parts[0], width),
+        y: resolveCornerRadiusComponent(
+          parts.length > 1 ? parts[1] : parts[0],
+          height
+        )
+      };
     }
     var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
       nw: "borderTopLeftRadius",
@@ -7904,12 +7915,38 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return ((transform && transform !== "none" ? transform + " " : "") + "rotate(" + degrees + "deg)").trim();
     }
-    function flipFromTransform(transform) {
+    function flipFromTransform(transform, independentScale) {
       var value = transform || "";
-      return {
-        x: /scaleX\\(\\s*-1\\s*\\)/i.test(value),
-        y: /scaleY\\(\\s*-1\\s*\\)/i.test(value)
-      };
+      var signX = 1;
+      var signY = 1;
+      var re = /scale(X|Y)?\\(\\s*([^)]+)\\s*\\)/gi;
+      var match;
+      while (match = re.exec(value)) {
+        var axis = match[1];
+        var args = match[2].split(",").map(function(part) {
+          return parseFloat(part);
+        });
+        if (axis === "X") {
+          if (Number.isFinite(args[0])) signX *= args[0] < 0 ? -1 : 1;
+        } else if (axis === "Y") {
+          if (Number.isFinite(args[0])) signY *= args[0] < 0 ? -1 : 1;
+        } else {
+          var sx = args[0];
+          var sy = args.length > 1 ? args[1] : args[0];
+          if (Number.isFinite(sx)) signX *= sx < 0 ? -1 : 1;
+          if (Number.isFinite(sy)) signY *= sy < 0 ? -1 : 1;
+        }
+      }
+      if (independentScale && independentScale !== "none") {
+        var isParts = independentScale.trim().split(/\\s+/).map(function(part) {
+          return parseFloat(part);
+        });
+        var isx = isParts[0];
+        var isy = isParts.length > 1 ? isParts[1] : isParts[0];
+        if (Number.isFinite(isx)) signX *= isx < 0 ? -1 : 1;
+        if (Number.isFinite(isy)) signY *= isy < 0 ? -1 : 1;
+      }
+      return { x: signX < 0, y: signY < 0 };
     }
     function mergeFlipIntoTransform(transform, flipX, flipY) {
       var base = transform && transform !== "none" ? transform : "";
@@ -7917,7 +7954,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var angle = rotationFromTransform(base);
         base = angle ? "rotate(" + angle + "deg)" : "";
       }
-      base = base.replace(/\\s*scaleX\\(\\s*-?1\\s*\\)/gi, "").replace(/\\s*scaleY\\(\\s*-?1\\s*\\)/gi, "").trim();
+      base = base.replace(/\\s*scaleX\\(\\s*-?1\\s*\\)/gi, "").replace(/\\s*scaleY\\(\\s*-?1\\s*\\)/gi, "").replace(/\\s*scale\\(\\s*-?1\\s*(?:,\\s*-?1\\s*)?\\)/gi, "").trim();
       var suffix = (flipX ? " scaleX(-1)" : "") + (flipY ? " scaleY(-1)" : "");
       return (base + suffix).trim();
     }
@@ -11869,7 +11906,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       ensurePositionable(resizeEl);
       var cs = window.getComputedStyle(resizeEl);
       var flipTransformBase = originalInlineTransform && originalInlineTransform !== "none" ? originalInlineTransform : cs.transform;
-      var originFlip = flipFromTransform(flipTransformBase);
+      var originFlip = flipFromTransform(
+        flipTransformBase,
+        cs.scale
+      );
       var originW = readPx(cs.width);
       var originH = readPx(cs.height);
       var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
@@ -12559,12 +12599,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cornerProperty = CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
       var elWidthPx = readPx(cs.width);
       var elHeightPx = readPx(cs.height);
-      var originRadius = resolveCornerRadiusPx(
+      var originRadius = resolveCornerRadiusXY(
         radiusEl.style[cornerProperty] || cs[cornerProperty],
         elWidthPx,
         elHeightPx
       );
-      var maxRadius = Math.max(0, Math.min(elWidthPx, elHeightPx) / 2);
+      var maxRadiusX = Math.max(0, elWidthPx / 2);
+      var maxRadiusY = Math.max(0, elHeightPx / 2);
       var originalRadiusValue = radiusEl.style[cornerProperty];
       var startX = e.clientX;
       var startY = e.clientY;
@@ -12573,9 +12614,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var sin = Math.sin(theta);
       var signX = corner.indexOf("w") !== -1 ? 1 : -1;
       var signY = corner.indexOf("n") !== -1 ? 1 : -1;
-      function applyRadius(value) {
-        var next = Math.max(0, Math.min(maxRadius, Math.round(value))) + "px";
-        radiusEl.style[cornerProperty] = next;
+      function applyRadius(nextX, nextY) {
+        var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX)));
+        var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
+        radiusEl.style[cornerProperty] = x === y ? x + "px" : x + "px " + y + "px";
       }
       function onMove(ev) {
         if (!radiusEl) return;
@@ -12583,8 +12625,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         var screenDy = ev.clientY - startY;
         var localDx = screenDx * cos + screenDy * sin;
         var localDy = -screenDx * sin + screenDy * cos;
-        var delta = (localDx * signX + localDy * signY) / 2;
-        applyRadius(originRadius + delta);
+        applyRadius(
+          originRadius.x + localDx * signX,
+          originRadius.y + localDy * signY
+        );
         applySelectionHandleHitGeometry(radiusEl);
         refreshOverlays();
       }
