@@ -103,32 +103,25 @@ describe("recorder popover failure states", () => {
     expect(html).toContain('aria-label="Choose capture source: Full screen"');
   });
 
-  it("uses the shadcn switch primitive with a visible thumb", () => {
+  it("uses the stock shadcn switch props and keeps off state enabled", () => {
     const html = renderToStaticMarkup(
-      <Switch on={true} onChange={vi.fn()} label="Microphone" />,
+      <Switch checked={false} onCheckedChange={vi.fn()} label="Microphone" />,
     );
 
-    expect(html).toContain('data-slot="switch"');
     expect(html).toContain('data-tw-surface="true"');
-    expect(html).toContain('data-size="default"');
-    expect(html).toContain('data-slot="switch-thumb"');
-    expect(html).toContain("group-data-[size=default]/switch:size-4");
-    expect(html).toContain("ring-foreground/20");
-    expect(html).toContain("data-[state=checked]:translate-x-[calc(100%-2px)]");
-    expect(html).toMatch(
-      /data-slot="switch"[^>]*data-\[state=checked\]:bg-success(?:\s|")/,
-    );
-    expect(html).toMatch(
-      /data-slot="switch-thumb"[^>]*data-\[state=checked\]:bg-success-foreground(?:\s|")/,
-    );
-    expect(html).not.toContain("[&>span]");
+    expect(html).toContain("data-[state=checked]:bg-primary");
+    expect(html).toContain("data-[state=unchecked]:bg-input");
+    expect(html).toContain("data-[state=checked]:translate-x-5");
+    expect(html).toContain('data-state="unchecked"');
+    expect(html).not.toMatch(/\sdisabled(?:=|>)/);
+    expect(html).not.toContain("data-slot");
   });
 
   it("preserves checked switch styling while its tooltip is open", () => {
     const html = renderToStaticMarkup(
       <Tooltip open>
         <TooltipTrigger asChild>
-          <Switch on onChange={vi.fn()} label="Microphone" />
+          <Switch checked onCheckedChange={vi.fn()} label="Microphone" />
         </TooltipTrigger>
         <TooltipContent>Turn off microphone</TooltipContent>
       </Tooltip>,
