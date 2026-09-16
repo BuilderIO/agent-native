@@ -69,7 +69,11 @@ describe("isCreativeContextLabAvailable", () => {
     mocks.getUserLabs.mockResolvedValue({ "content.creative-context": false });
     await expect(
       assertCreativeContextLabEnabled("user@example.com"),
-    ).rejects.toThrow("Creative Context is disabled in Labs");
+    ).rejects.toMatchObject({
+      message: "Creative Context is disabled in Labs",
+      errorCode: "creative_context_disabled",
+      statusCode: 404,
+    });
   });
 
   it("gates package actions with the configured app Lab", async () => {

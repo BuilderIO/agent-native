@@ -13,6 +13,7 @@ import {
   markExternalEmailRefresh,
   parseAccountErrorsHeader,
   rebasePinnedLabelsUpdate,
+  releaseSuppression,
   rollbackReadMutation,
   suppressThread,
   unsuppressThread,
@@ -55,7 +56,9 @@ describe("filterSuppressedThreads", () => {
   });
 
   it("keeps an archived thread hidden from stale inbox refetches", () => {
-    suppressThread("thread-archived", "archive");
+    suppressThread("thread-archived", "archive", {
+      views: ["inbox", "unread"],
+    });
 
     const visible = filterSuppressedThreads(
       [
@@ -69,14 +72,16 @@ describe("filterSuppressedThreads", () => {
   });
 
   it("allows an archived thread in the archive destination view", () => {
-    suppressThread("thread-archived", "archive");
+    suppressThread("thread-archived", "archive", {
+      views: ["inbox", "unread"],
+    });
+    const row = () => [makeEmail("msg-archived", "thread-archived")];
 
-    const visible = filterSuppressedThreads(
-      [makeEmail("msg-archived", "thread-archived")],
-      "archive",
-    );
-
-    expect(visible.map((email) => email.id)).toEqual(["msg-archived"]);
+    expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
+    // Archiving removes only INBOX, so All Mail and every label it carries
+    // still list the thread.
+    expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
   });
 });
 
@@ -559,11 +564,156 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(hook).toContain("throw new MoveEmailPartialFailure(result)");
     expect(hook).toContain("forgetInboxMutation(qc, context.inboxMutationId)");
     expect(hook).toContain(
-      "removeInboxThreadsOptimistic(qc, succeededThreadIds)",
+      "reconcilePartialInboxMutation(qc, context, succeededThreadIds)",
     );
+    expect(hook).toContain('suppressThread(threadId, "move", {');
     expect(hook).toContain(
-      "context.previous.forEach(([key, data]) =>\n          qc.setQueryData(",
+      "releaseSuppression(threadId, context.suppressionIds[threadId])",
     );
+    // Restoring the whole ["emails"] snapshot here would also revert a move
+    // that completed while this one was still pending.
+    expect(hook).not.toContain("previous.forEach");
+  });
+
+  it("keeps a later mutation hidden when an earlier move rolls back", () => {
+    const moved = suppressThread("thread-moved", "move", {
+      views: ["inbox", "unread"],
+    });
+    suppressThread("thread-archived-later", "archive", {
+      views: ["inbox", "unread"],
+    });
+
+    // The move failed for its own thread only; an archive that landed while it
+    // was still pending must stay hidden.
+    releaseSuppression("thread-moved", moved);
+
+    const visible = filterSuppressedThreads(
+      [
+        makeEmail("msg-moved", "thread-moved"),
+        makeEmail("msg-archived-later", "thread-archived-later"),
+      ],
+      "inbox",
+    );
+
+    expect(visible.map((email) => email.id)).toEqual(["msg-moved"]);
+    unsuppressThread("thread-archived-later");
+  });
+
+  it("keeps the same thread hidden when an overlapping mutation rolls back", () => {
+    // Move, then archive the same thread, then fail the move. The archive is
+    // still pending, so releasing the move's claim must not reveal the row.
+    const moved = suppressThread("thread-both", "move", {
+      views: ["inbox", "unread"],
+    });
+    suppressThread("thread-both", "archive", { views: ["inbox", "unread"] });
+
+    releaseSuppression("thread-both", moved);
+
+    expect(
+      filterSuppressedThreads([makeEmail("msg-both", "thread-both")], "inbox"),
+    ).toEqual([]);
+
+    unsuppressThread("thread-both");
+    expect(
+      filterSuppressedThreads([makeEmail("msg-both", "thread-both")], "inbox"),
+    ).toHaveLength(1);
+  });
+
+  it("lets the newest claim decide where an overlapping thread stays visible", () => {
+    // Archive then trash the same thread: Trash is its final location, so the
+    // older archive claim must not keep hiding it there.
+    suppressThread("thread-relocated", "archive", {
+      views: ["inbox", "unread"],
+    });
+    suppressThread("thread-relocated", "trash", { onlyIn: "trash" });
+    const row = () => [makeEmail("msg-relocated", "thread-relocated")];
+
+    expect(filterSuppressedThreads(row(), "trash")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "archive")).toEqual([]);
+    // Trash leaves All Mail and every label behind as well.
+    expect(filterSuppressedThreads(row(), "all")).toEqual([]);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toEqual([]);
+
+    unsuppressThread("thread-relocated");
+  });
+
+  it("keeps a moved thread in the labels it still carries", () => {
+    // Moving out of the inbox with no source label leaves every label the
+    // thread already had attached, so only the inbox loses the row.
+    const moved = suppressThread("thread-filed", "move", {
+      views: ["inbox", "unread"],
+    });
+    const row = () => [makeEmail("msg-filed", "thread-filed")];
+
+    expect(filterSuppressedThreads(row(), "inbox")).toEqual([]);
+    expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all", "Receipts")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
+
+    releaseSuppression("thread-filed", moved);
+  });
+
+  it("hides a moved thread only in the source label it was moved out of", () => {
+    // A mailbox-wide label tab fetches with view "all" plus the active label,
+    // so only the label the move actually removed may stop listing it.
+    const moved = suppressThread("thread-refiled", "move", {
+      views: ["inbox", "unread"],
+      label: "Marketing",
+    });
+    const row = () => [makeEmail("msg-refiled", "thread-refiled")];
+
+    expect(filterSuppressedThreads(row(), "all", "Marketing")).toEqual([]);
+    expect(filterSuppressedThreads(row(), "all", "Receipts")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
+
+    releaseSuppression("thread-refiled", moved);
+  });
+
+  it("hides an archived thread only in the label the archive removed", () => {
+    // Archiving from a label view passes removeLabel, so that label stops
+    // listing the thread while every other label it carries keeps it.
+    suppressThread("thread-filed-away", "archive", {
+      views: ["inbox", "unread"],
+      label: "Marketing",
+    });
+    const row = () => [makeEmail("msg-filed-away", "thread-filed-away")];
+
+    expect(filterSuppressedThreads(row(), "all", "Marketing")).toEqual([]);
+    expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
+    expect(filterSuppressedThreads(row(), "inbox")).toEqual([]);
+
+    unsuppressThread("thread-filed-away");
+  });
+
+  it("rolls spam, block, and mute back per thread instead of by snapshot", () => {
+    const source = emailsHookSource();
+    const hooks = [
+      ["useReportSpam", "export function useBlockSender()"],
+      ["useBlockSender", "export function useMuteThread()"],
+      ["useMuteThread", "export type Contact = "],
+    ] as const;
+
+    for (const [name, end] of hooks) {
+      const hook = source.slice(
+        source.indexOf(`export function ${name}()`),
+        source.indexOf(end),
+      );
+
+      expect(hook).toContain("removeInboxThreadsOptimistic(");
+      expect(hook).toContain("new Set([threadId])");
+      expect(hook).toContain(
+        "forgetInboxMutation(qc, context.inboxMutationId)",
+      );
+      expect(hook).toContain(
+        "settleInboxMutationIfObserved(qc, context?.inboxMutationId)",
+      );
+      // A whole-snapshot restore here would revert mutations that landed after
+      // this one started — the bug class this hook set was rewritten to avoid.
+      expect(hook).not.toContain("previous.forEach");
+    }
   });
 
   it("passes per-target account and thread hints to the Move action", () => {

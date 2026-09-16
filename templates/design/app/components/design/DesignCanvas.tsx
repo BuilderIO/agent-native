@@ -103,6 +103,7 @@ import {
 import {
   isComputedStyleMap,
   isElementInfoPayload,
+  parseRuntimeSnapshotHtml,
 } from "./design-canvas/element-payload";
 import {
   embeddedContentOffsetCss,
@@ -121,6 +122,7 @@ import {
   shouldFetchExternalSourceSnapshot,
   shouldUseIframeLoadReadyFallback,
   type BridgeRegistrationFailureKind,
+  useBrowserOrigin,
 } from "./design-canvas/external-preview";
 import { isOsFileDragEvent } from "./design-canvas/file-drop";
 import {
@@ -698,6 +700,7 @@ interface DesignCanvasProps {
       replacementSelector?: string;
       replacementSourceId?: string;
       replacementElementInfo?: ElementInfo;
+      replacementSnapshotHtml?: string;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -1388,6 +1391,7 @@ export function DesignCanvas({
 }: DesignCanvasProps) {
   const t = useT();
   const { resolvedTheme } = useTheme();
+  const browserOrigin = useBrowserOrigin();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const restoreKScalePreviewRef = useRef<(() => void) | null>(null);
   const textEditingStateRef = useRef<Omit<TextEditingState, "screenId">>({
@@ -3298,24 +3302,34 @@ export function DesignCanvas({
           allowedOrigins: canvasBridgeAllowedOrigins,
         });
       if (trustedRuntimeVerificationFrame) {
+        if (e.data?.type === "agent-native:runtime-layer-snapshot-error") {
+          onRuntimeStructureInsertRejected?.(
+            e.data.payload?.reason === "snapshot-too-large"
+              ? "verification-snapshot-too-large"
+              : "verification-snapshot-unavailable",
+          );
+          return;
+        }
         if (e.data?.type !== "agent-native:runtime-layer-snapshot") return;
         const payload = e.data.payload;
-        if (
-          payload &&
-          typeof payload.html === "string" &&
-          payload.html.length <= 2_000_000 &&
-          Number.isFinite(payload.nodeCount)
-        ) {
-          onRuntimeVerificationSnapshot?.({
-            requestId: runtimeVerificationRequest.requestId,
-            html: payload.html,
-            nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
-            documentId:
-              typeof payload.documentId === "string"
-                ? payload.documentId
-                : undefined,
-          });
+        const snapshot = parseRuntimeSnapshotHtml(payload?.html);
+        if (!snapshot.ok || !Number.isFinite(payload?.nodeCount)) {
+          onRuntimeStructureInsertRejected?.(
+            snapshot.ok
+              ? "verification-snapshot-unavailable"
+              : `verification-${snapshot.reason}`,
+          );
+          return;
         }
+        onRuntimeVerificationSnapshot?.({
+          requestId: runtimeVerificationRequest.requestId,
+          html: snapshot.html,
+          nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
+          documentId:
+            typeof payload.documentId === "string"
+              ? payload.documentId
+              : undefined,
+        });
         return;
       }
       const lateReadyRecovery =
@@ -3593,6 +3607,21 @@ export function DesignCanvas({
         });
         const requestId =
           typeof e.data.requestId === "string" ? e.data.requestId : undefined;
+        const replacementSnapshot = replaced
+          ? parseRuntimeSnapshotHtml(e.data.replacementSnapshotHtml)
+          : undefined;
+        if (replacementSnapshot?.ok === false) {
+          if (requestId) {
+            iframeRef.current?.contentWindow?.postMessage(
+              { type: "visual-structure-ack", requestId, applied: false },
+              "*",
+            );
+          }
+          onRuntimeStructureInsertRejected?.(
+            `replacement-${replacementSnapshot.reason}`,
+          );
+          return;
+        }
         const sourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : undefined;
         const anchorSourceId =
@@ -3667,6 +3696,9 @@ export function DesignCanvas({
                     replaced: true as const,
                     replacementSelector: selector,
                     replacementSourceId: sourceId,
+                    replacementSnapshotHtml: replacementSnapshot?.ok
+                      ? replacementSnapshot.html
+                      : undefined,
                     replacementElementInfo: isElementInfoPayload(e.data.payload)
                       ? e.data.payload
                       : undefined,
@@ -5800,6 +5832,9 @@ export function DesignCanvas({
     : handToolActive || spacePanActive
       ? "grab"
       : null;
+  const externalPreviewPendingOrigin = Boolean(
+    externalPreviewUrl && !browserOrigin,
+  );
 
   // OS file drag-and-drop (Figma parity §1): the sandboxed iframe sits on top
   // of the wrapper and is a normal DOM element to the parent document's drag
@@ -5949,7 +5984,8 @@ export function DesignCanvas({
           )}
         />
       ) : null}
-      {rawExternalPreviewUrl && !externalPreviewUrl ? null : (
+      {rawExternalPreviewUrl &&
+      !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
         <iframe
           key={iframeDocumentIdentity}
           ref={iframeRef}
@@ -5958,6 +5994,8 @@ export function DesignCanvas({
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: Boolean(externalPreviewUrl),
             readOnly,
+            previewUrl: externalPreviewUrl,
+            parentOrigin: browserOrigin ?? undefined,
           })}
           data-design-preview-iframe
           onLoad={(event) => {
@@ -6009,7 +6047,7 @@ export function DesignCanvas({
           </span>
         </div>
       ) : null}
-      {runtimeVerificationUrl ? (
+      {runtimeVerificationUrl && browserOrigin ? (
         <iframe
           key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}
           ref={runtimeVerificationIframeRef}
@@ -6017,6 +6055,8 @@ export function DesignCanvas({
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: true,
             readOnly: true,
+            previewUrl: runtimeVerificationUrl,
+            parentOrigin: browserOrigin,
           })}
           data-runtime-verification-iframe
           aria-hidden="true"
@@ -6313,6 +6353,7 @@ export function DesignCanvas({
             ? reviewTargetId
             : (screenId ?? commentContextId ?? null)
         }
+        screenId={screenId}
         boardGeometry={reviewBoardGeometry}
         onFocusBoardPoint={onReviewFocusBoardPoint}
         canPost={reviewCanPost}

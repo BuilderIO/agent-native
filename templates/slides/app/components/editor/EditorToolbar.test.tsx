@@ -138,6 +138,7 @@ describe("<EditorToolbar>", () => {
     const onToggleAnimations = vi.fn();
     const onToggleLayers = vi.fn();
     const onChangeSlideTransition = vi.fn();
+    const onShowHistory = vi.fn();
     const slide = {
       id: "slide-1",
       content: "",
@@ -158,7 +159,7 @@ describe("<EditorToolbar>", () => {
           onToggleSidebar={vi.fn()}
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
-          onShowHistory={vi.fn()}
+          onShowHistory={onShowHistory}
           historyButtonRef={createRef<HTMLButtonElement>()}
           currentSlide={slide}
           onAddEmptySlide={onAddEmptySlide}
@@ -205,6 +206,7 @@ describe("<EditorToolbar>", () => {
     run("element-animations");
     run("layers");
     run("slide-transition-fade");
+    run("saved-versions");
 
     expect(onAddEmptySlide).toHaveBeenCalledOnce();
     expect(onToggleTextBoxMode).toHaveBeenCalledOnce();
@@ -212,6 +214,7 @@ describe("<EditorToolbar>", () => {
     expect(onToggleAnimations).toHaveBeenCalledOnce();
     expect(onToggleLayers).toHaveBeenCalledOnce();
     expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
+    expect(onShowHistory).toHaveBeenCalledOnce();
   });
 
   it("does not register shape tools without an active slide", () => {

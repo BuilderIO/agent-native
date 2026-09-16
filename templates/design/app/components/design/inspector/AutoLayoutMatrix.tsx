@@ -38,7 +38,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { InspectorGrid, InspectorGridCell } from "../edit-panel/inspector-grid";
+import {
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
+} from "../edit-panel/inspector-grid";
 import type {
   AlignmentHorizontal,
   AlignmentMatrixValue,
@@ -655,7 +661,7 @@ export function AutoLayoutMatrix({
 
         {showChildLayoutControls && !isBlock && activeFlow !== "grid" ? (
           <InspectorGrid className="items-start" layout="pair-flow">
-            <InspectorGridCell span={14}>
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
                   <ControlLabel>
@@ -678,7 +684,7 @@ export function AutoLayoutMatrix({
               </div>
             </InspectorGridCell>
 
-            <InspectorGridCell span={14}>
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <ControlLabel>{copy.gap}</ControlLabel>
                 <GapField
@@ -774,8 +780,8 @@ export function AutoLayoutMatrix({
               /* Unlinked state: expand to 4 separate T / R / B / L fields */
               <InspectorGrid className="items-center" layout="field-action">
                 <InspectorGridCell span={24}>
-                  <InspectorGrid className="items-center" layout="pair-flow">
-                    <InspectorGridCell span={14}>
+                  <InspectorGrid className="items-center" layout="pair">
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderTop}
                         ariaLabel={copy.paddingTop}
@@ -787,7 +793,11 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={14}>
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderRight}
                         ariaLabel={copy.paddingRight}
@@ -802,7 +812,7 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={14}>
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderBottom}
                         ariaLabel={copy.paddingBottom}
@@ -817,7 +827,11 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={14}>
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderLeft}
                         ariaLabel={copy.paddingLeft}
@@ -1128,8 +1142,8 @@ function GridGapField({
       precision={0}
       disabled={disabled}
       className="min-w-0 gap-0 rounded-md bg-[var(--design-editor-control-bg)]"
-      labelClassName="h-7 w-6 shrink-0 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
-      inputClassName="h-7 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+      labelClassName="h-6 w-6 shrink-0 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+      inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
     />
   );
 }
@@ -1383,7 +1397,7 @@ function CompactAlignmentMatrix({
     <div
       className={cn("space-y-1", disabled && "pointer-events-none opacity-40")}
     >
-      <div className="grid w-fit grid-cols-3 rounded-md bg-[var(--design-editor-control-bg)] p-1">
+      <div className="grid w-full max-w-[92px] grid-cols-3 rounded-md bg-[var(--design-editor-control-bg)] p-1">
         {ALIGNMENT_CELLS.map((cell) => {
           const active =
             !mixed &&
@@ -1403,7 +1417,7 @@ function CompactAlignmentMatrix({
                 })
               }
               className={cn(
-                "flex h-4 w-7 items-center justify-center rounded-[3px] transition-colors",
+                "flex h-4 min-w-0 w-full items-center justify-center rounded-[3px] transition-colors",
                 "hover:bg-[var(--design-editor-control-bg)]",
               )}
             >

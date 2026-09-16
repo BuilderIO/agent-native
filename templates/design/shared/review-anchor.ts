@@ -37,6 +37,8 @@ export interface ReviewAnchorWorldRegion {
 export interface DesignReviewAnchor {
   nodeId?: string;
   selector?: string;
+  screenId?: string;
+  screenPoint?: ReviewAnchorPoint;
   point: ReviewAnchorPoint;
   relativePoint?: ReviewAnchorPoint;
   region?: ReviewAnchorRegion;
@@ -142,6 +144,9 @@ export function parseReviewAnchor(value: unknown): DesignReviewAnchor | null {
   const nodeId = typeof record.nodeId === "string" ? record.nodeId.trim() : "";
   const selector =
     typeof record.selector === "string" ? record.selector.trim() : "";
+  const screenId =
+    typeof record.screenId === "string" ? record.screenId.trim() : "";
+  const screenPoint = screenId ? parsePoint(record.screenPoint) : null;
   const relativePoint = parsePoint(record.relativePoint);
   const region = parseRegion(record.region);
   const worldPoint = parseWorldPoint(record.worldPoint);
@@ -164,6 +169,7 @@ export function parseReviewAnchor(value: unknown): DesignReviewAnchor | null {
   return {
     ...(nodeId ? { nodeId } : {}),
     ...(selector ? { selector } : {}),
+    ...(screenId && screenPoint ? { screenId, screenPoint } : {}),
     point: { xPct, yPct },
     ...(relativePoint ? { relativePoint } : {}),
     ...(region ? { region } : {}),
@@ -238,6 +244,7 @@ export function resolveReviewAnchor(
   resolveNodePoint: (nodeId: string) => ReviewAnchorPoint | null,
   resolveSelectorPoint: (selector: string) => ReviewAnchorPoint | null = () =>
     null,
+  screenId?: string | null,
 ): ResolvedReviewAnchor | null {
   const anchor = parseReviewAnchor(value);
   if (!anchor) return null;
@@ -269,5 +276,9 @@ export function resolveReviewAnchor(
       }
     }
   }
-  return { anchor, point: anchor.point, source: "point" };
+  const point =
+    screenId && anchor.screenId === screenId && anchor.screenPoint
+      ? anchor.screenPoint
+      : anchor.point;
+  return { anchor, point, source: "point" };
 }

@@ -2,10 +2,10 @@
 name: review-latest-feedback
 description: >-
   Sweep recent Slack, GitHub issue, Sentry, and explicitly linked tracker
-  feedback: first answer reporters, then fix verified bugs and objective UI
-  defects at the owning boundary, require human signoff for subjective UI
-  changes, build features the invoking user endorsed with an :upvote:, and
-  recap every disposition. Use for scheduled or manual sweeps.
+  feedback: first answer reporters, then fix verified bugs and actionable
+  objective UI defects at the owning boundary, require human signoff for
+  subjective UI changes, build features the invoking user endorsed with an
+  :upvote:, and recap every disposition. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -345,7 +345,7 @@ surface is the contract:
 
 1. **Reproduce before editing.** Use the exact URL/route, app/template,
    account/workspace/role, build/package, browser/device, fixture, and inputs;
-   record expected/actual, errors, and every attached artifact.
+   record expected/actual, errors, and attached artifacts.
 2. **Sweep siblings and boundaries.** Test a negative control plus empty, wrong,
    whitespace, case, and permission variants; enumerate every shared fingerprint.
 3. **Repeat on the changed running artifact.** Rerun the flow, refresh/navigate,

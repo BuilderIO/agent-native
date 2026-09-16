@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { referencedSameOriginAssetUrls } from "./smoke-check-health.ts";
+import {
+  expectedReferencedAssetContentType,
+  hasExpectedReferencedAssetContentType,
+  referencedSameOriginAssetUrls,
+} from "./smoke-check-health.ts";
 
 describe("deployed HTML asset probe", () => {
   it("collects same-origin scripts, modulepreloads, and stylesheets only once", () => {
@@ -38,5 +42,56 @@ describe("deployed HTML asset probe", () => {
     assert.deepEqual(assets, [
       "https://dispatch.example.test/app/assets/main.js",
     ]);
+  });
+
+  it("rejects HTML fallbacks for JavaScript and stylesheet assets", () => {
+    assert.equal(
+      expectedReferencedAssetContentType("/assets/app.js"),
+      "javascript",
+    );
+    assert.equal(
+      expectedReferencedAssetContentType("/assets/app.css"),
+      "stylesheet",
+    );
+    assert.equal(
+      hasExpectedReferencedAssetContentType(
+        "application/javascript; charset=UTF-8",
+        "javascript",
+      ),
+      true,
+    );
+    assert.equal(
+      hasExpectedReferencedAssetContentType("text/css", "stylesheet"),
+      true,
+    );
+    assert.equal(
+      hasExpectedReferencedAssetContentType(
+        "text/html; charset=UTF-8",
+        "javascript",
+      ),
+      false,
+    );
+    assert.equal(
+      hasExpectedReferencedAssetContentType(
+        "text/html; charset=UTF-8",
+        "stylesheet",
+      ),
+      false,
+    );
+
+    for (const contentType of [
+      "application/x-ecmascript",
+      "text/javascript1.0",
+      "text/jscript",
+      "text/livescript",
+      "text/x-ecmascript",
+      "text/x-javascript",
+    ]) {
+      assert.equal(
+        hasExpectedReferencedAssetContentType(contentType, "javascript"),
+        true,
+        contentType,
+      );
+    }
   });
 });

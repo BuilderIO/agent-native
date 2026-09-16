@@ -408,6 +408,13 @@ const editor = {
   registryBlockUnreadable: "无法读取已保存的块源内容。",
   blocksFieldRevisionConflict:
     "此 Blocks 字段已在其他位置更改。你的编辑未保存；现已显示最新版本。",
+  reconcileConflict: "此页面已在其他地方更改。你的编辑尚未保存。",
+  reconcileFailed: "无法合并最新更改。你的编辑尚未保存。",
+  reconcileSaveFailed: "无法保存你的编辑。请检查后重试。",
+  reconcileSaving: "正在保存你的编辑…",
+  reconcileReview: "检查更改",
+  reconcileReviewStale: "已保存的版本再次发生更改。请在保存前检查最新文本。",
+  reconcileRefresh: "检查最新版本",
   collabConnectingReadOnly: "正在连接实时编辑器。显示只读快照。",
   liveDocumentSaveBeforeSyncFailed: "实时文档无法在同步前保存。",
   builderBodySyncing: "内容仍在从 Builder 同步",
@@ -848,6 +855,9 @@ const rawLiterals = {
     previewDraftSavedToHistory: "你的编辑已保存到版本历史",
     previewDraftSavedSeparately: "你的编辑已另存为页面",
     previewDraftOpenSavedPage: "打开页面",
+    previewDraftMoreOptions: "更多选项",
+    previewDraftViewFullVersions: "查看完整版本",
+    previewDraftShowChanges: "显示更改",
     previewDraftConflict: "此草稿与较新的页面版本冲突，因此未恢复。",
     restorePreviewDraft: "恢复草稿",
     pageSaveBeforeNavigationFailed:

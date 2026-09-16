@@ -5,6 +5,7 @@ import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { getCallbackOrigin } from "../frame.js";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
+import { oauthPopupWaitingUrl } from "../oauth-popup.js";
 import { scheduleAfterPaint } from "../use-after-paint.js";
 import { usePollLoop } from "../use-poll-loop.js";
 
@@ -934,8 +935,8 @@ export function useBuilderConnectFlow(
         ? statusConnectUrl
         : null;
       // popupUrl props and statusConnectUrl are signed URLs minted before the
-      // click. In web browsers, always refresh inside an about:blank popup so a
-      // server/package restart cannot leave the user with a stale signed state.
+      // click. In web browsers, always refresh inside the inert HTTP waiting
+      // page so a server/package restart cannot leave the user with stale state.
       // Desktop keeps the direct path because the Electron shell owns the popup.
       const signedPropUrl = hasSignedConnectToken(popupUrl) ? popupUrl : null;
       const fallbackUrl = new URL(
@@ -986,7 +987,7 @@ export function useBuilderConnectFlow(
         }
       } else {
         const opened = openBuilderConnectPopup({
-          url: "about:blank",
+          url: oauthPopupWaitingUrl(),
           source: clickTrackingSource,
           flow: clickTrackingFlow,
           features: "width=600,height=700",

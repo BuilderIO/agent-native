@@ -4111,6 +4111,29 @@ export function useAgentSettingsTabs(
         ),
       },
       {
+        id: "agent:directory",
+        label: t("agentChat.agents.directoryTab"),
+        icon: IconTopologyRing2,
+        group: "agent",
+        keywords:
+          "agent directory providers registry foundry gemini anthropic a2a connect",
+        searchEntries: [
+          {
+            id: "agent-directory",
+            label: t("agentChat.agents.directoryTab"),
+            keywords:
+              "agent directory providers registry foundry gemini anthropic a2a connect",
+            description: t("agentChat.agents.directoryPageHint"),
+            tabId: "agent:directory",
+            hash: "agent:directory",
+            icon: IconTopologyRing2,
+          },
+        ],
+        content: (
+          <AgentWorkspaceContent activeTab="directory" overview={null} />
+        ),
+      },
+      {
         id: "agent:agents",
         label: "Connected agents",
         icon: IconTopologyRing2,
