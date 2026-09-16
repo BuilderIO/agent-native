@@ -695,6 +695,66 @@ describe("workspace connection store", () => {
     ).rejects.toThrow(/already exists/i);
   });
 
+  it("rejects concurrent case-variant workspace group writes", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { listWorkspaceUserGroupsForOrg, upsertWorkspaceUserGroup } =
+      await import("./groups.js");
+
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at BIGINT NOT NULL DEFAULT 0,
+        federation_removal_pending_at INTEGER
+      )
+    `);
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const orgId = `org-groups-concurrent-${attempt}`;
+      await pglite
+        .prepare(
+          "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(
+          `member-owner-${attempt}`,
+          orgId,
+          "owner@example.com",
+          "owner",
+          attempt,
+        );
+
+      const results = await Promise.allSettled(
+        ["Finance", "finance"].map((name, index) =>
+          runWithRequestContext({ userEmail: "owner@example.com", orgId }, () =>
+            upsertWorkspaceUserGroup({
+              id: `concurrent-group-${attempt}-${index}`,
+              name,
+              memberEmails: [],
+            }),
+          ),
+        ),
+      );
+      const fulfilled = results.filter(
+        (result): result is PromiseFulfilledResult<unknown> =>
+          result.status === "fulfilled",
+      );
+      const rejected = results.filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(
+        String(rejected[0]?.reason?.message ?? rejected[0]?.reason),
+      ).toMatch(/already exists/i);
+      expect(await listWorkspaceUserGroupsForOrg(orgId)).toHaveLength(1);
+    }
+  });
+
   it("scopes workspace connection grants to the active org", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

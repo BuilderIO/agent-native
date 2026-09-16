@@ -63,6 +63,19 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
     }
   });
 
+  it("backfills normalized group names and enforces new writes uniquely", () => {
+    const sql = migrationSql();
+    expect(sql).toMatch(
+      /ALTER TABLE workspace_user_groups\s+ADD COLUMN IF NOT EXISTS normalized_name TEXT/i,
+    );
+    expect(sql).toMatch(
+      /SET normalized_name = LOWER\(BTRIM\(group_row\.name\)\)/i,
+    );
+    expect(sql).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name[\s\S]*WHERE normalized_name IS NOT NULL/i,
+    );
+  });
+
   it("has unique ascending versions", () => {
     const versions = WORKSPACE_CONNECTIONS_MIGRATIONS.map((e) => e.version);
     expect(new Set(versions).size).toBe(versions.length);

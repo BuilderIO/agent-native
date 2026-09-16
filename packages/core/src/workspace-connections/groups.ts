@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   getDbExec,
+  isUniqueViolation,
   retryOnDdlRace,
   safeJsonParse,
   type DbExec,
@@ -41,6 +42,9 @@ export interface UpdateWorkspaceUserGroupMembersInput {
 export function workspaceUserGroupsTable(): string {
   return "public.workspace_user_groups";
 }
+
+const WORKSPACE_USER_GROUP_NAME_INDEX =
+  "idx_workspace_user_groups_org_normalized_name";
 
 function isDuplicateObjectError(err: unknown): boolean {
   const code = stringifyValue((err as { code?: unknown })?.code ?? "");
@@ -89,6 +93,10 @@ function normalizeGroupName(value: unknown): string {
   return name;
 }
 
+function duplicateWorkspaceUserGroupNameError(name: string): Error {
+  return new Error(`A workspace user group named "${name}" already exists.`);
+}
+
 function iso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "number") return new Date(value).toISOString();
@@ -135,6 +143,7 @@ async function ensureWorkspaceUserGroupColumns(
     ["org_id", "TEXT NOT NULL DEFAULT ''"],
     ["name", "TEXT NOT NULL DEFAULT ''"],
     ["member_emails_json", "TEXT NOT NULL DEFAULT '[]'"],
+    ["normalized_name", "TEXT"],
     ["created_by_email", "TEXT NOT NULL DEFAULT ''"],
     ["created_at", `BIGINT NOT NULL DEFAULT 0`],
     ["updated_at", `BIGINT NOT NULL DEFAULT 0`],
@@ -152,6 +161,24 @@ async function ensureWorkspaceUserGroupColumns(
   }
 }
 
+async function backfillWorkspaceUserGroupNameKeys(
+  client: DbExec,
+  table: string,
+): Promise<void> {
+  await client.execute(`
+    UPDATE ${table} AS group_row
+    SET normalized_name = LOWER(BTRIM(group_row.name))
+    WHERE group_row.normalized_name IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM ${table} AS duplicate
+        WHERE duplicate.org_id = group_row.org_id
+          AND LOWER(BTRIM(duplicate.name)) = LOWER(BTRIM(group_row.name))
+          AND duplicate.id <> group_row.id
+      )
+  `);
+}
+
 let initPromise: Promise<void> | undefined;
 
 export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
@@ -164,6 +191,7 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
           id TEXT PRIMARY KEY,
           org_id TEXT NOT NULL DEFAULT '',
           name TEXT NOT NULL DEFAULT '',
+          normalized_name TEXT,
           member_emails_json TEXT NOT NULL DEFAULT '[]',
           created_by_email TEXT NOT NULL DEFAULT '',
           created_at BIGINT NOT NULL DEFAULT 0,
@@ -174,18 +202,33 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
       {
         await ensureTableExists("workspace_user_groups", createSql);
         await ensureWorkspaceUserGroupColumns(client, table);
+        await backfillWorkspaceUserGroupNameKeys(client, table);
         await ensureIndexExists(
           "idx_workspace_user_groups_org_updated",
           `CREATE INDEX IF NOT EXISTS idx_workspace_user_groups_org_updated ON ${table} (org_id, updated_at)`,
+        );
+        await ensureIndexExists(
+          WORKSPACE_USER_GROUP_NAME_INDEX,
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${WORKSPACE_USER_GROUP_NAME_INDEX}
+             ON ${table} (org_id, normalized_name)
+             WHERE normalized_name IS NOT NULL`,
         );
         return;
       }
 
       await retryOnDdlRace(() => client.execute(createSql));
       await ensureWorkspaceUserGroupColumns(client, table);
+      await backfillWorkspaceUserGroupNameKeys(client, table);
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_workspace_user_groups_org_updated ON ${table} (org_id, updated_at)`,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${WORKSPACE_USER_GROUP_NAME_INDEX}
+             ON ${table} (org_id, normalized_name)
+             WHERE normalized_name IS NOT NULL`,
         ),
       );
     })().catch((error) => {
@@ -316,34 +359,50 @@ export async function upsertWorkspaceUserGroup(
     input.createdByEmail?.trim().toLowerCase() || requestScope.userEmail;
   const duplicate = await client.execute({
     sql: `SELECT id FROM ${table}
-      WHERE org_id = ? AND LOWER(name) = LOWER(?) AND id <> ?
+      WHERE org_id = ? AND LOWER(BTRIM(name)) = LOWER(BTRIM(?)) AND id <> ?
       LIMIT 1`,
     args: [orgId, name, id],
   });
   if (duplicate.rows.length > 0) {
-    throw new Error(`A workspace user group named "${name}" already exists.`);
+    throw duplicateWorkspaceUserGroupNameError(name);
   }
-  const update = await client.execute({
-    sql: `UPDATE ${table}
-      SET name = ?, member_emails_json = ?, updated_at = ?
-      WHERE id = ? AND org_id = ?`,
-    args: [name, JSON.stringify(memberEmails), now, id, orgId],
-  });
-  if (update.rowsAffected === 0) {
-    await client.execute({
-      sql: `INSERT INTO ${table}
-        (id, org_id, name, member_emails_json, created_by_email, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        id,
-        orgId,
-        name,
-        JSON.stringify(memberEmails),
-        createdByEmail,
-        now,
-        now,
-      ],
+  try {
+    const update = await client.execute({
+      sql: `UPDATE ${table}
+        SET name = ?, normalized_name = LOWER(BTRIM(?)), member_emails_json = ?, updated_at = ?
+        WHERE id = ? AND org_id = ?`,
+      args: [name, name, JSON.stringify(memberEmails), now, id, orgId],
     });
+    if (update.rowsAffected === 0) {
+      await client.execute({
+        sql: `INSERT INTO ${table}
+          (id, org_id, name, normalized_name, member_emails_json, created_by_email, created_at, updated_at)
+          VALUES (?, ?, ?, LOWER(BTRIM(?)), ?, ?, ?, ?)`,
+        args: [
+          id,
+          orgId,
+          name,
+          name,
+          JSON.stringify(memberEmails),
+          createdByEmail,
+          now,
+          now,
+        ],
+      });
+    }
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      const conflict = await client.execute({
+        sql: `SELECT id FROM ${table}
+          WHERE org_id = ? AND LOWER(BTRIM(name)) = LOWER(BTRIM(?)) AND id <> ?
+          LIMIT 1`,
+        args: [orgId, name, id],
+      });
+      if (conflict.rows.length > 0) {
+        throw duplicateWorkspaceUserGroupNameError(name);
+      }
+    }
+    throw error;
   }
   const groups = await listWorkspaceUserGroupsForOrg(orgId, [id]);
   const group = groups[0];

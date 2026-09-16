@@ -718,7 +718,7 @@ function WorkspaceGroupEditor({
   );
 }
 
-function WorkspaceGroupsCard({
+export function WorkspaceGroupsCard({
   groups,
   onNewGroup,
   onEditGroup,
@@ -730,6 +730,9 @@ function WorkspaceGroupsCard({
   const t = useT();
   const [deleteError, setDeleteError] = useState<unknown>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteDialogGroupId, setDeleteDialogGroupId] = useState<string | null>(
+    null,
+  );
   const deleteGroup = useActionMutation("delete-workspace-user-group");
 
   return (
@@ -775,8 +778,14 @@ function WorkspaceGroupsCard({
                 <IconPencil size={14} />
               </Button>
               <AlertDialog
+                open={deleteDialogGroupId === group.id}
                 onOpenChange={(open) => {
-                  if (!open) {
+                  if (open) {
+                    setDeleteDialogGroupId(group.id);
+                    setDeleteConfirmText("");
+                    setDeleteError(null);
+                  } else if (!deleteGroup.isPending) {
+                    setDeleteDialogGroupId(null);
                     setDeleteConfirmText("");
                     setDeleteError(null);
                   }
@@ -807,7 +816,14 @@ function WorkspaceGroupsCard({
                       })}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
+                  <label
+                    htmlFor={`workspace-delete-group-name-${group.id}`}
+                    className="sr-only"
+                  >
+                    {t("org.groupName", { defaultValue: "Group name" })}
+                  </label>
                   <Input
+                    id={`workspace-delete-group-name-${group.id}`}
                     value={deleteConfirmText}
                     onChange={(event) =>
                       setDeleteConfirmText(event.target.value)
@@ -825,14 +841,23 @@ function WorkspaceGroupsCard({
                         deleteGroup.isPending ||
                         deleteConfirmText.trim() !== group.name.trim()
                       }
-                      onClick={() => {
+                      onClick={(event) => {
                         if (deleteConfirmText.trim() !== group.name.trim())
                           return;
+                        event.preventDefault();
                         setDeleteError(null);
                         deleteGroup.mutate(
                           { id: group.id },
                           {
-                            onError: setDeleteError,
+                            onSuccess: () => {
+                              setDeleteDialogGroupId(null);
+                              setDeleteConfirmText("");
+                              setDeleteError(null);
+                            },
+                            onError: (error) => {
+                              setDeleteError(error);
+                              setDeleteDialogGroupId(group.id);
+                            },
                           },
                         );
                       }}
@@ -851,7 +876,6 @@ function WorkspaceGroupsCard({
             {t("org.noGroups", { defaultValue: "No groups yet" })}
           </p>
         )}
-        <ErrorText error={deleteError} />
       </div>
     </section>
   );

@@ -4,8 +4,8 @@ description: >-
   Sweep recent Slack, GitHub issue, Sentry, and explicitly linked tracker
   feedback: first answer reporters, then fix verified bugs and actionable
   design/UX feedback at the owning boundary, build other feature requests the
-  invoking user endorsed with an :upvote:, and recap every disposition. Use for
-  scheduled or manual sweeps.
+  invoking user endorsed with an :upvote:, and require pre/post reporter-surface
+  proof before completion.
 user-invocable: true
 scope: dev
 metadata:
@@ -339,20 +339,38 @@ Measure this gate with friction keys `false-done` and
 --pattern <key>` for each before changing it and again later. A climbing count
 requires a mechanical proof or release gate, not more prose.
 
+### Bug-bash reproduction contract
+
+For bashes across Design, Slides, Core/framework, and templates, treat the
+reported surface as the contract when reachable:
+
+1. **Reproduce before editing.** Use exact URL/route, app/template,
+   account/workspace/role, build/package, browser/device, fixture, and
+   click/input sequence. Record expected/actual and errors; read every artifact.
+2. **Sweep siblings and boundaries.** Test a negative control, empty/wrong/
+   whitespace/case/permission variants, and each host sharing fingerprint.
+   Shared fixes cover Design, Slides, Core, and templates.
+3. **Repeat on the changed running artifact.** Re-run the same flow, then
+   refresh/navigate and read back UI and persisted state. Exercise failure,
+   retry, cancel, and async paths. Destructive flows include wrong/partial/
+   exact confirmation and error recovery without deleting unless required.
+4. **Test release and race layers.** Use a deterministic concurrent harness or
+   at least 10 runs for timing/race behavior and record results. Use a clean
+   scaffold/cache plus exact published/candidate version for package/docs
+   reports, and the exact beta/production URL for live reports. Source, tests,
+   merge, or unchanged live state never substitute for runtime proof.
+5. **Classify gaps.** Name every untested layer or variant and use the narrowest
+   evidence-limited disposition. Never release the checkmark or say **Fixed**,
+   **Shipped**, or **Live verified** on partial evidence. A post-checkmark
+   repeat reopens the item and requires a fresh failing pre-change reproduction.
+
 ### Reproduction ledger - required for every row
 
-Before **Fixed** or **Shipped**, record each row's exact symptom/surface,
-reproduction command/click/URL/account state, expected and pre/post actuals,
-tested commit/build, sibling fingerprint results, and runtime layer (`local`,
-`source-only`, `built`, `deployed`, `observed-live`).
-
-If the full bar was not exercised, use **Verified locally**, **Built - live
-unverified**, **Deployed - live unverified**, **Live verified**, **Not
-reproducible - attempted**, **Blocked on reporter**, **Merged - release
-pending**, or **Clustered**. Never
-promote `handled`/`completed`, reactions, source tests, or unchanged live state
-to **Fixed**. Repeats require a new failing pre-change reproduction and the
-earlier false claim.
+Ledger the exact symptom/surface; pre/post command, URL, account, expected and
+actual; commit/build; sibling and repeat results; untested layers; and runtime
+layer (`local`, `source-only`, `built`, `deployed`, `observed-live`). If the bar
+is incomplete, use the narrowest evidence-limited disposition. Reactions, tests,
+or unchanged live state never mean **Fixed**.
 
 Regression claims require Red/Green proof: reverse-apply hunk with
 `git apply -R`, record failure, reapply, record pass. Repeat timing checks 10x.
@@ -399,29 +417,18 @@ instruction or prompt exception.
 
 ### The bar for saying "Fixed"
 
-You may tell a reporter something is fixed only when all four hold:
+Say it is fixed only when all four hold:
 
-1. You can name the reporter's **observed symptom** — the error text, the
-   ignored click, the wrong value — not just a code smell near it.
-2. A reproduction **fails before your change and passes after**, and it
-   exercises the reporter's exact symptom. A test asserting that a prop got
-   threaded through is not a regression test for "double-click schedules two
-   emails." For docs, the clean-scaffold copy-paste path is the reproduction.
-3. The sibling sweep is clean, or the remaining hits are listed and triaged.
-4. The change is in the snapshot that ships, and the runtime layer of the
-   claim is named. **Shipped** requires build/deploy provenance; **Live
-   verified** requires the target URL or runtime to be exercised. If only
-   source or local evidence exists, use a narrower disposition and do not
-   imply beta or production health.
+1. The reporter's **observed symptom** is named.
+2. The exact reproduction fails before and passes after.
+3. The sibling sweep is clean or remaining hits are triaged.
+4. The changed snapshot and runtime layer are named.
 
-If any of the four is missing, it is not **Fixed**. Say what is true instead,
-or say nothing and keep working. A confident wrong "fixed" costs more than
-silence: the reporter stops watching, and the bug comes back as a new thread.
+If any bar is missing, use a narrower disposition. **Shipped** requires
+build/deploy provenance; **Live verified** requires the target runtime.
 
-An upvoted improvement has no symptom to reproduce, so bar 1 becomes: you can
-state the behavior the reporter asked for and the behavior that now exists.
-Bars 2–4 hold unchanged — a new capability still needs a check that fails
-without it. Call it **Shipped**, not Fixed; nothing was broken.
+For an upvoted improvement, bar 1 states requested versus actual behavior;
+bars 2–4 still hold. Call it **Shipped**, not Fixed.
 
 ## Phase 3: reply
 
