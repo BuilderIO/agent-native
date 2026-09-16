@@ -16530,8 +16530,6 @@ function DesignEditor() {
       const result = clearPendingEditSessionMarker(id);
       if (result.status === "unavailable") {
         setPendingEditSessionMarker(result);
-      } else {
-        setPendingEditSessionRecoveryMarker({ status: "absent" });
       }
     }
   }, [id, pendingVisualEditCount]);

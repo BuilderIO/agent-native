@@ -70,7 +70,7 @@ export function LocalNetworkAccessPrompt({
           <div className="text-xs text-muted-foreground">
             {
               isStalePreviewToken
-                ? "The local bridge restarted, so this screen's preview token is stale. Reconnect it before editing." /* i18n-ignore stale local dev preview token body */
+                ? "The local bridge restarted, so this screen's preview token is stale. Run design connect again, then click Retry." /* i18n-ignore stale local dev preview token body */
                 : isConfirmedUnreachable
                   ? "Is it still running?" /* i18n-ignore local dev connect card body */
                   : "Your browser may need permission to connect to localhost — or the dev server may be offline." /* i18n-ignore local dev connect card body */

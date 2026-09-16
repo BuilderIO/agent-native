@@ -1,4 +1,4 @@
-import { usePinchZoom } from "@agent-native/core/client/hooks";
+import { callAction, usePinchZoom } from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
@@ -1686,6 +1686,11 @@ export function DesignCanvas({
     content,
     sourceContent: authoredSourceContent ?? content,
   }));
+  const [effectivePreviewToken, setEffectivePreviewToken] =
+    useState(previewToken);
+  useEffect(() => {
+    setEffectivePreviewToken(previewToken);
+  }, [previewToken]);
   const renderedContent = renderedDocument.content;
   // What a freshly loaded document already contains, since srcdoc is built from
   // it. The load handler below needs this to skip redundant pushes.
@@ -1963,7 +1968,7 @@ export function DesignCanvas({
   );
   const usesLiveEditInjectedBridge =
     sourceType === "localhost" &&
-    Boolean(bridgeUrl && previewToken && rawExternalPreviewUrl);
+    Boolean(bridgeUrl && effectivePreviewToken && rawExternalPreviewUrl);
   // Hoisted above usesLiveEditEditorBridge (rather than declared next to
   // externalPreviewUrl/usingRawFallbackPreview below, which reuse it) because
   // a failed registration's raw-URL fallback document has no injected editor
@@ -1993,14 +1998,14 @@ export function DesignCanvas({
   const requiresExternalSourceSnapshot = shouldFetchExternalSourceSnapshot({
     sourceType,
     bridgeUrl,
-    previewToken,
+    previewToken: effectivePreviewToken,
     previewUrl: rawExternalPreviewUrl,
     hasSnapshotConsumer: Boolean(onExternalContentSnapshot),
   });
   const liveEditExternalPreviewUrl = resolveLiveEditPreviewUrl({
     sourceType,
     bridgeUrl,
-    previewToken,
+    previewToken: effectivePreviewToken,
     previewUrl: rawExternalPreviewUrl,
     bridgeKey: liveEditBridgeKey,
     registeredBridgeKey: effectiveRegisteredLiveEditBridgeKey,
@@ -2271,7 +2276,7 @@ export function DesignCanvas({
   // attempt already succeeded.
   const attemptBridgeRegistration =
     useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
-      if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
+      if (!usesLiveEditInjectedBridge || !bridgeUrl || !effectivePreviewToken) {
         return null;
       }
       const generation = ++bridgeRegistrationAttemptGenerationRef.current;
@@ -2295,7 +2300,7 @@ export function DesignCanvas({
           method: "POST",
           headers: {
             "content-type": "application/json",
-            "x-design-preview-token": previewToken,
+            "x-design-preview-token": effectivePreviewToken,
           },
           body: JSON.stringify({
             script: liveEditBridgeScript,
@@ -2379,12 +2384,12 @@ export function DesignCanvas({
       bridgeUrl,
       liveEditBridgeKey,
       liveEditBridgeScript,
-      previewToken,
+      effectivePreviewToken,
       registrationHandoffKey,
       usesLiveEditInjectedBridge,
     ]);
   useEffect(() => {
-    if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
+    if (!usesLiveEditInjectedBridge || !bridgeUrl || !effectivePreviewToken) {
       // Invalidate any attempt still in flight from before this branch was
       // entered (previous bridge key/mode) BEFORE clearing state below —
       // otherwise that stale attempt's isCurrent() check would still pass
@@ -2431,7 +2436,7 @@ export function DesignCanvas({
     bridgeRegistrationRetryNonce,
     bridgeUrl,
     liveEditBridgeKey,
-    previewToken,
+    effectivePreviewToken,
     scheduleBridgeRegistrationRetry,
     usesLiveEditInjectedBridge,
   ]);
@@ -2469,7 +2474,7 @@ export function DesignCanvas({
   // buttons elsewhere in this file, so the user-initiated attempt starts
   // every counter fresh and any already-scheduled auto-retry doesn't fire a
   // second, redundant attempt shortly after this one.
-  const handleConnectLocalNetworkAccess = useCallback(() => {
+  const handleConnectLocalNetworkAccess = useCallback(async () => {
     setConnectingLocalNetworkAccess(true);
     bridgeRegistrationRetryAttemptRef.current = 0;
     liveEditRestartAttemptRef.current = 0;
@@ -2484,6 +2489,40 @@ export function DesignCanvas({
       window.clearTimeout(bridgeRegistrationRetryTimerRef.current);
       bridgeRegistrationRetryTimerRef.current = undefined;
     }
+    if (
+      bridgeRegistrationFailureKind === "stalePreviewToken" &&
+      designId &&
+      connectionId
+    ) {
+      try {
+        const refreshed = await callAction<{
+          previewToken?: string;
+        }>(
+          "refresh-localhost-preview-token",
+          {
+            designId,
+            connectionId,
+          },
+          { method: "GET" },
+        );
+        const nextPreviewToken = refreshed?.previewToken;
+        if (!nextPreviewToken || nextPreviewToken === effectivePreviewToken) {
+          throw new Error(
+            "The bridge token is still stale. Run design connect again, then retry.",
+          );
+        }
+        setEffectivePreviewToken(nextPreviewToken);
+        setConnectingLocalNetworkAccess(false);
+        return;
+      } catch (error) {
+        setConnectingLocalNetworkAccess(false);
+        setBridgeRegistrationError({
+          bridgeKey: liveEditBridgeKey,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+    }
     // A failed manual attempt (still-refused permission, dev server still
     // down) must not silently stop automatic recovery — schedule the same
     // backoff retry the automatic path uses. null means a newer attempt
@@ -2493,7 +2532,15 @@ export function DesignCanvas({
     void attemptBridgeRegistration().then((result) => {
       if (result === false) scheduleBridgeRegistrationRetry();
     });
-  }, [attemptBridgeRegistration, scheduleBridgeRegistrationRetry]);
+  }, [
+    attemptBridgeRegistration,
+    bridgeRegistrationFailureKind,
+    connectionId,
+    designId,
+    effectivePreviewToken,
+    liveEditBridgeKey,
+    scheduleBridgeRegistrationRetry,
+  ]);
   const handleDismissLocalNetworkAccessPrompt = useCallback(() => {
     setLocalNetworkAccessDismissedForKey(liveEditBridgeKey);
   }, [liveEditBridgeKey]);
@@ -2509,7 +2556,7 @@ export function DesignCanvas({
   // ready never arrives. Treat a stuck non-ready state as a suspected restart
   // and settle it with a /health probe instead of guessing from the error UI.
   const handleSuspectedBridgeRestart = useCallback(async () => {
-    if (!bridgeUrl || !previewToken) return;
+    if (!bridgeUrl || !effectivePreviewToken) return;
     if (liveEditRestartInFlightRef.current) return;
     liveEditRestartInFlightRef.current = true;
     // Captured once per call, not re-read at each checkpoint below: a probe
@@ -2671,7 +2718,13 @@ export function DesignCanvas({
     } finally {
       liveEditRestartInFlightRef.current = false;
     }
-  }, [bridgeUrl, liveEditBridgeKey, previewToken, registrationHandoffKey, t]);
+  }, [
+    bridgeUrl,
+    effectivePreviewToken,
+    liveEditBridgeKey,
+    registrationHandoffKey,
+    t,
+  ]);
 
   // Manual retry for the NON-destructive same-instance-id stalled card only
   // (see liveEditSameInstanceStalledError below): unlike
@@ -2739,7 +2792,7 @@ export function DesignCanvas({
       !requiresExternalSourceSnapshot ||
       sourceType !== "localhost" ||
       !bridgeUrl ||
-      !previewToken ||
+      !effectivePreviewToken ||
       !previewUrl
     ) {
       snapshotRetryAttemptRef.current = 0;
@@ -2768,7 +2821,7 @@ export function DesignCanvas({
           method: "GET",
           headers: {
             accept: "application/json",
-            "x-design-preview-token": previewToken,
+            "x-design-preview-token": effectivePreviewToken,
           },
           signal: controller.signal,
         });
@@ -2856,7 +2909,7 @@ export function DesignCanvas({
     rawExternalPreviewUrl,
     requiresExternalSourceSnapshot,
     sourceType,
-    previewToken,
+    effectivePreviewToken,
   ]);
 
   // Manual retry (offline-state "Retry" button): reset the backoff so the

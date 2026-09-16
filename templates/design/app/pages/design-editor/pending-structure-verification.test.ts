@@ -190,6 +190,22 @@ describe("verifyPendingStructureRuntime", () => {
     ).toEqual({ ok: false, failure: "subject-still-present" });
   });
 
+  it("does not use an unrelated sibling when a stable subject changed shape", () => {
+    const html = `<!doctype html><body><main>
+      <div data-agent-native-node-id="subject">Changed</div>
+      <div data-agent-native-node-id="old-match">Original</div>
+      <div data-agent-native-node-id="anchor">Anchor</div>
+    </main></body>`;
+    expect(
+      verifyPendingStructureRuntime(
+        html,
+        edit({
+          subjectSignature: { tag: "div", text: "Original", classes: [] },
+        }),
+      ),
+    ).toEqual({ ok: false, failure: "subject-still-present" });
+  });
+
   it("deduplicates repeated class tokens before matching a signature", () => {
     const html = `<!doctype html><body><main>
       <div data-agent-native-node-id="new-subject" class="a a b">Subject</div>

@@ -77,12 +77,20 @@ function resolveRuntimeStructureNode(args: {
     args.selector,
     args.sourceId ?? undefined,
   );
-  if (
-    direct.status === "resolved" &&
-    (!args.signature ||
-      runtimeStructureNodeMatchesSignature(direct.node, args.signature))
-  ) {
-    return { node: direct.node, matchedBy: "identity" };
+  if (direct.status === "resolved") {
+    if (
+      !args.signature ||
+      runtimeStructureNodeMatchesSignature(direct.node, args.signature)
+    ) {
+      return { node: direct.node, matchedBy: "identity" };
+    }
+    // A live identity is stronger evidence than a stale content signature.
+    // Do not let an unrelated sibling with the old signature validate this
+    // edit while the original runtime node is still present but changed.
+    return {
+      failure:
+        args.role === "subject" ? "subject-still-present" : "missing-anchor",
+    };
   }
 
   if (!args.signature) {
