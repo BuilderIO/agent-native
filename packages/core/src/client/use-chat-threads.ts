@@ -285,6 +285,7 @@ function nextThreadTitle(
 ): string {
   if (options.preserveUserTitle && currentTitle) return currentTitle;
   if (source === "generated") return incomingTitle;
+  if (!currentTitle && source === "extracted") return "";
   if (!currentTitle) return incomingTitle;
   if (!incomingTitle) return currentTitle;
   if (currentTitle !== incomingTitle && currentTitle !== incomingPreview) {

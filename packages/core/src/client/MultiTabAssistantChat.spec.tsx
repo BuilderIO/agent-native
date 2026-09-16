@@ -2179,6 +2179,42 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     ]);
   });
 
+  it("does not use the first message preview as the tab label", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [
+      {
+        ...makeThread("thread-1"),
+        preview: "Please summarize the latest release notes",
+        messageCount: 1,
+      },
+    ];
+    window.localStorage.setItem(
+      openTabsStorageKey("prompt-label-test"),
+      JSON.stringify(["thread-1"]),
+    );
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="prompt-label-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs[0]?.label).not.toBe(
+      "Please summarize the latest release notes",
+    );
+  });
+
   // Regression test: a click anywhere in a tab's close-button hit zone used to
   // close it even though nothing was visibly clickable there. Each tab must
   // render its own labeled close button, and switching tabs must never fire

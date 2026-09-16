@@ -2674,10 +2674,7 @@ export function MultiTabAssistantChat({
       );
       return {
         id,
-        label:
-          t?.title ||
-          t?.preview?.slice(0, 30) ||
-          translate("agentChat.tabs.newChat"),
+        label: t?.title || translate("agentChat.tabs.newChat"),
         status:
           agentTeamStatus ??
           (runningThreads.has(id)
