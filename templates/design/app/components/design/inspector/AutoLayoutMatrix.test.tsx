@@ -39,6 +39,8 @@ describe("AutoLayoutMatrix", () => {
 
     expect(markup).not.toContain('data-inspector-layout="pair-flow"');
     expect(markup).toContain('data-inspector-layout="columns"');
+    expect(markup.match(/data-inspector-span="13"/g)).toHaveLength(6);
+    expect(markup.match(/data-inspector-span="2"/g)).toHaveLength(3);
   });
 
   it("hides child layout controls when the selection has no children", () => {
