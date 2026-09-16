@@ -314,6 +314,15 @@ export async function upsertWorkspaceUserGroup(
   const now = Date.now();
   const createdByEmail =
     input.createdByEmail?.trim().toLowerCase() || requestScope.userEmail;
+  const duplicate = await client.execute({
+    sql: `SELECT id FROM ${table}
+      WHERE org_id = ? AND LOWER(name) = LOWER(?) AND id <> ?
+      LIMIT 1`,
+    args: [orgId, name, id],
+  });
+  if (duplicate.rows.length > 0) {
+    throw new Error(`A workspace user group named "${name}" already exists.`);
+  }
   const update = await client.execute({
     sql: `UPDATE ${table}
       SET name = ?, member_emails_json = ?, updated_at = ?

@@ -729,6 +729,7 @@ function WorkspaceGroupsCard({
 }) {
   const t = useT();
   const [deleteError, setDeleteError] = useState<unknown>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const deleteGroup = useActionMutation("delete-workspace-user-group");
 
   return (
@@ -773,7 +774,14 @@ function WorkspaceGroupsCard({
               >
                 <IconPencil size={14} />
               </Button>
-              <AlertDialog>
+              <AlertDialog
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setDeleteConfirmText("");
+                    setDeleteError(null);
+                  }
+                }}
+              >
                 <AlertDialogTrigger asChild>
                   <Button
                     type="button"
@@ -794,18 +802,32 @@ function WorkspaceGroupsCard({
                       {t("org.deleteGroup", { defaultValue: "Delete group?" })}
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                      {t("org.deleteGroupConfirm", {
-                        defaultValue:
-                          "People will keep their workspace access, but this group can no longer be used for connection access.",
+                      {t("org.deleteOrgConfirmPrompt", {
+                        name: group.name,
                       })}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
+                  <Input
+                    value={deleteConfirmText}
+                    onChange={(event) =>
+                      setDeleteConfirmText(event.target.value)
+                    }
+                    placeholder={t("org.groupName", {
+                      defaultValue: "Group name",
+                    })}
+                    autoFocus
+                  />
                   <ErrorText error={deleteError} />
                   <AlertDialogFooter>
                     <AlertDialogCancel>{t("org.cancel")}</AlertDialogCancel>
                     <AlertDialogAction
-                      disabled={deleteGroup.isPending}
+                      disabled={
+                        deleteGroup.isPending ||
+                        deleteConfirmText.trim() !== group.name.trim()
+                      }
                       onClick={() => {
+                        if (deleteConfirmText.trim() !== group.name.trim())
+                          return;
                         setDeleteError(null);
                         deleteGroup.mutate(
                           { id: group.id },

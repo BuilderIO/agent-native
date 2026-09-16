@@ -653,6 +653,48 @@ describe("workspace connection store", () => {
     expect(bobAfterRemoval.available).toBe(false);
   });
 
+  it("rejects duplicate workspace user group names within an org", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceUserGroup } = await import("./groups.js");
+
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at BIGINT NOT NULL DEFAULT 0,
+        federation_removal_pending_at INTEGER
+      )
+    `);
+    await pglite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("member-owner", "org-groups", "owner@example.com", "owner", 1);
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-groups" },
+      () =>
+        upsertWorkspaceUserGroup({
+          name: "Rev Ops",
+          memberEmails: [],
+        }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "org-groups" },
+        () =>
+          upsertWorkspaceUserGroup({
+            name: " rev ops ",
+            memberEmails: [],
+          }),
+      ),
+    ).rejects.toThrow(/already exists/i);
+  });
+
   it("scopes workspace connection grants to the active org", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
