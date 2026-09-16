@@ -274,12 +274,20 @@ export function verifyPendingStructureRuntime(
     if (subjectResolution.failure === "subject-still-present") {
       return { ok: false, failure: "subject-still-present" };
     }
+    // A supplied source id needs positive absence evidence; a changed old
+    // node can disappear from both the identity and signature lookups.
+    if (edit.sourceId && edit.subjectSignature && !subjectResolution.node) {
+      return {
+        ok: false,
+        failure: subjectResolution.failure ?? "missing-subject",
+      };
+    }
     if (subjectResolution.node) {
       const sameNode =
         subjectResolution.node.id === replacementResolution.node.id;
       if (
         !sameNode ||
-        (edit.sourceId && subjectResolution.matchedBy === "identity")
+        (edit.sourceId && subjectResolution.matchedBy !== "signature")
       ) {
         return { ok: false, failure: "subject-still-present" };
       }

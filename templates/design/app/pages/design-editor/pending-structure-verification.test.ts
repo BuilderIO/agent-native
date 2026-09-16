@@ -310,6 +310,32 @@ describe("verifyPendingStructureRuntime", () => {
     });
   });
 
+  it("does not acknowledge replacement when a changed-shape old node is unresolved", () => {
+    const replaceEdit = edit({
+      selector: "main > p:nth-of-type(1)",
+      sourceId: "subject",
+      insertedHtml:
+        '<section data-agent-native-node-id="replacement">Replacement</section>',
+      replaced: true,
+      replacementSelector: '[data-agent-native-node-id="replacement"]',
+      replacementSourceId: "replacement",
+      subjectSignature: { tag: "p", text: "Original", classes: [] },
+      replacementSignature: {
+        tag: "section",
+        text: "Replacement",
+        classes: [],
+      },
+    });
+    const html = `<!doctype html><body><main>
+      <div>Changed</div>
+      <section data-agent-native-node-id="replacement">Replacement</section>
+    </main></body>`;
+    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
+      ok: false,
+      failure: "missing-subject",
+    });
+  });
+
   it("accepts a same-shaped replacement when its new identity is stable", () => {
     const sameShapeSignature = {
       tag: "section",
@@ -333,6 +359,32 @@ describe("verifyPendingStructureRuntime", () => {
     expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
       ok: true,
     });
+  });
+
+  it("does not use a shifted subject selector that points at the replacement", () => {
+    const sameShapeSignature = {
+      tag: "section",
+      text: "Same",
+      classes: [],
+    };
+    const replaceEdit = edit({
+      selector: "main > section:nth-of-type(1)",
+      sourceId: "subject",
+      insertedHtml: "<section>Same</section>",
+      replaced: true,
+      replacementSelector: "main > section:nth-of-type(1)",
+      replacementSourceId: null,
+      subjectSignature: sameShapeSignature,
+      replacementSignature: sameShapeSignature,
+    });
+    expect(
+      verifyPendingStructureRuntime(
+        `<!doctype html><body><main>
+          <section>Same</section>
+        </main></body>`,
+        replaceEdit,
+      ),
+    ).toEqual({ ok: false, failure: "subject-still-present" });
   });
 
   it("accepts an identity-less same-shaped replacement at a unique structural position", () => {
