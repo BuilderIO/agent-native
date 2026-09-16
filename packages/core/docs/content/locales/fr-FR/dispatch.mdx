@@ -255,7 +255,7 @@ L'ensemble du pipeline est conçu pour survivre sur chaque hôte sans serveur (N
 
 Trois courtes étapes :
 
-1. **Élaborez un espace de travail qui inclut Dispatch.** Exécutez `npx @agent-native/core@latest create my-company-platform` et choisissez `dispatch` à côté des modèles de domaine de votre choix. Dispatch vit à `apps/dispatch` et le reste des applications se trouve à côté. Voir [Multi-App Workspace](/docs/multi-app-workspace).
+1. **Élaborez un espace de travail qui inclut Dispatch.** Exécutez `npx --yes @agent-native/core@latest create my-company-platform` et choisissez `dispatch` à côté des modèles de domaine de votre choix. Dispatch vit à `apps/dispatch` et le reste des applications se trouve à côté. Voir [Multi-App Workspace](/docs/multi-app-workspace).
 2. **Connectez la messagerie.** Ouvrez **Administration → Messagerie** dans Dispatch et cliquez sur Connecter pour Slack, Email, Telegram ou WhatsApp. Les champs du formulaire correspondent aux variables d'environnement dans le document [Messaging](/docs/messaging) – reportez-vous ici pour connaître les besoins de chaque plate-forme.
 3. **Ajoutez d'autres applications.** Exécutez `npx @agent-native/core@latest add-app` à partir de la racine de l'espace de travail pour chaque application de domaine. Ils apparaissent automatiquement en tant que pairs A2A dans `list-workspace-apps` de Dispatch — pas d'enregistrement manuel, pas de modification de la carte d'agent. Dispatch commencera à leur déléguer dès que leurs cartes d'agent seront accessibles.
 

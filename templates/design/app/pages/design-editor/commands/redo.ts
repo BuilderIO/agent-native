@@ -163,6 +163,7 @@ export interface RedoArgs {
   id: string | undefined;
   isSynced: boolean;
   lastLocalContentRef: RefObject<string | null>;
+  resetGeometryCommitCoalescing?: () => void;
   liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   localContentRedoStackRef: RefObject<ContentHistoryChange[]>;
@@ -344,6 +345,7 @@ export function runRedo({
   id,
   isSynced,
   lastLocalContentRef,
+  resetGeometryCommitCoalescing,
   liveFrameGeometryRef,
   liveScreenSnapshotsById,
   localContentRedoStackRef,
@@ -417,6 +419,7 @@ export function runRedo({
   // state an in-progress, uncommitted drag is about to overwrite anyway.
   if (activeEditorDragRef.current) return;
   if (fileHistoryMutationPendingRef.current) return;
+  resetGeometryCommitCoalescing?.();
   const pendingNonStyleRedoStack = pendingLiveNonStyleRedoStackRef.current;
   const pendingNonStyleRedo =
     pendingNonStyleRedoStack[pendingNonStyleRedoStack.length - 1];

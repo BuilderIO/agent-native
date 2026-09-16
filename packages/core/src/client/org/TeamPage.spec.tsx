@@ -170,6 +170,39 @@ describe("MemberRow organization controls", () => {
     expect(onMemberSearchChange).toHaveBeenCalledWith("morgan");
   });
 
+  it("hides the invite flow when email delivery is not configured", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MembersTableCard
+            members={[]}
+            totalMembers={0}
+            pendingInvites={[]}
+            isLoadingMembers={false}
+            isFetchingMembers={false}
+            membersError={null}
+            onRetryMembers={vi.fn()}
+            currentUserEmail="admin@example.test"
+            currentUserRole="admin"
+            emailConfigured={false}
+            groups={[]}
+            canManageGroups={false}
+            memberOffset={0}
+            memberSearch=""
+            activeMemberSearch=""
+            hasNextPage={false}
+            nextMemberOffset={null}
+            onMemberPageChange={vi.fn()}
+            onMemberSearchChange={vi.fn()}
+            onCreateGroup={vi.fn()}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Invite members");
+  });
+
   it("uses a search-specific empty state", () => {
     act(() => {
       root.render(

@@ -145,9 +145,9 @@ export function runGeometryCommit(
   // happen to land within the same 800ms window — those are discrete
   // user actions and each must be its own undo step, matching Figma.
   // Pointer gestures and keyboard nudges both use this shared callback, so
-  // track the previous source and selection as well as the current ones. A
-  // keyboard nudge after a pointer gesture or selection change is a separate
-  // undo step even inside the window.
+  // track the previous source, history action, and selection as well as the
+  // current ones. A keyboard nudge after a pointer gesture, content action,
+  // or selection change is a separate undo step even inside the window.
   const source = options?.source ?? "pointer";
   const now = Date.now();
   const selectionAfter = captureCurrentSelection();
@@ -156,6 +156,8 @@ export function runGeometryCommit(
   const continuesLastGesture =
     source === "keyboard" &&
     lastGeometryCommitSourceRef.current === "keyboard" &&
+    historyOrderRef.current[historyOrderRef.current.length - 1] ===
+      "geometry" &&
     lastEntry &&
     now - lastGeometryCommitAtRef.current < 800 &&
     lastEntry.selectionAfter !== undefined &&

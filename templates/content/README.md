@@ -25,7 +25,7 @@ local Markdown/MDX files.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-content --standalone --template content
+npx --yes @agent-native/core@latest create my-content --standalone --template content
 cd my-content
 pnpm install
 pnpm dev

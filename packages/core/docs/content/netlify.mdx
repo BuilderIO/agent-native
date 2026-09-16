@@ -26,9 +26,14 @@ For a standalone app, build the Netlify output and deploy its static assets and
 functions:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+Before the first production deploy, set `DATABASE_URL` and a stable
+`BETTER_AUTH_SECRET` in Netlify's site environment variables. Do not rely on
+the local PGlite database from development; `DATABASE_URL` must point to a
+persistent PostgreSQL database reachable by the deployed function.
 
 For a workspace, deploy every app from one Netlify site by running:
 

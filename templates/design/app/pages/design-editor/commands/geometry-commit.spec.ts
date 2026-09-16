@@ -24,12 +24,17 @@ function runCommit(
     previousEntry?: GeometryHistoryEntry;
     lastGeometryCommitAt?: number;
     lastGeometryCommitSource?: "pointer" | "keyboard";
+    historyOrder?: UndoRedoOrderKind[];
   },
 ) {
   const geometryUndoStackRef = {
     current: seed?.previousEntry ? [seed.previousEntry] : [],
   };
-  const historyOrderRef = { current: [] as UndoRedoOrderKind[] };
+  const historyOrderRef = {
+    current:
+      seed?.historyOrder ??
+      (seed?.previousEntry ? (["geometry"] as UndoRedoOrderKind[]) : []),
+  };
   const liveFrameGeometryRef = { current: before };
   const writeFrameGeometrySnapshot = vi.fn();
   const captureLinkedContentChanges = vi.fn(() => []);
@@ -71,6 +76,7 @@ function runCommit(
     captureLinkedContentChanges,
     committed,
     geometryUndoStackRef,
+    historyOrderRef,
     liveFrameGeometryRef,
     writeFrameGeometrySnapshot,
   };
@@ -192,6 +198,39 @@ describe("runGeometryCommit", () => {
     expect(geometryUndoStackRef.current).toHaveLength(2);
     expect(historyOrderRef.current).toEqual(["geometry", "geometry"]);
     expect(geometryUndoStackRef.current[1]?.before).toEqual(afterScreenA);
+  });
+
+  it("keeps keyboard nudges separate across content history", () => {
+    const before = {
+      screen: { x: 0, y: 0, width: 400, height: 400 },
+    };
+    const previousEntry: GeometryHistoryEntry = {
+      before: { screen: { ...before.screen, x: -1 } },
+      after: before,
+      selectionAfter: {
+        overviewSelectedScreenIds: ["screen"],
+        selectedLayerIds: [],
+        activeFileId: null,
+      },
+    };
+    const result = runCommit(
+      { source: "keyboard" },
+      before,
+      { screen: { ...before.screen, x: 1 } },
+      {
+        previousEntry,
+        lastGeometryCommitAt: Date.now(),
+        lastGeometryCommitSource: "keyboard",
+        historyOrder: ["geometry", "content"],
+      },
+    );
+
+    expect(result.geometryUndoStackRef.current).toHaveLength(2);
+    expect(result.historyOrderRef.current).toEqual([
+      "geometry",
+      "content",
+      "geometry",
+    ]);
   });
 
   it("preserves fractional frame geometry when a K-scale target has no style changes", () => {

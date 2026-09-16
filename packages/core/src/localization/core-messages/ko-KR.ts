@@ -69,9 +69,20 @@ const messages: AgentChatTranslation = {
     "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI 크레딧과 클라우드 코드 변경을 사용할 수 있습니다.",
+  "onboarding.builderReadyCreditsOnly":
+    "AI 크레딧을 사용할 수 있습니다. 클라우드 코드 편집에는 Background Agent 설정의 Builder 프로젝트가 필요합니다.",
+  "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
   "onboarding.capability.llm.keySummary": "AI 제공업체 또는 로컬 모델 연결",
   "onboarding.capability.fileStorage.keySummary":
     "Builder 스토리지 또는 S3 호환 버킷",
+  "onboarding.fileStorage.title": "파일 저장소 선택",
+  "onboarding.fileStorage.description":
+    "관리형 Builder 스토리지 또는 자체 S3 호환 버킷용 사용자 지정 스토리지 키를 선택하세요.",
+  "onboarding.fileStorage.custom": "사용자 지정 스토리지 키 사용",
+  "onboarding.fileStorage.customDescription":
+    "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
   "onboarding.capability.voiceInput.label": "음성 입력",
   "onboarding.capability.voiceInput.keySummary":
     "브라우저 음성 인식 또는 음성 텍스트 변환",

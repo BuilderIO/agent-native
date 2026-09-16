@@ -68,8 +68,19 @@ const messages: AgentChatTranslation = {
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI क्रेडिट और क्लाउड कोड बदलाव उपयोग के लिए तैयार हैं।",
+  "onboarding.builderReadyCreditsOnly":
+    "AI क्रेडिट उपयोग के लिए तैयार हैं। क्लाउड कोड संपादन के लिए Background Agent सेटिंग्स में Builder प्रोजेक्ट आवश्यक है।",
+  "onboarding.openBackgroundAgentSettings": "Background Agent सेटिंग्स खोलें",
   "onboarding.capability.llm.keySummary": "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
   "onboarding.capability.fileStorage.keySummary": "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.fileStorage.title": "फ़ाइल स्टोरेज चुनें",
+  "onboarding.fileStorage.description":
+    "प्रबंधित Builder स्टोरेज चुनें या अपने S3-संगत बकेट के लिए कस्टम स्टोरेज कुंजियों का उपयोग करें।",
+  "onboarding.fileStorage.custom": "कस्टम स्टोरेज कुंजियों का उपयोग करें",
+  "onboarding.fileStorage.customDescription":
+    "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
   "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
   "onboarding.capability.voiceInput.keySummary":
     "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",

@@ -76,10 +76,22 @@ const messages: AgentChatTranslation = {
     "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Los créditos de IA y los cambios de código en la nube están listos para usarse.",
+  "onboarding.builderReadyCreditsOnly":
+    "Los créditos de IA están listos para usarse. Las ediciones de código en la nube requieren un proyecto de Builder en la configuración del agente en segundo plano.",
+  "onboarding.openBackgroundAgentSettings":
+    "Abrir la configuración del agente en segundo plano",
   "onboarding.capability.llm.keySummary":
     "Conecta un proveedor de IA o un modelo local",
   "onboarding.capability.fileStorage.keySummary":
     "Almacenamiento de Builder o un bucket compatible con S3",
+  "onboarding.fileStorage.title": "Elige el almacenamiento de archivos",
+  "onboarding.fileStorage.description":
+    "Elige el almacenamiento administrado de Builder o tus propias claves para un bucket compatible con S3.",
+  "onboarding.fileStorage.custom": "Usar claves de almacenamiento propias",
+  "onboarding.fileStorage.customDescription":
+    "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
   "onboarding.capability.voiceInput.keySummary":
     "Reconocimiento de voz del navegador o conversión de voz a texto",

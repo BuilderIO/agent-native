@@ -255,7 +255,7 @@ Dispatch は、管理者のレビューの背後で機密性の高い実行時�
 
 3 つの短いステップ:
 
-1. **Dispatch を含むワークスペースをスキャフォールディングします。** `npx @agent-native/core@latest create my-company-platform` を実行し、必要なドメイン テンプレートと一緒に `dispatch` を選択します。 Dispatch は `apps/dispatch` にあり、残りのアプリはその隣にあります。 [Multi-App Workspace](/docs/multi-app-workspace) を参照してください。
+1. **Dispatch を含むワークスペースをスキャフォールディングします。** `npx --yes @agent-native/core@latest create my-company-platform` を実行し、必要なドメイン テンプレートと一緒に `dispatch` を選択します。 Dispatch は `apps/dispatch` にあり、残りのアプリはその隣にあります。 [Multi-App Workspace](/docs/multi-app-workspace) を参照してください。
 2. **メッセージングに接続します。** Dispatch で **管理 → メッセージング** を開き、Slack、電子メール、テレグラム、または WhatsApp の接続をクリックします。フォーム フィールドは、[Messaging](/docs/messaging) ドキュメントの環境変数と一致します。各プラットフォームに必要なものについては、そこを参照してください。
 3. **他のアプリを追加します。** 各ドメイン アプリのワークスペース ルートから `npx @agent-native/core@latest add-app` を実行します。これらは、Dispatch の `list-workspace-apps` では A2A ピアとして自動的に表示されます。手動登録やエージェント カードの編集は必要ありません。エージェント カードが到達可能になり次第、ディスパッチは彼らへの委任を開始します。
 

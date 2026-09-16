@@ -38,6 +38,8 @@ export interface OrgInfo {
   orgId: string | null;
   orgName: string | null;
   role: OrgRole | null;
+  /** Whether invitations can be delivered by the configured email provider. */
+  emailConfigured?: boolean;
   access?: {
     signup: "open" | "invited";
     orgCreation: "open" | "closed";

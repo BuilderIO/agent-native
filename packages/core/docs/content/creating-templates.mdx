@@ -40,13 +40,13 @@ A good template:
 Use the Chat template when you want a minimal app with the framework wiring already in place:
 
 ```bash
-npx @agent-native/core@latest create my-template --template chat --standalone
+npx --yes @agent-native/core@latest create my-template --template chat --standalone
 ```
 
 For a workspace with multiple apps, run the picker and include Chat with any domain templates you want:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 Chat gives you auth, durable chat threads, PostgreSQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
@@ -528,14 +528,14 @@ Community templates install directly from a public GitHub repository. Put the
 Agent-Native app at the repository root:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo
 ```
 
 Add `#branch`, `#tag`, or `#commit` when you want people to install a specific
 revision:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
 ```
 
 The CLI downloads the source only. It does not install dependencies or run the
