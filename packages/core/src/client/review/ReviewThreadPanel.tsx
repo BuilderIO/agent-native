@@ -57,6 +57,12 @@ import {
 } from "./use-review.js";
 
 const DEFAULT_REACTION_CHOICES = ["👍", "❤️", "🎉", "👀"] as const;
+const MAX_REVIEW_IMAGE_ATTACHMENTS = 4;
+
+interface ReviewCommentAttachment {
+  url: string;
+  name: string;
+}
 
 export interface ReviewThread {
   root: ReviewComment;
@@ -736,13 +742,14 @@ function CommentBubble({
         </div>
         {!bodyIsResolutionNote ? (
           <InlineMarkdown
-            content={comment.body}
+            content={displayReviewCommentBody(comment.body)}
             className={cn(
               "mt-1 text-foreground",
               compact ? "text-xs leading-5" : "text-sm leading-5",
             )}
           />
         ) : null}
+        <ReviewCommentAttachmentStrip comment={comment} compact={compact} />
         {resolutionNote ? (
           <div
             className="mt-1.5 flex min-w-0 items-start gap-1.5 rounded-md bg-muted/60 px-2 py-1.5 text-muted-foreground"
@@ -750,7 +757,7 @@ function CommentBubble({
           >
             <IconCircleCheck className="mt-0.5 size-3.5 shrink-0" />
             <InlineMarkdown
-              content={resolutionNote}
+              content={displayReviewCommentBody(resolutionNote)}
               className="min-w-0 text-xs leading-4"
             />
           </div>
@@ -812,6 +819,80 @@ function CommentBubble({
       </div>
     </div>
   );
+}
+
+function ReviewCommentAttachmentStrip({
+  comment,
+  compact,
+}: {
+  comment: ReviewComment;
+  compact: boolean;
+}) {
+  const attachments = reviewCommentAttachments(comment);
+  if (!attachments.length) return null;
+  return (
+    <div
+      className={cn(
+        "mt-2 flex flex-wrap gap-1.5",
+        compact ? "max-w-56" : "max-w-64",
+      )}
+      data-review-comment-attachments
+    >
+      {attachments.map((attachment) => (
+        <a
+          key={attachment.url}
+          href={attachment.url}
+          target="_blank"
+          rel="noreferrer"
+          className="block size-16 overflow-hidden rounded-md border border-border bg-muted"
+        >
+          <img
+            src={attachment.url}
+            alt={attachment.name}
+            loading="lazy"
+            className="size-full object-cover"
+          />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function reviewCommentAttachments(
+  comment: ReviewComment,
+): ReviewCommentAttachment[] {
+  const raw = comment.metadata?.attachments;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((value) => {
+      if (!value || typeof value !== "object") return [];
+      const attachment = value as Record<string, unknown>;
+      const url = typeof attachment.url === "string" ? attachment.url : "";
+      const contentType =
+        typeof attachment.contentType === "string"
+          ? attachment.contentType
+          : undefined;
+      if (
+        !/^https?:\/\//i.test(url) ||
+        (contentType && !contentType.startsWith("image/"))
+      ) {
+        return [];
+      }
+      return [
+        {
+          url,
+          name:
+            typeof attachment.name === "string" && attachment.name.trim()
+              ? attachment.name
+              : "image",
+        },
+      ];
+    })
+    .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS);
+}
+
+function displayReviewCommentBody(body: string): string {
+  return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }
 
 function capabilityAllowsThread(

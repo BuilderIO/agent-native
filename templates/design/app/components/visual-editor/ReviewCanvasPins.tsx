@@ -87,6 +87,7 @@ export interface ReviewFocusRequest {
   nonce: number;
   anchor: unknown;
   targetId?: string;
+  threadId?: string;
 }
 
 interface ReviewCanvasPinsProps {
@@ -99,6 +100,7 @@ interface ReviewCanvasPinsProps {
   targetId: string;
   canPost: boolean;
   canResolve: boolean;
+  currentUserEmail?: string | null;
   focusRequest?: ReviewFocusRequest | null;
   onDispatchCommentToAgent?: (comment: ReviewComment) => void;
   onSendThreadToAgent?: (thread: ReviewThread) => void;
@@ -353,6 +355,7 @@ export function ReviewCanvasPins({
   targetId,
   canPost,
   canResolve,
+  currentUserEmail,
   focusRequest,
   onDispatchCommentToAgent,
   onSendThreadToAgent,
@@ -441,6 +444,17 @@ export function ReviewCanvasPins({
   const threads = useMemo(
     () => buildReviewThreads(comments.data?.comments ?? []),
     [comments.data?.comments],
+  );
+
+  const canMoveThreadPin = useCallback(
+    (thread: ReviewThread) => {
+      if (canResolve) return true;
+      const email = currentUserEmail?.trim().toLowerCase();
+      return Boolean(
+        email && thread.root.authorEmail?.trim().toLowerCase() === email,
+      );
+    },
+    [canResolve, currentUserEmail],
   );
 
   useEffect(() => {
@@ -648,10 +662,18 @@ export function ReviewCanvasPins({
       (focusRequest.targetId && focusRequest.targetId !== targetId)
     )
       return;
+    const requestedThread = focusRequest.threadId
+      ? threads.find(
+          (thread) =>
+            thread.root.threadId === focusRequest.threadId ||
+            thread.root.id === focusRequest.threadId,
+        )
+      : null;
+    if (requestedThread) setActiveThreadId(requestedThread.root.threadId);
     if (focusAnchor(focusRequest.anchor, focusRequest.nonce)) {
       lastFocusNonceRef.current = focusRequest.nonce;
     }
-  }, [focusAnchor, focusRequest, layoutTick, targetId]);
+  }, [focusAnchor, focusRequest, layoutTick, targetId, threads]);
 
   useEffect(() => {
     if (!active) cancelDraft();
@@ -1114,7 +1136,9 @@ export function ReviewCanvasPins({
             point={position.point}
             resolved={thread.root.status === "resolved"}
             onDragEnd={
-              canPost ? (point) => moveThreadPin(thread, point) : undefined
+              canMoveThreadPin(thread)
+                ? (point) => moveThreadPin(thread, point)
+                : undefined
             }
             onClick={() => {
               if (!draftPin?.draft.trim()) setDraftPin(null);
@@ -1318,6 +1342,7 @@ function ReviewPin({
     pointerId: number;
     moved: boolean;
   } | null>(null);
+  const suppressClickRef = useRef(false);
   useEffect(() => setDragPoint(point), [point]);
   const pointToCanvas = (event: PointerEvent): ReviewAnchorPoint => ({
     xPct: Math.min(
@@ -1360,7 +1385,8 @@ function ReviewPin({
         )}
         onClick={(event) => {
           event.stopPropagation();
-          if (dragRef.current?.moved) {
+          if (suppressClickRef.current || dragRef.current?.moved) {
+            suppressClickRef.current = false;
             dragRef.current = null;
             return;
           }
@@ -1389,10 +1415,14 @@ function ReviewPin({
           const moved = dragRef.current.moved;
           dragRef.current = null;
           event.currentTarget.releasePointerCapture(event.pointerId);
-          if (moved) onDragEnd?.(next);
+          if (moved) {
+            suppressClickRef.current = true;
+            onDragEnd?.(next);
+          }
         }}
         onPointerCancel={() => {
           dragRef.current = null;
+          suppressClickRef.current = false;
           setDragPoint(point);
         }}
         style={{ touchAction: onDragEnd ? "none" : undefined }}
@@ -1874,8 +1904,9 @@ function ReviewThreadPopover({
             {rootAuthor}
           </div>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
-            {thread.root.body}
+            {displayReviewCommentBody(thread.root.body)}
           </p>
+          <ReviewCommentAttachmentStrip comment={thread.root} />
           <ReviewReactionControls
             commentId={thread.root.id}
             reactions={discussion?.reactions[thread.root.id] ?? []}
@@ -1902,8 +1933,9 @@ function ReviewThreadPopover({
                 {reviewAuthorLabel(reply, t("review.reviewer"))}
               </div>
               <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-5 text-foreground/90">
-                {reply.body}
+                {displayReviewCommentBody(reply.body)}
               </p>
+              <ReviewCommentAttachmentStrip comment={reply} compact />
               <ReviewReactionControls
                 commentId={reply.id}
                 reactions={discussion?.reactions[reply.id] ?? []}
@@ -2006,4 +2038,83 @@ function reviewAuthorInitials(value: string): string {
     .map((part) => part[0]?.toUpperCase())
     .join("");
   return initials || "R";
+}
+
+interface ReviewCommentAttachment {
+  url: string;
+  name: string;
+}
+
+function reviewCommentAttachments(
+  comment: ReviewComment,
+): ReviewCommentAttachment[] {
+  const raw = comment.metadata?.attachments;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((value) => {
+      if (!value || typeof value !== "object") return [];
+      const attachment = value as Record<string, unknown>;
+      const url = typeof attachment.url === "string" ? attachment.url : "";
+      const contentType =
+        typeof attachment.contentType === "string"
+          ? attachment.contentType
+          : undefined;
+      if (
+        !/^https?:\/\//i.test(url) ||
+        (contentType && !contentType.startsWith("image/"))
+      ) {
+        return [];
+      }
+      return [
+        {
+          url,
+          name:
+            typeof attachment.name === "string" && attachment.name.trim()
+              ? attachment.name
+              : "image",
+        },
+      ];
+    })
+    .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS);
+}
+
+function ReviewCommentAttachmentStrip({
+  comment,
+  compact = false,
+}: {
+  comment: ReviewComment;
+  compact?: boolean;
+}) {
+  const attachments = reviewCommentAttachments(comment);
+  if (!attachments.length) return null;
+  return (
+    <div
+      className={cn(
+        "mt-2 flex flex-wrap gap-1.5",
+        compact ? "max-w-56" : "max-w-64",
+      )}
+      data-review-comment-attachments
+    >
+      {attachments.map((attachment) => (
+        <a
+          key={attachment.url}
+          href={attachment.url}
+          target="_blank"
+          rel="noreferrer"
+          className="block size-16 overflow-hidden rounded-md border border-border bg-muted"
+        >
+          <img
+            src={attachment.url}
+            alt={attachment.name}
+            loading="lazy"
+            className="size-full object-cover"
+          />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function displayReviewCommentBody(body: string): string {
+  return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }

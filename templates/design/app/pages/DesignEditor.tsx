@@ -52,6 +52,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
+  buildReviewThreads,
   useReviewComments,
   useSendReviewThreadToAgent,
   type ReviewThread,
@@ -1626,6 +1627,7 @@ function DesignEditor() {
     nonce: number;
     anchor: unknown;
     targetId?: string;
+    threadId?: string;
   } | null>(null);
   const reviewFocusNonceRef = useRef(0);
   const [activeLeftPanel, setActiveLeftPanel] =
@@ -3365,7 +3367,7 @@ function DesignEditor() {
     {
       resourceType: "design",
       resourceId: id ?? "",
-      includeResolved: false,
+      includeResolved: true,
       limit: 500,
     },
     { enabled: Boolean(id) && !shellMode },
@@ -9290,10 +9292,32 @@ function DesignEditor() {
         nonce: reviewFocusNonceRef.current,
         anchor: thread.root.anchor,
         targetId: targetId ?? undefined,
+        threadId: thread.root.threadId,
       });
     },
     [activeFile?.id],
   );
+
+  const reviewLinkCommentIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const commentId = searchParams.get("comment");
+    if (
+      !commentId ||
+      reviewLinkCommentIdRef.current === commentId ||
+      !reviewComments.length
+    ) {
+      return;
+    }
+    const thread = buildReviewThreads(reviewComments).find(
+      (candidate) =>
+        candidate.root.id === commentId ||
+        candidate.root.threadId === commentId ||
+        candidate.replies.some((reply) => reply.id === commentId),
+    );
+    if (!thread) return;
+    reviewLinkCommentIdRef.current = commentId;
+    handleReviewThreadSelect(thread);
+  }, [handleReviewThreadSelect, reviewComments, searchParams]);
 
   const reviewCommentsPanelProps = useMemo<
     ReviewCommentsPanelProps | undefined
@@ -21349,6 +21373,7 @@ function DesignEditor() {
           designTitle={design?.title}
           reviewCanPost={canCommentDesign}
           reviewCanResolve={canEditDesign}
+          reviewCurrentUserEmail={session?.email}
           reviewFocusRequest={reviewFocusRequest}
           onDispatchCommentToAgent={
             canEditDesign ? handleDispatchCommentToAgent : undefined
@@ -24399,6 +24424,7 @@ function DesignEditor() {
                         designId={id}
                         reviewCanPost={canCommentDesign}
                         reviewCanResolve={canEditDesign}
+                        reviewCurrentUserEmail={session?.email}
                         reviewFocusRequest={reviewFocusRequest}
                         onDispatchCommentToAgent={
                           canEditDesign
