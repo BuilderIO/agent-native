@@ -42,6 +42,12 @@ type WebMcpCall = {
   };
 };
 
+type PreviewIframe = {
+  src: string;
+  sandbox: string;
+  hasSrcdoc: boolean;
+};
+
 function routeFromBridgeFrameUrl(rawUrl: string): string {
   const bridgeFrameUrl = new URL(rawUrl);
   const target = bridgeFrameUrl.searchParams.get("url");
@@ -137,6 +143,40 @@ async function findFrame(
   throw new Error("Could not find the requested preview frame.");
 }
 
+async function readPreviewIframes(page: Page): Promise<PreviewIframe[]> {
+  const iframes = await page
+    .locator("iframe[data-design-preview-iframe]")
+    .evaluateAll((elements) =>
+      elements.map((element) => ({
+        src: element.getAttribute("src") ?? "",
+        sandbox: element.getAttribute("sandbox") ?? "",
+        hasSrcdoc: element.hasAttribute("srcdoc"),
+      })),
+    );
+  if (iframes.length !== screenPaths.length) {
+    throw new Error(
+      `Expected ${screenPaths.length} preview iframes, found ${iframes.length}.`,
+    );
+  }
+  for (const iframe of iframes) {
+    const url = new URL(iframe.src, page.url());
+    if (url.host !== bridgeHost || url.pathname !== "/live-edit") {
+      throw new Error(
+        `Preview is not URL-backed by the live-edit bridge: ${JSON.stringify(iframe)}`,
+      );
+    }
+    if (!iframe.sandbox.split(/\s+/).includes("allow-same-origin")) {
+      throw new Error(
+        `URL-backed preview is missing allow-same-origin: ${JSON.stringify(iframe)}`,
+      );
+    }
+    if (iframe.hasSrcdoc) {
+      throw new Error("URL-backed preview unexpectedly has a srcdoc payload.");
+    }
+  }
+  return iframes;
+}
+
 function cookieMetadataFingerprint(
   cookies: Array<{
     name: string;
@@ -207,9 +247,22 @@ async function main() {
     return body ? (JSON.parse(body) as Record<string, unknown>) : undefined;
   };
 
+  const signInDesign = async () => {
+    const response = await page.request.post(
+      `${designUrl}/_agent-native/auth/local-dev`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `Design local-dev sign-in failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+  };
+
   try {
     let targetUrl = editorUrl;
     if (!targetUrl) {
+      await signInDesign();
       const opened = await postAction("open-visual-edit", {
         title: "Slides authenticated visual-edit proof",
         devServerUrl: slidesUrl,
@@ -239,6 +292,7 @@ async function main() {
         snapshot.signedOutFrames === screenPaths.length,
       "signed-out canvases",
     );
+    const previewIframes = await readPreviewIframes(page);
     await page.screenshot({
       path: `${outputDir}/auth-runtime-signed-out.png`,
       fullPage: true,
@@ -455,6 +509,7 @@ async function main() {
           .locator("iframe[data-design-preview-iframe]")
           .count(),
         sessionCookieMetadataUnchanged: true,
+        previewIframes,
       },
       authenticatedStorageCookieCount: signedInStorage.cookies.length,
       bridgeAuthResponseStatus:
