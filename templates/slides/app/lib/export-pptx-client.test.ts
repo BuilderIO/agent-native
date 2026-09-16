@@ -1240,6 +1240,30 @@ describe("materializeCompositeBorders", () => {
     expect(card.style.getPropertyValue("border-bottom-width")).toBe("1px");
   });
 
+  it("leaves adjacent sides that differ alone, since CSS mitres that corner", () => {
+    document.body.innerHTML =
+      '<div><p style="border-top-width: 2px; border-top-style: solid; border-top-color: rgb(255, 0, 0); border-left-width: 1px; border-left-style: solid; border-left-color: rgb(0, 0, 255)">Card</p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const card = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(barsOf(card)).toHaveLength(0);
+    expect(card.style.getPropertyValue("border-top-width")).toBe("2px");
+  });
+
+  it("leaves a box holding positioned children alone, since their anchors follow its padding box", () => {
+    document.body.innerHTML =
+      '<div><p style="position: relative; border-bottom-width: 1px; border-bottom-style: solid; border-bottom-color: rgb(255, 0, 0)"><span style="position: absolute; right: 0px">Pinned</span></p></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+    const row = root.querySelector<HTMLElement>("p")!;
+
+    materializeCompositeBorders(root);
+
+    expect(row.style.getPropertyValue("border-bottom-width")).toBe("1px");
+    expect(row.querySelector("div")).toBeNull();
+  });
+
   it("redraws a rule on the export root, which its own query does not return", () => {
     document.body.innerHTML =
       '<div style="position: relative; border-top-width: 2px; border-top-style: solid; border-top-color: rgb(0, 255, 0)"><p>Slide</p></div>';

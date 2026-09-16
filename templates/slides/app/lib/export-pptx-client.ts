@@ -1690,18 +1690,31 @@ export function materializeCompositeBorders(root: HTMLElement) {
     ) {
       continue;
     }
-    if (style.position === "static") {
-      // Making this a containing block would move anything inside it that is
-      // positioned against an ancestor.
-      const positioned = Array.from(
-        element.querySelectorAll<HTMLElement>("*"),
-      ).some((child) => {
-        const position = window.getComputedStyle(child).position;
-        return position === "absolute" || position === "fixed";
-      });
-      if (positioned) continue;
-      element.style.position = "relative";
+    // CSS mitres the corner where two sides meet, and two bars would simply
+    // stack there, so a border with a real join keeps its picture.
+    if (
+      edges.some((edge, index) => {
+        const next = edges[(index + 1) % edges.length];
+        return (
+          edge.width > 0 &&
+          next.width > 0 &&
+          (edge.width !== next.width || edge.color !== next.color)
+        );
+      })
+    ) {
+      continue;
     }
+    // A border moved into the padding grows the padding box, which is the
+    // containing block anything inside is positioned against — and making a
+    // static box relative would hand it descendants it never held.
+    const positioned = Array.from(
+      element.querySelectorAll<HTMLElement>("*"),
+    ).some((child) => {
+      const position = window.getComputedStyle(child).position;
+      return position === "absolute" || position === "fixed";
+    });
+    if (positioned) continue;
+    if (style.position === "static") element.style.position = "relative";
 
     for (const edge of edges) {
       if (!(edge.width > 0)) continue;
