@@ -1543,6 +1543,10 @@ export default function SlideEditor({
     canvasZoom,
     revision: selectionMeasurementRevision,
   });
+  const selectionOverlayMeasurementKeyRef = useRef(
+    selectionOverlayMeasurementKey,
+  );
+  selectionOverlayMeasurementKeyRef.current = selectionOverlayMeasurementKey;
   const selectedElementRect = currentSelectionOverlayRect(
     selectedElementMeasurement,
     selectionOverlayMeasurementKey,
@@ -5030,7 +5034,7 @@ export default function SlideEditor({
   const updateAlignmentGuides = useCallback(
     (
       guides: readonly SlideAlignmentGuide[],
-      positioningLayer: HTMLElement,
+      coordinateRoot: HTMLElement,
       canvas: { width: number; height: number },
     ) => {
       if (guides.length === 0) {
@@ -5041,7 +5045,7 @@ export default function SlideEditor({
         return;
       }
       const viewport = {
-        rect: positioningLayer.getBoundingClientRect(),
+        rect: coordinateRoot.getBoundingClientRect(),
         canvas,
       };
       const previous = activeAlignmentGuidesRef.current;
@@ -5137,10 +5141,6 @@ export default function SlideEditor({
       }
       let positioningLayer =
         resolveSlidePositioningLayer(element) ?? slideCanvas;
-      let snapCanvas = {
-        width: positioningLayer.offsetWidth || slideWidth,
-        height: positioningLayer.offsetHeight || slideHeight,
-      };
 
       // Pointer-down on the selection perimeter is a move gesture, never a
       // text caret placement. A selected object's body, however, has to keep
@@ -5187,10 +5187,6 @@ export default function SlideEditor({
         const promotedPositioningLayer = resolveSlidePositioningLayer(element);
         if (promotedPositioningLayer) {
           positioningLayer = promotedPositioningLayer;
-          snapCanvas = {
-            width: positioningLayer.offsetWidth || slideWidth,
-            height: positioningLayer.offsetHeight || slideHeight,
-          };
         }
         return true;
       };
@@ -5289,6 +5285,20 @@ export default function SlideEditor({
             const selector = getBuilderSelector(activeElement);
             if (selector) selectElementForStyling(activeElement, selector);
           }
+          const containingBlock = resolveSlideObjectContainingBlock(
+            activeElement,
+            positioningLayer,
+          );
+          const snapCanvas = {
+            width:
+              containingBlock.offsetWidth ||
+              positioningLayer.offsetWidth ||
+              slideWidth,
+            height:
+              containingBlock.offsetHeight ||
+              positioningLayer.offsetHeight ||
+              slideHeight,
+          };
           const snap = snapSlideObjectMove({
             moving: dragOrigin,
             deltaX: gesture.canvasDelta.x,
@@ -5302,7 +5312,13 @@ export default function SlideEditor({
             x: dragOrigin.x + snap.deltaX,
             y: dragOrigin.y + snap.deltaY,
           });
-          updateAlignmentGuides(snap.guides, positioningLayer, snapCanvas);
+          const rect = activeElement.getBoundingClientRect();
+          setSelectedElementMeasurement({
+            key: selectionOverlayMeasurementKeyRef.current,
+            rect,
+            frame: readSlideObjectSelectionFrame(activeElement, rect),
+          });
+          updateAlignmentGuides(snap.guides, containingBlock, snapCanvas);
           return { handled: true };
         },
         commit: (gesture) => {
@@ -5985,6 +6001,7 @@ export default function SlideEditor({
       let prepared = false;
       let promotionsRestored = false;
       let groupPositioningLayer: HTMLElement | null = null;
+      let groupContainingBlock: HTMLElement | null = null;
 
       const removeFreeformLayoutSpacer = (element: HTMLElement) => {
         const objectId = element.getAttribute("data-slide-object-id");
@@ -6119,6 +6136,7 @@ export default function SlideEditor({
         }
 
         groupPositioningLayer = positioningLayer;
+        groupContainingBlock = containingBlock;
         members = nextMembers;
         return true;
       };
@@ -6145,12 +6163,19 @@ export default function SlideEditor({
             members.map((member) => member.start),
           );
           const positioningLayer = groupPositioningLayer;
-          if (!moving || !positioningLayer) {
+          const containingBlock = groupContainingBlock;
+          if (!moving || !positioningLayer || !containingBlock) {
             return { handled: false, reason: "unhandled" };
           }
           const snapCanvas = {
-            width: positioningLayer.offsetWidth || slideWidth,
-            height: positioningLayer.offsetHeight || slideHeight,
+            width:
+              containingBlock.offsetWidth ||
+              positioningLayer.offsetWidth ||
+              slideWidth,
+            height:
+              containingBlock.offsetHeight ||
+              positioningLayer.offsetHeight ||
+              slideHeight,
           };
           const snap = snapSlideObjectMove({
             moving,
@@ -6169,7 +6194,7 @@ export default function SlideEditor({
             snap.deltaY,
             applyObjectGeometry,
           );
-          updateAlignmentGuides(snap.guides, positioningLayer, snapCanvas);
+          updateAlignmentGuides(snap.guides, containingBlock, snapCanvas);
           scheduleMultiSelectionRects(ids);
           return { handled: true };
         },
