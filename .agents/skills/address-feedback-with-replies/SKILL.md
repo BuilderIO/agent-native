@@ -54,12 +54,14 @@ four verification bars hold; `:no_entry_sign:` closes other terminal states
 without claiming a product fix. When reopening or re-claiming an item, remove
 this workflow's stale release marker before adding `👀`; if reaction removal is
 unavailable, use full enumeration with reaction metadata and do not trust the
-optimized negative-marker cursor.
+optimized negative-marker cursor; do not re-add or retain `👀` beside the
+stale marker, and claim the item only after the marker is removed.
 
 Every clear-bug parent or upvoted improvement that receives `👀`
 enters the reply ledger. The reaction is not a reply or completion marker.
 Before finishing, re-read each claimed item and verify the invoking identity
 posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
+recorded **Live verified** in the ledger, or
 recorded **Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**,
 or **Abandoned - no answer in 4 days** with a concrete reason and its
 disposition-specific release marker. Record **Owned elsewhere** when another

@@ -102,9 +102,11 @@ When a prior item is reopened, re-claimed, or changed from a terminal
 disposition, remove this workflow's old `✅` or `:no_entry_sign:` before adding
 `👀` or changing the ledger. For an active claim, `👀` and a release marker are
 mutually exclusive. Remove only this workflow's reaction; a foreign reaction
-is never touched. If reaction removal is unavailable, enumerate the full
-channel with reaction metadata, record the stale marker as unverified, and do
-not let the optimized negative-marker cursor suppress the item.
+is never touched. If reaction removal is unavailable, do not re-add or retain
+`👀` beside the stale marker. Enumerate the full channel with reaction
+metadata, record the item as unverified/manual cleanup, and do not let the
+optimized negative-marker cursor suppress it; claim it only after the stale
+marker is removed.
 
 Claiming only marks work; it does not investigate or reply, so older open
 questions still outrank newer reports.
