@@ -38,6 +38,7 @@ export interface GeometryCommitArgs {
     direction: "commit" | "undo" | "redo",
   ) => void;
   lastGeometryCommitAtRef: RefObject<number>;
+  lastGeometryCommitSourceRef: RefObject<"pointer" | "keyboard" | null>;
   liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
   locallyPinnedHeightIdsRef: RefObject<Set<string>>;
   queryClient: QueryClient;
@@ -61,6 +62,7 @@ export function runGeometryCommit(
     id,
     applyLinkedContentChanges,
     lastGeometryCommitAtRef,
+    lastGeometryCommitSourceRef,
     liveFrameGeometryRef,
     locallyPinnedHeightIdsRef,
     queryClient,
@@ -141,19 +143,21 @@ export function runGeometryCommit(
   // two independent pointer gestures (e.g. two separate drags) that
   // happen to land within the same 800ms window — those are discrete
   // user actions and each must be its own undo step, matching Figma.
-  // MultiScreenCanvas's onGeometryCommit callback (a real pointer drag)
-  // omits `options`, so it defaults to "pointer" and never coalesces;
-  // only handleNudgeSelection's overview branch passes "keyboard".
+  // Pointer gestures and keyboard nudges both use this shared callback, so
+  // track the previous source as well as the current one. A keyboard nudge
+  // after a pointer gesture is a separate undo step even inside the window.
   const source = options?.source ?? "pointer";
   const now = Date.now();
   const lastEntry =
     geometryUndoStackRef.current[geometryUndoStackRef.current.length - 1];
   const continuesLastGesture =
     source === "keyboard" &&
+    lastGeometryCommitSourceRef.current === "keyboard" &&
     lastEntry &&
     now - lastGeometryCommitAtRef.current < 800 &&
     geometrySnapshotsEqual(lastEntry.after, beforeSnapshot);
   lastGeometryCommitAtRef.current = now;
+  lastGeometryCommitSourceRef.current = source;
   // Figma-parity undo/redo selection restore: selectionAfter always
   // reflects the CURRENT selection at this commit tick (so redo restores
   // whatever was selected when the gesture finished), while

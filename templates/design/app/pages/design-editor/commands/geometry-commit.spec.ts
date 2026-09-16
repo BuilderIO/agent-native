@@ -43,6 +43,7 @@ function runCommit(
       id: "design",
       liveFrameGeometryRef,
       lastGeometryCommitAtRef: { current: 0 },
+      lastGeometryCommitSourceRef: { current: null },
       locallyPinnedHeightIdsRef: { current: new Set<string>() },
       queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
       queueFrameGeometrySave: vi.fn(),
@@ -64,6 +65,62 @@ function runCommit(
 }
 
 describe("runGeometryCommit", () => {
+  it("keeps a keyboard nudge separate from a preceding pointer gesture", () => {
+    const geometryUndoStackRef = { current: [] as GeometryHistoryEntry[] };
+    const historyOrderRef = { current: [] as UndoRedoOrderKind[] };
+    const liveFrameGeometryRef = {
+      current: { screen: { x: 0, y: 0, width: 400, height: 400 } },
+    };
+    const lastGeometryCommitAtRef = { current: 0 };
+    const lastGeometryCommitSourceRef = {
+      current: null as "pointer" | "keyboard" | null,
+    };
+    const captureCurrentSelection = (): GeometryHistorySelection => ({
+      overviewSelectedScreenIds: ["screen"],
+      selectedLayerIds: [],
+      activeFileId: null,
+    });
+    const commitArgs = {
+      boardFileId: undefined,
+      captureCurrentSelection,
+      clearRedoStacks: vi.fn(),
+      designDataJsonRef: { current: {} },
+      geometryUndoStackRef,
+      historyOrderRef,
+      id: "design",
+      lastGeometryCommitAtRef,
+      lastGeometryCommitSourceRef,
+      liveFrameGeometryRef,
+      locallyPinnedHeightIdsRef: { current: new Set<string>() },
+      queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
+      queueFrameGeometrySave: vi.fn(),
+      syncUndoRedoState: vi.fn(),
+      writeFrameGeometrySnapshot: vi.fn(),
+    };
+    const before = {
+      screen: { x: 0, y: 0, width: 400, height: 400 },
+    };
+    const afterPointer = {
+      screen: { x: 20, y: 0, width: 400, height: 400 },
+    };
+    const afterKeyboard = {
+      screen: { x: 21, y: 0, width: 400, height: 400 },
+    };
+
+    vi.spyOn(Date, "now").mockReturnValueOnce(1000).mockReturnValueOnce(1100);
+    runGeometryCommit(commitArgs, before, afterPointer, {
+      source: "pointer",
+    });
+    runGeometryCommit(commitArgs, afterPointer, afterKeyboard, {
+      source: "keyboard",
+    });
+    vi.restoreAllMocks();
+
+    expect(geometryUndoStackRef.current).toHaveLength(2);
+    expect(historyOrderRef.current).toEqual(["geometry", "geometry"]);
+    expect(geometryUndoStackRef.current[1]?.before).toEqual(afterPointer);
+  });
+
   it("preserves fractional frame geometry when a K-scale target has no style changes", () => {
     const before = {
       screen: { x: 0, y: 0, width: 400, height: 400 },
