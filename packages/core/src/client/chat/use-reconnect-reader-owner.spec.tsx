@@ -15,13 +15,17 @@ type OwnerRecord = {
 function ReconnectOwnerHarness({
   id,
   onReady,
+  onCleanup,
 }: {
   id: string;
   onReady: (record: OwnerRecord) => void;
+  onCleanup?: (runId: string | null) => void;
 }) {
   const runIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const mountedRef = useReconnectReaderOwner(runIdRef, abortRef);
+  const mountedRef = useReconnectReaderOwner(runIdRef, abortRef, () =>
+    onCleanup?.(runIdRef.current),
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -86,5 +90,25 @@ describe("useReconnectReaderOwner", () => {
     rootUnmounted = true;
     expect(secondOwner?.controller.signal.aborted).toBe(true);
     expect(secondOwner?.mountedRef.current).toBe(false);
+  });
+
+  it("runs cleanup while the reader identity is still available", () => {
+    let cleanupRunId: string | null = null;
+
+    act(() => {
+      root.render(
+        <ReconnectOwnerHarness
+          id="run-cleanup"
+          onReady={() => {}}
+          onCleanup={(runId) => {
+            cleanupRunId = runId;
+          }}
+        />,
+      );
+    });
+
+    act(() => root.unmount());
+    rootUnmounted = true;
+    expect(cleanupRunId).toBe("run-cleanup");
   });
 });

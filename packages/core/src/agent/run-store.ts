@@ -465,7 +465,8 @@ export async function ensureRunTables(): Promise<void> {
           dispatch_mode TEXT,
           diag_stage TEXT,
           dispatch_payload TEXT,
-          peak_rss_mb BIGINT
+          peak_rss_mb BIGINT,
+          continuation_order BIGINT
         )
       `;
       const agentRunEventsCreateSql = `
@@ -581,6 +582,10 @@ export async function ensureRunTables(): Promise<void> {
         // has failed. See `IN_FLIGHT_RUN_STALE_GRACE_MS` and
         // `setRunInFlightMarker`.
         ["in_flight_since", "BIGINT"],
+        // Monotonic position within a logical turn. Server-driven successors
+        // carry their continuation count; other inserts allocate the next
+        // position under the per-turn advisory lock.
+        ["continuation_order", "BIGINT"],
       ] as const) {
         await ensureColumnExists(
           "agent_runs",
@@ -604,7 +609,7 @@ export async function ensureRunTables(): Promise<void> {
         "agent_run_outcome_daily",
         agentRunOutcomeDailyCreateSql,
       );
-      // Widen millisecond-timestamp columns that older deployments created as
+      // Widen millisecond-timestamp and run-order columns that older deployments created as
       // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
       // on every turn, so an int4 column makes every agent prompt fail on
       // Postgres with "value … is out of range for type integer". No-op once
@@ -616,6 +621,7 @@ export async function ensureRunTables(): Promise<void> {
         "heartbeat_at",
         "last_progress_at",
         "in_flight_since",
+        "continuation_order",
       ]);
       await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
       await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
@@ -774,24 +780,85 @@ export async function insertRun(
      * bodies at 256KB); the worker rehydrates the body from this column.
      */
     dispatchPayload?: string;
+    /** Monotonic position within the logical turn, when the caller has one. */
+    continuationOrder?: number;
   },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
-  await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
-    args: [
-      id,
-      threadId,
-      now,
-      now,
-      now,
-      turnId ?? id,
-      options?.dispatchMode ?? null,
-      options?.dispatchPayload ?? null,
-    ],
+  const logicalTurnId = turnId ?? id;
+  const explicitContinuationOrder = normalizeContinuationOrder(
+    options?.continuationOrder,
+  );
+  const insert = async (db: DbExec, continuationOrder: number) => {
+    await db.execute({
+      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      args: [
+        id,
+        threadId,
+        now,
+        now,
+        now,
+        logicalTurnId,
+        options?.dispatchMode ?? null,
+        options?.dispatchPayload ?? null,
+        continuationOrder,
+      ],
+    });
+  };
+  if (!client.transaction) {
+    await insert(
+      client,
+      explicitContinuationOrder ??
+        (await nextContinuationOrder(client, threadId, logicalTurnId)),
+    );
+    return;
+  }
+  await client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-order:${threadId}:${logicalTurnId}`],
+    });
+    await insert(
+      tx,
+      explicitContinuationOrder ??
+        (await nextContinuationOrder(tx, threadId, logicalTurnId)),
+    );
   });
+}
+
+function normalizeContinuationOrder(
+  value: number | undefined,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Invalid continuation order: ${String(value)}`);
+  }
+  return value;
+}
+
+async function nextContinuationOrder(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<number> {
+  const { rows } = await db.execute({
+    sql: `SELECT MAX(continuation_order) AS max_order
+          FROM agent_runs
+          WHERE thread_id = ? AND COALESCE(turn_id, id) = ?`,
+    args: [threadId, turnId],
+  });
+  const rawMax = (rows?.[0] as { max_order?: unknown } | undefined)?.max_order;
+  if (rawMax === null || rawMax === undefined) return 0;
+  const maxOrder = Number(rawMax);
+  if (!Number.isSafeInteger(maxOrder) || maxOrder < 0) {
+    throw new Error(`Invalid stored continuation order: ${String(rawMax)}`);
+  }
+  if (maxOrder === Number.MAX_SAFE_INTEGER) {
+    throw new Error("Continuation order exhausted");
+  }
+  return maxOrder + 1;
 }
 
 /**
@@ -1248,6 +1315,8 @@ export async function tryClaimRunSlot(
     replayCompletedTurn?: boolean;
     dispatchMode?: "foreground" | "foreground-self-chain" | "background";
     dispatchPayload?: string;
+    /** Monotonic position within the logical turn, when known. */
+    continuationOrder?: number;
   },
 ): Promise<{
   claimed: boolean;
@@ -1326,8 +1395,11 @@ export async function tryClaimRunSlot(
       }
     }
 
+    const continuationOrder =
+      normalizeContinuationOrder(options?.continuationOrder) ??
+      (await nextContinuationOrder(tx, threadId, turnId));
     const inserted = await tx.execute({
-      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
       args: [
         runId,
         threadId,
@@ -1337,6 +1409,7 @@ export async function tryClaimRunSlot(
         turnId,
         options?.dispatchMode ?? null,
         options?.dispatchPayload ?? null,
+        continuationOrder,
       ],
     });
     if ((inserted.rowsAffected ?? 0) !== 1) {
@@ -2048,8 +2121,9 @@ async function attemptStaleRunRecovery(
 
   const successorRunId = generateRecoveryRunId();
   const now = Date.now();
+  const continuationOrder = await nextContinuationOrder(db, threadId, turnId);
   await db.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?) ON CONFLICT (id) DO NOTHING`,
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING`,
     args: [
       successorRunId,
       threadId,
@@ -2058,6 +2132,7 @@ async function attemptStaleRunRecovery(
       now,
       turnId,
       staleRecoveryDispatchPayload(payload),
+      continuationOrder,
     ],
   });
   return { outcome: "recovered", successorRunId, threadId, turnId };
@@ -3061,15 +3136,17 @@ export async function listRunsForThread(
 
 /**
  * Read the current logical turn's recorded events for a thread, parsed into
- * `AgentChatEvent`s in seq order, for per-turn tool-call journal classification
+ * `AgentChatEvent`s in continuation order, for per-turn tool-call journal classification
  * (see `tool-call-journal.ts`). Read-only and additive — reuses the existing
- * `agent_runs` / `agent_run_events` ledger with no schema change.
+ * `agent_runs` / `agent_run_events` ledger with an additive run-order column.
  *
  * A logical turn may span several continuation runs (each chunk is its own run
  * sharing one `turn_id`), so we union the events of every run that belongs to
- * the latest turn for this thread. Events are ordered by (started_at, seq) so
- * earlier chunks come before later ones and the positional `tool_start` →
- * `tool_done` matching in the classifier stays correct across chunk boundaries.
+ * the latest turn for this thread. Events are ordered by the durable per-turn
+ * position first, then timestamps and seq as compatibility fallbacks for rows
+ * written before that position existed. Earlier chunks must come before later
+ * ones so the positional `tool_start` → `tool_done` matching in the classifier
+ * stays correct across chunk boundaries.
  *
  * Returns an empty array when the thread has no run yet or no parseable events.
  * Best-effort on parse: malformed ledger rows are skipped rather than thrown.
@@ -3110,7 +3187,11 @@ async function getCurrentTurnRunEvents(
           JOIN agent_runs r ON r.id = e.run_id
           WHERE r.thread_id = ?
             AND COALESCE(r.turn_id, r.id) = ?
-          ORDER BY r.started_at ASC, r.id ASC, e.seq ASC`,
+          ORDER BY COALESCE(r.continuation_order, 0) ASC,
+                   r.started_at ASC,
+                   e.event_at ASC NULLS LAST,
+                   e.seq ASC,
+                   r.id ASC`,
     args: [threadId, turnId],
   });
   const events: CurrentTurnRunEvent[] = [];

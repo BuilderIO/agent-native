@@ -8640,6 +8640,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     if (opts.continuationCount > 0) {
       await insert(opts.runId, threadId, turnId, {
         dispatchMode: "background",
+        continuationOrder: opts.continuationCount,
       }).catch(() => {});
     }
 
@@ -9246,6 +9247,7 @@ export async function chainServerDrivenContinuation(opts: {
       await d.insertRun(nextRunId, effectiveThreadId, effectiveTurnId, {
         dispatchMode: "background",
         dispatchPayload: JSON.stringify(continuationBody),
+        continuationOrder: opts.backgroundContinuationCount + 1,
       });
       nextRowInserted = true;
     } catch (insertErr) {
@@ -11422,6 +11424,7 @@ export function createProductionAgentHandler(
         if (isChainedBackgroundContinuation) {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
+            continuationOrder: backgroundContinuationCount,
           }).catch(() => {});
         }
         const won = await claimBackgroundRun(runId);

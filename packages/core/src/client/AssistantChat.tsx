@@ -133,6 +133,7 @@ import {
   CheckpointContext,
   MessageActionsContext,
   assistantMessageRunId,
+  assistantMessageTurnId,
   UserMessage,
   AssistantMessage,
   ExternalUserStoppedRunContext,
@@ -660,7 +661,10 @@ function cloneContentParts(content: ContentPart[]): ContentPart[] {
 
 export function settleInterruptedAssistantToolCallsInRepo<
   T extends { messages?: unknown[] },
->(repo: T, options?: { userStopped?: boolean }): { repo: T; changed: boolean } {
+>(
+  repo: T,
+  options?: { userStopped?: boolean; runId?: string; turnId?: string },
+): { repo: T; changed: boolean } {
   if (!Array.isArray(repo.messages)) return { repo, changed: false };
   let changed = false;
   const nextMessages = repo.messages.map((entry) => {
@@ -678,6 +682,19 @@ export function settleInterruptedAssistantToolCallsInRepo<
       | null
       | undefined;
     if (message?.role !== "assistant" || !Array.isArray(message.content)) {
+      return entry;
+    }
+    const scopedToRunOrTurn =
+      options?.runId !== undefined || options?.turnId !== undefined;
+    if (
+      scopedToRunOrTurn &&
+      !(
+        (options.runId !== undefined &&
+          assistantMessageRunId(message) === options.runId) ||
+        (options.turnId !== undefined &&
+          assistantMessageTurnId(message) === options.turnId)
+      )
+    ) {
       return entry;
     }
     const content = cloneContentParts(message.content as ContentPart[]);
@@ -3161,18 +3178,32 @@ const AssistantChatInner = forwardRef<
   const reconnectAbortRef = useRef<AbortController | null>(null);
   const reconnectOwnershipTokenRef = useRef<symbol | null>(null);
   const reconnectAutoRecoveryCountRef = useRef(0);
+  const releaseReconnectOwnership = useCallback(() => {
+    const runId = reconnectRunIdRef.current;
+    const token = reconnectOwnershipTokenRef.current;
+    if (threadId && runId && token) {
+      releaseRunStream(
+        threadId,
+        runId,
+        token,
+        reconnectTurnIdRef.current ?? undefined,
+      );
+    }
+    reconnectOwnershipTokenRef.current = null;
+  }, [threadId]);
   const reconnectOwnerMountedRef = useReconnectReaderOwner(
     reconnectRunIdRef,
     reconnectAbortRef,
+    releaseReconnectOwnership,
   );
   const [pendingReconnectRecovery, setPendingReconnectRecovery] =
     useState<PendingReconnectRecovery | null>(null);
   const clearReconnectReaderForTerminalError = useCallback(() => {
+    releaseReconnectOwnership();
     reconnectAbortRef.current?.abort();
     reconnectAbortRef.current = null;
     reconnectRunIdRef.current = null;
     reconnectTurnIdRef.current = null;
-    reconnectOwnershipTokenRef.current = null;
     reconnectTailOnlyRef.current = false;
     reconnectCanMaterializeRef.current = false;
     setIsReconnecting(false);
@@ -3180,7 +3211,7 @@ const AssistantChatInner = forwardRef<
     setReconnectContent([]);
     setPendingReconnectRecovery(null);
     resetRunningActivity();
-  }, [resetRunningActivity]);
+  }, [releaseReconnectOwnership, resetRunningActivity]);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
   // lets new submissions go through immediately — prevents the "stuck
   // queueing forever" state where isReconnecting or isRuntimeRunning gets
@@ -3882,15 +3913,6 @@ const AssistantChatInner = forwardRef<
       if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
         return false;
       }
-      // The refs above lag a render and are per-component-instance, while
-      // MultiTabAssistantChat mounts several instances against one run. The
-      // claim is the actual mutual exclusion: module-scoped, synchronous, and
-      // re-checked on every state write below.
-      const ownershipToken = createRunStreamToken(`reconnect:${runId}`);
-      if (!claimRunStream(threadId, runId, ownershipToken, logicalTurnId)) {
-        return false;
-      }
-
       // SUPERSEDE THE PREVIOUS RECONNECT GENERATION. A turn that keeps failing
       // (e.g. repeated stale_run at "Contacting model") produces a new runId
       // every few seconds; each call here used to OVERWRITE the single-slot
@@ -3901,6 +3923,9 @@ const AssistantChatInner = forwardRef<
       // the DB saturation that causes the failures in the first place. Abort
       // the prior generation's AbortController so its stream loop exits and its
       // `finally` clears every interval before we start a fresh one.
+      const previousReconnectRunId = reconnectRunIdRef.current;
+      const previousReconnectTurnId = reconnectTurnIdRef.current ?? undefined;
+      const previousOwnershipToken = reconnectOwnershipTokenRef.current;
       if (reconnectAbortRef.current) {
         try {
           reconnectAbortRef.current.abort();
@@ -3908,6 +3933,38 @@ const AssistantChatInner = forwardRef<
           // Already aborted / detached — nothing to unwind.
         }
         reconnectAbortRef.current = null;
+      }
+      if (previousReconnectRunId && previousOwnershipToken) {
+        releaseRunStream(
+          threadId,
+          previousReconnectRunId,
+          previousOwnershipToken,
+          previousReconnectTurnId,
+        );
+        if (reconnectOwnershipTokenRef.current === previousOwnershipToken) {
+          reconnectOwnershipTokenRef.current = null;
+        }
+      }
+
+      // The refs above lag a render and are per-component-instance, while
+      // MultiTabAssistantChat mounts several instances against one run. The
+      // claim is the actual mutual exclusion: module-scoped, synchronous, and
+      // re-checked on every state write below. Retire the prior logical-turn
+      // owner before claiming its successor, because continuation run IDs
+      // intentionally share one ownership slot.
+      const ownershipToken = createRunStreamToken(`reconnect:${runId}`);
+      if (!claimRunStream(threadId, runId, ownershipToken, logicalTurnId)) {
+        if (reconnectRunIdRef.current === previousReconnectRunId) {
+          reconnectRunIdRef.current = null;
+          reconnectTurnIdRef.current = null;
+          reconnectOwnershipTokenRef.current = null;
+          setIsReconnecting(false);
+          setReconnectFrozen(false);
+          setReconnectContent([]);
+          reconnectCanMaterializeRef.current = false;
+          reconnectTailOnlyRef.current = false;
+        }
+        return false;
       }
 
       reconnectRunIdRef.current = runId;
@@ -4192,9 +4249,13 @@ const AssistantChatInner = forwardRef<
           threadPollEngine?.stop();
           watchdog.stop();
           clearInterval(idleCheck);
-          releaseRunStream(threadId, runId, ownershipToken, logicalTurnId);
-          if (reconnectOwnershipTokenRef.current === ownershipToken) {
-            reconnectOwnershipTokenRef.current = null;
+          const retainReconnectOwnership =
+            reconnectCanMaterializeRef.current && latestContent.length > 0;
+          if (!retainReconnectOwnership) {
+            releaseRunStream(threadId, runId, ownershipToken, logicalTurnId);
+            if (reconnectOwnershipTokenRef.current === ownershipToken) {
+              reconnectOwnershipTokenRef.current = null;
+            }
           }
         }
 
@@ -4267,9 +4328,12 @@ const AssistantChatInner = forwardRef<
             clearActiveRunIfMatches(threadId, runId);
             reconnectAbortRef.current = null;
             setIsReconnecting(false);
-            reconnectRunIdRef.current = null;
-            reconnectTurnIdRef.current = null;
-            reconnectOwnershipTokenRef.current = null;
+            const keepFrozenReconnectOwner = reconnectCanMaterializeRef.current;
+            if (!keepFrozenReconnectOwner) {
+              releaseReconnectOwnership();
+              reconnectRunIdRef.current = null;
+              reconnectTurnIdRef.current = null;
+            }
             reconnectTailOnlyRef.current = false;
             if (afterSeq > 0) {
               reconnectCanMaterializeRef.current = false;
@@ -4314,9 +4378,12 @@ const AssistantChatInner = forwardRef<
           clearActiveRunIfMatches(threadId, runId);
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
-          reconnectRunIdRef.current = null;
-          reconnectTurnIdRef.current = null;
-          reconnectOwnershipTokenRef.current = null;
+          const keepFrozenReconnectOwner = reconnectCanMaterializeRef.current;
+          if (!keepFrozenReconnectOwner) {
+            releaseReconnectOwnership();
+            reconnectRunIdRef.current = null;
+            reconnectTurnIdRef.current = null;
+          }
           reconnectTailOnlyRef.current = false;
           if (afterSeq > 0) {
             reconnectCanMaterializeRef.current = false;
@@ -4356,13 +4423,15 @@ const AssistantChatInner = forwardRef<
           clearActiveRunIfMatches(threadId, runId);
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
-          reconnectRunIdRef.current = null;
-          reconnectTurnIdRef.current = null;
-          reconnectOwnershipTokenRef.current = null;
-          reconnectTailOnlyRef.current = false;
           if (loaded || afterSeq > 0 || latestContent.length === 0) {
             reconnectCanMaterializeRef.current = false;
           }
+          if (!reconnectCanMaterializeRef.current) {
+            releaseReconnectOwnership();
+            reconnectRunIdRef.current = null;
+            reconnectTurnIdRef.current = null;
+          }
+          reconnectTailOnlyRef.current = false;
           if (loaded) {
             reconnectAutoRecoveryCountRef.current = 0;
           }
@@ -4381,6 +4450,9 @@ const AssistantChatInner = forwardRef<
             setReconnectContent([]);
             setReconnectFrozen(false);
             reconnectCanMaterializeRef.current = false;
+            releaseReconnectOwnership();
+            reconnectRunIdRef.current = null;
+            reconnectTurnIdRef.current = null;
           }
         }
       };
@@ -4388,7 +4460,15 @@ const AssistantChatInner = forwardRef<
       void streamReconnect();
       return true;
     },
-    [apiUrl, refreshThreadFromServer, t, tabId, threadId, wasUserStoppedRun],
+    [
+      apiUrl,
+      refreshThreadFromServer,
+      releaseReconnectOwnership,
+      t,
+      tabId,
+      threadId,
+      wasUserStoppedRun,
+    ],
   );
 
   const reconnectActiveRunForThread =
@@ -5318,11 +5398,11 @@ const AssistantChatInner = forwardRef<
       // the two readers disagree (id-less activity cards, a turn split across
       // several assistant messages). One owner, one surface: drop the overlay.
       if (reconnectRunIdRef.current !== null) {
+        reconnectAbortRef.current?.abort();
+        releaseReconnectOwnership();
+        reconnectAbortRef.current = null;
         reconnectRunIdRef.current = null;
         reconnectTurnIdRef.current = null;
-        reconnectOwnershipTokenRef.current = null;
-        reconnectAbortRef.current?.abort();
-        reconnectAbortRef.current = null;
         setIsReconnecting(false);
         setReconnectFrozen(false);
         reconnectCanMaterializeRef.current = false;
@@ -5337,7 +5417,12 @@ const AssistantChatInner = forwardRef<
         setForceStopped(false);
       }
     }
-  }, [isRuntimeRunning, reconnectFrozen, forceStopped]);
+  }, [
+    isRuntimeRunning,
+    reconnectFrozen,
+    forceStopped,
+    releaseReconnectOwnership,
+  ]);
 
   // Same transition guard for isReconnecting: only clear forceStopped on
   // the false→true edge (a new reconnect starting on page load).
@@ -5353,6 +5438,10 @@ const AssistantChatInner = forwardRef<
   const materializeFrozenReconnectContent = useCallback(() => {
     if (!reconnectFrozen || reconnectContent.length === 0) return;
     if (!reconnectCanMaterializeRef.current) {
+      releaseReconnectOwnership();
+      reconnectRunIdRef.current = null;
+      reconnectTurnIdRef.current = null;
+      reconnectAbortRef.current = null;
       setReconnectFrozen(false);
       setReconnectContent([]);
       return;
@@ -5402,10 +5491,13 @@ const AssistantChatInner = forwardRef<
       repo.headId = id;
 
       threadRuntime.import(ensureMessageMetadata(repo));
+      releaseReconnectOwnership();
+      reconnectRunIdRef.current = null;
+      reconnectTurnIdRef.current = null;
+      reconnectAbortRef.current = null;
       setReconnectFrozen(false);
       setReconnectContent([]);
       reconnectCanMaterializeRef.current = false;
-      reconnectTurnIdRef.current = null;
     } catch (err) {
       captureError(err, {
         tags: {
@@ -5422,6 +5514,7 @@ const AssistantChatInner = forwardRef<
   }, [
     reconnectFrozen,
     reconnectContent,
+    releaseReconnectOwnership,
     runErrorInfo?.runId,
     runErrorInfo?.turnId,
     tabId,
@@ -5429,74 +5522,94 @@ const AssistantChatInner = forwardRef<
     threadRuntime,
   ]);
 
-  const settleVisibleInterruptedTools = useCallback(() => {
-    try {
-      const repo = normalizeThreadRepository(threadRuntime.export());
-      const settled = settleInterruptedAssistantToolCallsInRepo(repo, {
-        userStopped: true,
-      });
-      if (settled.changed) {
-        threadRuntime.import(ensureMessageMetadata(settled.repo));
-      }
-    } catch (err) {
-      captureError(err, {
-        tags: {
-          source: "agent-chat-client",
-          phase: "settle-stopped-tool-calls",
-        },
-        extra: {
-          threadId: threadId ?? null,
-          tabId: tabId ?? null,
-        },
-      });
-    }
-  }, [tabId, threadId, threadRuntime]);
-
-  const markVisibleRunStopped = useCallback(() => {
-    try {
-      const repo = normalizeThreadRepository(threadRuntime.export());
-      const messages = getRepoMessages(repo);
-      for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const entry = messages[index];
-        const message = getRepoMessage(entry);
-        if (message?.role !== "assistant") continue;
-        const metadata = message.metadata ?? {};
-        const custom =
-          metadata.custom && typeof metadata.custom === "object"
-            ? (metadata.custom as Record<string, unknown>)
-            : {};
-        if (custom.userStopped === true) return;
-        const nextMessage = {
-          ...message,
-          status: { type: "complete", reason: "stop" },
-          metadata: {
-            ...metadata,
-            custom: { ...custom, userStopped: true },
+  const settleVisibleInterruptedTools = useCallback(
+    (runId?: string, turnId?: string) => {
+      if (!runId && !turnId) return;
+      try {
+        const repo = normalizeThreadRepository(threadRuntime.export());
+        const settled = settleInterruptedAssistantToolCallsInRepo(repo, {
+          userStopped: true,
+          ...(runId ? { runId } : {}),
+          ...(turnId ? { turnId } : {}),
+        });
+        if (settled.changed) {
+          threadRuntime.import(ensureMessageMetadata(settled.repo));
+        }
+      } catch (err) {
+        captureError(err, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "settle-stopped-tool-calls",
           },
-        };
-        const nextMessages = messages.slice();
-        nextMessages[index] =
-          entry.message === undefined
-            ? { ...entry, ...nextMessage }
-            : { ...entry, message: nextMessage };
-        threadRuntime.import(
-          ensureMessageMetadata({ ...repo, messages: nextMessages }),
-        );
-        return;
+          extra: {
+            threadId: threadId ?? null,
+            tabId: tabId ?? null,
+          },
+        });
       }
-    } catch (err) {
-      captureError(err, {
-        tags: {
-          source: "agent-chat-client",
-          phase: "mark-user-stopped-run",
-        },
-        extra: {
-          threadId: threadId ?? null,
-          tabId: tabId ?? null,
-        },
-      });
-    }
-  }, [tabId, threadId, threadRuntime]);
+    },
+    [tabId, threadId, threadRuntime],
+  );
+
+  const markVisibleRunStopped = useCallback(
+    (runId?: string, turnId?: string) => {
+      if (!runId && !turnId) return;
+      try {
+        const repo = normalizeThreadRepository(threadRuntime.export());
+        const messages = getRepoMessages(repo);
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const entry = messages[index];
+          const message = getRepoMessage(entry);
+          if (message?.role !== "assistant") continue;
+          if (
+            !(
+              (runId !== undefined &&
+                assistantMessageRunId(message) === runId) ||
+              (turnId !== undefined &&
+                assistantMessageTurnId(message) === turnId)
+            )
+          ) {
+            continue;
+          }
+          const metadata = message.metadata ?? {};
+          const custom =
+            metadata.custom && typeof metadata.custom === "object"
+              ? (metadata.custom as Record<string, unknown>)
+              : {};
+          if (custom.userStopped === true) return;
+          const nextMessage = {
+            ...message,
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              ...metadata,
+              custom: { ...custom, userStopped: true },
+            },
+          };
+          const nextMessages = messages.slice();
+          nextMessages[index] =
+            entry.message === undefined
+              ? { ...entry, ...nextMessage }
+              : { ...entry, message: nextMessage };
+          threadRuntime.import(
+            ensureMessageMetadata({ ...repo, messages: nextMessages }),
+          );
+          return;
+        }
+      } catch (err) {
+        captureError(err, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "mark-user-stopped-run",
+          },
+          extra: {
+            threadId: threadId ?? null,
+            tabId: tabId ?? null,
+          },
+        });
+      }
+    },
+    [tabId, threadId, threadRuntime],
+  );
 
   // Abort the active server run (identical to what the Stop button does) so
   // an immediate-while-running send can proceed cleanly without a 409 race.
@@ -5557,12 +5670,12 @@ const AssistantChatInner = forwardRef<
           },
         ).catch(() => {});
       }
-      if (isReconnecting) {
+      if (isReconnecting || reconnectRunIdRef.current !== null) {
         reconnectAbortRef.current?.abort();
+        releaseReconnectOwnership();
         reconnectAbortRef.current = null;
         reconnectRunIdRef.current = null;
         reconnectTurnIdRef.current = null;
-        reconnectOwnershipTokenRef.current = null;
         setIsReconnecting(false);
         // Stop is a user decision, not an error. Drop the reconnect overlay
         // instead of freezing it with a synthetic interruption warning.
@@ -5571,8 +5684,8 @@ const AssistantChatInner = forwardRef<
         reconnectCanMaterializeRef.current = false;
         reconnectTailOnlyRef.current = false;
       }
-      settleVisibleInterruptedTools();
-      markVisibleRunStopped();
+      settleVisibleInterruptedTools(runIdToAbort, turnIdToAbort);
+      markVisibleRunStopped(runIdToAbort, turnIdToAbort);
       threadRuntime.cancelRun();
     },
     [
@@ -5582,6 +5695,7 @@ const AssistantChatInner = forwardRef<
       isReconnecting,
       markVisibleRunStopped,
       resetRunningActivity,
+      releaseReconnectOwnership,
       reconnectContent,
       settleVisibleInterruptedTools,
       tabId,

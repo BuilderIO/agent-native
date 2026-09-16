@@ -10,13 +10,17 @@ type MutableRef<T> = { current: T };
 export function useReconnectReaderOwner(
   reconnectRunIdRef: MutableRef<string | null>,
   reconnectAbortRef: MutableRef<AbortController | null>,
+  onCleanup?: () => void,
 ): MutableRef<boolean> {
   const mountedRef = useRef(false);
+  const onCleanupRef = useRef(onCleanup);
+  onCleanupRef.current = onCleanup;
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      onCleanupRef.current?.();
       const reconnectAbort = reconnectAbortRef.current;
       reconnectRunIdRef.current = null;
       reconnectAbortRef.current = null;
