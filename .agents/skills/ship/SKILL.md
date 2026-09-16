@@ -133,7 +133,8 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   an actionable in-scope item, require a verified feedback-ledger disposition
   and reaction state - **Fixed**, **Shipped**, **Resolved elsewhere**,
   **Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, or
-  **Open - no reply** after this workflow's eye has been released with `✅`;
+  **Open - no reply** after this workflow's eye has been released with its
+  disposition-specific marker;
   **In progress** or **Clarification needed** while this workflow's eye is
   held. Silent terminal states do not require a Slack reply; never manufacture
   one just to satisfy this handoff check. An eye-only or stale eye-only item
@@ -152,9 +153,18 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   requests, replies, dispatches, or merge blockers.
 
 If a prior run mistakenly added an eye to an out-of-scope or already-owned
-parent, release it with `✅` when reactions are available. Do not add a new
-reply or investigate it. If the release marker is unavailable, record the exact
-parent for manual cleanup and keep it out of the ship ledger's actionable work.
+parent, release it with `:no_entry_sign:` when reactions are available. Do not
+add a new reply or investigate it. If the release marker is unavailable, record
+the exact parent for manual cleanup and keep it out of the ship ledger's
+actionable work.
+
+Use the disposition-specific release contract from
+`review-latest-feedback`: `✅` is reserved for **Fixed**, **Shipped**, or
+**Live verified** after all four verification bars hold; `:no_entry_sign:` is
+the release marker for other terminal, non-fixed closures. When reopening or
+re-claiming an item, remove this workflow's stale release marker before adding
+`👀`; if reaction removal is unavailable, use full enumeration with reaction
+metadata and do not trust the optimized negative-marker cursor.
 
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present
@@ -207,7 +217,7 @@ claims separate. A green test or PR does not prove that beta or production is
 live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
 review item has a fix, a concise reply, or an explicit terminal disposition
-with its `✅` release marker, and that no new evidence has been left without a
+with its disposition-specific release marker, and that no new evidence has been left without a
 disposition. Items routed to Alice remain outside this workflow's ownership;
 explicitly assigned Design items are included. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A

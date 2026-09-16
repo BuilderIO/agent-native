@@ -98,6 +98,14 @@ Add `👀` to every intended item and read reactions back before investigation.
 Claim all actionable reports, including carried-over parents, without adding a
 second reaction.
 
+When a prior item is reopened, re-claimed, or changed from a terminal
+disposition, remove this workflow's old `✅` or `:no_entry_sign:` before adding
+`👀` or changing the ledger. For an active claim, `👀` and a release marker are
+mutually exclusive. Remove only this workflow's reaction; a foreign reaction
+is never touched. If reaction removal is unavailable, enumerate the full
+channel with reaction metadata, record the stale marker as unverified, and do
+not let the optimized negative-marker cursor suppress the item.
+
 Claiming only marks work; it does not investigate or reply, so older open
 questions still outrank newer reports.
 
