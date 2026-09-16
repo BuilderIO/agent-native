@@ -9,6 +9,7 @@ import {
 } from "@shared/code-layer";
 import { parseCssColorExtended } from "@shared/color-utils";
 import { isComponentInstance } from "@shared/component-model";
+import { resolveLayerNameAttribute } from "@shared/layer-name";
 import {
   ELEMENT_PROVENANCE_METHODS,
   type ElementProvenanceFramework,
@@ -1361,6 +1362,10 @@ export function refreshElementInfoFromContent(
       ),
       computedStyles,
       inlineStyles: sourceInfo.inlineStyles ?? {},
+      // Source projection refreshes cannot recompute the live CSS cascade;
+      // discard any bridge hint so it cannot outrank these fresh inline
+      // values until the next selection payload.
+      authoredSizeStyles: undefined,
       boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: sourceInfo.textContent,
       childElementCount: sourceInfo.childElementCount,
@@ -1391,6 +1396,7 @@ export function refreshElementInfoFromContent(
       classes,
       computedStyles,
       inlineStyles,
+      authoredSizeStyles: undefined,
       boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: element.textContent?.slice(0, 200) ?? info.textContent,
       childElementCount: element.children.length,
@@ -1471,9 +1477,11 @@ export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
     return true;
   }
   const layerName =
-    node.dataAttributes["data-agent-native-layer-name"] ??
-    node.dataAttributes["data-layer-name"] ??
-    "";
+    resolveLayerNameAttribute((attribute) => {
+      const value =
+        node.attributes[attribute] ?? node.dataAttributes[attribute];
+      return typeof value === "string" ? value : null;
+    })?.value ?? "";
   const nodeId = node.dataAttributes["data-agent-native-node-id"] ?? "";
   // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
   return (

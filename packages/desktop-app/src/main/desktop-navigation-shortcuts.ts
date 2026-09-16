@@ -23,36 +23,19 @@ export function forwardDesktopNavigationShortcutInput(
   event: { preventDefault(): void },
   input: DesktopNavigationShortcutInput,
   send: (payload: DesktopShortcutKeydown) => void,
-  forwardUnshiftedBrackets = false,
 ): boolean {
   if (!(input.meta || input.control) || input.type !== "keyDown") return false;
 
   const key = input.key.toLowerCase();
   const isNumericShortcut = !input.shift && !input.alt && /^[1-9]$/.test(key);
-  const isBracketLeft =
-    input.code === "BracketLeft" || key === "[" || key === "{";
-  const isBracketRight =
-    input.code === "BracketRight" || key === "]" || key === "}";
-  const isUnshiftedHistoryShortcut =
-    forwardUnshiftedBrackets && Boolean(input.meta) && !input.shift;
-  const isBracketShortcut =
-    !input.alt &&
-    (Boolean(input.shift) || isUnshiftedHistoryShortcut) &&
-    (isBracketLeft || isBracketRight);
   const isSettingsShortcut = isDesktopSettingsShortcut(input);
-  if (!isNumericShortcut && !isBracketShortcut && !isSettingsShortcut) {
+  if (!isNumericShortcut && !isSettingsShortcut) {
     return false;
   }
 
   event.preventDefault();
   send({
-    key: isSettingsShortcut
-      ? ","
-      : isNumericShortcut
-        ? key
-        : isBracketLeft
-          ? "["
-          : "]",
+    key: isSettingsShortcut ? "," : key,
     code: input.code,
     shiftKey: Boolean(input.shift),
     altKey: Boolean(input.alt),

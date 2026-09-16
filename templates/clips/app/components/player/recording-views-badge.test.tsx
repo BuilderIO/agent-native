@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildAnalyticsHandoff } from "./connect-analytics-dialog";
+import { InsightsChart } from "./insights-chart";
 import {
   AgentViewerAvatar,
   RecordingViewsBadge,
@@ -297,6 +298,41 @@ describe("RecordingViewsBadge", () => {
     expect(JSON.parse(handoff.context).instructions).toContain(
       "choose an existing dashboard or create a new private dashboard",
     );
+  });
+
+  it("renders no completion percentage when there is no human playback sample", () => {
+    render(
+      <InsightsChart
+        views={8}
+        uniqueViewers={0}
+        reactions={0}
+        completionRate={null}
+        ctaConversionRate={null}
+      />,
+    );
+
+    const rates = Array.from(container.querySelectorAll("dd")).map(
+      (node) => node.textContent,
+    );
+    expect(rates).toContain("—");
+    expect(rates).not.toContain("0%");
+  });
+
+  it("still renders a real zero completion percentage", () => {
+    render(
+      <InsightsChart
+        views={3}
+        uniqueViewers={3}
+        reactions={0}
+        completionRate={0}
+        ctaConversionRate={0}
+      />,
+    );
+
+    const rates = Array.from(container.querySelectorAll("dd")).map(
+      (node) => node.textContent,
+    );
+    expect(rates).toContain("0%");
   });
 
   it("resolves the stored profile image for an identified viewer", () => {

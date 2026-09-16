@@ -86,14 +86,12 @@ import { CODE_AGENTS_SURFACE_ID } from "@shared/code-agents";
 import { isDesktopChatToggleShortcut } from "@shared/desktop-shortcuts";
 import {
   IconArrowLeft,
-  IconArrowRight,
   IconGripVertical,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMessageCircle,
   IconPlus,
   IconPin,
-  IconRefresh,
   IconSearch,
   IconSettings,
   IconWorld,
@@ -134,7 +132,6 @@ import AppWebview, {
   resolveAppWebviewUrl,
   type AppWebviewAuthState,
   type AppWebviewHandle,
-  type AppWebviewNavigationState,
 } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
@@ -176,101 +173,6 @@ function DesktopRailTooltip({
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="right">{label}</TooltipContent>
     </Tooltip>
-  );
-}
-
-type DesktopHistoryDirection = "back" | "forward";
-
-export function resolveDesktopHistoryShortcut(input: {
-  key: string;
-  code?: string;
-  shiftKey: boolean;
-  altKey?: boolean;
-  ctrlKey?: boolean;
-  metaKey?: boolean;
-}): DesktopHistoryDirection | null {
-  if (!(input.metaKey || input.ctrlKey) || input.shiftKey || input.altKey) {
-    return null;
-  }
-  if (input.code === "BracketLeft" || input.key === "[") return "back";
-  if (input.code === "BracketRight" || input.key === "]") return "forward";
-  return null;
-}
-
-export function updateNavigationStateByTab(
-  current: Readonly<Record<string, AppWebviewNavigationState>>,
-  tabId: string,
-  state: AppWebviewNavigationState,
-): Record<string, AppWebviewNavigationState> {
-  const previous = current[tabId];
-  return previous?.canGoBack === state.canGoBack &&
-    previous.canGoForward === state.canGoForward
-    ? current
-    : { ...current, [tabId]: state };
-}
-
-export function DesktopContentNavigationToolbar({
-  state,
-  onBack,
-  onForward,
-  onRefresh,
-}: {
-  state?: AppWebviewNavigationState;
-  onBack(): void;
-  onForward(): void;
-  onRefresh(): void;
-}) {
-  const isMac = window.electronAPI?.platform === "darwin";
-  return (
-    <TooltipProvider delayDuration={0}>
-      <div
-        className="desktop-content-navigation"
-        role="toolbar"
-        aria-label="Content navigation"
-      >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="desktop-content-navigation__button"
-              onClick={onBack}
-              disabled={!state?.canGoBack}
-              aria-label="Back"
-            >
-              <IconArrowLeft size={15} strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{isMac ? "Back (⌘[)" : "Back"}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="desktop-content-navigation__button"
-              onClick={onForward}
-              disabled={!state?.canGoForward}
-              aria-label="Forward"
-            >
-              <IconArrowRight size={15} strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{isMac ? "Forward (⌘])" : "Forward"}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="desktop-content-navigation__button"
-              onClick={onRefresh}
-              aria-label="Refresh"
-            >
-              <IconRefresh size={15} strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{isMac ? "Refresh (⌘R)" : "Refresh"}</TooltipContent>
-        </Tooltip>
-      </div>
-    </TooltipProvider>
   );
 }
 
@@ -864,9 +766,6 @@ export default function CodeAgentsHub({
   const [webContentsIdByTab, setWebContentsIdByTab] = useState<
     Record<string, number>
   >({});
-  const [navigationStateByTab, setNavigationStateByTab] = useState<
-    Record<string, AppWebviewNavigationState>
-  >({});
   const appWebviewRefs = useRef<Record<string, AppWebviewHandle | null>>({});
   const [nativeOAuthActiveByTab, setNativeOAuthActiveByTab] = useState<
     Record<string, boolean>
@@ -891,14 +790,6 @@ export default function CodeAgentsHub({
     (tabId: string, webContentsId: number | undefined) => {
       setWebContentsIdByTab((current) =>
         updateWebContentsIdByTab(current, tabId, webContentsId),
-      );
-    },
-    [],
-  );
-  const handleNavigationStateChange = useCallback(
-    (tabId: string, state: AppWebviewNavigationState) => {
-      setNavigationStateByTab((current) =>
-        updateNavigationStateByTab(current, tabId, state),
       );
     },
     [],
@@ -940,15 +831,6 @@ export default function CodeAgentsHub({
       return next;
     });
     setWebContentsIdByTab((current) => {
-      const staleTabIds = Object.keys(current).filter(
-        (tabId) => !openTabIds.has(tabId),
-      );
-      if (staleTabIds.length === 0) return current;
-      const next = { ...current };
-      for (const tabId of staleTabIds) delete next[tabId];
-      return next;
-    });
-    setNavigationStateByTab((current) => {
       const staleTabIds = Object.keys(current).filter(
         (tabId) => !openTabIds.has(tabId),
       );
@@ -1393,23 +1275,6 @@ export default function CodeAgentsHub({
       window.dispatchEvent(new Event("agent-panel:toggle"));
     });
   }, []);
-  useEffect(() => {
-    const shortcutApi = window.electronAPI?.shortcuts;
-    if (!isActive || !shortcutApi?.onKeydown) return;
-    return shortcutApi.onKeydown((input) => {
-      const direction = resolveDesktopHistoryShortcut(input);
-      if (
-        !direction ||
-        activeChatFirstSurfaceTab?.kind !== "app" ||
-        activeChatFirstSurfaceTab.appId !== "content"
-      ) {
-        return;
-      }
-      const webview = appWebviewRefs.current[activeChatFirstSurfaceTab.id];
-      if (direction === "back") webview?.goBack();
-      else webview?.goForward();
-    });
-  }, [activeChatFirstSurfaceTab, isActive]);
   const openChatFirstAppInBrowser = useCallback((app: AppConfig) => {
     const url = resolveAppWebviewUrl(toAppDefinition(app), app);
     if (url === "about:blank") return;
@@ -2947,9 +2812,6 @@ export default function CodeAgentsHub({
                       onWebContentsIdChange={(webContentsId) =>
                         handleWebContentsIdChange(tab.id, webContentsId)
                       }
-                      onNavigationStateChange={(state) =>
-                        handleNavigationStateChange(tab.id, state)
-                      }
                     />
                   </div>
                   {nativeIntegrationsSurface && (
@@ -3072,27 +2934,11 @@ export default function CodeAgentsHub({
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
           mainToolbarSlot={
-            activeChatFirstSurfaceTab?.kind === "app" &&
-            activeChatFirstSurfaceTab.appId === "content" ? (
-              <DesktopContentNavigationToolbar
-                state={navigationStateByTab[activeChatFirstSurfaceTab.id]}
-                onBack={() =>
-                  appWebviewRefs.current[activeChatFirstSurfaceTab.id]?.goBack()
-                }
-                onForward={() =>
-                  appWebviewRefs.current[
-                    activeChatFirstSurfaceTab.id
-                  ]?.goForward()
-                }
-                onRefresh={() =>
-                  appWebviewRefs.current[activeChatFirstSurfaceTab.id]?.reload()
-                }
-              />
-            ) : !showTerminalSurface &&
-              !chatFirstAllAppsOpen &&
-              !scheduledTasksOpen &&
-              hasChatFirstActiveChat &&
-              !chatFirstAppSelected ? (
+            !showTerminalSurface &&
+            !chatFirstAllAppsOpen &&
+            !scheduledTasksOpen &&
+            hasChatFirstActiveChat &&
+            !chatFirstAppSelected ? (
               <DesktopChatFirstSurfaceMenu
                 sidebarOpen={chatFirstSurfacePanel.open}
                 onToggleSidebar={

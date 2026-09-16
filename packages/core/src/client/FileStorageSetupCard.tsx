@@ -1,5 +1,6 @@
 import { ActionButton } from "@agent-native/toolkit/design-system";
 
+import { useT } from "./i18n.js";
 import {
   BuilderConnectCard,
   DefaultBuilderConnectCardView,
@@ -11,6 +12,7 @@ import {
  * surface so the user does not have to understand provider internals first.
  */
 export function FileStorageSetupCard() {
+  const t = useT();
   const openCustomStorage = () => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(
@@ -23,8 +25,8 @@ export function FileStorageSetupCard() {
   return (
     <div className="space-y-2" data-testid="file-storage-setup-card">
       <BuilderConnectCard
-        title="Connect Builder for file storage"
-        description="Builder keeps uploaded images and files on durable object storage so the agent can reuse them throughout this thread."
+        title={t("onboarding.fileStorage.title")}
+        description={t("onboarding.fileStorage.description")}
         trackingSource="file_upload_chat_card"
         render={({ viewModel, className }) => (
           <div className="space-y-2">
@@ -40,9 +42,9 @@ export function FileStorageSetupCard() {
               onPress={openCustomStorage}
               className="h-auto w-full justify-start rounded-md px-3 py-2 text-left text-xs font-medium text-foreground"
             >
-              Use custom storage keys
+              {t("onboarding.fileStorage.custom")}
               <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
-                Configure an S3-compatible bucket with a stable public URL.
+                {t("onboarding.fileStorage.customDescription")}
               </span>
             </ActionButton>
           </div>

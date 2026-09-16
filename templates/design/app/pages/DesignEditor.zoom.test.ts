@@ -197,6 +197,30 @@ describe("getAllScreenFrameEntries", () => {
     expect(Number.isFinite(b.geometry.y)).toBe(true);
   });
 
+  it("reserves the rendered breakpoint row when requested for adjacency placement", () => {
+    const args = {
+      overviewScreens: [
+        {
+          id: "screen-1",
+          width: 402,
+          height: 874,
+          breakpointWidths: [360, 375],
+        },
+      ],
+      canvasFrameGeometryById: {
+        "screen-1": { x: 0, y: 0, width: 402, height: 874 },
+      },
+    };
+
+    expect(getAllScreenFrameEntries(args)[0]?.geometry.width).toBe(402);
+    expect(
+      getAllScreenFrameEntries({
+        ...args,
+        includeResponsivePreviews: true,
+      })[0]?.geometry.width,
+    ).toBe(1185);
+  });
+
   it("includes actual board content bounds when provided and not already a screen", () => {
     const entries = getAllScreenFrameEntries({
       overviewScreens: [],

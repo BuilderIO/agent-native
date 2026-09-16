@@ -106,6 +106,8 @@ export interface AgentCapabilities {
   streaming?: boolean;
   pushNotifications?: boolean;
   stateTransitionHistory?: boolean;
+  /** The app supports the Agent-Native identity connect handoff. */
+  connect?: boolean;
   extendedAgentCard?: boolean;
 }
 
@@ -295,6 +297,8 @@ export interface A2AConfig {
   handler?: A2AHandler;
   apiKeyEnv?: string;
   streaming?: boolean;
+  /** Advertise the existing identity-hub connect handoff in the agent card. */
+  connect?: boolean;
   /** Route async A2A work through the app's durable background worker when available. */
   durableBackgroundRuns?: boolean;
   /** Execute a persisted, human-approved A2A tool call. */

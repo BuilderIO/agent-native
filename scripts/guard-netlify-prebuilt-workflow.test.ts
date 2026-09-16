@@ -97,6 +97,17 @@ describe("Google callback deploy verification guard", () => {
     );
   });
 
+  it("accepts a pinned beta source while main advances during the queue", () => {
+    assert.match(
+      reusableSource,
+      /const comparison = await github\.rest\.repos\.compareCommits\([\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
+    assert.doesNotMatch(
+      reusableSource,
+      /Beta source_ref must equal current main/,
+    );
+  });
+
   it("checks the published beta runtime context for the relay secret", () => {
     const relayStep =
       "      - name: Verify Netlify Google OAuth relay metadata";
@@ -120,6 +131,9 @@ describe("Google callback deploy verification guard", () => {
       /if \[\[ \"\$TARGET\" == \"beta\" && \"\$DEPLOY_MODE\" == \"production\" \]\]/,
     );
     assert.match(step, /relay_context=production/);
+    assert.match(step, /context === "deploy-preview"/);
+    assert.match(step, /preview relay configuration is optional/);
+    assert.match(step, /throw new Error/);
     assert.match(step, /!value/);
     assert.match(step, /Netlify masks secret values/);
     assert.match(step, /Verified Google OAuth relay metadata/);
@@ -857,15 +871,19 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String(betaResolveStep?.with?.script),
-      /context\.eventName === 'workflow_dispatch'/,
+      /context\.eventName === 'push'/,
     );
     assert.match(
       String(betaResolveStep?.with?.script),
+      /const comparison = await github\.rest\.repos\.compareCommits\(/,
+    );
+    assert.doesNotMatch(
+      String(betaResolveStep?.with?.script),
       /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
     );
-    assert.match(
-      reusableSource,
-      /\['automatic', 'automatic-build'\]\.includes\(process\.env\.CALLER\.trim\(\)\)/,
+    assert.doesNotMatch(
+      String(betaResolveStep?.with?.script),
+      /Manual beta source_ref must equal current main/,
     );
     const confirmCurrentSourceStep = (
       (
@@ -889,14 +907,13 @@ describe("production Netlify site concurrency guard", () => {
       /process\.env\.SOURCE_SHA\.toLowerCase\(\) === mainSha\.toLowerCase\(\)/,
     );
     assert.match(
-      String(betaResolveStep?.with?.script),
-      /Manual beta source_ref must equal current main/,
-    );
-    assert.match(
       reusableSource,
       /Beta source_ref must be a full 40-character commit SHA/,
     );
-    assert.match(reusableSource, /Beta source_ref must equal current main/);
+    assert.match(
+      reusableSource,
+      /Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+    );
     assert.match(
       reusableSource,
       /Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt\.yml\./,
@@ -1501,6 +1518,9 @@ describe("production Netlify site concurrency guard", () => {
     // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.
     assert.match(String(appSmoke.run), /scripts\/smoke-check-health\.ts/);
     assert.match(String(appSmoke.run), /--auth-routes/);
+    assert.match(String(appSmoke.run), /--check-assets/);
+    assert.match(String(appSmoke.run), /SOURCE_TEMPLATE/);
+    assert.match(String(appSmoke.run), /--asset-path \/overview/);
     assert.match(String(appSmoke.run), /--canonical-host/);
 
     assert(previewSmoke);
@@ -1511,6 +1531,8 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(previewSmoke.run), /scripts\/smoke-check-health\.ts/);
     assert.match(String(previewSmoke.run), /--canonical-host/);
     assert.match(String(previewSmoke.run), /--auth-routes/);
+    assert.match(String(previewSmoke.run), /--check-assets/);
+    assert.match(String(previewSmoke.run), /--asset-path \/overview/);
     assert.match(String(previewSmoke.run), /--preview/);
     assert.doesNotMatch(String(previewSmoke.run), /--allow-missing-health/);
 

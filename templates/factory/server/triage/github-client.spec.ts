@@ -3,7 +3,10 @@ import { generateKeyPairSync } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveConnectorSecret } from "../connectors/credentials.js";
-import { createGitHubClient } from "./github-client.js";
+import {
+  createGitHubClient,
+  reviewCommentsFromGraphqlThreads,
+} from "./github-client.js";
 
 vi.mock("../connectors/credentials.js", () => ({
   resolveConnectorSecret: vi.fn(),
@@ -342,6 +345,9 @@ describe("GitHub triage client", () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
       const url = new URL(String(input));
       const path = url.pathname;
+      if (path === "/graphql") {
+        return response({});
+      }
       if (path.endsWith("/reviews")) {
         return response([
           {
@@ -432,6 +438,7 @@ describe("GitHub triage client", () => {
     );
     expect(paths).toEqual([
       "/repos/builder/factory/pulls/7/reviews",
+      "/graphql",
       "/repos/builder/factory/pulls/7/comments",
       "/repos/builder/factory/commits/sha-7/check-runs",
     ]);
@@ -497,9 +504,72 @@ describe("GitHub triage client", () => {
     expect(evidence.reviewsTruncated).toBe(false);
   });
 
+  it("preserves GraphQL completeness when a full page has exactly 100 comments", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/graphql") {
+        return response({
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: {
+                  pageInfo: { hasNextPage: false },
+                  nodes: Array.from({ length: 100 }, (_, index) => ({
+                    id: `PRRT_${index}`,
+                    isResolved: false,
+                    isOutdated: false,
+                    comments: {
+                      pageInfo: { hasNextPage: false },
+                      nodes: [
+                        {
+                          databaseId: index + 1,
+                          body: `comment ${index}`,
+                          createdAt: "2026-08-28T12:00:00Z",
+                          author: { login: "reviewer" },
+                        },
+                      ],
+                    },
+                  })),
+                },
+              },
+            },
+          },
+        });
+      }
+      if (path.endsWith("/reviews") || path.endsWith("/comments")) {
+        return response([]);
+      }
+      if (path.endsWith("/check-runs")) {
+        return response({
+          total_count: 1,
+          check_runs: [
+            {
+              name: "ci",
+              status: "completed",
+              conclusion: "success",
+              completed_at: "2026-08-28T12:02:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+
+    const evidence = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).getPullRequestEvidence(repository, 7, "sha-7");
+
+    expect(evidence.comments).toHaveLength(100);
+    expect(evidence.commentsTruncated).toBe(false);
+  });
+
   it("falls back to Actions workflow runs when Checks permission is unavailable", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
       const path = new URL(String(input)).pathname;
+      if (path === "/graphql") {
+        return response({});
+      }
       if (path.endsWith("/reviews") || path.endsWith("/comments")) {
         return response([]);
       }
@@ -543,6 +613,7 @@ describe("GitHub triage client", () => {
       fetchImpl.mock.calls.map(([input]) => new URL(String(input)).pathname),
     ).toEqual([
       "/repos/builder/factory/pulls/7/reviews",
+      "/graphql",
       "/repos/builder/factory/pulls/7/comments",
       "/repos/builder/factory/commits/sha-7/check-runs",
       "/repos/builder/factory/actions/runs",
@@ -747,6 +818,65 @@ describe("GitHub triage client", () => {
     ).resolves.toEqual({
       number: 44,
       htmlUrl: "https://github.test/issues/44",
+    });
+  });
+
+  it("rejects GraphQL payloads with top-level errors", () => {
+    expect(
+      reviewCommentsFromGraphqlThreads({
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                pageInfo: { hasNextPage: false },
+                nodes: [],
+              },
+            },
+          },
+        },
+        errors: [{ message: "Could not resolve review thread" }],
+      }),
+    ).toBeNull();
+  });
+
+  it("maps GraphQL review threads into flat comments with thread flags", () => {
+    const parsed = reviewCommentsFromGraphqlThreads({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              pageInfo: { hasNextPage: false },
+              nodes: [
+                {
+                  id: "PRRT_kwDOABC",
+                  isResolved: false,
+                  isOutdated: true,
+                  comments: {
+                    pageInfo: { hasNextPage: false },
+                    nodes: [
+                      {
+                        databaseId: 123,
+                        body: "please fix",
+                        createdAt: "2026-09-14T18:00:00.000Z",
+                        path: "src/a.ts",
+                        line: 10,
+                        author: { login: "builder-io-integration[bot]" },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(parsed?.comments).toHaveLength(1);
+    expect(parsed?.comments[0]).toMatchObject({
+      id: "123",
+      isOutdated: true,
+      isResolved: false,
+      threadId: "PRRT_kwDOABC",
     });
   });
 

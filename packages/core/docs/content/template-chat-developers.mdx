@@ -23,14 +23,15 @@ Node.js tooling.
 ### Create the app
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
 cd my-chat-app
+corepack enable
 pnpm install
 ```
 
-This needs [Node.js](https://nodejs.org) 22.22 or later and
-[pnpm](https://pnpm.io) installed first. See [Getting
-started](/docs/getting-started) if you haven't installed either yet.
+This needs [Node.js](https://nodejs.org) 22.22 or later. If `pnpm` is not on
+your `PATH`, run `corepack enable` in the generated app. See [Getting
+started](/docs/getting-started) if you haven't installed Node.js yet.
 
 ### Start the dev server
 
@@ -38,8 +39,9 @@ started](/docs/getting-started) if you haven't installed either yet.
 pnpm dev
 ```
 
-The app opens at `http://localhost:8080`. If it doesn't open automatically,
-visit that URL in your browser.
+The app opens at the local URL printed by `pnpm dev`. If it doesn't open
+automatically, visit that URL in your browser; the port may change when 8080 is
+already in use.
 
 ### Sign in and connect an LLM
 

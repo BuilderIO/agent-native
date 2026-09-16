@@ -121,7 +121,10 @@ const messages = {
         stuck: "Festgefahren",
         clean: "Sauber",
         ineligible: "Nicht berechtigt",
+        merged: "Auf GitHub gemergt",
         reopened: "Nach Update erneut geöffnet",
+        mergeable_as_of:
+          "Mergebar; Factory pingt Builder auf diesem Branch nicht erneut.",
       },
       slack: {
         claimed: "Übernommen",
@@ -376,6 +379,9 @@ const messages = {
     auditSkipped: "{{count}} übersprungen",
     auditStartedCount: "{{count}} gestartet",
     auditSeenBefore: "Schon gesehen",
+    auditMergedOnGitHub: "Auf GitHub gemergt",
+    auditClosedOnGitHub: "Auf GitHub geschlossen",
+    auditDraftOnGitHub: "Entwurf auf GitHub",
     auditNewThisRun: "Neu",
     auditAlreadyStarted: "Bereits gestartet",
     historyTab: "Verlauf",

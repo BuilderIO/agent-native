@@ -448,6 +448,38 @@ instructions Bearer génériques. Le trafic d'enregistrement Gemini Enterprise
 ne passe pas par les règles Agent Gateway. Appliquez donc les règles
 d'authentification et d'autorisation propres à la cible.
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents ne fournit pas de point de terminaison A2A entrant. Utilisez l’adaptateur du framework lorsque Agent-Native doit gérer la surface A2A, l’état du workflow et les approbations, tandis que l’agent hébergé gère sa session, son contexte et ses outils. L’adaptateur crée une session Managed Agents, envoie des événements `user.message` et lit le flux d’événements de la session. Un événement bloquant `agent.tool_use` ou `agent.mcp_tool_use` devient une tâche A2A `input-required` et un événement runtime `approval-request`. Reprenez avec des confirmations structurées explicites dans les métadonnées retournées ; ne déduisez jamais une approbation d’un message :
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` est une référence de coffre pour la clé API Anthropic. L’adaptateur la résout dans le périmètre de l’utilisateur et de l’organisation appelants, puis envoie les en-têtes requis `anthropic-beta: managed-agents-2026-04-01` et `anthropic-version: 2023-06-01`. Enregistrez `anthropic-managed-agents` dans le catalogue des connexions de l’espace de travail pour réutiliser les autorisations existantes pour chaque application. L’adaptateur est monté sur le point d’extension `A2AConfig.handler` habituel :
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## Invocation d'un espace de travail programmatique {#programmatic-invoke}
 
 Pour les espaces de travail natifs d'agent, préférez l'assistant `agentNative` lorsque du code ou un

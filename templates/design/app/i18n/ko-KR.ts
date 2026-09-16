@@ -4,6 +4,10 @@ const messages = {
   ...messagesByLocale["ko-KR"],
   designEditor: {
     ...messagesByLocale["ko-KR"].designEditor,
+    componentInstances: {
+      ...messagesByLocale["ko-KR"].designEditor.componentInstances,
+      restore: "컴포넌트 복원",
+    },
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 검토 댓글을 추가할 수 있음",
     toasts: {
@@ -56,6 +60,9 @@ const messages = {
     placeholder: "피드백을 남겨 주세요…",
     commentingOn: "{{name}}에 댓글 작성",
     emptyState: "아직 검토 댓글이 없습니다.",
+    filter: "댓글 필터",
+    all: "모두",
+    open: "미해결",
     clickToPin: "아무 곳이나 클릭하여 피드백 고정",
     escToExit: "Esc를 눌러 종료",
     newComment: "새 댓글",
@@ -76,6 +83,9 @@ const messages = {
     resolveFailed: "이 스레드를 해결할 수 없습니다",
     deleteComment: "댓글 삭제",
     moreActions: "추가 작업",
+    copyLink: "링크 복사",
+    linkCopied: "링크 복사됨",
+    copyLinkFailed: "링크를 복사할 수 없습니다",
     resolved: "해결됨",
     reviewer: "검토자",
     applyFeedback: "피드백 적용 ({{count}})",

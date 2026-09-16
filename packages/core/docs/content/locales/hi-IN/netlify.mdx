@@ -24,9 +24,11 @@ Netlify पर deploy करने के लिए उसी मौजूदा
 Standalone app के लिए Netlify output build करके static assets और functions deploy करें:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+पहले production deploy से पहले Netlify site की environment variables में `DATABASE_URL` और stable `BETTER_AUTH_SECRET` सेट करें। Local development के PGlite database पर निर्भर न रहें; `DATABASE_URL` को उस persistent PostgreSQL database की ओर point करना चाहिए जिसे deployed function access कर सके।
 
 एक कार्यस्थान के लिए, यह चलाकर एक ही Netlify site से हर ऐप तैनात करें:
 

@@ -1,8 +1,4 @@
-/**
- * App-owned feature-flag definitions. Core intentionally starts with an empty
- * registry: a flag key is part of an app's stable contract, not framework
- * configuration that Core should guess at.
- */
+/** Feature-flag definitions shared by the framework and individual apps. */
 export interface FeatureFlagDefinition {
   key: string;
   /** Boolean flags are always default-off; explicit in operator metadata. */
@@ -40,6 +36,13 @@ export function defineFeatureFlag(
 ): FeatureFlagDefinition {
   return Object.freeze(normalizeDefinition(definition));
 }
+
+/** Framework-owned labs flag available to every app's feature-flag plugin. */
+export const CONNECT_APPS_FLAG = defineFeatureFlag({
+  key: "labs.connectApps",
+  displayName: "Connect apps",
+  description: "Show the experimental app connection surface.",
+});
 
 /** Define a small app-owned feature-flag registry. */
 export function defineFeatureFlags(

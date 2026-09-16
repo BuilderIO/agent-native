@@ -1,12 +1,18 @@
 import {
   MAX_BROWSER_DIAGNOSTIC_CONSOLE_LOGS,
+  MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS,
   MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS,
+  MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH,
   MAX_BROWSER_DIAGNOSTIC_URL_LENGTH,
+  buildBrowserDiagnosticTimeline,
   redactBrowserDiagnosticString,
+  sanitizeBrowserDiagnosticNavigationUrl,
   summarizeBrowserDiagnostics,
   type BrowserDiagnosticConsoleLevel,
   type BrowserDiagnosticConsoleLog,
+  type BrowserDiagnosticInteractionEvent,
+  type BrowserDiagnosticInteractionKind,
   type BrowserDiagnosticNetworkRequest,
   type BrowserDiagnosticsData,
 } from "@shared/browser-diagnostics";
@@ -83,12 +89,40 @@ function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
   ).toUpperCase();
 }
 
+function safeTargetPart(value: string | null): string | null {
+  if (!value || value.length > MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH) {
+    return null;
+  }
+  return /^[A-Za-z0-9_.:-]+$/.test(value) ? value : null;
+}
+
+function describeTarget(target: EventTarget | null): string | null {
+  if (!(target instanceof Element)) return null;
+  const element = target.closest(
+    "button,a,input,textarea,select,[role=button]",
+  ) as Element | null;
+  const candidate = element ?? target;
+  const tag = candidate.tagName.toLowerCase();
+  const id = safeTargetPart(candidate.id);
+  const testId = safeTargetPart(candidate.getAttribute("data-testid"));
+  const name = safeTargetPart(candidate.getAttribute("name"));
+  const selector = id
+    ? `#${id}`
+    : testId
+      ? `[data-testid=${testId}]`
+      : name
+        ? `[name=${name}]`
+        : "";
+  return truncate(`${tag}${selector}`, MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH);
+}
+
 export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
   const startedAt = new Date().toISOString();
   const startedAtMs = Date.now();
   const startedAtPerf = performance.now();
   const consoleLogs: BrowserDiagnosticConsoleLog[] = [];
   const networkRequests: BrowserDiagnosticNetworkRequest[] = [];
+  const interactionEvents: BrowserDiagnosticInteractionEvent[] = [];
   const originalConsole = {
     debug: console.debug,
     log: console.log,
@@ -114,6 +148,25 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
   const elapsed = () =>
     Math.max(0, Math.round(performance.now() - startedAtPerf));
   const timestamp = () => startedAtMs + elapsed();
+
+  const pushInteraction = (
+    kind: BrowserDiagnosticInteractionKind,
+    target?: EventTarget | null,
+    url?: string,
+  ) => {
+    if (!active) return;
+    if (interactionEvents.length >= MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS) {
+      interactionEvents.shift();
+    }
+    const targetDescription = describeTarget(target ?? null);
+    interactionEvents.push({
+      timestampMs: timestamp(),
+      elapsedMs: elapsed(),
+      kind,
+      ...(targetDescription ? { target: targetDescription } : {}),
+      ...(url ? { url: sanitizeBrowserDiagnosticNavigationUrl(url) } : {}),
+    });
+  };
 
   const pushConsole = (
     level: BrowserDiagnosticConsoleLevel,
@@ -305,6 +358,48 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
   window.addEventListener("error", onError);
   window.addEventListener("unhandledrejection", onUnhandledRejection);
 
+  const onClick = (event: MouseEvent) => pushInteraction("click", event.target);
+  const onInput = (event: Event) => pushInteraction("input", event.target);
+  let lastScrollElapsed = -Infinity;
+  const onScroll = (event: Event) => {
+    const currentElapsed = elapsed();
+    if (currentElapsed - lastScrollElapsed < 250) return;
+    lastScrollElapsed = currentElapsed;
+    pushInteraction("scroll", event.target);
+  };
+  const onNavigation = () =>
+    pushInteraction("navigation", null, window.location.href);
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+  const patchedPushState = function patchedPushState(
+    this: History,
+    state: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ) {
+    const result = originalPushState.call(this, state, unused, url);
+    onNavigation();
+    return result;
+  };
+  const patchedReplaceState = function patchedReplaceState(
+    this: History,
+    state: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ) {
+    const result = originalReplaceState.call(this, state, unused, url);
+    onNavigation();
+    return result;
+  };
+  history.pushState = patchedPushState;
+  history.replaceState = patchedReplaceState;
+  document.addEventListener("click", onClick, true);
+  document.addEventListener("input", onInput, true);
+  document.addEventListener("scroll", onScroll, true);
+  window.addEventListener("popstate", onNavigation);
+  window.addEventListener("hashchange", onNavigation);
+  pushInteraction("navigation", null, window.location.href);
+
   const restore = () => {
     window.fetch = originalFetch;
     for (const level of ["debug", "log", "info", "warn", "error"] as const) {
@@ -314,6 +409,17 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
     XMLHttpRequest.prototype.send = originalXhrSend;
     window.removeEventListener("error", onError);
     window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    document.removeEventListener("click", onClick, true);
+    document.removeEventListener("input", onInput, true);
+    document.removeEventListener("scroll", onScroll, true);
+    window.removeEventListener("popstate", onNavigation);
+    window.removeEventListener("hashchange", onNavigation);
+    if (history.pushState === patchedPushState) {
+      history.pushState = originalPushState;
+    }
+    if (history.replaceState === patchedReplaceState) {
+      history.replaceState = originalReplaceState;
+    }
   };
 
   const stop = () => {
@@ -331,10 +437,12 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
       endedAt,
       consoleLogs: [...consoleLogs],
       networkRequests: [...networkRequests],
+      interactionEvents: [...interactionEvents],
     };
     stoppedSnapshot = {
       ...snapshot,
       summary: summarizeBrowserDiagnostics(snapshot),
+      timeline: buildBrowserDiagnosticTimeline(snapshot),
     };
     return stoppedSnapshot;
   };

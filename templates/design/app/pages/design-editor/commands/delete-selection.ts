@@ -1,19 +1,23 @@
-import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
+import type { FrameBounds } from "@shared/canvas-math";
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
   removeCodeLayerNodeFromHtml,
+  type CodeLayerNode,
+  type CodeLayerTreeNode,
 } from "@shared/code-layer";
 import {
   linkedComponentRootForNode,
   COMPONENT_REF_ATTR,
   COMPONENT_ID_ATTR,
 } from "@shared/component-model";
+import { sourceContentHash } from "@shared/source-workspace";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -26,6 +30,7 @@ import {
   removeEmptyGeneratedGroupWrappers,
   resolveCodeLayerNodeFromElementInfo,
   shouldDeleteThroughLiveScreen,
+  bridgeSourceIdForCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
 import type {
   LiveScreenSnapshot,
@@ -53,6 +58,14 @@ export interface DeleteSelectionArgs {
   activeBreakpointWidthStateRef: RefObject<number | undefined>;
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   activeFile: DesignFile;
+  boardFileId?: string | null;
+  boardSelectionWorldBounds?: {
+    screenId: string;
+    selector: string;
+    memberSelectors?: readonly string[];
+    memberSourceIds?: readonly string[];
+    worldBounds: FrameBounds;
+  } | null;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -149,6 +162,8 @@ export function runDeleteSelection({
   activeBreakpointWidthStateRef,
   activeCanvasSourceType,
   activeFile,
+  boardFileId,
+  boardSelectionWorldBounds,
   applyFileContentUpdate,
   applyLocalContentUpdate,
   canEditDesign,
@@ -200,6 +215,7 @@ export function runDeleteSelection({
     string,
     ReturnType<typeof buildCodeLayerProjection>
   >();
+  const sourceContentByFile = new Map<string, string>();
   const targets = candidates.flatMap((candidate) => {
     let projection = projectionsByFile.get(candidate.fileId);
     if (!projection) {
@@ -212,6 +228,7 @@ export function runDeleteSelection({
         source: { kind: "design-file", fileId: candidate.fileId },
       });
       projectionsByFile.set(candidate.fileId, projection);
+      sourceContentByFile.set(candidate.fileId, content);
     }
     if (
       !projection.nodes.some(
@@ -286,6 +303,111 @@ export function runDeleteSelection({
         : scoped
           ? "designEditor.componentInstances.linkedEditScopeUnsupported"
           : "designEditor.componentInstances.linkedStructureUnsupported";
+    const first = targets[0]!;
+    if (
+      activeCanvasSourceType === "inline" &&
+      !scoped &&
+      !unresolvedTarget &&
+      applyLinkedComponentEdit &&
+      targets.length === 1 &&
+      first.root?.id === first.node.id &&
+      first.root.dataAttributes[COMPONENT_ID_ATTR] &&
+      first.node.dataAttributes["data-agent-native-node-id"]
+    ) {
+      const mainNodeId = first.node.dataAttributes["data-agent-native-node-id"];
+      const selectedElementMatches = Boolean(
+        selectedElement &&
+        (selectedElement.sourceId === mainNodeId ||
+          selectedElement.sourceLayerIdentity?.nodeId === mainNodeId),
+      );
+      const boundingRect = selectedElementMatches
+        ? selectedElement?.boundingRect
+        : undefined;
+      const hasBoundingRect =
+        boundingRect !== undefined &&
+        [
+          boundingRect.x,
+          boundingRect.y,
+          boundingRect.width,
+          boundingRect.height,
+        ].every(Number.isFinite) &&
+        boundingRect.width > 0 &&
+        boundingRect.height > 0;
+      const currentSelectors = [
+        selectedElement?.runtimeSelector,
+        selectedElement?.selector,
+        first.node.selector,
+        ...first.node.selectors,
+      ].filter((selector): selector is string => Boolean(selector));
+      const boardWorldBounds =
+        hasBoundingRect &&
+        boardFileId &&
+        first.fileId === boardFileId &&
+        selectedElement?.sourceLayerIdentity
+          ? getCurrentBoardSelectionWorldBounds({
+              selection: boardSelectionWorldBounds ?? null,
+              boardFileId,
+              ownerFileId: first.fileId,
+              selectedLayerId: first.node.id,
+              sourceLayerIdentity: selectedElement.sourceLayerIdentity,
+              currentSelectors,
+              currentSourceIds: [bridgeSourceIdForCodeLayerNode(first.node)],
+            })
+          : null;
+      const deletionGeometry =
+        hasBoundingRect &&
+        boundingRect &&
+        (!boardFileId || first.fileId !== boardFileId || boardWorldBounds)
+          ? {
+              fileId: first.fileId,
+              mainNodeId,
+              sourceVersionHash: sourceContentHash(
+                sourceContentByFile.get(first.fileId) ?? "",
+              ),
+              boundingRect: {
+                x: boundingRect.x,
+                y: boundingRect.y,
+                width: boundingRect.width,
+                height: boundingRect.height,
+              },
+              ...(boardWorldBounds ? { worldBounds: boardWorldBounds } : {}),
+            }
+          : undefined;
+      applyLinkedComponentEdit(first.fileId, mainNodeId, {
+        kind: "deleteMain",
+        ...(deletionGeometry ? { deletionGeometry } : {}),
+      });
+      return;
+    }
+    if (
+      activeCanvasSourceType === "inline" &&
+      !scoped &&
+      !unresolvedTarget &&
+      applyLinkedComponentEdit &&
+      first.root?.dataAttributes[COMPONENT_ID_ATTR] &&
+      targets.every(
+        (target) =>
+          target.fileId === first.fileId &&
+          target.root?.id === first.root?.id &&
+          target.node.id !== target.root?.id &&
+          target.node.dataAttributes["data-agent-native-node-id"],
+      )
+    ) {
+      applyLinkedComponentEdit(
+        first.fileId,
+        first.root.dataAttributes["data-agent-native-node-id"],
+        {
+          kind: "structure",
+          intents: targets.map((target) => ({
+            kind: "deleteNode",
+            target: {
+              nodeId: target.node.dataAttributes["data-agent-native-node-id"],
+            },
+          })),
+        },
+      );
+      return;
+    }
     if (
       activeCanvasSourceType !== "inline" ||
       scoped ||
@@ -300,7 +422,6 @@ export function runDeleteSelection({
       toast.error(t(message));
       return;
     }
-    const first = targets[0]!;
     applyLinkedComponentEdit(
       first.fileId,
       first.node.dataAttributes["data-agent-native-node-id"]!,

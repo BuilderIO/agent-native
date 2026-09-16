@@ -432,6 +432,38 @@ Agent Registry 也可以發佈代理端點。其 HTTP+JSON 繫結使用供應商
 Enterprise 的註冊流量不會經過 Agent Gateway 政策，因此請套用目標自己的
 驗證和授權政策。
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents 不提供輸入的 A2A 端點。當 Agent-Native 管理 A2A 介面、工作流程狀態與核准，而託管代理管理自己的工作階段、內容與工具時，請使用框架轉接器。轉接器會建立 Managed Agents 工作階段、傳送 `user.message` 事件，並讀取工作階段事件串流。阻塞的 `agent.tool_use` 或 `agent.mcp_tool_use` 事件會變成 A2A `input-required` 工作與 `approval-request` 執行階段事件。使用傳回中繼資料內明確的結構化確認來繼續；不要從訊息推斷核准：
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` 是儲存在 Vault 中的 Anthropic API 金鑰參照。轉接器會在呼叫者使用者與組織範圍內解析它，並傳送必要的 `anthropic-beta: managed-agents-2026-04-01` 與 `anthropic-version: 2023-06-01` 標頭。在工作區連線目錄中註冊 `anthropic-managed-agents`，即可在每個應用程式重複使用現有的連線授權。轉接器會掛載在一般的 `A2AConfig.handler` 接點：
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## 程式化工作區呼叫 {#programmatic-invoke}
 
 對於 Agent-Native 工作區，在程式碼或 a 時更喜歡 `agentNative` 幫助器

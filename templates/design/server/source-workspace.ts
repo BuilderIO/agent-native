@@ -722,6 +722,11 @@ export async function writeInlineSourceFilesBatch(args: {
     content: string;
     expectedVersionHash: string;
   }>;
+  /**
+   * Require the transaction to re-check the design-wide HTML membership set.
+   * Omit this for batches that intentionally touch only a subset of files.
+   */
+  expectedHtmlFileIds?: readonly string[];
 }): Promise<{
   files: Array<{
     id: string;
@@ -748,6 +753,20 @@ export async function writeInlineSourceFilesBatch(args: {
   ) {
     throw new SourceWorkspaceEditConflictError(
       "The source batch contains an invalid or duplicate file identity.",
+    );
+  }
+  if (
+    args.expectedHtmlFileIds !== undefined &&
+    (!Array.isArray(args.expectedHtmlFileIds) ||
+      args.expectedHtmlFileIds.length === 0 ||
+      args.expectedHtmlFileIds.some(
+        (id) => typeof id !== "string" || id.trim().length === 0,
+      ) ||
+      new Set(args.expectedHtmlFileIds).size !==
+        args.expectedHtmlFileIds.length)
+  ) {
+    throw new SourceWorkspaceEditConflictError(
+      "The expected HTML source file set contains an invalid or duplicate file identity.",
     );
   }
 
@@ -853,6 +872,36 @@ export async function writeInlineSourceFilesBatch(args: {
       }
 
       await transaction(async (tx) => {
+        if (args.expectedHtmlFileIds !== undefined) {
+          // ponytail: table-wide lock; use per-design advisory locks across membership writers if contention grows.
+          await tx.execute({
+            sql: "LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE",
+            args: [],
+          });
+          const currentHtmlFiles = await tx.execute({
+            sql: "SELECT id FROM design_files WHERE design_id = ? AND LOWER(file_type) = 'html' ORDER BY id",
+            args: [args.designId],
+          });
+          const currentHtmlFileIds = currentHtmlFiles.rows.map((row) => {
+            const id = (row as { id?: unknown }).id;
+            if (typeof id !== "string" || id.length === 0) {
+              throw new SourceWorkspaceEditConflictError(
+                "The design's HTML source file set could not be verified. Refresh the design and retry.",
+              );
+            }
+            return id;
+          });
+          const expectedHtmlFileIds = new Set(args.expectedHtmlFileIds);
+          if (
+            currentHtmlFileIds.length !== expectedHtmlFileIds.size ||
+            currentHtmlFileIds.some((id) => !expectedHtmlFileIds.has(id))
+          ) {
+            throw new SourceWorkspaceEditConflictError(
+              "The design's HTML source file set changed while the batch was being prepared. Refresh the design and retry.",
+            );
+          }
+        }
+
         for (const { item, lease } of prepared) {
           const current = item.currentFile;
           const values = [

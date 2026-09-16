@@ -68,10 +68,21 @@ const messages = {
     "Creating or reusing your Builder.io account. This usually takes a few seconds.",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI credits and cloud code changes are ready to use.",
+  "onboarding.builderReadyCreditsOnly":
+    "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
+  "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
   "onboarding.capability.llm.keySummary":
     "Connect an AI provider or local model",
   "onboarding.capability.fileStorage.keySummary":
     "Builder storage or an S3-compatible bucket",
+  "onboarding.fileStorage.title": "Choose file storage",
+  "onboarding.fileStorage.description":
+    "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
+  "onboarding.fileStorage.custom": "Use custom storage keys",
+  "onboarding.fileStorage.customDescription":
+    "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",
   "onboarding.capability.voiceInput.keySummary":
     "Browser speech recognition or speech-to-text",
@@ -136,6 +147,21 @@ const messages = {
   "common.retry": "Retry",
   "common.save": "Save",
   "agents.hostedAgent": "Hosted agent",
+  "agents.provider": "Provider",
+  "agents.providerA2A": "A2A (Foundry, Gemini, or custom)",
+  "agents.providerAnthropic": "Anthropic Managed Agents",
+  "agents.agentId": "Agent ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "Environment ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API base URL (optional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Complete the Anthropic Managed Agents fields.",
+  "agents.managedAgentCheck":
+    "Connection is checked when you delegate from chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent saved. Delegate to it from chat.",
   "agents.cardUrl": "Agent card URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Authentication",
@@ -384,6 +410,8 @@ const messages = {
   "error.stopped": "The agent stopped before finishing",
   "errorMessages.agentConnection":
     "The agent connection was interrupted. Check your connection and retry.",
+  "errorMessages.attachmentPasswordProtected":
+    "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.",
   "errorMessages.builderAuthentication":
     "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
   "errorMessages.builderModelUnauthorized":
@@ -398,6 +426,10 @@ const messages = {
     "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
   "errorMessages.invalidToolSchema":
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
+  "errorMessages.malformedRequest":
+    "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.malformedRequestAttachment":
+    "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
   "errorMessages.noProviderConnected":
     "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
@@ -731,6 +763,7 @@ const messages = {
   "widget.dataInsights": "Data insights",
   "widget.dataTable": "Data table",
   "widget.downloadCsv": "Download CSV",
+  "widget.connectProvider": "Connect {{provider}}",
   "widget.loadingToolResult": "Loading tool result",
   "widget.noRows": "No rows",
   "widget.points": "{{formattedCount}} points",

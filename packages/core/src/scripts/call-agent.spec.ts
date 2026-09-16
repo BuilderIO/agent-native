@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
+import type { ActionRunContext } from "../action.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -8,6 +9,7 @@ import {
 import type { TrackingEvent } from "../tracking/types.js";
 
 const callAgentMock = vi.hoisted(() => vi.fn());
+const managedHandlerMock = vi.hoisted(() => vi.fn());
 const invokeActionMock = vi.hoisted(() => vi.fn());
 const findAgentMock = vi.hoisted(() =>
   vi.fn(async () => ({
@@ -45,6 +47,12 @@ vi.mock("../server/agent-discovery.js", () => ({
 vi.mock("../a2a/remote-agent-auth.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../a2a/remote-agent-auth.js")>()),
   resolveRemoteAgentToken: resolveRemoteAgentTokenMock,
+}));
+
+vi.mock("../a2a/anthropic-managed-agents.js", () => ({
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY:
+    "agent-native/anthropic-managed-agents",
+  createAnthropicManagedAgentsHandler: managedHandlerMock,
 }));
 
 vi.mock("../a2a/client.js", () => ({
@@ -153,6 +161,7 @@ describe("call-agent action", () => {
       url: "https://slides.agent-native.test",
     });
     resolveRemoteAgentTokenMock.mockResolvedValue(undefined);
+    managedHandlerMock.mockReset();
     delete process.env.NETLIFY;
     delete process.env.NETLIFY_LOCAL;
     delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
@@ -178,6 +187,107 @@ describe("call-agent action", () => {
     expect(tool.description).toContain(
       "Never put a create, update, delete, send, save, publish, or any other side effect in action",
     );
+  });
+
+  it("routes a managed-agent manifest through its A2A handler adapter", async () => {
+    const handler = vi.fn(async () => ({
+      message: {
+        role: "agent" as const,
+        parts: [{ type: "text" as const, text: "managed answer" }],
+      },
+    }));
+    managedHandlerMock.mockReturnValueOnce(handler);
+    findAgentMock.mockResolvedValueOnce({
+      id: "anthropic-research",
+      name: "Anthropic Research",
+      url: "https://api.anthropic.com",
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    });
+    const { run } = await import("./call-agent.js");
+    const send = vi.fn();
+    const actionContext: ActionRunContext = {
+      caller: "tool",
+      send,
+      threadId: "thread-managed",
+      turnId: "turn-managed",
+    };
+
+    const result = await run(
+      { agent: "anthropic-research", message: "Summarize this repository." },
+      actionContext,
+      "dispatch",
+    );
+
+    expect(result).toBe("managed answer");
+    expect(callAgentMock).not.toHaveBeenCalled();
+    expect(managedHandlerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+        apiBaseUrl: "https://api.anthropic.com",
+      }),
+    );
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "user",
+        parts: [{ type: "text", text: "Summarize this repository." }],
+      }),
+      expect.objectContaining({
+        taskId: "turn-managed",
+        contextId: "thread-managed",
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call",
+        agent: "Anthropic Research",
+        status: "done",
+      }),
+    );
+  });
+
+  it("passes a managed continuation token without exposing the session ID", async () => {
+    const handler = vi.fn(async () => ({
+      message: {
+        role: "agent" as const,
+        parts: [{ type: "text" as const, text: "Approval required" }],
+        metadata: {
+          "agent-native/anthropic-managed-agents": {
+            continuationToken: "opaque-fixture-token",
+            pendingToolUseIds: ["tool_fixture"],
+          },
+        },
+      },
+      taskState: "input-required" as const,
+    }));
+    managedHandlerMock.mockReturnValueOnce(handler);
+    findAgentMock.mockResolvedValueOnce({
+      id: "anthropic-research",
+      name: "Anthropic Research",
+      url: "https://api.anthropic.com",
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    });
+
+    const { run } = await import("./call-agent.js");
+    const result = await run({
+      agent: "anthropic-research",
+      message: "Inspect the working tree.",
+    });
+
+    expect(result).toContain('taskId="opaque-fixture-token"');
+    expect(result).not.toContain("ses_fixture");
+    expect(result).not.toContain("in session");
   });
 
   it("forwards the user's exact downstream action authorization", async () => {
@@ -689,6 +799,114 @@ describe("call-agent action", () => {
       unregisterTrackingProvider("qa-a2a-invocation");
     }
   });
+
+  it("fails loudly when the delegation target cannot be resolved", async () => {
+    const discovery = await import("../server/agent-discovery.js");
+    vi.mocked(discovery.findAgent).mockResolvedValueOnce(undefined);
+    vi.mocked(discovery.discoverAgents).mockResolvedValueOnce([
+      { id: "plan", name: "Plan", description: "", url: "", color: "" },
+    ]);
+    const logged: string[] = [];
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation((...args: unknown[]) => {
+        logged.push(args.join(" "));
+      });
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-a2a-not-found",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    try {
+      const { run } = await import("./call-agent.js");
+      // A returned "Error: ..." string is scored as a SUCCESSFUL tool call,
+      // which is what let the model retell an unresolved target as downtime.
+      const outcome = await run(
+        { agent: "nosuchapp", message: "Create the rollout plan" },
+        { send: vi.fn(), threadId: "t", runId: "r", turnId: "u" } as any,
+        "brain",
+      ).then(
+        (resolved) => ({ resolved }) as const,
+        (error) => ({ error }) as const,
+      );
+
+      expect("error" in outcome).toBe(true);
+      const error = (outcome as { error: any }).error;
+      expect(error.name).toBe("A2AInvocationError");
+      expect(error.errorCode).toBe("agent_not_found");
+      expect(error.message).toContain("nosuchapp");
+      expect(error.message).toContain("plan");
+      // The reported production failure: the model narrated a resolution
+      // failure as "The Plans app is temporarily unavailable."
+      expect(error.message).toMatch(/not an outage/i);
+
+      expect(
+        logged.some((line) => line.includes("Unresolvable delegation target")),
+      ).toBe(true);
+      expect(
+        tracked.find((event) => event.name === "$a2a_invocation")?.properties,
+      ).toMatchObject({
+        caller_app: "brain",
+        target_app: "nosuchapp",
+        status: "error",
+        terminal_code: "agent_not_found",
+        mode: "message",
+      });
+    } finally {
+      unregisterTrackingProvider("qa-a2a-not-found");
+      consoleError.mockRestore();
+    }
+  });
+
+  it.each([
+    {
+      label: "direct action",
+      args: { action: "gong-calls" },
+      mode: "direct_action",
+    },
+    { label: "task poll", args: { taskId: "task-1" }, mode: "task_poll" },
+  ])(
+    "reports the caller's own mode when a $label target cannot be resolved",
+    async ({ args, mode }) => {
+      // Target resolution runs before the action/taskId dispatch, so this
+      // branch is reachable in every mode and must not label them all
+      // "message" — that would misattribute the failure in $a2a_invocation.
+      const discovery = await import("../server/agent-discovery.js");
+      vi.mocked(discovery.findAgent).mockResolvedValueOnce(undefined);
+      vi.mocked(discovery.discoverAgents).mockResolvedValueOnce([]);
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const tracked: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: "qa-a2a-not-found-mode",
+        track(event) {
+          tracked.push(event);
+        },
+      });
+
+      try {
+        const { run } = await import("./call-agent.js");
+        await expect(
+          run(
+            { agent: "nosuchapp", ...args },
+            { send: vi.fn() } as any,
+            "brain",
+          ),
+        ).rejects.toMatchObject({ errorCode: "agent_not_found" });
+
+        expect(
+          tracked.find((event) => event.name === "$a2a_invocation")?.properties,
+        ).toMatchObject({ mode, terminal_code: "agent_not_found" });
+      } finally {
+        unregisterTrackingProvider("qa-a2a-not-found-mode");
+        consoleError.mockRestore();
+      }
+    },
+  );
 
   it("does not report an empty delegated response as success", async () => {
     callAgentMock.mockResolvedValueOnce("");

@@ -30,6 +30,7 @@ import {
   IconInfoCircle,
   IconMessage,
   IconHistory,
+  IconLogout,
 } from "@tabler/icons-react";
 import React, {
   createContext,
@@ -48,6 +49,7 @@ import { sendToAgentChat } from "./agent-chat.js";
 import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
 import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
 import { useT } from "./i18n.js";
+import { signOut, SIGN_OUT_SEARCH_TERMS } from "./sign-out.js";
 import { cn } from "./utils.js";
 
 // ─── Context ────────────────────────────────────────────────────────────────
@@ -456,6 +458,17 @@ export function CommandMenu({
       .toLowerCase()
       .includes(search.toLowerCase());
   const showAboutRow = showAbout && aboutRowMatches;
+  const signOutLabel = t("agentChat.auth.logOut");
+  const showSignOutRow =
+    !search ||
+    [signOutLabel, ...SIGN_OUT_SEARCH_TERMS]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  const handleSignOut = useCallback(() => {
+    onOpenChange(false);
+    void signOut();
+  }, [onOpenChange]);
 
   // Filter children based on search
   const filterChildren = (nodes: ReactNode): ReactNode => {
@@ -567,11 +580,29 @@ export function CommandMenu({
         </>
       )}
 
+      {showSignOutRow && (
+        <>
+          {(hasResults || showChangelogRow || showAboutRow) && (
+            <CommandSeparator />
+          )}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={handleSignOut}
+            >
+              <IconLogout className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
+              <span>{signOutLabel}</span>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
       {showAgentFallback && (
         <>
           {(hasResults ||
             showChangelogRow ||
             showAboutRow ||
+            showSignOutRow ||
             Boolean(results)) && <CommandSeparator />}
           <div className="p-1">
             <CommandItemPrimitive

@@ -117,4 +117,8 @@ ID 및 조직 기록은 일반 로컬 인증에 계속 사용할 수 있습니�
 - [보안 및 데이터 범위](/docs/security)
 - [멀티 앱 워크스페이스](/docs/multi-app-workspace)
 
-OIDC 또는 SAML을 통한 기업 로그인은 앱 간 ID 페더레이션과 다릅니다. [관리 배포 가이드](/docs/administered-deployments)에서 기업 모델을 확인하세요. 브라우저의 Agent-Native 로그인은 계속 제거된 상태입니다.
+OIDC 또는 SAML을 통한 기업 로그인은 앱 간 ID 페더레이션과 다릅니다. [관리 배포 가이드](/docs/administered-deployments)에서 기업 모델을 확인하세요. `browser.identity-sso`가 활성화되면 앱은 조용한 `prompt=none` 확인을 시도하고 일반 로컬 로그인 양식을 대체 수단으로 유지합니다. [Cross-App Connect 설계](/docs/cross-app-connect-design)를 참고하세요.
+
+## 브라우저 ID SSO 롤아웃 가이드
+
+먼저 `browser.identity-sso`를 테스트 이메일 하나에만 활성화합니다. Dispatch에 로그인하고 대상 앱에서 로그아웃한 뒤 다시 로드하여 조용한 확인을 점검합니다. Hub 세션 없이 반복하여 `login_required`가 로컬 양식으로 돌아오는 것을 확인한 뒤 대상을 넓힙니다. 처음 활성화할 때 기존 세션을 한 번 취소해야 할 수 있습니다.

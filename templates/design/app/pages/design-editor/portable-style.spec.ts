@@ -144,6 +144,25 @@ describe("applyPortableStyleSnapshotToHtml", () => {
     );
     expect(result).toBe(DEST_BARE_SCREEN);
   });
+
+  it("recognizes a raw legacy Group wrapper when carrying portable styles", () => {
+    const content = `<!doctype html><html><body><div data-agent-native-node-id="an-legacygroup" layer-name="Group" data-agent-native-preserve-styles="true"></div></body></html>`;
+    const result = applyPortableStyleSnapshotToHtml(content, "an-legacygroup", {
+      version: 1,
+      rootSourceId: "an-legacygroup",
+      nodes: [
+        {
+          sourceId: "an-legacygroup",
+          path: [],
+          styles: { color: "rgb(255, 255, 255)" },
+        },
+      ],
+    });
+
+    expect(result).toContain('layer-name="Group"');
+    expect(result).toContain('data-agent-native-preserve-styles="true"');
+    expect(result).not.toContain('data-agent-native-clone-root="true"');
+  });
 });
 
 // Exercise the actual source capture and apply functions in Chromium.
@@ -154,7 +173,7 @@ const requireFromPlaywright = createRequire(
   requireFromDesign.resolve("@playwright/test"),
 );
 const { chromium } = requireFromPlaywright("playwright");
-const { transformSync } = requireFromDesign("esbuild");
+const { buildSync, transformSync } = requireFromDesign("esbuild");
 const SPEC_DIR = path.dirname(fileURLToPath(import.meta.url));
 const BRIDGE_SOURCE =
   process.env.PORTABLE_CAPTURE_SOURCE ||
@@ -178,10 +197,16 @@ function extractCapture(sourcePath: string): string {
 }
 
 function loadPortableStyleSource(): string {
-  return transformSync(readFileSync(PORTABLE_STYLE_SOURCE, "utf8"), {
-    loader: "ts",
+  const result = buildSync({
+    entryPoints: [PORTABLE_STYLE_SOURCE],
+    absWorkingDir: SPEC_DIR,
+    alias: { "@shared": path.resolve(SPEC_DIR, "../../../shared") },
+    bundle: true,
     format: "cjs",
-  }).code;
+    platform: "browser",
+    write: false,
+  });
+  return result.outputFiles[0]?.text ?? "";
 }
 
 describe("portable-style source capture and rendered Chromium behavior", () => {

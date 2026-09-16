@@ -73,6 +73,15 @@ export function ReviewCommentsPanel({
           moreActionsLabel={t("review.moreActions")}
           resolvedLabel={t("review.resolved")}
           reviewerLabel={t("review.reviewer")}
+          showFilter
+          filterLabel={t("review.filter")}
+          allCommentsLabel={t("review.all")}
+          openCommentsLabel={t("review.open")}
+          resolvedCommentsLabel={t("review.resolved")}
+          canCopyLink
+          copyLinkLabel={t("review.copyLink")}
+          linkCopiedLabel={t("review.linkCopied")}
+          copyLinkFailedLabel={t("review.copyLinkFailed")}
           includeResolved
           showHeader={false}
           variant="plain"

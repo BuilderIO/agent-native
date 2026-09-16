@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { resetAppConfigForTests } from "../app-config/index.js";
 
 const resolveCredentialMock = vi.hoisted(() => vi.fn());
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
@@ -18,6 +20,11 @@ import {
 } from "./remote-agent-auth.js";
 
 describe("remote hosted-agent auth", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetAppConfigForTests();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     clearRemoteAgentTokenCache();
@@ -40,6 +47,10 @@ describe("remote hosted-agent auth", () => {
   });
 
   it("requests and caches an OAuth client-credentials token until expiry", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify({ apps: [{ port: 19100 }] }),
+    );
     ssrfSafeFetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({ access_token: "hosted-token", expires_in: 3_600 }),
@@ -62,15 +73,19 @@ describe("remote hosted-agent auth", () => {
     ).resolves.toBe("hosted-token");
 
     expect(ssrfSafeFetchMock).toHaveBeenCalledTimes(1);
-    const [, request] = ssrfSafeFetchMock.mock.calls[0] as [
+    const [, request, fetchOptions] = ssrfSafeFetchMock.mock.calls[0] as [
       string,
       RequestInit,
+      { allowedPrivateOrigins?: string[] },
     ];
     expect(request.method).toBe("POST");
     expect(request.headers).toMatchObject({
       Accept: "application/json",
       "Content-Type": "application/x-www-form-urlencoded",
     });
+    expect(fetchOptions.allowedPrivateOrigins).toContain(
+      "http://127.0.0.1:19100",
+    );
     expect(
       Object.fromEntries(new URLSearchParams(String(request.body))),
     ).toEqual({

@@ -3,10 +3,16 @@ export interface ReviewAnchorPoint {
   yPct: number;
 }
 
+export interface ReviewCanvasPoint {
+  x: number;
+  y: number;
+}
+
 export interface DesignReviewAnchor {
   nodeId?: string;
   selector?: string;
   point: ReviewAnchorPoint;
+  canvasPoint?: ReviewCanvasPoint;
 }
 
 export interface ResolvedReviewAnchor {
@@ -106,10 +112,26 @@ export function parseReviewAnchor(value: unknown): DesignReviewAnchor | null {
   const nodeId = typeof record.nodeId === "string" ? record.nodeId.trim() : "";
   const selector =
     typeof record.selector === "string" ? record.selector.trim() : "";
+  const canvasPointRecord =
+    record.canvasPoint &&
+    typeof record.canvasPoint === "object" &&
+    !Array.isArray(record.canvasPoint)
+      ? (record.canvasPoint as Record<string, unknown>)
+      : null;
+  const canvasX = canvasPointRecord?.x;
+  const canvasY = canvasPointRecord?.y;
+  const canvasPoint =
+    typeof canvasX === "number" &&
+    Number.isFinite(canvasX) &&
+    typeof canvasY === "number" &&
+    Number.isFinite(canvasY)
+      ? { x: canvasX, y: canvasY }
+      : undefined;
   return {
     ...(nodeId ? { nodeId } : {}),
     ...(selector ? { selector } : {}),
     point: { xPct, yPct },
+    ...(canvasPoint ? { canvasPoint } : {}),
   };
 }
 

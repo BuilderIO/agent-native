@@ -59,6 +59,7 @@ export interface PendingStructureVerificationSource {
 export interface PendingStructureVerificationSession {
   requestId: number;
   cancelled: boolean;
+  abortController: AbortController;
   edits: PendingLiveStructureEdit[];
   sources: PendingStructureVerificationSource[];
 }

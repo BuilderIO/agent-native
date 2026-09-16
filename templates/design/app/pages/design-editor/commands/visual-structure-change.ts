@@ -25,6 +25,10 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import {
+  resolveLinkedComponentStructureTarget,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "./selection-publication";
@@ -32,6 +36,7 @@ import {
 export interface VisualStructureChangeArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -86,6 +91,7 @@ export function runVisualStructureChange(
     setSelectedElement,
     setSelectedLayerIdsState,
     t,
+    applyLinkedComponentEdit,
   }: VisualStructureChangeArgs,
   selector: string,
   anchorSelector: string,
@@ -144,26 +150,52 @@ export function runVisualStructureChange(
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
     : resolveBridgeNode(selector, details?.sourceId);
   const anchorNode = resolveBridgeNode(anchorSelector, details?.anchorSourceId);
+  const moveIntent = {
+    kind: "moveNode" as const,
+    target: targetNode
+      ? {
+          nodeId: targetNode.id,
+        }
+      : details?.sourceId
+        ? { nodeId: details.sourceId, selector }
+        : { selector },
+    anchor: anchorNode
+      ? {
+          nodeId: anchorNode.id,
+        }
+      : details?.anchorSourceId
+        ? { nodeId: details.anchorSourceId, selector: anchorSelector }
+        : { selector: anchorSelector },
+    placement,
+  };
+  const linkedMoveIntent =
+    targetNode?.dataAttributes["data-agent-native-node-id"] &&
+    anchorNode?.dataAttributes["data-agent-native-node-id"]
+      ? {
+          kind: "moveNode" as const,
+          target: {
+            nodeId: targetNode.dataAttributes["data-agent-native-node-id"],
+          },
+          anchor: {
+            nodeId: anchorNode.dataAttributes["data-agent-native-node-id"],
+          },
+          placement,
+        }
+      : null;
+  const linkedComponentTarget =
+    applyLinkedComponentEdit && linkedMoveIntent
+      ? resolveLinkedComponentStructureTarget({
+          content: baseContent,
+          source,
+          intents: [linkedMoveIntent],
+        })
+      : null;
   const patch = applyVisualEdit(
     baseContent,
-    {
-      kind: "moveNode",
-      // Keep the bridge's stable source id on the fallback: resolving by
-      // selector alone fails for stamped nodes, and the resolver tries
-      // nodeId first before falling back to the selector anyway.
-      target: targetNode
-        ? { nodeId: targetNode.id }
-        : details?.sourceId
-          ? { nodeId: details.sourceId, selector }
-          : { selector },
-      anchor: anchorNode
-        ? { nodeId: anchorNode.id }
-        : details?.anchorSourceId
-          ? { nodeId: details.anchorSourceId, selector: anchorSelector }
-          : { selector: anchorSelector },
-      placement,
-    },
-    { source },
+    linkedComponentTarget ? linkedMoveIntent! : moveIntent,
+    linkedComponentTarget
+      ? { source, allowMainComponentStructure: true }
+      : { source },
   );
   dndHostLog("persist:rewrite", {
     status: patch.result.status,
@@ -263,6 +295,21 @@ export function runVisualStructureChange(
         elementInfo?.sourceId ??
         (targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : undefined),
     );
+  if (linkedComponentTarget && applyLinkedComponentEdit) {
+    applyLinkedComponentEdit(
+      linkedComponentTarget.fileId,
+      linkedComponentTarget.nodeId,
+      nextContent === patch.content
+        ? { kind: "structure", intents: [linkedMoveIntent!] }
+        : {
+            kind: "structure",
+            before: baseContent,
+            after: nextContent,
+            ...(movedNodeAttrId ? { selectionNodeIds: [movedNodeAttrId] } : {}),
+          },
+    );
+    return true;
+  }
   const publication = applyLocalContentUpdate(
     nextContent,
     absoluteOffsetWasPoisoned

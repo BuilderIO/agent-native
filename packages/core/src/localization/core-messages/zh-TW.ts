@@ -66,9 +66,20 @@ const messages: AgentChatTranslation = {
   "onboarding.builderProvisioningDescription":
     "正在建立或重新使用您的 Builder.io 帳戶，通常需要幾秒鐘。",
   "onboarding.builderConnectionDescription": "在新視窗中按一下即可完成連線。",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI 點數與雲端程式碼變更已準備就緒。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI 點數已準備就緒。雲端程式碼編輯需要在背景代理程式設定中設定 Builder 專案。",
+  "onboarding.openBackgroundAgentSettings": "開啟背景代理程式設定",
   "onboarding.capability.llm.keySummary": "連線 AI 提供者或本機模型",
   "onboarding.capability.fileStorage.keySummary":
     "Builder 儲存空間或相容 S3 的儲存桶",
+  "onboarding.fileStorage.title": "選擇檔案儲存空間",
+  "onboarding.fileStorage.description":
+    "選擇 Builder 託管儲存空間，或為自己的相容 S3 儲存桶使用自訂儲存金鑰。",
+  "onboarding.fileStorage.custom": "使用自訂儲存金鑰",
+  "onboarding.fileStorage.customDescription":
+    "設定具有穩定公開 URL 的相容 S3 儲存桶。",
   "onboarding.capability.voiceInput.label": "語音輸入",
   "onboarding.capability.voiceInput.keySummary": "瀏覽器語音辨識或語音轉文字",
   "onboarding.capability.voiceInput.why":
@@ -131,6 +142,19 @@ const messages: AgentChatTranslation = {
   "common.retry": "重試",
   "common.save": "儲存",
   "agents.hostedAgent": "託管代理",
+  "agents.provider": "提供者",
+  "agents.providerA2A": "A2A 代理程式（Foundry、Gemini 或自訂）",
+  "agents.providerAnthropic": "Anthropic 託管代理程式",
+  "agents.agentId": "代理程式 ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "環境 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API 基底 URL（選填）",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "請完成 Anthropic 託管代理程式欄位。",
+  "agents.managedAgentCheck": "從聊天委派時會檢查連線。",
+  "agents.managedAgentSaved":
+    "Anthropic 託管代理程式已儲存。可從聊天向它委派工作。",
   "agents.cardUrl": "代理卡 URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "驗證",
@@ -365,6 +389,8 @@ const messages: AgentChatTranslation = {
   "error.failed": "代理發生錯誤",
   "error.stopped": "代理在完成前已停止",
   "errorMessages.agentConnection": "代理連線已中斷。請檢查網路連線後重試。",
+  "errorMessages.attachmentPasswordProtected":
+    "此 PDF 受密碼保護，無法讀取。請移除密碼保護或貼上相關文字後重試。",
   "errorMessages.builderAuthentication":
     "Builder 拒絕了已連線的憑證。請在設定中重新連線至 Builder.io，然後重試。",
   "errorMessages.builderModelUnauthorized":
@@ -379,6 +405,10 @@ const messages: AgentChatTranslation = {
     "代理連線在完成前逾時。您可以從已完成的部分繼續，也可以重試。",
   "errorMessages.invalidToolSchema":
     "工具結構描述無效，因此模型在要求開始前便拒絕了要求。您可以略過無效工具並重試要求。",
+  "errorMessages.malformedRequest":
+    "模型供應商認為此要求格式有誤而予以拒絕，因此未重試。請重試，若問題持續發生，請開始新的對話。",
+  "errorMessages.malformedRequestAttachment":
+    "模型拒絕了一個附加檔案，因此這則訊息並未送出。請移除附件後重試：PDF、純文字檔案以及 JPEG、PNG、GIF、WebP 圖片可直接讀取；其他格式需要先上傳再以連結引用。",
   "errorMessages.noProviderConnected":
     "尚未連接任何 LLM 提供商。開啟設定 > 代理程式 > AI 提供商，然後連接 Builder.io（提供免費方案）或新增提供商金鑰。",
   "errorMessages.openBuilderSpaceSettings": "開啟 Builder 空間設定",
@@ -701,6 +731,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "資料洞察",
   "widget.dataTable": "資料表",
   "widget.downloadCsv": "下載 CSV",
+  "widget.connectProvider": "連接 {{provider}}",
   "widget.loadingToolResult": "正在載入工具結果",
   "widget.noRows": "沒有資料列",
   "widget.points": "{{formattedCount}} 個資料點",

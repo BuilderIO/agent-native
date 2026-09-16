@@ -9,7 +9,29 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - A message that only mentions a design, or pastes Design's own guidance back into chat, no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
 
+## 2026-09-14
+
+### Added
+
+- Component duplicates stay linked to their main across Screens, and detaching keeps their current appearance
+
+### Fixed
+
+- Rapid layout and padding edits preserve previously committed styles.
+- Screen creation preserves drawn dimensions and layer identity for immediate visual edits.
+- Selecting an element in a live React app now anchors to the authored component file and owner instead of the JSX runtime, so source edits and repeated-instance counts target the real code
+- Undo and redo follow the order of edits across screens.
+- Zoom to selection includes selected layers across Screens and the board, and multiline text stays a single Text layer.
+
+### Changed
+
+- Creative Context is now in Labs and off by default
+
 ## 2026-09-13
+
+### Improved
+
+- Screen layout, style edits, keyboard shortcuts, and edits to AI-generated designs work more reliably through undo and reload
 
 ### Fixed
 

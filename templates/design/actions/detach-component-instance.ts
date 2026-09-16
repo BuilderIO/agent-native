@@ -51,6 +51,7 @@ import {
   COMPONENT_PROP_PREFIX,
   COMPONENT_REF_ATTR,
   COMPONENT_SOURCE_NODE_ID_ATTR,
+  isComponentInstanceForInstanceActions,
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
@@ -311,6 +312,11 @@ export default defineAction({
     if (!componentName) {
       throw new Error(
         `Node "${nodeId}" is not a component root (no data-agent-native-component attribute) — nothing to detach.`,
+      );
+    }
+    if (!isComponentInstanceForInstanceActions(node)) {
+      throw new Error(
+        `Node "${nodeId}" is the canonical component main; detach an instance reference instead.`,
       );
     }
 

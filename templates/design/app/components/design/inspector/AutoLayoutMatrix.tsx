@@ -62,7 +62,11 @@ import {
   IconSizingRemove,
   IconSizingVariable,
 } from "./design-icons";
-import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
+import {
+  ScrubInput,
+  type ScrubInputChangeMeta,
+  type ScrubInputProps,
+} from "./ScrubInput";
 
 export type AutoLayoutDirection = "horizontal" | "vertical";
 export type AutoLayoutWrap = "nowrap" | "wrap";
@@ -650,8 +654,8 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {showChildLayoutControls && !isBlock && activeFlow !== "grid" ? (
-          <InspectorGrid className="items-start">
-            <InspectorGridCell span={28}>
+          <InspectorGrid className="items-start" layout="pair-flow">
+            <InspectorGridCell span={14}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
                   <ControlLabel>
@@ -674,7 +678,7 @@ export function AutoLayoutMatrix({
               </div>
             </InspectorGridCell>
 
-            <InspectorGridCell span={28}>
+            <InspectorGridCell span={14}>
               <div className="design-sidebar-property-group">
                 <ControlLabel>{copy.gap}</ControlLabel>
                 <GapField
@@ -1354,7 +1358,7 @@ function GridTrackPicker({
 }
 
 /**
- * Compact 3×3 alignment grid (no border box). Inactive cells show a faint dot;
+ * Compact 3×3 alignment grid. Inactive cells show a faint dot;
  * the active cell shows accent bars oriented by flow — horizontal bars for a
  * vertical flow, vertical bars for a horizontal flow (editor convention).
  * When `onDistribute` is provided, two distribute buttons (H + V) are rendered
@@ -1379,7 +1383,7 @@ function CompactAlignmentMatrix({
     <div
       className={cn("space-y-1", disabled && "pointer-events-none opacity-40")}
     >
-      <div className={cn("grid w-fit grid-cols-3 rounded-md")}>
+      <div className="grid w-fit grid-cols-3 rounded-md bg-[var(--design-editor-control-bg)] p-1">
         {ALIGNMENT_CELLS.map((cell) => {
           const active =
             !mixed &&
@@ -1399,7 +1403,7 @@ function CompactAlignmentMatrix({
                 })
               }
               className={cn(
-                "flex size-[22px] items-center justify-center rounded-[3px] transition-colors",
+                "flex h-4 w-7 items-center justify-center rounded-[3px] transition-colors",
                 "hover:bg-[var(--design-editor-control-bg)]",
               )}
             >
@@ -2137,6 +2141,7 @@ export function SizingField({
       {hasMin ? (
         <ConstraintSubRow
           label={minLabel}
+          icon={IconSizingMin}
           value={minValue ?? 0}
           disabled={disabled}
           removeLabel={labels.removeConstraint}
@@ -2151,6 +2156,7 @@ export function SizingField({
       {hasMax ? (
         <ConstraintSubRow
           label={maxLabel}
+          icon={IconSizingMax}
           value={maxValue ?? 0}
           disabled={disabled}
           removeLabel={labels.removeConstraint}
@@ -2197,9 +2203,10 @@ function SizingMenuItem({
   );
 }
 
-/** Inline min/max constraint editor row with a remove (×) affordance. */
+/** Inline min/max constraint editor row with a compact remove affordance. */
 function ConstraintSubRow({
   label,
+  icon,
   value,
   disabled,
   removeLabel,
@@ -2207,6 +2214,7 @@ function ConstraintSubRow({
   onRemove,
 }: {
   label: string;
+  icon: NonNullable<ScrubInputProps["icon"]>;
   value: number;
   disabled: boolean;
   removeLabel: string;
@@ -2224,6 +2232,8 @@ function ConstraintSubRow({
       <ScrubInput
         label={label}
         ariaLabel={label}
+        icon={icon}
+        prefix="icon"
         value={value}
         onChange={(next, meta) => onChange(Math.max(0, Math.round(next)), meta)}
         unit="px"
@@ -2232,7 +2242,7 @@ function ConstraintSubRow({
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="hidden"
+        labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground [&>span]:sr-only"
         inputClassName="h-5 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
       <Tooltip>
@@ -2245,10 +2255,11 @@ function ConstraintSubRow({
             className={cn(
               "flex h-6 w-5 shrink-0 items-center justify-center rounded-r-md",
               "text-muted-foreground hover:text-foreground",
+              "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
               "disabled:pointer-events-none disabled:opacity-40",
             )}
           >
-            <IconSizingRemove />
+            <IconSizingRemove className="size-3" />
           </button>
         </TooltipTrigger>
         <TooltipContent>{removeLabel}</TooltipContent>

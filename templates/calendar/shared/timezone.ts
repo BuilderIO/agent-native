@@ -138,6 +138,7 @@ export function getCalendarViewDateRange(
   selectedDate: string,
   timezone: string,
   weekStartsOn: 0 | 1 = 0,
+  numberOfDays = 7,
 ): { from: string; to: string } {
   const selectedMonthStart = `${selectedDate.slice(0, 7)}-01`;
   const [year, month] = selectedMonthStart.split("-").map(Number);
@@ -148,8 +149,14 @@ export function getCalendarViewDateRange(
   let rangeStart = selectedDate;
   let rangeEndExclusive = addDaysToDateKey(selectedDate, 1);
   if (viewMode === "week") {
-    rangeStart = startOfCalendarWeek(selectedDate, weekStartsOn);
-    rangeEndExclusive = addDaysToDateKey(rangeStart, 7);
+    const displayedDays = Number.isInteger(numberOfDays)
+      ? Math.min(31, Math.max(1, numberOfDays))
+      : 7;
+    rangeStart =
+      displayedDays === 7
+        ? startOfCalendarWeek(selectedDate, weekStartsOn)
+        : selectedDate;
+    rangeEndExclusive = addDaysToDateKey(rangeStart, displayedDays);
   } else if (viewMode === "month") {
     const monthEnd = addDaysToDateKey(nextMonthStart, -1);
     rangeStart = startOfCalendarWeek(selectedMonthStart, weekStartsOn);

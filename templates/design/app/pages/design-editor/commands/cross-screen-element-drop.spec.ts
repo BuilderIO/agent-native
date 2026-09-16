@@ -1021,6 +1021,48 @@ describe("runCrossScreenElementDrop shader publication preflight", () => {
 });
 
 describe("runCrossScreenElementDrop real publication refusal", () => {
+  it("rolls the source back when the destination refuses after source publication", () => {
+    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
+    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    const calls: Array<{ fileId: string; content: string }> = [];
+    let targetAttempted = false;
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent,
+      publish: (fileId, content) => {
+        calls.push({ fileId, content });
+        if (fileId === "target") {
+          targetAttempted = true;
+          return { status: "refused" as const };
+        }
+        if (fileId === "source" && targetAttempted) {
+          return acceptFixture(fileId, sourceContent);
+        }
+        return acceptFixture(fileId, content);
+      },
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="moving"]',
+        sourceNodeId: "moving",
+        sourceProvenance: { uniqueNodeId: "moving" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "target-root",
+        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
+        targetAnchorProvenance: { uniqueNodeId: "target-root" },
+        targetAnchorPlacement: "inside",
+      },
+    });
+
+    expect(calls.map(({ fileId }) => fileId)).toEqual([
+      "source",
+      "target",
+      "source",
+    ]);
+    expect(calls[2]?.content).toBe(sourceContent);
+    expect(result.historyEntries).toEqual([]);
+    expect(result.selectionEvents).toEqual([]);
+  });
+
   it("records no duplicate history or selection when the real writer rejects Alpine content", () => {
     const sourceInput = `<!doctype html><html><head>
       <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>

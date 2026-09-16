@@ -2,7 +2,44 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-export async function readConfiguredWorkspaceAppHomePath(
+export function inferWorkspaceAppRootHomePath(appDir: string): "/" | undefined {
+  const routesDir = path.join(appDir, "app", "routes");
+  if (!fs.existsSync(routesDir)) return undefined;
+
+  const routeFiles = fs.readdirSync(routesDir);
+  const hasRootRoute = routeFiles.some((filename) =>
+    /^_index\.(?:[cm]?[jt]sx?)$/.test(filename),
+  );
+  const hasHomeRoute = routeFiles.some((filename) =>
+    /^(?:_app\.)?home(?:\._index)?\.(?:[cm]?[jt]sx?)$/.test(filename),
+  );
+  return hasRootRoute && !hasHomeRoute ? "/" : undefined;
+}
+
+// ponytail: one process-global queue is the smallest safe isolation; replace
+// it with per-app loaders only if discovery throughput becomes measurable.
+const workspaceAppConfigGlobals = globalThis as typeof globalThis & {
+  __agentNativeWorkspaceAppConfigReadQueue?: Promise<void>;
+};
+
+export function readConfiguredWorkspaceAppHomePath(
+  appDir: string,
+): Promise<string | undefined> {
+  const previous =
+    workspaceAppConfigGlobals.__agentNativeWorkspaceAppConfigReadQueue ??
+    Promise.resolve();
+  const result = previous.then(() =>
+    readConfiguredWorkspaceAppHomePathUnserialized(appDir),
+  );
+  workspaceAppConfigGlobals.__agentNativeWorkspaceAppConfigReadQueue =
+    result.then(
+      () => undefined,
+      () => undefined,
+    );
+  return result;
+}
+
+async function readConfiguredWorkspaceAppHomePathUnserialized(
   appDir: string,
 ): Promise<string | undefined> {
   const pluginsDir = path.join(appDir, "server", "plugins");

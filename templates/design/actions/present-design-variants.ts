@@ -717,7 +717,7 @@ function fallbackVariantContent(
 body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
   radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 30%),
   linear-gradient(140deg, #05070b 0%, #111827 48%, #05070b 100%); }
-.shell { width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }
+.shell { box-sizing: border-box; width: 100%; max-width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }
 .panel { border: 1px solid var(--line); background: var(--panel); border-radius: ${density === "dense" ? "14" : "22"}px; box-shadow: 0 24px 80px rgba(0,0,0,.35); backdrop-filter: blur(${density === "glass" ? "26" : "10"}px); }
 .sidebar { padding: 22px; display: flex; flex-direction: column; gap: 18px; }
 .brand { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -749,6 +749,7 @@ p { margin: 0; color: var(--muted); line-height: 1.5; }
 .shortcut { margin-top:auto; border-top:1px solid var(--line); padding-top:14px; display:flex; justify-content:space-between; gap:10px; color:#cbd5e1; font-size:12px; }
 ${tablet ? ".right { display: none; }" : ""}
 ${compact ? ".sidebar { padding: 16px; } .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nav div { padding: 10px; } .main { padding: 18px; } .top { display: grid; } .top .badge { width: fit-content; } h1 { font-size: 26px; } .right { display: none; } .column:nth-child(n+3) { display: none; }" : ""}
+@media (max-width: 900px) { body { width: 100%; max-width: ${screenWidth}px; overflow-x: hidden; overflow-y: auto; } .shell { grid-template-columns: 1fr; padding: 18px; gap: 14px; } .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .top { display: grid; } .top .badge { width: fit-content; } .board { grid-template-columns: 1fr; } .right { display: none; } .column:nth-child(n+3) { display: none; } }
 </style>
 </head>
 <body>

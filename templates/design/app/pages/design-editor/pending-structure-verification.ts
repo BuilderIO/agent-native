@@ -111,3 +111,23 @@ export function verifyPendingStructuresRuntime(
   }
   return { ok: true };
 }
+
+export function partitionPendingStructuresRuntime(
+  snapshots: Record<string, { html: string } | undefined>,
+  edits: readonly PendingLiveStructureEdit[],
+): {
+  verified: PendingLiveStructureEdit[];
+  remaining: PendingLiveStructureEdit[];
+} {
+  const verified: PendingLiveStructureEdit[] = [];
+  const remaining: PendingLiveStructureEdit[] = [];
+  for (const edit of edits) {
+    const snapshot = snapshots[edit.screenId];
+    if (snapshot && verifyPendingStructureRuntime(snapshot.html, edit).ok) {
+      verified.push(edit);
+    } else {
+      remaining.push(edit);
+    }
+  }
+  return { verified, remaining };
+}

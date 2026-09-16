@@ -73,10 +73,23 @@ const messages: AgentChatTranslation = {
     "Criando ou reutilizando sua conta do Builder.io. Isso geralmente leva alguns segundos.",
   "onboarding.builderConnectionDescription":
     "Conclua a conexão com um clique na nova janela.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Os créditos de IA e as alterações de código na nuvem estão prontos para uso.",
+  "onboarding.builderReadyCreditsOnly":
+    "Os créditos de IA estão prontos para uso. As edições de código na nuvem exigem um projeto Builder nas configurações do agente em segundo plano.",
+  "onboarding.openBackgroundAgentSettings":
+    "Abrir configurações do agente em segundo plano",
   "onboarding.capability.llm.keySummary":
     "Conecte um provedor de IA ou modelo local",
   "onboarding.capability.fileStorage.keySummary":
     "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.fileStorage.title": "Escolha o armazenamento de arquivos",
+  "onboarding.fileStorage.description":
+    "Escolha o armazenamento gerenciado do Builder ou suas próprias chaves para um bucket compatível com S3.",
+  "onboarding.fileStorage.custom":
+    "Usar chaves de armazenamento personalizadas",
+  "onboarding.fileStorage.customDescription":
+    "Configure um bucket compatível com S3 com uma URL pública estável.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
   "onboarding.capability.voiceInput.keySummary":
     "Reconhecimento de voz do navegador ou conversão de fala em texto",
@@ -143,6 +156,21 @@ const messages: AgentChatTranslation = {
   "common.retry": "Tentar novamente",
   "common.save": "Salvar",
   "agents.hostedAgent": "Agente hospedado",
+  "agents.provider": "Provedor",
+  "agents.providerA2A": "Agente A2A (Foundry, Gemini ou personalizado)",
+  "agents.providerAnthropic": "Agentes gerenciados da Anthropic",
+  "agents.agentId": "ID do agente",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "ID do ambiente",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "URL base da API (opcional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Preencha os campos do Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "A conexão é verificada quando você delega pelo chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent salvo. Delegue para ele pelo chat.",
   "agents.cardUrl": "URL do cartão do agente",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Autenticação",
@@ -369,6 +397,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Insights de dados",
   "widget.dataTable": "Tabela de dados",
   "widget.downloadCsv": "Baixar CSV",
+  "widget.connectProvider": "Conectar o {{provider}}",
   "widget.loadingToolResult": "Carregando resultado da ferramenta",
   "widget.noRows": "Nenhuma linha",
   "widget.points": "{{formattedCount}} pontos",
@@ -615,6 +644,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} linhas",
   "errorMessages.agentConnection":
     "A conexão do agente foi interrompida. Verifique sua conexão e tente novamente.",
+  "errorMessages.attachmentPasswordProtected":
+    "Este PDF está protegido por senha e não pode ser lido. Remova a proteção por senha ou cole o texto relevante e tente novamente.",
   "errorMessages.builderAuthentication":
     "O Builder rejeitou as credenciais conectadas. Reconecte Builder.io em Configurações e tente novamente.",
   "errorMessages.builderModelUnauthorized":
@@ -630,6 +661,10 @@ const messages: AgentChatTranslation = {
     "A conexão com o agente expirou antes da conclusão. Você pode continuar a partir do trabalho parcial ou tentar novamente.",
   "errorMessages.invalidToolSchema":
     "O esquema de uma ferramenta era inválido, então o modelo rejeitou a solicitação antes de iniciá-la. Você pode ignorar a ferramenta inválida e tentar novamente.",
+  "errorMessages.malformedRequest":
+    "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
+  "errorMessages.malformedRequestAttachment":
+    "O modelo rejeitou um arquivo anexado, então esta mensagem nunca foi enviada. Remova o anexo e tente novamente: um PDF, um arquivo de texto simples ou uma imagem JPEG, PNG, GIF ou WebP é lido diretamente; outros formatos precisam ser enviados e vinculados.",
   "errorMessages.noProviderConnected":
     "Nenhum provedor de LLM está conectado. Abra Configurações > Agente > Provedores de IA e conecte o Builder.io (nível gratuito disponível) ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":

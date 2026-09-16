@@ -6,10 +6,13 @@ import {
 } from "@agent-native/core/client/composer";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import type { FirstRunOnboardingExtensionProps } from "@agent-native/core/client/onboarding";
+import {
+  isOnboardingPreviewQuery,
+  type FirstRunOnboardingExtensionProps,
+} from "@agent-native/core/client/onboarding";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -55,6 +58,7 @@ export function FirstDeckOnboardingFlow({
   onSkip,
 }: FirstRunOnboardingExtensionProps) {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useSession();
@@ -63,7 +67,20 @@ export function FirstDeckOnboardingFlow({
   const { designSystems, refetch: refetchDesignSystems } = useDesignSystems();
   const { designSystem: workspaceDesignSystem } = useWorkspaceDefaults();
   const { submit: agentSubmit } = useAgentGenerating();
-  const [step, setStep] = useState<FirstDeckStep>("prompt");
+  const [step, setStep] = useState<FirstDeckStep>(() =>
+    isOnboardingPreviewQuery(location.search) &&
+    searchParams.get("step") === "references"
+      ? "references"
+      : "prompt",
+  );
+  useEffect(() => {
+    if (!isOnboardingPreviewQuery(location.search)) return;
+    setStep(
+      new URLSearchParams(location.search).get("step") === "references"
+        ? "references"
+        : "prompt",
+    );
+  }, [location.search]);
   const [prompt, setPrompt] = useState("");
   const [promptFiles, setPromptFiles] = useState<UploadedFile[]>([]);
   const [referenceFilePaths, setReferenceFilePaths] = useState<string[]>([]);

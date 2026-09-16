@@ -30,9 +30,11 @@ import {
   getSessionMaxAge,
   hasLegacySessionForEmail,
   safeReturnPath,
+  setFirstRunOnboardingCookie,
   setFrameworkSessionCookie,
 } from "./auth.js";
 import {
+  getBetterAuthUserIdForEmail,
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
@@ -961,7 +963,10 @@ export async function createOAuthSession(
     authProvider?: "google" | `sso:${string}` | null;
     trackSignup?: {
       authProvider: string;
+      /** Provider subjects are retained for legacy callers, never used as auth_user_id. */
       authUserId?: string;
+      /** Canonical Better Auth fallback supplied by the core callback. */
+      canonicalAuthUserId?: string;
       name?: string | null;
       attribution?: Record<string, string | undefined>;
       signupAnonymousId?: string;
@@ -1004,6 +1009,9 @@ export async function createOAuthSession(
     if (opts.authProvider !== null) {
       setIdentityGoogleAuthCookie(event, email);
     }
+    if (opts.trackSignup && opts.trackSignup.isNewUser !== false) {
+      setFirstRunOnboardingCookie(event);
+    }
     if (shouldTrackSignup && opts.trackSignup) {
       const attribution =
         opts.trackSignup.attribution ??
@@ -1011,11 +1019,14 @@ export async function createOAuthSession(
       const anonymousId =
         opts.trackSignup.signupAnonymousId ??
         readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
+      const authUserId =
+        (await getBetterAuthUserIdForEmail(email)) ??
+        opts.trackSignup.canonicalAuthUserId;
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         origin: "google_oauth",
         signupMethod: "google",
-        authUserId: opts.trackSignup.authUserId,
+        authUserId,
         email,
         name: opts.trackSignup.name,
         attribution,
