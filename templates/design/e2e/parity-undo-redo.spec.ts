@@ -297,6 +297,7 @@ test("rotating a screen then undoing immediately restores persisted geometry", a
   // Keep this keypress adjacent to mouseup: the regression only appears
   // before React's render effect catches the accepted geometry up.
   await page.keyboard.press(UNDO);
+  await page.waitForTimeout(750);
   await expect
     .poll(async () => (await readIndexFrame(page, id)).rotation, {
       timeout: 15_000,
@@ -333,6 +334,9 @@ test("nudging a screen then undoing immediately restores persisted geometry", as
   // Keep this keypress adjacent to the nudge: the regression only appears
   // while the second keyboard commit is still in the debounced save queue.
   await page.keyboard.press(UNDO);
+  // The assertion must outlive the 500ms debounce or it can pass before a
+  // stale queued save overwrites the history snapshot.
+  await page.waitForTimeout(750);
   await expect
     .poll(
       async () => {
