@@ -18484,15 +18484,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Replay keystrokes typed into this iframe during the wait — the
         // session is focused with the caret at the content end, so this
         // lands exactly where the user expects their first characters.
+        var replayLanded = false;
         if (entry.buffer) {
-          postTextEditInsertResult(
-            entry.nodeId,
+          replayLanded =
             activeTextEditEl === node &&
-              insertPlainTextAtSelection(entry.buffer),
-          );
+            insertPlainTextAtSelection(entry.buffer);
+          postTextEditInsertResult(entry.nodeId, replayLanded);
         }
         if (entry.commitImmediately) {
-          if (activeTextEditEl === node && finishActiveTextEdit) {
+          // Same rule as the takeover above: a session finished and reported
+          // committed after a failed replay tells the host to release text
+          // that never reached the document.
+          if (
+            activeTextEditEl === node &&
+            finishActiveTextEdit &&
+            (replayLanded || !entry.buffer)
+          ) {
             finishActiveTextEdit(true);
             (node as HTMLElement).blur();
             postTextEditPending(entry.nodeId, false, "committed");
@@ -18949,20 +18956,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       cancelPendingBeginTextEdit();
       activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
       var tookTarget = activeTextEditEl === textTarget;
+      // The host keeps owing these keystrokes until this frame says they
+      // landed: a target it could not take over, or an insert the document
+      // refused, never received them.
+      var beginInsertLanded = false;
       if (beginInsertText) {
-        // The host keeps owing these keystrokes until this frame says they
-        // landed: a target it could not take over, or an insert the document
-        // refused, never received them.
-        postTextEditInsertResult(
-          nodeId,
-          tookTarget && insertPlainTextAtSelection(beginInsertText),
-        );
+        beginInsertLanded =
+          tookTarget && insertPlainTextAtSelection(beginInsertText);
+        postTextEditInsertResult(nodeId, beginInsertLanded);
       }
       if (beginCommitImmediately) {
-        // Only ever finish THIS target. Without the guard a session the user
-        // has on another element gets committed instead and the delivered text
-        // is dropped; the host keeps it if this frame could not take over.
-        if (tookTarget && finishActiveTextEdit) {
+        // Only ever finish THIS target, and only once the text is actually in
+        // it. Reporting "committed" after a failed insert made the host release
+        // the buffer it had just been told to keep — the two reports together
+        // were the one way to lose the text outright.
+        if (
+          tookTarget &&
+          finishActiveTextEdit &&
+          (beginInsertLanded || !beginInsertText)
+        ) {
           finishActiveTextEdit(true);
           textTarget.blur();
           postTextEditPending(nodeId, false, "committed");

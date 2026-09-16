@@ -157,6 +157,60 @@ describe("cancel-text-edit crosses the bridge with the request's identity", () =
   );
 
   it(
+    "a cancelled begin never inserts the text it was carrying",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await startEmptyFrame(page);
+
+        // The delivery the host is still owing: the frame HAS it, and has not
+        // acknowledged it. This is the state the host-side commit fallback
+        // races, so the revoke it sends first has to take the text with it.
+        await page.evaluate(() =>
+          window.postMessage(
+            {
+              type: "begin-text-edit",
+              nodeId: "text-owed",
+              force: true,
+              insertText: "Standalone",
+            },
+            "*",
+          ),
+        );
+        await page.waitForFunction(() =>
+          (
+            (
+              window as Window & {
+                __pending?: Array<{ type?: string; pending?: boolean }>;
+              }
+            ).__pending ?? []
+          ).some(
+            (message) =>
+              message.type === "text-edit-pending" && message.pending,
+          ),
+        );
+
+        await postCancelTextEdit(page, SCREEN_ID, "text-owed");
+        await mountNode(page, "text-owed");
+        await page.waitForTimeout(400);
+
+        // One copy total: the host's own commit. The frame contributed none.
+        expect(
+          await page.evaluate(
+            () =>
+              document.querySelector('[data-agent-native-node-id="text-owed"]')
+                ?.textContent ?? "",
+          ),
+        ).toBe("");
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "a cancel for one node leaves another node's pending request alone",
     { timeout: 30_000 },
     async () => {

@@ -282,6 +282,36 @@ describe("pending text capture", () => {
     });
   });
 
+  it("revokes the frame's copy before it commits owed text host-side", async () => {
+    vi.useFakeTimers();
+    const order: string[] = [];
+    unregisterAll.push(
+      registerPendingTextHostCommit(() => {
+        order.push("host-commit");
+        return true;
+      }),
+    );
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-race");
+    type("Standalone");
+    // The frame is handed the delivery and has NOT acknowledged it.
+    register(
+      "board",
+      vi.fn(() => true),
+    );
+    onPendingTextCaptureCancel("board", "text-race", () =>
+      order.push("revoke-frame-copy"),
+    );
+
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
+
+    // The revoke has to reach the frame BEFORE the source is written, or the
+    // frame inserts the same characters afterwards and the node ends up with
+    // two copies.
+    expect(order).toEqual(["revoke-frame-copy", "host-commit"]);
+  });
+
   it("commits owed text host-side when no owner ever becomes ready", () => {
     vi.useFakeTimers();
     const commit = vi.fn(() => true);

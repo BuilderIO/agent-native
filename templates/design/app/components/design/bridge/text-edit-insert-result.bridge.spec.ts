@@ -239,3 +239,70 @@ describe("the frame never acknowledges text it did not place", () => {
     },
   );
 });
+
+describe("a refused insertion is never reported as committed", () => {
+  it(
+    "reports not-taken, not committed, when the commit-on-arrival insert fails",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await startFrame(page);
+        await page.evaluate(() => {
+          (window as Window & { __pending?: unknown[] }).__pending = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            const data = event.data as { type?: string } | null;
+            if (data?.type === "text-edit-pending") {
+              (window as Window & { __pending?: unknown[] }).__pending!.push(
+                data,
+              );
+            }
+          });
+          // Nothing can land: execCommand refuses and the manual range
+          // fallback has no selection to work with.
+          document.execCommand = () => false;
+          window.getSelection = () => null as unknown as Selection;
+        });
+        await mountTextNode(page, "text-escape");
+
+        // Escape's commit path: the text rides in, and the session is meant to
+        // close the moment it lands.
+        await page.evaluate(() =>
+          window.postMessage(
+            {
+              type: "begin-text-edit",
+              nodeId: "text-escape",
+              force: true,
+              insertText: "Sta",
+              commitImmediately: true,
+            },
+            "*",
+          ),
+        );
+        await page.waitForFunction(
+          () =>
+            ((window as Window & { __pending?: unknown[] }).__pending ?? [])
+              .length > 0,
+        );
+
+        // inserted:false tells the host to keep owing the text. Reporting
+        // "committed" straight after made it release exactly that buffer.
+        const pending = await page.evaluate(
+          () =>
+            ((window as Window & { __pending?: unknown[] }).__pending ??
+              []) as Array<{ reason?: string }>,
+        );
+        expect(pending[pending.length - 1]?.reason).toBe("not-taken");
+        const results_ = await results(page);
+        expect(results_[results_.length - 1]).toEqual({
+          type: "text-edit-insert-result",
+          nodeId: "text-escape",
+          inserted: false,
+        });
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+});

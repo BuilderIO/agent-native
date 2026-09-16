@@ -155,3 +155,34 @@ describe("runScreenTextContentChange refused publication", () => {
     expect(getContent()).toBe(content);
   });
 });
+
+describe("runScreenTextContentChange rejected live-snapshot write", () => {
+  it("keeps the creation record when the live snapshot write is rejected", () => {
+    const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
+    const { args } = buildArgs(content, true);
+    const confirm = vi.fn();
+    const rejected: ScreenTextContentChangeArgs = {
+      ...args,
+      liveScreenSnapshotsById: {
+        [SCREEN_ID]: { html: content } as never,
+      },
+      // The snapshot vanished, or integrity validation refused this edit.
+      updateLiveScreenSnapshotContent: () => false,
+      prepareTextCreationFinalization: () => ({
+        isCreationCommit: true,
+        historyHandled: true,
+        confirm,
+      }),
+    };
+
+    runScreenTextContentChange(
+      rejected,
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "Standalone",
+    );
+
+    // The source is unchanged, so the creation still owns its pending history.
+    expect(confirm).not.toHaveBeenCalled();
+  });
+});

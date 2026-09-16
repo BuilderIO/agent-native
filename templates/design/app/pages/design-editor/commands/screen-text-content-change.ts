@@ -244,9 +244,16 @@ export function runScreenTextContentChange(
     : nextContent;
   let publication: ApplyFileContentUpdateResult | null = null;
   if (liveSnapshot) {
-    updateLiveScreenSnapshotContent(screenId, contentToApply, {
-      recordHistory: !finalizedCreation.historyHandled,
-    });
+    // A snapshot that vanished, or an integrity check that rejected this edit,
+    // leaves the source unchanged — consuming the creation's pending history
+    // here would spend it on a write that never happened.
+    if (
+      !updateLiveScreenSnapshotContent(screenId, contentToApply, {
+        recordHistory: !finalizedCreation.historyHandled,
+      })
+    ) {
+      return;
+    }
   } else {
     publication = applyFileContentUpdate(screenId, contentToApply, {
       skipPreview: true,

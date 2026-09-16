@@ -5,7 +5,7 @@
 // null under `typeof window === "undefined"` (the default node test
 // environment), so this needs a real DOM.
 import { buildCodeLayerProjection } from "@shared/code-layer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -105,5 +105,35 @@ describe("runTextContentChange default text-layer naming", () => {
       "Label",
     );
     expect(nextNode.textSnippet?.trim()).toBe("Sign up");
+  });
+});
+
+describe("runTextContentChange rejected live-snapshot write", () => {
+  it("keeps the creation record when the live snapshot write is rejected", () => {
+    const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
+    const { args } = buildArgs(content, true);
+    const confirm = vi.fn();
+    const rejected: TextContentChangeArgs = {
+      ...args,
+      liveScreenSnapshotsById: {
+        "index.html": { html: content } as never,
+      },
+      // The snapshot vanished, or integrity validation refused this edit.
+      updateLiveScreenSnapshotContent: () => false,
+      prepareTextCreationFinalization: () => ({
+        isCreationCommit: true,
+        historyHandled: true,
+        confirm,
+      }),
+    };
+
+    runTextContentChange(
+      rejected,
+      `[data-agent-native-node-id="t1"]`,
+      "Standalone",
+    );
+
+    // The source is unchanged, so the creation still owns its pending history.
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

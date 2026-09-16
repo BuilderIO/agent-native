@@ -13149,14 +13149,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (!activeTextEditEl) {
           activateProgrammaticTextEdit(node, entry.force);
+          var replayLanded = false;
           if (entry.buffer) {
-            postTextEditInsertResult(
-              entry.nodeId,
-              activeTextEditEl === node && insertPlainTextAtSelection(entry.buffer)
-            );
+            replayLanded = activeTextEditEl === node && insertPlainTextAtSelection(entry.buffer);
+            postTextEditInsertResult(entry.nodeId, replayLanded);
           }
           if (entry.commitImmediately) {
-            if (activeTextEditEl === node && finishActiveTextEdit) {
+            if (activeTextEditEl === node && finishActiveTextEdit && (replayLanded || !entry.buffer)) {
               finishActiveTextEdit(true);
               node.blur();
               postTextEditPending(entry.nodeId, false, "committed");
@@ -13475,14 +13474,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         cancelPendingBeginTextEdit();
         activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
         var tookTarget = activeTextEditEl === textTarget;
+        var beginInsertLanded = false;
         if (beginInsertText) {
-          postTextEditInsertResult(
-            nodeId,
-            tookTarget && insertPlainTextAtSelection(beginInsertText)
-          );
+          beginInsertLanded = tookTarget && insertPlainTextAtSelection(beginInsertText);
+          postTextEditInsertResult(nodeId, beginInsertLanded);
         }
         if (beginCommitImmediately) {
-          if (tookTarget && finishActiveTextEdit) {
+          if (tookTarget && finishActiveTextEdit && (beginInsertLanded || !beginInsertText)) {
             finishActiveTextEdit(true);
             textTarget.blur();
             postTextEditPending(nodeId, false, "committed");
