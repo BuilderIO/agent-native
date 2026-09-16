@@ -15,6 +15,7 @@ import {
 } from "../../navigation/index.js";
 import { appMountedPath } from "../api-path.js";
 import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 
 type DirectoryProvider = {
   id: "foundry" | "gemini" | "anthropic";
@@ -60,6 +61,13 @@ function openAgentConnection(provider?: DirectoryProvider["provider"]) {
 
 export function AgentDirectorySection() {
   const t = useT();
+  const orgQuery = useOrg();
+  const canManageSharedAgents =
+    !orgQuery.isLoading &&
+    !orgQuery.isError &&
+    (!orgQuery.data?.orgId ||
+      orgQuery.data.role === "owner" ||
+      orgQuery.data.role === "admin");
   const [query, setQuery] = useState("");
   const filteredProviders = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -83,17 +91,19 @@ export function AgentDirectorySection() {
           leadingContent={<IconSearch size={15} />}
           className="w-full sm:max-w-sm"
         />
-        <Button
-          type="button"
-          variant="outline"
-          intent="neutral"
-          emphasis="outline"
-          onClick={() => openAgentConnection()}
-          className="h-9 shrink-0 gap-1.5"
-        >
-          <IconPlugConnected size={15} />
-          {t("agentChat.agents.directoryManual")}
-        </Button>
+        {canManageSharedAgents && (
+          <Button
+            type="button"
+            variant="outline"
+            intent="neutral"
+            emphasis="outline"
+            onClick={() => openAgentConnection()}
+            className="h-9 shrink-0 gap-1.5"
+          >
+            <IconPlugConnected size={15} />
+            {t("agentChat.agents.directoryManual")}
+          </Button>
+        )}
       </div>
 
       <section
@@ -131,16 +141,18 @@ export function AgentDirectorySection() {
                     {t(provider.hintKey)}
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  intent="neutral"
-                  onClick={() => openAgentConnection(provider.provider)}
-                  className="mt-4 h-8 justify-between px-2 text-xs"
-                >
-                  {t("common.connect")}
-                  <IconArrowUpRight size={14} />
-                </Button>
+                {canManageSharedAgents && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    intent="neutral"
+                    onClick={() => openAgentConnection(provider.provider)}
+                    className="mt-4 h-8 justify-between px-2 text-xs"
+                  >
+                    {t("common.connect")}
+                    <IconArrowUpRight size={14} />
+                  </Button>
+                )}
               </article>
             ))}
           </div>

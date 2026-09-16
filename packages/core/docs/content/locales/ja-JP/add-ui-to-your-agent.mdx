@@ -12,12 +12,13 @@ Agent-Native は既存エージェントにチャット、承認、ワークフ�
 
 ## 接続を選ぶ {#choose-a-connection-path}
 
-| バックエンド             | Agent-Native の接続 | 設定                                  |
-| ------------------------ | ------------------- | ------------------------------------- |
-| Microsoft Foundry        | A2A 1.0             | Agent Card URL と Entra シークレット  |
-| Gemini Enterprise        | A2A                 | Agent Card URL と Google シークレット |
-| Anthropic Managed Agents | Managed Agents API  | エージェント ID、環境 ID、Vault キー  |
-| 任意の A2A エージェント  | A2A                 | Agent Card URL と任意の認証情報       |
+| バックエンド             | Agent-Native の接続         | 設定                                  |
+| ------------------------ | --------------------------- | ------------------------------------- |
+| Microsoft Foundry        | A2A 1.0                     | Agent Card URL と Entra シークレット  |
+| Gemini Enterprise        | A2A                         | Agent Card URL と Google シークレット |
+| Anthropic Managed Agents | Managed Agents API          | エージェント ID、環境 ID、Vault キー  |
+| OpenAI Agents API        | カスタム A2A エンドポイント | Agent Card URL とプロバイダー認証情報 |
+| 任意の A2A エージェント  | A2A                         | Agent Card URL と任意の認証情報       |
 
 **Settings → Agent → Agent directory** を開きます。Connect ボタンは既存の **Connected agents** フォームを開きます。シークレットはワークスペースの Vault に保存されます。
 

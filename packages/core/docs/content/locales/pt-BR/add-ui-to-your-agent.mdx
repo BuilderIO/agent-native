@@ -12,12 +12,13 @@ Esta página explica **como adicionar uma UI a agentes Microsoft Foundry, Gemini
 
 ## Escolha uma conexão {#choose-a-connection-path}
 
-| Backend                  | Conexão no Agent-Native | Configuração                              |
-| ------------------------ | ----------------------- | ----------------------------------------- |
-| Microsoft Foundry        | A2A 1.0                 | URL do Agent Card e segredo Entra         |
-| Gemini Enterprise        | A2A                     | URL do Agent Card e segredo Google        |
-| Anthropic Managed Agents | Managed Agents API      | ID do agente, ambiente e chave do vault   |
-| Qualquer agente A2A      | A2A                     | URL do Agent Card e credenciais opcionais |
+| Backend                  | Conexão no Agent-Native    | Configuração                               |
+| ------------------------ | -------------------------- | ------------------------------------------ |
+| Microsoft Foundry        | A2A 1.0                    | URL do Agent Card e segredo Entra          |
+| Gemini Enterprise        | A2A                        | URL do Agent Card e segredo Google         |
+| Anthropic Managed Agents | Managed Agents API         | ID do agente, ambiente e chave do vault    |
+| OpenAI Agents API        | Endpoint A2A personalizado | URL do Agent Card e credencial do provedor |
+| Qualquer agente A2A      | A2A                        | URL do Agent Card e credenciais opcionais  |
 
 Abra **Settings → Agent → Agent directory**. Os botões Connect abrem o formulário **Connected agents** existente. Os segredos ficam no vault do workspace.
 
