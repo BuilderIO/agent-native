@@ -12,10 +12,9 @@ import type {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   HOST_TURN_START_TIMEOUT_MS,
+  PENDING_STRUCTURE_HARD_TIMEOUT_MS,
   PENDING_STRUCTURE_RUNTIME_POLL_MS,
-  PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS,
   PENDING_STRUCTURE_SOURCE_POLL_MS,
-  PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS,
 } from "@/pages/design-editor/editor-constants";
 import type {
   PendingLiveNonStyleEdit,
@@ -26,7 +25,7 @@ import {
   buildPendingVisualStyleRevertPatches,
   pendingStructureEditSourcePaths,
 } from "@/pages/design-editor/pending-edits";
-import { verifyPendingStructuresRuntime } from "@/pages/design-editor/pending-structure-verification";
+import { partitionPendingStructuresRuntime } from "@/pages/design-editor/pending-structure-verification";
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface ApplyPendingVisualStylesWithAgentArgs {
@@ -44,6 +43,7 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingStructureVerificationSessionRef: RefObject<
     PendingStructureVerificationSession | undefined
   >;
+  pendingLiveNonStyleEditsRef: RefObject<PendingLiveNonStyleEdit[]>;
   pendingStructureVerificationSnapshotsRef: RefObject<
     Map<number, Record<string, RuntimeLayerSnapshot>>
   >;
@@ -53,6 +53,9 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
   setPendingAgentHandoffBusy: Dispatch<SetStateAction<boolean>>;
+  setPendingLiveNonStyleEdits: Dispatch<
+    SetStateAction<PendingLiveNonStyleEdit[]>
+  >;
   setPendingStructureAckRequest: Dispatch<
     SetStateAction<{
       requestId: number;
@@ -88,6 +91,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   stagedSourceHandoffRef,
   pendingStructureVerificationRevisionRef,
   pendingStructureVerificationSessionRef,
+  pendingLiveNonStyleEditsRef,
   pendingStructureVerificationSnapshotsRef,
   pendingStructureVerificationStatus,
   pendingVisualStyleEdits,
@@ -95,6 +99,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   setActiveLeftPanel,
   setApplyingViaHost,
   setPendingAgentHandoffBusy,
+  setPendingLiveNonStyleEdits,
   setPendingStructureAckRequest,
   setPendingStructureVerificationStatus,
   setPendingVisualStyleBaselineResetRequest,
@@ -133,14 +138,6 @@ export async function runApplyPendingVisualStylesWithAgent({
     const structureEdits = pendingLiveNonStyleEdits.filter(
       (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
     );
-    const structureAcks = structureEdits
-      .filter((edit) => Boolean(edit.requestId))
-      .map((edit) => ({
-        screenId: edit.screenId,
-        requestId: edit.requestId!,
-        applied: true,
-      }));
-
     const finalizeWithoutStructureVerification = () => {
       clearPendingLiveEditState();
       const previewRequestId = Date.now() + Math.random();
@@ -195,6 +192,7 @@ export async function runApplyPendingVisualStylesWithAgent({
     const session: PendingStructureVerificationSession = {
       requestId,
       cancelled: false,
+      abortController: new AbortController(),
       edits: structureEdits,
       sources: [],
     };
@@ -224,30 +222,55 @@ export async function runApplyPendingVisualStylesWithAgent({
       }
     }
 
-    try {
-      session.sources = await Promise.all(
-        Array.from(sourceTargets.values()).map(async (source) => {
-          // read-local-file declares `http: { method: "GET" }`, so a
-          // default POST is refused with 405 and every Apply preflight
-          // fails before it reads a single baseline hash.
-          const result = (await callAction(
-            "read-local-file",
-            {
-              designId: id,
-              connectionId: source.connectionId,
-              path: source.path,
-            },
-            { method: "GET" },
-          )) as { versionHash?: string } | undefined;
-          if (!result?.versionHash) {
-            throw new Error(`Missing version hash for ${source.path}`);
-          }
-          return {
-            ...source,
-            baselineVersionHash: result.versionHash,
-          };
+    const hardDeadline = Date.now() + PENDING_STRUCTURE_HARD_TIMEOUT_MS;
+    const sourceReadDeadline = Symbol("source-read-deadline");
+    const readWithHardDeadline = async <T>(read: Promise<T>) => {
+      let timeoutId: number | undefined;
+      return Promise.race([
+        read,
+        new Promise<typeof sourceReadDeadline>((resolve) => {
+          timeoutId = window.setTimeout(
+            () => resolve(sourceReadDeadline),
+            Math.max(0, hardDeadline - Date.now()),
+          );
         }),
+      ]).finally(() => {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      });
+    };
+
+    try {
+      const initialSources = await readWithHardDeadline(
+        Promise.all(
+          Array.from(sourceTargets.values()).map(async (source) => {
+            // read-local-file declares `http: { method: "GET" }`, so a
+            // default POST is refused with 405 and every Apply preflight
+            // fails before it reads a single baseline hash.
+            const result = (await callAction(
+              "read-local-file",
+              {
+                designId: id,
+                connectionId: source.connectionId,
+                path: source.path,
+              },
+              { method: "GET", signal: session.abortController.signal },
+            )) as { versionHash?: string } | undefined;
+            if (!result?.versionHash) {
+              throw new Error(`Missing version hash for ${source.path}`);
+            }
+            return {
+              ...source,
+              baselineVersionHash: result.versionHash,
+            };
+          }),
+        ),
       );
+      if (initialSources === sourceReadDeadline) {
+        cancelPendingStructureVerification("conflict");
+        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+        return;
+      }
+      session.sources = initialSources;
       if (session.cancelled) return;
 
       const delivery = await sendDesignSourceHandoffAndConfirm(
@@ -260,6 +283,11 @@ export async function runApplyPendingVisualStylesWithAgent({
         { timeoutMs: 10_000 },
       );
       if (session.cancelled) return;
+      if (Date.now() >= hardDeadline) {
+        cancelPendingStructureVerification("conflict");
+        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+        return;
+      }
       if (!delivery.delivered) {
         cancelPendingStructureVerification();
         toast.error(
@@ -275,28 +303,49 @@ export async function runApplyPendingVisualStylesWithAgent({
       if (delivery.target === "local") setActiveLeftPanel("agent");
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
 
-      let deadline = Date.now() + PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS;
       let nextSourcePollAt = 0;
-      let sourceChanged = false;
       let verificationRuntimeMounted = false;
-      while (!session.cancelled && Date.now() < deadline) {
+      let observedVersionHashes = session.sources.map(
+        (source) => source.baselineVersionHash,
+      );
+      while (!session.cancelled && Date.now() < hardDeadline) {
+        const runtimeRequestId = session.requestId;
         const runtimeSnapshots =
-          pendingStructureVerificationSnapshotsRef.current.get(requestId) ?? {};
-        if (
-          verificationRuntimeMounted &&
-          screenIds.every((screenId) => runtimeSnapshots[screenId])
-        ) {
-          const runtimeResult = verifyPendingStructuresRuntime(
+          pendingStructureVerificationSnapshotsRef.current.get(
+            runtimeRequestId,
+          ) ?? {};
+        if (verificationRuntimeMounted && session.edits.length > 0) {
+          const runtimeResult = partitionPendingStructuresRuntime(
             runtimeSnapshots,
-            structureEdits,
+            session.edits,
           );
-          if (runtimeResult.ok) {
+          if (runtimeResult.verified.length > 0) {
+            session.edits = runtimeResult.remaining;
+            const verifiedSet = new Set(runtimeResult.verified);
+            pendingLiveNonStyleEditsRef.current =
+              pendingLiveNonStyleEditsRef.current.filter(
+                (edit) => edit.kind !== "structure" || !verifiedSet.has(edit),
+              );
+            setPendingLiveNonStyleEdits((current) =>
+              current.filter(
+                (edit) => edit.kind !== "structure" || !verifiedSet.has(edit),
+              ),
+            );
+            const structureAcks = runtimeResult.verified
+              .filter((edit) => Boolean(edit.requestId))
+              .map((edit) => ({
+                screenId: edit.screenId,
+                requestId: edit.requestId!,
+                applied: true,
+              }));
             if (structureAcks.length > 0) {
               setPendingStructureAckRequest({
                 requestId: Date.now() + Math.random(),
                 acks: structureAcks,
               });
             }
+          }
+          if (session.edits.length === 0) {
             clearPendingLiveEditState();
             toast.success(t("designEditor.pendingVisualStyles.verifiedToast"));
             return;
@@ -306,46 +355,59 @@ export async function runApplyPendingVisualStylesWithAgent({
         if (Date.now() >= nextSourcePollAt) {
           nextSourcePollAt = Date.now() + PENDING_STRUCTURE_SOURCE_POLL_MS;
           try {
-            const currentVersions = await Promise.all(
-              session.sources.map(async (source) => {
-                const result = (await callAction(
-                  "read-local-file",
-                  {
-                    designId: id,
-                    connectionId: source.connectionId,
-                    path: source.path,
-                  },
-                  { method: "GET" },
-                )) as { versionHash?: string } | undefined;
-                return result?.versionHash;
-              }),
+            const currentVersions = await readWithHardDeadline(
+              Promise.all(
+                session.sources.map(async (source) => {
+                  const result = (await callAction(
+                    "read-local-file",
+                    {
+                      designId: id,
+                      connectionId: source.connectionId,
+                      path: source.path,
+                    },
+                    { method: "GET", signal: session.abortController.signal },
+                  )) as { versionHash?: string } | undefined;
+                  return result?.versionHash;
+                }),
+              ),
             );
+            if (currentVersions === sourceReadDeadline) break;
             if (session.cancelled) return;
-            sourceChanged = currentVersions.some(
+            const versionChanged = currentVersions.some(
               (versionHash, index) =>
                 Boolean(versionHash) &&
-                versionHash !== session.sources[index]?.baselineVersionHash,
+                versionHash !== observedVersionHashes[index],
             );
-            if (sourceChanged) {
+            if (versionChanged) {
+              observedVersionHashes = currentVersions.map(
+                (versionHash, index) =>
+                  versionHash ?? observedVersionHashes[index]!,
+              );
               if (!verificationRuntimeMounted) {
                 verificationRuntimeMounted = true;
-                deadline = Math.min(
-                  deadline,
-                  Date.now() + PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS,
-                );
-                pendingStructureVerificationSnapshotsRef.current.set(
-                  requestId,
-                  {},
-                );
-                setRuntimeStructureVerificationRequest({
-                  requestId,
-                  screenIds,
-                });
               }
+              // A source write gets a fresh hidden iframe. Reusing the same
+              // request key can leave the old document mounted and its
+              // snapshot race with the next write.
+              pendingStructureVerificationSnapshotsRef.current.delete(
+                session.requestId,
+              );
+              pendingStructureVerificationRevisionRef.current += 1;
+              session.requestId =
+                pendingStructureVerificationRevisionRef.current;
+              pendingStructureVerificationSnapshotsRef.current.set(
+                session.requestId,
+                {},
+              );
+              setRuntimeStructureVerificationRequest({
+                requestId: session.requestId,
+                screenIds,
+              });
               setPendingStructureVerificationStatus("awaiting-runtime");
             }
             // coercion-ok: moved verbatim; a failed optional probe here is indistinguishable from "not applicable" by design.
           } catch {
+            if (session.cancelled) return;
             // A transient bridge read must not discard the still-undoable
             // preview. Keep polling until the bounded deadline.
           }

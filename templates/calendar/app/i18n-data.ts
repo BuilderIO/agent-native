@@ -37,6 +37,7 @@ const enUS = {
     bookMeeting: "Book a Meeting",
     eventPreview: "Event Preview",
     manageBooking: "Manage Booking",
+    addSharedAvailability: "Add to Calendar — Calendar",
     notFound: "Not Found - Calendar",
     settings: "Settings — Calendar",
     team: "Team — Calendar",
@@ -151,6 +152,8 @@ const enUS = {
     googleCalendarSettings: "Google Calendar settings",
     hideCalendar: "Hide calendar",
     myCalendars: "My Calendars",
+    feedsGroup: "Feeds",
+    managePeerAvailability: "Manage shared availability",
     nextYear: "Next year",
     otherCalendars: "Other Calendars",
     otherCalendarsDescription:
@@ -596,6 +599,50 @@ const enUS = {
     overlayHostsEmpty: "No one found.",
     noOverlayPeopleYet: "You haven't added any peers to your calendar yet.",
     addOverlayPersonCta: "Add a peer's calendar",
+    sharedAvailability: "Shared availability",
+    sharedAvailabilityDescription:
+      "Add peers as required hosts. Their free/busy always applies, and their working hours do too once they add you back.",
+    sharedAvailabilityEmpty:
+      "No one on your calendar yet. Add a peer to use their working hours for booking links.",
+    workingHoursAppliedLabel: "Working hours applied",
+    workingHoursPendingScheduleLabel: "No working hours saved",
+    workingHoursNotAppliedLabel: "Hasn't added you back",
+    removePeerAriaLabel: "Remove {{email}} from your calendar",
+    removePeerConfirm:
+      "Remove {{name}}? Their events leave your calendar and their working hours stop applying to your booking links.",
+    removePeerConfirmAction: "Remove",
+    workingHoursAppliedTooltip:
+      "{{name}}'s working hours ({{timezone}}) are applied to this link.",
+    workingHoursAppliedAriaLabel: "{{email}}'s working hours are applied",
+    workingHoursPendingScheduleTooltip:
+      "{{name}} hasn't set up their working hours yet, so only their free/busy is checked.",
+    workingHoursPendingScheduleAriaLabel:
+      "{{email}} hasn't set up their working hours yet",
+    workingHoursNotAppliedWarning:
+      "{{name}} hasn't added you back to their calendar yet, so only their free/busy is checked, not their working hours.",
+    workingHoursNotAppliedAriaLabel:
+      "{{email}} hasn't added you back to their calendar",
+    workingHoursManualHost:
+      "{{name}} isn't on your calendar, so only their free/busy is checked, not their working hours.",
+    workingHoursManualHostAriaLabel: "{{email}} isn't on your calendar",
+    addHostToMyCalendar: "Add to my calendar",
+    sendOverlayRequest: "Send request",
+    resendOverlayRequest: "Resend request",
+    overlayRequestSentJustNow: "Request sent just now",
+    overlayRequestSentAgo: "Request sent {{time}}",
+    overlayRequestFailed: "Failed to send request",
+    overlayRequestEmailNotConfigured: "Email sending isn't set up yet",
+    overlayRequestInProgress: "A request to this peer is already in progress",
+    overlayRequestPageTitle: "Add {{email}} to your calendar?",
+    overlayRequestPageDescription:
+      "{{email}} added you to their calendar and has booking links where you're a required host. Right now those links only check whether you're busy — adding them back also applies your schedule on top of that, so people can only book within your working hours.", // i18n-copy-ignore: translated inline in this file's own es-ES/fr-FR/de-DE/pt-BR/zh-CN/ja-JP/ko-KR/hi-IN/ar-SA blocks below; the sibling app/i18n/<locale>.ts files are re-export wrappers with no copy of their own
+    overlayRequestPageAlreadyAdded:
+      "You've already added {{email}} to your calendar.",
+    overlayRequestPageAdded:
+      "Added. {{email}}'s booking links will now use your real working hours.",
+    overlayRequestPageDismiss: "Not now",
+    overlayRequestPageInvalidLink: "This link is invalid or has expired.",
+    overlayRequestPageAddFailed: "Couldn't add {{email}}. Please try again.",
     addOtherEmail: "Add another email",
     overlayHostsHint:
       "People from your calendar get working-hours-aware scheduling. Other emails are only checked for conflicts.",
@@ -665,6 +712,8 @@ const enUS = {
     calendarSettingsLoading:
       "Calendar settings are still loading. Try again in a moment.",
     day: "Day",
+    daysCount: "{{count}} days",
+    declinedEvents: "Declined events",
     display: "Display",
     endTimeAfterStart: "End time must be after start time",
     eventDeleted: "Event deleted",
@@ -675,6 +724,7 @@ const enUS = {
     failedRestoreAttendance: "Failed to restore attendance",
     failedMoveEvent: "Failed to move event",
     failedUpdateEvent: "Failed to update event",
+    generalSettings: "General settings",
     googleCalendarLinkUnavailable: "Google Calendar link unavailable",
     hideWeekends: "Hide weekends",
     loadingCalendars: "Loading calendars",
@@ -684,11 +734,17 @@ const enUS = {
     notificationEmptyDescription:
       "Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes.",
     openNavigation: "Open navigation",
+    numberOfDays: "Number of days",
+    other: "Other…",
     today: "Today",
     undo: "Undo",
     updatingEvent: "Updating event...",
     updatingRecurringEvent: "Updating recurring event...",
     week: "Week",
+    weekNumber: "Week {{number}}",
+    weekNumbers: "Week numbers",
+    weekends: "Weekends",
+    viewSettings: "View settings",
     timezoneSwitchTitle: "Use your browser timezone?",
     timezoneSwitchDescription:
       "Calendar is pinned to {{savedTimezone}}, but your browser is in {{browserTimezone}}. Switch the calendar timezone?",
@@ -6454,6 +6510,8 @@ const translatedCalendarRemainingRaw = {
       googleCalendarSettings: "Google Calendar 设置",
       hideCalendar: "隐藏日历",
       myCalendars: "我的日历",
+      feedsGroup: "订阅源",
+      managePeerAvailability: "管理共享空闲时间",
       nextYear: "下一年",
       otherCalendars: "其他日历",
       otherCalendarsDescription: "添加队友的日历或订阅公共日历 URL",
@@ -6582,6 +6640,8 @@ const translatedCalendarRemainingRaw = {
       googleCalendarSettings: "Ajustes de Google Calendar",
       hideCalendar: "Ocultar calendario",
       myCalendars: "Mis calendarios",
+      feedsGroup: "Suscripciones",
+      managePeerAvailability: "Gestionar disponibilidad compartida",
       nextYear: "Año siguiente",
       otherCalendars: "Otros calendarios",
       otherCalendarsDescription:
@@ -6869,6 +6929,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Paramètres Google Calendar",
       hideCalendar: "Masquer le calendrier",
       myCalendars: "Mes calendriers",
+      feedsGroup: "Flux",
+      managePeerAvailability: "Gérer la disponibilité partagée",
       nextYear: "Année suivante",
       otherCalendars: "Autres calendriers",
       otherCalendarsDescription:
@@ -7026,6 +7088,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Google Calendar-Einstellungen",
       hideCalendar: "Kalender ausblenden",
       myCalendars: "Meine Kalender",
+      feedsGroup: "Feeds",
+      managePeerAvailability: "Gemeinsame Verfügbarkeit verwalten",
       nextYear: "Nächstes Jahr",
       otherCalendars: "Andere Kalender",
       otherCalendarsDescription:
@@ -7175,6 +7239,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Google Calendar 設定",
       hideCalendar: "カレンダーを非表示",
       myCalendars: "マイカレンダー",
+      feedsGroup: "フィード",
+      managePeerAvailability: "共有の空き時間を管理",
       nextYear: "翌年",
       otherCalendars: "その他のカレンダー",
       otherCalendarsDescription:
@@ -7321,6 +7387,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Google Calendar 설정",
       hideCalendar: "캘린더 숨기기",
       myCalendars: "내 캘린더",
+      feedsGroup: "피드",
+      managePeerAvailability: "공유 예약 가능 시간 관리",
       nextYear: "다음 해",
       otherCalendars: "다른 캘린더",
       otherCalendarsDescription:
@@ -7480,6 +7548,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Configurações do Google Calendar",
       hideCalendar: "Ocultar calendário",
       myCalendars: "Meus calendários",
+      feedsGroup: "Feeds",
+      managePeerAvailability: "Gerenciar disponibilidade compartilhada",
       nextYear: "Próximo ano",
       otherCalendars: "Outros calendários",
       otherCalendarsDescription:
@@ -7627,6 +7697,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "Google Calendar सेटिंग",
       hideCalendar: "कैलेंडर छिपाएं",
       myCalendars: "मेरे कैलेंडर",
+      feedsGroup: "फ़ीड",
+      managePeerAvailability: "साझा उपलब्धता प्रबंधित करें",
       nextYear: "अगला वर्ष",
       otherCalendars: "अन्य कैलेंडर",
       otherCalendarsDescription:
@@ -7794,6 +7866,8 @@ const translatedCalendarExactCleanup = {
       googleCalendarSettings: "إعدادات Google Calendar",
       hideCalendar: "إخفاء التقويم",
       myCalendars: "تقويماتي",
+      feedsGroup: "الخلاصات",
+      managePeerAvailability: "إدارة التوفر المشترك",
       nextYear: "السنة التالية",
       otherCalendars: "تقويمات أخرى",
       otherCalendarsDescription: "أضف تقويم زميل أو اشترك في URL تقويم عام",
@@ -7894,6 +7968,8 @@ const translatedCalendarRawBurnDown = {
       addTitleBeforeCreate: "创建事件前请添加标题",
       calendarSettingsLoading: "日历设置仍在加载。请稍后再试。",
       day: "日",
+      daysCount: "{{count}} 天",
+      declinedEvents: "已拒绝的事件",
       display: "显示",
       endTimeAfterStart: "结束时间必须晚于开始时间",
       eventDeleted: "事件已删除",
@@ -7904,6 +7980,7 @@ const translatedCalendarRawBurnDown = {
       failedRestoreAttendance: "恢复出席状态失败",
       failedMoveEvent: "移动事件失败",
       failedUpdateEvent: "更新事件失败",
+      generalSettings: "常规设置",
       googleCalendarLinkUnavailable: "Google Calendar 链接不可用",
       hideWeekends: "隐藏周末",
       loadingCalendars: "正在加载日历",
@@ -7913,11 +7990,17 @@ const translatedCalendarRawBurnDown = {
       notificationEmptyDescription:
         "此应用打开时，Calendar 可以显示浏览器提醒。Clips 桌面版会处理更完整的会议提示，并支持一键备注。",
       openNavigation: "打开导航",
+      numberOfDays: "天数",
+      other: "其他…",
       today: "今天",
       undo: "撤销",
       updatingEvent: "正在更新事件...",
       updatingRecurringEvent: "正在更新重复事件...",
       week: "周",
+      weekNumber: "第 {{number}} 周",
+      weekNumbers: "周数",
+      weekends: "周末",
+      viewSettings: "视图设置",
       timezoneSwitchTitle: "使用浏览器时区？",
       timezoneSwitchDescription:
         "日历固定为 {{savedTimezone}}，但浏览器使用 {{browserTimezone}}。要切换日历时区吗？",
@@ -7929,6 +8012,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "预约会议",
       eventPreview: "事件预览",
       manageBooking: "管理预约",
+      addSharedAvailability: "添加到日历 — Calendar",
       notFound: "未找到 - Calendar",
       settings: "设置 — Calendar",
       team: "团队 — Calendar",
@@ -8070,6 +8154,8 @@ const translatedCalendarRawBurnDown = {
       calendarSettingsLoading:
         "La configuración del calendario aún se está cargando. Inténtalo de nuevo en un momento.",
       day: "Día",
+      daysCount: "{{count}} días",
+      declinedEvents: "Eventos rechazados",
       display: "Mostrar",
       endTimeAfterStart:
         "La hora de finalización debe ser posterior a la de inicio",
@@ -8081,6 +8167,7 @@ const translatedCalendarRawBurnDown = {
       failedRestoreAttendance: "No se pudo restaurar la asistencia",
       failedMoveEvent: "No se pudo mover el evento",
       failedUpdateEvent: "No se pudo actualizar el evento",
+      generalSettings: "Configuración general",
       googleCalendarLinkUnavailable:
         "El enlace de Google Calendar no está disponible",
       hideWeekends: "Ocultar fines de semana",
@@ -8091,11 +8178,17 @@ const translatedCalendarRawBurnDown = {
       notificationEmptyDescription:
         "Calendar puede mostrar alertas del navegador mientras esta app está abierta. Clips de escritorio gestiona avisos de reunión más completos con notas en un clic.",
       openNavigation: "Abrir navegación",
+      numberOfDays: "Número de días",
+      other: "Otro…",
       today: "Hoy",
       undo: "Deshacer",
       updatingEvent: "Actualizando evento...",
       updatingRecurringEvent: "Actualizando evento recurrente...",
       week: "Semana",
+      weekNumber: "Semana {{number}}",
+      weekNumbers: "Números de semana",
+      weekends: "Fines de semana",
+      viewSettings: "Configuración de vista",
       timezoneSwitchTitle: "¿Usar la zona horaria del navegador?",
       timezoneSwitchDescription:
         "El calendario está fijado en {{savedTimezone}}, pero tu navegador usa {{browserTimezone}}. ¿Cambiar la zona horaria del calendario?",
@@ -8107,6 +8200,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "Reservar una reunión",
       eventPreview: "Vista previa del evento",
       manageBooking: "Gestionar reserva",
+      addSharedAvailability: "Añadir al calendario — Calendar",
       notFound: "No encontrado - Calendar",
       settings: "Configuración — Calendar",
       team: "Equipo — Calendar",
@@ -8254,6 +8348,8 @@ const translatedCalendarRawBurnDown = {
       calendarSettingsLoading:
         "Les paramètres du calendrier sont encore en cours de chargement. Réessayez dans un instant.",
       day: "Jour",
+      daysCount: "{{count}} jours",
+      declinedEvents: "Événements refusés",
       display: "Affichage",
       endTimeAfterStart: "L'heure de fin doit être après l'heure de début",
       eventDeleted: "Événement supprimé",
@@ -8264,6 +8360,7 @@ const translatedCalendarRawBurnDown = {
       failedRestoreAttendance: "Échec de la restauration de la participation",
       failedMoveEvent: "Échec du déplacement de l'événement",
       failedUpdateEvent: "Échec de la mise à jour de l'événement",
+      generalSettings: "Paramètres généraux",
       googleCalendarLinkUnavailable: "Lien Google Calendar indisponible",
       hideWeekends: "Masquer les week-ends",
       loadingCalendars: "Chargement des calendriers",
@@ -8273,11 +8370,17 @@ const translatedCalendarRawBurnDown = {
       notificationEmptyDescription:
         "Calendar peut afficher des alertes du navigateur tant que cette app est ouverte. Clips desktop gère des rappels de réunion plus complets avec des notes en un clic.",
       openNavigation: "Ouvrir la navigation",
+      numberOfDays: "Nombre de jours",
+      other: "Autre…",
       today: "Aujourd'hui",
       undo: "Annuler",
       updatingEvent: "Mise à jour de l'événement...",
       updatingRecurringEvent: "Mise à jour de l'événement récurrent...",
       week: "Semaine",
+      weekNumber: "Semaine {{number}}",
+      weekNumbers: "Numéros de semaine",
+      weekends: "Week-ends",
+      viewSettings: "Paramètres d'affichage",
       timezoneSwitchTitle: "Utiliser le fuseau horaire du navigateur ?",
       timezoneSwitchDescription:
         "Le calendrier est fixé sur {{savedTimezone}}, mais votre navigateur utilise {{browserTimezone}}. Changer le fuseau horaire du calendrier ?",
@@ -8289,6 +8392,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "Réserver une réunion",
       eventPreview: "Aperçu de l'événement",
       manageBooking: "Gérer la réservation",
+      addSharedAvailability: "Ajouter au calendrier — Calendar",
       notFound: "Introuvable - Calendar",
       settings: "Paramètres — Calendar",
       team: "Équipe — Calendar",
@@ -8439,6 +8543,8 @@ const translatedCalendarRawBurnDown = {
       calendarSettingsLoading:
         "Die Kalendereinstellungen werden noch geladen. Versuchen Sie es gleich erneut.",
       day: "Tag",
+      daysCount: "{{count}} Tage",
+      declinedEvents: "Abgelehnte Ereignisse",
       display: "Anzeige",
       endTimeAfterStart: "Die Endzeit muss nach der Startzeit liegen",
       eventDeleted: "Ereignis gelöscht",
@@ -8450,6 +8556,7 @@ const translatedCalendarRawBurnDown = {
         "Teilnahme konnte nicht wiederhergestellt werden",
       failedMoveEvent: "Ereignis konnte nicht verschoben werden",
       failedUpdateEvent: "Ereignis konnte nicht aktualisiert werden",
+      generalSettings: "Allgemeine Einstellungen",
       googleCalendarLinkUnavailable: "Google Calendar-Link nicht verfügbar",
       hideWeekends: "Wochenenden ausblenden",
       loadingCalendars: "Kalender werden geladen",
@@ -8459,11 +8566,17 @@ const translatedCalendarRawBurnDown = {
       notificationEmptyDescription:
         "Calendar kann Browserbenachrichtigungen anzeigen, während diese App geöffnet ist. Clips Desktop übernimmt umfassendere Meeting-Hinweise mit Notizen per Klick.",
       openNavigation: "Navigation öffnen",
+      numberOfDays: "Anzahl der Tage",
+      other: "Andere…",
       today: "Heute",
       undo: "Rückgängig",
       updatingEvent: "Ereignis wird aktualisiert...",
       updatingRecurringEvent: "Wiederkehrendes Ereignis wird aktualisiert...",
       week: "Woche",
+      weekNumber: "Woche {{number}}",
+      weekNumbers: "Kalenderwochen",
+      weekends: "Wochenenden",
+      viewSettings: "Ansichtseinstellungen",
       timezoneSwitchTitle: "Browser-Zeitzone verwenden?",
       timezoneSwitchDescription:
         "Der Kalender ist auf {{savedTimezone}} festgelegt, aber Ihr Browser verwendet {{browserTimezone}}. Kalenderzeitzone wechseln?",
@@ -8475,6 +8588,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "Meeting buchen",
       eventPreview: "Ereignisvorschau",
       manageBooking: "Buchung verwalten",
+      addSharedAvailability: "Zum Kalender hinzufügen — Calendar",
       notFound: "Nicht gefunden - Calendar",
       settings: "Einstellungen — Calendar",
       team: "Kalenderteam — Calendar",
@@ -8623,6 +8737,8 @@ const translatedCalendarRawBurnDown = {
       calendarSettingsLoading:
         "カレンダー設定を読み込み中です。少し待ってからもう一度お試しください。",
       day: "日",
+      daysCount: "{{count}}日",
+      declinedEvents: "辞退した予定",
       display: "表示",
       endTimeAfterStart: "終了時刻は開始時刻より後にしてください",
       eventDeleted: "イベントを削除しました",
@@ -8633,6 +8749,7 @@ const translatedCalendarRawBurnDown = {
       failedRestoreAttendance: "出席の復元に失敗しました",
       failedMoveEvent: "イベントを移動できませんでした",
       failedUpdateEvent: "イベントを更新できませんでした",
+      generalSettings: "一般設定",
       googleCalendarLinkUnavailable: "Google Calendar リンクを利用できません",
       hideWeekends: "週末を非表示",
       loadingCalendars: "カレンダーを読み込み中",
@@ -8642,11 +8759,17 @@ const translatedCalendarRawBurnDown = {
       notificationEmptyDescription:
         "このアプリを開いている間、Calendar はブラウザー通知を表示できます。Clips デスクトップでは、ワンクリックのメモ付きでより詳しい会議通知を扱えます。",
       openNavigation: "ナビゲーションを開く",
+      numberOfDays: "表示日数",
+      other: "その他…",
       today: "今日",
       undo: "元に戻す",
       updatingEvent: "イベントを更新中...",
       updatingRecurringEvent: "繰り返しイベントを更新中...",
       week: "週",
+      weekNumber: "第{{number}}週",
+      weekNumbers: "週番号",
+      weekends: "週末",
+      viewSettings: "表示設定",
       timezoneSwitchTitle: "ブラウザのタイムゾーンを使用しますか？",
       timezoneSwitchDescription:
         "カレンダーは {{savedTimezone}} に固定されていますが、ブラウザは {{browserTimezone}} を使用しています。カレンダーのタイムゾーンを切り替えますか？",
@@ -8658,6 +8781,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "会議を予約",
       eventPreview: "イベントプレビュー",
       manageBooking: "予約を管理",
+      addSharedAvailability: "カレンダーに追加 — Calendar",
       notFound: "見つかりません - Calendar",
       settings: "設定 — Calendar",
       team: "チーム — Calendar",
@@ -8801,6 +8925,8 @@ const translatedCalendarRawBurnDown = {
       calendarSettingsLoading:
         "캘린더 설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요.",
       day: "일",
+      daysCount: "{{count}}일",
+      declinedEvents: "거절된 일정",
       display: "표시",
       endTimeAfterStart: "종료 시간은 시작 시간보다 늦어야 합니다",
       eventDeleted: "이벤트가 삭제되었습니다",
@@ -8811,6 +8937,7 @@ const translatedCalendarRawBurnDown = {
       failedRestoreAttendance: "참석 상태를 복원하지 못했습니다",
       failedMoveEvent: "이벤트를 이동하지 못했습니다",
       failedUpdateEvent: "이벤트를 업데이트하지 못했습니다",
+      generalSettings: "일반 설정",
       googleCalendarLinkUnavailable:
         "Google Calendar 링크를 사용할 수 없습니다",
       hideWeekends: "주말 숨기기",
@@ -8821,11 +8948,17 @@ const translatedCalendarRawBurnDown = {
       notificationEmptyDescription:
         "이 앱이 열려 있는 동안 Calendar가 브라우저 알림을 표시할 수 있습니다. Clips 데스크톱은 원클릭 메모가 포함된 더 자세한 회의 알림을 처리합니다.",
       openNavigation: "탐색 열기",
+      numberOfDays: "표시할 일수",
+      other: "기타…",
       today: "오늘",
       undo: "실행 취소",
       updatingEvent: "이벤트 업데이트 중...",
       updatingRecurringEvent: "반복 이벤트 업데이트 중...",
       week: "주",
+      weekNumber: "{{number}}주",
+      weekNumbers: "주 번호",
+      weekends: "주말",
+      viewSettings: "보기 설정",
       timezoneSwitchTitle: "브라우저 시간대를 사용할까요?",
       timezoneSwitchDescription:
         "캘린더는 {{savedTimezone}}에 고정되어 있지만 브라우저는 {{browserTimezone}}을(를) 사용합니다. 캘린더 시간대를 전환할까요?",
@@ -8837,6 +8970,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "회의 예약",
       eventPreview: "이벤트 미리보기",
       manageBooking: "예약 관리",
+      addSharedAvailability: "캘린더에 추가 — Calendar",
       notFound: "찾을 수 없음 - Calendar",
       settings: "설정 — Calendar",
       team: "팀 — Calendar",
@@ -8982,6 +9116,8 @@ const translatedCalendarRawBurnDown = {
       calendarSettingsLoading:
         "As configurações do calendário ainda estão carregando. Tente novamente em instantes.",
       day: "Dia",
+      daysCount: "{{count}} dias",
+      declinedEvents: "Eventos recusados",
       display: "Exibição",
       endTimeAfterStart:
         "O horário de término deve ser depois do horário de início",
@@ -8993,6 +9129,7 @@ const translatedCalendarRawBurnDown = {
       failedRestoreAttendance: "Falha ao restaurar a participação",
       failedMoveEvent: "Falha ao mover evento",
       failedUpdateEvent: "Falha ao atualizar evento",
+      generalSettings: "Configurações gerais",
       googleCalendarLinkUnavailable: "Link do Google Calendar indisponível",
       hideWeekends: "Ocultar fins de semana",
       loadingCalendars: "Carregando calendários",
@@ -9002,11 +9139,17 @@ const translatedCalendarRawBurnDown = {
       notificationEmptyDescription:
         "Calendar pode exibir alertas do navegador enquanto este app estiver aberto. O Clips desktop cuida de lembretes de reunião mais completos com notas em um clique.",
       openNavigation: "Abrir navegação",
+      numberOfDays: "Número de dias",
+      other: "Outro…",
       today: "Hoje",
       undo: "Desfazer",
       updatingEvent: "Atualizando evento...",
       updatingRecurringEvent: "Atualizando evento recorrente...",
       week: "Semana",
+      weekNumber: "Semana {{number}}",
+      weekNumbers: "Números da semana",
+      weekends: "Fins de semana",
+      viewSettings: "Configurações de visualização",
       timezoneSwitchTitle: "Usar o fuso horário do navegador?",
       timezoneSwitchDescription:
         "O calendário está fixado em {{savedTimezone}}, mas o navegador usa {{browserTimezone}}. Mudar o fuso horário do calendário?",
@@ -9018,6 +9161,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "Reservar uma reunião",
       eventPreview: "Prévia do evento",
       manageBooking: "Gerenciar reserva",
+      addSharedAvailability: "Adicionar ao calendário — Calendar",
       notFound: "Não encontrado - Calendar",
       settings: "Configurações — Calendar",
       team: "Equipe — Calendar",
@@ -9163,6 +9307,8 @@ const translatedCalendarRawBurnDown = {
       calendarSettingsLoading:
         "कैलेंडर सेटिंग अभी लोड हो रही हैं। कृपया थोड़ी देर में फिर कोशिश करें।",
       day: "दिन",
+      daysCount: "{{count}} दिन",
+      declinedEvents: "अस्वीकृत इवेंट",
       display: "डिस्प्ले",
       endTimeAfterStart: "समाप्ति समय प्रारंभ समय के बाद होना चाहिए",
       eventDeleted: "इवेंट मिटा दिया गया",
@@ -9173,6 +9319,7 @@ const translatedCalendarRawBurnDown = {
       failedRestoreAttendance: "उपस्थिति बहाल करने में विफल",
       failedMoveEvent: "इवेंट स्थानांतरित करने में विफल",
       failedUpdateEvent: "इवेंट अपडेट करने में विफल",
+      generalSettings: "सामान्य सेटिंग",
       googleCalendarLinkUnavailable: "Google Calendar लिंक उपलब्ध नहीं है",
       hideWeekends: "सप्ताहांत छिपाएं",
       loadingCalendars: "कैलेंडर लोड हो रहे हैं",
@@ -9182,11 +9329,17 @@ const translatedCalendarRawBurnDown = {
       notificationEmptyDescription:
         "यह ऐप खुला होने पर Calendar ब्राउज़र अलर्ट दिखा सकता है। Clips डेस्कटॉप एक-क्लिक नोट्स के साथ अधिक पूर्ण मीटिंग संकेत संभालता है।",
       openNavigation: "नेविगेशन खोलें",
+      numberOfDays: "दिनों की संख्या",
+      other: "अन्य…",
       today: "आज",
       undo: "पहले जैसा करें",
       updatingEvent: "इवेंट अपडेट हो रहा है...",
       updatingRecurringEvent: "दोहराया जाने वाला इवेंट अपडेट हो रहा है...",
       week: "सप्ताह",
+      weekNumber: "सप्ताह {{number}}",
+      weekNumbers: "सप्ताह संख्या",
+      weekends: "सप्ताहांत",
+      viewSettings: "दृश्य सेटिंग",
       timezoneSwitchTitle: "ब्राउज़र का टाइमज़ोन इस्तेमाल करें?",
       timezoneSwitchDescription:
         "कैलेंडर {{savedTimezone}} पर पिन है, लेकिन आपका ब्राउज़र {{browserTimezone}} पर है। कैलेंडर टाइमज़ोन बदलें?",
@@ -9198,6 +9351,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "मीटिंग बुक करें",
       eventPreview: "इवेंट पूर्वावलोकन",
       manageBooking: "बुकिंग प्रबंधित करें",
+      addSharedAvailability: "कैलेंडर में जोड़ें — Calendar",
       notFound: "नहीं मिला - Calendar",
       settings: "सेटिंग — Calendar",
       team: "टीम — Calendar",
@@ -9342,6 +9496,8 @@ const translatedCalendarRawBurnDown = {
       calendarSettingsLoading:
         "لا تزال إعدادات التقويم قيد التحميل. حاول مرة أخرى بعد قليل.",
       day: "اليوم",
+      daysCount: "{{count}} يوم",
+      declinedEvents: "الأحداث المرفوضة",
       display: "العرض",
       endTimeAfterStart: "يجب أن يكون وقت الانتهاء بعد وقت البدء",
       eventDeleted: "تم حذف الحدث",
@@ -9352,6 +9508,7 @@ const translatedCalendarRawBurnDown = {
       failedRestoreAttendance: "فشل استعادة الحضور",
       failedMoveEvent: "فشل نقل الحدث",
       failedUpdateEvent: "فشل تحديث الحدث",
+      generalSettings: "الإعدادات العامة",
       googleCalendarLinkUnavailable: "رابط Google Calendar غير متاح",
       hideWeekends: "إخفاء عطلات نهاية الأسبوع",
       loadingCalendars: "جارٍ تحميل التقويمات",
@@ -9361,11 +9518,17 @@ const translatedCalendarRawBurnDown = {
       notificationEmptyDescription:
         "يمكن لـ Calendar عرض تنبيهات المتصفح أثناء فتح هذا التطبيق. يتولى Clips لسطح المكتب مطالبات اجتماع أكثر اكتمالًا مع ملاحظات بنقرة واحدة.",
       openNavigation: "فتح التنقل",
+      numberOfDays: "عدد الأيام",
+      other: "أخرى…",
       today: "اليوم",
       undo: "تراجع",
       updatingEvent: "جارٍ تحديث الحدث...",
       updatingRecurringEvent: "جارٍ تحديث الحدث المتكرر...",
       week: "الأسبوع",
+      weekNumber: "الأسبوع {{number}}",
+      weekNumbers: "أرقام الأسابيع",
+      weekends: "عطلات نهاية الأسبوع",
+      viewSettings: "إعدادات العرض",
       timezoneSwitchTitle: "استخدام المنطقة الزمنية للمتصفح؟",
       timezoneSwitchDescription:
         "التقويم مثبت على {{savedTimezone}}، لكن متصفحك يستخدم {{browserTimezone}}. هل تريد تبديل المنطقة الزمنية للتقويم؟",
@@ -9377,6 +9540,7 @@ const translatedCalendarRawBurnDown = {
       bookMeeting: "حجز اجتماع",
       eventPreview: "معاينة الحدث",
       manageBooking: "إدارة الحجز",
+      addSharedAvailability: "إضافة إلى التقويم — Calendar",
       notFound: "غير موجود - Calendar",
       settings: "الإعدادات — Calendar",
       team: "الفريق — Calendar",
@@ -9781,6 +9945,53 @@ const translatedBookingHostAvailability = {
       noOverlayPeopleYet:
         "Aún no has añadido a ningún compañero a tu calendario.",
       addOverlayPersonCta: "Añadir el calendario de un compañero",
+      sharedAvailability: "Disponibilidad compartida",
+      sharedAvailabilityDescription:
+        "Añade compañeros como anfitriones obligatorios. Su disponibilidad siempre cuenta y, si te añaden, también su horario laboral.",
+      sharedAvailabilityEmpty:
+        "Aún no hay nadie en tu calendario. Añade a un compañero para usar su horario laboral en los enlaces de reserva.",
+      workingHoursAppliedLabel: "Horario laboral aplicado",
+      workingHoursPendingScheduleLabel: "Sin horario laboral guardado",
+      workingHoursNotAppliedLabel: "No te ha añadido",
+      removePeerAriaLabel: "Quitar {{email}} de tu calendario",
+      removePeerConfirm:
+        "¿Quitar a {{name}}? Sus eventos saldrán de tu calendario y su horario laboral dejará de aplicarse a tus enlaces de reserva.",
+      removePeerConfirmAction: "Quitar",
+      workingHoursAppliedTooltip:
+        "El horario laboral de {{name}} ({{timezone}}) se aplica a este enlace.",
+      workingHoursAppliedAriaLabel: "Se aplica el horario laboral de {{email}}",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} aún no ha configurado su horario laboral, así que solo se comprueba su disponibilidad.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} aún no ha configurado su horario laboral",
+      workingHoursNotAppliedWarning:
+        "{{name}} todavía no te ha añadido a su calendario, así que solo se comprueba su disponibilidad, no su horario laboral.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} todavía no te ha añadido a su calendario",
+      workingHoursManualHost:
+        "{{name}} no está en tu calendario, así que solo se comprueba su disponibilidad, no su horario laboral.",
+      workingHoursManualHostAriaLabel: "{{email}} no está en tu calendario",
+      addHostToMyCalendar: "Añadir a mi calendario",
+      sendOverlayRequest: "Enviar solicitud",
+      resendOverlayRequest: "Reenviar solicitud",
+      overlayRequestSentJustNow: "Solicitud enviada ahora mismo",
+      overlayRequestSentAgo: "Solicitud enviada {{time}}",
+      overlayRequestFailed: "No se pudo enviar la solicitud",
+      overlayRequestPageTitle: "¿Añadir a {{email}} a tu calendario?",
+      overlayRequestPageDescription:
+        "{{email}} te añadió a su calendario y tiene enlaces de reserva donde eres un anfitrión obligatorio. Por ahora esos enlaces solo comprueban si estás ocupado; añadirlo de vuelta también aplica tu horario, además de eso, para que solo puedan reservar dentro de tu horario laboral.",
+      overlayRequestPageAlreadyAdded:
+        "Ya has añadido a {{email}} a tu calendario.",
+      overlayRequestPageAdded:
+        "Añadido. Los enlaces de reserva de {{email}} ahora usarán tu horario laboral real.",
+      overlayRequestPageDismiss: "Ahora no",
+      overlayRequestPageInvalidLink: "Este enlace no es válido o ha caducado.",
+      overlayRequestPageAddFailed:
+        "No se pudo añadir a {{email}}. Inténtalo de nuevo.",
+      overlayRequestEmailNotConfigured:
+        "El envío de correos aún no está configurado",
+      overlayRequestInProgress:
+        "Ya hay una solicitud en curso para este compañero",
       addOtherEmail: "Añadir otro correo",
       overlayHostsHint:
         "Las personas de tu calendario obtienen una programación que respeta su horario laboral. Otros correos solo se verifican por conflictos.",
@@ -9801,6 +10012,54 @@ const translatedBookingHostAvailability = {
       noOverlayPeopleYet:
         "Vous n'avez pas encore ajouté de collègues à votre calendrier.",
       addOverlayPersonCta: "Ajouter le calendrier d'un collègue",
+      sharedAvailability: "Disponibilité partagée",
+      sharedAvailabilityDescription:
+        "Ajoutez des collègues comme hôtes requis. Leur disponibilité compte toujours et, s'ils vous ajoutent, leurs horaires de travail aussi.",
+      sharedAvailabilityEmpty:
+        "Personne dans votre calendrier pour l'instant. Ajoutez un collègue pour utiliser ses horaires de travail dans les liens de réservation.",
+      workingHoursAppliedLabel: "Horaires de travail appliqués",
+      workingHoursPendingScheduleLabel: "Aucun horaire de travail enregistré",
+      workingHoursNotAppliedLabel: "Ne vous a pas ajouté en retour",
+      removePeerAriaLabel: "Retirer {{email}} de votre calendrier",
+      removePeerConfirm:
+        "Retirer {{name}} ? Ses événements quitteront votre calendrier et ses horaires de travail ne s'appliqueront plus à vos liens de réservation.",
+      removePeerConfirmAction: "Retirer",
+      workingHoursAppliedTooltip:
+        "Les horaires de travail de {{name}} ({{timezone}}) s'appliquent à ce lien.",
+      workingHoursAppliedAriaLabel:
+        "Les horaires de travail de {{email}} s'appliquent",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} n'a pas encore défini ses horaires de travail, seules ses disponibilités sont vérifiées.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} n'a pas encore défini ses horaires de travail",
+      workingHoursNotAppliedWarning:
+        "{{name}} ne vous a pas encore ajouté à son calendrier, seules ses disponibilités sont vérifiées, pas ses horaires de travail.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} ne vous a pas encore ajouté à son calendrier",
+      workingHoursManualHost:
+        "{{name}} n'est pas dans votre calendrier, seules ses disponibilités sont vérifiées, pas ses horaires de travail.",
+      workingHoursManualHostAriaLabel:
+        "{{email}} n'est pas dans votre calendrier",
+      addHostToMyCalendar: "Ajouter à mon calendrier",
+      sendOverlayRequest: "Envoyer la demande",
+      resendOverlayRequest: "Renvoyer la demande",
+      overlayRequestSentJustNow: "Demande envoyée à l'instant",
+      overlayRequestSentAgo: "Demande envoyée {{time}}",
+      overlayRequestFailed: "Échec de l'envoi de la demande",
+      overlayRequestPageTitle: "Ajouter {{email}} à votre calendrier ?",
+      overlayRequestPageDescription:
+        "{{email}} vous a ajouté à son calendrier et a des liens de réservation où vous êtes un hôte requis. Pour l'instant, ces liens vérifient seulement si vous êtes occupé — l'ajouter en retour applique en plus votre emploi du temps, afin que les réservations ne soient possibles que dans vos horaires de travail.",
+      overlayRequestPageAlreadyAdded:
+        "Vous avez déjà ajouté {{email}} à votre calendrier.",
+      overlayRequestPageAdded:
+        "Ajouté. Les liens de réservation de {{email}} utiliseront désormais vos horaires de travail réels.",
+      overlayRequestPageDismiss: "Pas maintenant",
+      overlayRequestPageInvalidLink: "Ce lien est invalide ou a expiré.",
+      overlayRequestPageAddFailed:
+        "Impossible d'ajouter {{email}}. Veuillez réessayer.",
+      overlayRequestEmailNotConfigured:
+        "L'envoi d'e-mails n'est pas encore configuré",
+      overlayRequestInProgress: "Une demande à ce collègue est déjà en cours",
       addOtherEmail: "Ajouter un autre e-mail",
       overlayHostsHint:
         "Les personnes de votre calendrier bénéficient d'une planification tenant compte de leurs horaires. Les autres e-mails ne sont vérifiés que pour les conflits.",
@@ -9821,6 +10080,54 @@ const translatedBookingHostAvailability = {
       noOverlayPeopleYet:
         "Du hast deinem Kalender noch keine Kolleg:innen hinzugefügt.",
       addOverlayPersonCta: "Kalender einer Kollegin/eines Kollegen hinzufügen",
+      sharedAvailability: "Gemeinsame Verfügbarkeit",
+      sharedAvailabilityDescription:
+        "Füge Kolleg:innen als erforderliche Gastgeber hinzu. Ihr Frei/Gebucht-Status gilt immer, ihre Arbeitszeiten zusätzlich, sobald sie dich hinzufügen.",
+      sharedAvailabilityEmpty:
+        "Noch niemand in deinem Kalender. Füge Kolleg:innen hinzu, um ihre Arbeitszeiten für Buchungslinks zu nutzen.",
+      workingHoursAppliedLabel: "Arbeitszeiten werden angewendet",
+      workingHoursPendingScheduleLabel: "Keine Arbeitszeiten gespeichert",
+      workingHoursNotAppliedLabel: "Hat dich nicht hinzugefügt",
+      removePeerAriaLabel: "{{email}} aus deinem Kalender entfernen",
+      removePeerConfirm:
+        "{{name}} entfernen? Die Termine verschwinden aus deinem Kalender und die Arbeitszeiten gelten nicht mehr für deine Buchungslinks.",
+      removePeerConfirmAction: "Entfernen",
+      workingHoursAppliedTooltip:
+        "Die Arbeitszeiten von {{name}} ({{timezone}}) gelten für diesen Link.",
+      workingHoursAppliedAriaLabel:
+        "Die Arbeitszeiten von {{email}} werden angewendet",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} hat noch keine Arbeitszeiten festgelegt, daher wird nur die Verfügbarkeit geprüft.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} hat noch keine Arbeitszeiten festgelegt",
+      workingHoursNotAppliedWarning:
+        "{{name}} hat dich noch nicht zum eigenen Kalender hinzugefügt, daher wird nur die Verfügbarkeit geprüft, nicht die Arbeitszeiten.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} hat dich noch nicht zum eigenen Kalender hinzugefügt",
+      workingHoursManualHost:
+        "{{name}} ist nicht in deinem Kalender, daher wird nur die Verfügbarkeit geprüft, nicht die Arbeitszeiten.",
+      workingHoursManualHostAriaLabel: "{{email}} ist nicht in deinem Kalender",
+      addHostToMyCalendar: "Zu meinem Kalender hinzufügen",
+      sendOverlayRequest: "Anfrage senden",
+      resendOverlayRequest: "Anfrage erneut senden",
+      overlayRequestSentJustNow: "Anfrage gerade gesendet",
+      overlayRequestSentAgo: "Anfrage {{time}} gesendet",
+      overlayRequestFailed: "Anfrage konnte nicht gesendet werden",
+      overlayRequestPageTitle: "{{email}} zu deinem Kalender hinzufügen?",
+      overlayRequestPageDescription:
+        "{{email}} hat dich zu seinem/ihrem Kalender hinzugefügt und hat Buchungslinks, bei denen du ein erforderlicher Gastgeber bist. Diese Links prüfen derzeit nur, ob du beschäftigt bist — wenn du die Person zurückfügst, wird zusätzlich dein Zeitplan angewendet, sodass Buchungen nur innerhalb deiner Arbeitszeiten möglich sind.",
+      overlayRequestPageAlreadyAdded:
+        "Du hast {{email}} bereits zu deinem Kalender hinzugefügt.",
+      overlayRequestPageAdded:
+        "Hinzugefügt. Die Buchungslinks von {{email}} verwenden jetzt deine tatsächlichen Arbeitszeiten.",
+      overlayRequestPageDismiss: "Nicht jetzt",
+      overlayRequestPageInvalidLink:
+        "Dieser Link ist ungültig oder abgelaufen.",
+      overlayRequestPageAddFailed:
+        "{{email}} konnte nicht hinzugefügt werden. Bitte versuche es erneut.",
+      overlayRequestEmailNotConfigured:
+        "E-Mail-Versand ist noch nicht eingerichtet",
+      overlayRequestInProgress: "Eine Anfrage an diese Person läuft bereits",
       addOtherEmail: "Weitere E-Mail hinzufügen",
       overlayHostsHint:
         "Personen aus deinem Kalender erhalten eine Terminplanung, die ihre Arbeitszeiten berücksichtigt. Andere E-Mails werden nur auf Konflikte geprüft.",
@@ -9840,6 +10147,54 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "Ninguém encontrado.",
       noOverlayPeopleYet: "Você ainda não adicionou colegas ao seu calendário.",
       addOverlayPersonCta: "Adicionar o calendário de um colega",
+      sharedAvailability: "Disponibilidade compartilhada",
+      sharedAvailabilityDescription:
+        "Adicione colegas como anfitriões obrigatórios. A disponibilidade deles sempre vale e, se te adicionarem, o horário de trabalho também.",
+      sharedAvailabilityEmpty:
+        "Ainda não há ninguém no seu calendário. Adicione um colega para usar o horário de trabalho dele nos links de agendamento.",
+      workingHoursAppliedLabel: "Horário de trabalho aplicado",
+      workingHoursPendingScheduleLabel: "Nenhum horário de trabalho salvo",
+      workingHoursNotAppliedLabel: "Não te adicionou de volta",
+      removePeerAriaLabel: "Remover {{email}} do seu calendário",
+      removePeerConfirm:
+        "Remover {{name}}? Os eventos dessa pessoa saem do seu calendário e o horário de trabalho dela deixa de valer nos seus links de agendamento.",
+      removePeerConfirmAction: "Remover",
+      workingHoursAppliedTooltip:
+        "O horário de trabalho de {{name}} ({{timezone}}) se aplica a este link.",
+      workingHoursAppliedAriaLabel:
+        "O horário de trabalho de {{email}} é aplicado",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} ainda não configurou o horário de trabalho, então apenas a disponibilidade é verificada.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} ainda não configurou o horário de trabalho",
+      workingHoursNotAppliedWarning:
+        "{{name}} ainda não te adicionou ao calendário dele, então apenas a disponibilidade é verificada, não o horário de trabalho.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} ainda não te adicionou ao calendário dele",
+      workingHoursManualHost:
+        "{{name}} não está no seu calendário, então apenas a disponibilidade é verificada, não o horário de trabalho.",
+      workingHoursManualHostAriaLabel: "{{email}} não está no seu calendário",
+      addHostToMyCalendar: "Adicionar ao meu calendário",
+      sendOverlayRequest: "Enviar solicitação",
+      resendOverlayRequest: "Reenviar solicitação",
+      overlayRequestSentJustNow: "Solicitação enviada agora",
+      overlayRequestSentAgo: "Solicitação enviada {{time}}",
+      overlayRequestFailed: "Falha ao enviar a solicitação",
+      overlayRequestPageTitle: "Adicionar {{email}} ao seu calendário?",
+      overlayRequestPageDescription:
+        "{{email}} adicionou você ao calendário dele(a) e tem links de agendamento em que você é um anfitrião obrigatório. No momento, esses links só verificam se você está ocupado — adicioná-lo de volta também aplica sua agenda, além disso, para que só possam agendar dentro do seu horário de trabalho.",
+      overlayRequestPageAlreadyAdded:
+        "Você já adicionou {{email}} ao seu calendário.",
+      overlayRequestPageAdded:
+        "Adicionado. Os links de agendamento de {{email}} agora usarão seu horário de trabalho real.",
+      overlayRequestPageDismiss: "Agora não",
+      overlayRequestPageInvalidLink: "Este link é inválido ou expirou.",
+      overlayRequestPageAddFailed:
+        "Não foi possível adicionar {{email}}. Tente novamente.",
+      overlayRequestEmailNotConfigured:
+        "O envio de e-mails ainda não foi configurado",
+      overlayRequestInProgress:
+        "Já existe uma solicitação em andamento para esse colega",
       addOtherEmail: "Adicionar outro e-mail",
       overlayHostsHint:
         "Pessoas do seu calendário recebem agendamento que respeita o horário de trabalho delas. Outros e-mails são verificados apenas quanto a conflitos.",
@@ -9858,6 +10213,47 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "未找到任何人。",
       noOverlayPeopleYet: "你还没有向日历添加任何同事。",
       addOverlayPersonCta: "添加同事的日历",
+      sharedAvailability: "共享空闲时间",
+      sharedAvailabilityDescription:
+        "将同事加为必需主持人。始终检查其空闲/忙碌状态；对方也把你加入后，还会应用其工作时间。",
+      sharedAvailabilityEmpty:
+        "日历中还没有其他人。添加同事后即可在预约链接中使用其工作时间。",
+      workingHoursAppliedLabel: "已应用工作时间",
+      workingHoursPendingScheduleLabel: "尚未保存工作时间",
+      workingHoursNotAppliedLabel: "尚未把你加入日历",
+      removePeerAriaLabel: "从你的日历中移除 {{email}}",
+      removePeerConfirm:
+        "要移除 {{name}} 吗？其日程将不再显示在你的日历中，其工作时间也不再应用于你的预约链接。",
+      removePeerConfirmAction: "移除",
+      workingHoursAppliedTooltip:
+        "{{name}} 的工作时间（{{timezone}}）已应用于此链接。",
+      workingHoursAppliedAriaLabel: "已应用 {{email}} 的工作时间",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} 尚未设置工作时间，因此仅检查其忙闲状态。",
+      workingHoursPendingScheduleAriaLabel: "{{email}} 尚未设置工作时间",
+      workingHoursNotAppliedWarning:
+        "{{name}} 还没有把你加入他们的日历，因此仅检查其忙闲状态，而非工作时间。",
+      workingHoursNotAppliedAriaLabel: "{{email}} 还没有把你加入他们的日历",
+      workingHoursManualHost:
+        "{{name}} 不在你的日历中，因此仅检查其忙闲状态，而非工作时间。",
+      workingHoursManualHostAriaLabel: "{{email}} 不在你的日历中",
+      addHostToMyCalendar: "添加到我的日历",
+      sendOverlayRequest: "发送请求",
+      resendOverlayRequest: "重新发送请求",
+      overlayRequestSentJustNow: "请求刚刚已发送",
+      overlayRequestSentAgo: "请求已于{{time}}发送",
+      overlayRequestFailed: "请求发送失败",
+      overlayRequestPageTitle: "要将 {{email}} 添加到你的日历吗？",
+      overlayRequestPageDescription:
+        "{{email}} 已将你添加到他们的日历，并且有预订链接需要你作为必需主持人。目前这些链接只能检查你是否忙碌——把他们添加回来后，还会在此基础上应用你的日程安排，这样预订就只能落在你的工作时间内。",
+      overlayRequestPageAlreadyAdded: "你已经将 {{email}} 添加到你的日历中。",
+      overlayRequestPageAdded:
+        "已添加。{{email}} 的预订链接现在将使用你真实的工作时间。",
+      overlayRequestPageDismiss: "暂不",
+      overlayRequestPageInvalidLink: "此链接无效或已过期。",
+      overlayRequestPageAddFailed: "无法添加 {{email}}，请重试。",
+      overlayRequestEmailNotConfigured: "邮件发送尚未配置",
+      overlayRequestInProgress: "已经有一个针对该联系人的请求正在处理中",
       addOtherEmail: "添加其他邮箱",
       overlayHostsHint:
         "来自你日历的联系人会按照他们的工作时间安排日程。其他邮箱仅用于检查冲突。",
@@ -9876,6 +10272,52 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "見つかりませんでした。",
       noOverlayPeopleYet: "まだカレンダーに同僚を追加していません。",
       addOverlayPersonCta: "同僚のカレンダーを追加",
+      sharedAvailability: "共有の空き時間",
+      sharedAvailabilityDescription:
+        "同僚を必須ホストに追加できます。空き/予約済みは常に適用され、相手があなたを追加すると勤務時間も適用されます。",
+      sharedAvailabilityEmpty:
+        "カレンダーにはまだ誰もいません。同僚を追加すると、その勤務時間を予約リンクで利用できます。",
+      workingHoursAppliedLabel: "勤務時間を適用中",
+      workingHoursPendingScheduleLabel: "勤務時間が未保存",
+      workingHoursNotAppliedLabel: "あなたを追加していません",
+      removePeerAriaLabel: "{{email}} をカレンダーから削除",
+      removePeerConfirm:
+        "{{name}} を削除しますか？予定はカレンダーから消え、勤務時間も予約リンクに適用されなくなります。",
+      removePeerConfirmAction: "削除",
+      workingHoursAppliedTooltip:
+        "{{name}} の勤務時間（{{timezone}}）がこのリンクに適用されます。",
+      workingHoursAppliedAriaLabel: "{{email}} の勤務時間が適用されています",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} はまだ勤務時間を設定していないため、空き状況のみを確認します。",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} はまだ勤務時間を設定していません",
+      workingHoursNotAppliedWarning:
+        "{{name}} はまだあなたを自分のカレンダーに追加していないため、勤務時間ではなく空き状況のみを確認します。",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} はまだあなたを自分のカレンダーに追加していません",
+      workingHoursManualHost:
+        "{{name}} はあなたのカレンダーにいないため、勤務時間ではなく空き状況のみを確認します。",
+      workingHoursManualHostAriaLabel:
+        "{{email}} はあなたのカレンダーにいません",
+      addHostToMyCalendar: "自分のカレンダーに追加",
+      sendOverlayRequest: "リクエストを送信",
+      resendOverlayRequest: "リクエストを再送信",
+      overlayRequestSentJustNow: "リクエストを送信しました",
+      overlayRequestSentAgo: "{{time}}にリクエストを送信しました",
+      overlayRequestFailed: "リクエストの送信に失敗しました",
+      overlayRequestPageTitle: "{{email}} をカレンダーに追加しますか？",
+      overlayRequestPageDescription:
+        "{{email}} があなたを自分のカレンダーに追加し、あなたが必須ホストになっている予約リンクがあります。現在、そのリンクはあなたが忙しいかどうかしか確認できません。追加し返すと、それに加えてあなたの予定も適用されるため、勤務時間内でのみ予約できるようになります。",
+      overlayRequestPageAlreadyAdded:
+        "{{email}} はすでにカレンダーに追加されています。",
+      overlayRequestPageAdded:
+        "追加しました。{{email}} の予約リンクは今後、あなたの実際の勤務時間を使用します。",
+      overlayRequestPageDismiss: "今はしない",
+      overlayRequestPageInvalidLink: "このリンクは無効か期限切れです。",
+      overlayRequestPageAddFailed:
+        "{{email}} を追加できませんでした。もう一度お試しください。",
+      overlayRequestEmailNotConfigured: "メール送信がまだ設定されていません",
+      overlayRequestInProgress: "この相手へのリクエストはすでに進行中です",
       addOtherEmail: "別のメールアドレスを追加",
       overlayHostsHint:
         "カレンダーに登録された人には勤務時間を考慮したスケジュールが適用されます。それ以外のメールアドレスは競合の確認のみに使用されます。",
@@ -9894,6 +10336,53 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "찾을 수 없습니다.",
       noOverlayPeopleYet: "아직 캘린더에 동료를 추가하지 않았습니다.",
       addOverlayPersonCta: "동료의 캘린더 추가",
+      sharedAvailability: "공유 예약 가능 시간",
+      sharedAvailabilityDescription:
+        "동료를 필수 주최자로 추가하세요. 한가함/바쁨은 항상 적용되고, 상대방이 나를 추가하면 근무 시간도 적용됩니다.",
+      sharedAvailabilityEmpty:
+        "캘린더에 아직 아무도 없습니다. 동료를 추가하면 예약 링크에 그 사람의 근무 시간을 사용할 수 있습니다.",
+      workingHoursAppliedLabel: "근무 시간 적용됨",
+      workingHoursPendingScheduleLabel: "근무 시간 미저장",
+      workingHoursNotAppliedLabel: "나를 추가하지 않음",
+      removePeerAriaLabel: "{{email}}을 내 캘린더에서 제거",
+      removePeerConfirm:
+        "{{name}}을 제거할까요? 해당 일정이 캘린더에서 사라지고 근무 시간도 예약 링크에 더 이상 적용되지 않습니다.",
+      removePeerConfirmAction: "제거",
+      workingHoursAppliedTooltip:
+        "{{name}}의 근무 시간({{timezone}})이 이 링크에 적용됩니다.",
+      workingHoursAppliedAriaLabel: "{{email}}의 근무 시간이 적용됨",
+      workingHoursPendingScheduleTooltip:
+        "{{name}}이(가) 아직 근무 시간을 설정하지 않아 여유/바쁨만 확인합니다.",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}}이(가) 아직 근무 시간을 설정하지 않았습니다",
+      workingHoursNotAppliedWarning:
+        "{{name}}이(가) 아직 나를 자신의 캘린더에 추가하지 않아 근무 시간이 아닌 여유/바쁨만 확인합니다.",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}}이(가) 아직 나를 자신의 캘린더에 추가하지 않았습니다",
+      workingHoursManualHost:
+        "{{name}}이(가) 내 캘린더에 없어 근무 시간이 아닌 여유/바쁨만 확인합니다.",
+      workingHoursManualHostAriaLabel: "{{email}}이(가) 내 캘린더에 없습니다",
+      addHostToMyCalendar: "내 캘린더에 추가",
+      sendOverlayRequest: "요청 보내기",
+      resendOverlayRequest: "요청 다시 보내기",
+      overlayRequestSentJustNow: "방금 요청을 보냈습니다",
+      overlayRequestSentAgo: "{{time}}에 요청을 보냈습니다",
+      overlayRequestFailed: "요청을 보내지 못했습니다",
+      overlayRequestPageTitle: "{{email}}님을 캘린더에 추가하시겠어요?",
+      overlayRequestPageDescription:
+        "{{email}}님이 회원님을 자신의 캘린더에 추가했으며, 회원님이 필수 호스트로 지정된 예약 링크가 있습니다. 현재 해당 링크는 회원님의 바쁨 여부만 확인합니다. 다시 추가하면 그에 더해 회원님의 일정도 적용되어, 근무 시간 내에서만 예약이 가능해집니다.",
+      overlayRequestPageAlreadyAdded:
+        "이미 {{email}}님을 캘린더에 추가했습니다.",
+      overlayRequestPageAdded:
+        "추가되었습니다. 이제 {{email}}님의 예약 링크가 회원님의 실제 근무 시간을 사용합니다.",
+      overlayRequestPageDismiss: "나중에",
+      overlayRequestPageInvalidLink:
+        "이 링크는 유효하지 않거나 만료되었습니다.",
+      overlayRequestPageAddFailed:
+        "{{email}}님을 추가하지 못했습니다. 다시 시도해 주세요.",
+      overlayRequestEmailNotConfigured:
+        "이메일 발송이 아직 설정되지 않았습니다",
+      overlayRequestInProgress: "이 상대방에게 보낸 요청이 이미 진행 중입니다",
       addOtherEmail: "다른 이메일 추가",
       overlayHostsHint:
         "캘린더에 있는 사람은 근무 시간을 반영한 일정이 적용됩니다. 다른 이메일은 일정 충돌만 확인합니다.",
@@ -9912,6 +10401,51 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "कोई नहीं मिला।",
       noOverlayPeopleYet: "आपने अभी तक अपने कैलेंडर में कोई सहकर्मी नहीं जोड़ा है।",
       addOverlayPersonCta: "किसी सहकर्मी का कैलेंडर जोड़ें",
+      sharedAvailability: "साझा उपलब्धता",
+      sharedAvailabilityDescription:
+        "सहकर्मियों को आवश्यक होस्ट के रूप में जोड़ें। उनकी व्यस्त/खाली स्थिति हमेशा लागू होती है, और वे आपको जोड़ें तो कार्य घंटे भी।",
+      sharedAvailabilityEmpty:
+        "आपके कैलेंडर में अभी कोई नहीं है। बुकिंग लिंक में किसी सहकर्मी के कार्य घंटे उपयोग करने के लिए उन्हें जोड़ें।",
+      workingHoursAppliedLabel: "कार्य घंटे लागू",
+      workingHoursPendingScheduleLabel: "कार्य घंटे सहेजे नहीं गए",
+      workingHoursNotAppliedLabel: "आपको जोड़ा नहीं है",
+      removePeerAriaLabel: "{{email}} को अपने कैलेंडर से हटाएँ",
+      removePeerConfirm:
+        "{{name}} को हटाएँ? उनके इवेंट आपके कैलेंडर से हट जाएँगे और उनके कार्य घंटे आपके बुकिंग लिंक पर लागू नहीं होंगे।",
+      removePeerConfirmAction: "हटाएँ",
+      workingHoursAppliedTooltip:
+        "{{name}} के कार्य घंटे ({{timezone}}) इस लिंक पर लागू होते हैं।",
+      workingHoursAppliedAriaLabel: "{{email}} के कार्य घंटे लागू हैं",
+      workingHoursPendingScheduleTooltip:
+        "{{name}} ने अभी अपने कार्य घंटे सेट नहीं किए हैं, इसलिए केवल उनकी व्यस्तता जाँची जाती है।",
+      workingHoursPendingScheduleAriaLabel:
+        "{{email}} ने अभी अपने कार्य घंटे सेट नहीं किए हैं",
+      workingHoursNotAppliedWarning:
+        "{{name}} ने अभी आपको अपने कैलेंडर में नहीं जोड़ा है, इसलिए उनके कार्य घंटे नहीं, केवल व्यस्तता जाँची जाती है।",
+      workingHoursNotAppliedAriaLabel:
+        "{{email}} ने अभी आपको अपने कैलेंडर में नहीं जोड़ा है",
+      workingHoursManualHost:
+        "{{name}} आपके कैलेंडर में नहीं हैं, इसलिए उनके कार्य घंटे नहीं, केवल व्यस्तता जाँची जाती है।",
+      workingHoursManualHostAriaLabel: "{{email}} आपके कैलेंडर में नहीं हैं",
+      addHostToMyCalendar: "मेरे कैलेंडर में जोड़ें",
+      sendOverlayRequest: "अनुरोध भेजें",
+      resendOverlayRequest: "अनुरोध फिर भेजें",
+      overlayRequestSentJustNow: "अनुरोध अभी भेजा गया",
+      overlayRequestSentAgo: "अनुरोध {{time}} भेजा गया",
+      overlayRequestFailed: "अनुरोध भेजने में विफल",
+      overlayRequestPageTitle: "क्या {{email}} को अपने कैलेंडर में जोड़ें?",
+      overlayRequestPageDescription:
+        "{{email}} ने आपको अपने कैलेंडर में जोड़ा है और उनके पास बुकिंग लिंक हैं जहाँ आप एक आवश्यक होस्ट हैं। अभी वे लिंक केवल यह जाँचते हैं कि आप व्यस्त हैं या नहीं — उन्हें वापस जोड़ने पर इसके अलावा आपका शेड्यूल भी लागू होगा, ताकि बुकिंग केवल आपके कार्य घंटों के भीतर ही हो सके।",
+      overlayRequestPageAlreadyAdded:
+        "आपने {{email}} को पहले ही अपने कैलेंडर में जोड़ लिया है।",
+      overlayRequestPageAdded:
+        "जोड़ा गया। {{email}} के बुकिंग लिंक अब आपके असली कार्य घंटों का उपयोग करेंगे।",
+      overlayRequestPageDismiss: "अभी नहीं",
+      overlayRequestPageInvalidLink: "यह लिंक अमान्य है या समाप्त हो गया है।",
+      overlayRequestPageAddFailed:
+        "{{email}} को जोड़ा नहीं जा सका। कृपया पुनः प्रयास करें।",
+      overlayRequestEmailNotConfigured: "ईमेल भेजना अभी सेट नहीं है",
+      overlayRequestInProgress: "इस व्यक्ति के लिए अनुरोध पहले से ही प्रगति पर है",
       addOtherEmail: "एक और ईमेल जोड़ें",
       overlayHostsHint:
         "आपके कैलेंडर के लोगों के लिए scheduling उनके काम के घंटों को ध्यान में रखती है। अन्य ईमेल केवल conflicts के लिए जाँचे जाते हैं।",
@@ -9930,6 +10464,49 @@ const translatedBookingHostAvailability = {
       overlayHostsEmpty: "لم يتم العثور على أحد.",
       noOverlayPeopleYet: "لم تقم بإضافة أي زملاء إلى تقويمك بعد.",
       addOverlayPersonCta: "إضافة تقويم زميل",
+      sharedAvailability: "التوفر المشترك",
+      sharedAvailabilityDescription:
+        "أضف الزملاء كمضيفين مطلوبين. تُطبَّق حالة توفرهم دائمًا، وتُطبَّق ساعات عملهم أيضًا عندما يضيفونك.",
+      sharedAvailabilityEmpty:
+        "لا يوجد أحد في تقويمك بعد. أضف زميلاً لاستخدام ساعات عمله في روابط الحجز.",
+      workingHoursAppliedLabel: "ساعات العمل مُطبَّقة",
+      workingHoursPendingScheduleLabel: "لم يتم حفظ ساعات العمل",
+      workingHoursNotAppliedLabel: "لم يضِفك بدوره",
+      removePeerAriaLabel: "إزالة {{email}} من تقويمك",
+      removePeerConfirm:
+        "إزالة {{name}}؟ ستختفي أحداثه من تقويمك ولن تُطبَّق ساعات عمله على روابط الحجز الخاصة بك.",
+      removePeerConfirmAction: "إزالة",
+      workingHoursAppliedTooltip:
+        "تُطبَّق ساعات عمل {{name}} ({{timezone}}) على هذا الرابط.",
+      workingHoursAppliedAriaLabel: "ساعات عمل {{email}} مُطبَّقة",
+      workingHoursPendingScheduleTooltip:
+        "لم يحدد {{name}} ساعات عمله بعد، لذا يتم التحقق من حالة الانشغال فقط.",
+      workingHoursPendingScheduleAriaLabel: "لم يحدد {{email}} ساعات عمله بعد",
+      workingHoursNotAppliedWarning:
+        "لم يضِفك {{name}} إلى تقويمه بعد، لذا يتم التحقق من حالة الانشغال فقط وليس ساعات العمل.",
+      workingHoursNotAppliedAriaLabel: "لم يضِفك {{email}} إلى تقويمه بعد",
+      workingHoursManualHost:
+        "{{name}} ليس في تقويمك، لذا يتم التحقق من حالة الانشغال فقط وليس ساعات العمل.",
+      workingHoursManualHostAriaLabel: "{{email}} ليس في تقويمك",
+      addHostToMyCalendar: "إضافة إلى تقويمي",
+      sendOverlayRequest: "إرسال الطلب",
+      resendOverlayRequest: "إعادة إرسال الطلب",
+      overlayRequestSentJustNow: "تم إرسال الطلب الآن",
+      overlayRequestSentAgo: "تم إرسال الطلب {{time}}",
+      overlayRequestFailed: "فشل إرسال الطلب",
+      overlayRequestPageTitle: "هل تريد إضافة {{email}} إلى تقويمك؟",
+      overlayRequestPageDescription:
+        "أضافك {{email}} إلى تقويمه ولديه روابط حجز أنت فيها مضيف مطلوب. حاليًا تتحقق تلك الروابط فقط مما إذا كنت مشغولاً — إضافته إليك مرة أخرى تطبّق أيضًا، إضافة إلى ذلك، جدولك الزمني، بحيث لا يمكن الحجز إلا ضمن ساعات عملك.",
+      overlayRequestPageAlreadyAdded: "لقد أضفت {{email}} بالفعل إلى تقويمك.",
+      overlayRequestPageAdded:
+        "تمت الإضافة. ستستخدم روابط حجز {{email}} الآن ساعات عملك الفعلية.",
+      overlayRequestPageDismiss: "ليس الآن",
+      overlayRequestPageInvalidLink: "هذا الرابط غير صالح أو منتهي الصلاحية.",
+      overlayRequestPageAddFailed:
+        "تعذر إضافة {{email}}. يرجى المحاولة مرة أخرى.",
+      overlayRequestEmailNotConfigured:
+        "لم يتم إعداد إرسال البريد الإلكتروني بعد",
+      overlayRequestInProgress: "هناك طلب قيد التنفيذ بالفعل لهذا الشخص",
       addOtherEmail: "إضافة بريد إلكتروني آخر",
       overlayHostsHint:
         "يحصل الأشخاص من تقويمك على جدولة تراعي ساعات عملهم. يتم التحقق من رسائل البريد الإلكتروني الأخرى بحثًا عن التعارضات فقط.",

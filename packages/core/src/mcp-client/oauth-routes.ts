@@ -6,6 +6,7 @@ import {
   defineEventHandler,
   getMethod,
   getQuery,
+  getRequestHeader,
   setChunkedCookie,
   setResponseStatus,
   type H3Event,
@@ -23,6 +24,7 @@ import {
   getAppBasePath,
   getAppUrl,
   encodeOAuthState,
+  oauthErrorPage,
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -32,6 +34,7 @@ import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   finishMcpOAuthAuthorization,
   isGoogleWorkspaceMcpServer,
+  McpOAuthRegistrationUnsupportedError,
   startMcpOAuthAuthorization,
   type McpOAuthCredentialBundle,
   type McpOAuthDiscoveryState,
@@ -165,18 +168,38 @@ export function bindMcpOAuthAuthorizationScope(
     : credentials;
 }
 
+/**
+ * h3 hands a returned web `Response` straight back without merging the
+ * `Set-Cookie` headers staged earlier on `event.res`. The callback stages the
+ * flow-cookie deletion before it validates anything, so a `Response` that drops
+ * those headers leaves the encrypted PKCE/state cookie in the browser.
+ */
+export function withStagedCookies(
+  event: H3Event,
+  response: Response,
+): Response {
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  if (staged.length === 0) return response;
+  const headers = new Headers(response.headers);
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export function redirectWithStagedCookies(
   event: H3Event,
   location: string,
 ): Response {
-  const headers = new Headers({
-    Location: location,
-    "Cache-Control": "no-store",
-  });
-  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
-    headers.append("set-cookie", cookie);
-  }
-  return new Response(null, { status: 302, headers });
+  return withStagedCookies(
+    event,
+    new Response(null, {
+      status: 302,
+      headers: { Location: location, "Cache-Control": "no-store" },
+    }),
+  );
 }
 
 export function mountMcpOAuthRoutes(
@@ -234,23 +257,26 @@ async function handleMcpOAuthStart(
       reconnectScope === "org" &&
       (!reconnectScopeId || !isOrgAdmin(reconnectOrg?.role))
     ) {
-      setResponseStatus(event, reconnectScopeId ? 403 : 400);
-      return {
-        error: reconnectScopeId
+      return refuse(
+        event,
+        reconnectScopeId ? 403 : 400,
+        reconnectScopeId
           ? "Only organization owners and admins can reconnect an org MCP server."
           : "Join an organization before reconnecting an org MCP server.",
-      };
+      );
     }
     reconnectServer = (
       await listRemoteServers(reconnectScope, reconnectScopeId)
     ).find((server) => server.id === reconnectServerId);
     if (!reconnectServer) {
-      setResponseStatus(event, 404);
-      return { error: "MCP server was not found." };
+      return refuse(event, 404, "MCP server was not found.");
     }
     if (!reconnectServer.oauthSecretKey) {
-      setResponseStatus(event, 400);
-      return { error: "This MCP server does not use OAuth credentials." };
+      return refuse(
+        event,
+        400,
+        "This MCP server does not use OAuth credentials.",
+      );
     }
   }
 
@@ -258,18 +284,19 @@ async function handleMcpOAuthStart(
   const rawName = reconnectServer?.name ?? text(query.name);
   const returnUrl = text(query.return);
   if (!rawUrl || !rawName) {
-    setResponseStatus(event, 400);
-    return { error: "MCP OAuth requires a server name and URL." };
+    return refuse(event, 400, "MCP OAuth requires a server name and URL.");
   }
   const urlCheck = validateRemoteUrl(rawUrl);
   if (!urlCheck.ok) {
-    setResponseStatus(event, 400);
-    return { error: urlCheck.error ?? "MCP server URL is not allowed." };
+    return refuse(
+      event,
+      400,
+      urlCheck.error ?? "MCP server URL is not allowed.",
+    );
   }
   const name = normalizeServerName(rawName);
   if (!name) {
-    setResponseStatus(event, 400);
-    return { error: "MCP server name is invalid." };
+    return refuse(event, 400, "MCP server name is invalid.");
   }
 
   const resolvedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope, {
@@ -277,8 +304,11 @@ async function handleMcpOAuthStart(
       reconnectScope === "org" && Boolean(reconnectServer),
   });
   if (!resolvedScope.ok) {
-    setResponseStatus(event, 400);
-    return { error: describeMcpOAuthScopeViolation(resolvedScope.violation) };
+    return refuse(
+      event,
+      400,
+      describeMcpOAuthScopeViolation(resolvedScope.violation),
+    );
   }
   const requestedScope = resolvedScope.scope;
   const requestedOrgId = text(query.orgId);
@@ -289,18 +319,20 @@ async function handleMcpOAuthStart(
   const scope: RemoteMcpScope = requestedScope;
   const scopeId = scope === "user" ? session.email : (org?.orgId ?? "");
   if (scope === "org" && requestedOrgId && requestedOrgId !== scopeId) {
-    setResponseStatus(event, 403);
-    return {
-      error: "The selected organization is not the active organization.",
-    };
+    return refuse(
+      event,
+      403,
+      "The selected organization is not the active organization.",
+    );
   }
   if (scope === "org" && (!scopeId || !isOrgAdmin(org?.role))) {
-    setResponseStatus(event, scopeId ? 403 : 400);
-    return {
-      error: scopeId
+    return refuse(
+      event,
+      scopeId ? 403 : 400,
+      scopeId
         ? "Only organization owners and admins can connect an org MCP server."
         : "Join an organization before connecting an org MCP server.",
-    };
+    );
   }
 
   const useRootGoogleCallback =
@@ -310,8 +342,11 @@ async function handleMcpOAuthStart(
     ? getWorkspaceOAuthAppId()
     : undefined;
   if (useRootGoogleCallback && !workspaceAppId) {
-    setResponseStatus(event, 400);
-    return { error: "Workspace MCP OAuth is missing its app callback id." };
+    return refuse(
+      event,
+      400,
+      "Workspace MCP OAuth is missing its app callback id.",
+    );
   }
   const redirectUri = resolveOAuthRedirectUri(
     event,
@@ -320,14 +355,14 @@ async function handleMcpOAuthStart(
       : "/_agent-native/mcp/servers/oauth/callback",
   );
   if (!redirectUri) {
-    setResponseStatus(event, 400);
-    return { error: "Invalid MCP OAuth redirect URI." };
+    return refuse(event, 400, "Invalid MCP OAuth redirect URI.");
   }
   if (useRootGoogleCallback && !isRootGoogleCallback(redirectUri)) {
-    setResponseStatus(event, 400);
-    return {
-      error: "Google Workspace MCP OAuth must use the shared callback.",
-    };
+    return refuse(
+      event,
+      400,
+      "Google Workspace MCP OAuth must use the shared callback.",
+    );
   }
 
   const state = useRootGoogleCallback
@@ -362,11 +397,7 @@ async function handleMcpOAuthStart(
       });
     });
     if (!started) {
-      setResponseStatus(event, 400);
-      return {
-        error:
-          "Managed MCP OAuth is not configured for this workspace. A workspace owner must register the OAuth client once; after that, any workspace member can connect a personal account.",
-      };
+      return refuse(event, 400, MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE);
     }
     const flow: McpOAuthFlow = {
       name,
@@ -397,15 +428,40 @@ async function handleMcpOAuthStart(
     setMcpOAuthFlowCookie(event, flow, redirectUri.startsWith("https://"));
     return redirectWithStagedCookies(event, started.authorizationUrl.href);
   } catch (error) {
-    const failure = resolveMcpOAuthStartError(error);
-    setResponseStatus(event, failure.status);
-    return failure.body;
+    return mcpOAuthStartFailureResponse(
+      event,
+      resolveMcpOAuthStartError(error),
+    );
   }
+}
+
+export const MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE =
+  "Managed MCP OAuth is not configured for this workspace. A workspace owner must register the OAuth client once; after that, any workspace member can connect a personal account.";
+
+/**
+ * Why a start failed, in the terms a person can act on. The two specific cases
+ * are the ones a retry can never fix, so collapsing them into the generic
+ * message is what left users re-clicking Connect against a provider that was
+ * never going to work.
+ */
+export type McpOAuthStartErrorBody = {
+  error: string;
+  errorCode?: string;
+  retryable?: boolean;
+};
+
+export function describeMcpOAuthRegistrationUnsupported(
+  authorizationServer: string | undefined,
+): string {
+  const named = authorizationServer
+    ? `This server signs in through ${authorizationServer}, which`
+    : "This server's sign-in provider";
+  return `${named} does not let apps register themselves automatically, so the Connect button cannot complete OAuth. Connect it with an access token instead: create a token with the provider, then add the server with an "Authorization: Bearer <token>" header.`;
 }
 
 export function resolveMcpOAuthStartError(error: unknown): {
   status: 400 | 503;
-  body: { error: string; errorCode?: string; retryable?: boolean };
+  body: McpOAuthStartErrorBody;
 } {
   if (error instanceof CredentialStoreUnavailableError) {
     return {
@@ -417,13 +473,72 @@ export function resolveMcpOAuthStartError(error: unknown): {
       },
     };
   }
+  if (error instanceof McpOAuthRegistrationUnsupportedError) {
+    return {
+      status: 400,
+      body: {
+        error: describeMcpOAuthRegistrationUnsupported(
+          authorizationServerLabel(error),
+        ),
+        errorCode: "oauth_dynamic_registration_unsupported",
+        retryable: false,
+      },
+    };
+  }
   return {
     status: 400,
     body: {
       error:
-        "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+        "This MCP server could not start OAuth. Check that the server URL is correct, then try again.",
+      errorCode: "oauth_start_failed",
     },
   };
+}
+
+function authorizationServerLabel(
+  error: McpOAuthRegistrationUnsupportedError,
+): string | undefined {
+  const raw = error.issuer ?? error.authorizationServerUrl;
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    return `${url.hostname}${url.pathname.replace(/\/+$/, "")}`;
+    // coercion-ok: a non-URL issuer is still worth naming verbatim.
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * The start route is only ever reached by a browser navigation (a popup or a
+ * Desktop OAuth window), so a failure has to render as a page. Returning the
+ * JSON body painted the raw error object across the popup.
+ */
+export function mcpOAuthStartFailureResponse(
+  event: H3Event,
+  failure: { status: number; body: McpOAuthStartErrorBody },
+): Response | Record<string, unknown> {
+  if (!wantsHtmlResponse(event)) {
+    setResponseStatus(event, failure.status);
+    return failure.body;
+  }
+  return withStagedCookies(
+    event,
+    oauthErrorPage(failure.body.error, failure.status),
+  );
+}
+
+/** Shorthand for the single-message refusals in the browser-facing routes. */
+function refuse(
+  event: H3Event,
+  status: number,
+  error: string,
+): Response | Record<string, unknown> {
+  return mcpOAuthStartFailureResponse(event, { status, body: { error } });
+}
+
+export function wantsHtmlResponse(event: H3Event): boolean {
+  return (getRequestHeader(event, "accept") ?? "").includes("text/html");
 }
 
 function isManagedMcpOAuthServer(serverUrl: URL): boolean {
@@ -519,25 +634,26 @@ async function handleMcpOAuthCallback(
     !flow ||
     !isValidMcpOAuthFlow(flow, session.email, org?.orgId ?? undefined, state)
   ) {
-    setResponseStatus(event, 400);
-    return { error: "MCP OAuth state is invalid or expired." };
+    return refuse(event, 400, "MCP OAuth state is invalid or expired.");
   }
   try {
     validateMcpOAuthCallbackIssuer(flow.discoveryState, iss);
   } catch {
-    setResponseStatus(event, 400);
-    return { error: "MCP OAuth authorization response issuer is invalid." };
+    return refuse(
+      event,
+      400,
+      "MCP OAuth authorization response issuer is invalid.",
+    );
   }
   if (providerError || !code) {
-    setResponseStatus(event, 400);
-    return { error: "MCP OAuth authorization was not completed." };
+    return refuse(event, 400, "MCP OAuth authorization was not completed.");
   }
   if (flow.scope === "org" && !isOrgAdmin(org?.role)) {
-    setResponseStatus(event, 403);
-    return {
-      error:
-        "Only organization owners and admins can connect an org MCP server.",
-    };
+    return refuse(
+      event,
+      403,
+      "Only organization owners and admins can connect an org MCP server.",
+    );
   }
 
   try {
@@ -573,8 +689,7 @@ async function handleMcpOAuthCallback(
           credentials,
         });
     if (!result.ok) {
-      setResponseStatus(event, 400);
-      return { error: result.error };
+      return refuse(event, 400, result.error);
     }
     const connected = await options.reconfigure({
       scope: flow.scope,
@@ -587,8 +702,11 @@ async function handleMcpOAuthCallback(
       getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
     );
   } catch {
-    setResponseStatus(event, 400);
-    return { error: "MCP OAuth authorization could not be completed." };
+    return refuse(
+      event,
+      400,
+      "MCP OAuth authorization could not be completed.",
+    );
   }
 }
 
@@ -688,6 +806,5 @@ function text(value: unknown): string | undefined {
 }
 
 function unauthorized(event: H3Event) {
-  setResponseStatus(event, 401);
-  return { error: "Authentication required" };
+  return refuse(event, 401, "Authentication required");
 }

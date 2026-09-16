@@ -128,10 +128,12 @@ function FromAccountSelector({
   accounts,
   value,
   onChange,
+  label,
 }: {
   accounts: ComposeAccount[];
   value: string | undefined;
   onChange: (email: string) => void;
+  label: string;
 }) {
   // On mount, if no account is set, apply the sticky default
   const resolvedValue =
@@ -154,7 +156,7 @@ function FromAccountSelector({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <ComposeFieldRow label="From">
+    <ComposeFieldRow label={label}>
       <Select
         value={resolvedValue}
         onValueChange={(email) => {
@@ -819,13 +821,13 @@ export function ComposeModal({
 
   const title = activeDraft
     ? activeDraft.queuedDraftId
-      ? "Queued draft"
+      ? t("mail.compose.queuedDraft")
       : activeDraft.mode === "reply"
-        ? "Reply"
+        ? t("mail.compose.reply")
         : activeDraft.mode === "forward"
-          ? "Forward"
-          : "New message"
-    : "New message";
+          ? t("mail.compose.forward")
+          : t("mail.compose.newMessage")
+    : t("mail.compose.newMessage");
 
   const composeStyle = {
     right: isMobile ? 0 : sidebarRight,
@@ -865,12 +867,12 @@ export function ComposeModal({
               const label =
                 draft.subject?.trim() ||
                 (draft.queuedDraftId
-                  ? "Queued draft"
+                  ? t("mail.compose.queuedDraft")
                   : draft.mode === "reply"
-                    ? "Reply"
+                    ? t("mail.compose.reply")
                     : draft.mode === "forward"
-                      ? "Forward"
-                      : "New message");
+                      ? t("mail.compose.forward")
+                      : t("mail.compose.newMessage"));
               return (
                 <button
                   key={draft.id}
@@ -905,6 +907,8 @@ export function ComposeModal({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("mail.compose.newDraft")}
                 onClick={onNewDraft}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
               >
@@ -982,8 +986,10 @@ export function ComposeModal({
           <Button
             variant="ghost"
             size="icon"
+            type="button"
             className="h-7 w-7"
             onClick={onCloseAll}
+            aria-label={t("mail.compose.closeAllDrafts")}
           >
             <IconX className="h-3.5 w-3.5" />
           </Button>
@@ -998,13 +1004,14 @@ export function ComposeModal({
               <FromAccountSelector
                 accounts={allAccounts}
                 value={activeDraft.accountEmail}
+                label={t("mail.compose.from")}
                 onChange={(email) =>
                   onUpdate(activeId!, { accountEmail: email })
                 }
               />
             )}
             <ComposeFieldRow
-              label="To"
+              label={t("mail.compose.to")}
               trailing={
                 <button
                   type="button"
@@ -1033,6 +1040,7 @@ export function ComposeModal({
                 value={activeDraft.to}
                 onChange={(val) => onUpdate(activeId!, { to: val })}
                 autoFocus={activeDraft.mode === "compose"}
+                ariaLabel={t("mail.compose.toRecipients")}
                 field="to"
                 onMoveRecipient={moveRecipient}
               />
@@ -1040,18 +1048,20 @@ export function ComposeModal({
 
             {showCcBcc && (
               <>
-                <ComposeFieldRow label="Cc">
+                <ComposeFieldRow label={t("mail.compose.cc")}>
                   <RecipientInput
                     value={activeDraft.cc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { cc: val })}
+                    ariaLabel={t("mail.compose.ccRecipients")}
                     field="cc"
                     onMoveRecipient={moveRecipient}
                   />
                 </ComposeFieldRow>
-                <ComposeFieldRow label="Bcc">
+                <ComposeFieldRow label={t("mail.compose.bcc")}>
                   <RecipientInput
                     value={activeDraft.bcc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { bcc: val })}
+                    ariaLabel={t("mail.compose.bccRecipients")}
                     field="bcc"
                     onMoveRecipient={moveRecipient}
                   />
@@ -1107,6 +1117,8 @@ export function ComposeModal({
                   <Button
                     variant="ghost"
                     size="icon"
+                    type="button"
+                    aria-label={t("mail.compose.bold")}
                     className="h-7 w-7"
                     onClick={() => editorRef.current?.toggleBold()}
                   >
@@ -1120,6 +1132,8 @@ export function ComposeModal({
                   <Button
                     variant="ghost"
                     size="icon"
+                    type="button"
+                    aria-label={t("mail.compose.italic")}
                     className="h-7 w-7"
                     onClick={() => editorRef.current?.toggleItalic()}
                   >
@@ -1133,6 +1147,8 @@ export function ComposeModal({
                   <Button
                     variant="ghost"
                     size="icon"
+                    type="button"
+                    aria-label={t("mail.compose.insertLink")}
                     className="h-7 w-7"
                     onClick={() => editorRef.current?.setLink()}
                   >
@@ -1146,6 +1162,8 @@ export function ComposeModal({
                   <Button
                     variant="ghost"
                     size="icon"
+                    type="button"
+                    aria-label={t("mail.compose.attachFile")}
                     className="h-7 w-7"
                     onClick={() => void handleAttach()}
                   >
@@ -1220,6 +1238,8 @@ export function ComposeModal({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
+                    type="button"
+                    aria-label={t("mail.compose.deleteDraft")}
                     onClick={() => activeId && onDiscard(activeId)}
                     className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                   >

@@ -3285,7 +3285,7 @@ function isVectorLike(node: FigNode, ctx?: Ctx): boolean {
 
 /**
  * Render a vector-like node as an inline `<svg>`. The element itself keeps
- * the same outer attrs (layer-name, position/size style) as a regular div
+ * the same outer attrs (data-agent-native-layer-name, position/size style) as a regular div
  * so it slots into auto-layout / absolute positioning identically; the
  * vector geometry lives inside as `<path>` children.
  */
@@ -3688,10 +3688,11 @@ function buildAttrs(
 ): string[] {
   const attrs: string[] = [];
 
-  // layer-name: emit whenever the node has a name at all (matches the
+  // data-agent-native-layer-name: emit whenever the node has a name at all (matches the
   // figma-plugin's smart-export, which always carries the layer name when
   // present).
-  if (node.name) attrs.push(`layer-name="${escapeHtmlAttr(node.name)}"`);
+  if (node.name)
+    attrs.push(`data-agent-native-layer-name="${escapeHtmlAttr(node.name)}"`);
 
   // The node's own Figma id, in the same `sessionID:localID` spelling the REST
   // importer emits — so a design imported this way is traceable back to Figma

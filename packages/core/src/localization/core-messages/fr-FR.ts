@@ -145,6 +145,21 @@ const messages: AgentChatTranslation = {
   "common.retry": "Réessayer",
   "common.save": "Enregistrer",
   "agents.hostedAgent": "Agent hébergé",
+  "agents.provider": "Fournisseur",
+  "agents.providerA2A": "Agent A2A (Foundry, Gemini ou personnalisé)",
+  "agents.providerAnthropic": "Agents gérés Anthropic",
+  "agents.agentId": "ID de l’agent",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "ID de l’environnement",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "URL de base de l’API (facultative)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Complétez les champs Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "La connexion est vérifiée lorsque vous déléguez depuis le chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent enregistré. Déléguez-lui une tâche depuis le chat.",
   "agents.cardUrl": "URL de la carte de l’agent",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Authentification",
@@ -374,6 +389,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Informations sur les données",
   "widget.dataTable": "Tableau de données",
   "widget.downloadCsv": "Télécharger le CSV",
+  "widget.connectProvider": "Connecter {{provider}}",
   "widget.loadingToolResult": "Chargement du résultat de l’outil",
   "widget.noRows": "Aucune ligne",
   "widget.points": "{{formattedCount}} points",
@@ -626,6 +642,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} lignes",
   "errorMessages.agentConnection":
     "La connexion de l'agent a été interrompue. Vérifiez votre connexion et réessayez.",
+  "errorMessages.attachmentPasswordProtected":
+    "Ce PDF est protégé par mot de passe et ne peut pas être lu. Supprimez la protection par mot de passe ou collez le texte pertinent, puis réessayez.",
   "errorMessages.builderAuthentication":
     "Builder a rejeté les identifiants connectés. Reconnectez Builder.io dans les paramètres, puis réessayez.",
   "errorMessages.builderModelUnauthorized":
@@ -641,6 +659,10 @@ const messages: AgentChatTranslation = {
     "La connexion à l’agent a expiré avant la fin. Vous pouvez poursuivre à partir du travail partiel ou réessayer.",
   "errorMessages.invalidToolSchema":
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
+  "errorMessages.malformedRequest":
+    "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.malformedRequestAttachment":
+    "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
   "errorMessages.noProviderConnected":
     "Aucun fournisseur de LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs d’IA, puis connectez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":

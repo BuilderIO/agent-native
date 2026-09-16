@@ -41,7 +41,9 @@ export interface RenderEmailArgs {
   preheader?: string;
   /** Large headline at the top of the card. */
   heading: string;
-  /** Body paragraphs rendered after the heading. Plain strings — escaped. */
+  /** Body paragraphs rendered after the heading. Injected verbatim, so wrap
+   *  any user-supplied value in `emailStrong`/`emailQuote` (which escape) or
+   *  escape it yourself. */
   paragraphs: string[];
   /** Primary call-to-action rendered as a real button. */
   cta?: EmailCta;

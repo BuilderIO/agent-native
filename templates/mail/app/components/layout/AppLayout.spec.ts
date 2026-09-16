@@ -133,6 +133,14 @@ describe("AppLayout inbox tab bar", () => {
     );
   });
 
+  it("names the account filter trigger and preserves its pressed state", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain('aria-label={t("mail.toolbar.accounts")}');
+    expect(source).toContain("aria-label={account.email}");
+    expect(source).toContain("aria-pressed={isChecked}");
+  });
+
   it("restores the invoking control's focus after Escape closes the palette", () => {
     const appLayout = appLayoutSource();
     const focusHook = commandPaletteFocusSource();

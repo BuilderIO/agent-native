@@ -134,6 +134,19 @@ const messages: AgentChatTranslation = {
   "common.retry": "फिर से प्रयास करें",
   "common.save": "सहेजें",
   "agents.hostedAgent": "होस्ट किया गया एजेंट",
+  "agents.provider": "प्रदाता",
+  "agents.providerA2A": "A2A एजेंट (Foundry, Gemini या कस्टम)",
+  "agents.providerAnthropic": "Anthropic द्वारा प्रबंधित एजेंट",
+  "agents.agentId": "एजेंट ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "एनवायरनमेंट ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API बेस URL (वैकल्पिक)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "Anthropic Managed Agents फ़ील्ड पूरे करें।",
+  "agents.managedAgentCheck": "चैट से डेलीगेट करने पर कनेक्शन की जाँच की जाती है।",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent सहेजा गया। चैट से इसे डेलीगेट करें।",
   "agents.cardUrl": "एजेंट कार्ड URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "प्रमाणीकरण",
@@ -380,6 +393,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
   "errorMessages.agentConnection":
     "एजेंट का कनेक्शन बाधित हो गया। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
+  "errorMessages.attachmentPasswordProtected":
+    "यह PDF पासवर्ड-सुरक्षित है, इसलिए इसे पढ़ा नहीं जा सकता। पासवर्ड सुरक्षा हटाएँ या संबंधित टेक्स्ट पेस्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderAuthentication":
     "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग्स में Builder.io को दोबारा कनेक्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderModelUnauthorized":
@@ -394,6 +409,10 @@ const messages: AgentChatTranslation = {
     "एजेंट का कनेक्शन काम पूरा होने से पहले समय सीमा पर पहुँच गया। आप आंशिक काम से जारी रख सकते हैं या फिर से प्रयास कर सकते हैं।",
   "errorMessages.invalidToolSchema":
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
+  "errorMessages.malformedRequest":
+    "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
+  "errorMessages.malformedRequestAttachment":
+    "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
   "errorMessages.noProviderConnected":
     "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग्स > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें (मुफ़्त स्तर उपलब्ध है) या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
@@ -723,6 +742,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "डेटा इनसाइट्स",
   "widget.dataTable": "डेटा तालिका",
   "widget.downloadCsv": "CSV डाउनलोड करें",
+  "widget.connectProvider": "{{provider}} कनेक्ट करें",
   "widget.loadingToolResult": "टूल का परिणाम लोड हो रहा है",
   "widget.noRows": "कोई पंक्ति नहीं",
   "widget.points": "{{formattedCount}} बिंदु",

@@ -32,9 +32,12 @@ import {
 import {
   getRemoteAgentIdFromPath,
   isRemoteAgentPath,
+  parseRemoteAgentKind,
   parseRemoteAgentUrl,
   REMOTE_AGENT_RESOURCE_PREFIX,
   remoteAgentResourcePath,
+  type AnthropicManagedAgentsRemoteAgentKind,
+  type RemoteAgentKind,
 } from "../../resources/metadata.js";
 import { agentNativePath, appBasePath, appMountedPath } from "../api-path.js";
 import {
@@ -54,6 +57,7 @@ interface AgentInfo {
   description?: string;
   cardUrl?: string;
   auth?: HostedAgentAuth;
+  kind?: RemoteAgentKind;
 }
 
 type HostedAgentAuth =
@@ -67,6 +71,18 @@ type HostedAgentAuth =
     };
 
 type HostedAgentAuthType = "none" | HostedAgentAuth["type"];
+type HostedAgentProvider = "a2a" | "anthropic-managed-agents";
+
+const ANTHROPIC_MANAGED_AGENT_DEFAULT_URL = "https://api.anthropic.com";
+
+function emptyAnthropicManagedAgentKind(): AnthropicManagedAgentsRemoteAgentKind {
+  return {
+    provider: "anthropic-managed-agents",
+    agentId: "",
+    environmentId: "",
+    credentialRef: "",
+  };
+}
 
 interface SecretStatusOption {
   key: string;
@@ -180,6 +196,18 @@ function normalizeHostedAuth(
   };
 }
 
+export function normalizeHostedAgentCardUrl(
+  value: string,
+  kind?: RemoteAgentKind,
+  auth?: HostedAgentAuth,
+): string | undefined {
+  if (kind?.provider === "anthropic-managed-agents") return undefined;
+  const trimmed = value.trim();
+  return trimmed
+    ? normalizeHostedAgentUrl(trimmed, { requireHttps: Boolean(auth) })
+    : undefined;
+}
+
 export function parseHostedAuth(value: unknown): HostedAgentAuth | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -214,23 +242,47 @@ export function parseHostedAuth(value: unknown): HostedAgentAuth | undefined {
   return undefined;
 }
 
+function isRadixPortalTarget(target: EventTarget | null): boolean {
+  return (
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    Boolean(target.closest("[data-radix-popper-content-wrapper]"))
+  );
+}
+
 function HostedAgentFields({
+  url,
+  onUrlChange,
   cardUrl,
   onCardUrlChange,
   auth,
   onAuthChange,
+  kind,
+  onKindChange,
   credentialOptions,
 }: {
+  url: string;
+  onUrlChange: (value: string) => void;
   cardUrl: string;
   onCardUrlChange: (value: string) => void;
   auth?: HostedAgentAuth;
   onAuthChange: (value?: HostedAgentAuth) => void;
+  kind?: RemoteAgentKind;
+  onKindChange: (value?: RemoteAgentKind) => void;
   credentialOptions: NewKeyOption[];
 }) {
   const t = useT();
-  const [open, setOpen] = useState(() => Boolean(cardUrl.trim() || auth));
-  const shouldOpen = Boolean(cardUrl.trim() || auth);
+  const [open, setOpen] = useState(() =>
+    Boolean(cardUrl.trim() || auth || kind),
+  );
+  const shouldOpen = Boolean(cardUrl.trim() || auth || kind);
   useEffect(() => setOpen(shouldOpen), [shouldOpen]);
+  const provider: HostedAgentProvider =
+    kind?.provider === "anthropic-managed-agents"
+      ? "anthropic-managed-agents"
+      : "a2a";
+  const managedKind =
+    kind?.provider === "anthropic-managed-agents" ? kind : undefined;
   const authType: HostedAgentAuthType = auth?.type ?? "none";
   const oauthAuth =
     auth?.type === "oauth-client-credentials" ? auth : undefined;
@@ -277,6 +329,33 @@ function HostedAgentFields({
         ?.label ?? selectedCredentialRef)
     : t("agentChat.agents.chooseCredential");
 
+  const managedCredentialLabel = managedKind?.credentialRef
+    ? (credentialOptions.find(
+        (option) => option.key === managedKind.credentialRef,
+      )?.label ?? managedKind.credentialRef)
+    : t("agentChat.agents.chooseCredential");
+
+  const updateProvider = (value: string) => {
+    if (value === "anthropic-managed-agents") {
+      onKindChange(managedKind ?? emptyAnthropicManagedAgentKind());
+      onAuthChange(undefined);
+      onCardUrlChange("");
+      onUrlChange(ANTHROPIC_MANAGED_AGENT_DEFAULT_URL);
+      return;
+    }
+    onKindChange(undefined);
+    onAuthChange(undefined);
+    if (url === ANTHROPIC_MANAGED_AGENT_DEFAULT_URL) onUrlChange("");
+  };
+
+  const updateManagedKind = (
+    field: "agentId" | "environmentId" | "credentialRef",
+    value: string,
+  ) => {
+    const next = managedKind ?? emptyAnthropicManagedAgentKind();
+    onKindChange({ ...next, [field]: value });
+  };
+
   return (
     <Collapsible
       open={open}
@@ -284,83 +363,146 @@ function HostedAgentFields({
       className="mt-1 rounded border border-border/70 bg-accent/20 px-2 py-1.5"
     >
       <CollapsibleTrigger asChild>
-        <button
+        <ToolkitButtonBase
           type="button"
-          className="flex w-full items-center justify-between gap-2 text-start text-[10px] font-medium text-foreground"
+          variant="ghost"
+          className="flex w-full items-center justify-between px-0.5 py-0.5 text-[10px] font-medium text-foreground"
         >
           {t("agentChat.agents.hostedAgent")}
-          <IconChevronDown
-            size={12}
-            className={`shrink-0 transition-transform${open ? " rotate-180" : ""}`}
-          />
-        </button>
+          <IconChevronDown size={12} />
+        </ToolkitButtonBase>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 flex flex-col gap-1.5">
-        <TextField
-          value={cardUrl}
-          onChange={onCardUrlChange}
-          aria-label={t("agentChat.agents.cardUrl")}
-          placeholder={t("agentChat.agents.cardUrlPlaceholder")}
-          className="w-full text-[11px]"
-        />
         <Picker
           mode="select"
-          value={authType}
-          onChange={(value) => updateAuthType(String(value))}
-          aria-label={t("agentChat.agents.authType")}
+          value={provider}
+          onChange={(value) => {
+            if (value) updateProvider(String(value));
+          }}
+          aria-label={t("agentChat.agents.provider")}
           options={[
-            { value: "none", label: t("agentChat.agents.authNone") },
-            { value: "bearer", label: t("agentChat.agents.authBearer") },
+            { value: "a2a", label: t("agentChat.agents.providerA2A") },
             {
-              value: "oauth-client-credentials",
-              label: t("agentChat.agents.authClientCredentials"),
+              value: "anthropic-managed-agents",
+              label: t("agentChat.agents.providerAnthropic"),
             },
           ]}
           className="text-[11px]"
         />
-        {authType !== "none" && (
-          <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-[10px] text-muted-foreground">
-              {credentialLabel}
-            </span>
-            <NewKeyMenu
-              options={credentialOptions}
-              label={t("agentChat.agents.chooseCredential")}
-              onPick={(option) => updateCredentialRef(option.key)}
-              onCustom={(name) => {
-                if (name) updateCredentialRef(name);
-              }}
-              triggerClassName="shrink-0"
-            />
-          </div>
-        )}
-        {oauthAuth && (
+        {provider === "a2a" ? (
           <>
             <TextField
-              value={oauthAuth.tokenUrl}
-              onChange={(value) =>
-                onAuthChange({ ...oauthAuth, tokenUrl: value })
-              }
-              aria-label={t("agentChat.agents.tokenUrl")}
-              placeholder={t("agentChat.agents.tokenUrl")}
+              value={cardUrl}
+              onChange={onCardUrlChange}
+              aria-label={t("agentChat.agents.cardUrl")}
+              placeholder={t("agentChat.agents.cardUrlPlaceholder")}
+              className="w-full text-[11px]"
+            />
+            <Picker
+              mode="select"
+              value={authType}
+              onChange={(value) => updateAuthType(String(value))}
+              aria-label={t("agentChat.agents.authType")}
+              options={[
+                { value: "none", label: t("agentChat.agents.authNone") },
+                { value: "bearer", label: t("agentChat.agents.authBearer") },
+                {
+                  value: "oauth-client-credentials",
+                  label: t("agentChat.agents.authClientCredentials"),
+                },
+              ]}
+              className="text-[11px]"
+            />
+            {authType !== "none" && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                  {credentialLabel}
+                </span>
+                <NewKeyMenu
+                  options={credentialOptions}
+                  label={t("agentChat.agents.chooseCredential")}
+                  onPick={(option) => updateCredentialRef(option.key)}
+                  onCustom={(name) => {
+                    if (name) updateCredentialRef(name);
+                  }}
+                  triggerClassName="shrink-0"
+                />
+              </div>
+            )}
+            {oauthAuth && (
+              <>
+                <TextField
+                  value={oauthAuth.tokenUrl}
+                  onChange={(value) =>
+                    onAuthChange({ ...oauthAuth, tokenUrl: value })
+                  }
+                  aria-label={t("agentChat.agents.tokenUrl")}
+                  placeholder={t("agentChat.agents.tokenUrl")}
+                  className="w-full text-[11px]"
+                />
+                <TextField
+                  value={oauthAuth.clientId}
+                  onChange={(value) =>
+                    onAuthChange({ ...oauthAuth, clientId: value })
+                  }
+                  aria-label={t("agentChat.agents.clientId")}
+                  placeholder={t("agentChat.agents.clientId")}
+                  className="w-full text-[11px]"
+                />
+                <TextField
+                  value={oauthAuth.scope ?? ""}
+                  onChange={(value) =>
+                    onAuthChange({ ...oauthAuth, scope: value })
+                  }
+                  aria-label={t("agentChat.agents.scope")}
+                  placeholder={t("agentChat.agents.scope")}
+                  className="w-full text-[11px]"
+                />
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <TextField
+              value={url}
+              onChange={onUrlChange}
+              label={t("agentChat.agents.apiBaseUrl")}
+              aria-label={t("agentChat.agents.apiBaseUrl")}
+              placeholder={t("agentChat.agents.apiBaseUrlPlaceholder")}
               className="w-full text-[11px]"
             />
             <TextField
-              value={oauthAuth.clientId}
-              onChange={(value) =>
-                onAuthChange({ ...oauthAuth, clientId: value })
-              }
-              aria-label={t("agentChat.agents.clientId")}
-              placeholder={t("agentChat.agents.clientId")}
+              value={managedKind?.agentId ?? ""}
+              onChange={(value) => updateManagedKind("agentId", value)}
+              label={t("agentChat.agents.agentId")}
+              aria-label={t("agentChat.agents.agentId")}
+              placeholder={t("agentChat.agents.agentIdPlaceholder")}
               className="w-full text-[11px]"
             />
             <TextField
-              value={oauthAuth.scope ?? ""}
-              onChange={(value) => onAuthChange({ ...oauthAuth, scope: value })}
-              aria-label={t("agentChat.agents.scope")}
-              placeholder={t("agentChat.agents.scope")}
+              value={managedKind?.environmentId ?? ""}
+              onChange={(value) => updateManagedKind("environmentId", value)}
+              label={t("agentChat.agents.environmentId")}
+              aria-label={t("agentChat.agents.environmentId")}
+              placeholder={t("agentChat.agents.environmentIdPlaceholder")}
               className="w-full text-[11px]"
             />
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                {managedCredentialLabel}
+              </span>
+              <NewKeyMenu
+                options={credentialOptions}
+                label={t("agentChat.agents.chooseCredential")}
+                onPick={(option) =>
+                  updateManagedKind("credentialRef", option.key)
+                }
+                onCustom={(name) => {
+                  if (name) updateManagedKind("credentialRef", name);
+                }}
+                triggerClassName="shrink-0"
+              />
+            </div>
           </>
         )}
       </CollapsibleContent>
@@ -386,11 +528,13 @@ function AgentEditPopover({
   const [description, setDescription] = useState(agent.description ?? "");
   const [cardUrl, setCardUrl] = useState(agent.cardUrl ?? "");
   const [auth, setAuth] = useState<HostedAgentAuth | undefined>(agent.auth);
+  const [kind, setKind] = useState<RemoteAgentKind | undefined>(agent.kind);
   const [saveError, setSaveError] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
+      if (isRadixPortalTarget(e.target)) return;
       if (
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node)
@@ -403,7 +547,11 @@ function AgentEditPopover({
   }, [onClose]);
 
   const handleSave = async () => {
-    if (!name.trim() || !url.trim()) return;
+    if (
+      !name.trim() ||
+      (!url.trim() && kind?.provider !== "anthropic-managed-agents")
+    )
+      return;
     try {
       await onSave({
         ...agent,
@@ -412,6 +560,7 @@ function AgentEditPopover({
         description: description.trim() || undefined,
         cardUrl: cardUrl.trim() || undefined,
         auth,
+        kind,
       });
       setSaveError(null);
     } catch (error) {
@@ -437,16 +586,18 @@ function AgentEditPopover({
           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
           placeholder="Name"
         />
-        <input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void handleSave();
-            if (e.key === "Escape") onClose();
-          }}
-          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-          placeholder="URL (e.g. http://localhost:8085)"
-        />
+        {kind?.provider !== "anthropic-managed-agents" && (
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleSave();
+              if (e.key === "Escape") onClose();
+            }}
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="URL (e.g. http://localhost:8085)"
+          />
+        )}
         <input
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -458,10 +609,14 @@ function AgentEditPopover({
           placeholder="Description (optional)"
         />
         <HostedAgentFields
+          url={url}
+          onUrlChange={setUrl}
           cardUrl={cardUrl}
           onCardUrlChange={setCardUrl}
           auth={auth}
           onAuthChange={setAuth}
+          kind={kind}
+          onKindChange={setKind}
           credentialOptions={credentialOptions}
         />
         {saveError && (
@@ -484,7 +639,10 @@ function AgentEditPopover({
             </button>
             <button
               onClick={() => void handleSave()}
-              disabled={!name.trim() || !url.trim()}
+              disabled={
+                !name.trim() ||
+                (!url.trim() && kind?.provider !== "anthropic-managed-agents")
+              }
               className="rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
             >
               Save
@@ -506,6 +664,7 @@ interface AddedAgentInfo {
   name: string;
   url: string;
   description: string;
+  provider: HostedAgentProvider;
 }
 
 /** Builds an absolute deep link into a peer's own Settings > Agents Add
@@ -549,6 +708,7 @@ function AgentAddPopover({
     description: string,
     cardUrl: string,
     auth?: HostedAgentAuth,
+    kind?: RemoteAgentKind,
   ) => Promise<boolean>;
   onClose: () => void;
 }) {
@@ -558,6 +718,7 @@ function AgentAddPopover({
   const [description, setDescription] = useState(initialDescription);
   const [cardUrl, setCardUrl] = useState("");
   const [auth, setAuth] = useState<HostedAgentAuth | undefined>();
+  const [kind, setKind] = useState<RemoteAgentKind | undefined>();
   const [check, setCheck] = useState<CheckState>({ status: "idle" });
   const [added, setAdded] = useState<AddedAgentInfo | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -574,6 +735,7 @@ function AgentAddPopover({
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
+      if (isRadixPortalTarget(e.target)) return;
       if (
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node)
@@ -588,6 +750,14 @@ function AgentAddPopover({
   const handleCheck = useCallback(async () => {
     const trimmedUrl = url.trim();
     if (!trimmedUrl) return;
+    const normalizedKind = kind ? parseRemoteAgentKind(kind) : undefined;
+    if (kind && !normalizedKind) {
+      setCheck({
+        status: "error",
+        message: t("agentChat.agents.managedAgentIncomplete"),
+      });
+      return;
+    }
     const normalizedAuth = normalizeHostedAuth(auth);
     if (auth && !normalizedAuth) {
       setCheck({
@@ -597,7 +767,7 @@ function AgentAddPopover({
       return;
     }
     const normalizedUrl = normalizeHostedAgentUrl(trimmedUrl, {
-      requireHttps: Boolean(normalizedAuth),
+      requireHttps: Boolean(normalizedAuth || normalizedKind),
     });
     if (!normalizedUrl) {
       setCheck({
@@ -608,10 +778,13 @@ function AgentAddPopover({
     }
     const trimmedCardUrl = cardUrl.trim();
     if (
+      !normalizedKind &&
       trimmedCardUrl &&
-      !normalizeHostedAgentUrl(trimmedCardUrl, {
-        requireHttps: Boolean(normalizedAuth),
-      })
+      !normalizeHostedAgentCardUrl(
+        trimmedCardUrl,
+        normalizedKind,
+        normalizedAuth,
+      )
     ) {
       setCheck({
         status: "error",
@@ -624,9 +797,15 @@ function AgentAddPopover({
       const cardQuery = trimmedCardUrl
         ? `&cardUrl=${encodeURIComponent(trimmedCardUrl)}`
         : "";
+      const authQuery = normalizedAuth
+        ? `&auth=${encodeURIComponent(JSON.stringify(normalizedAuth))}`
+        : "";
+      const kindQuery = normalizedKind
+        ? `&kind=${encodeURIComponent(JSON.stringify(normalizedKind))}`
+        : "";
       const res = await fetch(
         agentNativePath(
-          `/_agent-native/agents/probe?url=${encodeURIComponent(normalizedUrl)}${cardQuery}`,
+          `/_agent-native/agents/probe?url=${encodeURIComponent(normalizedUrl)}${cardQuery}${authQuery}${kindQuery}`,
         ),
       );
       const body = await res.json().catch(() => null);
@@ -648,12 +827,16 @@ function AgentAddPopover({
     } catch (err: any) {
       setCheck({ status: "error", message: err?.message ?? "Check failed" });
     }
-  }, [url, cardUrl, name, description, auth, t]);
+  }, [url, cardUrl, name, description, auth, kind, t]);
 
   const handleAdd = async () => {
     const trimmedName = name.trim();
     const trimmedUrl = url.trim();
-    if (!trimmedName || !trimmedUrl) return;
+    if (
+      !trimmedName ||
+      (!trimmedUrl && kind?.provider !== "anthropic-managed-agents")
+    )
+      return;
     const trimmedDescription = description.trim();
     try {
       const ok = await onAdd(
@@ -662,12 +845,17 @@ function AgentAddPopover({
         trimmedDescription,
         cardUrl.trim(),
         auth,
+        kind,
       );
       if (ok) {
         setAdded({
           name: trimmedName,
-          url: trimmedUrl,
+          url: trimmedUrl || ANTHROPIC_MANAGED_AGENT_DEFAULT_URL,
           description: trimmedDescription,
+          provider:
+            kind?.provider === "anthropic-managed-agents"
+              ? "anthropic-managed-agents"
+              : "a2a",
         });
       }
     } catch (error) {
@@ -689,15 +877,21 @@ function AgentAddPopover({
             Added {added.name} on your side only — registration is one-way, so
             it won&apos;t know about this app until it&apos;s added there too.
           </p>
-          <a
-            href={buildPeerRegisterBackLink(added.url)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex cursor-pointer items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground no-underline hover:bg-accent/80"
-          >
-            <IconExternalLink size={10} />
-            Open {added.name}&apos;s settings
-          </a>
+          {added.provider === "a2a" ? (
+            <a
+              href={buildPeerRegisterBackLink(added.url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex cursor-pointer items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground no-underline hover:bg-accent/80"
+            >
+              <IconExternalLink size={10} />
+              Open {added.name}&apos;s settings
+            </a>
+          ) : (
+            <p className="text-[10px] text-primary">
+              {t("agentChat.agents.managedAgentSaved")}
+            </p>
+          )}
           <button
             onClick={onClose}
             className="cursor-pointer rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
@@ -719,35 +913,54 @@ function AgentAddPopover({
       className="absolute end-0 top-full z-50 mt-1 w-72 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
     >
       <div className="flex flex-col gap-1.5">
-        <div className="flex gap-1">
-          <input
-            ref={urlRef}
-            value={url}
-            onChange={(e) => {
-              setUrl(e.target.value);
-              setCheck({ status: "idle" });
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleCheck();
-              if (e.key === "Escape") onClose();
-            }}
-            className="w-full flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-            placeholder="URL (e.g. http://localhost:8085)"
-          />
-          <ToolkitButtonBase
-            type="button"
-            variant="outline"
-            onClick={handleCheck}
-            disabled={!url.trim() || check.status === "checking"}
-            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
-          >
-            {check.status === "checking" ? (
-              <IconLoader2 size={10} className="animate-spin" />
-            ) : (
-              "Check"
-            )}
-          </ToolkitButtonBase>
-        </div>
+        {kind?.provider !== "anthropic-managed-agents" && (
+          <div className="flex gap-1">
+            <input
+              ref={urlRef}
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                setCheck({ status: "idle" });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleCheck();
+                if (e.key === "Escape") onClose();
+              }}
+              className="w-full flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+              placeholder="URL (e.g. http://localhost:8085)"
+            />
+            <ToolkitButtonBase
+              type="button"
+              variant="outline"
+              onClick={handleCheck}
+              disabled={!url.trim() || check.status === "checking"}
+              className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
+            >
+              {check.status === "checking" ? (
+                <IconLoader2 size={10} className="animate-spin" />
+              ) : (
+                "Check"
+              )}
+            </ToolkitButtonBase>
+          </div>
+        )}
+        {kind?.provider === "anthropic-managed-agents" && (
+          <div className="flex justify-end">
+            <ToolkitButtonBase
+              type="button"
+              variant="outline"
+              onClick={handleCheck}
+              disabled={!url.trim() || check.status === "checking"}
+              className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
+            >
+              {check.status === "checking" ? (
+                <IconLoader2 size={10} className="animate-spin" />
+              ) : (
+                "Check"
+              )}
+            </ToolkitButtonBase>
+          </div>
+        )}
 
         {check.status === "error" && (
           <p className="flex items-start gap-1 text-[10px] text-destructive">
@@ -833,13 +1046,26 @@ function AgentAddPopover({
           placeholder="Description (optional)"
         />
         <HostedAgentFields
+          url={url}
+          onUrlChange={(value) => {
+            setUrl(value);
+            setCheck({ status: "idle" });
+          }}
           cardUrl={cardUrl}
           onCardUrlChange={(value) => {
             setCardUrl(value);
             setCheck({ status: "idle" });
           }}
           auth={auth}
-          onAuthChange={setAuth}
+          onAuthChange={(value) => {
+            setAuth(value);
+            setCheck({ status: "idle" });
+          }}
+          kind={kind}
+          onKindChange={(value) => {
+            setKind(value);
+            setCheck({ status: "idle" });
+          }}
           credentialOptions={credentialOptions}
         />
         <div className="flex justify-end gap-1 pt-0.5">
@@ -851,7 +1077,10 @@ function AgentAddPopover({
           </button>
           <button
             onClick={handleAdd}
-            disabled={!name.trim() || !url.trim()}
+            disabled={
+              !name.trim() ||
+              (!url.trim() && kind?.provider !== "anthropic-managed-agents")
+            }
             className="cursor-pointer rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
           >
             {unreachable ? "Add anyway" : "Add"}
@@ -1113,21 +1342,28 @@ export function AgentsSection() {
             const hasAuth = config.auth !== undefined && config.auth !== null;
             const auth = parseHostedAuth(config.auth);
             if (hasAuth && !auth) return null;
+            const hasKind = config.kind !== undefined && config.kind !== null;
+            const kind = parseRemoteAgentKind(config.kind);
+            if (hasKind && !kind) return null;
+            const hostedCredential = Boolean(auth || kind);
             const url =
-              typeof config.url === "string"
+              typeof config.url === "string" && config.url.trim()
                 ? normalizeHostedAgentUrl(config.url, {
-                    requireHttps: Boolean(auth),
+                    requireHttps: hostedCredential,
                   })
-                : undefined;
+                : kind?.provider === "anthropic-managed-agents"
+                  ? "https://api.anthropic.com"
+                  : undefined;
             if (!url) return null;
             const rawCardUrl =
               typeof config.cardUrl === "string" ? config.cardUrl.trim() : "";
-            const cardUrl = rawCardUrl
-              ? normalizeHostedAgentUrl(rawCardUrl, {
-                  requireHttps: Boolean(auth),
-                })
-              : undefined;
-            if (rawCardUrl && !cardUrl) return null;
+            const cardUrl = normalizeHostedAgentCardUrl(rawCardUrl, kind, auth);
+            if (
+              rawCardUrl &&
+              kind?.provider !== "anthropic-managed-agents" &&
+              !cardUrl
+            )
+              return null;
             return {
               id: r.id,
               path: r.path,
@@ -1136,6 +1372,7 @@ export function AgentsSection() {
               description: config.description,
               cardUrl,
               auth,
+              kind,
             };
           } catch {
             return null;
@@ -1158,23 +1395,37 @@ export function AgentsSection() {
     description: string,
     cardUrl: string,
     auth?: HostedAgentAuth,
+    kind?: RemoteAgentKind,
   ): Promise<boolean> => {
+    const normalizedKind = kind ? parseRemoteAgentKind(kind) : undefined;
+    if (kind && !normalizedKind) {
+      throw new Error(t("agentChat.agents.managedAgentIncomplete"));
+    }
     const normalizedAuth = normalizeHostedAuth(auth);
     if (auth && !normalizedAuth) {
       throw new Error(t("agentChat.agents.authIncomplete"));
     }
-    const normalizedUrl = normalizeHostedAgentUrl(url, {
-      requireHttps: Boolean(normalizedAuth),
-    });
+    if (normalizedKind && normalizedAuth) {
+      throw new Error(t("agentChat.agents.authIncomplete"));
+    }
+    const normalizedUrl = normalizeHostedAgentUrl(
+      url ||
+        (normalizedKind?.provider === "anthropic-managed-agents"
+          ? ANTHROPIC_MANAGED_AGENT_DEFAULT_URL
+          : ""),
+      {
+        requireHttps: Boolean(normalizedAuth || normalizedKind),
+      },
+    );
     if (!normalizedUrl) throw new Error(t("agentChat.agents.invalidUrl"));
-    const trimmedCardUrl = cardUrl.trim();
-    const normalizedCardUrl = trimmedCardUrl
-      ? normalizeHostedAgentUrl(trimmedCardUrl, {
-          requireHttps: Boolean(normalizedAuth),
-        })
-      : undefined;
-    if (trimmedCardUrl && !normalizedCardUrl)
+    const normalizedCardUrl = normalizeHostedAgentCardUrl(
+      cardUrl,
+      normalizedKind,
+      normalizedAuth,
+    );
+    if (!normalizedKind && cardUrl.trim() && !normalizedCardUrl) {
       throw new Error(t("agentChat.agents.invalidUrl"));
+    }
     const id = name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
     const optimisticAgent: AgentInfo = {
       id: `optimistic-${id}`,
@@ -1184,6 +1435,7 @@ export function AgentsSection() {
       description: description || undefined,
       cardUrl: normalizedCardUrl,
       auth: normalizedAuth,
+      kind: normalizedKind,
     };
     const previousAgents = agents;
     setAgents((current) => [...current, optimisticAgent]);
@@ -1195,6 +1447,7 @@ export function AgentsSection() {
         url: normalizedUrl,
         cardUrl: normalizedCardUrl,
         auth: normalizedAuth,
+        ...(normalizedKind ? { kind: normalizedKind } : {}),
         color: "#6B7280",
       },
       null,
@@ -1237,21 +1490,36 @@ export function AgentsSection() {
   };
 
   const handleSave = async (agent: AgentInfo) => {
+    const normalizedKind = agent.kind
+      ? parseRemoteAgentKind(agent.kind)
+      : undefined;
+    if (agent.kind && !normalizedKind) {
+      throw new Error(t("agentChat.agents.managedAgentIncomplete"));
+    }
     const normalizedAuth = normalizeHostedAuth(agent.auth);
     if (agent.auth && !normalizedAuth) {
       throw new Error(t("agentChat.agents.authIncomplete"));
     }
-    const normalizedUrl = normalizeHostedAgentUrl(agent.url, {
-      requireHttps: Boolean(normalizedAuth),
-    });
+    if (normalizedKind && normalizedAuth) {
+      throw new Error(t("agentChat.agents.authIncomplete"));
+    }
+    const normalizedUrl = normalizeHostedAgentUrl(
+      agent.url ||
+        (normalizedKind?.provider === "anthropic-managed-agents"
+          ? ANTHROPIC_MANAGED_AGENT_DEFAULT_URL
+          : ""),
+      {
+        requireHttps: Boolean(normalizedAuth || normalizedKind),
+      },
+    );
     if (!normalizedUrl) throw new Error(t("agentChat.agents.invalidUrl"));
     const trimmedCardUrl = agent.cardUrl?.trim() ?? "";
-    const normalizedCardUrl = trimmedCardUrl
-      ? normalizeHostedAgentUrl(trimmedCardUrl, {
-          requireHttps: Boolean(normalizedAuth),
-        })
-      : undefined;
-    if (trimmedCardUrl && !normalizedCardUrl)
+    const normalizedCardUrl = normalizeHostedAgentCardUrl(
+      trimmedCardUrl,
+      normalizedKind,
+      normalizedAuth,
+    );
+    if (!normalizedKind && trimmedCardUrl && !normalizedCardUrl)
       throw new Error(t("agentChat.agents.invalidUrl"));
     const previousAgents = agents;
     setAgents((current) =>
@@ -1262,6 +1530,7 @@ export function AgentsSection() {
               url: normalizedUrl,
               cardUrl: normalizedCardUrl,
               auth: normalizedAuth,
+              kind: normalizedKind,
             }
           : currentAgent,
       ),
@@ -1274,6 +1543,7 @@ export function AgentsSection() {
         url: normalizedUrl,
         cardUrl: normalizedCardUrl,
         auth: normalizedAuth,
+        ...(normalizedKind ? { kind: normalizedKind } : {}),
         color: "#6B7280",
       },
       null,

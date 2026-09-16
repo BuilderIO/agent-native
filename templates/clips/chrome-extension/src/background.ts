@@ -1,3 +1,4 @@
+import { sanitizeBrowserDiagnosticNavigationUrl } from "@shared/browser-diagnostics";
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
 import {
@@ -30,6 +31,8 @@ const DEFAULT_CLIPS_BASE_URL = "https://clips.agent-native.com";
 const DEBUGGER_PROTOCOL_VERSION = "1.3";
 const MAX_CONSOLE_LOGS = 400;
 const MAX_NETWORK_REQUESTS = 400;
+const CLICK_INPUT_INGRESS_WINDOW_MS = 1_000;
+const MAX_CLICK_INPUT_INGRESS_PER_WINDOW = 100;
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_URL_LENGTH = 1_000;
 const STORAGE_SETUP_REQUIRED_MESSAGE =
@@ -56,6 +59,7 @@ const UNQUOTED_SECRET_VALUE_RE = new RegExp(
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 type ConsoleLevel = "debug" | "log" | "info" | "warn" | "error";
 type NetworkType = "fetch" | "xhr";
+type InteractionKind = "navigation" | "click" | "input" | "scroll";
 type UploadMode = "streaming" | "buffered";
 
 type ExtensionSettings = {
@@ -124,6 +128,14 @@ type NetworkRequest = {
   error?: string;
 };
 
+type InteractionEvent = {
+  timestampMs: number;
+  elapsedMs: number;
+  kind: InteractionKind;
+  target?: string;
+  url?: string;
+};
+
 type BrowserDiagnosticsData = {
   pageUrl: string | null;
   userAgent: string | null;
@@ -131,6 +143,7 @@ type BrowserDiagnosticsData = {
   endedAt: string;
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
+  interactionEvents?: InteractionEvent[];
   summary: {
     consoleCount: number;
     consoleErrorCount: number;
@@ -169,6 +182,8 @@ type NativeRecording = {
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
+  diagnosticsPausedAtMs?: number;
+  diagnosticsPausedDurationMs?: number;
   // When an upload fails, the recording is saved to the user's Downloads as a
   // fallback so it is never lost; these describe that saved file.
   savedToDisk?: boolean;
@@ -236,6 +251,11 @@ type CaptureSession = {
   attachError: string | null;
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
+  interactionEvents: InteractionEvent[];
+  clickInputIngressWindowStartedAtMs: number;
+  clickInputIngressCount: number;
+  diagnosticsPausedAtMs: number | null;
+  diagnosticsPausedDurationMs: number;
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
 };
 
@@ -398,6 +418,15 @@ async function restoreRuntimeState(): Promise<void> {
   ) {
     activeNativeRecording = restoredRecording;
   }
+  if (
+    activeNativeRecording &&
+    !sessions.has(activeNativeRecording.sessionId) &&
+    activeNativeRecording.status !== "complete" &&
+    activeNativeRecording.status !== "error"
+  ) {
+    const session = restoreCaptureSession(activeNativeRecording);
+    await attachSession(session);
+  }
   const freshArmingSessionId = await readFreshPersistedArmingSessionId(
     stored.armingNativeRecordingSessionId,
   );
@@ -549,11 +578,23 @@ async function injectContentScript(tabId: number): Promise<boolean> {
         executeScript: (args: {
           target: { tabId: number };
           files: string[];
+          world?: "ISOLATED" | "MAIN";
         }) => Promise<unknown>;
       };
     }
   ).scripting;
   if (!scripting) return false;
+  try {
+    await scripting.executeScript({
+      target: { tabId },
+      files: ["assets/content-history-bridge.js"],
+      world: "MAIN",
+    });
+    // coercion-ok: MAIN-world injection is optional; the isolated script still records.
+  } catch {
+    // Some restricted pages reject MAIN-world injection but still accept the
+    // isolated overlay/content script.
+  }
   try {
     await scripting.executeScript({
       target: { tabId },
@@ -595,11 +636,16 @@ async function broadcastMount(): Promise<void> {
     return;
   }
   const parts = desiredParts();
+  const resetDiagnosticQuotas = overlayPhase === "recording";
   const tabs = await allTabs();
   await Promise.all(
     tabs.map((tab) =>
       typeof tab.id === "number"
-        ? sendTabMessage(tab.id, { type: "CLIPS_OVERLAY_MOUNT", parts })
+        ? sendTabMessage(tab.id, {
+            type: "CLIPS_OVERLAY_MOUNT",
+            parts,
+            ...(resetDiagnosticQuotas ? { resetDiagnosticQuotas: true } : {}),
+          })
         : Promise.resolve(),
     ),
   );
@@ -1329,10 +1375,46 @@ function createSession(
     attachError: null,
     consoleLogs: [],
     networkRequests: [],
+    interactionEvents: [],
+    clickInputIngressWindowStartedAtMs: 0,
+    clickInputIngressCount: 0,
+    diagnosticsPausedAtMs: null,
+    diagnosticsPausedDurationMs: 0,
     pendingNetworkRequests: new Map(),
   };
   sessions.set(sessionId, session);
   tabToSession.set(session.targetTabId, sessionId);
+  return session;
+}
+
+function restoreCaptureSession(recording: NativeRecording): CaptureSession {
+  const session = createSession(
+    recording.sessionId,
+    {
+      id: recording.targetTabId,
+      title: recording.targetTitle ?? undefined,
+      url: recording.targetUrl ?? undefined,
+    },
+    settingsFromRecording(recording),
+  );
+  session.recordingId = recording.recordingId;
+  session.startedAt = recording.startedAt;
+  session.startedAtMs = recording.startedAtMs;
+  session.diagnosticsPausedAtMs =
+    typeof recording.diagnosticsPausedAtMs === "number"
+      ? recording.diagnosticsPausedAtMs
+      : null;
+  session.diagnosticsPausedDurationMs =
+    typeof recording.diagnosticsPausedDurationMs === "number"
+      ? Math.max(0, recording.diagnosticsPausedDurationMs)
+      : 0;
+  if (session.targetUrl) {
+    pushInteraction(session, {
+      kind: "navigation",
+      url: session.targetUrl,
+      timestampMs: session.startedAtMs,
+    });
+  }
   return session;
 }
 
@@ -1717,6 +1799,8 @@ async function markRecordingStarted() {
     : null;
   if (session) beginSessionCapture(session, overlayBaseEpochMs);
   if (activeNativeRecording) {
+    delete activeNativeRecording.diagnosticsPausedAtMs;
+    delete activeNativeRecording.diagnosticsPausedDurationMs;
     activeNativeRecording.startedAtMs = overlayBaseEpochMs;
     activeNativeRecording.startedAt = new Date(
       overlayBaseEpochMs,
@@ -1743,9 +1827,16 @@ async function handleOverlaySkip() {
 
 function handleOverlayPause() {
   if (overlayPhase !== "recording") return { ok: true };
-  overlayBaseElapsedMs += Math.max(0, nowMs() - overlayBaseEpochMs);
+  const pausedAtMs = nowMs();
+  overlayBaseElapsedMs += Math.max(0, pausedAtMs - overlayBaseEpochMs);
   overlayPhase = "paused";
+  const session = activeNativeRecording
+    ? sessions.get(activeNativeRecording.sessionId)
+    : null;
+  if (session) session.diagnosticsPausedAtMs = pausedAtMs;
   if (activeNativeRecording) {
+    activeNativeRecording.diagnosticsPausedAtMs = pausedAtMs;
+    activeNativeRecording.diagnosticsPausedDurationMs ??= 0;
     activeNativeRecording.status = "paused";
     void saveActiveNativeRecording();
     void sendOffscreenMessage({
@@ -1759,7 +1850,27 @@ function handleOverlayPause() {
 
 function handleOverlayResume() {
   if (overlayPhase !== "paused") return { ok: true };
-  overlayBaseEpochMs = nowMs();
+  const resumedAtMs = nowMs();
+  const session = activeNativeRecording
+    ? sessions.get(activeNativeRecording.sessionId)
+    : null;
+  const pausedAtMs =
+    session?.diagnosticsPausedAtMs ??
+    activeNativeRecording?.diagnosticsPausedAtMs;
+  if (typeof pausedAtMs === "number") {
+    const pausedDurationMs = Math.max(0, resumedAtMs - pausedAtMs);
+    if (session) {
+      session.diagnosticsPausedDurationMs += pausedDurationMs;
+      session.diagnosticsPausedAtMs = null;
+    }
+    if (activeNativeRecording) {
+      activeNativeRecording.diagnosticsPausedDurationMs =
+        (activeNativeRecording.diagnosticsPausedDurationMs ?? 0) +
+        pausedDurationMs;
+      delete activeNativeRecording.diagnosticsPausedAtMs;
+    }
+  }
+  overlayBaseEpochMs = resumedAtMs;
   overlayPhase = "recording";
   if (activeNativeRecording) {
     activeNativeRecording.status = "recording";
@@ -2022,6 +2133,7 @@ async function saveNativeDiagnostics(
       endedAt: snapshot.endedAt,
       consoleLogs: snapshot.consoleLogs,
       networkRequests: snapshot.networkRequests,
+      interactionEvents: snapshot.interactionEvents,
     },
   ).catch((err) => {
     console.warn("[clips-extension] diagnostics save failed:", err);
@@ -2164,6 +2276,22 @@ function pendingNetworkSnapshot(session: CaptureSession): NetworkRequest[] {
   }));
 }
 
+function diagnosticElapsedMs(
+  timestampMs: number,
+  session: CaptureSession,
+): number | null {
+  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  if (elapsedMs === null) return null;
+  const activePauseMs =
+    session.diagnosticsPausedAtMs === null
+      ? 0
+      : Math.max(0, timestampMs - session.diagnosticsPausedAtMs);
+  return Math.max(
+    0,
+    elapsedMs - session.diagnosticsPausedDurationMs - activePauseMs,
+  );
+}
+
 function snapshotSession(session: CaptureSession): BrowserDiagnosticsData {
   const endedAt = nowIso();
   const consoleLogs = session.consoleLogs.slice(-MAX_CONSOLE_LOGS);
@@ -2181,6 +2309,7 @@ function snapshotSession(session: CaptureSession): BrowserDiagnosticsData {
     endedAt,
     consoleLogs,
     networkRequests,
+    interactionEvents: session.interactionEvents.slice(-800),
     summary: summarize({ endedAt, consoleLogs, networkRequests }),
   };
 }
@@ -2193,6 +2322,18 @@ function beginSessionCapture(
   session.startedAt = new Date(startedAtMs).toISOString();
   session.consoleLogs = [];
   session.networkRequests = [];
+  session.interactionEvents = [];
+  session.clickInputIngressWindowStartedAtMs = 0;
+  session.clickInputIngressCount = 0;
+  session.diagnosticsPausedAtMs = null;
+  session.diagnosticsPausedDurationMs = 0;
+  if (session.targetUrl) {
+    pushInteraction(session, {
+      kind: "navigation",
+      url: session.targetUrl,
+      timestampMs: startedAtMs,
+    });
+  }
   session.pendingNetworkRequests.clear();
 }
 
@@ -2248,7 +2389,7 @@ function pushConsole(
   const timestampMs = Number.isFinite(entry.timestampMs)
     ? (entry.timestampMs as number)
     : nowMs();
-  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
   // Runtime and Log can replay old entries when the debugger attaches. Those
   // entries belong to the page history, not the recording that just started.
   if (elapsedMs === null) return;
@@ -2285,6 +2426,62 @@ function pushNetwork(session: CaptureSession, entry: NetworkRequest): void {
       session.networkRequests.length - MAX_NETWORK_REQUESTS,
     );
   }
+}
+
+function pushInteraction(
+  session: CaptureSession,
+  entry: Omit<InteractionEvent, "timestampMs" | "elapsedMs"> & {
+    timestampMs?: number;
+  },
+): void {
+  const timestampMs = entry.timestampMs ?? nowMs();
+  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
+  if (elapsedMs === null) return;
+  const url = entry.url
+    ? sanitizeBrowserDiagnosticNavigationUrl(entry.url)
+    : undefined;
+  if (entry.kind === "navigation" && url) {
+    const first = session.interactionEvents[0];
+    if (
+      session.interactionEvents.length === 1 &&
+      first?.kind === "navigation" &&
+      first.url === url
+    ) {
+      return;
+    }
+  }
+  session.interactionEvents.push({
+    timestampMs,
+    elapsedMs,
+    kind: entry.kind,
+    ...(entry.target
+      ? { target: truncate(redactString(entry.target), 200) }
+      : {}),
+    ...(url ? { url } : {}),
+  });
+  if (session.interactionEvents.length > 800) {
+    session.interactionEvents.splice(0, session.interactionEvents.length - 800);
+  }
+}
+
+function allowClickInputIngress(
+  session: CaptureSession,
+  kind: InteractionKind,
+): boolean {
+  if (kind !== "click" && kind !== "input") return true;
+  const now = nowMs();
+  if (
+    now - session.clickInputIngressWindowStartedAtMs >=
+    CLICK_INPUT_INGRESS_WINDOW_MS
+  ) {
+    session.clickInputIngressWindowStartedAtMs = now;
+    session.clickInputIngressCount = 0;
+  }
+  if (session.clickInputIngressCount >= MAX_CLICK_INPUT_INGRESS_PER_WINDOW) {
+    return false;
+  }
+  session.clickInputIngressCount += 1;
+  return true;
 }
 
 function consoleLevel(value: unknown): ConsoleLevel {
@@ -2427,7 +2624,7 @@ function handleRequestWillBeSent(
       : null;
   if (!type || !requestId || !request) return;
   const timestampMs = requestTimestampMs(event);
-  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
   if (elapsedMs === null) return;
   const url = sanitizeUrl(typeof request.url === "string" ? request.url : "");
   if (!url) return;
@@ -2616,7 +2813,7 @@ function ensureRestored(): Promise<void> {
 }
 void ensureRestored();
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
   void (async () => {
     // Critical: never read activeNativeRecording/overlayPhase before state is
@@ -2625,7 +2822,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     await ensureRestored();
     let response: unknown;
     try {
-      response = await dispatchRuntimeMessage(message);
+      response = await dispatchRuntimeMessage(message, sender);
     } catch (err) {
       console.error(
         "[clips-bg] message failed:",
@@ -2655,8 +2852,38 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
+async function dispatchRuntimeMessage(
+  message: unknown,
+  sender?: chrome.runtime.MessageSender,
+): Promise<unknown> {
   const type = (message as { type?: unknown }).type;
+
+  if (type === "CLIPS_DIAGNOSTIC_INTERACTION") {
+    const tabId = sender?.tab?.id;
+    const sessionId =
+      typeof tabId === "number" ? tabToSession.get(tabId) : null;
+    const session = sessionId ? sessions.get(sessionId) : null;
+    const kind = (message as { kind?: unknown }).kind;
+    if (
+      !session ||
+      (kind !== "navigation" &&
+        kind !== "click" &&
+        kind !== "input" &&
+        kind !== "scroll")
+    ) {
+      return { ok: false };
+    }
+    if (overlayPhase === "paused") return { ok: false };
+    if (!allowClickInputIngress(session, kind)) return { ok: false };
+    const target = (message as { target?: unknown }).target;
+    const url = (message as { url?: unknown }).url;
+    pushInteraction(session, {
+      kind,
+      ...(typeof target === "string" ? { target } : {}),
+      ...(typeof url === "string" ? { url } : {}),
+    });
+    return { ok: true };
+  }
 
   if (type === "CLIPS_EXTENSION_ERROR") {
     const report = message as ExtensionErrorMessage;
@@ -2997,7 +3224,6 @@ chrome.debugger.onDetach.addListener((source) => {
   if (!sessionId) return;
   const session = sessions.get(sessionId);
   if (session) session.attached = false;
-  tabToSession.delete(tabId);
 });
 
 // ---- Dev auto-reload (unpacked installs only) ------------------------------

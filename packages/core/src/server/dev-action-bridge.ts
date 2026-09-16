@@ -30,10 +30,16 @@ import type { H3Event } from "h3";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getAppConfig } from "../app-config/index.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import { isLoopbackRequest } from "./auth.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
+import {
+  DEV_ACTION_DISCOVERY_PATH,
+  type DevActionDiscovery,
+  readDevActionDiscoveryFile,
+} from "./dev-action-discovery.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
   getRequestOrgId,
@@ -46,18 +52,87 @@ export const DEV_ACTION_TOKEN_HEADER = "x-agent-native-dev-token";
 export const DEV_ACTION_USER_HEADER = "x-agent-native-dev-user";
 export const DEV_ACTION_ORG_HEADER = "x-agent-native-dev-org";
 
-const DISCOVERY_PATH = path.join(".agent-native", "dev-server.json");
-
-export interface DevActionDiscovery {
-  origin: string;
-  pid: number;
-  token: string;
-  databaseKey: string;
-}
+export { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 
 /** Hash a resolved `DATABASE_URL` so the discovery file never carries the raw connection string. */
 export function hashDatabaseKey(databaseUrl: string): string {
   return crypto.createHash("sha256").update(databaseUrl).digest("hex");
+}
+
+const DEV_ACTION_HANDOFF_KEYS = ["embedStartUrl", "startUrl"] as const;
+const DEV_ACTION_HANDOFF_PATH = "/_agent-native/embed/start";
+
+function withoutDevActionHandoffSecrets(
+  value: unknown,
+  ancestors = new WeakSet<object>(),
+): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (ancestors.has(value)) return "[Circular]";
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((child) =>
+        withoutDevActionHandoffSecrets(child, ancestors),
+      );
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(
+          ([key]) => !DEV_ACTION_HANDOFF_KEYS.some((name) => name === key),
+        )
+        .map(([key, child]) => [
+          key,
+          withoutDevActionHandoffSecrets(child, ancestors),
+        ]),
+    );
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function isLoopbackAppUrl(value: string): URL | undefined {
+  if (!URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  const hostname = url.hostname.toLowerCase();
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    (hostname !== "localhost" &&
+      hostname !== "127.0.0.1" &&
+      hostname !== "::1" &&
+      hostname !== "[::1]")
+  ) {
+    return undefined;
+  }
+  return url;
+}
+
+export function isValidDevActionHandoffUrl(
+  value: unknown,
+  loopbackAppUrl = getAppConfig().app.url,
+): value is string {
+  if (typeof value !== "string") return false;
+  if (value.startsWith(`${DEV_ACTION_HANDOFF_PATH}?`)) return true;
+  const appUrl = loopbackAppUrl ? isLoopbackAppUrl(loopbackAppUrl) : undefined;
+  if (!appUrl) return false;
+  if (!URL.canParse(value)) return false;
+  const candidate = new URL(value);
+  return (
+    candidate.origin === appUrl.origin &&
+    candidate.pathname === DEV_ACTION_HANDOFF_PATH &&
+    candidate.search.length > 1
+  );
+}
+
+/** Read the private browser handoff without making it part of action output. */
+export function devActionHandoffUrl(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  for (const key of DEV_ACTION_HANDOFF_KEYS) {
+    const value = (result as Record<string, unknown>)[key];
+    if (isValidDevActionHandoffUrl(value)) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 // Module-level state must survive independent instances of this module: the
@@ -93,7 +168,7 @@ export function writeDevActionDiscoveryFile(
 ): void {
   const token = crypto.randomBytes(32).toString("hex");
   devBridgeProcess.__agentNativeDevActionToken = token;
-  const filePath = path.join(appRoot, DISCOVERY_PATH);
+  const filePath = path.join(appRoot, DEV_ACTION_DISCOVERY_PATH);
   const discovery: DevActionDiscovery = {
     origin,
     pid: process.pid,
@@ -132,7 +207,7 @@ export function removeDevActionDiscoveryFile(appRoot: string): void {
   const current = readDevActionDiscoveryFile(appRoot);
   if (!current || current.pid !== process.pid) return;
   try {
-    fs.unlinkSync(path.join(appRoot, DISCOVERY_PATH));
+    fs.unlinkSync(path.join(appRoot, DEV_ACTION_DISCOVERY_PATH));
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
       console.warn(
@@ -141,54 +216,6 @@ export function removeDevActionDiscoveryFile(appRoot: string): void {
       );
     }
   }
-}
-
-/**
- * Read the discovery file for a CLI forward attempt. Returns `undefined`
- * ("no usable dev server") for every failure mode — missing file, unreadable
- * file, malformed JSON, wrong shape — logging unexpected ones so a broken
- * file doesn't look identical to "no dev server running" during debugging.
- */
-export function readDevActionDiscoveryFile(
-  appRoot: string,
-): DevActionDiscovery | undefined {
-  const filePath = path.join(appRoot, DISCOVERY_PATH);
-  let raw: string;
-  try {
-    raw = fs.readFileSync(filePath, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      console.warn(
-        "[agent-native] could not read dev action discovery file:",
-        error,
-      );
-    }
-    return undefined;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    console.warn(
-      "[agent-native] dev action discovery file is not valid JSON:",
-      error,
-    );
-    return undefined;
-  }
-  const candidate = parsed as Partial<DevActionDiscovery> | null;
-  if (
-    !candidate ||
-    typeof candidate.origin !== "string" ||
-    !Number.isInteger(candidate.pid) ||
-    typeof candidate.token !== "string" ||
-    typeof candidate.databaseKey !== "string"
-  ) {
-    console.warn(
-      "[agent-native] dev action discovery file has an unexpected shape; ignoring it",
-    );
-    return undefined;
-  }
-  return candidate as DevActionDiscovery;
 }
 
 function timingSafeTokenEqual(a: string, b: string): boolean {
@@ -208,6 +235,9 @@ export interface MountDevActionForwardRouteOptions {
  * 404 when `name` isn't in this server's action registry (the CLI falls
  * back to running in-process — e.g. a core script like `db-query` that was
  * never mounted here), and 401 for every auth/production/loopback failure.
+ * A private `devHandoffUrl` may accompany a successful result so the CLI can
+ * open a one-time browser handoff that the action intentionally hides from
+ * enumerable/MCP output.
  */
 export function mountDevActionForwardRoute(
   nitroApp: any,
@@ -286,7 +316,12 @@ export function mountDevActionForwardRoute(
           if (!actionCallIsReadOnly(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }
-          return { ok: true, result };
+          const devHandoffUrl = devActionHandoffUrl(result);
+          return {
+            ok: true,
+            result: withoutDevActionHandoffSecrets(result),
+            ...(devHandoffUrl ? { devHandoffUrl } : {}),
+          };
         } catch (error: any) {
           setResponseStatus(event, 500);
           return { ok: false, error: error?.message ?? String(error) };

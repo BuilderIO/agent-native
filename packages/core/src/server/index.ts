@@ -7,6 +7,10 @@ export {
   type AppConfigInput,
 } from "../app-config/index.js";
 export {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
+export {
   createServer,
   type CreateServerOptions,
   type EnvKeyConfig,
