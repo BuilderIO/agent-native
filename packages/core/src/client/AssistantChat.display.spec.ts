@@ -2766,6 +2766,9 @@ describe("chat submit and stop hardening", () => {
     const resetIndex = submitSource.indexOf(
       "resetRetainedTextStreamingState(effectiveContinuationTurnId);",
     );
+    const attachmentSerializationIndex = submitSource.indexOf(
+      "serializeQueuedAttachments(attachments)",
+    );
     const firstQueueBranchIndex = submitSource.indexOf(
       'if (isRunning && intent === "immediate")',
     );
@@ -2775,6 +2778,7 @@ describe("chat submit and stop hardening", () => {
     expect(submitEnd).toBeGreaterThan(submitStart);
     expect(submitSource).toContain("if (!hideUserMessage)");
     expect(resetIndex).toBeGreaterThan(-1);
+    expect(resetIndex).toBeLessThan(attachmentSerializationIndex);
     expect(resetIndex).toBeLessThan(firstQueueBranchIndex);
     expect(resetIndex).toBeLessThan(optimisticIndex);
   });

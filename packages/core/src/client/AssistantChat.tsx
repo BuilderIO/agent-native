@@ -5662,6 +5662,12 @@ const AssistantChatInner = forwardRef<
         ? buildComposerContextSubmission(text)
         : { text, includesContext: false };
       const submittedText = submitted.text;
+      const effectiveContinuationTurnId =
+        continuationTurnId ??
+        (actionScope ? generateAgentChatTurnId() : undefined);
+      if (!hideUserMessage) {
+        resetRetainedTextStreamingState(effectiveContinuationTurnId);
+      }
       let queuedAttachments: Awaited<
         ReturnType<typeof serializeQueuedAttachments>
       >;
@@ -5785,12 +5791,6 @@ const AssistantChatInner = forwardRef<
         engine: selectedEngine,
         effort: selectedEffort,
       };
-      const effectiveContinuationTurnId =
-        continuationTurnId ??
-        (actionScope ? generateAgentChatTurnId() : undefined);
-      if (!hideUserMessage) {
-        resetRetainedTextStreamingState(effectiveContinuationTurnId);
-      }
       if (isRunning && intent === "immediate") {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
