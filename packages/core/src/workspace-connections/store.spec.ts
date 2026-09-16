@@ -755,6 +755,36 @@ describe("workspace connection store", () => {
     }
   });
 
+  it("normalizes names for writers that do not know the derived column", async () => {
+    const { ensureWorkspaceUserGroupsTable } = await import("./groups.js");
+    const id = "legacy-writer-group";
+    const orgId = "org-groups-legacy-writer";
+
+    await ensureWorkspaceUserGroupsTable();
+    await pglite
+      .prepare(
+        `INSERT INTO workspace_user_groups
+          (id, org_id, name, member_emails_json, created_by_email, created_at, updated_at)
+         VALUES (?, ?, ?, '[]', '', 0, 0)`,
+      )
+      .run(id, orgId, "Finance");
+
+    const inserted = await pglite
+      .prepare("SELECT normalized_name FROM workspace_user_groups WHERE id = ?")
+      .all(id);
+    expect(inserted[0]?.normalized_name).toBe("finance");
+
+    await pglite
+      .prepare(
+        "UPDATE workspace_user_groups SET name = ?, normalized_name = NULL WHERE id = ?",
+      )
+      .run("Finance Team", id);
+    const updated = await pglite
+      .prepare("SELECT normalized_name FROM workspace_user_groups WHERE id = ?")
+      .all(id);
+    expect(updated[0]?.normalized_name).toBe("finance team");
+  });
+
   it("scopes workspace connection grants to the active org", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

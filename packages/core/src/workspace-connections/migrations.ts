@@ -130,10 +130,55 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
   },
   {
     version: 12,
-    // Keep historical duplicates readable; every normalized new or updated
-    // row is still protected by the database constraint.
-    sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
+    // Older writers do not know about normalized_name. Install the
+    // compatibility trigger before relying on the unique index.
+    sql: `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS 'BEGIN
+        NEW.normalized_name := LOWER(BTRIM(NEW.name));
+        RETURN NEW;
+      END;';
+      DO 'BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgname = ''trg_workspace_user_groups_normalized_name''
+            AND tgrelid = ''public.workspace_user_groups''::regclass
+        ) THEN
+          CREATE TRIGGER trg_workspace_user_groups_normalized_name
+            BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
+            FOR EACH ROW
+            EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();
+        END IF;
+      END';
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
       ON workspace_user_groups (org_id, normalized_name)
       WHERE normalized_name IS NOT NULL`,
+  },
+  {
+    version: 13,
+    // Reapply the compatibility trigger for databases that already recorded
+    // v12 before the trigger was added.
+    sql: `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS 'BEGIN
+        NEW.normalized_name := LOWER(BTRIM(NEW.name));
+        RETURN NEW;
+      END;';
+      DO 'BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgname = ''trg_workspace_user_groups_normalized_name''
+            AND tgrelid = ''public.workspace_user_groups''::regclass
+        ) THEN
+          CREATE TRIGGER trg_workspace_user_groups_normalized_name
+            BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
+            FOR EACH ROW
+            EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();
+        END IF;
+      END'`,
   },
 ];

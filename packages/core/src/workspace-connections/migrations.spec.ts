@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import {
   WORKSPACE_CONNECTIONS_MIGRATIONS,
   WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
@@ -65,6 +66,11 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
 
   it("backfills normalized group names and enforces new writes uniquely", () => {
     const sql = migrationSql();
+    const v12 = WORKSPACE_CONNECTIONS_MIGRATIONS.find(
+      (entry) => entry.version === 12,
+    );
+    const v12Sql =
+      typeof v12?.sql === "string" ? v12.sql : (v12?.sql.postgres ?? "");
     expect(sql).toMatch(
       /ALTER TABLE workspace_user_groups\s+ADD COLUMN IF NOT EXISTS normalized_name TEXT/i,
     );
@@ -74,6 +80,70 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
     expect(sql).toMatch(
       /CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name[\s\S]*WHERE normalized_name IS NOT NULL/i,
     );
+    expect(sql).toMatch(
+      /CREATE OR REPLACE FUNCTION public\.workspace_user_groups_set_normalized_name/i,
+    );
+    expect(sql).toMatch(
+      /CREATE TRIGGER trg_workspace_user_groups_normalized_name[\s\S]*BEFORE INSERT OR UPDATE OF name ON public\.workspace_user_groups/i,
+    );
+    expect(v12Sql.indexOf("CREATE OR REPLACE FUNCTION")).toBeLessThan(
+      v12Sql.indexOf("CREATE UNIQUE INDEX"),
+    );
+    expect(read("./groups.ts")).not.toMatch(
+      /backfillWorkspaceUserGroupNameKeys|SET normalized_name = LOWER\(BTRIM\(/i,
+    );
+  });
+
+  it("installs the normalized-name trigger before older writers can bypass it", async () => {
+    const pglite = await createTestPglite();
+    try {
+      for (const migration of WORKSPACE_CONNECTIONS_MIGRATIONS) {
+        if (migration.version > 10) break;
+        const sql =
+          typeof migration.sql === "string"
+            ? migration.sql
+            : (migration.sql.postgres ?? "");
+        if (sql) await pglite.exec(sql);
+      }
+      await pglite
+        .prepare(
+          "INSERT INTO workspace_user_groups (id, org_id, name) VALUES (?, ?, ?)",
+        )
+        .run("legacy-group", "org-trigger", "Finance");
+
+      for (const migration of WORKSPACE_CONNECTIONS_MIGRATIONS) {
+        if (migration.version < 11 || migration.version > 12) continue;
+        const sql =
+          typeof migration.sql === "string"
+            ? migration.sql
+            : (migration.sql.postgres ?? "");
+        if (sql) await pglite.exec(sql);
+      }
+
+      await expect(
+        pglite
+          .prepare(
+            "INSERT INTO workspace_user_groups (id, org_id, name) VALUES (?, ?, ?)",
+          )
+          .run("legacy-writer", "org-trigger", "finance"),
+      ).rejects.toThrow(/duplicate|unique/i);
+
+      const v13 = WORKSPACE_CONNECTIONS_MIGRATIONS.find(
+        (entry) => entry.version === 13,
+      );
+      const v13Sql =
+        typeof v13?.sql === "string" ? v13.sql : (v13?.sql.postgres ?? "");
+      await pglite.exec(v13Sql);
+
+      const row = await pglite
+        .prepare(
+          "SELECT normalized_name FROM workspace_user_groups WHERE id = ?",
+        )
+        .get("legacy-group");
+      expect(row?.normalized_name).toBe("finance");
+    } finally {
+      await pglite.close();
+    }
   });
 
   it("has unique ascending versions", () => {

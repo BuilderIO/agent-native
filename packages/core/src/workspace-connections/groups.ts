@@ -45,6 +45,10 @@ export function workspaceUserGroupsTable(): string {
 
 const WORKSPACE_USER_GROUP_NAME_INDEX =
   "idx_workspace_user_groups_org_normalized_name";
+const WORKSPACE_USER_GROUP_NAME_TRIGGER =
+  "trg_workspace_user_groups_normalized_name";
+const WORKSPACE_USER_GROUP_NAME_FUNCTION =
+  "public.workspace_user_groups_set_normalized_name";
 
 function isDuplicateObjectError(err: unknown): boolean {
   const code = stringifyValue((err as { code?: unknown })?.code ?? "");
@@ -161,22 +165,32 @@ async function ensureWorkspaceUserGroupColumns(
   }
 }
 
-async function backfillWorkspaceUserGroupNameKeys(
+async function ensureWorkspaceUserGroupNameTrigger(
   client: DbExec,
-  table: string,
 ): Promise<void> {
-  await client.execute(`
-    UPDATE ${table} AS group_row
-    SET normalized_name = LOWER(BTRIM(group_row.name))
-    WHERE group_row.normalized_name IS NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM ${table} AS duplicate
-        WHERE duplicate.org_id = group_row.org_id
-          AND LOWER(BTRIM(duplicate.name)) = LOWER(BTRIM(group_row.name))
-          AND duplicate.id <> group_row.id
-      )
-  `);
+  await retryOnDdlRace(() =>
+    client.execute(`
+      CREATE OR REPLACE FUNCTION ${WORKSPACE_USER_GROUP_NAME_FUNCTION}()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS 'BEGIN
+        NEW.normalized_name := LOWER(BTRIM(NEW.name));
+        RETURN NEW;
+      END;'
+    `),
+  );
+  try {
+    await retryOnDdlRace(() =>
+      client.execute(`
+        CREATE TRIGGER ${WORKSPACE_USER_GROUP_NAME_TRIGGER}
+          BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
+          FOR EACH ROW
+          EXECUTE FUNCTION ${WORKSPACE_USER_GROUP_NAME_FUNCTION}()
+      `),
+    );
+  } catch (error) {
+    if (!isDuplicateObjectError(error)) throw error;
+  }
 }
 
 let initPromise: Promise<void> | undefined;
@@ -202,7 +216,7 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
       {
         await ensureTableExists("workspace_user_groups", createSql);
         await ensureWorkspaceUserGroupColumns(client, table);
-        await backfillWorkspaceUserGroupNameKeys(client, table);
+        await ensureWorkspaceUserGroupNameTrigger(client);
         await ensureIndexExists(
           "idx_workspace_user_groups_org_updated",
           `CREATE INDEX IF NOT EXISTS idx_workspace_user_groups_org_updated ON ${table} (org_id, updated_at)`,
@@ -218,7 +232,7 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
 
       await retryOnDdlRace(() => client.execute(createSql));
       await ensureWorkspaceUserGroupColumns(client, table);
-      await backfillWorkspaceUserGroupNameKeys(client, table);
+      await ensureWorkspaceUserGroupNameTrigger(client);
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_workspace_user_groups_org_updated ON ${table} (org_id, updated_at)`,
