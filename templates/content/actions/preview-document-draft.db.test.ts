@@ -72,6 +72,33 @@ function documentUpdatedAt(documentId: string) {
   return updatedAt;
 }
 
+async function legacyClaimId(args: {
+  documentId: string;
+  expectedDraftVersion: number;
+  expectedDraftTitle: string;
+  expectedDraftContent: string;
+}) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify([
+        OWNER,
+        "",
+        args.documentId,
+        args.expectedDraftVersion,
+        args.expectedDraftTitle,
+        args.expectedDraftContent,
+      ]),
+    ),
+  );
+  const suffix = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  )
+    .join("")
+    .slice(0, 32);
+  return `draft-claim-${suffix}`;
+}
+
 const payload = (content: string) => ({
   title: "Builder row",
   content,
@@ -132,7 +159,66 @@ describe("private preview document drafts", () => {
     updateSpy.mockRestore();
   });
 
-  it("does not take over an aged processing claim while its write is still running", async () => {
+  it("recovers an abandoned processing claim after its lease expires", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockRejectedValueOnce(new Error("worker stopped"));
+    const request = {
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Local recovery",
+      expectedDocumentUpdatedAt: before.updatedAt,
+    };
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).rejects.toThrow("worker stopped");
+    updateSpy.mockRestore();
+    const [claim] = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, documentId),
+          eq(
+            schema.documentVersions.operation,
+            "claim-preview-draft-keep_mine",
+          ),
+        ),
+      );
+    await getDb()
+      .update(schema.documentVersions)
+      .set({
+        chatContext: JSON.stringify({
+          ...JSON.parse(claim.chatContext),
+          processingStartedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      })
+      .where(eq(schema.documentVersions.id, claim.id));
+    await getDb()
+      .delete(schema.documentPreviewDrafts)
+      .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
+  });
+
+  it("fences an expired worker when a retry completes the side effect first", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()
       .select()
@@ -166,7 +252,7 @@ describe("private preview document drafts", () => {
       expectedDraftContent: "Local recovery",
       expectedDocumentUpdatedAt: before.updatedAt,
     };
-    const first = asUser(OWNER, () => resolveDraft.run(request));
+    const expiredWorker = asUser(OWNER, () => resolveDraft.run(request));
     await startedPromise;
     const [claim] = await getDb()
       .select()
@@ -192,10 +278,88 @@ describe("private preview document drafts", () => {
 
     await expect(
       asUser(OWNER, () => resolveDraft.run(request)),
-    ).rejects.toThrow("already being applied");
+    ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
     release();
-    await expect(first).resolves.toMatchObject({ status: "resolved" });
+    await expect(expiredWorker).resolves.toMatchObject({
+      status: "resolved",
+      choice: "keep_mine",
+    });
     updateSpy.mockRestore();
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toBeNull();
+    const [current] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(current.content).toBe("Local recovery");
+  });
+
+  it("resumes a claim stored under the legacy recovery id", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const request = {
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Local recovery",
+      expectedDocumentUpdatedAt: before.updatedAt,
+    };
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockRejectedValueOnce(new Error("worker stopped"));
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).rejects.toThrow("worker stopped");
+    updateSpy.mockRestore();
+    const [claim] = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, documentId),
+          eq(
+            schema.documentVersions.operation,
+            "claim-preview-draft-keep_mine",
+          ),
+        ),
+      );
+    const legacyId = await legacyClaimId(request);
+    await getDb()
+      .update(schema.documentVersions)
+      .set({ id: legacyId })
+      .where(eq(schema.documentVersions.id, claim.id));
+    await getDb()
+      .delete(schema.documentPreviewDrafts)
+      .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+    const legacyPayload = JSON.parse(claim.chatContext);
+    delete legacyPayload.expectedDocumentUpdatedAt;
+    await getDb()
+      .update(schema.documentVersions)
+      .set({
+        chatContext: JSON.stringify({
+          ...legacyPayload,
+          status: "processing",
+          processingStartedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      })
+      .where(eq(schema.documentVersions.id, legacyId));
+
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
   });
 
   it("does not let an older processor resolve a replacement processing token", async () => {

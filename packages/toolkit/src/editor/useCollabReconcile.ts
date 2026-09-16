@@ -326,6 +326,11 @@ export function useCollabReconcile({
   const latestObservedRevisionRef = useRef<string | null>(
     contentRevision ?? null,
   );
+  const acknowledgementBaseRollbackRef = useRef<{
+    acknowledgementRevision: string;
+    updatedAt: string;
+    base: { value: string; revision: string } | null;
+  } | null>(null);
   const acknowledgedCollabRef = useRef<{ ydoc: YDoc; revision: string } | null>(
     null,
   );
@@ -626,6 +631,7 @@ export function useCollabReconcile({
         ) {
           latestObservedUpdatedAtRef.current = contentUpdatedAt;
           latestObservedRevisionRef.current = contentRevision ?? null;
+          acknowledgementBaseRollbackRef.current = null;
         } else if (
           contentUpdatedAt === latestObservedUpdatedAtRef.current &&
           contentRevision &&
@@ -634,6 +640,15 @@ export function useCollabReconcile({
           // Equal timestamps do not order revisions. Once two different
           // revisions share one timestamp, no acknowledgement at that time can
           // safely replace the authoritative base.
+          const rollback = acknowledgementBaseRollbackRef.current;
+          if (
+            rollback?.updatedAt === contentUpdatedAt &&
+            authoritativeBaseRef.current?.revision ===
+              rollback.acknowledgementRevision
+          ) {
+            authoritativeBaseRef.current = rollback.base;
+          }
+          acknowledgementBaseRollbackRef.current = null;
           latestObservedRevisionRef.current = null;
         }
       }
@@ -653,6 +668,18 @@ export function useCollabReconcile({
               acknowledgedLocalSnapshot.revision);
         if (acknowledgementIsNewestAccepted && acknowledgementIsNotSuperseded) {
           acknowledgedLocalSnapshotRef.current = acknowledgedLocalSnapshot;
+          const existingRollback = acknowledgementBaseRollbackRef.current;
+          if (
+            existingRollback?.acknowledgementRevision !==
+              acknowledgedLocalSnapshot.revision ||
+            existingRollback.updatedAt !== acknowledgedLocalSnapshot.updatedAt
+          ) {
+            acknowledgementBaseRollbackRef.current = {
+              acknowledgementRevision: acknowledgedLocalSnapshot.revision,
+              updatedAt: acknowledgedLocalSnapshot.updatedAt,
+              base: authoritativeBaseRef.current,
+            };
+          }
           authoritativeBaseRef.current = {
             value: acknowledgedLocalSnapshot.value,
             revision: acknowledgedLocalSnapshot.revision,

@@ -35,6 +35,8 @@ const durableClaimPayload = z.object({
   updatedAt: z.string().min(1),
 });
 
+const PROCESSING_LEASE_MS = 5 * 60_000;
+
 function conflict(message: string, details?: Record<string, unknown>): never {
   throw new ActionContractError(message, {
     errorCode: "PREVIEW_DRAFT_RECOVERY_CONFLICT",
@@ -51,6 +53,7 @@ async function recoveryDocumentId(args: {
   expectedDocumentUpdatedAt: string;
   ownerEmail: string;
   orgId: string;
+  includeDocumentVersion: boolean;
 }): Promise<string> {
   const input = JSON.stringify([
     args.ownerEmail,
@@ -59,7 +62,7 @@ async function recoveryDocumentId(args: {
     args.expectedDraftVersion,
     args.expectedDraftTitle,
     args.expectedDraftContent,
-    args.expectedDocumentUpdatedAt,
+    ...(args.includeDocumentVersion ? [args.expectedDocumentUpdatedAt] : []),
   ]);
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -106,14 +109,44 @@ export default defineAction({
     const access = await assertAccess("document", args.documentId, "editor");
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
-    const recoveryId = await recoveryDocumentId({
+    let recoveryId = await recoveryDocumentId({
       ...args,
       ownerEmail: userEmail,
       orgId,
+      includeDocumentVersion: true,
     });
-    const claimId = `draft-claim-${recoveryId.slice("recovery-".length)}`;
-    const claimDocumentId =
-      ownerEmail === userEmail ? args.documentId : claimId;
+    let claimId = `draft-claim-${recoveryId.slice("recovery-".length)}`;
+    let claimDocumentId = ownerEmail === userEmail ? args.documentId : claimId;
+    const legacyRecoveryId = await recoveryDocumentId({
+      ...args,
+      ownerEmail: userEmail,
+      orgId,
+      includeDocumentVersion: false,
+    });
+    const legacyClaimId = `draft-claim-${legacyRecoveryId.slice(
+      "recovery-".length,
+    )}`;
+    if (legacyClaimId !== claimId) {
+      const [legacyClaim] = await db
+        .select({ id: schema.documentVersions.id })
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.id, legacyClaimId),
+            eq(schema.documentVersions.ownerEmail, userEmail),
+            eq(
+              schema.documentVersions.documentId,
+              ownerEmail === userEmail ? args.documentId : legacyClaimId,
+            ),
+          ),
+        )
+        .limit(1);
+      if (legacyClaim) {
+        recoveryId = legacyRecoveryId;
+        claimId = legacyClaimId;
+        claimDocumentId = ownerEmail === userEmail ? args.documentId : claimId;
+      }
+    }
     const processingToken = crypto.randomUUID();
     const draftFilter = and(
       eq(schema.documentPreviewDrafts.ownerEmail, userEmail),
@@ -291,7 +324,12 @@ export default defineAction({
           }
           if (payload.draftId !== draft.id)
             conflict("The saved draft changed during recovery.");
-          if (payload.status === "processing")
+          if (
+            payload.status === "processing" &&
+            (!payload.processingStartedAt ||
+              Date.now() - Date.parse(payload.processingStartedAt) <
+                PROCESSING_LEASE_MS)
+          )
             conflict("This recovery choice is already being applied.");
           await tx
             .update(schema.documentVersions)
@@ -366,33 +404,52 @@ export default defineAction({
             (args.choice === "save_separately" &&
               (
                 await tx
-                  .select({ id: schema.documents.id })
+                  .select({
+                    ownerEmail: schema.documents.ownerEmail,
+                    title: schema.documents.title,
+                    content: schema.documents.content,
+                  })
                   .from(schema.documents)
-                  .where(eq(schema.documents.id, recoveryId))
+                  .where(
+                    and(
+                      eq(schema.documents.id, recoveryId),
+                      eq(schema.documents.ownerEmail, userEmail),
+                      eq(schema.documents.title, claim.title),
+                      eq(schema.documents.content, claim.content),
+                    ),
+                  )
                   .limit(1)
               ).length === 1);
-          if (!alreadyApplied)
-            conflict("This recovery choice is already being applied.");
-          const resolvedAt = new Date().toISOString();
-          const resolved = await tx
-            .update(schema.documentVersions)
-            .set({
-              chatContext: JSON.stringify({
-                ...payload,
-                status: "resolved",
-              }),
-              updatedAt: resolvedAt,
-            })
-            .where(
-              and(
-                eq(schema.documentVersions.id, claimId),
-                eq(schema.documentVersions.chatContext, claim.chatContext),
-              ),
-            )
-            .returning({ id: schema.documentVersions.id });
-          if (resolved.length !== 1)
-            conflict("This recovery choice is already being applied.");
-          return false;
+          if (!alreadyApplied) {
+            if (
+              !payload.processingStartedAt ||
+              Date.now() - Date.parse(payload.processingStartedAt) <
+                PROCESSING_LEASE_MS
+            ) {
+              conflict("This recovery choice is already being applied.");
+            }
+          } else {
+            const resolvedAt = new Date().toISOString();
+            const resolved = await tx
+              .update(schema.documentVersions)
+              .set({
+                chatContext: JSON.stringify({
+                  ...payload,
+                  status: "resolved",
+                }),
+                updatedAt: resolvedAt,
+              })
+              .where(
+                and(
+                  eq(schema.documentVersions.id, claimId),
+                  eq(schema.documentVersions.chatContext, claim.chatContext),
+                ),
+              )
+              .returning({ id: schema.documentVersions.id });
+            if (resolved.length !== 1)
+              conflict("This recovery choice is already being applied.");
+            return false;
+          }
         }
         const now = new Date().toISOString();
         const acquired = await tx
@@ -559,6 +616,22 @@ export default defineAction({
           ctx,
         );
         if ((saved as DocumentUpdateConflictResponse).conflict === true) {
+          const [winner] = await db
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, args.documentId))
+            .limit(1);
+          if (
+            winner?.title === draft.title &&
+            winner.content === draft.content
+          ) {
+            await markClaimResolved();
+            return {
+              status: "resolved" as const,
+              choice: args.choice,
+              document: winner,
+            };
+          }
           await restoreClaimedDraft(draft);
           return {
             status: "document_conflict" as const,

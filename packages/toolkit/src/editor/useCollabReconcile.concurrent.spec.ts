@@ -1286,6 +1286,57 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     ]);
   });
 
+  it("restores the prior base when an external revision follows an equal-timestamp acknowledgement", async () => {
+    vi.useFakeTimers();
+    const { captured, Harness } = makeHarness();
+    render(root, Harness, {
+      value: "Alpha\n\nBravo\n\nCharlie",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    act(() =>
+      captured.editor!.commands.setContent(
+        "Alpha local\n\nBravo\n\nCharlie local",
+      ),
+    );
+    const acknowledgement = {
+      value: "Alpha local\n\nBravo\n\nCharlie",
+      revision: "revision-2",
+      updatedAt: "2024-01-01T00:00:02.000Z",
+      sequence: 1,
+    };
+    render(root, Harness, {
+      value: acknowledgement.value,
+      contentUpdatedAt: acknowledgement.updatedAt,
+      contentRevision: acknowledgement.revision,
+      acknowledgedLocalSnapshot: acknowledgement,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha local\n\nBravo\n\nCharlie local",
+    );
+
+    render(root, Harness, {
+      value: "Alpha external\n\nBravo server\n\nCharlie",
+      contentUpdatedAt: acknowledgement.updatedAt,
+      contentRevision: "revision-3",
+      acknowledgedLocalSnapshot: acknowledgement,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha local\n\nBravo\n\nCharlie local",
+    );
+    expect(captured.reconciled).toEqual([
+      {
+        status: "conflict",
+        content: "Alpha local\n\nBravo\n\nCharlie local",
+      },
+    ]);
+  });
+
   it("persists the first local edit after a synced empty collaborative document", async () => {
     const captured: Captured = {
       editor: null,
