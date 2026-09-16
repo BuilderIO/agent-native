@@ -249,7 +249,11 @@ function validatePersistedDataSnapshot(
   const parsed = JSON.parse(raw);
   if (!isRecord(parsed)) return;
   for (const [key, value] of Object.entries(parsed)) {
-    if (touchedMaps && NUMERIC_DESIGN_DATA_MAPS.has(key) && !touchedMaps.has(key)) {
+    if (
+      touchedMaps &&
+      NUMERIC_DESIGN_DATA_MAPS.has(key) &&
+      !touchedMaps.has(key)
+    ) {
       continue;
     }
     const message = numericDesignDataWriteError([key], value);
