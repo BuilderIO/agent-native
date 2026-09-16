@@ -192,6 +192,8 @@ export interface Deck {
   aspectRatio?: AspectRatio;
   /** First slide returned by the light deck listing for home-page previews. */
   previewSlide?: Slide;
+  /** Import provenance; structural edits clear it before the next export. */
+  sourceImport?: unknown;
 }
 
 export interface SetDeckSlidesOptions {
@@ -1113,6 +1115,14 @@ type PatchDeckFields = Extract<
   { op: "patch-deck-fields" }
 >["fields"];
 
+function clearSourceImport(deck: Deck): Deck {
+  if (deck.sourceImport === undefined || deck.sourceImport === null)
+    return deck;
+  const next = { ...deck };
+  delete next.sourceImport;
+  return next;
+}
+
 /** Reorders the current slide list by stable IDs, or returns null for a no-op. */
 export function reorderSlidesById(
   slides: Slide[],
@@ -1167,7 +1177,11 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       // was legitimately empty before an add-slide (e.g. a freshly reloaded
       // empty deck), undoing that add must return it to empty, not to a
       // spurious blank slide.
-      return { ...deck, slides, updatedAt: new Date().toISOString() };
+      return {
+        ...clearSourceImport(deck),
+        slides,
+        updatedAt: new Date().toISOString(),
+      };
     }
     case "reorder-slides": {
       const byId = new Map(deck.slides.map((s) => [s.id, s]));
@@ -1188,7 +1202,7 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
         return deck;
       }
       return {
-        ...deck,
+        ...clearSourceImport(deck),
         slides: reordered,
         updatedAt: new Date().toISOString(),
       };
@@ -1208,7 +1222,11 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
         : -1;
       if (afterIdx !== -1) slides.splice(afterIdx + 1, 0, newSlide);
       else slides.push(newSlide);
-      return { ...deck, slides, updatedAt: new Date().toISOString() };
+      return {
+        ...clearSourceImport(deck),
+        slides,
+        updatedAt: new Date().toISOString(),
+      };
     }
     case "patch-deck-fields": {
       if (!hasChangedFields(deck, op.fields)) return deck;
@@ -3149,18 +3167,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           sourceSlides.map((slide) => slide.id),
         ),
       );
-      const sourceImport = (optimistic as Deck & { sourceImport?: unknown })
-        .sourceImport;
-      if (
-        sourceImport &&
-        typeof sourceImport === "object" &&
-        !Array.isArray(sourceImport)
-      ) {
-        (optimistic as Deck & { sourceImport?: unknown }).sourceImport = {
-          ...sourceImport,
-          editableSnapshot: true,
-        };
-      }
 
       // Track as pending so the poll doesn't wipe the optimistic deck before
       // the duplicate-deck action's INSERT lands.
@@ -3375,7 +3381,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           // Capture the slide ID we're inserting after for the granular op
           afterSlideId = insertAt > 0 ? slides[insertAt - 1]?.id : undefined;
           slides.splice(insertAt, 0, newSlide);
-          return { ...d, slides, updatedAt: new Date().toISOString() };
+          return {
+            ...clearSourceImport(d),
+            slides,
+            updatedAt: new Date().toISOString(),
+          };
         }),
       );
 
@@ -3575,7 +3585,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             layout: "blank",
           });
         }
-        return { ...d, slides, updatedAt: new Date().toISOString() };
+        return {
+          ...clearSourceImport(d),
+          slides,
+          updatedAt: new Date().toISOString(),
+        };
       };
       // Keep same-event bulk deletes' undo snapshots anchored to the result of
       // the previous delete, before React applies the queued state updater.
@@ -3619,7 +3633,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             layout: "blank",
           });
         }
-        return { ...d, slides: remaining, updatedAt: new Date().toISOString() };
+        return {
+          ...clearSourceImport(d),
+          slides: remaining,
+          updatedAt: new Date().toISOString(),
+        };
       };
       decksRef.current = decksRef.current.map(removeSlides);
       setDecksLocal((prev) => prev.map(removeSlides));
@@ -3648,7 +3666,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           if (idx === -1) return d;
           const slides = [...d.slides];
           slides.splice(idx + 1, 0, copiedSlide);
-          return { ...d, slides, updatedAt: new Date().toISOString() };
+          return {
+            ...clearSourceImport(d),
+            slides,
+            updatedAt: new Date().toISOString(),
+          };
         }),
       );
       // Granular add-slide op — inserts the copy after the original. Build it
@@ -3688,7 +3710,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           const insertAt = idx === -1 ? d.slides.length : idx + 1;
           const slides = [...d.slides];
           slides.splice(insertAt, 0, newSlide);
-          return { ...d, slides, updatedAt: new Date().toISOString() };
+          return {
+            ...clearSourceImport(d),
+            slides,
+            updatedAt: new Date().toISOString(),
+          };
         }),
       );
       // Granular add-slide op, same as duplicateSlide — inserts after
@@ -3763,7 +3789,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         if (d.id !== deckId) return d;
         const slides = [...d.slides];
         slides.splice(insertAt, 0, ...newSlides);
-        return { ...d, slides, updatedAt: new Date().toISOString() };
+        return {
+          ...clearSourceImport(d),
+          slides,
+          updatedAt: new Date().toISOString(),
+        };
       };
       decksRef.current = decksRef.current.map(addSlides);
       setDecksLocal((prev) => prev.map(addSlides));
@@ -3799,7 +3829,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
       markDeckDirty(deckId);
       decksRef.current = decksRef.current.map((d) =>
-        d.id === deckId ? { ...d, slides: orderedSlides, updatedAt } : d,
+        d.id === deckId
+          ? { ...clearSourceImport(d), slides: orderedSlides, updatedAt }
+          : d,
       );
       setDecksLocal((prev) =>
         prev.map((d) => {
@@ -3812,7 +3844,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             overSlideId,
             selectedSlideIds,
           );
-          return slides ? { ...d, slides, updatedAt } : d;
+          return slides ? { ...clearSourceImport(d), slides, updatedAt } : d;
         }),
       );
 
@@ -3830,7 +3862,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const before = decksRef.current.find((deck) => deck.id === deckId);
       if (!before) return;
       const after: Deck = {
-        ...before,
+        ...clearSourceImport(before),
         slides,
         updatedAt: new Date().toISOString(),
       };

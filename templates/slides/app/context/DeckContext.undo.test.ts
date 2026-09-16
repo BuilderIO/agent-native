@@ -236,6 +236,27 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
     expect(after.slides.map((s) => s.id)).toEqual(["b", "a", "concurrent"]);
   });
 
+  it("clears imported source provenance only for structural changes", () => {
+    const before = deck([slide("a"), slide("b")], {
+      sourceImport: { mode: "source-preserving" },
+    });
+    const contentEdit = applyOpToDeck(before, {
+      op: "patch-slide",
+      slideId: "a",
+      fields: { content: "<div>edited</div>" },
+    });
+    expect(contentEdit.sourceImport).toEqual({ mode: "source-preserving" });
+
+    const structuralOps: PatchDeckOp[] = [
+      { op: "delete-slide", slideId: "a" },
+      { op: "reorder-slides", orderedIds: ["b", "a"] },
+      { op: "add-slide", slideId: "c", fields: { content: "<div>c</div>" } },
+    ];
+    for (const op of structuralOps) {
+      expect(applyOpToDeck(before, op).sourceImport).toBeUndefined();
+    }
+  });
+
   it("patch-deck-fields: inverse restores prior deck fields", () => {
     const before = deck([slide("a")], { title: "Old title" });
     const op: PatchDeckOp = {

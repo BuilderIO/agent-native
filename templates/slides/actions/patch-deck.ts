@@ -306,25 +306,6 @@ function firstDuplicate(values: readonly string[]): string | undefined {
   return undefined;
 }
 
-export function assertSourceImportOperationsPreserved(
-  metadata: SourceImportMetadata | null,
-  operations: Operation[],
-  rewriteSource = false,
-): void {
-  if (!metadata || metadata.editableSnapshot || rewriteSource) return;
-  const structuralOperation = operations.find(
-    (operation) =>
-      operation.op === "delete-slide" ||
-      operation.op === "reorder-slides" ||
-      operation.op === "add-slide",
-  );
-  if (!structuralOperation) return;
-
-  throw new Error(
-    `Cannot ${structuralOperation.op} on a source-imported deck while source preservation is enabled. Preserve the imported slide structure, or retry patch-deck with rewriteSource=true only when the user explicitly asks to rewrite the imported structure; that conversion clears source-preservation metadata.`,
-  );
-}
-
 /**
  * A deck-wide source restyle must be atomic from the agent's point of view:
  * accepting a partial batch makes an apparently successful run indistinguishable
@@ -358,9 +339,8 @@ export function assertSourceImportSlidesCovered(
   );
 }
 
-// The browser uses the full operation union above. Agents use the same bounded
-// operations, including structural edits, with source-import guards preserving
-// imported structure unless an explicit rewrite is requested.
+// The browser and agents use the same bounded operation union. Structural edits
+// are supported for imported decks; the source manifest is cleared after one.
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
   rewriteSource: z
@@ -368,7 +348,7 @@ const AgentPatchDeckInputSchema = z.object({
     .optional()
     .default(false)
     .describe(
-      "For a source-preserving deck, set true only when the user explicitly asks to rewrite its structure; this clears source-preservation metadata.",
+      "Legacy compatibility flag. When true on a source-imported deck, clear its source-import metadata; structural edits no longer require this flag.",
     ),
   requireAllSourceSlides: z
     .boolean()
@@ -519,6 +499,7 @@ export function applyOperation(
         });
       }
       deck.slides = slides;
+      delete deck.sourceImport;
       break;
     }
 
@@ -544,6 +525,7 @@ export function applyOperation(
         if (!orderedSet.has(s.id)) reordered.push(s);
       }
       deck.slides = reordered;
+      delete deck.sourceImport;
       break;
     }
 
@@ -575,6 +557,7 @@ export function applyOperation(
         slides.push(newSlide);
       }
       deck.slides = slides;
+      delete deck.sourceImport;
       break;
     }
 
@@ -774,8 +757,8 @@ export function resolveDeckColumnUpdates(
 }
 
 /**
- * The source-preservation guards (`assertSourceImportOperationsPreserved`,
- * `assertSourceSlidePreserved`) exist for one failure mode: an agent asked to
+ * The source-preservation guard (`assertSourceSlidePreserved`) exists for one
+ * failure mode: an agent asked to
  * "make it prettier" silently dropping the original PDF/PPTX artwork or
  * factual copy. A human editing their own imported deck in the browser isn't
  * that failure mode, and the browser editor has no way to pass
@@ -816,9 +799,8 @@ export default defineAction({
     "instead of retrying the same HTML. Content writes " +
     "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
     "get-layout-overflows later when you need the browser's fit result. " +
-    "Agents can delete or reorder slides through operations in this action. " +
-    "For a source-preserving deck, set rewriteSource=true only for an explicit " +
-    "request to rewrite its structure; that clears source-preservation metadata.",
+    "Agents can add, delete, and reorder slides through operations in this action. " +
+    "Structural edits to an imported deck clear its source-import metadata automatically; the legacy rewriteSource flag is not required.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     rewriteSource: z
@@ -826,7 +808,7 @@ export default defineAction({
       .optional()
       .default(false)
       .describe(
-        "For a source-preserving deck, set true only when the user explicitly asks to rewrite its structure; this clears source-preservation metadata.",
+        "Legacy compatibility flag. When true on a source-imported deck, clear its source-import metadata; structural edits no longer require this flag.",
       ),
     requireAllSourceSlides: z
       .boolean()
@@ -911,21 +893,25 @@ export default defineAction({
       const sourceImport = sourceImportForDeck(deck.sourceImport);
       const sourceRewriteRequested =
         isAgentCaller && rewriteSource && sourceImport !== null;
+      const hasStructuralOperation = operations.some(
+        (operation) =>
+          operation.op === "delete-slide" ||
+          operation.op === "reorder-slides" ||
+          operation.op === "add-slide",
+      );
+      const sourceImportCleared =
+        sourceImport !== null &&
+        (sourceRewriteRequested || hasStructuralOperation);
       if (isAgentCaller && rewriteSource && sourceImport === null) {
         throw new Error(
           "rewriteSource=true only applies to a source-preserving deck; omit it for a regular deck",
         );
       }
       if (isAgentCaller) {
-        assertSourceImportOperationsPreserved(
-          sourceImport,
-          operations,
-          sourceRewriteRequested,
-        );
         assertSourceImportSlidesCovered(
           sourceImport,
           operations,
-          sourceRewriteRequested ? false : requireAllSourceSlides,
+          sourceImportCleared ? false : requireAllSourceSlides,
         );
       }
       for (const op of operations) {
@@ -1150,10 +1136,10 @@ export default defineAction({
         }
       }
 
-      if (sourceRewriteRequested) delete deck.sourceImport;
+      if (sourceImportCleared) delete deck.sourceImport;
       if (isAgentCaller) {
         clearOmittedAnimationsForAgentContentPatches(deck, operations, {
-          sourceImport: sourceRewriteRequested ? null : sourceImport,
+          sourceImport: sourceImportCleared ? null : sourceImport,
           contentChangedSlideIds,
         });
       }
@@ -1306,7 +1292,7 @@ export default defineAction({
       // every slide's HTML stays the same.
       const hasNonSlidePatchWork =
         operations.some((operation) => operation.op !== "patch-slide") ||
-        sourceRewriteRequested ||
+        sourceImportCleared ||
         generationRecord !== undefined;
       if (
         isAgentCaller &&
@@ -1438,6 +1424,9 @@ export default defineAction({
             }
           : {}),
         ...(sourceRewriteRequested ? { sourceRewritten: true } : {}),
+        ...(sourceImportCleared && !sourceRewriteRequested
+          ? { sourceImportCleared: true }
+          : {}),
         ...(layoutFitSlideIdList.length
           ? {
               layoutFit: {

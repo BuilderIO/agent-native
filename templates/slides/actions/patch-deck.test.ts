@@ -6,7 +6,6 @@ import { hashSlideContent } from "../shared/slide-fit";
 import {
   applyOperation,
   assertPatchedSlideAnimationsResolve,
-  assertSourceImportOperationsPreserved,
   assertSourceImportSlidesCovered,
   clearOmittedAnimationsForAgentContentPatches,
   isAgentPatchCaller,
@@ -535,48 +534,50 @@ describe("applyOperation — patch-deck-fields", () => {
 });
 
 describe("source-imported deck structure", () => {
-  const metadata = buildSourceImportMetadata({
-    format: "pdf",
-    slides: [],
-  });
+  it.each([
+    {
+      name: "adding",
+      operation: {
+        op: "add-slide" as const,
+        slideId: "s2",
+        fields: { content: "New" },
+      },
+    },
+    {
+      name: "deleting",
+      operation: { op: "delete-slide" as const, slideId: "s1" },
+    },
+    {
+      name: "reordering",
+      operation: {
+        op: "reorder-slides" as const,
+        orderedIds: ["s1"],
+      },
+    },
+  ])(
+    "clears source provenance when $name an imported deck",
+    ({ operation }) => {
+      const deck = {
+        sourceImport: buildSourceImportMetadata({
+          format: "pdf",
+          slides: [
+            {
+              id: "s1",
+              text: "one",
+              notes: "",
+              imageUrls: [],
+              editableText: true,
+            },
+          ],
+        }),
+        slides: [{ id: "s1", content: "One" }],
+      };
 
-  it("rejects structural operations while source preservation is enabled", () => {
-    expect(() =>
-      assertSourceImportOperationsPreserved(metadata, [
-        { op: "add-slide", slideId: "s2", fields: { content: "New" } },
-      ]),
-    ).toThrow("patch-deck with rewriteSource=true");
-  });
+      applyOperation(deck, operation);
 
-  it("allows structural operations on an editable snapshot", () => {
-    const editableSnapshot = {
-      ...metadata,
-      editableSnapshot: true,
-    };
-    expect(() =>
-      assertSourceImportOperationsPreserved(editableSnapshot, [
-        { op: "add-slide", slideId: "s2", fields: { content: "New" } },
-      ]),
-    ).not.toThrow();
-  });
-
-  it("allows an explicit source rewrite", () => {
-    expect(() =>
-      assertSourceImportOperationsPreserved(
-        metadata,
-        [{ op: "delete-slide", slideId: "s1" }],
-        true,
-      ),
-    ).not.toThrow();
-  });
-
-  it("allows structural operations for a regular deck", () => {
-    expect(() =>
-      assertSourceImportOperationsPreserved(null, [
-        { op: "delete-slide", slideId: "s1" },
-      ]),
-    ).not.toThrow();
-  });
+      expect(deck.sourceImport).toBeUndefined();
+    },
+  );
 
   it("rejects a partial deck-wide source restyle before writing", () => {
     const metadata = buildSourceImportMetadata({
@@ -1568,7 +1569,7 @@ describe("run() — asynchronous layout fit metadata", () => {
     ).toBe(true);
   });
 
-  it("applies an explicit source rewrite before a structural agent edit", async () => {
+  it("allows a structural agent edit without a source rewrite flag", async () => {
     mockDeckRow = {
       ...mockDeckRow,
       data: JSON.stringify({
@@ -1606,7 +1607,6 @@ describe("run() — asynchronous layout fit metadata", () => {
     const result = (await patchDeckAction.run(
       {
         deckId: "deck-1",
-        rewriteSource: true,
         operations: [{ op: "delete-slide", slideId: "slide-1" }],
       },
       { caller: "tool" },
@@ -1614,7 +1614,7 @@ describe("run() — asynchronous layout fit metadata", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      sourceRewritten: true,
+      sourceImportCleared: true,
       updatedSlideIds: [],
       deletedSlideIds: ["slide-1"],
     });
