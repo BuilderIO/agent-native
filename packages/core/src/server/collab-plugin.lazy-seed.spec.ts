@@ -219,6 +219,20 @@ describe("collab lazy source seeding", () => {
     );
   });
 
+  it("normalizes numeric source IDs in a legacy forward-only mapping", async () => {
+    mocks.execute.mockResolvedValue({
+      rows: [{ id: 0, content: "legacy design" }],
+      rowsAffected: 0,
+    });
+    const handler = await mountCollabHandler({
+      resolveCollabDocumentId: (sourceId) => `dash-${sourceId}`,
+    });
+
+    await handler(makeEvent("dash-0"));
+
+    expect(mocks.seedFromText).toHaveBeenCalledWith("dash-0", "legacy design");
+  });
+
   it("coalesces first seeds across independent plugin instances", async () => {
     let seeded = false;
     let releaseSeed!: () => void;

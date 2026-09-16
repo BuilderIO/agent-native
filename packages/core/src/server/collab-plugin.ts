@@ -331,8 +331,20 @@ export function createCollabPlugin(
               sql: `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
             });
             for (const row of rows as Record<string, unknown>[]) {
-              const sourceId = row[idColumn];
-              if (typeof sourceId !== "string" || !sourceId) {
+              const rawSourceId = row[idColumn];
+              if (
+                rawSourceId === null ||
+                rawSourceId === undefined ||
+                (typeof rawSourceId !== "string" &&
+                  typeof rawSourceId !== "number" &&
+                  typeof rawSourceId !== "bigint")
+              ) {
+                throw new Error(
+                  `[collab] ${table}.${idColumn} for a legacy lazy seed is unreadable`,
+                );
+              }
+              const sourceId = String(rawSourceId);
+              if (!sourceId) {
                 throw new Error(
                   `[collab] ${table}.${idColumn} for a legacy lazy seed is unreadable`,
                 );
