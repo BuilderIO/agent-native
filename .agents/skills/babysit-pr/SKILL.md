@@ -223,10 +223,15 @@ PR's review state. At the first tick, record that handoff. On every later tick
 before the merge gate, re-read the handoff and check for new Slack replies,
 GitHub feedback, and Sentry findings after its cursor using the configured
 connectors. A new actionable report resets the soak timer and needs a fix, a
-concise reply, or an explicit terminal ledger disposition with the invoking
-  workflow's eye released with `✅` before merge. Silent terminal states need no reply. If
-a connector is unavailable, record it as unavailable in the recap rather than
-treating it as no findings.
+  concise reply, an explicit terminal ledger disposition with its
+  disposition-specific release marker (`✅` only for **Fixed**, **Shipped**, or
+  **Live verified**; `:no_entry_sign:` for other terminal closures), or an
+  evidence-limited disposition (**Verified locally**, **Built - live
+  unverified**, **Deployed - live unverified**, **Not reproducible -
+  attempted**, **Asked**, **Blocked on reporter**, or **Merged - release
+  pending**) while the invoking workflow's eye is held before merge. Silent
+  terminal states need no reply. If a connector is unavailable, record it as
+  unavailable in the recap rather than treating it as no findings.
 
 **Then proceed with PR checks:**
 
