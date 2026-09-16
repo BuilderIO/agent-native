@@ -3407,6 +3407,7 @@ describe("server/auth", () => {
 
     it("lets the OAuth popup waiting page bypass auth for reads only", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "0");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       const { autoMountAuth } = await import("./auth.js");
 
