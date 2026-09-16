@@ -101,6 +101,7 @@ const messages = {
     linkCopied: "リンクをコピーしました",
     copyLinkFailed: "リンクをコピーできませんでした",
     markedUnread: "未読にしました",
+    markUnreadFailed: "未読にできませんでした",
     attachImage: "画像を添付",
     mention: "メンション",
     searching: "検索中…",

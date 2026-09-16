@@ -101,6 +101,7 @@ const messages = {
     linkCopied: "تم نسخ الرابط",
     copyLinkFailed: "تعذر نسخ الرابط",
     markedUnread: "تم وضع علامة كغير مقروء",
+    markUnreadFailed: "تعذر وضع علامة كغير مقروء",
     attachImage: "إرفاق صورة",
     mention: "إشارة",
     searching: "جارٍ البحث…",

@@ -252,6 +252,14 @@ describe("review store", () => {
       body: "Old resolved item",
       ownerEmail: "alice@example.com",
     });
+    const oldReply = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      threadId: old.threadId,
+      parentCommentId: old.id,
+      body: "A newer reply on the old item",
+      ownerEmail: "alice@example.com",
+    });
     const newest = await insertReviewComment({
       resourceType: "design",
       resourceId: "d1",
@@ -262,6 +270,10 @@ describe("review store", () => {
     await rawClient.execute({
       sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
       args: ["2020-01-01T00:00:00.000Z", old.id],
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2030-01-01T00:00:00.000Z", oldReply.id],
     });
     await rawClient.execute({
       sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",

@@ -532,6 +532,25 @@ export async function queryReviewComments(
     );
   }
 
+  if (input.newestFirst && !input.rootOnly) {
+    const rootFilters = [...filters, "parent_comment_id IS NULL"];
+    const result = await client.execute({
+      sql: `SELECT ${commentColumns()}
+        FROM agent_review_comments
+       WHERE ${filters.join(" AND ")}
+         AND thread_id IN (
+           SELECT thread_id
+             FROM agent_review_comments
+            WHERE ${rootFilters.join(" AND ")}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+         )
+       ORDER BY created_at ASC, id ASC`,
+      args: [...filterParams, ...filterParams, clampLimit(input.limit)],
+    });
+    return (result.rows ?? []).map(mapCommentRow);
+  }
+
   const selectSql = input.rootOnly
     ? `SELECT ${commentColumns()}
          FROM (

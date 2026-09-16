@@ -65,6 +65,7 @@ const messages = {
     linkCopied: "Link copied",
     copyLinkFailed: "Could not copy the link",
     markedUnread: "Marked as unread",
+    markUnreadFailed: "Could not mark as unread",
     attachImage: "Attach image",
     mention: "Mention",
     searching: "Searching…",

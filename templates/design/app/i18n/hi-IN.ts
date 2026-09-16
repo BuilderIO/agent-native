@@ -101,6 +101,7 @@ const messages = {
     linkCopied: "लिंक कॉपी हो गया",
     copyLinkFailed: "लिंक कॉपी नहीं हो सका",
     markedUnread: "अपठित के रूप में चिह्नित",
+    markUnreadFailed: "अपठित के रूप में चिह्नित नहीं किया जा सका",
     attachImage: "इमेज संलग्न करें",
     mention: "उल्लेख",
     searching: "खोज जारी…",

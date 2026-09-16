@@ -1420,7 +1420,7 @@ function ReviewPin({
           onClick();
         }}
         onPointerDown={(event) => {
-          if (draft || pending || !onDragEnd) return;
+          if (draft || pending || !onDragEnd || pendingDragRef.current) return;
           event.stopPropagation();
           event.currentTarget.setPointerCapture(event.pointerId);
           dragRef.current = {
@@ -1510,12 +1510,21 @@ function ReviewImageAttachments({
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const mountedRef = useRef(true);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const handleFiles = async (files: FileList | null) => {
     const selected = Array.from(files ?? [])
       .filter((file) => file.type.startsWith("image/"))
-      .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS - attachments.length);
+      .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS - attachmentsRef.current.length);
     if (!selected.length) return;
     setUploading(true);
     onUploadingChange?.(true);
@@ -1535,16 +1544,24 @@ function ReviewImageAttachments({
     const uploaded = results.flatMap((result) =>
       result.status === "fulfilled" ? [result.value] : [],
     );
-    if (uploaded.length) {
+    if (mountedRef.current && uploaded.length) {
       onChange(
-        [...attachments, ...uploaded].slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS),
+        [...attachmentsRef.current, ...uploaded].slice(
+          0,
+          MAX_REVIEW_IMAGE_ATTACHMENTS,
+        ),
       );
     }
-    if (results.some((result) => result.status === "rejected")) {
+    if (
+      mountedRef.current &&
+      results.some((result) => result.status === "rejected")
+    ) {
       toast.error(t("review.postFailed"));
     }
-    setUploading(false);
-    onUploadingChange?.(false);
+    if (mountedRef.current) {
+      setUploading(false);
+      onUploadingChange?.(false);
+    }
     if (inputRef.current) inputRef.current.value = "";
   };
 

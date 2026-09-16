@@ -103,7 +103,10 @@ export function ReviewCommentsPanel({
         threadId: thread.root.threadId,
         unread: true,
       },
-      { onSuccess: () => toast.success(t("review.markedUnread")) },
+      {
+        onSuccess: () => toast.success(t("review.markedUnread")),
+        onError: () => toast.error(t("review.markUnreadFailed")),
+      },
     );
   };
   const onThreadResolved = (thread: ReviewThread) => {
@@ -182,6 +185,7 @@ export function ReviewCommentsPanel({
         <ReviewThreadPanel
           resourceType="design"
           resourceId={designId}
+          newestFirst
           title={t("review.panelTitle")}
           emptyState={t("review.emptyState")}
           loadingLabel={t("review.loading")}
@@ -203,6 +207,7 @@ export function ReviewCommentsPanel({
           resolvedLabel={t("review.resolved")}
           reviewerLabel={t("review.reviewer")}
           threadFilter={threadFilter}
+          onReactionError={() => toast.error(t("review.reactionFailed"))}
           onCopyThreadLink={(thread) => void copyThreadLink(thread)}
           onMarkThreadUnread={markThreadUnread}
           showReactions

@@ -101,6 +101,7 @@ const messages = {
     linkCopied: "링크를 복사했습니다",
     copyLinkFailed: "링크를 복사하지 못했습니다",
     markedUnread: "읽지 않음으로 표시했습니다",
+    markUnreadFailed: "읽지 않음으로 표시하지 못했습니다",
     attachImage: "이미지 첨부",
     mention: "멘션",
     searching: "검색 중…",

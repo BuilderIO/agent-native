@@ -102,6 +102,7 @@ const messages = {
     linkCopied: "Enlace copiado",
     copyLinkFailed: "No se pudo copiar el enlace",
     markedUnread: "Marcado como no leído",
+    markUnreadFailed: "No se pudo marcar como no leído",
     attachImage: "Adjuntar imagen",
     mention: "Mención",
     searching: "Buscando…",

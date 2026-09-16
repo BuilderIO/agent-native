@@ -80,6 +80,7 @@ export interface ReviewThreadPanelProps {
   resourceType: string;
   resourceId: string;
   targetId?: string | null;
+  newestFirst?: boolean;
   /** Persist new comments against this target while targetId continues to filter the list. */
   composerTargetId?: string | null;
   /** Optional element/point anchor attached to new comments from the composer. */
@@ -147,6 +148,7 @@ export function ReviewThreadPanel({
   resourceType,
   resourceId,
   targetId,
+  newestFirst,
   composerTargetId,
   composerAnchor,
   composerMetadata,
@@ -211,6 +213,7 @@ export function ReviewThreadPanel({
     resourceId,
     targetId,
     includeResolved,
+    newestFirst,
   });
   const createComment = useCreateReviewComment();
   const replyComment = useReplyReviewComment();

@@ -107,6 +107,7 @@ const messages = {
     linkCopied: "連結已複製",
     copyLinkFailed: "無法複製連結",
     markedUnread: "已標記為未讀",
+    markUnreadFailed: "無法標記為未讀",
     attachImage: "附加圖片",
     mention: "提及",
     searching: "搜尋中…",

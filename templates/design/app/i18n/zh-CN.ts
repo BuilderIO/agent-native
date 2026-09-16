@@ -101,6 +101,7 @@ const messages = {
     linkCopied: "链接已复制",
     copyLinkFailed: "无法复制链接",
     markedUnread: "已标记为未读",
+    markUnreadFailed: "无法标记为未读",
     attachImage: "附加图片",
     mention: "提及",
     searching: "搜索中…",
