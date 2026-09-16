@@ -1,5 +1,6 @@
 ---
+"@agent-native/core": patch
 "@agent-native/creative-context": patch
 ---
 
-Return a client error when Creative Context is disabled instead of reporting the expected Labs gate as a server error.
+Return deterministic client errors for disabled Creative Context and preserve the singular app-role setter for existing integrations.
