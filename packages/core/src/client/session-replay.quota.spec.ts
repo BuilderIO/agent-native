@@ -104,6 +104,13 @@ function installBrowser(url = "https://design.agent-native.com/editor") {
   };
 }
 
+async function parseReplayUpload(init: RequestInit): Promise<any> {
+  const body = init.body;
+  const text =
+    typeof body === "string" ? body : Buffer.from(body as any).toString("utf8");
+  return JSON.parse(text);
+}
+
 function quotaExceeded(retryAfterSeconds?: number): Response {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -328,6 +335,120 @@ describe("session replay ingest quota (HTTP 429)", () => {
     recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
 
     await waitForAssertion(() => expect(browser.uploads).toHaveLength(2));
+  });
+
+  it("keeps Meta with the re-anchor snapshot so playback stays valid", async () => {
+    const browser = installBrowser();
+    browser.setResponder((call) =>
+      call === 1 ? quotaExceeded(60) : new Response("{}"),
+    );
+    let recordOptions: any;
+    (recordMock as any).takeFullSnapshot = vi.fn(() => {
+      // rrweb emits Meta immediately before the FullSnapshot; the resumed
+      // upload is useless to the player without the viewport dimensions.
+      recordOptions.emit({
+        type: 4,
+        data: { href: "/editor", width: 1440, height: 900 },
+      });
+      recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    });
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, startSessionReplay } =
+      await freshSessionReplay();
+
+    const nowSpy = vi.spyOn(Date, "now");
+    const base = Date.now();
+    nowSpy.mockReturnValue(base);
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 50,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({
+      type: 4,
+      data: { href: "/editor", width: 1440, height: 900 },
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
+
+    nowSpy.mockReturnValue(base + 61_000);
+    await flushSessionReplay("interval");
+    await waitForAssertion(() =>
+      expect(browser.uploads.length).toBeGreaterThan(2),
+    );
+
+    // FullSnapshots are deliberately isolated into their own batch, so Meta
+    // and the snapshot arrive as consecutive chunks rather than one upload.
+    // What matters is that the resumed stream still opens with Meta.
+    const resumed = await Promise.all(
+      browser.uploads.slice(1).map(parseReplayUpload),
+    );
+    const resumedTypes = resumed.flatMap((body: any) =>
+      body.events.map((event: any) => event.type),
+    );
+    expect(resumedTypes.slice(0, 2)).toEqual([4, 2]);
+    nowSpy.mockRestore();
+  });
+
+  it("does not park a new key when an old key's upload 429s late", async () => {
+    const browser = installBrowser();
+    let release!: (r: Response) => void;
+    const hanging = new Promise<Response>((r) => {
+      release = r;
+    });
+    browser.setResponder((call) =>
+      call === 1 ? (hanging as any) : new Response("{}"),
+    );
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, startSessionReplay, stopSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_old",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
+
+    // Teardown does not await the in-flight upload before a concurrent start
+    // swaps state.options to a different ingest key.
+    void stopSessionReplay("manual");
+    await startSessionReplay({
+      publicKey: "anpk_new",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+
+    release(
+      new Response(JSON.stringify({ error: "quota" }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await flushSessionReplay("interval");
+
+    await waitForAssertion(() =>
+      expect(browser.uploads.length).toBeGreaterThan(1),
+    );
+    const latest = await parseReplayUpload(
+      browser.uploads[browser.uploads.length - 1],
+    );
+    expect(latest.publicKey).toBe("anpk_new");
   });
 
   it("resumes with a fresh snapshot once the pause elapses", async () => {

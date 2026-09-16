@@ -417,6 +417,10 @@ const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
 const REPLAY_TEXT_ENCODER =
   typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
 const RRWEB_FULL_SNAPSHOT_EVENT_TYPE = 2;
+/** rrweb emits Meta (viewport href/width/height) immediately before every
+ * FullSnapshot. The player needs it to size the replay, so it travels with
+ * the snapshot rather than counting as a mutation against the old mirror. */
+const RRWEB_META_EVENT_TYPE = 4;
 /** Cross-tab channel name used by the duplicated-tab claim guard. */
 const SESSION_REPLAY_BROADCAST_CHANNEL_NAME = "agent-native-session-replay";
 /** How long a resuming tab waits for a "someone else already owns this
@@ -1363,8 +1367,17 @@ function enqueueReplayEvent(
     state.awaitingFullSnapshot = false;
   }
   if (state.awaitingFullSnapshot) {
-    if (eventType !== RRWEB_FULL_SNAPSHOT_EVENT_TYPE) return;
-    state.awaitingFullSnapshot = false;
+    if (
+      eventType !== RRWEB_FULL_SNAPSHOT_EVENT_TYPE &&
+      eventType !== RRWEB_META_EVENT_TYPE
+    ) {
+      return;
+    }
+    // Meta only opens the gate for the snapshot behind it; it does not itself
+    // re-anchor the mirror.
+    if (eventType === RRWEB_FULL_SNAPSHOT_EVENT_TYPE) {
+      state.awaitingFullSnapshot = false;
+    }
   }
   const serialized = serializeReplayEvent(event, state.resourceNodes);
   if (!serialized) return;
@@ -1438,6 +1451,9 @@ interface ReplayUploadPayload {
   replayId: string;
   sessionId: string;
   sequence: number;
+  /** The ingest key this body was built for. A quota rejection belongs to it,
+   * not to whatever key `state.options` holds when the response lands. */
+  publicKey: string;
 }
 
 interface PendingReplayUpload {
@@ -1506,6 +1522,7 @@ function buildReplayBody(
     replayId: state.replayId,
     sessionId,
     sequence: state.sequence,
+    publicKey: options.publicKey,
   };
 }
 
@@ -1685,6 +1702,10 @@ function replayUploadsParked(
 ): boolean {
   const pause = state.quotaPause;
   if (!pause) return false;
+  // Only the key that was rejected is out of budget. A restart keeps the
+  // pause; a genuinely different key, or a late rejection belonging to a key
+  // this recorder no longer uses, does not inherit it.
+  if (state.options?.publicKey !== pause.publicKey) return false;
   if (nowMs < pause.untilMs) return true;
   state.quotaPause = null;
   state.awaitingFullSnapshot = true;
@@ -2235,12 +2256,12 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         rejectedStatus === 429 && error instanceof ReplayUploadHttpError
           ? decideReplayQuotaResponse(error.retryAfterSeconds, Date.now())
           : null;
-      if (quotaDecision && state.options) {
+      if (quotaDecision) {
         // Park uploads before anything else can reach the wire. A teardown
         // flush riding out of the stop below would otherwise put one more
         // doomed request on a key that just said it has nothing left.
         state.quotaPause = {
-          publicKey: state.options.publicKey,
+          publicKey: payload.publicKey,
           untilMs:
             quotaDecision.kind === "pause"
               ? quotaDecision.resumeAtMs
@@ -3485,13 +3506,6 @@ export async function startSessionReplay(
   // conflict-loop guard must not prevent this one from recovering once.
   state.automaticConflictRestartAttempted = false;
   state.transientClientErrorFailures = 0;
-  // A restart is a new episode, not a new quota. Only a different ingest key
-  // has budget this one does not, so everything else stays parked - agent chat
-  // phase events re-enter startup constantly, and clearing the pause here
-  // would put a fresh FullSnapshot on an exhausted key each time.
-  if (state.quotaPause && state.quotaPause.publicKey !== normalized.publicKey) {
-    state.quotaPause = null;
-  }
   const startGeneration = ++state.startGeneration;
 
   let startPromise: Promise<SessionReplayStartResult>;
