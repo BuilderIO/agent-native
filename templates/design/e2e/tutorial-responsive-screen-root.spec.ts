@@ -528,15 +528,14 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       exact: true,
     });
     const flowStartedAt = Date.now();
-    if (await flow.isVisible()) {
-      // These text layers were created inside the Screen's auto-layout flow,
-      // so they already participate in it when selected together.
-      await expect(flow).toHaveAttribute("aria-pressed", "false");
-      await flow.click();
-      await expect(flow).toHaveAttribute("aria-pressed", "true");
-      await flow.click();
-      await expect(flow).toHaveAttribute("aria-pressed", "false");
-    }
+    // These text layers were created inside the Screen's auto-layout flow,
+    // so they already participate in it when selected together.
+    await expect(flow).toBeVisible();
+    await expect(flow).toHaveAttribute("aria-pressed", "false");
+    await flow.click();
+    await expect(flow).toHaveAttribute("aria-pressed", "true");
+    await flow.click();
+    await expect(flow).toHaveAttribute("aria-pressed", "false");
     await expect
       .poll(async () => {
         const html = await readScreenHtml(page, designId, screenId);

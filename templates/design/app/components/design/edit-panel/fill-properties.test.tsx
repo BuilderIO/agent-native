@@ -230,6 +230,10 @@ describe("FillProperties base row — image layer prop wiring", () => {
       createElement(FillProperties, {
         element: element({
           tagName: "button",
+          hasOwnText: true,
+          textContent: "Listen now",
+          primitiveKind: undefined,
+          childElementCount: 0,
           computedStyles: {
             color: "#ffffff",
             backgroundColor: "#0f766e",
