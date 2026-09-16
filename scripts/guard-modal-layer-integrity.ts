@@ -311,16 +311,68 @@ function readTemplateLiteral(
   return { raw: text.slice(start + 1), end: text.length };
 }
 
+/**
+ * Blanks the inside of every nested JSX expression, so an attribute name is
+ * only found where a prop can actually be passed. Without this a handler-local
+ * `onClick={() => { const className = "relative"; }}` reads as a class prop.
+ * Length is preserved, so offsets still index into the unmasked tag.
+ */
+function maskNestedExpressions(tag: string): string {
+  const out = tag.split("");
+  let depth = 0;
+  let index = 0;
+
+  const blank = (from: number, to: number) => {
+    if (depth === 0) return;
+    for (let cursor = from; cursor < to; cursor += 1) out[cursor] = " ";
+  };
+
+  while (index < tag.length) {
+    const character = tag[index]!;
+
+    if (character === "`") {
+      const template = readTemplateLiteral(tag, index);
+      blank(index, template.end);
+      index = template.end;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      let cursor = index + 1;
+      while (cursor < tag.length && tag[cursor] !== character) {
+        if (tag[cursor] === "\\") cursor += 1;
+        cursor += 1;
+      }
+      const end = Math.min(cursor + 1, tag.length);
+      blank(index, end);
+      index = end;
+      continue;
+    }
+    if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth = Math.max(0, depth - 1);
+    } else {
+      blank(index, index + 1);
+    }
+    index += 1;
+  }
+
+  return out.join("");
+}
+
 function classNameLiterals(rawTag: string): string[] {
   const literals: string[] = [];
   const tag = maskComments(rawTag);
+  // Names are matched on a copy with nested expressions blanked, so only a
+  // real prop is found. Values are still sliced from `tag`, which masking
+  // keeps at the same length. The `\s` boundary keeps `data-className` as
+  // metadata, and `overlayClassName` is included because DialogContent and
+  // SheetContent forward it to their overlay, where it merges over that
+  // element's own `fixed`.
+  const topLevel = maskNestedExpressions(tag);
 
-  // A real attribute boundary, so `data-className="relative"` is metadata and
-  // not read as the overlay's class prop. `overlayClassName` is included
-  // because DialogContent and SheetContent forward it to their overlay, where
-  // it merges over that element's own `fixed`.
-  for (const attribute of tag.matchAll(
-    /(?<=^|[\s{])(?:overlayClassName|className|class)\s*=\s*/g,
+  for (const attribute of topLevel.matchAll(
+    /(?<=^|\s)(?:overlayClassName|className|class)\s*=\s*/g,
   )) {
     const rest = tag.slice(attribute.index + attribute[0].length);
     const opener = rest[0];

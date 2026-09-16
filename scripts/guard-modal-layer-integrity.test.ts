@@ -322,6 +322,31 @@ test("does not read a class-like data attribute as the class prop", () => {
   assert.deepEqual(findings, []);
 });
 
+test("does not read a handler-local declaration as the class prop", () => {
+  // The name only counts where a prop can be passed, so a variable inside a
+  // handler body is not an override.
+  const { findings } = findOverlayPositionOverrides(
+    "<DialogContent onClick={() => {\n" +
+      '  const className = "relative";\n' +
+      "  apply(className);\n" +
+      "}} />",
+    "templates/demo/app/App.tsx",
+  );
+  assert.deepEqual(findings, []);
+});
+
+test("still flags a real class prop that follows a handler", () => {
+  const { findings } = findOverlayPositionOverrides(
+    "<DialogContent\n" +
+      '  onClick={() => { const className = "max-w-lg"; }}\n' +
+      '  className="relative"\n' +
+      "/>",
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "relative"/);
+});
+
 test("does not let a runtime value impersonate the opt-out marker", () => {
   const { findings } = findOverlayPositionOverrides(
     '<DialogContent className="overlay-position-ok relative" />',
