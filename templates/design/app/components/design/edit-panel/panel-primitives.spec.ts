@@ -127,10 +127,14 @@ describe("InspectorGrid", () => {
       createElement(InspectorGrid, {
         layout: "pair-flow",
         children: [
-          createElement(InspectorGridCell, { span: 14, key: "first" }, "First"),
           createElement(
             InspectorGridCell,
-            { span: 14, key: "second" },
+            { span: INSPECTOR_GRID_PAIR_SPAN, key: "first" },
+            "First",
+          ),
+          createElement(
+            InspectorGridCell,
+            { span: INSPECTOR_GRID_PAIR_SPAN, key: "second" },
             "Second",
           ),
         ],
@@ -138,7 +142,11 @@ describe("InspectorGrid", () => {
     );
 
     expect(markup).toContain('data-inspector-layout="pair-flow"');
-    expect(markup.match(/data-inspector-span="14"/g)).toHaveLength(2);
+    expect(
+      markup.match(
+        new RegExp(`data-inspector-span="${INSPECTOR_GRID_PAIR_SPAN}"`, "g"),
+      ),
+    ).toHaveLength(2);
   });
 
   it("pins every paint and effect row to fixed 32px action slots", () => {
