@@ -188,6 +188,11 @@ const FRAME_LABEL_HEIGHT = 28;
 const FRAME_HEADER_BUTTON_COMPACT_WIDTH = 260;
 const FRAME_HEADER_BUTTON_RESERVE = 116;
 const FRAME_HEADER_COMPACT_BUTTON_RESERVE = 32;
+// URL-backed fallback previews need their real origin for origin-scoped
+// session state. Keep the existing minimal permissions; inline srcdoc remains
+// opaque, and the interactive DesignCanvas URL policy is broader by design.
+const URL_SCREEN_IFRAME_SANDBOX = "allow-scripts allow-same-origin";
+const INLINE_SCREEN_IFRAME_SANDBOX = "allow-scripts";
 const TRANSFORM_BADGE_OFFSET = 12;
 const TRANSFORM_BADGE_EDGE_PADDING = 8;
 const TRANSFORM_BADGE_HEIGHT = 28;
@@ -11925,7 +11930,11 @@ const Screen = memo(function Screen({
                 data-screen-iframe-id={screen.id}
                 src={previewUrl}
                 srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                sandbox="allow-scripts"
+                sandbox={
+                  previewUrl
+                    ? URL_SCREEN_IFRAME_SANDBOX
+                    : INLINE_SCREEN_IFRAME_SANDBOX
+                }
                 // Visible includes the generous overscan band, so eager load
                 // here prewarms the document before it crosses the raw
                 // viewport edge. Warm hidden iframes are already loaded.
@@ -12711,7 +12720,11 @@ function BreakpointPreviewRow({
                     }}
                     src={previewUrl}
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                    sandbox="allow-scripts"
+                    sandbox={
+                      previewUrl
+                        ? URL_SCREEN_IFRAME_SANDBOX
+                        : INLINE_SCREEN_IFRAME_SANDBOX
+                    }
                     onLoad={() => {
                       getBootStartCallback?.(
                         screen.id,
