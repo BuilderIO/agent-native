@@ -1,10 +1,9 @@
 ---
 name: shadcn-ui
 description: >-
-  The shadcn CLI, component composition, theming, and registry workflow. Use
-  when adding, replacing, upgrading, or debugging a shadcn/ui primitive itself,
-  or when changing a theme or registry. Do not load it for ordinary edits to a
-  file that happens to import a shadcn component.
+  Project-aware shadcn/ui components, registry MCP, theming, and design-system
+  lint feedback. Use when adding or changing React/Tailwind UI, a primitive,
+  theme, registry, or component contract in an Agent-Native app.
 scope: dev
 source: https://ui.shadcn.com/docs/skills
 local-changes: >-
@@ -16,11 +15,18 @@ metadata:
 
 # shadcn/ui
 
-This skill keeps shadcn/ui work project-aware. Components are source files in the app, so always inspect the local project before adding, importing, or rewriting them.
+This skill keeps shadcn/ui work project-aware. Components are source files in the
+app, so always inspect the local project before adding, importing, or rewriting
+them. When `@shadcn/lint` is configured, treat its feedback as implementation
+guidance, not cosmetic noise. The framework repository runs it through the root
+Oxlint configuration; generated workspaces carry this skill and the MCP
+workflow, but do not automatically inherit that repository-only lint setup.
 
 ## First Steps
 
-1. Work from the app root that owns `components.json`.
+1. Work from the app root that owns `components.json`. In this monorepo, that is
+   the selected app/template directory (usually under `templates/`), not the
+   repository root.
 2. In an Agent-Native app, inspect `app/design-system.ts` and
    `ToolkitProvider` before choosing a primitive. A registered company design
    system takes precedence over the default shadcn adapter.
@@ -28,6 +34,59 @@ This skill keeps shadcn/ui work project-aware. Components are source files in th
 4. Use the actual aliases from `components.json` or `shadcn info`; do not assume `@/components/ui` if the project says otherwise.
 5. Check `app/components/ui/` or the resolved `ui` path before importing a component.
 6. For unfamiliar components, run `pnpm dlx shadcn@latest docs <component>` and read the returned docs or examples before coding.
+
+## MCP Registry Workflow
+
+Each first-party app keeps the official shadcn MCP configuration in `.mcp.json`
+next to its `components.json`. Start the agent from that app root so the MCP
+server resolves the correct aliases, local UI directory, and Tailwind theme.
+Do not add a single repository-root server: the root is a workspace, not a
+shadcn project, and would make installs target the wrong project.
+
+- Use the shadcn MCP to search, inspect, and install registry items when it is
+  connected. Prefer the app's configured registries over copied source.
+- Use `pnpm dlx shadcn@latest info --json` for project context; the MCP has no
+  equivalent project-info tool.
+- If the MCP is unavailable, use the equivalent `pnpm dlx shadcn@latest`
+  command from the same app root and continue following this skill.
+- Keep registry URLs and aliases in that app's `components.json`. Never put
+  registry credentials in MCP config or checked-in source.
+
+## Design-System Lint Feedback
+
+In the framework repository, `pnpm lint` runs Oxlint with `@shadcn/lint` for the
+scoped template UI paths. Run it after UI changes and fix every `shadcn/*`
+finding before handing off. Template packages use the workspace lint
+configuration; do not create a second local lint configuration just for one
+app.
+
+Before claiming that shadcn lint ran in another workspace, inspect its root
+`package.json` and `.oxlintrc.json`. The generic generated workspace currently
+exposes `pnpm lint` as formatting-only and does not ship `@shadcn/lint` or the
+framework repository's Oxlint config. In that scaffold, use this skill plus the
+connected shadcn MCP (or the CLI fallback) for design-system guidance, and do
+not report `shadcn/*` checks as having run. If the workspace owner adopts the
+linter, add the dependency, scoped config, and lint script together.
+
+The Plan template is intentionally excluded from this rollout. Its files remain
+under `templates/plan/**`, but the root Oxlint ignore list keeps them out of the
+shadcn checks until that template has a separate lint baseline.
+
+- `no-restyle`: use the component's `variant`, `size`, and semantic props; put
+  layout on a parent and add a component variant only when the design system
+  genuinely needs a new treatment.
+- `no-raw-colors`: use the theme tokens in the app's `global.css`, not raw
+  Tailwind palette classes or hard-coded color attributes.
+- `no-arbitrary-values`: use the theme scale or a declared token instead of
+  one-off bracket values.
+- `no-inline-styles`: use classes or CSS custom properties for dynamic layout;
+  keep intentional editor/export exceptions scoped to their owning subsystem.
+- `no-unknown-classes` and `require-static-classes`: use classes Tailwind can
+  generate and keep class strings statically discoverable.
+
+The local primitive source is the contract boundary. Product code should consume
+its props and variants; update `packages/toolkit/src/ui/` or an app's
+`components/ui/` only when the design-system contract itself changes.
 
 ## Agent-Native Adapter Rule
 

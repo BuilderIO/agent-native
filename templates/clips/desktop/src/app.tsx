@@ -5244,7 +5244,7 @@ function PendingUploadBanner({
             ) : null}
             <button
               type="button"
-              className={`pending-upload-retry${retrying ? " pending-upload-retry-spinning" : ""}`}
+              className="pending-upload-retry"
               disabled={retrying ? retryCancelling : actionsDisabled}
               onClick={() =>
                 retrying ? onCancelRetry(latest) : onRetry(latest)

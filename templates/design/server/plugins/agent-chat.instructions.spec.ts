@@ -54,6 +54,21 @@ describe("external design authoring catalog", () => {
     );
     expect(agentChatSource).toContain("designSystem.agentContext");
   });
+
+  it("keeps explicit multi-page and prototype behavior in the acceptance contract", () => {
+    expect(agentChatSource).toContain(
+      "requested content, named pages, and page counts as acceptance criteria",
+    );
+    expect(agentChatSource).toContain(
+      "call generate-screens with every requested page",
+    );
+    expect(agentChatSource).toContain(
+      "Generated controls that look interactive must work in the prototype",
+    );
+    expect(agentChatSource).toContain(
+      "Exercise the primary links and buttons before reporting completion",
+    );
+  });
 });
 
 describe("design autosave tool coverage", () => {

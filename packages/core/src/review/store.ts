@@ -53,6 +53,7 @@ export interface QueryReviewCommentsInput {
   includeResolved?: boolean;
   includeDeleted?: boolean;
   targetId?: string | null;
+  newestFirst?: boolean;
   rootOnly?: boolean;
   resolutionTargets?: readonly (ReviewResolutionTarget | null)[];
   unconsumedOnly?: boolean;
@@ -608,6 +609,46 @@ export async function queryReviewComments(
     );
   }
 
+  if (input.newestFirst && !input.rootOnly) {
+    const rootFilters = [...filters, "parent_comment_id IS NULL"];
+    const rootFilterSql = rootFilters
+      .map((filter) => filter.replace(/\bcomment\./g, "roots."))
+      .join(" AND ");
+    const result = await client.execute({
+      sql: `WITH selected_review_threads AS (
+          SELECT roots.thread_id,
+                 activity.latest_activity,
+                 MIN(roots.created_at) AS root_created_at,
+                 MIN(roots.id) AS root_id
+            FROM agent_review_comments AS roots
+            JOIN (
+              SELECT thread_id, MAX(created_at) AS latest_activity
+                FROM agent_review_comments AS comment
+               WHERE ${filters.join(" AND ")}
+               GROUP BY thread_id
+             ) AS activity ON activity.thread_id = roots.thread_id
+           WHERE ${rootFilterSql}
+           GROUP BY roots.thread_id, activity.latest_activity
+           ORDER BY activity.latest_activity DESC,
+                    root_created_at DESC,
+                    root_id DESC
+           LIMIT ?
+        )
+        SELECT ${commentColumns()}
+          FROM agent_review_comments AS comment
+         WHERE ${filters.join(" AND ")}
+           AND thread_id IN (SELECT thread_id FROM selected_review_threads)
+         ORDER BY created_at ASC, id ASC`,
+      args: [
+        ...filterParams,
+        ...filterParams,
+        clampLimit(input.limit),
+        ...filterParams,
+      ],
+    });
+    return (result.rows ?? []).map(mapCommentRow);
+  }
+
   const selectSql = input.rootOnly
     ? `SELECT ${commentColumns()}
          FROM (
@@ -623,13 +664,15 @@ export async function queryReviewComments(
     : `SELECT ${commentColumns()}
          FROM agent_review_comments AS comment
         WHERE ${filters.join(" AND ")}`;
+  const order = input.newestFirst ? "DESC" : "ASC";
   const result = await client.execute({
     sql: `${selectSql}
-      ORDER BY created_at ASC${input.rootOnly ? ", id ASC" : ""}
+      ORDER BY created_at ${order}${input.rootOnly ? `, id ${order}` : ""}
       LIMIT ?`,
     args: [...filterParams, clampLimit(input.limit)],
   });
-  return (result.rows ?? []).map(mapCommentRow);
+  const rows = result.rows ?? [];
+  return (input.newestFirst ? [...rows].reverse() : rows).map(mapCommentRow);
 }
 
 export async function getReviewThreadSummary(
@@ -723,6 +766,31 @@ export async function getReviewThreadRoot(
   });
   const row = result.rows?.[0];
   return row ? mapCommentRow(row) : null;
+}
+
+export async function updateReviewCommentAnchor(input: {
+  commentId: string;
+  resourceType: string;
+  resourceId: string;
+  anchor: unknown;
+}): Promise<number> {
+  await ensureReviewTables();
+  const result = await getDbExec().execute({
+    sql: `UPDATE agent_review_comments
+             SET anchor_json = ?, updated_at = ?
+           WHERE id = ?
+             AND resource_type = ?
+             AND resource_id = ?
+             AND deleted_at IS NULL`,
+    args: [
+      stringifyOptionalJson(input.anchor),
+      new Date().toISOString(),
+      input.commentId,
+      input.resourceType,
+      input.resourceId,
+    ],
+  });
+  return result.rowsAffected ?? 0;
 }
 
 export async function resolveReviewThread(

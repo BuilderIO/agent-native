@@ -24,6 +24,7 @@ export interface ListReviewCommentsParams {
   includeResolved?: boolean;
   includeDeleted?: boolean;
   targetId?: string | null;
+  newestFirst?: boolean;
   limit?: number;
 }
 

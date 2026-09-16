@@ -1,5 +1,6 @@
 import {
   applyTargetedReplace,
+  analyzeRegexSource,
   findTargetedMatches,
   wrapDiagnosticSnippet,
   type TargetedAmbiguousMatch,
@@ -648,6 +649,19 @@ function applyRegexReplace(
   edit: Extract<SlideContentEdit, { op: "regex-replace" }>,
 ): { content: string; summary: string } {
   const flags = normalizeRegexFlags(edit.flags, edit.all);
+  // `matchAll` over slide HTML is unbounded work for a pattern that backtracks
+  // exponentially, and nothing can interrupt it once V8 is inside the match.
+  // Name the mistake so the agent rewrites the pattern instead of retrying it.
+  // The flags are part of the verdict: `^(a|A)+$` is unambiguous on its own and
+  // catastrophic under `i`.
+  const verdict = analyzeRegexSource(edit.pattern, flags, {
+    inputBounded: false,
+  });
+  if (!verdict.safe) {
+    throw new SlideContentEditError(
+      `regex-replace pattern cannot be run safely: ${verdict.reason}. Rewrite it without overlapping repetition, or use a \`find\` edit instead.`,
+    );
+  }
   const regex = new RegExp(edit.pattern, flags);
   const countRegex = new RegExp(edit.pattern, ensureGlobal(flags));
   const matches = Array.from(content.matchAll(countRegex)).length;

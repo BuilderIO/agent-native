@@ -81,6 +81,18 @@ const messages = {
     presentComments: "Comments",
     presentCommentMode: "Comment mode",
     closeComments: "Close comments",
+    yours: "Yours",
+    unread: "Unread",
+    confirmDeleteTitle: "Delete comment?",
+    confirmDeleteDescription:
+      "This removes the comment from the review thread.",
+    cancelDelete: "Cancel",
+    markedUnread: "Marked as unread",
+    markUnreadFailed: "Could not mark as unread",
+    attachImage: "Attach image",
+    searching: "Searching…",
+    reactionFailed: "Could not update the reaction",
+    moveFailed: "Could not move the comment",
     status: {
       draft: "Draft",
       in_review: "In review",

@@ -65,4 +65,41 @@ describe("SlideEditor transformed-object interactions", () => {
       "isSelectedElementDraggable && selectedElementFrame",
     );
   });
+
+  it("keeps drag chrome and snap guides in the object coordinate root", () => {
+    const dragStart = editorSource.indexOf("const startElementDrag =");
+    const dragEnd = editorSource.indexOf(
+      "const startElementResize =",
+      dragStart,
+    );
+    expect(dragStart).toBeGreaterThanOrEqual(0);
+    expect(dragEnd).toBeGreaterThan(dragStart);
+    const dragSource = editorSource.slice(dragStart, dragEnd);
+
+    expect(dragSource).toContain(
+      "resolveSlideObjectContainingBlock(\n            activeElement,",
+    );
+    expect(dragSource).toContain(
+      "setSelectedElementMeasurement({\n            key: selectionOverlayMeasurementKeyRef.current,",
+    );
+    expect(dragSource).toContain(
+      "readSlideObjectSelectionFrame(activeElement, rect)",
+    );
+    expect(dragSource).toContain(
+      "updateAlignmentGuides(snap.guides, containingBlock, snapCanvas)",
+    );
+
+    const groupStart = editorSource.indexOf("const startGroupDrag =");
+    const groupEnd = editorSource.indexOf(
+      "const rotateSelectedObjects =",
+      groupStart,
+    );
+    expect(groupStart).toBeGreaterThanOrEqual(0);
+    expect(groupEnd).toBeGreaterThan(groupStart);
+    const groupSource = editorSource.slice(groupStart, groupEnd);
+    expect(groupSource).toContain("groupContainingBlock = containingBlock");
+    expect(groupSource).toContain(
+      "updateAlignmentGuides(snap.guides, containingBlock, snapCanvas)",
+    );
+  });
 });

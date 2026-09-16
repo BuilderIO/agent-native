@@ -7,6 +7,7 @@ import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
@@ -148,9 +149,10 @@ export default function ContentTemplate() {
           eyebrow={
             <span className="inline-flex items-center gap-2 text-[var(--fg)]">
               <LogoMark className="size-6" />
-              <span className="font-sans text-2xl font-bold tracking-tight">
+              <span className="font-sans text-[20px] font-bold tracking-tight">
                 {t("templateLanding.content.heroEyebrow")}
               </span>
+              <AppStatusBadge appId="content" />
             </span>
           }
           customizeTemplate={template}

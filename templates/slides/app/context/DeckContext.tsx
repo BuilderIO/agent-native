@@ -94,6 +94,7 @@ function addSlideFields(
   return {
     ...fields,
     content: normalizeSlidePadding(fields.content),
+    notes: fields.notes ?? "",
   };
 }
 export type DeckReloadStatus = "loaded" | "failed" | "stale";

@@ -141,3 +141,5 @@ Y.Doc
 Y.Doc update
 Yjs CRDT
 Docs Components
+Microsoft Foundry
+Gemini Enterprise

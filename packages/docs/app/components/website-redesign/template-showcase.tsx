@@ -17,6 +17,7 @@ import { BuilderImage } from "../builder-image";
 import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
 import { sitePathForLocale } from "../docs-locale";
 import { APP_ART } from "./app-art";
+import { AppStatusBadge } from "./ds/app-status-badge";
 import { Button } from "./ds/button";
 import { CardArrow } from "./ds/card-arrow";
 import { ImgPlaceholder } from "./ds/img-placeholder";
@@ -201,8 +202,9 @@ export function TemplateShowcase() {
                     )}
                   </div>
                   <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
-                    <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    <h3 className="m-0 flex items-center gap-[var(--spacing-2)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                       {app.name}
+                      <AppStatusBadge appId={app.slug} />
                     </h3>
                     <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
                       {t(`templates.${app.slug}.description`)}

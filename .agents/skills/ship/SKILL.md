@@ -111,9 +111,12 @@ disposition table into the PR or ship recap. The handoff remains cross-app and
 cross-source: adding Design UI bugs to the eligible set must not drop
 Analytics, Dispatch, Calendar, Slides, Content, GitHub, Sentry, or any other
 previously identified candidate. Every actionable item must have an owning
-source seam and focused verification, with one explicit disposition: fixed,
-awaiting reporter clarification, already owned or duplicate, deferred or
-informational, external or non-repo-owned, or unavailable/unverified.
+source seam, focused verification, and one disposition from the shared
+vocabulary. Active/evidence-limited dispositions retain the eye and block
+merge; terminal dispositions release it with their marker.
+`Clarification needed` is an active, eye-held disposition and blocks merge
+until answered or expired; only a terminal disposition with its marker clears
+the gate.
 
 The handoff must preserve the feedback workflow's automation disclosure:
 every Slack reply it posts ends with `this was sent from a bot.`
@@ -130,11 +133,13 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   already has an `👀` reaction from anyone, preserve that fact as an existing
   investigation marker, but do not treat it as a disposition or suppression
   signal. After classifying the parent, re-read the complete thread and, for
-  an actionable in-scope item, require a verified feedback-ledger disposition
-  and reaction state - **Fixed**, **Shipped**, **Resolved elsewhere**,
+  an actionable in-scope item, require one disposition and reaction state:
+  **Fixed**, **Shipped**, or **Live verified** with `✅`; **Resolved elsewhere**,
   **Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, or
-  **Open - no reply** after this workflow's eye has been released with `✅`;
-  **In progress** or **Clarification needed** while this workflow's eye is
+  **Open - no reply** with `:no_entry_sign:`; or **Verified locally**, **Built
+  - live unverified**, **Deployed - live unverified**, **Not reproducible -
+  attempted**, **In progress**, **Asked**, **Clarification needed**, **Blocked
+  on reporter**, or **Merged - release pending** while this workflow's eye is
   held. Silent terminal states do not require a Slack reply; never manufacture
   one just to satisfy this handoff check. An eye-only or stale eye-only item
   remains actionable for that handoff check. For items
@@ -152,9 +157,20 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   requests, replies, dispatches, or merge blockers.
 
 If a prior run mistakenly added an eye to an out-of-scope or already-owned
-parent, release it with `✅` when reactions are available. Do not add a new
-reply or investigate it. If the release marker is unavailable, record the exact
-parent for manual cleanup and keep it out of the ship ledger's actionable work.
+parent, release it with `:no_entry_sign:` when reactions are available. Do not
+add a new reply or investigate it. If the release marker is unavailable, record
+the exact parent for manual cleanup and keep it out of the ship ledger's
+actionable work.
+
+Use the disposition-specific release contract from
+`review-latest-feedback`: `✅` is reserved for **Fixed**, **Shipped**, or
+**Live verified** after all four verification bars hold; `:no_entry_sign:` is
+the release marker for other terminal, non-fixed closures. When reopening or
+re-claiming an item, remove this workflow's stale release marker before adding
+`👀`; if reaction removal is unavailable, use full enumeration with reaction
+metadata, do not re-add or retain `👀` beside the stale marker, and do not
+trust the optimized negative-marker cursor; claim the item only after the
+marker is removed.
 
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present
@@ -206,8 +222,11 @@ The ship report and PR description must keep source-tested, built, and merged
 claims separate. A green test or PR does not prove that beta or production is
 live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
-review item has a fix, a concise reply, or an explicit terminal disposition
-with its `✅` release marker, and that no new evidence has been left without a
+review item is either a verified **Fixed** or **Shipped** result with a concise
+reply and `✅`, a verified **Live verified** result with `✅` (reply only when
+informative), a non-fixed terminal disposition with `:no_entry_sign:`, or an
+active/evidence-limited disposition whose eye still blocks merge. A reply alone
+never satisfies this gate, and no new evidence may be left without a
 disposition. Items routed to Alice remain outside this workflow's ownership;
 explicitly assigned Design items are included. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
@@ -396,7 +415,9 @@ branch, stay on it.
   fix real bugs if CI or review feedback flags them.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
-  fix or a reply before merge.
+  verified fix and reply, or a disposition-specific terminal outcome, before
+  merge; an active/evidence-limited state remains a blocker. Silent terminal
+  closures do not need a manufactured reply.
 - Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
   comment handling, local-file push discipline, and merge gates. Update
   `babysit-pr` first if the watcher behavior changes.

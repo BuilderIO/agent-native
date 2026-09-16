@@ -15,7 +15,8 @@ vi.mock("../db/client.js", async (importOriginal) => {
   return {
     ...actual,
     getDbExec: () => sharedClient,
-    isProductionServerlessFunctionRuntime: () => false,
+    isProductionServerlessFunctionRuntime:
+      actual.isProductionServerlessFunctionRuntime,
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };
 });
@@ -98,6 +99,28 @@ afterAll(async () => {
 });
 
 describe("workspace connection store", () => {
+  it("does not run runtime schema DDL in hosted function invocations", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousNetlifyFunctionName = process.env.NETLIFY_FUNCTION_NAME;
+    process.env.NODE_ENV = "production";
+    process.env.NETLIFY_FUNCTION_NAME = "workspace-groups-test";
+    const execute = vi.spyOn(sharedClient, "execute");
+    try {
+      const { ensureWorkspaceUserGroupsTable } = await import("./groups.js");
+      await ensureWorkspaceUserGroupsTable();
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      execute.mockRestore();
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousNetlifyFunctionName === undefined) {
+        delete process.env.NETLIFY_FUNCTION_NAME;
+      } else {
+        process.env.NETLIFY_FUNCTION_NAME = previousNetlifyFunctionName;
+      }
+    }
+  });
+
   it("describes app-level access semantics", async () => {
     const { getWorkspaceConnectionAppAccess } = await import("./store.js");
     const baseConnection = {
@@ -651,6 +674,138 @@ describe("workspace connection store", () => {
         }),
     );
     expect(bobAfterRemoval.available).toBe(false);
+  });
+
+  it("rejects duplicate workspace user group names within an org", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceUserGroup } = await import("./groups.js");
+
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at BIGINT NOT NULL DEFAULT 0,
+        federation_removal_pending_at INTEGER
+      )
+    `);
+    await pglite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("member-owner", "org-groups", "owner@example.com", "owner", 1);
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-groups" },
+      () =>
+        upsertWorkspaceUserGroup({
+          name: "Rev Ops",
+          memberEmails: [],
+        }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "org-groups" },
+        () =>
+          upsertWorkspaceUserGroup({
+            name: " rev ops ",
+            memberEmails: [],
+          }),
+      ),
+    ).rejects.toThrow(/already exists/i);
+  });
+
+  it("rejects concurrent case-variant workspace group writes", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { listWorkspaceUserGroupsForOrg, upsertWorkspaceUserGroup } =
+      await import("./groups.js");
+
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at BIGINT NOT NULL DEFAULT 0,
+        federation_removal_pending_at INTEGER
+      )
+    `);
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const orgId = `org-groups-concurrent-${attempt}`;
+      await pglite
+        .prepare(
+          "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(
+          `member-owner-${attempt}`,
+          orgId,
+          "owner@example.com",
+          "owner",
+          attempt,
+        );
+
+      const results = await Promise.allSettled(
+        ["Finance", "finance"].map((name, index) =>
+          runWithRequestContext({ userEmail: "owner@example.com", orgId }, () =>
+            upsertWorkspaceUserGroup({
+              id: `concurrent-group-${attempt}-${index}`,
+              name,
+              memberEmails: [],
+            }),
+          ),
+        ),
+      );
+      const fulfilled = results.filter(
+        (result): result is PromiseFulfilledResult<unknown> =>
+          result.status === "fulfilled",
+      );
+      const rejected = results.filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(
+        String(rejected[0]?.reason?.message ?? rejected[0]?.reason),
+      ).toMatch(/already exists/i);
+      expect(await listWorkspaceUserGroupsForOrg(orgId)).toHaveLength(1);
+    }
+  });
+
+  it("normalizes names for writers that do not know the derived column", async () => {
+    const { ensureWorkspaceUserGroupsTable } = await import("./groups.js");
+    const id = "legacy-writer-group";
+    const orgId = "org-groups-legacy-writer";
+
+    await ensureWorkspaceUserGroupsTable();
+    await pglite
+      .prepare(
+        `INSERT INTO workspace_user_groups
+          (id, org_id, name, member_emails_json, created_by_email, created_at, updated_at)
+         VALUES (?, ?, ?, '[]', '', 0, 0)`,
+      )
+      .run(id, orgId, "Finance");
+
+    const inserted = await pglite
+      .prepare("SELECT normalized_name FROM workspace_user_groups WHERE id = ?")
+      .all(id);
+    expect(inserted[0]?.normalized_name).toBe("finance");
+
+    await pglite
+      .prepare(
+        "UPDATE workspace_user_groups SET name = ?, normalized_name = NULL WHERE id = ?",
+      )
+      .run("Finance Team", id);
+    const updated = await pglite
+      .prepare("SELECT normalized_name FROM workspace_user_groups WHERE id = ?")
+      .all(id);
+    expect(updated[0]?.normalized_name).toBe("finance team");
   });
 
   it("scopes workspace connection grants to the active org", async () => {

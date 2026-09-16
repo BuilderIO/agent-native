@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +16,7 @@ import {
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
+  _devServerStartupBanner,
   _getReactRouterAliases,
   _installReactRouterVirtualInvalidationMirror,
   _mirrorReactRouterVirtualInvalidation,
@@ -403,6 +405,149 @@ describe("design system theme plugin", () => {
         (candidate) => candidate.name === "agent-native-design-system-theme",
       ),
     ).toBe(false);
+  });
+});
+
+describe("dev server startup banner", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  interface FakeDevServer {
+    root: string;
+    base?: string;
+    https?: boolean;
+    configuredPort?: number;
+    resolvedUrls?: { local: string[]; network: string[] } | null;
+    address?: { address: string; port: number } | null;
+  }
+
+  function captureBannerLines(
+    fake: FakeDevServer,
+    afterConfigure?: (server: unknown) => void,
+  ): string[] {
+    const lines: string[] = [];
+    const logSpy = vi
+      .spyOn(console, "log")
+      .mockImplementation((line) => lines.push(String(line)));
+    try {
+      const httpServer = new EventEmitter();
+      (httpServer as any).address = () =>
+        fake.address ?? { address: "127.0.0.1", port: 47131 };
+      const server = {
+        httpServer,
+        config: {
+          root: fake.root,
+          base: fake.base ?? "/",
+          server: { port: fake.configuredPort ?? 47131, https: fake.https },
+        },
+        resolvedUrls: fake.resolvedUrls ?? { local: [], network: [] },
+      };
+      _devServerStartupBanner().configureServer(server as any);
+      afterConfigure?.(server);
+      httpServer.emit("listening");
+    } finally {
+      logSpy.mockRestore();
+    }
+    return lines;
+  }
+
+  function withTempAppRoot(run: (appRoot: string) => void): void {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-banner-"));
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({ name: "fixture-app" }),
+    );
+    try {
+      run(appRoot);
+    } finally {
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  }
+
+  it("uses Vite's resolved URL verbatim, including https and base", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines({
+        root: appRoot,
+        resolvedUrls: { local: ["https://localhost:47131/docs/"], network: [] },
+      });
+      expect(lines).toEqual([
+        `[agent-native] fixture-app listening on https://localhost:47131/docs/ (root: ${appRoot})`,
+      ]);
+    });
+  });
+
+  it("builds an https URL with bracketed IPv6 and base when resolvedUrls is empty", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines({
+        root: appRoot,
+        https: true,
+        base: "/docs/",
+        resolvedUrls: { local: [], network: [] },
+        address: { address: "::1", port: 47131 },
+      });
+      expect(lines).toEqual([
+        `[agent-native] fixture-app listening on https://[::1]:47131/docs/ (root: ${appRoot})`,
+      ]);
+    });
+  });
+
+  it("says so explicitly when the configured port lost the bind", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines({
+        root: appRoot,
+        configuredPort: 47131,
+        resolvedUrls: { local: ["http://localhost:47132/"], network: [] },
+        address: { address: "::1", port: 47132 },
+      });
+      expect(lines).toEqual([
+        `[agent-native] fixture-app listening on http://localhost:47132/ (root: ${appRoot})`,
+        "[agent-native] Port 47131 was in use; listening on 47132 instead — the URL above is the real one.",
+      ]);
+    });
+  });
+
+  it("stays quiet when the configured port won", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines({
+        root: appRoot,
+        configuredPort: 47131,
+        resolvedUrls: { local: ["http://localhost:47131/"], network: [] },
+      });
+      expect(lines).toHaveLength(1);
+    });
+  });
+
+  it("defers to the workspace gateway's own diagnostics", () => {
+    withTempAppRoot((appRoot) => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      const lines = captureBannerLines({
+        root: appRoot,
+        resolvedUrls: { local: ["http://localhost:47131/"], network: [] },
+      });
+      expect(lines).toEqual([]);
+    });
+  });
+  it("compares against the port configured before Vite rewrites it at listen", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines(
+        {
+          root: appRoot,
+          configuredPort: 47131,
+          resolvedUrls: { local: ["http://localhost:47132/"], network: [] },
+          address: { address: "::1", port: 47132 },
+        },
+        (server) => {
+          // Vite rewrites config.server.port to the bound port at listen.
+          (
+            server as { config: { server: { port: number } } }
+          ).config.server.port = 47132;
+        },
+      );
+      expect(lines[1]).toBe(
+        "[agent-native] Port 47131 was in use; listening on 47132 instead — the URL above is the real one.",
+      );
+    });
   });
 });
 

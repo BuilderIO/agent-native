@@ -173,7 +173,11 @@
 
 .agentkit-composer [data-agent-composer-slot="model-button"] {
   flex: none;
-  max-inline-size: none;
+  max-inline-size: 11rem;
+}
+
+.agentkit-composer [data-agent-composer-slot="mode-button"] {
+  min-inline-size: 3.5rem;
 }
 
 .agentkit-composer input[type="file"] {
@@ -427,7 +431,6 @@
     color-mix(in srgb, CanvasText 16%, transparent)
   );
 
-  position: fixed;
   z-index: 9999;
   max-block-size: min(27.5rem, calc(100vh - 2rem));
   overflow-y: auto;

@@ -18,6 +18,7 @@ import {
   type UserConfig,
 } from "vite";
 
+import { getAppConfig } from "../app-config/index.js";
 import {
   mergePendingChangelog,
   parsePendingEntry,
@@ -3160,6 +3161,76 @@ function devActionBridgePlugin(): Plugin {
   };
 }
 
+function devAppDisplayName(appRoot: string): string {
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(appRoot, "package.json"), "utf8"),
+    ) as { displayName?: string; name?: string };
+    return pkg.displayName || pkg.name || path.basename(appRoot);
+  } catch {
+    // coercion-ok: the banner is cosmetic; an unreadable package.json falls
+    // back to the directory name instead of failing the dev server.
+    return path.basename(appRoot);
+  }
+}
+
+/**
+ * Identify the app, its checkout root, and the actual listening URL on the
+ * plain single-app dev path, and say so explicitly when the actual port
+ * ended up different from the configured one. URLs come from Vite's own
+ * resolvedUrls (correct scheme, host brackets, and base) when present,
+ * falling back to the resolved config plus the real bind address. The
+ * workspace gateway prints its own root/URL lines for every app it fronts,
+ * so the banner defers to it there.
+ */
+export function _devServerStartupBanner(): Plugin {
+  return {
+    name: "agent-native-dev-server-banner",
+    apply: "serve",
+    configureServer(server) {
+      // Vite prepends its own listening listener, so resolvedUrls is already
+      // populated when this handler runs — but it also rewrites
+      // config.server.port to the bound port, so the requested port must be
+      // snapshotted before listening.
+      const configuredPort = server.config.server.port;
+      server.httpServer?.once("listening", () => {
+        if (getAppConfig().workspace.isWorkspace === true) return;
+        const addr = server.httpServer?.address();
+        if (!addr || typeof addr !== "object" || !addr.port) return;
+        const url =
+          server.resolvedUrls?.local[0] ??
+          server.resolvedUrls?.network[0] ??
+          fallbackListeningUrl(
+            server.config.base,
+            Boolean(server.config.server.https),
+            addr,
+          );
+        console.log(
+          `[agent-native] ${devAppDisplayName(server.config.root)} listening on ${url} (root: ${server.config.root})`,
+        );
+        if (configuredPort && configuredPort !== addr.port) {
+          console.log(
+            `[agent-native] Port ${configuredPort} was in use; listening on ${addr.port} instead — the URL above is the real one.`,
+          );
+        }
+      });
+    },
+  };
+}
+
+function fallbackListeningUrl(
+  base: string,
+  https: boolean,
+  addr: { address: string; port: number },
+): string {
+  // IPv6 addresses need brackets in a URL host.
+  const hostPort = addr.address.includes(":")
+    ? `[${addr.address}]:${addr.port}`
+    : `${addr.address}:${addr.port}`;
+  const normalizedBase = !base || base === "./" ? "/" : base;
+  return `${https ? "https" : "http"}://${hostPort}${normalizedBase}`;
+}
+
 /**
  * The origin of the URL Vite prints in its "Local:" boot line — the single
  * canonical dev origin every other surface derives from. `undefined` when
@@ -4053,6 +4124,7 @@ function createAgentNativePlugins(
     frameworkDevDynamicForwarder(),
     portExposer(),
     devActionBridgePlugin(),
+    _devServerStartupBanner(),
     nitroStartupGate(),
     reactRouterVirtualInvalidationMirrorPlugin(),
     silenceConnectionResets(),

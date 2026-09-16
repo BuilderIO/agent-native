@@ -1375,11 +1375,14 @@ describe("AppWebview per-app chat state propagation", () => {
 });
 
 describe("AppWebview theme propagation", () => {
+  beforeEach(() => window.localStorage.clear());
+
   it("updates the guest root and shared theme storage", () => {
     document.documentElement.className = "light";
     document.documentElement.removeAttribute("data-theme");
     document.documentElement.style.colorScheme = "light";
     window.localStorage.removeItem("theme");
+    window.localStorage.removeItem("agent-native-desktop-host-theme");
 
     let changeDetail: unknown;
     const onThemeChange = (event: Event) => {
@@ -1395,6 +1398,12 @@ describe("AppWebview theme propagation", () => {
       expect(document.documentElement.dataset.theme).toBe("dark");
       expect(document.documentElement.style.colorScheme).toBe("dark");
       expect(window.localStorage.getItem("theme")).toBe("dark");
+      expect(
+        window.localStorage.getItem("agent-native-desktop-host-theme"),
+      ).toBe("dark");
+      expect(
+        window.localStorage.getItem("agent-native-desktop-guest-theme"),
+      ).toBeNull();
       expect(changeDetail).toEqual({
         type: "agent-native-theme-update",
         theme: "dark",
@@ -1403,6 +1412,61 @@ describe("AppWebview theme propagation", () => {
     } finally {
       window.removeEventListener("agent-native:theme-change", onThemeChange);
     }
+  });
+
+  it("preserves a guest theme that differs from the last injected host theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+
+    new Function(buildGuestThemeScript("dark"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("light");
+  });
+
+  it("updates and clears the guest override when the guest changes theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+    new Function(buildGuestThemeScript("dark"))();
+
+    window.localStorage.setItem("theme", "dark");
+    new Function(buildGuestThemeScript("dark"))();
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("dark");
+
+    window.localStorage.setItem("theme", "system");
+    new Function(buildGuestThemeScript("light"))();
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBeNull();
+    expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("follows the host when the guest has not selected a different theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+
+    new Function(buildGuestThemeScript("light"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("preserves an explicit guest choice that matches the current host theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+    new Function(buildGuestThemeScript("light"))();
+
+    new Function(buildGuestThemeScript("dark"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("light");
   });
 });
 

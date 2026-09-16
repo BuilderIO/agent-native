@@ -307,10 +307,61 @@ async function checkReferencedAsset(url: string): Promise<string | undefined> {
   if (!result.response) {
     return `${path} network error: ${errorMessage(result.error)}`;
   }
+  const contentType = result.response.headers.get("content-type") ?? "";
+  const expectedContentType = expectedReferencedAssetContentType(path);
+  if (
+    expectedContentType &&
+    !hasExpectedReferencedAssetContentType(contentType, expectedContentType)
+  ) {
+    await result.response.body?.cancel();
+    return `${path} content-type ${contentType || "(missing)"}; expected ${expectedContentType}`;
+  }
   await result.response.body?.cancel();
   return result.response.ok
     ? undefined
     : `${path} HTTP ${result.response.status} after retries`;
+}
+
+export type ReferencedAssetContentType = "javascript" | "stylesheet";
+
+export function expectedReferencedAssetContentType(
+  assetPath: string,
+): ReferencedAssetContentType | undefined {
+  if (/\.(?:c|m)?js$/i.test(assetPath.split("?", 1)[0] ?? "")) {
+    return "javascript";
+  }
+  if (/\.css$/i.test(assetPath.split("?", 1)[0] ?? "")) {
+    return "stylesheet";
+  }
+  return undefined;
+}
+
+export function hasExpectedReferencedAssetContentType(
+  contentType: string,
+  expected: ReferencedAssetContentType,
+): boolean {
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  if (expected === "stylesheet") return mediaType === "text/css";
+  // Keep this set aligned with the browser-executable JavaScript types used by
+  // the Design HTML integrity parser.
+  return [
+    "application/ecmascript",
+    "application/javascript",
+    "application/x-ecmascript",
+    "application/x-javascript",
+    "text/ecmascript",
+    "text/javascript",
+    "text/javascript1.0",
+    "text/javascript1.1",
+    "text/javascript1.2",
+    "text/javascript1.3",
+    "text/javascript1.4",
+    "text/javascript1.5",
+    "text/jscript",
+    "text/livescript",
+    "text/x-ecmascript",
+    "text/x-javascript",
+  ].includes(mediaType ?? "");
 }
 
 async function checkHtmlAssets(

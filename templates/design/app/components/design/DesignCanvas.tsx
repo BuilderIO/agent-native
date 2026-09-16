@@ -122,6 +122,7 @@ import {
   shouldFetchExternalSourceSnapshot,
   shouldUseIframeLoadReadyFallback,
   type BridgeRegistrationFailureKind,
+  useBrowserOrigin,
 } from "./design-canvas/external-preview";
 import { isOsFileDragEvent } from "./design-canvas/file-drop";
 import {
@@ -1390,6 +1391,7 @@ export function DesignCanvas({
 }: DesignCanvasProps) {
   const t = useT();
   const { resolvedTheme } = useTheme();
+  const browserOrigin = useBrowserOrigin();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const restoreKScalePreviewRef = useRef<(() => void) | null>(null);
   const textEditingStateRef = useRef<Omit<TextEditingState, "screenId">>({
@@ -5830,6 +5832,9 @@ export function DesignCanvas({
     : handToolActive || spacePanActive
       ? "grab"
       : null;
+  const externalPreviewPendingOrigin = Boolean(
+    externalPreviewUrl && !browserOrigin,
+  );
 
   // OS file drag-and-drop (Figma parity §1): the sandboxed iframe sits on top
   // of the wrapper and is a normal DOM element to the parent document's drag
@@ -5979,7 +5984,8 @@ export function DesignCanvas({
           )}
         />
       ) : null}
-      {rawExternalPreviewUrl && !externalPreviewUrl ? null : (
+      {rawExternalPreviewUrl &&
+      !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
         <iframe
           key={iframeDocumentIdentity}
           ref={iframeRef}
@@ -5988,6 +5994,8 @@ export function DesignCanvas({
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: Boolean(externalPreviewUrl),
             readOnly,
+            previewUrl: externalPreviewUrl,
+            parentOrigin: browserOrigin ?? undefined,
           })}
           data-design-preview-iframe
           onLoad={(event) => {
@@ -6039,7 +6047,7 @@ export function DesignCanvas({
           </span>
         </div>
       ) : null}
-      {runtimeVerificationUrl ? (
+      {runtimeVerificationUrl && browserOrigin ? (
         <iframe
           key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}
           ref={runtimeVerificationIframeRef}
@@ -6047,6 +6055,8 @@ export function DesignCanvas({
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: true,
             readOnly: true,
+            previewUrl: runtimeVerificationUrl,
+            parentOrigin: browserOrigin,
           })}
           data-runtime-verification-iframe
           aria-hidden="true"
