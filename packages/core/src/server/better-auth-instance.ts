@@ -592,6 +592,9 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   if (workspaceDerivedSecret) return workspaceDerivedSecret;
 
   const deployEnvironment = resolveDeployEnvironment();
+  const explicitlyLocal =
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase() ===
+    "local";
 
   // In production, beyond the workspace A2A-derived fallback above, never
   // auto-generate or use legacy fallbacks. A generated secret invalidates every
@@ -599,7 +602,10 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   // aren't persistent), and the legacy hardcoded fallback is identical across
   // every deploy that hits it — both are serious enough to fail the boot loudly
   // so the deployer notices.
-  if (deployEnvironment !== "local") {
+  if (
+    deployEnvironment !== "local" ||
+    (process.env.NODE_ENV === "production" && !explicitlyLocal)
+  ) {
     const report = getRuntimeConfigReport(
       process.env,
       { authEnabled: true, databaseRequired: false },

@@ -76,6 +76,7 @@ describe("resolveAuthSecret", () => {
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
     delete process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
+    delete process.env.SENTRY_ENVIRONMENT;
     delete process.env.NODE_ENV;
   });
 
@@ -104,6 +105,25 @@ describe("resolveAuthSecret", () => {
       expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
     },
   );
+
+  it("does not let Sentry metadata weaken the production guard", () => {
+    process.env.NODE_ENV = "production";
+    process.env.SENTRY_ENVIRONMENT = "development";
+    expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it("allows the dedicated deployment setting to opt into local development", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "local";
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      expect(getAuthSecret()).toBeTruthy();
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
 
   it("derives a production workspace auth secret from A2A_SECRET", () => {
     process.env.NODE_ENV = "production";
