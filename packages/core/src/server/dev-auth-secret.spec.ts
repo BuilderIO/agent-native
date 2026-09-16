@@ -30,7 +30,9 @@ describe("resolvePersistedDevAuthSecret", () => {
       expect(secret).toBe("generated-secret-value");
       const file = secretFile(appRoot);
       expect(fs.readFileSync(file, "utf8")).toBe("generated-secret-value\n");
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      if (process.platform !== "win32") {
+        expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      }
       // Generated secrets are persisted to the dedicated dev file, never
       // written into env files the developer owns.
       expect(fs.existsSync(path.join(appRoot, ".env.local"))).toBe(false);
@@ -108,7 +110,8 @@ describe("resolvePersistedDevAuthSecret", () => {
   });
 
   it("throws a typed error for an unreadable file without overwriting it", () => {
-    if ((process.getuid?.() ?? -1) === 0) return;
+    if (process.platform === "win32" || (process.getuid?.() ?? -1) === 0)
+      return;
 
     const appRoot = tempAppRoot();
     try {

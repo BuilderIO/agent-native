@@ -21,6 +21,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { workspaceIdentity } from "../shared/workspace-identity.js";
+
 export interface ResolvedApp {
   id: string;
   /** Local origin where this app's dev server listens, e.g. http://127.0.0.1:8100 */
@@ -134,6 +136,7 @@ function probePort(port: number, timeoutMs = 600): Promise<boolean> {
 async function fetchGatewayApps(
   gatewayUrl: string,
   expectedRoot?: string,
+  allowMissingIdentity = false,
 ): Promise<Array<{ id: string; port: number }> | null> {
   try {
     const res = await fetch(`${gatewayUrl}/_workspace/apps`, {
@@ -141,17 +144,11 @@ async function fetchGatewayApps(
     });
     if (!res.ok) return null;
     if (expectedRoot) {
-      const reportedRoot = res.headers.get("x-agent-native-workspace-root");
-      const normalizedReportedRoot = reportedRoot
-        ? path.resolve(reportedRoot)
-        : null;
-      const normalizedExpectedRoot = path.resolve(expectedRoot);
+      const reportedIdentity = res.headers.get("x-agent-native-workspace-id");
+      if (!reportedIdentity && !allowMissingIdentity) return null;
       if (
-        !normalizedReportedRoot ||
-        (process.platform === "win32"
-          ? normalizedReportedRoot.toLowerCase() !==
-            normalizedExpectedRoot.toLowerCase()
-          : normalizedReportedRoot !== normalizedExpectedRoot)
+        reportedIdentity &&
+        reportedIdentity !== workspaceIdentity(expectedRoot)
       ) {
         return null;
       }
@@ -207,8 +204,12 @@ export async function resolveWorkspace(
     // Prefer the gateway's authoritative list (handles port reassignment);
     // fall back to a filesystem scan with the same ordering the gateway uses.
     const gatewayResults = await Promise.all(
-      gatewayCandidates.map((candidate) =>
-        fetchGatewayApps(candidate, configuredGatewayUrl ? undefined : root),
+      gatewayCandidates.map((candidate, index) =>
+        fetchGatewayApps(
+          candidate,
+          root,
+          Boolean(configuredGatewayUrl) || index === 0,
+        ),
       ),
     );
     const gatewayIndex = gatewayResults.findIndex((result) => result !== null);

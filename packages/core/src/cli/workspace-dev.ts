@@ -17,6 +17,7 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { workspaceIdentity } from "../shared/workspace-identity.js";
 import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
 import {
   attachGatewaySocketErrorSink,
@@ -1440,7 +1441,7 @@ export async function runWorkspaceDev(
       await syncApps().catch(() => {});
       res.writeHead(200, {
         "content-type": "application/json",
-        "x-agent-native-workspace-root": root,
+        "x-agent-native-workspace-id": workspaceIdentity(root),
       });
       res.end(
         JSON.stringify(

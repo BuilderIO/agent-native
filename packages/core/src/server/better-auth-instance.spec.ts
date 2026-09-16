@@ -143,16 +143,11 @@ describe("resolveAuthSecret", () => {
     expect(() => getAuthSecret()).toThrow(/openssl rand -hex 32/);
   });
 
-  // Runs the assertion from a throwaway cwd so the dev fallback persists its
-  // secret file there instead of into the repository checkout.
   function inTempAppRoot(run: (appRoot: string) => void): void {
-    const originalCwd = process.cwd();
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
-    process.chdir(appRoot);
     try {
       run(appRoot);
     } finally {
-      process.chdir(originalCwd);
       fs.rmSync(appRoot, { recursive: true, force: true });
     }
   }
@@ -164,21 +159,21 @@ describe("resolveAuthSecret", () => {
   it("persists a generated secret in local development", () => {
     process.env.NODE_ENV = "development";
     inTempAppRoot((appRoot) => {
-      expect(() => getAuthSecret()).not.toThrow();
-      const secret = getAuthSecret();
+      expect(() => getAuthSecret(appRoot)).not.toThrow();
+      const secret = getAuthSecret(appRoot);
       expect(secret).toBeTruthy();
       const secretFile = path.join(appRoot, ".agent-native", "dev-auth-secret");
       expect(fs.readFileSync(secretFile, "utf8").trim()).toBe(secret);
       // A second resolution in the same directory reuses the persisted value.
-      expect(getAuthSecret()).toBe(secret);
+      expect(getAuthSecret(appRoot)).toBe(secret);
     });
   });
 
   it("lets an explicitly local runtime proceed with production NODE_ENV", () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "local";
-    inTempAppRoot(() => {
-      expect(() => getAuthSecret()).not.toThrow();
+    inTempAppRoot((appRoot) => {
+      expect(() => getAuthSecret(appRoot)).not.toThrow();
     });
   });
 
@@ -193,8 +188,8 @@ describe("resolveAuthSecret", () => {
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.GOOGLE_CLIENT_SECRET;
     delete process.env.ACCESS_TOKEN;
-    inTempAppRoot(() => {
-      const secret = getAuthSecret();
+    inTempAppRoot((appRoot) => {
+      const secret = getAuthSecret(appRoot);
       expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
     });
   });

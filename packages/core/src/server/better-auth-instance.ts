@@ -588,7 +588,7 @@ export function resolvePersistedDevAuthSecret(
  * to sign in again. We still read explicit env configuration, but never
  * auto-write a generated secret into env files.
  */
-function resolveAuthSecret(): string {
+function resolveAuthSecret(appRoot = process.cwd()): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
   const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
   if (workspaceDerivedSecret) return workspaceDerivedSecret;
@@ -630,7 +630,7 @@ function resolveAuthSecret(): string {
       // would silently sign everyone out on every restart and strand the
       // auto dev account behind a password nobody has. Persistence failures
       // throw (see DevAuthSecretFileError) — no ephemeral success.
-      inMemoryDevAuthSecret = resolvePersistedDevAuthSecret(process.cwd(), () =>
+      inMemoryDevAuthSecret = resolvePersistedDevAuthSecret(appRoot, () =>
         crypto.randomBytes(32).toString("hex"),
       );
     } else {
@@ -816,8 +816,8 @@ export function resolveEmailPasswordAuthPolicy(
 }
 
 /** Read-only accessor for the resolved auth secret. */
-export function getAuthSecret(): string {
-  return resolveAuthSecret();
+export function getAuthSecret(appRoot?: string): string {
+  return resolveAuthSecret(appRoot);
 }
 
 // ---------------------------------------------------------------------------

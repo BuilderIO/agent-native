@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { workspaceIdentity } from "../shared/workspace-identity.js";
+
 /**
  * workspace-resolve maps the MCP stdio CLI to the right local dev origin. It is
  * a Node-only module that walks the filesystem, optionally queries a gateway,
@@ -218,9 +220,46 @@ describe("resolveWorkspace — workspace via filesystem fallback (gateway down)"
       signal: expect.any(AbortSignal),
     });
   });
+
+  it("rejects an explicit gateway that identifies another workspace", async () => {
+    const root = buildWorkspace(["mail"]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify([{ id: "other", port: 8999 }]), {
+            headers: {
+              "x-agent-native-workspace-id": workspaceIdentity(
+                path.join(root, "other"),
+              ),
+            },
+          }),
+      ),
+    );
+
+    const ws = await resolveWorkspace(root, {
+      WORKSPACE_GATEWAY_URL: "http://127.0.0.1:9191",
+    });
+    expect(ws.apps.map((app) => app.id)).toEqual(["mail"]);
+  });
 });
 
 describe("resolveWorkspace — workspace via gateway list (authoritative)", () => {
+  it("accepts a headerless legacy gateway on the requested port", async () => {
+    const root = buildWorkspace(["mail"]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url === "http://127.0.0.1:8080/_workspace/apps"
+          ? new Response(JSON.stringify([{ id: "mail", port: 8155 }]))
+          : new Response("no", { status: 404 }),
+      ),
+    );
+
+    const ws = await resolveWorkspace(root, {});
+    expect(ws.apps[0]?.port).toBe(8155);
+  });
+
   it("prefers the gateway's apps + ports over the filesystem scan", async () => {
     const root = buildWorkspace(["mail", "calendar"]);
     // Gateway reassigns ports and reports a different set than the FS scan.
@@ -233,7 +272,7 @@ describe("resolveWorkspace — workspace via gateway list (authoritative)", () =
         ]),
         {
           status: 200,
-          headers: { "x-agent-native-workspace-root": root },
+          headers: { "x-agent-native-workspace-id": workspaceIdentity(root) },
         },
       );
     });
@@ -257,7 +296,9 @@ describe("resolveWorkspace — workspace via gateway list (authoritative)", () =
       vi.fn(async (url: string) =>
         url === "http://127.0.0.1:8082/_workspace/apps"
           ? new Response(JSON.stringify([{ id: "mail", port: 8155 }]), {
-              headers: { "x-agent-native-workspace-root": root },
+              headers: {
+                "x-agent-native-workspace-id": workspaceIdentity(root),
+              },
             })
           : new Response("no", { status: 404 }),
       ),
@@ -276,13 +317,15 @@ describe("resolveWorkspace — workspace via gateway list (authoritative)", () =
         if (url === "http://127.0.0.1:8081/_workspace/apps") {
           return new Response(JSON.stringify([{ id: "other", port: 8999 }]), {
             headers: {
-              "x-agent-native-workspace-root": path.join(root, "other"),
+              "x-agent-native-workspace-id": workspaceIdentity(
+                path.join(root, "other"),
+              ),
             },
           });
         }
         if (url === "http://127.0.0.1:8082/_workspace/apps") {
           return new Response(JSON.stringify([{ id: "mail", port: 8155 }]), {
-            headers: { "x-agent-native-workspace-root": root },
+            headers: { "x-agent-native-workspace-id": workspaceIdentity(root) },
           });
         }
         return new Response("no", { status: 404 });
