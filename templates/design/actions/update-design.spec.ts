@@ -410,6 +410,34 @@ describe("update-design data concurrency", () => {
     ).rejects.toThrow(/must be a finite JSON number/);
   });
 
+  it("rejects nested operations that leave empty or unknown-only frames", async () => {
+    const nestedUnknown = {
+      id: "design-1",
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "frame-a", "label"],
+          value: "Home",
+        },
+      ],
+    };
+    expect(action.schema.safeParse(nestedUnknown).success).toBe(true);
+    await expect(action.run(nestedUnknown as never)).rejects.toThrow(
+      /at least one geometry field/,
+    );
+
+    const nestedDelete = {
+      id: "design-1",
+      dataOperations: [
+        { op: "set", path: ["canvasFrames", "new-frame"], value: { x: 1 } },
+        { op: "delete", path: ["canvasFrames", "new-frame", "x"] },
+      ],
+    };
+    await expect(action.run(nestedDelete as never)).rejects.toThrow(
+      /at least one geometry field/,
+    );
+  });
+
   it("rejects array frames through the action schema and legacy snapshots without writing", async () => {
     const before = { ...mocks.state.row };
     const input = {
