@@ -17,7 +17,7 @@ test("Design full-page chat keeps shared tabs and new-chat controls", async ({
 
   const header = page.locator(".agent-sidebar-chat-header").first();
   await expect(header).toBeVisible({ timeout: 30_000 });
-  const newChat = header.getByRole("button", { name: "New chat", exact: true });
+  const newChat = header.locator('button[aria-label="New chat"]');
   await expect(newChat).toBeVisible();
   await expect(
     header.getByRole("button", { name: "Agent panel options", exact: true }),
