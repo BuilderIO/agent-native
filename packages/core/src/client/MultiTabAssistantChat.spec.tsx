@@ -2207,6 +2207,23 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       );
     expect(closeButtons()).toHaveLength(2);
 
+    // The reported bug was a hit zone that stayed clickable while invisible
+    // (opacity alone does not disable pointer-events). jsdom/happy-dom does
+    // not compute real hover-driven hit-testing for a plain `.click()` call,
+    // so guard the actual CSS invariant directly: the close button must be
+    // non-interactive by default and only regain pointer-events together
+    // with becoming visible, scoped to a real ancestor of the button.
+    const styleText = container.querySelector("style")?.textContent ?? "";
+    expect(styleText).toContain(
+      ".agent-tab-close{opacity:0;pointer-events:none}",
+    );
+    expect(styleText).toContain(
+      ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}",
+    );
+    const closeButtonGroupAncestor =
+      closeButtons()[0].closest(".agent-tab-group");
+    expect(closeButtonGroupAncestor?.contains(closeButtons()[0])).toBe(true);
+
     // The switch button is a separate element from the close button, so
     // clicking it must never remove the tab.
     const secondTabSwitchButton = container.querySelectorAll<HTMLButtonElement>(
