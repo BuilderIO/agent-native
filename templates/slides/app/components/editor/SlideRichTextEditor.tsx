@@ -835,6 +835,14 @@ export function normalizeSlideClipboardHtml(html: string): string | null {
       "style, .fmd-layout-spacer, [data-slide-layout-spacer-for]",
     )
     .forEach((element) => element.remove());
+  doc.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+    if (!image.getAttribute("src")?.trim().toLowerCase().startsWith("data:")) {
+      return;
+    }
+    const alt = image.getAttribute("alt");
+    if (alt) image.replaceWith(doc.createTextNode(alt));
+    else image.remove();
+  });
   doc.querySelectorAll<HTMLElement>("*").forEach((element) => {
     if (
       element.style.visibility === "hidden" ||

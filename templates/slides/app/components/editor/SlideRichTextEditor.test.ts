@@ -112,6 +112,16 @@ describe("slide rich text normalization", () => {
     expect(html).not.toContain("Spacer");
   });
 
+  it("does not persist embedded clipboard image payloads", () => {
+    const html = normalizeSlideClipboardHtml(
+      '<p>Copied text<img src="data:image/png;base64,AAAA" alt="image label"></p><p><img src="data:image/png;base64,BBBB"></p>',
+    );
+
+    expect(html).toContain("Copied text");
+    expect(html).toContain("image label");
+    expect(html).not.toContain("data:image");
+  });
+
   it("restores styled bullet rows after editing their semantic list", () => {
     const root = document.createElement("div");
     root.innerHTML = `
