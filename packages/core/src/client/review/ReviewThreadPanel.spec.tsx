@@ -43,6 +43,12 @@ vi.mock("./use-review.js", () => ({
   useReviewComments: () => ({
     data: {
       comments: [rootComment],
+      discussion: {
+        reactions: {},
+        threadPreferences: {},
+        canReact: true,
+        canSetThreadPreferences: false,
+      },
       reviewStatus: { status: "draft" },
     },
     isLoading: false,
@@ -50,6 +56,12 @@ vi.mock("./use-review.js", () => ({
   useCreateReviewComment: () => ({ mutate, isPending: false }),
   useDeleteReviewComment: () => ({ mutate, isPending: false }),
   useReplyReviewComment: () => ({ mutate, isPending: false }),
+  useReactToReviewComment: () => ({
+    mutate,
+    isPending: false,
+    variables: undefined,
+  }),
+  useUpdateReviewComment: () => ({ mutate, isPending: false }),
   useResolveReviewThread: () => ({ mutate, isPending: false }),
 }));
 
@@ -204,7 +216,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     act(() => replyButton?.click());
 
     expect(
-      container.querySelector('input[placeholder="Reply to this thread"]'),
+      container.querySelector('textarea[placeholder="Reply to this thread"]'),
     ).not.toBeNull();
     expect(
       container.querySelector('button[aria-label="Cancel reply"]'),
@@ -313,7 +325,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
 
     act(() => replyButton?.click());
     expect(
-      container.querySelector('input[placeholder="Reply..."]'),
+      container.querySelector('textarea[placeholder="Reply..."]'),
     ).not.toBeNull();
 
     act(() => {

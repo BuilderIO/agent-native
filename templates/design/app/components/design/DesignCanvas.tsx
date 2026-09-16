@@ -81,6 +81,10 @@ import { shaderFillPreviewBridgeScript } from "../../../.generated/bridge/shader
 import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-runtime.generated";
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
+import type {
+  ReviewAnchorWorldPoint,
+  ReviewBoardGeometry,
+} from "../../../shared/review-anchor";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
@@ -730,6 +734,14 @@ interface DesignCanvasProps {
   reviewCanPost?: boolean;
   /** Whether the current viewer may resolve review threads. */
   reviewCanResolve?: boolean;
+  /** Override the review target; null scopes comments to the board surface. */
+  reviewTargetId?: string | null;
+  /** Current finite board window used to resolve stable board-world anchors. */
+  reviewBoardGeometry?: ReviewBoardGeometry | null;
+  /** Re-centers the overview camera on a stable board-world review anchor. */
+  onReviewFocusBoardPoint?: (point: ReviewAnchorWorldPoint) => boolean | void;
+  /** Current viewer email used for author-only comment editing. */
+  reviewCurrentUserEmail?: string | null;
   /** A panel-driven request to focus an anchored review comment. */
   reviewFocusRequest?: ReviewFocusRequest | null;
   /** Dispatch a newly created agent-targeted comment to the local agent chat. */
@@ -1314,6 +1326,10 @@ export function DesignCanvas({
   designId,
   reviewCanPost = false,
   reviewCanResolve = false,
+  reviewTargetId,
+  reviewBoardGeometry,
+  onReviewFocusBoardPoint,
+  reviewCurrentUserEmail,
   reviewFocusRequest,
   onDispatchCommentToAgent,
   onSendThreadToAgent,
@@ -5850,9 +5866,16 @@ export function DesignCanvas({
         canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
         resourceType="design"
         resourceId={designId}
-        targetId={screenId ?? commentContextId ?? ""}
+        targetId={
+          reviewTargetId !== undefined
+            ? reviewTargetId
+            : (screenId ?? commentContextId ?? null)
+        }
+        boardGeometry={reviewBoardGeometry}
+        onFocusBoardPoint={onReviewFocusBoardPoint}
         canPost={reviewCanPost}
         canResolve={reviewCanResolve}
+        currentUserEmail={reviewCurrentUserEmail}
         focusRequest={reviewFocusRequest}
         onDispatchCommentToAgent={onDispatchCommentToAgent}
         onSendThreadToAgent={onSendThreadToAgent}

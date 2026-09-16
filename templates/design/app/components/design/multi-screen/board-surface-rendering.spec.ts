@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getBoardSurfaceContentBounds } from "./board-surface-html";
+import {
+  getBoardSurfaceContentBounds,
+  shouldRenderEmptyBoardReviewCanvas,
+} from "./board-surface-html";
 import { getBoardSurfaceRenderGeometry } from "./overview-layout";
 
 describe("board surface rendering", () => {
@@ -23,5 +26,40 @@ describe("board surface rendering", () => {
 
     expect(contentBounds).toBeNull();
     expect(renderGeometry).toEqual(viewport);
+  });
+
+  it("keeps an empty board reviewable without mounting its normal iframe", () => {
+    expect(
+      shouldRenderEmptyBoardReviewCanvas({
+        hasSurfaceContent: false,
+        reviewPinMode: true,
+        reviewCommentsHidden: false,
+        reviewTargetId: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRenderEmptyBoardReviewCanvas({
+        hasSurfaceContent: false,
+        reviewPinMode: false,
+        reviewCommentsHidden: false,
+        reviewTargetId: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRenderEmptyBoardReviewCanvas({
+        hasSurfaceContent: false,
+        reviewPinMode: false,
+        reviewCommentsHidden: false,
+        reviewTargetId: "screen-1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRenderEmptyBoardReviewCanvas({
+        hasSurfaceContent: true,
+        reviewPinMode: true,
+        reviewCommentsHidden: false,
+        reviewTargetId: null,
+      }),
+    ).toBe(false);
   });
 });

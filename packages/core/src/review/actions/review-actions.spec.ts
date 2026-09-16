@@ -44,6 +44,8 @@ const replyReviewCommentAction = (await import("./reply-review-comment.js"))
   .default;
 const resolveReviewThreadAction = (await import("./resolve-review-thread.js"))
   .default;
+const updateReviewCommentAction = (await import("./update-review-comment.js"))
+  .default;
 const sendReviewThreadToAgentAction = (
   await import("./send-review-thread-to-agent.js")
 ).default;
@@ -270,6 +272,52 @@ afterEach(async () => {
 });
 
 describe("review actions", () => {
+  it("lets authors edit bodies and editors move anchors within the resource", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Original",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+    });
+    const updated = await updateReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        commentId: root.id,
+        body: "Updated @Owner",
+        mentions: [{ label: "Owner", email: "owner@example.com" }],
+      },
+      { userEmail: COMMENTER_EMAIL },
+    );
+    expect(updated.body).toBe("Updated @Owner");
+    expect(updated.mentions).toEqual([
+      { label: "Owner", email: "owner@example.com", id: null },
+    ]);
+
+    const moved = await updateReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        commentId: root.id,
+        anchor: { point: { xPct: 40, yPct: 60 } },
+      },
+      { userEmail: EDITOR_EMAIL },
+    );
+    expect(moved.anchor).toEqual({ point: { xPct: 40, yPct: 60 } });
+    await expect(
+      updateReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
+          body: "Nope",
+        },
+        { userEmail: "outsider@example.com" },
+      ),
+    ).rejects.toThrow();
+  });
+
   it("allows anonymous public reads and redacts ownership and identity metadata", async () => {
     expect(listReviewCommentsAction.requiresAuth).toBe(false);
     await insertReviewComment({
@@ -713,6 +761,7 @@ describe("review actions", () => {
     );
 
     expect(result).toMatchObject({
+      status: "resolved",
       resolved: true,
       updatedCount: 2,
       resolutionNote: "Updated the section and verified the example.",
@@ -755,5 +804,49 @@ describe("review actions", () => {
         { userEmail: EDITOR_EMAIL, caller: "frontend" },
       ),
     ).rejects.toThrow();
+
+    const reopened = await resolveReviewThreadAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        threadId: root.threadId,
+        status: "open",
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    expect(reopened).toMatchObject({
+      threadId: root.threadId,
+      status: "open",
+      resolved: false,
+      resolutionNote: null,
+      comment: { id: root.id, status: "open", resolutionNote: null },
+    });
+    expect(
+      (
+        await queryReviewComments({
+          resourceType: "doc",
+          resourceId: "private",
+          scope: { userEmail: OWNER_EMAIL },
+          includeResolved: true,
+        })
+      ).find((comment) => comment.id === root.id),
+    ).toMatchObject({
+      status: "open",
+      resolutionNote: null,
+      metadata: { severity: "medium" },
+    });
+
+    await expect(
+      resolveReviewThreadAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          threadId: root.threadId,
+          status: "open",
+          resolutionNote: "Cannot attach a note while reopening.",
+        },
+        { userEmail: EDITOR_EMAIL, caller: "frontend" },
+      ),
+    ).rejects.toThrow(/only supported when resolving/);
   });
 });

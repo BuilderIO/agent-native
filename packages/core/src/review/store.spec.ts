@@ -223,6 +223,26 @@ describe("review store", () => {
     expect(all).toHaveLength(1);
     expect(all[0].status).toBe("resolved");
     expect(all[0].resolvedBy).toBe("alice@example.com");
+
+    await expect(
+      resolveReviewThread(
+        root.threadId,
+        "alice@example.com",
+        { resourceType: "doc", resourceId: "d1" },
+        undefined,
+        "open",
+      ),
+    ).resolves.toBeGreaterThan(0);
+    const reopened = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "d1",
+      scope: { userEmail: "alice@example.com" },
+    });
+    expect(reopened[0]).toMatchObject({
+      status: "open",
+      resolvedBy: null,
+      resolvedAt: null,
+    });
   });
 
   it("returns zero when resolving a missing thread", async () => {
