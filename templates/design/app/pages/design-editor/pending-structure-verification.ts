@@ -189,9 +189,29 @@ function verifyRuntimeStructureSubjectAbsent(
     : { ok: true };
 }
 
-/** Full visual-tree evidence, not a node count: sibling order, nesting and
- * content must match the captured replacement. Unrelated structure, text or
- * class changes fail closed; runtime ids and computed styles may change. */
+// These attributes are injected by serializeRuntimeLayerSnapshot, not authored
+// semantic state. Keep this list exact so other data-* attributes remain evidence.
+const runtimeSnapshotMetadataAttributes = new Set([
+  "style",
+  "data-agent-native-node-id",
+  "data-an-runtime-layer-snapshot",
+  "data-source-framework",
+  "data-source-file",
+  "data-source-line",
+  "data-source-method",
+  "data-source-column",
+  "data-component-name",
+  "data-source-owner-file",
+  "data-source-owner-line",
+  "data-source-owner-column",
+  "data-source-owner-component",
+  "data-source-owner-method",
+  "data-source-owner-key",
+  "data-source-unavailable",
+]);
+
+/** Full visual-tree evidence: sibling order, nesting, content and semantic
+ * attributes must match; runtime identities and computed styles may change. */
 export function runtimeStructureSnapshotSignature(
   snapshotHtml: string,
 ): string {
@@ -206,6 +226,7 @@ export function runtimeStructureSnapshotSignature(
     if (!("tagName" in node) || node.tagName === "html") return children;
     return [
       [
+        node.namespaceURI,
         node.tagName,
         normalizeRuntimeStructureClasses(
           (
@@ -213,6 +234,21 @@ export function runtimeStructureSnapshotSignature(
             ""
           ).split(/\s+/),
         ),
+        node.attrs
+          .filter(
+            (attribute) =>
+              attribute.namespace ||
+              (attribute.name !== "class" &&
+                !runtimeSnapshotMetadataAttributes.has(attribute.name)),
+          )
+          .map((attribute) =>
+            JSON.stringify([
+              attribute.namespace ?? "",
+              attribute.name,
+              attribute.value,
+            ]),
+          )
+          .sort(),
         children,
       ],
     ];

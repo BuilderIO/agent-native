@@ -46,7 +46,7 @@ const PRIMITIVE_CHILD_SELECTOR =
 const PRIMITIVE_HTML =
   '<div data-agent-native-node-id="primitive-1" style="width:40px;height:40px;background:#111">Primitive<div data-agent-native-node-id="primitive-child">Nested child</div></div>';
 
-function hydratedEditorChromeBridgeScript(): string {
+function hydratedEditorChromeBridgeScript(runtimeSnapshots = false): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
     .replace("__TEXT_EDITING_ENABLED__", "false")
@@ -56,7 +56,7 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", String(runtimeSnapshots))
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
@@ -167,6 +167,147 @@ function pendingEditFromEcho(
 }
 
 describe("live insert lifecycle", () => {
+  it(
+    "accepts replacement snapshots at the size cap and rolls back one character above it",
+    { timeout: 60_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        const pageErrors: string[] = [];
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.setContent(
+          FIXTURE.replace(
+            "</main>",
+            '<aside style="display:none">x</aside></main>',
+          ),
+        );
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(true),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+        const replace = async (requestId: number): Promise<void> => {
+          await page.evaluate(
+            ([requestId, anchorSelector]) => {
+              window.postMessage(
+                {
+                  type: "runtime-structure-insert",
+                  requestId,
+                  html: '<section data-agent-native-node-id="replacement">Replacement</section>',
+                  anchorSelector,
+                  anchorSourceId: "card",
+                  placement: "before",
+                  replaceAnchor: true,
+                },
+                "*",
+              );
+            },
+            [requestId, ANCHOR_SELECTOR] as const,
+          );
+        };
+        const undo = async (echo: StructureChangeMessage): Promise<void> => {
+          await page.evaluate((requestId) => {
+            window.postMessage(
+              { type: "visual-structure-ack", requestId, applied: false },
+              "*",
+            );
+          }, echo.requestId);
+          await page.waitForSelector(ANCHOR_SELECTOR);
+        };
+
+        await replace(20);
+        const baseline = await nextStructureChange(page, 0);
+        const baselineLength = baseline.replacementSnapshotHtml!.length;
+        expect(baselineLength).toBeGreaterThan(0);
+        expect(baselineLength).toBeLessThan(2_000_000);
+        await undo(baseline);
+        await page.locator("aside").evaluate((element, padding) => {
+          element.textContent += "x".repeat(padding);
+        }, 2_000_000 - baselineLength);
+
+        await replace(21);
+        const atCap = await nextStructureChange(page, 1);
+        expect(atCap.replacementSnapshotHtml).toHaveLength(2_000_000);
+        expect(
+          pendingEditFromEcho(atCap).replacementSnapshotSignature,
+        ).toBeTruthy();
+        expect(await page.locator(ANCHOR_SELECTOR).count()).toBe(0);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="replacement"]')
+            .count(),
+        ).toBe(1);
+        await undo(atCap);
+        await page.locator("aside").evaluate((element) => {
+          element.textContent += "x";
+        });
+
+        await replace(22);
+        await page.waitForFunction(
+          () =>
+            (
+              window as Window & {
+                __messages?: { type: string; requestId?: number }[];
+              }
+            ).__messages?.some(
+              (message) =>
+                message.type === "runtime-structure-insert-rejected" &&
+                message.requestId === 22,
+            ),
+          undefined,
+          { timeout: 5_000 },
+        );
+        const messages = await page.evaluate(
+          () =>
+            (window as Window & { __messages?: Record<string, unknown>[] })
+              .__messages ?? [],
+        );
+        expect(
+          messages.filter(
+            (message) => message.type === "runtime-structure-insert-rejected",
+          ),
+        ).toEqual([
+          expect.objectContaining({
+            requestId: 22,
+            reason: "replacement-snapshot-too-large",
+          }),
+        ]);
+        expect(
+          messages.filter(
+            (message) => message.type === "visual-structure-change",
+          ),
+        ).toHaveLength(2);
+        expect(await page.locator(ANCHOR_SELECTOR).count()).toBe(1);
+        expect(await page.locator(ANCHOR_SELECTOR).textContent()).toContain(
+          "Copy",
+        );
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="replacement"]')
+            .count(),
+        ).toBe(0);
+        await page.waitForFunction(
+          () =>
+            (
+              window as Window & {
+                __messages?: { type: string; payload?: { reason?: string } }[];
+              }
+            ).__messages?.some(
+              (message) =>
+                message.type === "agent-native:runtime-layer-snapshot-error" &&
+                message.payload?.reason === "snapshot-too-large",
+            ),
+          undefined,
+          { timeout: 5_000 },
+        );
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
   it(
     "inserts, undoes, redoes, deletes and hands off without resurrecting the deleted node",
     { timeout: 60_000 },

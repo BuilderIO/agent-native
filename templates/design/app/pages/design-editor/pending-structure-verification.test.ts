@@ -511,6 +511,86 @@ describe("verifyPendingStructureRuntime", () => {
     },
   );
 
+  it.each([
+    ["a", "href", "/expected", "/wrong"],
+    ["img", "src", "/expected.png", "/wrong.png"],
+    ["button", "aria-label", "Save", "Delete"],
+    ["button", "aria-expanded", "true", "false"],
+    ["div", "data-state", "open", "closed"],
+    ["div", "data-agent-native-state", "open", "closed"],
+    ["div", "data-source-state", "open", "closed"],
+  ])(
+    "rejects changed %s %s despite identical structure",
+    (tag, name, before, after) => {
+      const snapshot = (value: string) =>
+        `<body><main>${replacementHtml}<${tag} ${name}="${value}"></${tag}></main></body>`;
+      expect(
+        verifyPendingStructureRuntime(snapshot(after), {
+          ...replacementEdit,
+          replacementSnapshotSignature: runtimeStructureSnapshotSignature(
+            snapshot(before),
+          ),
+        }),
+      ).toEqual({ ok: false, failure: "replacement-context-changed" });
+    },
+  );
+
+  it("normalizes attribute and class order while preserving attribute namespaces", () => {
+    const before =
+      '<body><svg class="two one"><use href="#plain" xlink:href="#linked" aria-label="Icon" /></svg></body>';
+    const reordered =
+      '<body><svg class="one two"><use aria-label="Icon" xlink:href="#linked" href="#plain" /></svg></body>';
+    expect(runtimeStructureSnapshotSignature(reordered)).toBe(
+      runtimeStructureSnapshotSignature(before),
+    );
+    expect(
+      runtimeStructureSnapshotSignature(
+        before.replace('xlink:href="#linked"', 'xlink:href="#wrong"'),
+      ),
+    ).not.toBe(runtimeStructureSnapshotSignature(before));
+    expect(
+      runtimeStructureSnapshotSignature(
+        '<body><svg><use href="#icon" /></svg></body>',
+      ),
+    ).not.toBe(
+      runtimeStructureSnapshotSignature(
+        '<body><svg><use xlink:href="#icon" /></svg></body>',
+      ),
+    );
+  });
+
+  it("ignores exactly the runtime snapshot serializer identity, style and provenance attributes", () => {
+    const metadata = [
+      "data-agent-native-node-id",
+      "data-an-runtime-layer-snapshot",
+      "data-source-framework",
+      "data-source-file",
+      "data-source-line",
+      "data-source-method",
+      "data-source-column",
+      "data-component-name",
+      "data-source-owner-file",
+      "data-source-owner-line",
+      "data-source-owner-column",
+      "data-source-owner-component",
+      "data-source-owner-method",
+      "data-source-owner-key",
+      "data-source-unavailable",
+      "style",
+    ]
+      .map((name) => `${name}="runtime"`)
+      .join(" ");
+    expect(
+      runtimeStructureSnapshotSignature(
+        `<body ${metadata}><section ${metadata}>Replacement</section></body>`,
+      ),
+    ).toBe(
+      runtimeStructureSnapshotSignature(
+        "<body><section>Replacement</section></body>",
+      ),
+    );
+  });
+
   it("verifies multiple replacements against the latest captured screen while retaining identity checks", () => {
     const secondHtml =
       '<article data-agent-native-node-id="second">Second</article>';

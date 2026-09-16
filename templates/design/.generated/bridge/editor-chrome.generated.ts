@@ -1841,7 +1841,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return !(isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]"));
     }
     function serializeRuntimeLayerSnapshot(excludedRoot) {
-      if (!document.body) return null;
+      if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
       var snapshotComputedProperties = [
         "box-sizing",
         "display",
@@ -2026,8 +2026,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       inlineSnapshotComputedStyle(document.body, cloneBody);
       cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
       var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>";
-      if (html.length > 2e6) return null;
+      if (html.length > 2e6)
+        return { ok: false, reason: "snapshot-too-large" };
       return {
+        ok: true,
         html,
         nodeCount,
         documentId: runtimeDocumentId
@@ -2043,7 +2045,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       runtimeLayerSnapshotTimer = null;
       runtimeLayerSnapshotMaxTimer = null;
       var snapshot = serializeRuntimeLayerSnapshot();
-      if (!snapshot || snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+      if (!snapshot.ok) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-error",
+            payload: snapshot
+          },
+          "*"
+        );
+        return;
+      }
+      if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       window.parent.postMessage(
         {
@@ -9739,7 +9751,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
       publishSourceDocumentProvenance(void 0, true);
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml, replaced) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml) {
       if (!el || !target || !target.anchor) return;
       dndLog("post:structure-change", {
         el: getSelector(el),
@@ -9770,10 +9782,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           // element the source file has never contained.
           insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
           replaced: replaced === true ? true : void 0,
-          // The original is still connected here so its selector/provenance
-          // remain readable. Excluding its exact DOM subtree captures the
-          // expected replacement without guessing from a later snapshot.
-          replacementSnapshotHtml: replaced === true && origin?.originalElement ? serializeRuntimeLayerSnapshot(origin.originalElement)?.html : void 0,
+          replacementSnapshotHtml,
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el),
@@ -14245,6 +14254,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           var replaceNextSibling = insertAnchor.nextSibling;
           replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+          var replacementSnapshot = serializeRuntimeLayerSnapshot(insertAnchor);
+          if (!replacementSnapshot.ok) {
+            parsedInsertEl.remove();
+            rejectInsert("replacement-" + replacementSnapshot.reason);
+            return;
+          }
           selectedEl = parsedInsertEl;
           positionOverlay(selectionOverlay, selectedEl);
           refreshOverlays();
@@ -14258,7 +14273,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               prevNextSibling: replaceNextSibling
             },
             parsedInsertEl.outerHTML,
-            true
+            true,
+            replacementSnapshot.html
           );
           replaceParent.removeChild(insertAnchor);
           refreshOverlays();

@@ -14464,6 +14464,11 @@ function DesignEditor() {
 
   const handleRuntimeStructureInsertRejected = useCallback(
     (reason: string) => {
+      if (reason.startsWith("verification-")) {
+        cancelPendingStructureVerification("conflict");
+        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+        return;
+      }
       // Never swallow this: a rejected insert leaves nothing on screen and
       // nothing in the pending list, so a silent return is indistinguishable
       // from the drop never having happened.
@@ -14472,7 +14477,7 @@ function DesignEditor() {
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
-    [t],
+    [cancelPendingStructureVerification, t],
   );
 
   const handleCutSelection = useCallback(async () => {
