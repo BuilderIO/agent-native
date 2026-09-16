@@ -80,6 +80,7 @@ const messages = {
     createFolderError: "बनाने में विफल",
     folderCreated: "फ़ोल्डर बन गया",
     folderNamePlaceholder: "फ़ोल्डर का नाम",
+    breadcrumbBack: "{{label}} पर वापस जाएँ",
   },
   empty: {
     library: {
