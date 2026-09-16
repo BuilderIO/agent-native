@@ -60,6 +60,9 @@ describe("duplicateNodeForPanelDrop", () => {
     // "beta" node id, plus the fresh clone.
     expect(content.match(/data-agent-native-node-id="alpha"/g)).toHaveLength(1);
     expect(content.match(/data-agent-native-node-id="beta"/g)).toHaveLength(1);
+    expect(
+      content.match(/data-agent-native-layer-name="Alpha Button"/g),
+    ).toHaveLength(2);
     const projection = buildCodeLayerProjection(content);
     const clone = projection.nodes.find(
       (node) =>

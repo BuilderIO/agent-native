@@ -229,8 +229,42 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     if (document.documentElement) ro.observe(document.documentElement);
     if (document.body) ro.observe(document.body);
   }
+  // measure() hides and restores every chrome node to take a chrome-free
+  // reading, and the hover ring is repositioned on each pointermove. Both are
+  // attribute writes inside the observed subtree, so observing chrome lets the
+  // reporter re-arm from its own measurement: one mutation then reflows the
+  // whole document every frame for as long as the cursor stays on the canvas.
+  function isChromeNode(node) {
+    var el = node && node.nodeType === 1 ? node : node && node.parentNode;
+    if (!el || el.nodeType !== 1 || !el.closest) return false;
+    return !!el.closest("[data-agent-native-edit-overlay]");
+  }
+  function allChromeNodes(nodes) {
+    for (var i = 0; i < nodes.length; i++) {
+      if (!isChromeNode(nodes[i])) return false;
+    }
+    return true;
+  }
+  function touchesAuthoredContent(records) {
+    for (var i = 0; i < records.length; i++) {
+      var record = records[i];
+      if (isChromeNode(record.target)) continue;
+      if (
+        record.type === "childList" &&
+        allChromeNodes(record.addedNodes) &&
+        allChromeNodes(record.removedNodes)
+      ) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
   if (typeof MutationObserver === "function") {
-    var mo = new MutationObserver(scheduleReport);
+    var mo = new MutationObserver(function (records) {
+      if (!touchesAuthoredContent(records)) return;
+      scheduleReport();
+    });
     mo.observe(document.documentElement, {
       childList: true,
       subtree: true,

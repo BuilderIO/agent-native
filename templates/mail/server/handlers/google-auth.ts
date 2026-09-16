@@ -54,15 +54,17 @@ const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
 const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
   "This email has an unverified password account. Verify that account before signing in with Google, then try again.";
 
-async function syncGoogleSignInIdentity(email: string): Promise<void> {
+async function syncGoogleSignInIdentity(
+  email: string,
+): Promise<boolean | undefined> {
   let client;
   try {
     client = await getClient(email);
   } catch (error) {
     console.warn("[auth] Google profile client lookup failed:", error);
-    return;
+    return undefined;
   }
-  if (!client) return;
+  if (!client) return undefined;
   let profile: any;
   try {
     profile = await googleFetch(
@@ -71,11 +73,11 @@ async function syncGoogleSignInIdentity(email: string): Promise<void> {
     );
   } catch (error) {
     console.warn("[auth] Google profile lookup failed:", error);
-    return;
+    return undefined;
   }
   const accountId = typeof profile?.id === "string" ? profile.id.trim() : "";
-  if (!accountId) return;
-  await ensureGoogleAuthIdentity({
+  if (!accountId) return undefined;
+  return ensureGoogleAuthIdentity({
     email,
     accountId,
     name: typeof profile.name === "string" ? profile.name : undefined,
@@ -309,6 +311,7 @@ export const handleGoogleCallback = defineEventHandler(
       const email = await exchangeCode(code, undefined, redirectUri, owner);
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
+      let isNewUser: boolean | undefined;
       track(
         "account_connected",
         {
@@ -320,7 +323,9 @@ export const handleGoogleCallback = defineEventHandler(
         },
         { userId: owner ?? email },
       );
-      if (!isAddAccount) await syncGoogleSignInIdentity(email);
+      if (!isAddAccount) {
+        isNewUser = await syncGoogleSignInIdentity(email);
+      }
 
       // 2b. Auto-populate display name in settings if not set
       try {
@@ -372,6 +377,10 @@ export const handleGoogleCallback = defineEventHandler(
         : await createOAuthSession(event, email, {
             hasProductionSession,
             desktop,
+            trackSignup: {
+              authProvider: "google",
+              isNewUser,
+            },
           });
 
       if (flowId && sessionToken) {

@@ -233,6 +233,7 @@ describe("createApp", { timeout: 30000 }, () => {
       "node-compile-cache/",
     );
     expect(fs.readFileSync(gitignore, "utf-8")).toContain("data/*.lock");
+    expect(fs.readFileSync(gitignore, "utf-8")).toContain(".agent-native/");
   });
 
   it("normalizes @agent-native/core for blank standalone apps", async () => {
@@ -244,6 +245,7 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(pkg.dependencies["@agent-native/core"]).toBe(
       _getCoreDependencyVersion(),
     );
+    expect(pkg.packageManager).toBe("pnpm@10.29.1");
   });
 
   it("scaffolds headless apps with one action primitive and no UI shell", async () => {
@@ -259,6 +261,7 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(hello).toContain('from "@agent-native/core/action"');
     expect(hello).toContain("defineAction");
     expect(hello).toContain('http: { method: "GET" }');
+    expect(hello).toContain("mcpTool: true");
     expect(hello).toContain("readOnly: true");
 
     const run = fs.readFileSync(path.join(root, "actions", "run.ts"), "utf-8");

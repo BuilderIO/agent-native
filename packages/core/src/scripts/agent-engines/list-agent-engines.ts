@@ -12,6 +12,7 @@ import {
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
   normalizeModelForEngine,
+  resolveEngineAcceptsCustomModels,
   resolveEnginePreservesCustomModels,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
@@ -94,9 +95,11 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       : storedUsable && currentEntry?.name === current?.engine
         ? current?.model
         : undefined;
-  // Resolve the OpenAI-compatible-endpoint capability so a custom gateway model
-  // is reported as-is instead of being normalized to the engine default — the
-  // read-side counterpart of the same fix in set-/manage-agent-engine.
+  // Resolve both gateway and provider model capabilities so a saved custom
+  // model is reported as-is instead of being normalized to the engine default.
+  const acceptsCustomModels = currentEntry
+    ? await resolveEngineAcceptsCustomModels(currentEntry)
+    : false;
   const preserveCustomModels = currentEntry
     ? await resolveEnginePreservesCustomModels(currentEntry)
     : false;
@@ -105,7 +108,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       ? normalizeModelForEngine(
           currentEntry,
           currentModelCandidate ?? currentEntry.defaultModel,
-          { preserveCustomModels },
+          { acceptsCustomModels, preserveCustomModels },
         )
       : undefined;
   // Readiness has to be resolved here: `requiredEnvVars` alone cannot see
@@ -139,6 +142,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         description: e.description,
         defaultModel: e.defaultModel,
         supportedModels: e.supportedModels,
+        acceptsCustomModels: await resolveEngineAcceptsCustomModels(e),
         preserveCustomModels: await resolveEnginePreservesCustomModels(e),
         capabilities: e.capabilities,
         requiredEnvVars: e.requiredEnvVars,

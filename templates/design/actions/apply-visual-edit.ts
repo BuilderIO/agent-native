@@ -395,6 +395,21 @@ const targetSchema = z
     }
   });
 
+const MAX_STRUCTURE_SIZE_HINT = 1_000_000;
+const structureSizeHintCoordinate = z
+  .number()
+  .finite()
+  .min(-MAX_STRUCTURE_SIZE_HINT)
+  .max(MAX_STRUCTURE_SIZE_HINT);
+const structureSizeHintSchema = z
+  .object({
+    width: structureSizeHintCoordinate.nonnegative(),
+    height: structureSizeHintCoordinate.nonnegative(),
+    left: structureSizeHintCoordinate.optional(),
+    top: structureSizeHintCoordinate.optional(),
+  })
+  .strict();
+
 const styleIntentSchema = z
   .object({
     kind: z.literal("style"),
@@ -521,6 +536,7 @@ const intentSchema = z.preprocess(
         .describe(
           "Semantic identity for a non-auto-layout wrapper. Defaults to group; auto-layout wrappers are frames.",
         ),
+      sizeHints: z.record(z.string(), structureSizeHintSchema).optional(),
     }) satisfies z.ZodType<WrapNodesEditIntent>,
     z.object({
       kind: z.literal("booleanSubtract"),

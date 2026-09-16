@@ -187,4 +187,24 @@ describe("AutoLayoutMatrix", () => {
       expect(markup).toContain(`aria-label="${label}" aria-pressed="false"`);
     }
   });
+
+  it("keeps the flex alignment and gap row on the canonical pair geometry", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value,
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).toContain('data-inspector-layout="pair-flow"');
+    expect(markup.match(/data-inspector-span="13"/g)).toHaveLength(2);
+    expect(markup).not.toContain('data-inspector-span="14"');
+    expect(markup).toContain("w-full max-w-[92px]");
+  });
 });

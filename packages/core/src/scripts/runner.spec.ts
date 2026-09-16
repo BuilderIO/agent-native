@@ -434,6 +434,45 @@ describe("runScript package actions", () => {
     });
   }, 40_000);
 
+  it("registers action authorization before dispatching a CLI action", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "guarded-action.ts"),
+      `
+        import { defineAction } from ${JSON.stringify(pathToFileURL(path.resolve(__dirname, "../action.ts")).href)};
+
+        export default defineAction({
+          description: "Fixture action with an app access policy",
+          parameters: {},
+          access: { scope: "app" },
+          run: async () => "should-not-run",
+        });
+      `,
+    );
+
+    const env = { ...process.env };
+    delete env.AGENT_USER_EMAIL;
+    delete env.AGENT_ORG_ID;
+    env.AGENT_NATIVE_APP_ID = "fixture-app";
+    env.NODE_ENV = "production";
+
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "guarded-action"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env,
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("An authenticated user is required.");
+    expect(result.stderr).not.toContain(
+      "Action authorization runtime is not available.",
+    );
+  }, 40_000);
+
   it("fails safely when browser handoff is disabled without printing its credential", () => {
     const result = spawnSync(
       tsxCommand,
@@ -559,6 +598,32 @@ describe("runScript package actions", () => {
         command: "open",
         args: [
           "http://localhost:8140/_agent-native/embed/start?ticket=trusted-only",
+        ],
+      },
+    ]);
+  });
+
+  it("uses a verified discovery origin for a relative handoff", () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const result = openCliHandoff(
+      "/_agent-native/embed/start?ticket=discovered",
+      {
+        env: {},
+        baseUrl: "http://127.0.0.1:8141",
+        platform: "darwin",
+        spawn: (command, args) => {
+          calls.push({ command, args });
+          return { status: 0 };
+        },
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual([
+      {
+        command: "open",
+        args: [
+          "http://127.0.0.1:8141/_agent-native/embed/start?ticket=discovered",
         ],
       },
     ]);

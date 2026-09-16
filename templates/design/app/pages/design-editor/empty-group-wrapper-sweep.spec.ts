@@ -17,13 +17,25 @@ describe("removeEmptyGeneratedGroupWrappers", () => {
 
   it("removes an empty legacy generated wrapper", () => {
     const content = wrap(
-      '<div data-agent-native-node-id="an-emptygroup" data-agent-native-layer-name="Group 3" data-agent-native-preserve-styles="true"></div>',
+      '<div data-agent-native-node-id="an-emptygroup" layer-name="Group 3" data-agent-native-preserve-styles="true"></div>',
     );
     const next = removeEmptyGeneratedGroupWrappers(
       content,
       new Set(["an-emptygroup"]),
     );
     expect(next).not.toContain('data-agent-native-node-id="an-emptygroup"');
+  });
+
+  it("uses the canonical layer name before a legacy name for cleanup", () => {
+    const content = wrap(
+      '<div data-agent-native-node-id="an-authored-group" data-agent-native-layer-name="Marketing group" layer-name="Group" data-agent-native-preserve-styles="true"></div>',
+    );
+    expect(
+      removeEmptyGeneratedGroupWrappers(
+        content,
+        new Set(["an-authored-group"]),
+      ),
+    ).toBe(content);
   });
 
   it("removes a chain of nested generated wrappers", () => {

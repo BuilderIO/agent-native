@@ -1,4 +1,5 @@
 export {
+  CONNECT_APPS_FLAG,
   defineFeatureFlag,
   defineFeatureFlags,
   getFeatureFlagDefinition,

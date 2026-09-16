@@ -18,7 +18,8 @@ In this guide, you'll create an agent with a chat UI and call its included
 ## Prerequisites
 
 - [Node.js](https://nodejs.org) 22.22 or later
-- [pnpm](https://pnpm.io) installed and available on your `PATH`
+- [pnpm](https://pnpm.io) available on your `PATH` (run `corepack enable` in
+  the generated app if it is not)
 - An LLM connection for the agent: Builder.io, an Anthropic or OpenAI API key,
   or a local Ollama model
 
@@ -29,6 +30,7 @@ In a new directory, start from the Chat template:
 ```bash
 npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
+corepack enable
 pnpm install
 ```
 
@@ -85,6 +87,7 @@ In your local `my-app` directory, open `actions/hello.ts` in your code editor:
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({

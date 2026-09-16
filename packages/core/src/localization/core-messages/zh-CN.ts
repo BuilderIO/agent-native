@@ -66,9 +66,19 @@ const messages: AgentChatTranslation = {
   "onboarding.builderProvisioningDescription":
     "正在创建或重新使用您的 Builder.io 账户，通常需要几秒钟。",
   "onboarding.builderConnectionDescription": "在新窗口中一键完成连接。",
+  "onboarding.builderReadyWithCodeChanges": "AI 积分和云端代码更改已准备就绪。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI 积分已准备就绪。云端代码编辑需要在后台代理设置中配置 Builder 项目。",
+  "onboarding.openBackgroundAgentSettings": "打开后台代理设置",
   "onboarding.capability.llm.keySummary": "连接 AI 提供商或本地模型",
   "onboarding.capability.fileStorage.keySummary":
     "Builder 存储或兼容 S3 的存储桶",
+  "onboarding.fileStorage.title": "选择文件存储",
+  "onboarding.fileStorage.description":
+    "选择 Builder 托管存储，或为自己的兼容 S3 存储桶使用自定义存储密钥。",
+  "onboarding.fileStorage.custom": "使用自定义存储密钥",
+  "onboarding.fileStorage.customDescription":
+    "配置带有稳定公共 URL 的兼容 S3 存储桶。",
   "onboarding.capability.voiceInput.label": "语音输入",
   "onboarding.capability.voiceInput.keySummary": "浏览器语音识别或语音转文字",
   "onboarding.capability.voiceInput.why":

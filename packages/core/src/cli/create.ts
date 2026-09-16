@@ -4144,12 +4144,15 @@ function renameGitignore(dir: string): void {
   if (!fs.existsSync(src)) return;
   fs.renameSync(src, dst);
   const contents = fs.readFileSync(dst, "utf8");
-  if (!contents.includes("data/*.lock")) {
-    fs.appendFileSync(
-      dst,
-      `${contents.endsWith("\n") ? "" : "\n"}data/*.lock\n`,
-    );
-  }
+  const missingRules = [
+    !contents.includes("data/*.lock") ? "data/*.lock" : null,
+    !contents.includes(".agent-native/") ? ".agent-native/" : null,
+  ].filter((rule): rule is string => Boolean(rule));
+  if (missingRules.length === 0) return;
+  fs.appendFileSync(
+    dst,
+    `${contents.endsWith("\n") ? "" : "\n"}${missingRules.join("\n")}\n`,
+  );
 }
 
 function replacePlaceholders(

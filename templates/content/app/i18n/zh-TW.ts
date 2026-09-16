@@ -345,6 +345,13 @@ const overrides = {
     registryBlockUnreadable: "無法讀取已儲存的區塊來源。",
     blocksFieldRevisionConflict:
       "此 Blocks 欄位已在其他位置變更。你的編輯未儲存；現在顯示的是最新版本。",
+    reconcileConflict: "此頁面已在其他位置變更。你的編輯尚未儲存。",
+    reconcileFailed: "無法合併最新變更。你的編輯尚未儲存。",
+    reconcileSaveFailed: "無法儲存你的編輯。請檢查後再試一次。",
+    reconcileSaving: "正在儲存你的編輯…",
+    reconcileReview: "檢視變更",
+    reconcileReviewStale: "已儲存的版本再次變更。儲存前請先檢視最新文字。",
+    reconcileRefresh: "檢視最新版本",
     couldNotReadLocalSourceFile: "無法讀取本機來源檔案",
     couldNotSaveLocalFile: "無法儲存本機檔案",
     localFileChangedWithUnsavedEdits:
@@ -364,6 +371,9 @@ const overrides = {
     previewDraftSavedToHistory: "你的編輯已儲存到版本記錄",
     previewDraftSavedSeparately: "你的編輯已另存為頁面",
     previewDraftOpenSavedPage: "開啟頁面",
+    previewDraftMoreOptions: "更多選項",
+    previewDraftViewFullVersions: "檢視完整版本",
+    previewDraftShowChanges: "顯示變更",
     previewDraftConflict: "此草稿與較新的頁面版本衝突，因此未還原。",
     restorePreviewDraft: "還原草稿",
     pageSaveBeforeNavigationFailed:

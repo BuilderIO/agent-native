@@ -56,6 +56,15 @@
       "rules": {}
     },
     {
+      "files": [
+        "templates/design/app/**/*.ts",
+        "templates/design/app/**/*.tsx"
+      ],
+      "rules": {
+        "eslint/no-constant-condition": "error"
+      }
+    },
+    {
       "files": ["packages/recap-cli/src/**/*.ts"],
       "rules": {
         "typescript/no-useless-default-assignment": "off"

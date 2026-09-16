@@ -217,4 +217,36 @@ describe("linked component history reservations", () => {
     expect(refs.order.current).toEqual(["file-content"]);
     expect(refs.after.current.has(reserved)).toBe(false);
   });
+
+  it("keeps the pre-action selection for Undo and records the replayed selection for Redo", () => {
+    const before =
+      '<main data-agent-native-node-id="root"><p data-agent-native-node-id="old"></p></main>';
+    const after =
+      '<main data-agent-native-node-id="root"><div data-agent-native-node-id="wrapper"></div></main>';
+    const beforeSelection: GeometryHistorySelection = {
+      activeFileId: "file-main",
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: [projectedNodeId(before, "file-main", "old")],
+      sourceContentByFileId: { "file-main": before },
+      sourceFileIdByFileId: { "file-main": "file-main" },
+    };
+    const afterSelection: GeometryHistorySelection = {
+      activeFileId: "file-main",
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: [projectedNodeId(after, "file-main", "wrapper")],
+      sourceContentByFileId: { "file-main": after },
+      sourceFileIdByFileId: { "file-main": "file-main" },
+    };
+    const refs = historyRefs();
+    const reservation = reserve(refs, beforeSelection);
+    const entry = refs.stack.current[0]!;
+
+    reservation.commit(
+      [{ fileId: "file-main", before, after }],
+      afterSelection,
+    );
+
+    expect(refs.selections.current[0]).toEqual(beforeSelection);
+    expect(refs.after.current.get(entry)).toEqual(afterSelection);
+  });
 });

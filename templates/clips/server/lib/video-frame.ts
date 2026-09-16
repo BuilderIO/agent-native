@@ -1,17 +1,20 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { resolveFfmpegCommand } from "./video-remux.js";
+
 const FRAME_EXTRACTION_TIMEOUT_MS = 20_000;
+const COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS = 45_000;
 const MAX_CONCURRENT_FRAME_EXTRACTIONS = 2;
+const MAX_CONCURRENT_MEDIA_VALIDATIONS = 1;
+const MEDIA_VALIDATION_QUEUE_TIMEOUT_MS = 20_000;
 const STDERR_LIMIT = 16 * 1024;
-const requireFromThisFile = createRequire(import.meta.url);
-let cachedFfmpegStaticPath: string | null | undefined;
 let activeFrameExtractions = 0;
 const frameExtractionWaiters: Array<() => void> = [];
+let activeMediaValidations = 0;
+const mediaValidationWaiters: Array<() => void> = [];
 
 export type VideoFrameExtractionErrorCode =
   | "NO_VIDEO"
@@ -54,29 +57,6 @@ function mediaExtensionForMimeType(mimeType: string): string {
   }
 }
 
-function ffmpegCommand(): string {
-  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
-  return resolveFfmpegStaticPath() ?? "ffmpeg";
-}
-
-function resolveFfmpegStaticPath(): string | null {
-  if (cachedFfmpegStaticPath !== undefined) {
-    return cachedFfmpegStaticPath;
-  }
-
-  try {
-    const resolved = requireFromThisFile("ffmpeg-static");
-    cachedFfmpegStaticPath =
-      typeof resolved === "string" && resolved && existsSync(resolved)
-        ? resolved
-        : null;
-  } catch {
-    cachedFfmpegStaticPath = null;
-  }
-
-  return cachedFfmpegStaticPath;
-}
-
 function isMissingVideoTrack(stderr: string): boolean {
   return /matches no streams|does not contain any stream|output file #0 does not contain any stream|video: none/i.test(
     stderr,
@@ -104,16 +84,19 @@ function mapFfmpegError(err: unknown): VideoFrameExtractionError {
   );
 }
 
-async function runFfmpeg(args: string[]): Promise<string> {
+async function runFfmpeg(
+  args: string[],
+  timeoutMs = FRAME_EXTRACTION_TIMEOUT_MS,
+): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const child = spawn(ffmpegCommand(), args, {
+    const child = spawn(resolveFfmpegCommand(), args, {
       stdio: ["ignore", "ignore", "pipe"],
     });
     let stderr = "";
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new FfmpegRunError("ffmpeg timed out", stderr));
-    }, FRAME_EXTRACTION_TIMEOUT_MS);
+    }, timeoutMs);
 
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
@@ -154,39 +137,55 @@ function parseDurationMs(stderr: string): number | null {
 export async function probeMediaDurationMs(
   mediaBytes: Uint8Array,
   mimeType: string,
+  options: { requireComplete?: boolean; maxQueueWaitMs?: number } = {},
 ): Promise<number | null> {
   if (mediaBytes.byteLength === 0) return null;
 
-  return withFrameExtractionSlot(async () => {
-    const dir = await mkdtemp(join(tmpdir(), "clips-duration-probe-"));
-    const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
+  const requireComplete = options.requireComplete === true;
 
-    try {
-      await writeFile(inputPath, mediaBytes);
-      let stderr: string;
+  const runInSlot = requireComplete
+    ? (fn: () => Promise<number | null>) =>
+        withMediaValidationSlot(fn, options.maxQueueWaitMs)
+    : withFrameExtractionSlot;
+
+  try {
+    return await runInSlot(async () => {
+      const dir = await mkdtemp(join(tmpdir(), "clips-duration-probe-"));
+      const inputPath = join(
+        dir,
+        `input.${mediaExtensionForMimeType(mimeType)}`,
+      );
+
       try {
-        stderr = await runFfmpeg([
-          "-hide_banner",
-          "-nostdin",
-          "-i",
-          inputPath,
-          "-map",
-          "0:v:0?",
-          "-frames:v",
-          "1",
-          "-f",
-          "null",
-          "-",
-        ]);
-      } catch (error) {
-        if (error instanceof FfmpegRunError) return null;
-        throw error;
+        await writeFile(inputPath, mediaBytes);
+        let stderr: string;
+        try {
+          stderr = await runFfmpeg(
+            [
+              "-hide_banner",
+              ...(requireComplete ? ["-xerror"] : []),
+              "-nostdin",
+              "-i",
+              inputPath,
+              ...(requireComplete
+                ? ["-map", "0:V:0", "-map", "0:a?", "-f", "null", "-"]
+                : ["-map", "0:v:0?", "-frames:v", "1", "-f", "null", "-"]),
+            ],
+            requireComplete ? COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS : undefined,
+          );
+        } catch (error) {
+          if (error instanceof FfmpegRunError) return null;
+          throw error;
+        }
+        return parseDurationMs(stderr);
+      } finally {
+        await rm(dir, { recursive: true, force: true }).catch(() => {});
       }
-      return parseDurationMs(stderr);
-    } finally {
-      await rm(dir, { recursive: true, force: true }).catch(() => {});
-    }
-  });
+    });
+  } catch (error) {
+    if (error instanceof MediaValidationQueueTimeoutError) return null;
+    throw error;
+  }
 }
 
 async function withFrameExtractionSlot<T>(fn: () => Promise<T>): Promise<T> {
@@ -199,6 +198,53 @@ async function withFrameExtractionSlot<T>(fn: () => Promise<T>): Promise<T> {
   } finally {
     activeFrameExtractions = Math.max(0, activeFrameExtractions - 1);
     frameExtractionWaiters.shift()?.();
+  }
+}
+
+class MediaValidationQueueTimeoutError extends Error {
+  constructor() {
+    super("Timed out waiting for media validation capacity.");
+    this.name = "MediaValidationQueueTimeoutError";
+  }
+}
+
+async function withMediaValidationSlot<T>(
+  fn: () => Promise<T>,
+  maxQueueWaitMs = MEDIA_VALIDATION_QUEUE_TIMEOUT_MS,
+): Promise<T> {
+  let slotReserved = false;
+  if (activeMediaValidations >= MAX_CONCURRENT_MEDIA_VALIDATIONS) {
+    const acquired = await new Promise<boolean>((resolve) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout>;
+      const waiter = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(true);
+      };
+      mediaValidationWaiters.push(waiter);
+      timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        const index = mediaValidationWaiters.indexOf(waiter);
+        if (index >= 0) mediaValidationWaiters.splice(index, 1);
+        resolve(false);
+      }, maxQueueWaitMs);
+    });
+    if (!acquired) throw new MediaValidationQueueTimeoutError();
+    slotReserved = true;
+  }
+  if (!slotReserved) activeMediaValidations += 1;
+  try {
+    return await fn();
+  } finally {
+    const waiter = mediaValidationWaiters.shift();
+    if (waiter) {
+      waiter();
+    } else {
+      activeMediaValidations = Math.max(0, activeMediaValidations - 1);
+    }
   }
 }
 

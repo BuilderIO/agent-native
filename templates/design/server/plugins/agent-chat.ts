@@ -108,6 +108,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "rename-screen",
   "swap-component-instance",
   "update-design",
+  "update-breakpoint",
   "update-file",
   "update-screen-source",
 ]);

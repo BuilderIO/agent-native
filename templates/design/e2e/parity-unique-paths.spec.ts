@@ -647,21 +647,27 @@ test.describe.serial("rare-but-real unique paths", () => {
     );
     await page.mouse.up();
     await page.keyboard.up("Shift");
-    await page.waitForTimeout(150);
 
-    const rotation = await page
-      .locator("[data-frame-shell]")
-      .first()
-      .evaluate((el) => {
+    const frameShell = page.locator("[data-frame-shell]").first();
+    const readRotation = () =>
+      frameShell.evaluate((el) => {
         const t = getComputedStyle(el).transform;
         if (!t || t === "none") return 0;
         const m = new DOMMatrix(t);
         return Math.round((Math.atan2(m.b, m.a) * 180) / Math.PI);
       });
+    const rotation = await readRotation();
     expect(
       Math.abs(rotation % 15) < 1 || Math.abs((rotation % 15) - 15) < 1,
       `Shift-constrained rotation should land on a 15-degree increment, got ${rotation} deg`,
     ).toBe(true);
+
+    await page.keyboard.press(`${MOD}+z`);
+    await expect.poll(readRotation, { timeout: 15_000 }).toBe(0);
+    await expect(page.getByText(/Skipped an undo/)).toHaveCount(0);
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect.poll(readRotation, { timeout: 15_000 }).toBe(rotation);
   });
 
   test("arrow keys reorder a flex-row child instead of nudging its x/y position", async ({

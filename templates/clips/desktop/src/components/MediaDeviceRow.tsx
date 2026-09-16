@@ -179,8 +179,8 @@ export function MediaDeviceRow({
           <Tooltip>
             <TooltipTrigger asChild>
               <Switch
-                on={on}
-                onChange={onToggle}
+                checked={on}
+                onCheckedChange={onToggle}
                 label={kind === "camera" ? "Camera" : "Microphone"}
               />
             </TooltipTrigger>
@@ -202,8 +202,8 @@ export function MediaDeviceRow({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Switch
-                  on={!!systemAudio}
-                  onChange={onSystemAudioToggle}
+                  checked={!!systemAudio}
+                  onCheckedChange={onSystemAudioToggle}
                   label="Record system audio"
                 />
               </TooltipTrigger>

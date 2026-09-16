@@ -15,6 +15,7 @@ import { spawnSync } from "node:child_process";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import "../authorization/check-action.js";
 import { Agent } from "undici";
 
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -101,6 +102,8 @@ type CliHandoffLaunchOutcome =
     };
 
 interface CliHandoffLaunchDeps {
+  /** Override the app origin when a verified dev-server discovery supplies it. */
+  baseUrl?: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   spawn?: (
@@ -131,7 +134,7 @@ export function openCliHandoff(
         "Secure browser handoff is disabled by AGENT_NATIVE_NO_OPEN. Remove it and rerun this action.",
     };
   }
-  const baseUrl = resolveCliHandoffBaseUrl(env);
+  const baseUrl = deps.baseUrl ?? resolveCliHandoffBaseUrl(env);
   if (!isValidDevActionHandoffUrl(urlOrPath, baseUrl)) {
     return {
       ok: false,
@@ -452,12 +455,14 @@ export async function tryForwardToDevServer(
   }
   const validHandoffUrl = isValidDevActionHandoffUrl(
     handoffUrl,
-    resolveCliHandoffBaseUrl(process.env),
+    discovery.origin,
   )
     ? handoffUrl
     : undefined;
   assertCliHandoffLaunched(
-    validHandoffUrl ? openCliHandoff(validHandoffUrl) : null,
+    validHandoffUrl
+      ? openCliHandoff(validHandoffUrl, { baseUrl: discovery.origin })
+      : null,
   );
   process.exit(0);
 }

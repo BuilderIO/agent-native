@@ -119,4 +119,8 @@ ID と組織の書き込みは追加のみです。同じメールアドレス�
 - [セキュリティとデータスコープ](/docs/security)
 - [マルチアプリワークスペース](/docs/multi-app-workspace)
 
-OIDC または SAML による企業サインインは、アプリ間の ID フェデレーションとは別の機能です。[管理デプロイガイド](/docs/administered-deployments)で企業向けモデルを確認できます。ブラウザーでの Agent-Native サインインは引き続き削除されています。
+OIDC または SAML による企業サインインは、アプリ間の ID フェデレーションとは別の機能です。[管理デプロイガイド](/docs/administered-deployments)で企業向けモデルを確認できます。`browser.identity-sso` を有効にすると、アプリはサイレントな `prompt=none` を試行し、通常のローカルログインをフォールバックとして残します。[Cross-App Connect の設計](/docs/cross-app-connect-design)を参照してください。
+
+## ブラウザー ID SSO の展開手順
+
+まず `browser.identity-sso` を 1 つのテストメールだけで有効にします。Dispatch にログインし、対象アプリからログアウトして再読み込みし、サイレントプローブを確認します。Hub セッションなしで `login_required` がローカルフォームに戻ることを確認してから対象を広げます。初回有効化では既存セッションを一度取り消す必要がある場合があります。

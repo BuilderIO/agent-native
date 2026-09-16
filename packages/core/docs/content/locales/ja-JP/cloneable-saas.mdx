@@ -63,8 +63,8 @@ branch、tag、または commit を固定します。ref を省略すると、CL
 次に `master` を試します。
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 ワークスペースリポジトリのソースアプリを非対話形式で選ぶには、
@@ -73,8 +73,8 @@ npx @agent-native/core@latest create my-app --template https://github.com/owner/
 囲んでください。
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 ワークスペース外では、`create` は選択したソースアプリをスタンドアロンに
@@ -295,10 +295,10 @@ sign-in、seed data、provider の要件を記載してください。インス�
 新しいアプリをスキャフォールディングするには:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-CLI は最初に **どのように始めますか？** と尋ねます。Chat と Dispatch を含む最小ワークスペースには **Chat** を、複数選択ピッカーを開くには **First-party template(s)** を選択します。Community と Headless はスタンドアロン アプリの選択肢です。ワークスペースのアプリは認証、ブランド、エージェント構成、データベースを共有し、各アプリは必要なすべてのファイルとともに `apps/<name>/` にスキャフォールディングされます。アプリ UI の代わりにブラウザー UI のない automation を作る場合は、`npx @agent-native/core@latest create my-agent --headless` を使用します。
+CLI は最初に **どのように始めますか？** と尋ねます。Chat と Dispatch を含む最小ワークスペースには **Chat** を、複数選択ピッカーを開くには **First-party template(s)** を選択します。Community と Headless はスタンドアロン アプリの選択肢です。ワークスペースのアプリは認証、ブランド、エージェント構成、データベースを共有し、各アプリは必要なすべてのファイルとともに `apps/<name>/` にスキャフォールディングされます。アプリ UI の代わりにブラウザー UI のない automation を作る場合は、`npx --yes @agent-native/core@latest create my-agent --headless` を使用します。
 
 `.env` (`ANTHROPIC_API_KEY` と `DATABASE_URL`) を入力し、`pnpm install` と `pnpm dev` を実行してください。実装が必要なログインやプレースホルダー ルートはありません。
 
