@@ -189,6 +189,63 @@ describe("Alt-drag clone identity handoff", () => {
     }
   });
 
+  it("keeps descendants of a runtime-only clone from claiming copied source IDs", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await installAndListen(
+        page,
+        `<!doctype html><html><body style="margin:0">
+          <button data-agent-native-node-id="main-button" style="position:absolute;left:24px;top:24px;width:100px;height:60px">Play</button>
+        </body></html>`,
+      );
+      await page.evaluate(() => {
+        const clone = document.createElement("div");
+        clone.setAttribute("data-agent-native-node-id", "copy-card");
+        clone.setAttribute("data-agent-native-clone-root", "true");
+        clone.style.cssText =
+          "position:absolute;left:240px;top:120px;width:120px;height:80px";
+        const child = document.createElement("span");
+        child.setAttribute("data-agent-native-node-id", "copy-child");
+        child.textContent = "Copied child";
+        clone.appendChild(child);
+        document.body.appendChild(clone);
+      });
+      const before = (await messages(page)).filter(
+        (message) => message.type === "element-select",
+      ).length;
+      const child = page.locator('[data-agent-native-node-id="copy-child"]');
+      const box = await child.boundingBox();
+      expect(box).not.toBeNull();
+      await page.keyboard.down("Meta");
+      await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.keyboard.up("Meta");
+      await page.waitForFunction(
+        (count) =>
+          (
+            window as Window & { __altDragCloneMessages?: BridgeMessage[] }
+          ).__altDragCloneMessages?.filter(
+            (message: BridgeMessage) => message.type === "element-select",
+          ).length! > count,
+        before,
+      );
+      const selectionMessages = (await messages(page)).filter(
+        (message) => message.type === "element-select",
+      );
+      const selected = selectionMessages[selectionMessages.length - 1]?.payload;
+      expect(selected).toMatchObject({
+        sourceId: "",
+        runtimeSelector: '[data-agent-native-node-id="copy-child"]',
+        runtimeSourceId: "copy-child",
+      });
+      expect(selected?.editCapabilities?.map(({ kind }) => kind)).toEqual([
+        "unsupported",
+      ]);
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("restores durable source identity for a persisted clone root", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

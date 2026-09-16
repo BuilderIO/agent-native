@@ -2179,7 +2179,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       return !!(el && !isDocumentRootElement(el) && getSourceId(el));
     }
     function isRuntimeOnlyClone(el) {
-      return el.getAttribute("data-agent-native-clone-root") === "true" && !isSourceOwned(el);
+      var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
+      return !!cloneRoot && !isSourceOwned(cloneRoot);
     }
     function repeatTemplateOwning(node) {
       var parent = node.parentElement;

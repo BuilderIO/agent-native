@@ -2029,10 +2029,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // document reload stamps its nodes with __anSource, while an optimistic
   // board insertion remains unclaimed until that source round trip completes.
   function isRuntimeOnlyClone(el: Element): boolean {
-    return (
-      el.getAttribute("data-agent-native-clone-root") === "true" &&
-      !isSourceOwned(el)
-    );
+    var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
+    return !!cloneRoot && !isSourceOwned(cloneRoot);
   }
 
   // Alpine inserts x-for and x-if instances as direct siblings of their
