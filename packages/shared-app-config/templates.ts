@@ -246,18 +246,6 @@ export const TEMPLATES: TemplateMeta[] = [
     core: false,
   },
   {
-    name: "macros",
-    label: "Macros",
-    hint: "Internal template - not shown in pickers",
-    icon: "Code",
-    color: "#71717A",
-    colorRgb: "113 113 122",
-    devPort: 8093,
-    prodUrl: "https://macros.agent-native.com",
-    hidden: true,
-    defaultMode: "dev",
-  },
-  {
     name: "factory",
     label: "Factory",
     hint: "Build agent factories with gates you control",

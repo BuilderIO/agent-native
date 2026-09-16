@@ -1,5 +1,10 @@
 import type { H3Event } from "h3";
-import { getQuery, getHeader, readRawBody as h3ReadRawBody } from "h3";
+import {
+  getMethod,
+  getQuery,
+  getHeader,
+  readRawBody as h3ReadRawBody,
+} from "h3";
 
 import { getAppConfig } from "../../app-config/index.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
@@ -91,7 +96,7 @@ export function whatsappAdapter(): PlatformAdapter {
     async handleVerification(
       event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      const method = event.node?.req?.method || "POST";
+      const method = getMethod(event);
 
       // For POST flows, pre-cache the raw body so verifyWebhook (HMAC) and
       // parseIncomingMessage don't both try to consume the request body

@@ -631,6 +631,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} linhas",
   "errorMessages.agentConnection":
     "A conexão do agente foi interrompida. Verifique sua conexão e tente novamente.",
+  "errorMessages.attachmentPasswordProtected":
+    "Este PDF está protegido por senha e não pode ser lido. Remova a proteção por senha ou cole o texto relevante e tente novamente.",
   "errorMessages.builderAuthentication":
     "O Builder rejeitou as credenciais conectadas. Reconecte Builder.io em Configurações e tente novamente.",
   "errorMessages.builderModelUnauthorized":

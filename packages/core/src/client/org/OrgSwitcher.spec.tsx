@@ -4,8 +4,6 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { OrgSwitcherAppLink } from "./workspace-app-links.js";
-
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   beginSignOut: vi.fn(),
@@ -14,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   useOrg: vi.fn(),
   useSession: vi.fn(),
   useDemoModeStatus: vi.fn(),
-  appLinks: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({
@@ -61,20 +58,10 @@ vi.mock("../i18n.js", () => ({
       "contextXray.provenance.tools": "Tools",
       "settings.profileMenuItem": "Profile",
       "settings.profileTitle": "Account",
-      "settings.workspaceTitle": "Workspace",
     };
     return messages[key] ?? options?.defaultValue ?? key;
   },
 }));
-
-vi.mock("./workspace-app-links.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("./workspace-app-links.js")>();
-  return {
-    ...actual,
-    useOrgSwitcherAppLinks: () => mocks.appLinks(),
-  };
-});
 
 import { OrgSwitcher } from "./OrgSwitcher.js";
 
@@ -91,19 +78,11 @@ describe("OrgSwitcher", () => {
     mocks.useSession.mockReset();
     mocks.useDemoModeStatus.mockReset();
     mocks.navigate.mockReset();
-    mocks.appLinks.mockReset();
     mocks.useSession.mockReturnValue({ session: null, isLoading: false });
     mocks.useDemoModeStatus.mockReturnValue({
       enabled: false,
       forced: false,
       isLoading: false,
-    });
-    mocks.appLinks.mockReturnValue({
-      apps: [],
-      dispatchAllAppsHref: "/dispatch/apps",
-      dispatchHref: "/dispatch",
-      isLoading: false,
-      isWorkspace: false,
     });
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -189,7 +168,7 @@ describe("OrgSwitcher", () => {
     ).toContain("Brent's workspace");
   });
 
-  it("renders app utility links in the workspace menu", () => {
+  it("renders app utility links in the account menu", () => {
     mocks.useOrg.mockReturnValue({
       data: {
         email: "owner@example.com",
@@ -243,7 +222,7 @@ describe("OrgSwitcher", () => {
     expect(desktopLink?.getAttribute("href")).toBe("/download");
   });
 
-  it("groups workspace menu actions by purpose", () => {
+  it("keeps account menu actions grouped by purpose", () => {
     mocks.useOrg.mockReturnValue({
       data: {
         email: "owner@example.com",
@@ -277,12 +256,7 @@ describe("OrgSwitcher", () => {
       .filter((element) => element.className.includes("uppercase"))
       .map((element) => element.textContent?.trim())
       .filter((label): label is string => Boolean(label));
-    expect(sectionLabels).toEqual([
-      "Organizations",
-      "Workspace",
-      "Account",
-      "Tools",
-    ]);
+    expect(sectionLabels).toEqual(["Organizations", "Account", "Tools"]);
 
     const menuButtons = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button"),
@@ -295,6 +269,31 @@ describe("OrgSwitcher", () => {
     expect(actionOrder[0]).toBeGreaterThanOrEqual(0);
     expect(actionOrder[1]).toBeGreaterThan(actionOrder[0]);
     expect(actionOrder[2]).toBeGreaterThan(actionOrder[1]);
+  });
+
+  it("keeps workspace resources and agent management in Settings", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "owner" }],
+        domainMatches: [],
+        pendingInvitations: [],
+        role: "owner",
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+
+    expect(document.body.textContent).not.toContain("Workspace");
+    expect(document.body.textContent).not.toContain("Apps");
+    expect(document.body.textContent).not.toContain("Manage agent");
+    expect(document.body.textContent).toContain("Profile");
   });
 
   it("makes demo mode visible and removes the redacted email from sign out", () => {
@@ -477,321 +476,5 @@ describe("OrgSwitcher", () => {
         value: originalLocation,
       });
     }
-  });
-
-  it("keeps Dispatch flat and shows descriptions in the apps submenu", () => {
-    const apps: OrgSwitcherAppLink[] = [
-      {
-        id: "dispatch",
-        name: "Dispatch",
-        href: "/dispatch/overview",
-        description: "Routes work across the workspace",
-        isDispatch: true,
-        status: "ready",
-      },
-      {
-        id: "analytics",
-        name: "Analytics",
-        href: "/analytics",
-        description: "Connect data sources and prompt for charts",
-        isDispatch: false,
-        status: "ready",
-      },
-      ...Array.from({ length: 8 }, (_, index) => ({
-        id: `app-${index}`,
-        name: `App ${index}`,
-        href: `/app-${index}`,
-        isDispatch: false,
-        status: "ready" as const,
-      })),
-    ];
-    mocks.appLinks.mockReturnValue({
-      apps,
-      dispatchAllAppsHref: "/dispatch/apps",
-      dispatchHref: "/dispatch/overview",
-      isLoading: false,
-      isWorkspace: false,
-    });
-    mocks.useOrg.mockReturnValue({
-      data: {
-        email: "owner@example.com",
-        orgId: "org-1",
-        orgName: "Acme",
-        role: "owner",
-        orgs: [{ orgId: "org-1", orgName: "Acme" }],
-        pendingInvitations: [],
-        domainMatches: [],
-      },
-      isLoading: false,
-    });
-
-    render(<OrgSwitcher />);
-    act(() => {
-      container.querySelector<HTMLButtonElement>("button")!.click();
-    });
-    const appsButton = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.trim().startsWith("Apps"));
-    expect(appsButton).not.toBeNull();
-
-    act(() => {
-      appsButton!.click();
-    });
-
-    expect(document.body.textContent).not.toContain("Default apps");
-    expect(document.body.textContent).not.toContain(
-      "Dispatch is the home base.",
-    );
-    expect(document.body.textContent).toContain(
-      "Routes work across the workspace",
-    );
-    expect(document.body.textContent).toContain(
-      "Connect data sources and prompt for charts",
-    );
-
-    const dispatchLink = Array.from(
-      document.body.querySelectorAll<HTMLAnchorElement>("a"),
-    ).find((link) => link.textContent?.includes("Dispatch"));
-    expect(dispatchLink?.className).not.toContain("border");
-    expect(dispatchLink?.querySelector("span")?.className).not.toContain(
-      "bg-primary",
-    );
-    expect(document.body.textContent).toContain("View 1 more in Dispatch");
-  });
-
-  it("omits the current Dispatch app from its app submenu", () => {
-    const apps: OrgSwitcherAppLink[] = [
-      {
-        id: "dispatch",
-        name: "Dispatch",
-        href: "/dispatch/overview",
-        isDispatch: true,
-        status: "ready",
-      },
-      {
-        id: "analytics",
-        name: "Analytics",
-        href: "/analytics",
-        isDispatch: false,
-        status: "ready",
-      },
-    ];
-    mocks.appLinks.mockReturnValue({
-      apps,
-      dispatchAllAppsHref: "/dispatch/apps",
-      dispatchHref: "/dispatch/overview",
-      isLoading: false,
-      isWorkspace: false,
-    });
-    mocks.useOrg.mockReturnValue({
-      data: {
-        email: "owner@example.com",
-        orgId: "org-1",
-        orgName: "Acme",
-        role: "owner",
-        orgs: [{ orgId: "org-1", orgName: "Acme" }],
-        pendingInvitations: [],
-        domainMatches: [],
-      },
-      isLoading: false,
-    });
-
-    render(<OrgSwitcher currentAppId="dispatch" />);
-    act(() => {
-      container.querySelector<HTMLButtonElement>("button")!.click();
-    });
-    const appsButton = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.trim().startsWith("Apps"));
-    expect(appsButton).not.toBeNull();
-
-    act(() => {
-      appsButton!.click();
-    });
-
-    expect(
-      document.body.querySelector<HTMLAnchorElement>(
-        'a[href="/dispatch/overview"]',
-      ),
-    ).toBeNull();
-    expect(
-      document.body.querySelector<HTMLAnchorElement>('a[href="/analytics"]'),
-    ).not.toBeNull();
-  });
-
-  it.each(["owner", "admin", "member"] as const)(
-    "shows Dispatch to organization %s members",
-    (role) => {
-      mocks.appLinks.mockReturnValue({
-        apps: [
-          {
-            id: "dispatch",
-            name: "Dispatch",
-            href: "/dispatch/overview",
-            isDispatch: true,
-            status: "ready",
-          },
-          {
-            id: "analytics",
-            name: "Analytics",
-            href: "/analytics",
-            isDispatch: false,
-            status: "ready",
-          },
-        ],
-        dispatchAllAppsHref: "/dispatch/apps",
-        dispatchHref: "/dispatch/overview",
-        isLoading: false,
-        isWorkspace: false,
-      });
-      mocks.useOrg.mockReturnValue({
-        data: {
-          email: `${role}@example.com`,
-          orgId: "org-1",
-          orgName: "Acme",
-          role,
-          orgs: [{ orgId: "org-1", orgName: "Acme", role }],
-          pendingInvitations: [],
-          domainMatches: [],
-        },
-        isLoading: false,
-      });
-
-      render(<OrgSwitcher />);
-      act(() => {
-        container.querySelector<HTMLButtonElement>("button")!.click();
-      });
-      const appsButton = Array.from(
-        document.body.querySelectorAll<HTMLButtonElement>("button"),
-      ).find((button) => button.textContent?.trim().startsWith("Apps"));
-      expect(appsButton).not.toBeNull();
-
-      act(() => {
-        appsButton!.click();
-      });
-
-      expect(
-        document.body.querySelector<HTMLAnchorElement>(
-          'a[href="/dispatch/overview"]',
-        ),
-      ).not.toBeNull();
-    },
-  );
-
-  it("does not synthesize Dispatch after an org registry revokes access", () => {
-    mocks.appLinks.mockReturnValue({
-      apps: [
-        {
-          id: "analytics",
-          name: "Analytics",
-          href: "/analytics",
-          isDispatch: false,
-          status: "ready",
-        },
-      ],
-      dispatchAllAppsHref: "/dispatch/apps",
-      dispatchHref: "/dispatch/overview",
-      isLoading: false,
-      isWorkspace: true,
-    });
-    mocks.useOrg.mockReturnValue({
-      data: {
-        email: "member@example.com",
-        orgId: "org-1",
-        orgName: "Acme",
-        role: "member",
-        orgs: [{ orgId: "org-1", orgName: "Acme", role: "member" }],
-        pendingInvitations: [],
-        domainMatches: [],
-      },
-      isLoading: false,
-    });
-
-    render(<OrgSwitcher />);
-    act(() => {
-      container.querySelector<HTMLButtonElement>("button")!.click();
-    });
-    const appsButton = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.trim().startsWith("Apps"));
-    expect(appsButton).not.toBeNull();
-
-    act(() => {
-      appsButton!.click();
-    });
-
-    expect(
-      document.body.querySelector<HTMLAnchorElement>(
-        'a[href="/dispatch/overview"]',
-      ),
-    ).toBeNull();
-    expect(document.body.textContent).not.toContain("more in Dispatch");
-  });
-
-  it("shows Dispatch and its all-apps link to organization members", () => {
-    mocks.appLinks.mockReturnValue({
-      apps: [
-        {
-          id: "dispatch",
-          name: "Dispatch",
-          href: "/dispatch/overview",
-          isDispatch: true,
-          status: "ready",
-        },
-        {
-          id: "analytics",
-          name: "Analytics",
-          href: "/analytics",
-          isDispatch: false,
-          status: "ready",
-        },
-        ...Array.from({ length: 10 }, (_, index) => ({
-          id: `app-${index}`,
-          name: `App ${index}`,
-          href: `/app-${index}`,
-          isDispatch: false,
-          status: "ready" as const,
-        })),
-      ],
-      dispatchAllAppsHref: "/dispatch/apps",
-      dispatchHref: "/dispatch/overview",
-      isLoading: false,
-      isWorkspace: false,
-    });
-    mocks.useOrg.mockReturnValue({
-      data: {
-        email: "member@example.com",
-        orgId: "org-1",
-        orgName: "Acme",
-        role: "member",
-        orgs: [{ orgId: "org-1", orgName: "Acme", role: "member" }],
-        pendingInvitations: [],
-        domainMatches: [],
-      },
-      isLoading: false,
-    });
-
-    render(<OrgSwitcher />);
-    act(() => {
-      container.querySelector<HTMLButtonElement>("button")!.click();
-    });
-    const appsButton = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.trim().startsWith("Apps"));
-    expect(appsButton).not.toBeNull();
-
-    act(() => {
-      appsButton!.click();
-    });
-
-    expect(
-      document.body.querySelector<HTMLAnchorElement>(
-        'a[href="/dispatch/overview"]',
-      ),
-    ).not.toBeNull();
-    expect(
-      document.body.querySelector<HTMLAnchorElement>('a[href="/analytics"]'),
-    ).not.toBeNull();
-    expect(document.body.textContent).toContain("more in Dispatch");
   });
 });

@@ -402,6 +402,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "توقف الوكيل قبل الانتهاء",
   "errorMessages.agentConnection":
     "انقطع اتصال الوكيل. تحقّق من اتصالك وأعد المحاولة.",
+  "errorMessages.attachmentPasswordProtected":
+    "ملف PDF هذا محمي بكلمة مرور، لذا لا يمكن قراءته. أزل الحماية بكلمة المرور أو الصق النص المطلوب، ثم أعد المحاولة.",
   "errorMessages.builderAuthentication":
     "رفض Builder بيانات الاعتماد المتصلة. أعد الاتصال بـ Builder.io من الإعدادات، ثم أعد المحاولة.",
   "errorMessages.builderModelUnauthorized":

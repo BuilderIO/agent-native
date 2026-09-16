@@ -17,7 +17,9 @@ import {
   createBuilderProject,
   getBuilderBranchProjectId,
   getRequestContext,
+  inferWorkspaceAppRootHomePath,
   isIntegrationCallerRequest,
+  readConfiguredWorkspaceAppHomePath,
   resolveAppRuntimeUrl,
   resolveVercelDeploymentProtectionHeaders,
   runBuilderAgent,
@@ -1794,40 +1796,57 @@ function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
   return null;
 }
 
-function readWorkspaceAppsFromFilesystem(
+async function readWorkspaceAppsFromFilesystem(
   workspaceRoot: string,
-): WorkspaceAppSummary[] | null {
+): Promise<WorkspaceAppSummary[] | null> {
   const appsDir = path.join(workspaceRoot, "apps");
   if (!fs.existsSync(appsDir)) return null;
 
-  const apps = fs
+  const apps: WorkspaceAppSummary[] = [];
+  for (const entry of fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-    .map((entry): WorkspaceAppSummary | null => {
-      const appDir = path.join(appsDir, entry.name);
-      const pkg = readJson(path.join(appDir, "package.json"));
-      if (!pkg) return null;
-      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-      const metadata = workspaceAppMetadataFromRecord(pkg);
-      return {
-        id: entry.name,
-        name: pkg.displayName || titleCase(entry.name),
-        description: pkg.description || "",
-        path: `/${entry.name}`,
-        homePath: "/home",
-        url: workspaceAppUrl(`/${entry.name}`),
-        isDispatch: entry.name === "dispatch",
-        audience:
-          workspaceAppAudienceFromPackageJson(pkg) ??
-          DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: routeAccess.publicPaths,
-        protectedPaths: routeAccess.protectedPaths,
-        status: "ready",
-        ...metadata,
-      } satisfies WorkspaceAppSummary;
-    })
-    .filter((app): app is WorkspaceAppSummary => !!app)
-    .sort(sortWorkspaceApps);
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))) {
+    const appDir = path.join(appsDir, entry.name);
+    const pkg = readJson(path.join(appDir, "package.json"));
+    if (!pkg) continue;
+    const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    const metadata = workspaceAppMetadataFromRecord(pkg);
+    let configuredHomePath: string | undefined;
+    let inferredHomePath: "/" | undefined;
+    try {
+      configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+      if (configuredHomePath === undefined) {
+        inferredHomePath = inferWorkspaceAppRootHomePath(appDir);
+      }
+    } catch (error) {
+      // A broken app or route tree must not hide healthy sibling apps from
+      // Dispatch. The next discovery pass can recover after it is fixed.
+      console.warn(
+        `[dispatch] Could not discover workspace app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
+    apps.push({
+      id: entry.name,
+      name: pkg.displayName || titleCase(entry.name),
+      description: pkg.description || "",
+      path: `/${entry.name}`,
+      homePath: normalizeWorkspaceAppHomePath(
+        configuredHomePath ?? inferredHomePath,
+      ),
+      url: workspaceAppUrl(`/${entry.name}`),
+      isDispatch: entry.name === "dispatch",
+      audience:
+        workspaceAppAudienceFromPackageJson(pkg) ??
+        DEFAULT_WORKSPACE_APP_AUDIENCE,
+      publicPaths: routeAccess.publicPaths,
+      protectedPaths: routeAccess.protectedPaths,
+      status: "ready",
+      ...metadata,
+    });
+  }
+  apps.sort(sortWorkspaceApps);
 
   return apps.length ? apps : null;
 }
@@ -1997,7 +2016,7 @@ export async function listWorkspaceApps(
   const workspaceRoot = findWorkspaceRoot();
   const localFilesystemApps =
     workspaceRoot && isLocalAppCreationRuntime()
-      ? readWorkspaceAppsFromFilesystem(workspaceRoot)
+      ? await readWorkspaceAppsFromFilesystem(workspaceRoot)
       : null;
   if (localFilesystemApps) {
     return finalize(localFilesystemApps, true);
@@ -2027,8 +2046,9 @@ export async function listWorkspaceApps(
     ]);
   }
 
-  const apps = readWorkspaceAppsFromFilesystem(workspaceRoot) ?? [];
-  return finalize(apps);
+  const apps = await readWorkspaceAppsFromFilesystem(workspaceRoot);
+  if (apps) return finalize(apps);
+  return finalize([]);
 }
 
 /**
@@ -2602,6 +2622,7 @@ function buildWorkspaceAppPrompt(input: {
       "",
       `Use the workspace app layout: create it under apps/${appId}, mount it at /${appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
       `Important routing rule: from outside the app, link to /${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${appId}/${appId}/review.`,
+      `Home route contract: Dispatch opens the registered app.homePath. If the main screen is app/routes/_index.tsx and there is no app/routes/home.tsx or app/routes/_app.home.tsx, set app.homePath to "/" in server/plugins/config.ts. If the app uses a /home route, keep the default "/home". Never leave the registry pointing at /home when that route does not exist.`,
       "Existing first-party apps are neighbors, not implementation details for this app. If the user prompt mentions Mail, Calendar, Analytics, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, and Analytics already exist at https://mail.agent-native.com, https://calendar.agent-native.com, and https://analytics.agent-native.com.",
       `Do not create wrapper apps or scaffold child apps/routes for Mail, Calendar, Analytics, etc. inside apps/${appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
       "Only create another first-party app when the user explicitly asks for a customized app from that template; otherwise keep using the hosted/shared app so improvements to the base app keep flowing to users.",
