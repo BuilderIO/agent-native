@@ -503,6 +503,7 @@ const messages = {
     hoursShort: "{{count}}小時",
     invalidEmail: "無效電子郵件：{{email}}",
     fieldFormatError: "{{label}} 與預期格式不匹配",
+    fieldPatternUncheckable: "{{label}} 的檢核規則無法檢查，請聯絡主辦人修正。",
     fieldRequired: "{{label}} 為必填項",
     linkDisabled: "{{title}} 停用",
     linkEnabled: "{{title}}已啟用",

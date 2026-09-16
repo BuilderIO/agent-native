@@ -200,6 +200,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/review/actions/resolve-review-thread",
   },
   {
+    name: "update-review-comment-anchor",
+    specifier: "@agent-native/core/review/actions/update-review-comment-anchor",
+  },
+  {
     name: "delete-review-comment",
     specifier: "@agent-native/core/review/actions/delete-review-comment",
   },

@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { constrainCanvasDragDelta } from "@agent-native/toolkit/canvas-interactions";
-import { isBuilderPreviewUrl } from "@shared/builder-preview-url";
 import {
   CANVAS_FIT_PADDING_PX,
   DEFAULT_CANVAS_MAX_ZOOM,
@@ -113,6 +112,10 @@ import {
   resolveStableContentSizeSample,
   type ContentSizeSample,
 } from "./design-canvas/content-size-report";
+import {
+  getDesignCanvasIframeSandbox,
+  useBrowserOrigin,
+} from "./design-canvas/external-preview";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { roundGeo, trace, type TraceArea } from "./design-trace";
@@ -189,27 +192,6 @@ const FRAME_LABEL_HEIGHT = 28;
 const FRAME_HEADER_BUTTON_COMPACT_WIDTH = 260;
 const FRAME_HEADER_BUTTON_RESERVE = 116;
 const FRAME_HEADER_COMPACT_BUTTON_RESERVE = 32;
-// Explicitly recognized Builder/loopback previews need their real origin for
-// origin-scoped session state. Keep arbitrary URL content and same-origin URL
-// fallbacks opaque: combining allow-scripts with allow-same-origin would let
-// them remove their sandbox.
-const URL_SCREEN_IFRAME_SANDBOX = "allow-scripts allow-same-origin";
-const INLINE_SCREEN_IFRAME_SANDBOX = "allow-scripts";
-
-function getScreenIframeSandbox(previewUrl?: string): string {
-  if (!previewUrl || typeof window === "undefined") {
-    return INLINE_SCREEN_IFRAME_SANDBOX;
-  }
-  try {
-    const resolvedUrl = new URL(previewUrl, window.location.href);
-    return resolvedUrl.origin === window.location.origin ||
-      !isBuilderPreviewUrl(resolvedUrl.toString())
-      ? INLINE_SCREEN_IFRAME_SANDBOX
-      : URL_SCREEN_IFRAME_SANDBOX;
-  } catch {
-    return INLINE_SCREEN_IFRAME_SANDBOX;
-  }
-}
 const TRANSFORM_BADGE_OFFSET = 12;
 const TRANSFORM_BADGE_EDGE_PADDING = 8;
 const TRANSFORM_BADGE_HEIGHT = 28;
@@ -663,8 +645,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
   const zoomRef = useRef(zoom);
-  const latestControlledZoomRef = useRef(zoom);
-  latestControlledZoomRef.current = zoom;
+  const previousControlledZoomRef = useRef(zoom);
+  const controlledZoomRevisionRef = useRef(0);
+  if (previousControlledZoomRef.current !== zoom) {
+    previousControlledZoomRef.current = zoom;
+    controlledZoomRevisionRef.current += 1;
+  }
   const lastReportedZoomRef = useRef(zoom);
   const lineupRecenterCameraRef = useRef({
     x: panRef.current.x,
@@ -1220,6 +1206,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // unrelated screen/selection render.
   const lastCameraCommandZoomRef = useRef<number | null>(null);
   const lastCameraCommandControlledZoomRef = useRef<number | null>(null);
+  const pendingCameraCommandZoomRevisionRef = useRef<{
+    nonce: number;
+    revision: number;
+  } | null>(null);
   const pendingChromeSettleRef = useRef(false);
   const chromeSettleTimerRef = useRef<number | null>(null);
   const [chromeSettling, setChromeSettling] = useState(false);
@@ -8347,8 +8337,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // settled wheel/pinch gesture uses — one `applyViewToDom` + one
   // `scheduleViewCommit`, not a fresh render-per-frame loop.
   useEffect(() => {
-    if (!cameraCommand) return;
+    if (!cameraCommand) {
+      pendingCameraCommandZoomRevisionRef.current = null;
+      return;
+    }
     if (lastCameraCommandNonceRef.current === cameraCommand.nonce) return;
+
+    const pendingCommandRevision =
+      pendingCameraCommandZoomRevisionRef.current?.nonce === cameraCommand.nonce
+        ? pendingCameraCommandZoomRevisionRef.current.revision
+        : controlledZoomRevisionRef.current;
+    pendingCameraCommandZoomRevisionRef.current = {
+      nonce: cameraCommand.nonce,
+      revision: pendingCommandRevision,
+    };
 
     let cancelled = false;
     let retryFrame: number | null = null;
@@ -8369,8 +8371,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // the overview surface to become measurable, that newer action owns the
       // camera. Acknowledge the stale fit without applying it or scheduling a
       // delayed commit that could overwrite the user's zoom.
-      if (latestControlledZoomRef.current !== zoom) {
+      if (controlledZoomRevisionRef.current !== pendingCommandRevision) {
         lastCameraCommandNonceRef.current = cameraCommand.nonce;
+        pendingCameraCommandZoomRevisionRef.current = null;
         resizeObserver?.disconnect();
         return true;
       }
@@ -8401,8 +8404,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       camera.x += chromeInsetLeft;
       zoomRef.current = camera.zoom;
       lastCameraCommandZoomRef.current = camera.zoom;
-      lastCameraCommandControlledZoomRef.current =
-        latestControlledZoomRef.current;
+      lastCameraCommandControlledZoomRef.current = zoom;
       panRef.current = { x: camera.x, y: camera.y };
       applyViewToDom();
       scheduleViewCommit();
@@ -8411,6 +8413,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // command during the brief zero-size overview remount caused by active
       // screen URL synchronization.
       lastCameraCommandNonceRef.current = cameraCommand.nonce;
+      pendingCameraCommandZoomRevisionRef.current = null;
       resizeObserver?.disconnect();
       return true;
     };
@@ -11538,8 +11541,10 @@ const Screen = memo(function Screen({
   onEditBreakpoint,
 }: ScreenProps) {
   const t = useT();
+  const browserOrigin = useBrowserOrigin();
   const display = screenDisplayName(screen, metadata);
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
+  const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const previewViewport = getScreenPreviewViewport(metadata, geometry);
   const suppressNextClick = useRef(false);
   // Overview viewport culling (PF22): mounting only. Unmounting a culled screen
@@ -11958,7 +11963,8 @@ const Screen = memo(function Screen({
               </div>
             ))
           ) : (
-            (screenContent ?? (
+            (screenContent ??
+            (externalPreviewPendingOrigin ? null : (
               <iframe
                 {...{
                   [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
@@ -11968,7 +11974,12 @@ const Screen = memo(function Screen({
                 data-screen-iframe-id={screen.id}
                 src={previewUrl}
                 srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                sandbox={getScreenIframeSandbox(previewUrl)}
+                sandbox={getDesignCanvasIframeSandbox({
+                  externalPreview: Boolean(previewUrl),
+                  readOnly: true,
+                  previewUrl,
+                  parentOrigin: browserOrigin ?? undefined,
+                })}
                 // Visible includes the generous overscan band, so eager load
                 // here prewarms the document before it crosses the raw
                 // viewport edge. Warm hidden iframes are already loaded.
@@ -11993,7 +12004,7 @@ const Screen = memo(function Screen({
                 }}
                 title={screen.filename}
               />
-            ))
+            )))
           )}
           {layoutGridBoardSize > 0 ? (
             <span
@@ -12346,6 +12357,8 @@ function BreakpointPreviewRow({
   canEdit?: boolean;
 }) {
   const t = useT();
+  const browserOrigin = useBrowserOrigin();
+  const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const frameActionLabel = t("designEditor.modes.interact");
   const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
@@ -12732,7 +12745,7 @@ function BreakpointPreviewRow({
                   </div>
                 ) : editableContent ? (
                   editableContent
-                ) : (
+                ) : externalPreviewPendingOrigin ? null : (
                   <iframe
                     // Distinct id per breakpoint sub-frame — the primary iframe
                     // above uses the bare screen id, so without a suffix here
@@ -12754,7 +12767,12 @@ function BreakpointPreviewRow({
                     }}
                     src={previewUrl}
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                    sandbox={getScreenIframeSandbox(previewUrl)}
+                    sandbox={getDesignCanvasIframeSandbox({
+                      externalPreview: Boolean(previewUrl),
+                      readOnly: true,
+                      previewUrl,
+                      parentOrigin: browserOrigin ?? undefined,
+                    })}
                     onLoad={() => {
                       getBootStartCallback?.(
                         screen.id,

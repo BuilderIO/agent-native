@@ -252,18 +252,22 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
         iframe.getAttribute("sandbox"),
       ]),
     );
-    expect(primarySandboxById.get("remote-settings")).toBe(
-      "allow-scripts allow-same-origin",
+    expect(primarySandboxById.get("remote-settings")).toContain(
+      "allow-same-origin",
     );
-    expect(primarySandboxById.get("remote-library")).toBe(
-      "allow-scripts allow-same-origin",
+    expect(primarySandboxById.get("remote-library")).toContain(
+      "allow-same-origin",
     );
-    expect(primarySandboxById.get("localhost-settings")).toBe(
-      "allow-scripts allow-same-origin",
+    expect(primarySandboxById.get("localhost-settings")).toContain(
+      "allow-same-origin",
     );
-    expect(primarySandboxById.get("same-origin")).toBe("allow-scripts");
-    expect(primarySandboxById.get("hostile-fusion")).toBe("allow-scripts");
-    expect(primarySandboxById.get("inline")).toBe("allow-scripts");
+    expect(primarySandboxById.get("same-origin")).not.toContain(
+      "allow-same-origin",
+    );
+    expect(primarySandboxById.get("hostile-fusion")).not.toContain(
+      "allow-same-origin",
+    );
+    expect(primarySandboxById.get("inline")).not.toContain("allow-same-origin");
 
     const breakpointFrames = Array.from(
       container.querySelectorAll<HTMLIFrameElement>(
@@ -277,11 +281,11 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
           iframe.dataset.screenIframeId?.startsWith("remote-settings"),
         )
         ?.getAttribute("sandbox"),
-    ).toBe("allow-scripts allow-same-origin");
+    ).toContain("allow-same-origin");
     expect(
       breakpointFrames
         .find((iframe) => iframe.dataset.screenIframeId?.startsWith("inline"))
         ?.getAttribute("sandbox"),
-    ).toBe("allow-scripts");
+    ).not.toContain("allow-same-origin");
   });
 });

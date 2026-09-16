@@ -12,7 +12,7 @@ const rawClient = {
     }
     const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
+    if (/^\s*(select|with)\b/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
     const info = await stmt.run(...args);
@@ -283,6 +283,54 @@ describe("review store", () => {
       "Current section",
       "Legacy reply",
       "Inherited target reply",
+    ]);
+  });
+
+  it("limits newest-first results by thread activity while retaining each root", async () => {
+    const olderRoot = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      body: "Older thread",
+      ownerEmail: "alice@example.com",
+    });
+    const newerRoot = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      body: "Newer thread",
+      ownerEmail: "alice@example.com",
+    });
+    const newerReply = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      threadId: olderRoot.threadId,
+      parentCommentId: olderRoot.id,
+      body: "Latest activity is a reply on the older thread",
+      ownerEmail: "alice@example.com",
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2020-01-01T00:00:00.000Z", olderRoot.id],
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2025-01-01T00:00:00.000Z", newerRoot.id],
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2030-01-01T00:00:00.000Z", newerReply.id],
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "design",
+      resourceId: "d1",
+      scope: { userEmail: "alice@example.com" },
+      newestFirst: true,
+      limit: 1,
+    });
+
+    expect(comments.map((comment) => comment.id)).toEqual([
+      olderRoot.id,
+      newerReply.id,
     ]);
   });
 

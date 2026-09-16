@@ -9,6 +9,7 @@ export {
 export {
   ReviewThreadPanel,
   buildReviewThreads,
+  isTrustedReviewAttachmentUrl,
   type ReviewThread,
   type ReviewCommentCapability,
   type ReviewCommentFilter,

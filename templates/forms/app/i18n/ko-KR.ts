@@ -345,6 +345,10 @@ const messages = {
     responseSubmitted: "응답이 제출됨",
     noFields: "이 양식에는 아직 필드가 없습니다.",
     failedSubmit: "양식을 제출하지 못했습니다",
+    uncheckablePattern:
+      "이 양식의 {label} 규칙을 확인할 수 없습니다. 양식 소유자에게 수정을 요청하세요.",
+    patternTooLong:
+      "{label} 값이 너무 길어 이 양식의 규칙을 확인할 수 없습니다.",
   },
   responseInsights: {
     unavailable: "인사이트를 사용할 수 없음",

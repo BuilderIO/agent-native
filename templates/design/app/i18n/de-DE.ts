@@ -123,6 +123,18 @@ const messages = {
     presentComments: "Kommentare",
     presentCommentMode: "Kommentarmodus",
     closeComments: "Kommentare schließen",
+    yours: "Deine",
+    unread: "Ungelesen",
+    confirmDeleteTitle: "Kommentar löschen?",
+    confirmDeleteDescription:
+      "Der Kommentar wird aus dem Review-Thread entfernt.",
+    cancelDelete: "Abbrechen",
+    markedUnread: "Als ungelesen markiert",
+    markUnreadFailed: "Konnte nicht als ungelesen markiert werden",
+    attachImage: "Bild anhängen",
+    searching: "Suche…",
+    reactionFailed: "Reaktion konnte nicht aktualisiert werden",
+    moveFailed: "Kommentar konnte nicht verschoben werden",
     status: {
       draft: "Entwurf",
       in_review: "In Prüfung",

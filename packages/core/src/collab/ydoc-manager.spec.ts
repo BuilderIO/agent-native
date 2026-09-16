@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storageMocks = vi.hoisted(() => ({
   loadYDocRecord: vi.fn(),
-  loadYDocState: vi.fn(),
+  loadYDocRecordWithClient: vi.fn(),
   loadYDocVersion: vi.fn(),
   saveYDocState: vi.fn(),
   trySaveYDocState: vi.fn(),
@@ -28,7 +28,6 @@ describe("ydoc-manager", () => {
     storageMocks.saveYDocState.mockReset();
     storageMocks.trySaveYDocState.mockReset();
     storageMocks.trySaveYDocStateWithClient.mockReset();
-    storageMocks.loadYDocState.mockReset();
     storageMocks.loadYDocVersion.mockReset();
     emitterMocks.emitCollabUpdate.mockReset();
   });
