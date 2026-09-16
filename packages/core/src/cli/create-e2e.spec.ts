@@ -1108,6 +1108,11 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
           encoding: "utf-8",
         })
         .replaceAll("\\", "/");
+      expect(workspaceYaml).toContain("minimumReleaseAge: 1440");
+      expect(workspaceYaml).toContain('- "@modelcontextprotocol/client"');
+      expect(workspaceYaml).toContain(
+        '"@sentry/bundler-plugins": "10.73.0"',
+      );
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
