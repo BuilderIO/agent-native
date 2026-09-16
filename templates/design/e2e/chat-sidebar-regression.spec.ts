@@ -30,25 +30,24 @@ test("Design full-page chat keeps shared tabs, new-chat, and clear controls", as
   ).toBeVisible();
   await page.keyboard.press("Escape");
 
+  const openTabsKey = await page.evaluate((currentDesignId) => {
+    const browserTabId = sessionStorage.getItem("agent-native:browser-tab-id");
+    if (!browserTabId) throw new Error("Expected a browser tab id");
+    return `agent-chat-open-tabs:design:tab:${browserTabId}:scope:design:${currentDesignId}`;
+  }, designId);
   const readOpenTabCount = () =>
-    page.evaluate(() => {
-      const counts = Object.keys(localStorage)
-        .filter((candidate) => candidate.includes("agent-chat-open-tabs"))
-        .map((key) => {
-          try {
-            const value = JSON.parse(localStorage.getItem(key) ?? "[]");
-            return Array.isArray(value) ? value.length : 0;
-          } catch {
-            return 0;
-          }
-        });
-      return Math.max(0, ...counts);
-    });
+    page.evaluate((key) => {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) ?? "[]");
+        return Array.isArray(value) ? value.length : 0;
+      } catch {
+        return 0;
+      }
+    }, openTabsKey);
   const initialOpenTabCount = await readOpenTabCount();
   await newChat.click();
   // Wait for this click's new thread, not merely the initial tab persisted by
-  // mount-time reconciliation. Legacy and browser-tab-scoped keys can coexist,
-  // so read the largest valid list rather than relying on key order.
+  // mount-time reconciliation.
   await expect.poll(readOpenTabCount).toBeGreaterThan(initialOpenTabCount);
   await newChat.click();
   await expect

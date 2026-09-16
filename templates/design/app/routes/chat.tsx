@@ -65,6 +65,7 @@ export default function ChatRoute() {
         defaultMode="chat"
         storageKey={DESIGN_CHAT_STORAGE_KEY}
         scope={scope}
+        isolateHistoryByScope={true}
         threadUrlSync={threadUrlSync}
         browserTabId={getBrowserTabId()}
         showHeader
