@@ -72,10 +72,21 @@ const messages: AgentChatTranslation = {
     "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI クレジットとクラウドコードの変更を利用できます。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI クレジットを利用できます。クラウドコードの編集には、Background Agent 設定で Builder プロジェクトが必要です。",
+  "onboarding.openBackgroundAgentSettings": "Background Agent 設定を開く",
   "onboarding.capability.llm.keySummary":
     "AIプロバイダーまたはローカルモデルに接続",
   "onboarding.capability.fileStorage.keySummary":
     "BuilderストレージまたはS3互換バケット",
+  "onboarding.fileStorage.title": "ファイルストレージを選択",
+  "onboarding.fileStorage.description":
+    "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
+  "onboarding.fileStorage.custom": "カスタムストレージキーを使用",
+  "onboarding.fileStorage.customDescription":
+    "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
   "onboarding.capability.voiceInput.keySummary":
     "ブラウザーの音声認識または音声文字変換",
@@ -407,6 +418,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
     "エージェントとの接続が中断されました。接続を確認して再試行してください。",
+  "errorMessages.attachmentPasswordProtected":
+    "このPDFはパスワードで保護されているため読み取れません。パスワード保護を解除するか、関連するテキストを貼り付けてから再試行してください。",
   "errorMessages.builderAuthentication":
     "Builder が接続済みの認証情報を拒否しました。設定で Builder.io に再接続してから再試行してください。",
   "errorMessages.builderModelUnauthorized":

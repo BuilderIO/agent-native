@@ -301,6 +301,82 @@ describe("syncInboxAccount — incremental sync", () => {
     );
   });
 
+  it("stamps upserts at the start of each Gmail read", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [
+        {
+          messagesAdded: [{ message: { id: "t1-m1", threadId: "t1" } }],
+        },
+      ],
+      historyId: "1005",
+    });
+
+    let batchCalledAt = 0;
+    let releaseBatch!: () => void;
+    const batchReleased = new Promise<void>((resolve) => {
+      releaseBatch = resolve;
+    });
+    mocks.gmailBatchGetThreads.mockImplementationOnce(async () => {
+      batchCalledAt = Date.now();
+      await batchReleased;
+      return [
+        {
+          id: "t1",
+          data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
+        },
+      ];
+    });
+
+    const syncPromise = syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    await vi.waitFor(() => expect(batchCalledAt).toBeGreaterThan(0));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    releaseBatch();
+    await syncPromise;
+
+    const upserted = mocks.upsertInboxThreadRows.mock.calls[0][0];
+    expect(upserted[0].syncedAt).toBeLessThanOrEqual(batchCalledAt);
+  });
+
+  it("fences deletions to the start of each Gmail read", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [
+        {
+          messagesDeleted: [{ message: { id: "t1-m1", threadId: "t1" } }],
+        },
+      ],
+      historyId: "1005",
+    });
+
+    let batchCalledAt = 0;
+    let releaseBatch!: () => void;
+    const batchReleased = new Promise<void>((resolve) => {
+      releaseBatch = resolve;
+    });
+    mocks.gmailBatchGetThreads.mockImplementationOnce(async () => {
+      batchCalledAt = Date.now();
+      await batchReleased;
+      return [{ id: "t1", error: "HTTP 404: not found" }];
+    });
+
+    const syncPromise = syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    await vi.waitFor(() => expect(batchCalledAt).toBeGreaterThan(0));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    releaseBatch();
+    await syncPromise;
+
+    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      "t1",
+      expect.any(Number),
+    );
+    expect(mocks.deleteInboxThreadRow.mock.calls[0][3]).toBeLessThanOrEqual(
+      batchCalledAt,
+    );
+  });
+
   it("walks every history page and only adopts the mailbox historyId once caught up", async () => {
     currentRow = baseRow({ historyId: "1000" });
     mocks.gmailListHistory

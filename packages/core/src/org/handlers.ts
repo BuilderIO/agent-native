@@ -294,6 +294,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     orgId: ctx.orgId,
     orgName: ctx.orgName,
     role: ctx.role,
+    emailConfigured: await isEmailConfigured(),
     access: {
       signup: getAppConfig().access.signup,
       orgCreation: getAppConfig().access.orgCreation,

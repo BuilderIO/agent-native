@@ -24,9 +24,11 @@ Netlify، أضف `nitro: { preset: "netlify" }` إلى خيارات استدعا
 للتطبيق المستقل، ابنِ مخرجات Netlify وانشر الأصول والدوال:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+قبل أول نشر للإنتاج، اضبط `DATABASE_URL` و`BETTER_AUTH_SECRET` ثابتًا في متغيرات بيئة موقع Netlify. لا تعتمد على قاعدة بيانات PGlite المحلية؛ يجب أن يشير `DATABASE_URL` إلى قاعدة PostgreSQL ثابتة يمكن لوظيفة النشر الوصول إليها.
 
 بالنسبة لمساحة عمل، انشر كل تطبيق من موقع Netlify واحد عن طريق تشغيل:
 

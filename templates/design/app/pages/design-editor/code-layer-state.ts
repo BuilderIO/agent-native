@@ -9,6 +9,7 @@ import {
 } from "@shared/code-layer";
 import { parseCssColorExtended } from "@shared/color-utils";
 import { isComponentInstance } from "@shared/component-model";
+import { resolveLayerNameAttribute } from "@shared/layer-name";
 import {
   ELEMENT_PROVENANCE_METHODS,
   type ElementProvenanceFramework,
@@ -1412,9 +1413,11 @@ export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
     return true;
   }
   const layerName =
-    node.dataAttributes["data-agent-native-layer-name"] ??
-    node.dataAttributes["data-layer-name"] ??
-    "";
+    resolveLayerNameAttribute((attribute) => {
+      const value =
+        node.attributes[attribute] ?? node.dataAttributes[attribute];
+      return typeof value === "string" ? value : null;
+    })?.value ?? "";
   const nodeId = node.dataAttributes["data-agent-native-node-id"] ?? "";
   // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
   return (

@@ -28,7 +28,7 @@ import { runLayerMove, type LayerMoveArgs } from "./layer-move";
  */
 const FIXTURE = `<body>
   <div data-agent-native-node-id="panel" style="position:relative;left:20px;top:20px;width:300px;height:200px"></div>
-  <div data-agent-native-node-id="sticker" style="position:absolute;left:500px;top:1000px;width:60px;height:40px"></div>
+  <div data-agent-native-node-id="sticker" data-agent-native-layer-name="Sticker" style="position:absolute;left:500px;top:1000px;width:60px;height:40px"></div>
 </body>`;
 
 const FLOW_FIXTURE = `<body style="margin:0;padding:32px;display:flex;flex-direction:column;gap:24px">
@@ -228,6 +228,17 @@ describe("runLayerMove: positioning when layers change parents", () => {
     expect(stickerMatch, "sticker not found in updated content").not.toBeNull();
     expect(stickerMatch![1]).toContain("left: 480px");
     expect(stickerMatch![1]).toContain("top: 980px");
+
+    const projection = buildCodeLayerProjection(updatedContent!, {
+      source: { kind: "design-file", fileId: "index.html" },
+    });
+    const movedSticker = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "sticker",
+    );
+    expect(movedSticker).toMatchObject({
+      layerName: "Sticker",
+      layerNameAttribute: "data-agent-native-layer-name",
+    });
   });
 
   it("keeps a Layers-moved normal-flow child eligible for Fill in auto layout", () => {

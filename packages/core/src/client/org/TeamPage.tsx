@@ -76,6 +76,7 @@ import {
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
+import { canInviteOrgMembers } from "../../org/permissions.js";
 import type { DomainMatchOrg, OrgRole } from "../../org/types.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
@@ -1001,6 +1002,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
         onRetryMembers={() => void refetchMembers()}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
+        emailConfigured={org.emailConfigured}
         appRoles={appRoles}
         groups={groupsQuery.data ?? []}
         canManageGroups={isOwnerOrAdmin}
@@ -1166,6 +1168,7 @@ export function MembersTableCard({
   onRetryMembers,
   currentUserEmail,
   currentUserRole,
+  emailConfigured,
   appRoles,
   groups,
   canManageGroups,
@@ -1187,6 +1190,7 @@ export function MembersTableCard({
   onRetryMembers: () => void;
   currentUserEmail: string;
   currentUserRole: OrgRole | null;
+  emailConfigured?: boolean;
   appRoles?: AppRolesDescriptor;
   groups: WorkspaceUserGroup[];
   canManageGroups: boolean;
@@ -1206,7 +1210,7 @@ export function MembersTableCard({
   );
   const [bulkActionKey, setBulkActionKey] = useState(0);
   const [bulkAppRoles, setBulkAppRoles] = useState<string[]>([]);
-  const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
+  const canInvite = canInviteOrgMembers(currentUserRole, emailConfigured);
   const updateGroupMembers = useActionMutation(
     "bulk-update-workspace-user-groups",
   );
