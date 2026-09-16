@@ -893,7 +893,16 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     // stopped (and double-fires alongside the stuck banner's own retry). They
     // stay `recoverable: true` so the banner still reads "stopped before
     // finishing".
-    code.startsWith("aborted_")
+    code.startsWith("aborted_") ||
+    // The run's outcome is genuinely UNKNOWN: its row is gone, or it left
+    // 'running' in a state the server has no terminal event for. Both stay
+    // `recoverable: true` so the banner offers a manual Retry, but an
+    // automatic re-POST would assert the turn did not finish — and it may
+    // well have, side effects included. Replaying it would duplicate them.
+    // The user decides, which is exactly what these errors say to do.
+    code === "run_record_missing" ||
+    code === "unknown_run_status" ||
+    code === "run_terminal_lookup_failed"
   ) {
     return false;
   }

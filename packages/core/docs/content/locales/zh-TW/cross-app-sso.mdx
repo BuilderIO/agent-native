@@ -107,4 +107,8 @@ false 仍然表示退出。如果旗標、偏好設定、註冊或資格檢查�
 - [安全性與資料範圍](/docs/security)
 - [多應用程式工作區](/docs/multi-app-workspace)
 
-透過 OIDC 或 SAML 進行企業登入，與應用程式之間的身分聯合不同。[管理式部署指南](/docs/administered-deployments)介紹企業部署模式。瀏覽器中的 Agent-Native 登入仍已移除。
+透過 OIDC 或 SAML 進行企業登入，與應用程式之間的身分聯合不同。[管理式部署指南](/docs/administered-deployments)介紹企業部署模式。啟用 `browser.identity-sso` 後，應用程式會嘗試靜默的 `prompt=none` 檢查，並保留本機登入表單作為備援。請參閱[跨應用程式連線設計](/docs/cross-app-connect-design)。
+
+## 瀏覽器身分 SSO 推出步驟
+
+先只為一個測試電子郵件啟用 `browser.identity-sso`。登入 Dispatch、登出目標應用程式，再重新載入以確認靜默檢查。沒有 hub 工作階段時再次測試，確認 `login_required` 回到本機登入表單後再擴大範圍。首次啟用可能需要一次性撤銷現有工作階段。

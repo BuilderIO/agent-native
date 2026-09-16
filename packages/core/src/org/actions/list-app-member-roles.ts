@@ -17,6 +17,7 @@ export default defineAction({
       appId,
       roles: descriptor.roles,
       permissions: descriptor.permissions ?? {},
+      permissionLabels: descriptor.permissionLabels ?? {},
       assignments: await listAppMemberRoles(appId, caller.orgId),
     };
   },

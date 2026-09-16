@@ -25,9 +25,11 @@ export default defineConfig({
 スタンドアロンアプリでは、Netlify出力をビルドして静的アセットとfunctionsをデプロイします。
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+最初の本番デプロイ前に、Netlify サイトの環境変数へ `DATABASE_URL` と安定した `BETTER_AUTH_SECRET` を設定してください。ローカル開発用の PGlite データベースに依存せず、`DATABASE_URL` はデプロイされた function から到達できる永続 PostgreSQL データベースを指す必要があります。
 
 ワークスペースの場合、次を実行して 1 つの Netlify サイトからすべてのアプリをデプロイします。
 

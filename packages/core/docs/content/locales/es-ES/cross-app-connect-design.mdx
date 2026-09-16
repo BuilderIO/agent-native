@@ -1,0 +1,15 @@
+---
+title: "Cross-App Connect y el marketplace de Agent-Native"
+description: "Dirección para conexión, aprovisionamiento e inicio de sesión entre apps Agent-Native."
+---
+
+# Cross-App Connect y el marketplace de Agent-Native
+
+Esta es la dirección de diseño para conectar una app con un clic. Usa Dispatch como autoridad de identidad y el flujo PKCE existente, sin una cookie wildcard.
+
+- Dispatch sigue siendo la autoridad de identidad; la pertenencia a la organización llega en una assertion firmada.
+- `/_agent-native/open` gestiona los enlaces profundos y el inicio de sesión local es el fallback.
+- El registro dinámico, los metadatos de Client ID, el consentimiento y la revocación son las siguientes etapas.
+- Con `labs.connectApps` activado, `/connect` muestra el catálogo cacheado de `/apps.json` y valida la tarjeta de agente antes del flujo de identidad existente. El registro dinámico y la revocación del hub quedan para la siguiente fase.
+- Esta versión no muestra estado de conexión ni una acción para desconectar; el hub necesita primero un registro de aplicaciones.
+- Consulta [SSO entre aplicaciones](/docs/cross-app-sso).

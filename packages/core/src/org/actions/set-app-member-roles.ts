@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { requireOrgMember } from "../actions.js";
-import { getRegisteredAppRoles, setAppMemberRoles } from "../app-roles.js";
+import {
+  getRegisteredAppRoles,
+  listAppMemberRoles,
+  setAppMemberRoles,
+} from "../app-roles.js";
 import { isOrgMember } from "../membership.js";
 
 export default defineAction({
@@ -13,6 +17,18 @@ export default defineAction({
     email: z.string().email(),
     roles: z.array(z.string()).max(50),
   }),
+  audit: {
+    target: (args, _result, meta) => ({
+      type: "app-member-roles",
+      id: `${args.appId}:${args.email.toLowerCase()}`,
+      ownerEmail: meta.userEmail,
+      visibility: "org",
+    }),
+    summary: (args, result) => {
+      const change = result as { previousRoles?: string[]; roles?: string[] };
+      return `Updated ${args.appId} roles for ${args.email}: [${(change.previousRoles ?? []).join(", ")}] -> [${(change.roles ?? []).join(", ")}]`;
+    },
+  },
   run: async ({ appId, email, roles }, ctx) => {
     const caller = await requireOrgMember(ctx, true);
     const descriptor = getRegisteredAppRoles(appId);
@@ -21,6 +37,10 @@ export default defineAction({
       throw new Error("The role list contains an undeclared role.");
     if (!(await isOrgMember(caller.orgId, email)))
       throw new Error("Target must be a member of the active organization.");
+    const previousRoles =
+      (await listAppMemberRoles(appId, caller.orgId)).find(
+        (assignment) => assignment.email.toLowerCase() === email.toLowerCase(),
+      )?.roles ?? [];
     const assigned = [...new Set(roles)];
     await setAppMemberRoles({
       appId,
@@ -29,6 +49,6 @@ export default defineAction({
       roles: assigned,
       updatedBy: caller.email,
     });
-    return { appId, email, roles: assigned };
+    return { appId, email, roles: assigned, previousRoles };
   },
 });

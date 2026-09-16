@@ -52,9 +52,7 @@ PR Visual Recap 是一个 GitHub Action，它能把每个 pull request 都
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
-    编码代理<br /><small class="diagram-muted"
-      >已配置的后端读取 diff</small
-    >
+    编码代理<br /><small class="diagram-muted">已配置的后端读取 diff</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center">
@@ -63,9 +61,7 @@ PR Visual Recap 是一个 GitHub Action，它能把每个 pull request 都
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
-    无头 Chrome<br /><small class="diagram-muted"
-      >浅色 + 深色截图</small
-    >
+    无头 Chrome<br /><small class="diagram-muted">浅色 + 深色截图</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box">
@@ -75,8 +71,8 @@ PR Visual Recap 是一个 GitHub Action，它能把每个 pull request 都
   </div>
 </div>
 <div class="diagram-foot diagram-muted">
-  另加一个信息性的 <span class="diagram-pill">Visual Recap</span> 检查项
-  &mdash; 不会阻塞、绝不作为必需项。
+  另加一个信息性的 <span class="diagram-pill">Visual Recap</span> 检查项 &mdash;
+  不会阻塞、绝不作为必需项。
 </div>
 ```
 
@@ -199,11 +195,11 @@ PR 的代码树；它只评估工作流逻辑和 GitHub 的 PR 元数据。一�
 通过 `VISUAL_RECAP_AGENT` 仓库变量选择由哪个编码代理来运行该
 skill：
 
-| `VISUAL_RECAP_AGENT` | 编码代理                                 | 所需的 API 密钥        | 所需的变量                                     |
-| --------------------- | ---------------------------------------- | ----------------------- | ----------------------------------------------- |
-| `claude` _（默认）_  | Claude Code CLI                          | `ANTHROPIC_API_KEY`     | —                                                |
-| `codex`               | OpenAI Codex CLI                         | `OPENAI_API_KEY`        | —                                                |
-| `openai-compatible`   | Agent-Native Code + 兼容的服务商         | `VISUAL_RECAP_API_KEY`  | `VISUAL_RECAP_BASE_URL`、`VISUAL_RECAP_MODEL`   |
+| `VISUAL_RECAP_AGENT` | 编码代理                         | 所需的 API 密钥        | 所需的变量                                    |
+| -------------------- | -------------------------------- | ---------------------- | --------------------------------------------- |
+| `claude` _（默认）_  | Claude Code CLI                  | `ANTHROPIC_API_KEY`    | —                                             |
+| `codex`              | OpenAI Codex CLI                 | `OPENAI_API_KEY`       | —                                             |
+| `openai-compatible`  | Agent-Native Code + 兼容的服务商 | `VISUAL_RECAP_API_KEY` | `VISUAL_RECAP_BASE_URL`、`VISUAL_RECAP_MODEL` |
 
 如果没有设置该变量，该 action 会使用 `claude`。
 
@@ -256,10 +252,10 @@ URL 和模型 id。其他 OpenAI 兼容服务商也使用同样这三项设置�
 
 ### 默认后端所需的 secrets
 
-| Secret              | 用途                                                                                        |
-| ------------------- | ------------------------------------------------------------------------------------------- |
+| Secret              | 用途                                                                                          |
+| ------------------- | --------------------------------------------------------------------------------------------- |
 | `PLAN_RECAP_TOKEN`  | 由 `npx @agent-native/core@latest connect` 铸造的可撤销令牌。用于授权发布回顾计划和上传截图。 |
-| `ANTHROPIC_API_KEY` | 默认 Claude Code 后端所使用的 LLM 密钥。                                                     |
+| `ANTHROPIC_API_KEY` | 默认 Claude Code 后端所使用的 LLM 密钥。                                                      |
 
 **团队场景：使用组织服务令牌。** 个人令牌绑定在铸造它的那个人身上——
 如果他们离开组织或撤销了自己的令牌，所有使用该 secret 的仓库就会
@@ -294,17 +290,17 @@ npx @agent-native/recap-cli@latest recap setup
 
 ### 可选项（仅当你更改默认值时才需要）
 
-| Secret / 变量                    | 默认值                                          | 何时需要它                                                                                                                                                                                                             |
-| --------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`                  | —                                                 | Secret。与 `VISUAL_RECAP_AGENT=codex` 一起设置，用于改用 Codex 运行回顾。                                                                                                                                              |
-| `VISUAL_RECAP_API_KEY`            | —                                                 | Secret。与 `VISUAL_RECAP_AGENT=openai-compatible` 一起设置，用于 DeepSeek、Kimi 或其他 OpenAI 兼容服务商。                                                                                                            |
-| `VISUAL_RECAP_AGENT`              | `claude`                                          | 变量。选择编码代理后端（`claude`、`codex` 或 `openai-compatible`）。                                                                                                                                                   |
-| `VISUAL_RECAP_BASE_URL`           | 兼容后端下为必需                                  | 变量。OpenAI 兼容后端的 HTTP(S) 基础 URL；不接受在其中包含凭据。                                                                                                                                                       |
-| `VISUAL_RECAP_MODEL`              | Claude 为 `claude-sonnet-5`；兼容后端下为必需     | 变量。OpenAI 兼容后端所使用的服务商模型 id（该后端下为必需）。对于 Claude，不设置时现在默认使用 `claude-sonnet-5`——可设置以覆盖，例如设为最便宜档位的 `claude-haiku-4-5`。对于 Codex，不设置时使用 Codex CLI 自身的默认值。 |
-| `VISUAL_RECAP_REASONING`          | 各模型自身的默认值                                | 变量。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。适用于 Codex 后端。                                                                                                                              |
-| `VISUAL_RECAP_REQUIRED_LABELS`    | —                                                 | 变量。以逗号分隔的 PR 标签列表。设置后，门禁会跳过回顾，直到 PR 带上列表中至少一个标签，例如 `visual recap`。                                                                                                          |
-| `RECAP_CLI_VERSION`               | `latest`                                          | 变量。固定工作流安装的 `@agent-native/recap-cli` 版本——例如 `1.5.0`。参见 [Version pinning](#version-pinning-copy-variant)。                                                                                          |
-| `PLAN_RECAP_APP_URL`              | `https://plan.agent-native.com`                   | Secret。仅当把 Plans 应用自托管在不同源上时才需要。                                                                                                                                                                     |
+| Secret / 变量                  | 默认值                                        | 何时需要它                                                                                                                                                                                                                  |
+| ------------------------------ | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`               | —                                             | Secret。与 `VISUAL_RECAP_AGENT=codex` 一起设置，用于改用 Codex 运行回顾。                                                                                                                                                   |
+| `VISUAL_RECAP_API_KEY`         | —                                             | Secret。与 `VISUAL_RECAP_AGENT=openai-compatible` 一起设置，用于 DeepSeek、Kimi 或其他 OpenAI 兼容服务商。                                                                                                                  |
+| `VISUAL_RECAP_AGENT`           | `claude`                                      | 变量。选择编码代理后端（`claude`、`codex` 或 `openai-compatible`）。                                                                                                                                                        |
+| `VISUAL_RECAP_BASE_URL`        | 兼容后端下为必需                              | 变量。OpenAI 兼容后端的 HTTP(S) 基础 URL；不接受在其中包含凭据。                                                                                                                                                            |
+| `VISUAL_RECAP_MODEL`           | Claude 为 `claude-sonnet-5`；兼容后端下为必需 | 变量。OpenAI 兼容后端所使用的服务商模型 id（该后端下为必需）。对于 Claude，不设置时现在默认使用 `claude-sonnet-5`——可设置以覆盖，例如设为最便宜档位的 `claude-haiku-4-5`。对于 Codex，不设置时使用 Codex CLI 自身的默认值。 |
+| `VISUAL_RECAP_REASONING`       | 各模型自身的默认值                            | 变量。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。适用于 Codex 后端。                                                                                                                                  |
+| `VISUAL_RECAP_REQUIRED_LABELS` | —                                             | 变量。以逗号分隔的 PR 标签列表。设置后，门禁会跳过回顾，直到 PR 带上列表中至少一个标签，例如 `visual recap`。                                                                                                               |
+| `RECAP_CLI_VERSION`            | `latest`                                      | 变量。固定工作流安装的 `@agent-native/recap-cli` 版本——例如 `1.5.0`。参见 [Version pinning](#version-pinning-copy-variant)。                                                                                                |
+| `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`               | Secret。仅当把 Plans 应用自托管在不同源上时才需要。                                                                                                                                                                         |
 
 该工作流会自动检测该如何调用它的辅助 CLI（在这个 monorepo 内部
 使用本地源码，在其他地方则使用已发布的 `@agent-native/recap-cli`），
@@ -426,14 +422,14 @@ PR 运行时**无法访问仓库 secrets**，工作流找不到 `PLAN_RECAP_TOKE
 
 ### 分支工作流会做什么、不会做什么
 
-| 工作流会做的                                                                                             | 工作流不会做的                                             |
-| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| 在**base 分支引用**处检出**base 仓库** — 只有受信任的代码                                                  | 检出或执行分支中的任何代码                                    |
-| 把分支的 head 拉取为一个远程引用（`git fetch origin pull/<n>/head:refs/recap/fork-head`）——拉取提交是安全的 | 从分支安装依赖包、运行分支脚本，或把分支内容当作代码执行      |
-| 运行 `git diff base...refs/recap/fork-head` — 对两个已拉取对象做纯文本 diff                                | 把这份 diff 用作除 LLM 文本输入之外的任何用途                 |
-| 运行**base 仓库**自身的 visual-recap skill 和代理配置                                                      | 从分支加载任何 skill 或配置                                   |
-| 让 diff 经过与第一方 PR 相同的 secret 扫描步骤（失败关闭）                                                  | 跳过 secret 扫描                                              |
-| 在代理提示词中加入一条明确的提示加固说明，把 diff 内容标记为不可信                                          | 授予代理超出正常回顾代理之外的任何额外权限                     |
+| 工作流会做的                                                                                                | 工作流不会做的                                           |
+| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| 在**base 分支引用**处检出**base 仓库** — 只有受信任的代码                                                   | 检出或执行分支中的任何代码                               |
+| 把分支的 head 拉取为一个远程引用（`git fetch origin pull/<n>/head:refs/recap/fork-head`）——拉取提交是安全的 | 从分支安装依赖包、运行分支脚本，或把分支内容当作代码执行 |
+| 运行 `git diff base...refs/recap/fork-head` — 对两个已拉取对象做纯文本 diff                                 | 把这份 diff 用作除 LLM 文本输入之外的任何用途            |
+| 运行**base 仓库**自身的 visual-recap skill 和代理配置                                                       | 从分支加载任何 skill 或配置                              |
+| 让 diff 经过与第一方 PR 相同的 secret 扫描步骤（失败关闭）                                                  | 跳过 secret 扫描                                         |
+| 在代理提示词中加入一条明确的提示加固说明，把 diff 内容标记为不可信                                          | 授予代理超出正常回顾代理之外的任何额外权限               |
 
 ### 为什么打标签之前必须先审阅 diff
 
@@ -468,14 +464,14 @@ diff 行——意图让回顾代理执行非预期的操作（例如，窃取发
 PR 就永远无法重写受信任回顾任务所加载的工作流、skill 或代理配置，
 从而窃取 secrets：
 
-| 路径模式                                    | 原因                                     |
-| ------------------------------------------- | ----------------------------------------- |
-| `.github/workflows/pr-visual-recap.yml`      | 工作流本身                                |
-| `**/skills/visual-(recap\|plan\|plans)/**`   | 代理所遵循的 visual-recap skill           |
-| `**/.claude/**`                              | 运行器会加载的代理设置                    |
-| `**/CLAUDE.md`                               | 运行器会加载的代理指令                    |
-| `**/AGENTS.md`                               | 运行器会加载的代理指令                    |
-| `**/.mcp.json`                               | 运行器会加载的 MCP 服务器配置             |
+| 路径模式                                   | 原因                            |
+| ------------------------------------------ | ------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | 工作流本身                      |
+| `**/skills/visual-(recap\|plan\|plans)/**` | 代理所遵循的 visual-recap skill |
+| `**/.claude/**`                            | 运行器会加载的代理设置          |
+| `**/CLAUDE.md`                             | 运行器会加载的代理指令          |
+| `**/AGENTS.md`                             | 运行器会加载的代理指令          |
+| `**/.mcp.json`                             | 运行器会加载的 MCP 服务器配置   |
 
 在 `BuilderIO/agent-native` 这个 monorepo 中，该工作流会从受信任的
 base 分支源码运行 recap CLI，而不是从 PR head 的源码运行。这样
@@ -592,12 +588,12 @@ EXAMPLE_API_KEY=placeholder-value
 每个调用方在工作流运行时都会自动获取最新的逻辑，不需要任何本地
 更新。
 
-|                              | 复制版本（默认）              | 可复用版本                          |
-| ---------------------------- | ------------------------------ | -------------------------------------- |
-| 仓库中工作流的大小            | 约 360 行                      | 约 20 行                                |
-| 是否自动获取修复              | 否 — 需要重新运行 `recap setup` | 是                                      |
-| 隔离网络 / 完全可审计         | 是                              | 否                                      |
-| 是否可固定到特定版本          | 只能通过本地编辑                | 是 — 在 `uses:` 中设置 `@v1.2.3`        |
+|                       | 复制版本（默认）                | 可复用版本                       |
+| --------------------- | ------------------------------- | -------------------------------- |
+| 仓库中工作流的大小    | 约 360 行                       | 约 20 行                         |
+| 是否自动获取修复      | 否 — 需要重新运行 `recap setup` | 是                               |
+| 隔离网络 / 完全可审计 | 是                              | 否                               |
+| 是否可固定到特定版本  | 只能通过本地编辑                | 是 — 在 `uses:` 中设置 `@v1.2.3` |
 
 ### 调用方片段
 

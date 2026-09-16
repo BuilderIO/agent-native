@@ -97,6 +97,8 @@ export interface McpOAuthStartParams {
   description: string;
   scope: "user" | "org";
   returnUrl: string;
+  trackingFlow?: "first_run";
+  trackingIntegrationId?: string;
 }
 
 export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
@@ -614,13 +616,19 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     useCase: "repositories, issues, pull requests, code, engineering analytics",
     useCaseKey: "mcpIntegrations.catalog.github.useCase",
     url: "https://api.githubcopilot.com/mcp/",
-    authMode: "oauth",
-    connectionMode: "manual",
-    availability: "provider-setup",
-    verification: "restricted",
+    // GitHub's authorization server (https://github.com/login/oauth) advertises
+    // no registration_endpoint and no Client ID Metadata Documents, so the
+    // Connect button could never mint a client. A personal access token on the
+    // Authorization header is the connection GitHub actually accepts.
+    authMode: "headers",
+    connectionMode: "headers",
+    availability: "ready",
+    verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("github"),
-    docsUrl: "https://github.com/github/github-mcp-server",
+    docsUrl:
+      "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
     setupNoteKey: "mcpIntegrations.catalog.github.setupNote",
+    headerPlaceholder: "Authorization: Bearer <github-token>",
     keywords: ["git", "repositories", "issues", "pull requests", "code"],
   },
   {
@@ -1000,6 +1008,8 @@ export function buildMcpOAuthStartUrl({
   description,
   scope,
   returnUrl,
+  trackingFlow,
+  trackingIntegrationId,
 }: McpOAuthStartParams): string {
   const params = new URLSearchParams({
     name,
@@ -1009,6 +1019,10 @@ export function buildMcpOAuthStartUrl({
     // keep a personal scope off a server that only accepts a workspace one.
     scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
+    ...(trackingFlow ? { tracking_flow: trackingFlow } : {}),
+    ...(trackingIntegrationId
+      ? { tracking_integration_id: trackingIntegrationId }
+      : {}),
   });
   return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
 }

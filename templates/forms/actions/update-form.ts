@@ -33,8 +33,12 @@ function slugify(text: string): string {
 
 export default defineAction({
   description:
-    "Change a form the user asked you to change, including settings.completionMode (message, redirect, message_then_refresh, or refresh) and settings.completionRefreshSeconds, or settings.emailOnNewResponses to email the form owner when new responses arrive. " +
+    "Update an existing form, including settings.completionMode (message, redirect, message_then_refresh, or refresh) and settings.completionRefreshSeconds, or settings.emailOnNewResponses to email the form owner when new responses arrive. " +
     "Only for edits to THAT form. A request describing a different form — another purpose, audience, or set of questions — is a new form: call create-form. A form open in <current-screen> is context, not a target: never reuse its id for a new form request, however recently you created it.",
+  access: {
+    scope: "resource",
+    resource: { type: "form", idFrom: "id", level: "editor" },
+  },
   schema: z.object({
     id: z.string().describe("Form ID (required)"),
     title: z.string().optional().describe("New title"),

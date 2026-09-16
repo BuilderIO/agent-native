@@ -26,7 +26,13 @@ import {
 import { overviewSelectionTargetsElement } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import {
+  dispatchLinkedComponentStructure,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+
 export interface NudgeSelectionArgs {
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
     nextContent: string,
@@ -76,6 +82,7 @@ export interface NudgeSelectionArgs {
 
 export function runNudgeSelection(
   {
+    applyLinkedComponentEdit,
     activeFile,
     applyLocalContentUpdate,
     boardFileId,
@@ -176,6 +183,23 @@ export function runNudgeSelection(
   });
   if (intent.kind === "none") return;
   if (intent.kind === "reorder") {
+    if (
+      activeFile &&
+      dispatchLinkedComponentStructure({
+        content: intent.content,
+        source: { kind: "design-file", fileId: activeFile.id },
+        intents: [
+          {
+            kind: "moveNode",
+            target: { nodeId: intent.targetNodeId },
+            anchor: { nodeId: intent.anchorNodeId },
+            placement: intent.placement,
+          },
+        ],
+        applyLinkedComponentEdit,
+      })
+    )
+      return;
     const patch = applyVisualEdit(
       intent.content,
       {

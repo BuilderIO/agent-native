@@ -76,10 +76,22 @@ const messages: AgentChatTranslation = {
     "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Los créditos de IA y los cambios de código en la nube están listos para usarse.",
+  "onboarding.builderReadyCreditsOnly":
+    "Los créditos de IA están listos para usarse. Las ediciones de código en la nube requieren un proyecto de Builder en la configuración del agente en segundo plano.",
+  "onboarding.openBackgroundAgentSettings":
+    "Abrir la configuración del agente en segundo plano",
   "onboarding.capability.llm.keySummary":
     "Conecta un proveedor de IA o un modelo local",
   "onboarding.capability.fileStorage.keySummary":
     "Almacenamiento de Builder o un bucket compatible con S3",
+  "onboarding.fileStorage.title": "Elige el almacenamiento de archivos",
+  "onboarding.fileStorage.description":
+    "Elige el almacenamiento administrado de Builder o tus propias claves para un bucket compatible con S3.",
+  "onboarding.fileStorage.custom": "Usar claves de almacenamiento propias",
+  "onboarding.fileStorage.customDescription":
+    "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
   "onboarding.capability.voiceInput.keySummary":
     "Reconocimiento de voz del navegador o conversión de voz a texto",
@@ -147,6 +159,21 @@ const messages: AgentChatTranslation = {
   "common.retry": "Reintentar",
   "common.save": "Guardar",
   "agents.hostedAgent": "Agente alojado",
+  "agents.provider": "Proveedor",
+  "agents.providerA2A": "Agente A2A (Foundry, Gemini o personalizado)",
+  "agents.providerAnthropic": "Agentes administrados de Anthropic",
+  "agents.agentId": "ID del agente",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "ID del entorno",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "URL base de la API (opcional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Completa los campos de Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "La conexión se comprueba cuando delegas desde el chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent guardado. Delega en él desde el chat.",
   "agents.cardUrl": "URL de la tarjeta del agente",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Autenticación",
@@ -626,6 +653,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} filas",
   "errorMessages.agentConnection":
     "Se interrumpió la conexión con el agente. Comprueba tu conexión y vuelve a intentarlo.",
+  "errorMessages.attachmentPasswordProtected":
+    "Este PDF está protegido con contraseña y no se puede leer. Quita la protección con contraseña o pega el texto relevante, y vuelve a intentarlo.",
   "errorMessages.builderAuthentication":
     "Builder rechazó las credenciales conectadas. Vuelve a conectar Builder.io en Ajustes e inténtalo de nuevo.",
   "errorMessages.builderModelUnauthorized":

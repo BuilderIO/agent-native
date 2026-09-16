@@ -250,31 +250,23 @@ afterAll(async () => {
 });
 
 describe("update-file browser operation ordering with real PostgreSQL", () => {
-  it("keeps the newer keepalive result when the older request arrives afterward", async () => {
+  it("keeps a newer keepalive result when the older request arrives afterward", async () => {
     const baseHash = sourceContentHash(BASE);
     const newest = "<main>newest unload snapshot</main>";
     const older = "<main>older in-flight snapshot</main>";
 
-    // Hold both independent server instances after they read the same SQL base
-    // but before either can update. Releasing them together exercises the DB
-    // CAS/retry path, not the process-local JavaScript lock.
-    collabReadBarrier.remaining = 2;
-    const newerRequest = save({
+    const newerResult = await save({
       content: newest,
       expectedVersionHash: baseHash,
       operationSource: "tab-a",
       operationRevision: 2,
     });
-    const lateOlderRequest = save({
+    const olderResult = await save({
       content: older,
       expectedVersionHash: baseHash,
       operationSource: "tab-a",
       operationRevision: 1,
     });
-    const [newerResult, olderResult] = await Promise.all([
-      newerRequest,
-      lateOlderRequest,
-    ]);
 
     expect(newerResult).toMatchObject({
       updated: true,
@@ -291,33 +283,103 @@ describe("update-file browser operation ordering with real PostgreSQL", () => {
     });
   });
 
-  it("accepts rapid same-tab successors queued from one acked base", async () => {
+  it("lets only one independent writer commit from the same SQL base", async () => {
+    const baseHash = sourceContentHash(BASE);
+    const tabAContent = "<main>tab a concurrent edit</main>";
+    const tabBContent = "<main>tab b concurrent edit</main>";
+
+    collabReadBarrier.remaining = 2;
+    const results = await Promise.allSettled([
+      save({
+        content: tabAContent,
+        expectedVersionHash: baseHash,
+        operationSource: "tab-a",
+        operationRevision: 1,
+      }),
+      save({
+        content: tabBContent,
+        expectedVersionHash: baseHash,
+        operationSource: "tab-b",
+        operationRevision: 1,
+      }),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    expect(
+      results.find((result) => result.status === "rejected"),
+    ).toMatchObject({ reason: expect.objectContaining({ statusCode: 409 }) });
+    const persisted = await persistedFile();
+    expect([tabAContent, tabBContent]).toContain(persisted.content);
+    expect(persisted.content_operation_result_hash).toBe(
+      sourceContentHash(persisted.content),
+    );
+  });
+
+  it("persists the last of three causally dependent rapid saves", async () => {
     const baseHash = sourceContentHash(BASE);
     const first = "<main>first queued edit</main>";
     const second = "<main>second queued edit</main>";
+    const third = "<main>third queued edit</main>";
 
-    const firstRequest = save({
+    await save({
       content: first,
       expectedVersionHash: baseHash,
       operationSource: "tab-a",
       operationRevision: 1,
     });
-    await Promise.resolve();
-    const secondRequest = save({
+    await save({
       content: second,
-      // The second edit entered the debounce queue before rev 1 acked, so it
-      // legitimately still carries the original base hash.
-      expectedVersionHash: baseHash,
+      expectedVersionHash: sourceContentHash(first),
       operationSource: "tab-a",
       operationRevision: 2,
     });
-    await Promise.all([firstRequest, secondRequest]);
+    const result = await save({
+      content: third,
+      expectedVersionHash: sourceContentHash(second),
+      operationSource: "tab-a",
+      operationRevision: 3,
+    });
 
+    expect(result).toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(third),
+    });
     expect(await persistedFile()).toMatchObject({
-      content: second,
+      content: third,
       content_operation_source: "tab-a",
-      content_operation_revision: 2,
-      content_operation_result_hash: sourceContentHash(second),
+      content_operation_revision: 3,
+      content_operation_result_hash: sourceContentHash(third),
+    });
+  });
+
+  it("rejects a higher same-tab revision built from a stale snapshot", async () => {
+    const baseHash = sourceContentHash(BASE);
+    const first = "<main>first queued edit</main>";
+    await save({
+      content: first,
+      expectedVersionHash: baseHash,
+      operationSource: "tab-a",
+      operationRevision: 1,
+    });
+
+    await expect(
+      save({
+        content: "<main>stale second snapshot</main>",
+        expectedVersionHash: baseHash,
+        operationSource: "tab-a",
+        operationRevision: 2,
+      }),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(await persistedFile()).toMatchObject({
+      content: first,
+      content_operation_source: "tab-a",
+      content_operation_revision: 1,
+      content_operation_result_hash: sourceContentHash(first),
     });
   });
 

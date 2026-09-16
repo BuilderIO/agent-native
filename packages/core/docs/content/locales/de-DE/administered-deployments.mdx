@@ -5,6 +5,8 @@ description: Eine invite-only Agent-Native-Workspace-Bereitstellung für eine Or
 
 # Verwaltete Bereitstellungen
 
+Bei einer SCIM-Deaktivierung wird die bereitgestellte Mitgliedschaft als ausstehend markiert und die App-Rollen werden sofort entfernt. Ein Administrator muss einen Nachfolger auswählen, um die Eigentumsübertragung abzuschließen; dabei wird das unveränderliche Audit-Ereignis geschrieben.
+
 Verwenden Sie einen Workspace für interne Apps einer Organisation. Die Organisation bildet die Mitgliedschafts- und Datengrenze. Der Workspace bündelt Bereitstellung und Konfiguration für eine oder mehrere Apps.
 
 ## Registrierung und Org-Erstellung schließen
@@ -23,9 +25,15 @@ Der erste angemeldete Bootstrap-Admin erstellt die kanonische Organisation und w
 
 Bei `ORG_CREATION=closed` wird die Erstellung von Organisationen verweigert, bis `AUTH_BOOTSTRAP_ADMINS` mindestens einen verifizierten Administrator enthält, der die kanonische Organisation bei seiner ersten Anmeldung erstellt.
 
+Halten Sie für die Ersteinrichtung und Wiederherstellung eine verifizierte Bootstrap-Admin-Adresse bereit.
+
 ## Unternehmensschlüssel und Rollen
 
-Ein Owner oder Admin kann einen LLM-Schlüssel für die Organisation speichern. Ein persönlicher Schlüssel hat Vorrang, bis das Mitglied den Organisationsschlüssel auswählt. App-Rollen gelten innerhalb einer App. Mitglieder können mehrere Rollen haben. Admins können code-definierte Berechtigungen Rollen zuordnen und diese Zuordnung ohne Deployment ändern.
+Ein Owner oder Admin kann einen LLM-Schlüssel für die Organisation speichern. Die Provider-Einrichtung speichert diese Schlüssel nur für die Organisation, sodass alle Mitglieder denselben Firmenschlüssel verwenden. Persönliche Zeilen aus älteren Bereitstellungen werden beim Speichern eines Organisationsschlüssels entfernt oder können vorher in der Provider-Einrichtung gelöscht werden.
+
+Das Modellfeld listet aktuelle Modelle als Vorschläge und akzeptiert jede vom Provider oder Gateway unterstützte Modell-ID.
+
+App-Rollen gelten innerhalb einer App. Mitglieder können mehrere Rollen haben. Admins können code-definierte Berechtigungen Rollen zuordnen und diese Zuordnung ohne Deployment ändern.
 
 ## E-Mail-Änderung
 

@@ -75,10 +75,22 @@ const messages: AgentChatTranslation = {
     "Dein Builder.io-Konto wird erstellt oder wiederverwendet. Das dauert normalerweise ein paar Sekunden.",
   "onboarding.builderConnectionDescription":
     "Schließe die Verbindung mit einem Klick im neuen Fenster ab.",
+  "onboarding.builderReadyWithCodeChanges":
+    "KI-Credits und Cloud-Codeänderungen können verwendet werden.",
+  "onboarding.builderReadyCreditsOnly":
+    "KI-Credits können verwendet werden. Cloud-Codeänderungen erfordern ein Builder-Projekt in den Einstellungen für Hintergrundagenten.",
+  "onboarding.openBackgroundAgentSettings":
+    "Einstellungen für Hintergrundagenten öffnen",
   "onboarding.capability.llm.keySummary":
     "Verbinde einen KI-Anbieter oder ein lokales Modell",
   "onboarding.capability.fileStorage.keySummary":
     "Builder-Speicher oder S3-kompatibler Bucket",
+  "onboarding.fileStorage.title": "Wähle den Dateispeicher",
+  "onboarding.fileStorage.description":
+    "Wähle den verwalteten Builder-Speicher oder eigene Speicherschlüssel für deinen S3-kompatiblen Bucket.",
+  "onboarding.fileStorage.custom": "Eigene Speicherschlüssel verwenden",
+  "onboarding.fileStorage.customDescription":
+    "Konfiguriere einen S3-kompatiblen Bucket mit einer stabilen öffentlichen URL.",
   "onboarding.capability.voiceInput.label": "Spracheingabe",
   "onboarding.capability.voiceInput.keySummary":
     "Browser-Spracherkennung oder Sprache-zu-Text",
@@ -146,6 +158,21 @@ const messages: AgentChatTranslation = {
   "common.retry": "Erneut versuchen",
   "common.save": "Speichern",
   "agents.hostedAgent": "Gehosteter Agent",
+  "agents.provider": "Anbieter",
+  "agents.providerA2A": "A2A-Agent (Foundry, Gemini oder benutzerdefiniert)",
+  "agents.providerAnthropic": "Von Anthropic verwaltete Agents",
+  "agents.agentId": "Agent-ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "Umgebungs-ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API-Basis-URL (optional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Vervollständige die Felder für Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "Die Verbindung wird geprüft, wenn du aus dem Chat delegierst.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent gespeichert. Delegiere aus dem Chat an ihn.",
   "agents.cardUrl": "URL der Agentenkarte",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Authentifizierung",
@@ -620,6 +647,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} Zeilen",
   "errorMessages.agentConnection":
     "Die Verbindung zum Agenten wurde unterbrochen. Prüfe deine Verbindung und versuche es erneut.",
+  "errorMessages.attachmentPasswordProtected":
+    "Diese PDF-Datei ist passwortgeschützt und kann nicht gelesen werden. Entferne den Passwortschutz oder füge den relevanten Text ein und versuche es erneut.",
   "errorMessages.builderAuthentication":
     "Builder hat die verbundenen Anmeldedaten abgelehnt. Verbinde Builder.io in den Einstellungen erneut und versuche es dann noch einmal.",
   "errorMessages.builderModelUnauthorized":

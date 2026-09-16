@@ -120,4 +120,56 @@ describe("marquee selects at the current container level", () => {
       await browser.close();
     }
   });
+
+  it("dedupes live hit sets and sends full detail only for the primary item", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const messages: Array<{
+        payload: Array<{
+          sourceId?: string;
+          computedStyles?: Record<string, string>;
+          portableStyleSnapshot?: unknown;
+        }>;
+        intent?: { final?: boolean };
+      }> = [];
+      await page.exposeFunction("__captureMarquee", (message: unknown) => {
+        messages.push(message as (typeof messages)[number]);
+      });
+      await page.setContent(FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:layer-marquee-selection") {
+            (window as any).__captureMarquee(event.data);
+          }
+        });
+      });
+
+      await page.mouse.move(20, 20);
+      await page.mouse.down();
+      await page.mouse.move(340, 390);
+      await page.mouse.move(341, 391);
+      await page.mouse.move(342, 392);
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      expect(messages).toHaveLength(2);
+      expect(messages[0]?.intent?.final).toBe(false);
+      expect(messages[1]?.intent?.final).toBe(true);
+      const finalPayload = messages[1]!.payload;
+      expect(finalPayload.map((item) => item.sourceId)).toEqual([
+        "card",
+        "solo-a",
+      ]);
+      expect(finalPayload[0]?.computedStyles).toEqual({});
+      expect(finalPayload[0]?.portableStyleSnapshot).toBeUndefined();
+      expect(
+        Object.keys(finalPayload[1]?.computedStyles ?? {}),
+      ).not.toHaveLength(0);
+      expect(finalPayload[1]?.portableStyleSnapshot).toBeDefined();
+    } finally {
+      await browser.close();
+    }
+  });
 });

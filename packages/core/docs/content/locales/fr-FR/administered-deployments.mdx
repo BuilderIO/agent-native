@@ -5,6 +5,8 @@ description: Configurer un espace de travail Agent-Native avec accès sur invita
 
 # Déploiements administrés
 
+Une désactivation SCIM marque l’adhésion provisionnée comme en attente et supprime immédiatement les rôles de l’application. Un administrateur doit choisir un successeur pour terminer le transfert de propriété ; l’événement d’audit immuable est alors enregistré.
+
 Utilisez un espace de travail pour les applications internes d’une organisation. L’organisation définit la limite des membres et des données. L’espace de travail regroupe la configuration de déploiement d’une ou plusieurs applications.
 
 ## Fermer les inscriptions et la création d’organisations
@@ -23,9 +25,15 @@ Le premier administrateur d’amorçage qui se connecte crée l’organisation c
 
 Avec `ORG_CREATION=closed`, la création d’organisations est refusée tant que `AUTH_BOOTSTRAP_ADMINS` ne comporte pas au moins un administrateur vérifié, qui crée l’organisation canonique lors de sa première connexion.
 
+Conservez une adresse d’administrateur d’amorçage vérifiée pour la configuration initiale et la récupération.
+
 ## Clés et rôles de l’entreprise
 
-Un propriétaire ou administrateur peut enregistrer une clé LLM pour l’organisation. Une clé personnelle reste prioritaire jusqu’à ce que le membre choisisse la clé de l’organisation. Les rôles applicatifs s’appliquent à une seule application et un membre peut en avoir plusieurs. Les administrateurs peuvent associer des permissions définies dans le code à des rôles sans redéployer.
+Un propriétaire ou administrateur peut enregistrer une clé LLM pour l’organisation. La configuration du fournisseur enregistre ces clés uniquement pour l’organisation afin que tous les membres utilisent la même clé d’entreprise. Les lignes personnelles des anciennes versions sont supprimées lors de l’enregistrement d’une clé d’organisation, ou peuvent être supprimées auparavant depuis la configuration du fournisseur.
+
+Le champ de modèle propose les modèles actuels et accepte directement tout identifiant pris en charge par le fournisseur ou la passerelle.
+
+Les rôles applicatifs s’appliquent à une seule application et un membre peut en avoir plusieurs. Les administrateurs peuvent associer des permissions définies dans le code à des rôles sans redéployer.
 
 ## Changement d’adresse et identité
 

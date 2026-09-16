@@ -18,7 +18,6 @@ export const CANONICAL_WORKSPACE_SSO_APP_ORIGINS = {
   dispatch: "https://dispatch.agent-native.com",
   factory: "https://factory.agent-native.com",
   forms: "https://forms.agent-native.com",
-  macros: "https://macros.agent-native.com",
   mail: "https://mail.agent-native.com",
   plan: "https://plan.agent-native.com",
   slides: "https://slides.agent-native.com",

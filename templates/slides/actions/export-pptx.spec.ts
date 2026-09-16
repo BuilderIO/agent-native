@@ -25,6 +25,7 @@ import {
   assertServerPptxExportable,
   cssGradientToDrawingMl,
   fetchImageAsBase64,
+  orderImportedObjects,
   parseSlideHtml,
   resolveShapeType,
   sourcePageInches,
@@ -121,6 +122,26 @@ describe("resolveShapeType", () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("notAShape"));
 
     warnSpy.mockRestore();
+  });
+});
+
+describe("orderImportedObjects", () => {
+  it("paints imported panels under the content they sit behind, whatever order the stored HTML lists them in", () => {
+    const parsed = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="position:relative;background:#ffffff;">
+        <div class="fmd-pptx-text" data-pptx-element-kind="text" style="position:absolute;left:40px;top:40px;width:800px;height:100px;z-index:2;"><p><span style="color:#ffffff;">Hello</span></p></div>
+        <div class="fmd-pptx-shape" data-pptx-element-kind="shape" style="position:absolute;left:0px;top:0px;width:960px;height:540px;z-index:0;background-color:#000000;"></div>
+        <div class="fmd-pptx-shape" data-pptx-element-kind="shape" style="position:absolute;left:40px;top:0px;width:880px;height:540px;z-index:1;background-color:#f5f5f5;"></div>
+      </div>`,
+      "16:9",
+      1,
+    );
+
+    const painted = orderImportedObjects(parsed).map(
+      (object) => `${object.kind}:${object.value.stack}`,
+    );
+
+    expect(painted).toEqual(["shape:0", "shape:1", "text:2"]);
   });
 });
 

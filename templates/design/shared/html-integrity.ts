@@ -225,6 +225,7 @@ const MANAGED_RAW_TEXT_MARKERS = [
   { marker: "data-agent-native-state-breakpoints", tag: "style" },
   { marker: "data-agent-native-states", tag: "style" },
   { marker: "data-agent-native-motion", tag: "style" },
+  { marker: "data-agent-native-group-runtime", tag: "script" },
   { marker: "data-agent-native-shader-runtime", tag: "script" },
 ] as const;
 

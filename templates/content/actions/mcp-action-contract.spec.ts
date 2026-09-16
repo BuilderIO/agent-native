@@ -362,7 +362,9 @@ describe("Content action-owned agent catalogs", () => {
   it("gives direct document writes agent-readable selection and input guidance", () => {
     expect(createDocument.tool.description).toContain("Create and persist");
     expect(createDocument.tool.description).toContain("edit-document");
-    expect(editDocument.tool.description).toContain("Prefer this over");
+    expect(editDocument.tool.description).toContain(
+      "initialize a literally empty body",
+    );
     expect(editDocument.tool.description).toContain("match exactly");
     expect(updateDocument.tool.description).toContain(
       "Agents must use get-document followed by edit-document",
@@ -376,6 +378,10 @@ describe("Content action-owned agent catalogs", () => {
     expect(editProperties?.edits?.description).toContain(
       "snapshot-stable batch",
     );
+    expect(editProperties?.initializeContent?.description).toContain(
+      "literally empty document body",
+    );
+    expect(editProperties?.initializeContent?.minLength).toBe(1);
     expect(editDocument.tool.parameters?.required).toEqual(
       expect.arrayContaining(["id", "baseRevision", "idempotencyKey"]),
     );

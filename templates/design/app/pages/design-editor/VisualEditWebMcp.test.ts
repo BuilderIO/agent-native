@@ -1,20 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { createVisualEditWebMcpActions } from "./VisualEditWebMcp";
+import { hasNativeWebMcpHost } from "./VisualEditWebMcp";
 
-describe("get-visual-edit-prompt WebMCP action", () => {
-  it("returns the editor's current prompt through a stable tool name", async () => {
-    const result = {
-      designId: "design_1",
-      pendingEditCount: 2,
-      status: "ready" as const,
-      prompt: "Apply the two pending edits.",
-    };
-    const [action] = createVisualEditWebMcpActions({
-      getPrompt: () => result,
-    });
+describe("hasNativeWebMcpHost", () => {
+  it("recognizes a modelContext supplied by the document prototype", () => {
+    const documentHost = Object.create({ modelContext: {} }) as Document;
+    expect(hasNativeWebMcpHost(documentHost)).toBe(true);
+  });
 
-    expect(action.name).toBe("get-visual-edit-prompt");
-    expect(action.run({}, {} as never)).toEqual(result);
+  it("does not treat an app-owned modelContext property as native", () => {
+    const documentHost = { modelContext: {} } as unknown as Document;
+    expect(hasNativeWebMcpHost(documentHost)).toBe(false);
   });
 });

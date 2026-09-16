@@ -14,8 +14,8 @@ SQL; add your own tables when you need to persist domain data.
 
 The dev server reads route files when it starts. Create
 `app/routes/text-analyses.tsx`, then restart `pnpm dev` if it is already
-running. The route will be available at
-`http://localhost:8080/text-analyses`.
+running. Open the local URL printed by `pnpm dev` and append
+`/text-analyses`; the port may change when 8080 is already in use.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -61,7 +61,7 @@ export default function TextAnalysesRoute() {
 `useActionQuery` calls the same read-only action the agent uses. The page does
 not need a custom API route, a second data layer, or a new SQL table.
 
-Open `http://localhost:8080/text-analyses`, or ask the agent:
+Open the printed local URL with `/text-analyses` appended, or ask the agent:
 
 > Navigate to `/text-analyses`.
 

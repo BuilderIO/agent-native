@@ -37,7 +37,6 @@ it("composes a follow-up padding write from pending source when render content l
     activeCodeLayerProjection: buildCodeLayerProjection(activeContent, {
       source: { kind: "design-file" as const, fileId },
     }),
-    activeContent,
     activeFile: {
       id: fileId,
       filename: "index.html",
@@ -47,8 +46,10 @@ it("composes a follow-up padding write from pending source when render content l
       updatedAt: "2026-09-14T00:00:00.000Z",
     },
     activeProjectionContent: activeContent,
+    canApplyContentEdit: () => true,
     canEditDesign: true,
     commitVisualStyles: vi.fn(),
+    getScreenContent: () => latestActiveContentRef.current ?? activeContent,
     isSynced: false,
     lastDuplicateTransformRef: ref(null),
     lastLocalContentRef: ref<string | null>(activeContent),

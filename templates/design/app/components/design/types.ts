@@ -127,6 +127,12 @@ export interface ElementInfo {
    */
   inlineStyles?: Record<string, string>;
   /**
+   * Winning width/height values from the active CSS computed style map.
+   * Unlike `inlineStyles`, these values are not safe write targets; they only
+   * preserve sizing intent when computed styles have resolved them to pixels.
+   */
+  authoredSizeStyles?: Partial<Record<"width" | "height", string>>;
+  /**
    * Value of the element's `data-an-primitive` attribute (e.g. "text",
    * "rectangle", "frame", "ellipse") when present. Canvas-drawn primitives —
    * including T-tool text, which is a plain `div` — carry this marker so the
@@ -211,6 +217,7 @@ export interface ElementSelectionIntent {
   additive?: boolean;
   range?: boolean;
   source?: "pointer" | "keyboard" | "marquee";
+  final?: boolean;
   shiftKey?: boolean;
   metaKey?: boolean;
   ctrlKey?: boolean;

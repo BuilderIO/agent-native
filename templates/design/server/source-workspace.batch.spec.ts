@@ -112,6 +112,7 @@ async function persistedCollabRows() {
 async function writePair(
   sourceContent = SOURCE_NEXT,
   destinationContent = DESTINATION_NEXT,
+  expectedHtmlFileIds?: readonly string[],
 ) {
   return writeInlineSourceFilesBatch({
     designId: DESIGN_ID,
@@ -127,6 +128,7 @@ async function writePair(
         expectedVersionHash: sourceContentHash(DESTINATION_BASE),
       },
     ],
+    ...(expectedHtmlFileIds ? { expectedHtmlFileIds } : {}),
   });
 }
 
@@ -265,6 +267,47 @@ describe("writeInlineSourceFilesBatch", () => {
       expect(events).toEqual([]);
     },
   );
+
+  it("rejects a full-set batch when a new HTML file appears after preflight", async () => {
+    const exec = getDbExec();
+    const originalTransaction = exec.transaction!;
+    exec.transaction = async (run) => {
+      await insertFile("late-screen", "late.html", "<main>late</main>");
+      return originalTransaction(run);
+    };
+
+    try {
+      await expect(
+        writePair(SOURCE_NEXT, DESTINATION_NEXT, [SOURCE_ID, DESTINATION_ID]),
+      ).rejects.toMatchObject({ statusCode: 409 });
+    } finally {
+      exec.transaction = originalTransaction;
+    }
+
+    expect(await persistedFiles()).toEqual([
+      { id: SOURCE_ID, content: SOURCE_BASE, updated_at: BASE_TIME },
+      {
+        id: "late-screen",
+        content: "<main>late</main>",
+        updated_at: BASE_TIME,
+      },
+      {
+        id: DESTINATION_ID,
+        content: DESTINATION_BASE,
+        updated_at: BASE_TIME,
+      },
+    ]);
+    expect(await persistedCollabRows()).toEqual([
+      { doc_id: SOURCE_ID, text_snapshot: SOURCE_BASE, version: 0 },
+      {
+        doc_id: DESTINATION_ID,
+        text_snapshot: DESTINATION_BASE,
+        version: 0,
+      },
+    ]);
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
+    expect(await getText(DESTINATION_ID)).toBe(DESTINATION_BASE);
+  });
 
   it.each([DESTINATION_BASE, DESTINATION_NEXT])(
     "rolls both file and collab rows back when the second collab CAS misses for %s",

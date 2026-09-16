@@ -432,6 +432,38 @@ bearer 令牌以及 Google Cloud IAM 权限。端点和权限要求请参阅[使
 Gemini Enterprise 的注册流量不会经过 Agent Gateway 策略，因此要应用目
 标自己的身份验证和授权策略。
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents 不提供入站 A2A 端点。当 Agent-Native 负责 A2A 表面、工作流状态和审批，而托管代理负责会话、上下文和工具时，请使用框架适配器。适配器会创建 Managed Agents 会话，发送 `user.message` 事件，并读取会话事件流。阻塞的 `agent.tool_use` 或 `agent.mcp_tool_use` 事件会转换为 A2A `input-required` 任务和 `approval-request` 运行时事件。使用返回元数据中的明确结构化确认来继续；不要从消息推断审批：
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` 是保存在 Vault 中的 Anthropic API 密钥引用。适配器会在调用方用户和组织范围内解析它，并发送必需的 `anthropic-beta: managed-agents-2026-04-01` 和 `anthropic-version: 2023-06-01` 标头。在工作区连接目录中注册 `anthropic-managed-agents`，即可为每个应用复用现有连接授权。适配器挂载在常规 `A2AConfig.handler` 接口上：
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## 编程工作区调用 {#programmatic-invoke}
 
 对于代理本机工作区，在代码或 a 时更喜欢 `agentNative` 帮助器

@@ -18,6 +18,7 @@
  * — it can be bundled into the serverless function alongside `mountMCP`.
  */
 
+import "../authorization/check-action.js";
 import type {
   CallToolResult,
   InputRequiredResult,

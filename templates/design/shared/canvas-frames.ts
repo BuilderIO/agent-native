@@ -111,6 +111,12 @@ function numericEntryError(
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
     return `Design ${map} entry must be an object with numeric width and height fields, received ${describeRejectedValue(entry)}. Use a delete operation to clear an entry.`;
   }
+  if (
+    map === "canvasFrames" &&
+    !Object.keys(entry).some((key) => numericKeys.has(key))
+  ) {
+    return "Design canvasFrames entry must include at least one geometry field. Use a delete operation to clear an entry.";
+  }
   if (map === "screenMetadata") {
     const heights = (entry as Record<string, unknown>).breakpointHeights;
     if (heights !== undefined) {

@@ -31,10 +31,6 @@
     "siteId": "dee98bb0-6143-4205-8c04-afe7bf83d5b5",
     "host": "mail.agent-native.com"
   },
-  "macros": {
-    "siteId": "0700a8ac-6a9f-4834-80dd-734102228132",
-    "host": "macros.agent-native.com"
-  },
   "forms": {
     "siteId": "aa0b2020-9983-4d6c-8fb0-65462f960fc4",
     "host": "forms.agent-native.com"

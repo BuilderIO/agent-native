@@ -45,6 +45,48 @@ export function resolveLiveEditPreviewUrl(args: {
   });
 }
 
+/**
+ * A registration `fetch()` to the localhost bridge can fail for two very
+ * different reasons that look identical to page JS (both throw a generic
+ * `TypeError: Failed to fetch`, with zero visible network activity):
+ *
+ * - The dev server / bridge process is genuinely unreachable.
+ * - Chrome's Local Network Access permission (a same-origin-policy-adjacent
+ *   browser security feature, distinct from CORS) is blocking the request
+ *   because this page's origin hasn't been granted permission to reach a
+ *   loopback address.
+ *
+ * `navigator.permissions.query({ name: "local-network-access" })` is a signal,
+ * not proof: it reports the SITE's standing permission grant, not why THIS
+ * particular fetch failed — a `"prompt"` state is also the default on a first
+ * visit regardless of whether the dev server happens to be reachable, so it
+ * does not establish that permission was the actual cause. Only `"granted"`
+ * is unambiguous (permission is definitely fine, so it's definitely not the
+ * cause). Everything else — `"prompt"`, an unsupported browser, or the query
+ * throwing — stays in the same "maybePermissionBlocked" bucket, which the UI
+ * must present as a possibility to try, never as a diagnosed fact.
+ */
+export type BridgeRegistrationFailureKind =
+  | "maybePermissionBlocked"
+  | "unreachable"
+  | "stalePreviewToken";
+
+export async function classifyBridgeRegistrationFailure(): Promise<BridgeRegistrationFailureKind> {
+  try {
+    if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+      return "maybePermissionBlocked";
+    }
+    const status = await navigator.permissions.query({
+      name: "local-network-access" as PermissionName,
+    });
+    return status.state === "granted"
+      ? "unreachable"
+      : "maybePermissionBlocked";
+  } catch {
+    return "maybePermissionBlocked";
+  }
+}
+
 export function shouldUseIframeLoadReadyFallback(
   usesLiveEditEditorBridge: boolean,
 ): boolean {
@@ -138,4 +180,8 @@ export function getSnapshotRetryDelayMs(attempt: number): number {
   const safeAttempt = Number.isFinite(attempt) ? Math.max(0, attempt) : 0;
   const delay = SNAPSHOT_RETRY_BASE_DELAY_MS * 2 ** safeAttempt;
   return Math.min(SNAPSHOT_RETRY_MAX_DELAY_MS, delay);
+}
+
+export function isPreviewTokenStaleStatus(status: number): boolean {
+  return status === 401;
 }

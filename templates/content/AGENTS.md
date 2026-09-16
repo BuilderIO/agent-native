@@ -25,10 +25,9 @@ Read the relevant skill before deeper work:
   and access checks are preserved. Never use `curl`, raw HTTP requests, or
   `db-exec` with raw SQL for document operations.
 - Call these actions directly; `ask_app` only delegates to Content's agent.
-- The editor uses live Yjs collaboration — raw SQL writes to `documents` won't
-  appear in an open editor. Always use `edit-document` or `update-document`,
-  and prefer `edit-document` for small changes (it sends only the changed text
-  and syncs live via CRDT instead of regenerating the whole document).
+- The live Yjs editor requires actions for body writes. External agents use
+  revisioned `edit-document`, with `initializeContent` only for an empty body.
+  Browser full rewrites use `update-document`.
 - Preserve user-authored content. Prefer targeted edits over wholesale rewrites
   unless requested.
 - `create-document`, `update-document`, and `delete-document` already signal
@@ -80,8 +79,8 @@ Read the relevant skill before deeper work:
 | `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
 | `resolve-content-landing` | Restore the caller's last authorized page |
-| `edit-document` | Find/replace edit — preferred for small changes |
-| `update-document` | Full rewrite of title, content, or description |
+| `edit-document` | Revisioned find/replace, or initialize an empty body |
+| `update-document` | Metadata or browser-owned full rewrite |
 | `delete-document` | Move a page and its children to Trash |
 | `list-content-database-blocks` | List stable blocks and revisions in one exact collection row/property |
 | `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
