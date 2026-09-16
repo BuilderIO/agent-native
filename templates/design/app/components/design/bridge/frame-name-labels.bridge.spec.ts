@@ -60,7 +60,9 @@ describe("editor chrome frame name labels", () => {
     async () => {
       const browser = await chromium.launch({ headless: true });
       try {
-        expect(await frameLabelTexts(browser, true)).toEqual(["Imported frame"]);
+        expect(await frameLabelTexts(browser, true)).toEqual([
+          "Imported frame",
+        ]);
         expect(await frameLabelTexts(browser, false)).toEqual([]);
       } finally {
         await browser.close();
