@@ -33,7 +33,6 @@ import {
   IconMessageCircle,
   IconMoodSmile,
   IconPaperclip,
-  IconRobot,
   IconSend,
   IconTrash,
   IconX,
@@ -132,6 +131,7 @@ interface ReviewCanvasPinsProps {
   resourceType: string;
   resourceId: string;
   targetId: string | null;
+  screenId?: string;
   boardGeometry?: ReviewBoardGeometry | null;
   onFocusBoardPoint?: (point: ReviewAnchorWorldPoint) => boolean | void;
   currentUserEmail?: string | null;
@@ -459,6 +459,7 @@ function anchorAtPoint(
   clientX: number,
   clientY: number,
   boardGeometry?: ReviewBoardGeometry | null,
+  screenId?: string | null,
 ): { anchor: DesignReviewAnchor; metadata: Record<string, unknown> } | null {
   const rect = canvas.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return null;
@@ -476,6 +477,7 @@ function anchorAtPoint(
     anchor: {
       ...(element.nodeId ? { nodeId: element.nodeId } : {}),
       ...(element.targetSelector ? { selector: element.targetSelector } : {}),
+      ...(screenId ? { screenId, screenPoint: { xPct, yPct } } : {}),
       point: { xPct, yPct },
       ...(relativePoint && (element.nodeId || element.targetSelector)
         ? { relativePoint }
@@ -701,6 +703,7 @@ export function ReviewCanvasPins({
   resourceType,
   resourceId,
   targetId,
+  screenId,
   boardGeometry,
   onFocusBoardPoint,
   currentUserEmail,
@@ -716,6 +719,8 @@ export function ReviewCanvasPins({
   repromptDraftRequest,
   onRepromptDraftConsumed,
 }: ReviewCanvasPinsProps) {
+  const screenAnchorId =
+    targetId !== null && !boardGeometry ? (screenId ?? targetId) : null;
   const t = useT();
   const comments = useReviewComments(
     {
@@ -897,9 +902,16 @@ export function ReviewCanvasPins({
         );
         if (point) return { point, source: "point" };
       }
-      return getReviewPinPosition(effectiveAnchor);
+      return getReviewPinPosition(effectiveAnchor, screenAnchorId);
     },
-    [boardGeometry, canvas, frameNodeGeometry, optimisticAnchors, targetId],
+    [
+      boardGeometry,
+      canvas,
+      frameNodeGeometry,
+      optimisticAnchors,
+      screenAnchorId,
+      targetId,
+    ],
   );
   const react = useCallback(
     (commentId: string, reaction: string, active: boolean) => {
@@ -1061,23 +1073,31 @@ export function ReviewCanvasPins({
       "iframe[data-design-preview-iframe]",
     );
     if (iframe) resizeObserver.observe(iframe);
-    const world = canvas.querySelector<HTMLElement>(
-      "[data-multi-screen-canvas-world]",
-    );
-    const worldObserver = world ? new MutationObserver(bump) : null;
-    if (world && worldObserver) {
-      worldObserver.observe(world, {
+    const frameShell = canvas.closest<HTMLElement>("[data-frame-shell]");
+    if (frameShell) resizeObserver.observe(frameShell);
+    const layoutOwners = new Set<HTMLElement>();
+    for (const owner of [
+      canvas.querySelector<HTMLElement>("[data-multi-screen-canvas-world]"),
+      canvas.closest<HTMLElement>("[data-multi-screen-canvas-world]"),
+      frameShell,
+    ]) {
+      if (owner) layoutOwners.add(owner);
+    }
+    const mutationObservers = [...layoutOwners].map((owner) => {
+      const observer = new MutationObserver(bump);
+      observer.observe(owner, {
         attributes: true,
         attributeFilter: ["style"],
       });
-    }
+      return observer;
+    });
     window.addEventListener("resize", bump);
     window.addEventListener("scroll", bump, { capture: true, passive: true });
     iframe?.addEventListener("load", bump);
     return () => {
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
-      worldObserver?.disconnect();
+      mutationObservers.forEach((observer) => observer.disconnect());
       window.removeEventListener("resize", bump);
       window.removeEventListener("scroll", bump, true);
       iframe?.removeEventListener("load", bump);
@@ -1274,6 +1294,7 @@ export function ReviewCanvasPins({
         anchor,
         (nodeId) => nodePoint(canvas, nodeId, frameNodeGeometry[nodeId]),
         (selector) => selectorPoint(canvas, selector),
+        screenAnchorId,
       );
       if (!resolved) return true;
       if (targetId === null && boardGeometry) {
@@ -1338,7 +1359,14 @@ export function ReviewCanvasPins({
       }
       return true;
     },
-    [boardGeometry, canvas, frameNodeGeometry, onFocusBoardPoint, targetId],
+    [
+      boardGeometry,
+      canvas,
+      frameNodeGeometry,
+      onFocusBoardPoint,
+      screenAnchorId,
+      targetId,
+    ],
   );
 
   useEffect(() => {
@@ -1454,7 +1482,7 @@ export function ReviewCanvasPins({
     migratedBoardAnchorIdsRef.current.clear();
     frameCallbacksRef.current.clear();
     pendingFocusNonceRef.current = null;
-  }, [cancelDraft, resourceId, targetId]);
+  }, [cancelDraft, resourceId, screenAnchorId, targetId]);
 
   useEffect(() => {
     if (!hidden) return;
@@ -1503,6 +1531,7 @@ export function ReviewCanvasPins({
         clientX,
         clientY,
         boardGeometry,
+        screenAnchorId,
       );
       const next = pointAnchor
         ? {
@@ -1602,7 +1631,7 @@ export function ReviewCanvasPins({
         "*",
       );
     },
-    [boardGeometry, canPost, canvas, dropCanvasPin, targetId],
+    [boardGeometry, canPost, canvas, dropCanvasPin, screenAnchorId, targetId],
   );
 
   const updateRegionPreview = useCallback(
@@ -1911,7 +1940,11 @@ export function ReviewCanvasPins({
       const parsed = parseReviewAnchor(thread.root.anchor);
       if (!parsed) return;
       const nextAnchor: DesignReviewAnchor = { ...parsed, point };
-      if (boardGeometry) {
+      if (screenAnchorId) {
+        nextAnchor.screenId = screenAnchorId;
+        nextAnchor.screenPoint = point;
+      }
+      if (targetId === null && boardGeometry) {
         const nextWorldPoint = boardWorldPointFromCanvasPoint(
           point,
           boardGeometry,
@@ -1980,6 +2013,8 @@ export function ReviewCanvasPins({
       canvas,
       resourceId,
       resourceType,
+      screenAnchorId,
+      targetId,
       t,
       updateComment,
     ],
@@ -3271,6 +3306,14 @@ function ReviewThreadPopover({
                 onMentionsChange={onReplyMentionsChange}
                 mentionOptions={mentionOptions}
                 showCommentTools
+                commentToolsEnd={
+                  <ReviewImageAttachments
+                    attachments={replyAttachments}
+                    disabled={replying || resolving}
+                    onChange={onReplyAttachmentsChange}
+                    className="flex-nowrap p-0"
+                  />
+                }
                 emojiLabel={t("review.addEmoji")}
                 mentionLabel={t("review.mention")}
                 noMentionsLabel={t("review.noMentions")}
@@ -3282,12 +3325,6 @@ function ReviewThreadPopover({
                 placeholder={t("review.replyPlaceholder")}
                 submitOnEnter
                 onEscape={onClose}
-              />
-              <ReviewImageAttachments
-                attachments={replyAttachments}
-                disabled={replying || resolving}
-                onChange={onReplyAttachmentsChange}
-                className="px-0 pt-2"
               />
             </>
           ) : null}
@@ -3307,7 +3344,7 @@ function ReviewThreadPopover({
                   {sending ? (
                     <Spinner className="size-3.5" />
                   ) : (
-                    <IconRobot className="size-3.5" />
+                    <IconSend className="size-3.5" />
                   )}
                   {sending
                     ? t("review.sendingToAgent")
